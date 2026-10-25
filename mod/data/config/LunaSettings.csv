@@ -11,4 +11,4 @@ divai_enemy_multidiv_chatter,Enemy Multi-Division Chatter,Boolean,true,,Show ene
 ,,,,,,,,
 divai_overlayHeader,Tactical Map Overlay (Tab),Header,Tactical Map (Tab) Visualization,,,,,
 divai_show_tactical_overlay,Show Division Overlay on Tactical Map,Boolean,true,,Project translucent green division circles, flagship-to-member command links, and flagship division labels on the Tactical Map (Tab). Overlapping division circles blend into a less translucent green.,,,
-divai_circle_alpha_pct,Division Circle Opacity (%),Int,18,,Base translucency of each division circle on the Tactical Map (overlapping regions automatically become less translucent).,5,50,
+divai_circle_alpha_pct,Division Circle Opacity,Int,18,,Base translucency percentage of each division circle on the Tactical Map (overlapping regions automatically become less translucent).,5,50,
