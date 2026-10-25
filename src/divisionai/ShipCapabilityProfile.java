@@ -150,10 +150,10 @@ public class ShipCapabilityProfile {
         this.closeBrawlWeight = closeSum;
         this.avgWeaponRange = opSum > 0f ? (weightedRangeSum / opSum) : 700f;
 
-        // Torpedo / strike loadout detection: strong strike missiles or bomber wings
-        this.hasHeavyTorpedoLoadout = (strikeSum >= 4.0f && (strikeSum / this.totalWeaponOP) >= 0.28f)
-                || (strikeSum >= 3.0f && (hullSize == HullSize.FRIGATE || hullSize == HullSize.DESTROYER))
-                || (bomberWings >= 2);
+        // Torpedo / strike loadout detection: strong strike missiles on non-carrier hulls
+        this.hasHeavyTorpedoLoadout = !this.isDedicatedCarrier
+                && ((strikeSum >= 4.0f && (strikeSum / this.totalWeaponOP) >= 0.28f)
+                || (strikeSum >= 3.0f && (hullSize == HullSize.FRIGATE || hullSize == HullSize.DESTROYER)));
 
         this.isPdScreenCapable = (pdSum / this.totalWeaponOP) >= 0.32f
                 || (interceptorSupportWings >= 1 && pdSum >= 2.0f);
@@ -208,7 +208,19 @@ public class ShipCapabilityProfile {
         }
     }
 
-    private static float defaultStrengthForHull(HullSize size) {
+    public static float resolveShipFpStrength(ShipAPI ship) {
+        if (ship == null) return 5f;
+        float fp = ship.getDeployCost();
+        if (fp <= 0f && ship.getFleetMember() != null) {
+            fp = ship.getFleetMember().getDeploymentPointsCost();
+        }
+        if (fp <= 0f) {
+            fp = defaultStrengthForHull(ship.getHullSize());
+        }
+        return Math.max(5f, fp);
+    }
+
+    public static float defaultStrengthForHull(HullSize size) {
         if (size == null) return 5f;
         switch (size) {
             case CAPITAL_SHIP:

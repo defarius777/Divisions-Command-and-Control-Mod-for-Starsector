@@ -76,7 +76,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             alliedBg.missionContext = DivisionAutoFormer.detectMissionContext(engine, 0);
             enemyBg.missionContext = DivisionAutoFormer.detectMissionContext(engine, 1);
-            tacticalOverlay.setAlliedBattlegroup(alliedBg);
+            tacticalOverlay.setBattlegroups(alliedBg, enemyBg);
 
             initializedBattle = true;
             LOG.info(String.format(
@@ -139,13 +139,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         // Maintain concise player flagship HUD status items so the player can always see their division & BG phase
         maintainPlayerHudStatus();
-    }
-
-    @Override
-    public void renderInUICoords(ViewportAPI viewport) {
-        if (tacticalOverlay != null) {
-            tacticalOverlay.renderFallbackFromUICoords(viewport);
-        }
     }
 
     private void maintainPlayerHudStatus() {

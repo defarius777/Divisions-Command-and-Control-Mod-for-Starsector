@@ -338,12 +338,14 @@ public class DivisionAutoFormer {
         div.avgMaxSpeed = speedSum / count;
         div.avgEngageRange = rangeSum / count;
 
-        div.hasTorpedoStrikeCapability = (div.archetype == DivisionArchetype.TORPEDO_DESTROYER_DIVISION)
+        div.hasCarrierCapability = (div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) || (carrierShips > 0);
+        div.hasTorpedoStrikeCapability = !div.hasCarrierCapability
+                && div.archetype != DivisionArchetype.BATTLE_DIVISION
+                && div.archetype != DivisionArchetype.AUXILIARY_CONVOY
+                && ((div.archetype == DivisionArchetype.TORPEDO_DESTROYER_DIVISION)
                 || (div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION)
                 || (div.archetype == DivisionArchetype.PHASE_DIVISION)
-                || (torpedoShips > 0 && torpedoShips * 2 >= count);
-
-        div.hasCarrierCapability = (div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) || (carrierShips > 0);
+                || (torpedoShips > 0 && torpedoShips * 2 >= count));
         div.isScreenCapable = (div.archetype == DivisionArchetype.DESTROYER_DIVISION)
                 || (div.archetype == DivisionArchetype.FRIGATE_DIVISION)
                 || (pdShips > 0);

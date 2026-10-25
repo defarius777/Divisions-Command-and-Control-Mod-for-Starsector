@@ -506,11 +506,36 @@ public class DivisionCommanderAI {
                     || other.archetype == DivisionArchetype.CRUISER_DIVISION;
             if (!isHeavy) continue;
 
-            float dist = distance(myDiv.centroid, other.centroid);
-            float score = other.totalFpStrength * 10f - dist * 0.3f;
+            // A composite Carrier & Escort division already has organic escorts; only assign an extra
+            // screening division if it is under local enemy pressure or lost its escorts.
             if (other.archetype == DivisionArchetype.CARRIER_AND_ESCORT
-                    || other.archetype == DivisionArchetype.BATTLE_DIVISION) {
-                score += 500f;
+                    && other.getAliveMembers().size() >= 2
+                    && other.localEnemyStrength < 15f) {
+                continue;
+            }
+
+            // Cap screening to at most 1 screening division per heavy division to prevent fleet-wide screen dogpiling
+            boolean alreadyScreenedByPeer = false;
+            for (DivisionState peer : myBg.divisions) {
+                if (peer != myDiv && peer != other && peer.isCombatEffective()
+                        && peer.currentIntent == DivisionIntentType.SCREEN_FRIENDLY_DIVISION
+                        && peer.targetFriendlyDivision == other) {
+                    alreadyScreenedByPeer = true;
+                    break;
+                }
+            }
+            if (alreadyScreenedByPeer) continue;
+
+            // Keep existing screen target sticky to avoid ping-ponging between two heavy divisions
+            float stickyBonus = (myDiv.currentIntent == DivisionIntentType.SCREEN_FRIENDLY_DIVISION
+                    && myDiv.targetFriendlyDivision == other) ? 350f : 0f;
+
+            float dist = distance(myDiv.centroid, other.centroid);
+            float score = other.totalFpStrength * 10f - dist * 0.3f + stickyBonus;
+            if (other.archetype == DivisionArchetype.BATTLE_DIVISION) {
+                score += 650f;
+            } else if (other.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
+                score += 400f;
             }
             if (score > bestScore) {
                 bestScore = score;

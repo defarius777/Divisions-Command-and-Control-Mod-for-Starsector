@@ -59,7 +59,7 @@ public class BattlegroupCommanderAI {
             ShipAPI helpShip = null;
 
             for (ShipAPI s : alive) {
-                float w = Math.max(5f, s.getDeployCost());
+                float w = ShipCapabilityProfile.resolveShipFpStrength(s);
                 sumX += s.getLocation().x * w;
                 sumY += s.getLocation().y * w;
                 sumVx += s.getVelocity().x * w;
@@ -148,7 +148,7 @@ public class BattlegroupCommanderAI {
             float dy = s.getLocation().y - div.centroid.y;
             if ((dx * dx + dy * dy) > radiusSq) continue;
 
-            float fp = Math.max(5f, s.getDeployCost());
+            float fp = ShipCapabilityProfile.resolveShipFpStrength(s);
             // Weight combat effectiveness by remaining hull and flux headroom
             float readiness = Math.max(0.35f, s.getHullLevel() * (1.15f - 0.5f * s.getFluxLevel()));
             if (s.getOwner() == div.side) {
@@ -199,8 +199,9 @@ public class BattlegroupCommanderAI {
             }
 
             float mainScore = div.totalFpStrength * (1.2f - 0.5f * div.avgFluxLevel);
-            if (div.archetype == DivisionArchetype.BATTLE_DIVISION
-                    || div.archetype == DivisionArchetype.CRUISER_DIVISION
+            if (div.archetype == DivisionArchetype.BATTLE_DIVISION) {
+                mainScore *= 1.65f;
+            } else if (div.archetype == DivisionArchetype.CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
                 mainScore *= 1.35f;
             }
@@ -208,15 +209,21 @@ public class BattlegroupCommanderAI {
                 strongestLineFp = mainScore;
                 strongestLineDiv = div;
             }
+        }
 
-            // Pick a reserve candidate when we have >= 3 active divisions
-            if (div != strongestLineDiv && div.archetype != DivisionArchetype.CARRIER_AND_ESCORT) {
-                float distToEnemy = distanceToNearestEnemyDivision(div, enemyBg);
-                float reserveScore = (distToEnemy * 0.001f) + (div.isFastFlanker ? 1.5f : 0.8f) - div.avgFluxLevel;
-                if (reserveScore > bestReserveScore) {
-                    bestReserveScore = reserveScore;
-                    bestReserveCandidate = div;
-                }
+        // Second pass: pick a mobile reserve candidate (never pick Main Effort, Battle Divisions, or Carrier groups)
+        for (DivisionState div : myBg.divisions) {
+            if (!div.isCombatEffective()) continue;
+            if (div == strongestLineDiv
+                    || div.archetype == DivisionArchetype.BATTLE_DIVISION
+                    || div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
+                continue;
+            }
+            float distToEnemy = distanceToNearestEnemyDivision(div, enemyBg);
+            float reserveScore = (distToEnemy * 0.001f) + (div.isFastFlanker ? 1.5f : 0.8f) - div.avgFluxLevel;
+            if (reserveScore > bestReserveScore) {
+                bestReserveScore = reserveScore;
+                bestReserveCandidate = div;
             }
         }
 
@@ -232,7 +239,7 @@ public class BattlegroupCommanderAI {
         if (myBg.missionContext == MissionContextType.FLEET_ESCAPE_REARGUARD
                 || (myBg.forceRatio < 0.58f && myBg.missionContext != MissionContextType.FIGHT_TO_THE_LAST)) {
             nextPhase = BattlePhase.ORDERED_WITHDRAWAL;
-        } else if (endangeredDiv != null && (worstOvermatch < 0.72f || endangeredDiv.hasShipNeedingHelp)) {
+        } else if (endangeredDiv != null && (worstOvermatch < 0.72f || (endangeredDiv.hasShipNeedingHelp && worstOvermatch < 0.85f))) {
             nextPhase = BattlePhase.STABILIZE_AND_RELIEVE;
         } else if (minContactDist > 3300f && hasUncapturedObjectives && now < 55f) {
             nextPhase = BattlePhase.OPENING_PROBE;

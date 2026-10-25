@@ -4,8 +4,9 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.BaseCustomUIPanelPlugin;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
 import com.fs.starfarer.api.combat.CombatUIAPI;
+import com.fs.starfarer.api.combat.FogOfWarAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
-import com.fs.starfarer.api.combat.ViewportAPI;
+import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.Fonts;
 import com.fs.starfarer.api.ui.LabelAPI;
@@ -17,143 +18,144 @@ import org.lwjgl.util.vector.Vector2f;
 
 import java.awt.Color;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Renders the Tactical Map (Tab) Division Overlay:
- *  1. Projects a translucent green circle around each division's constituent members.
- *     Because circles are drawn with standard alpha blending (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA),
- *     any region where two or more divisions' circles overlap automatically becomes a less translucent
- *     (more opaque/vivid) green.
- *  2. Projects faint green command lines from the division flagship to each constituent member.
- *  3. Renders the name of the division directly over the division flagship.
- *
- * Attaches a 0x0 CustomPanelAPI to CombatState's widgetPanel so the overlay renders above the
- * warroom's dark background dimmer without intercepting any mouse clicks, and uses
- * warroom.computeWorldLocation(x, y) to match the exact tactical map pan/zoom transform.
+ * Renders the Command Window (Tab) Tactical Map Division Overlay:
+ *  - Strictly restricted to the Command Window tactical map where the player issues orders
+ *    (attached directly to the warroom UIPanelAPI and suppressed whenever !isShowingCommandUI()
+ *    or warroom.isShowingVideoFeed() is true; never renders on the full sprite battle view).
+ *  - Every alive constituent member of a division projects a small translucent green circle.
+ *    Combined circles within a division and overlapping circles between divisions blend via
+ *    standard alpha blending (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) into a less translucent green,
+ *    informing the player of the location and footprint of maneuver units.
+ *  - Over each division flagship is the division name, with faint lines projecting from the
+ *    flagship toward its constituent members.
+ *  - Visible enemy ships project the same small translucent circles, with sparing OpSec-safe
+ *    flagship-to-member lines (only when both flagship and member are visible to the player's
+ *    FogOfWarAPI and within close formation range <= 1150u, preventing fog-of-war leaks).
  */
 public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
-    private static final int CIRCLE_SEGMENTS = 56;
-    private static final Color LABEL_COLOR = new Color(165, 255, 185, 235);
+    private static final int CIRCLE_SEGMENTS = 36;
+    private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1150f;
+    private static final Color FRIENDLY_LABEL_COLOR = new Color(165, 255, 185, 235);
+    private static final Color ENEMY_LABEL_COLOR = new Color(165, 255, 185, 210);
 
     private final CombatEngineAPI engine;
     private BattlegroupState alliedBg;
+    private BattlegroupState enemyBg;
     private final Map<String, LabelAPI> labelCache = new HashMap<>();
 
-    private boolean widgetAttached = false;
-    private boolean widgetAttachFailed = false;
+    private boolean attachedToWarroom = false;
     private Object warroomInstance = null;
-    private Method computeWorldLocMethod = null;
+    private Object mapDisplayInstance = null;
+    private Method isShowingVideoFeedMethod = null;
+    private Method worldToMapScreenMethod = null;
 
     public DivisionTacticalMapOverlay(CombatEngineAPI engine) {
         this.engine = engine;
     }
 
-    public void setAlliedBattlegroup(BattlegroupState alliedBg) {
+    public void setBattlegroups(BattlegroupState alliedBg, BattlegroupState enemyBg) {
         this.alliedBg = alliedBg;
+        this.enemyBg = enemyBg;
     }
 
     /**
-     * Attaches a 0x0 CustomPanelAPI to the combat UI's widgetPanel so render() runs
-     * after the warroom's background dimmer quad, keeping colors crisp on the Tab map.
+     * Attaches a 0x0 CustomPanelAPI directly to the Command Window warroom (OoOO, which implements UIPanelAPI).
+     * Because it is a child of warroom itself, its render() method is only invoked inside the Command Window
+     * render pass and never during the normal sprite battle view.
      */
     public void ensureAttachedToWarroomUI() {
-        if (widgetAttached || widgetAttachFailed || engine == null) return;
+        if (attachedToWarroom || engine == null) return;
         CombatUIAPI ui = engine.getCombatUI();
         if (ui == null) return;
 
         try {
             Method getWarroom = ui.getClass().getMethod("getWarroom");
             Object wr = getWarroom.invoke(ui);
-            if (wr == null) return; // Warroom not yet constructed
+            if (!(wr instanceof UIPanelAPI)) {
+                return; // Warroom not yet constructed
+            }
+
+            Method getMapDisplay = wr.getClass().getMethod("getMapDisplay");
+            Object md = getMapDisplay.invoke(wr);
+            if (md == null) {
+                return;
+            }
 
             this.warroomInstance = wr;
-            this.computeWorldLocMethod = wr.getClass().getMethod("computeWorldLocation", float.class, float.class);
+            this.mapDisplayInstance = md;
+            this.isShowingVideoFeedMethod = wr.getClass().getMethod("isShowingVideoFeed");
+            this.worldToMapScreenMethod = md.getClass().getMethod("o00000", Vector2f.class);
 
-            Method getWidgetPanel = ui.getClass().getMethod("getWidgetPanel");
-            Object wp = getWidgetPanel.invoke(ui);
-            if (wp instanceof UIPanelAPI) {
-                UIPanelAPI panel = (UIPanelAPI) wp;
-                CustomPanelAPI custom = Global.getSettings().createCustom(0f, 0f, this);
-                panel.addComponent(custom).inBL(0f, 0f);
-                widgetAttached = true;
-            } else {
-                widgetAttachFailed = true;
-            }
-        } catch (Throwable t) {
-            widgetAttachFailed = true;
+            UIPanelAPI warroomPanel = (UIPanelAPI) wr;
+            CustomPanelAPI custom = Global.getSettings().createCustom(0f, 0f, this);
+            warroomPanel.addComponent(custom).inBL(0f, 0f);
+            this.attachedToWarroom = true;
+        } catch (Throwable ignored) {
+            // Will retry on next advance if warroom is still initializing
         }
-    }
-
-    public boolean isWidgetAttached() {
-        return widgetAttached;
     }
 
     @Override
     public void render(float alphaMult) {
-        if (!widgetAttached) return;
-        renderTacticalOverlay(null);
-    }
-
-    /**
-     * Fallback entrypoint called from EveryFrameCombatPlugin.renderInUICoords(ViewportAPI)
-     * if attaching the 0x0 CustomPanelAPI was not possible.
-     */
-    public void renderFallbackFromUICoords(ViewportAPI viewport) {
-        if (widgetAttached) return;
-        renderTacticalOverlay(viewport);
-    }
-
-    private void renderTacticalOverlay(ViewportAPI fallbackViewport) {
-        if (engine == null || alliedBg == null || alliedBg.divisions.isEmpty()) return;
+        if (!attachedToWarroom || engine == null || alliedBg == null) return;
         if (!DivisionAISettings.isTacticalMapOverlayEnabled()) return;
 
         CombatUIAPI ui = engine.getCombatUI();
-        if (ui == null) return;
-
-        float cmdOpacity = ui.getCommandUIOpacity();
-        if (!ui.isShowingCommandUI() && cmdOpacity <= 0.02f) {
+        if (ui == null || !ui.isShowingCommandUI()) {
             return;
         }
-        float fade = Math.max(0.15f, cmdOpacity);
 
-        // Compute linear transform from world coordinates -> tactical map screen pixels:
-        //   screenX = worldX * scale + offsetX
-        //   screenY = worldY * scale + offsetY
-        float scale = 0f;
-        float offsetX = 0f;
-        float offsetY = 0f;
+        float cmdOpacity = ui.getCommandUIOpacity();
+        if (cmdOpacity <= 0.05f || alphaMult <= 0.05f) {
+            return;
+        }
 
-        if (warroomInstance != null && computeWorldLocMethod != null) {
+        // Do not render if the player is viewing a live sprite Video Feed inside the Command UI
+        if (warroomInstance != null && isShowingVideoFeedMethod != null) {
             try {
-                Vector2f w0 = (Vector2f) computeWorldLocMethod.invoke(warroomInstance, 0f, 0f);
-                Vector2f w1 = (Vector2f) computeWorldLocMethod.invoke(warroomInstance, 1000f, 1000f);
-                if (w0 != null && w1 != null && Math.abs(w1.x - w0.x) > 1e-4f) {
-                    scale = 1000f / (w1.x - w0.x);
-                    offsetX = -w0.x * scale;
-                    offsetY = -w0.y * scale;
+                Boolean showingFeed = (Boolean) isShowingVideoFeedMethod.invoke(warroomInstance);
+                if (Boolean.TRUE.equals(showingFeed)) {
+                    return;
                 }
             } catch (Throwable ignored) {
             }
         }
 
-        if (scale <= 0f) {
-            ViewportAPI vp = fallbackViewport != null ? fallbackViewport : engine.getViewport();
-            if (vp == null) return;
-            float sx0 = vp.convertWorldXtoScreenX(0f);
-            float sy0 = vp.convertWorldYtoScreenY(0f);
-            float sx1 = vp.convertWorldXtoScreenX(1000f);
-            scale = (sx1 - sx0) / 1000f;
-            offsetX = sx0;
-            offsetY = sy0;
+        if (mapDisplayInstance == null || worldToMapScreenMethod == null) {
+            return;
         }
 
+        // Query the exact Command Window map transform from mapDisplay.o00000(Vector2f worldLoc)
+        float scale;
+        float offsetX;
+        float offsetY;
+        try {
+            Vector2f p0 = (Vector2f) worldToMapScreenMethod.invoke(mapDisplayInstance, new Vector2f(0f, 0f));
+            Vector2f p1 = (Vector2f) worldToMapScreenMethod.invoke(mapDisplayInstance, new Vector2f(1000f, 0f));
+            if (p0 == null || p1 == null) return;
+            scale = (p1.x - p0.x) / 1000f;
+            if (scale <= 1e-5f) return;
+            offsetX = p0.x;
+            offsetY = p0.y;
+        } catch (Throwable t) {
+            return;
+        }
+
+        float fade = Math.min(1f, cmdOpacity * alphaMult);
         float baseCircleAlpha = DivisionAISettings.getDivisionCircleBaseAlpha() * fade;
-        float ringAlpha = Math.min(0.55f, baseCircleAlpha * 1.9f);
-        float linkAlpha = Math.min(0.45f, baseCircleAlpha * 1.65f);
+        float ringAlpha = Math.min(0.48f, baseCircleAlpha * 1.65f);
+        float friendlyLineAlpha = Math.min(0.42f, baseCircleAlpha * 1.55f);
+        // Sparing, fainter line alpha on visible enemy ships
+        float enemyLineAlpha = Math.min(0.26f, baseCircleAlpha * 0.95f);
+
+        FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glPushMatrix();
@@ -162,63 +164,126 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glEnable(GL11.GL_LINE_SMOOTH);
 
-        // Pass 1: Draw translucent green division circles and flagship-to-member lines
-        for (DivisionState div : alliedBg.divisions) {
+        // 1. Render Friendly Divisions (all alive constituent members)
+        renderBattlegroupCirclesAndLines(
+                alliedBg,
+                false,
+                null,
+                scale,
+                offsetX,
+                offsetY,
+                baseCircleAlpha,
+                ringAlpha,
+                friendlyLineAlpha);
+
+        // 2. Render Enemy Divisions (ONLY ships visible to the player, with sparing OpSec-safe lines)
+        if (enemyBg != null) {
+            renderBattlegroupCirclesAndLines(
+                    enemyBg,
+                    true,
+                    playerFog,
+                    scale,
+                    offsetX,
+                    offsetY,
+                    baseCircleAlpha,
+                    ringAlpha,
+                    enemyLineAlpha);
+        }
+
+        GL11.glPopMatrix();
+        GL11.glPopAttrib();
+
+        // 3. Render Flagship Division Labels (Friendly + OpSec-safe visible Enemy flagships)
+        renderBattlegroupLabels(alliedBg, false, null, scale, offsetX, offsetY, fade);
+        if (enemyBg != null) {
+            renderBattlegroupLabels(enemyBg, true, playerFog, scale, offsetX, offsetY, fade);
+        }
+    }
+
+    private void renderBattlegroupCirclesAndLines(
+            BattlegroupState bg,
+            boolean isEnemy,
+            FogOfWarAPI playerFog,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float baseCircleAlpha,
+            float ringAlpha,
+            float lineAlpha) {
+
+        for (DivisionState div : bg.divisions) {
             List<ShipAPI> alive = div.getAliveMembers();
             if (alive.isEmpty()) continue;
 
-            ShipAPI flagship = resolveActiveFlagship(div, alive);
-
-            // Compute bounding circle in world coordinates that encloses all non-straggling division members
-            Vector2f centerWorld = new Vector2f(div.centroid);
-            float maxMemberDist = 260f;
-            for (ShipAPI member : alive) {
-                float d = distance(centerWorld, member.getLocation()) + member.getCollisionRadius() + 140f;
-                // Cap extreme straggler radius so one ship 6000u away doesn't make the circle cover the whole map
-                float capped = Math.min(d, div.desiredCohesionRadius * 2.15f);
-                if (capped > maxMemberDist) {
-                    maxMemberDist = capped;
+            List<ShipAPI> visibleMembers;
+            if (!isEnemy) {
+                visibleMembers = alive;
+            } else {
+                visibleMembers = new ArrayList<>(alive.size());
+                for (ShipAPI s : alive) {
+                    if (isEnemyShipVisibleOnCommandMap(s, playerFog)) {
+                        visibleMembers.add(s);
+                    }
                 }
+                if (visibleMembers.isEmpty()) continue;
             }
 
-            float cx = centerWorld.x * scale + offsetX;
-            float cy = centerWorld.y * scale + offsetY;
-            float radiusPx = Math.max(22f, maxMemberDist * scale);
+            // 1a. Project a small translucent green circle around each constituent member ship.
+            //     Combined circles within a division and overlapping circles between divisions
+            //     blend to a less translucent green showing unit footprint and concentration.
+            for (ShipAPI member : visibleMembers) {
+                float mx = member.getLocation().x * scale + offsetX;
+                float my = member.getLocation().y * scale + offsetY;
+                float worldRadius = getMemberFootprintRadiusWorld(member);
+                float radiusPx = clamp(worldRadius * scale, 13f, 48f);
 
-            // 1a. Translucent green filled circle (overlapping circles blend to a less translucent green)
-            GL11.glColor4f(0.18f, 0.92f, 0.38f, baseCircleAlpha);
-            GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-            GL11.glVertex2f(cx, cy);
-            for (int i = 0; i <= CIRCLE_SEGMENTS; i++) {
-                double angle = (2.0 * Math.PI * i) / CIRCLE_SEGMENTS;
-                float px = cx + (float) Math.cos(angle) * radiusPx;
-                float py = cy + (float) Math.sin(angle) * radiusPx;
-                GL11.glVertex2f(px, py);
+                GL11.glColor4f(0.18f, 0.92f, 0.38f, baseCircleAlpha);
+                GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+                GL11.glVertex2f(mx, my);
+                for (int i = 0; i <= CIRCLE_SEGMENTS; i++) {
+                    double angle = (2.0 * Math.PI * i) / CIRCLE_SEGMENTS;
+                    float px = mx + (float) Math.cos(angle) * radiusPx;
+                    float py = my + (float) Math.sin(angle) * radiusPx;
+                    GL11.glVertex2f(px, py);
+                }
+                GL11.glEnd();
+
+                GL11.glLineWidth(1.15f);
+                GL11.glColor4f(0.32f, 0.98f, 0.50f, ringAlpha);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
+                    double angle = (2.0 * Math.PI * i) / CIRCLE_SEGMENTS;
+                    float px = mx + (float) Math.cos(angle) * radiusPx;
+                    float py = my + (float) Math.sin(angle) * radiusPx;
+                    GL11.glVertex2f(px, py);
+                }
+                GL11.glEnd();
             }
-            GL11.glEnd();
 
-            // 1b. Subtle perimeter ring around the division circle
-            GL11.glLineWidth(1.5f);
-            GL11.glColor4f(0.32f, 0.98f, 0.50f, ringAlpha);
-            GL11.glBegin(GL11.GL_LINE_LOOP);
-            for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
-                double angle = (2.0 * Math.PI * i) / CIRCLE_SEGMENTS;
-                float px = cx + (float) Math.cos(angle) * radiusPx;
-                float py = cy + (float) Math.sin(angle) * radiusPx;
-                GL11.glVertex2f(px, py);
+            // 1b. Faint lines from the division flagship toward constituent members.
+            //     For enemy divisions, lines are drawn sparingly to prevent OpSec breaches:
+            //     ONLY if the actual division flagship is visible to the player AND the visible
+            //     member is within close visual cohesion range (<= 1150u) of that flagship.
+            ShipAPI flagship = resolveActiveFlagship(div, alive);
+            if (flagship == null) continue;
+
+            if (isEnemy && !isEnemyShipVisibleOnCommandMap(flagship, playerFog)) {
+                // Never draw lines if the enemy flagship is hidden in fog of war
+                continue;
             }
-            GL11.glEnd();
 
-            // 1c. Faint lines projecting from the division flagship towards each constituent member
-            if (flagship != null && alive.size() > 1) {
+            if (visibleMembers.size() > 1) {
                 float fx = flagship.getLocation().x * scale + offsetX;
                 float fy = flagship.getLocation().y * scale + offsetY;
 
-                GL11.glLineWidth(1.25f);
-                GL11.glColor4f(0.42f, 1.0f, 0.58f, linkAlpha);
+                GL11.glLineWidth(isEnemy ? 1.0f : 1.2f);
+                GL11.glColor4f(0.42f, 1.0f, 0.58f, lineAlpha);
                 GL11.glBegin(GL11.GL_LINES);
-                for (ShipAPI member : alive) {
+                for (ShipAPI member : visibleMembers) {
                     if (member == flagship) continue;
+                    if (isEnemy && distance(flagship.getLocation(), member.getLocation()) > ENEMY_OPSEC_MAX_LINE_DIST) {
+                        continue;
+                    }
                     float mx = member.getLocation().x * scale + offsetX;
                     float my = member.getLocation().y * scale + offsetY;
                     GL11.glVertex2f(fx, fy);
@@ -227,39 +292,75 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 GL11.glEnd();
             }
         }
+    }
 
-        GL11.glPopMatrix();
-        GL11.glPopAttrib();
+    private void renderBattlegroupLabels(
+            BattlegroupState bg,
+            boolean isEnemy,
+            FogOfWarAPI playerFog,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade) {
 
-        // Pass 2: Render the name of each division directly over its division flagship
-        for (DivisionState div : alliedBg.divisions) {
+        for (DivisionState div : bg.divisions) {
             List<ShipAPI> alive = div.getAliveMembers();
             if (alive.isEmpty()) continue;
 
             ShipAPI flagship = resolveActiveFlagship(div, alive);
             if (flagship == null) continue;
 
+            if (isEnemy) {
+                // OpSec protection: only show enemy division name if its flagship is visible
+                if (!isEnemyShipVisibleOnCommandMap(flagship, playerFog)) {
+                    continue;
+                }
+            }
+
             float fx = flagship.getLocation().x * scale + offsetX;
             float fy = flagship.getLocation().y * scale + offsetY;
-            float shipIconOffsetPx = Math.max(16f, flagship.getCollisionRadius() * scale + 12f);
+            float offsetPx = clamp(getMemberFootprintRadiusWorld(flagship) * scale, 13f, 48f) + 4f;
 
-            LabelAPI label = getOrCreateLabel(div.displayName);
+            LabelAPI label = getOrCreateLabel(div.displayName, isEnemy);
             if (label != null) {
                 float textW = label.computeTextWidth(div.displayName);
                 float textH = label.computeTextHeight(div.displayName);
                 label.getPosition().setSize(textW + 10f, textH + 4f);
-                label.getPosition().setLocation(fx - (textW * 0.5f), fy + shipIconOffsetPx + textH);
-                label.render(fade * 0.92f);
+                label.getPosition().setLocation(fx - (textW * 0.5f), fy + offsetPx + textH);
+                label.render(fade * (isEnemy ? 0.82f : 0.92f));
             }
         }
     }
 
-    private LabelAPI getOrCreateLabel(String text) {
-        LabelAPI label = labelCache.get(text);
+    private static boolean isEnemyShipVisibleOnCommandMap(ShipAPI ship, FogOfWarAPI playerFog) {
+        if (ship == null || !ship.isAlive()) return false;
+        if (playerFog == null) return true;
+        return playerFog.isVisible(ship);
+    }
+
+    private static float getMemberFootprintRadiusWorld(ShipAPI ship) {
+        HullSize size = ship != null ? ship.getHullSize() : HullSize.DESTROYER;
+        if (size == null) return 440f;
+        switch (size) {
+            case CAPITAL_SHIP:
+                return 600f;
+            case CRUISER:
+                return 510f;
+            case DESTROYER:
+                return 430f;
+            case FRIGATE:
+            default:
+                return 360f;
+        }
+    }
+
+    private LabelAPI getOrCreateLabel(String text, boolean isEnemy) {
+        String key = (isEnemy ? "E:" : "F:") + text;
+        LabelAPI label = labelCache.get(key);
         if (label == null) {
             label = Global.getSettings().createLabel(text, Fonts.DEFAULT_SMALL);
-            label.setColor(LABEL_COLOR);
-            labelCache.put(text, label);
+            label.setColor(isEnemy ? ENEMY_LABEL_COLOR : FRIENDLY_LABEL_COLOR);
+            labelCache.put(key, label);
         }
         return label;
     }
@@ -270,6 +371,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
         div.flagship = alive.get(0);
         return div.flagship;
+    }
+
+    private static float clamp(float val, float min, float max) {
+        return Math.max(min, Math.min(max, val));
     }
 
     private static float distance(Vector2f a, Vector2f b) {
