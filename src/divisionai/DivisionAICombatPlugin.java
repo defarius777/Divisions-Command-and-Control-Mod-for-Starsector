@@ -58,6 +58,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
         if (tacticalOverlay == null) {
             tacticalOverlay = new DivisionTacticalMapOverlay(engine);
+        } else {
+            tacticalOverlay.setEngine(engine);
         }
         tacticalOverlay.ensureAttachedToWarroomUI();
 

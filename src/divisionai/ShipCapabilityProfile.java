@@ -210,14 +210,14 @@ public class ShipCapabilityProfile {
 
     public static float resolveShipFpStrength(ShipAPI ship) {
         if (ship == null) return 5f;
-        float fp = ship.getDeployCost();
-        if (fp <= 0f && ship.getFleetMember() != null) {
+        float fp = 0f;
+        if (ship.getFleetMember() != null) {
             fp = ship.getFleetMember().getDeploymentPointsCost();
         }
         if (fp <= 0f) {
             fp = defaultStrengthForHull(ship.getHullSize());
         }
-        return Math.max(5f, fp);
+        return Math.max(4f, fp);
     }
 
     public static float defaultStrengthForHull(HullSize size) {

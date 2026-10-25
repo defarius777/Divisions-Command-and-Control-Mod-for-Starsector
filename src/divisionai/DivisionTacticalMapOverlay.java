@@ -13,11 +13,14 @@ import com.fs.starfarer.api.ui.LabelAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import divisionai.DivisionModel.BattlegroupState;
 import divisionai.DivisionModel.DivisionState;
+import org.apache.log4j.Logger;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.util.vector.Vector2f;
 
 import java.awt.Color;
-import java.lang.reflect.Method;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -28,6 +31,8 @@ import java.util.Map;
  *  - Strictly restricted to the Command Window tactical map where the player issues orders
  *    (attached directly to the warroom UIPanelAPI and suppressed whenever !isShowingCommandUI()
  *    or warroom.isShowingVideoFeed() is true; never renders on the full sprite battle view).
+ *  - Uses java.lang.invoke.MethodHandles (never java.lang.reflect.*, which Starsector's
+ *    script classloader blocks with SecurityException).
  *  - Every alive constituent member of a division projects a small translucent green circle.
  *    Combined circles within a division and overlapping circles between divisions blend via
  *    standard alpha blending (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) into a less translucent green,
@@ -40,23 +45,29 @@ import java.util.Map;
  */
 public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
+    private static final Logger LOG = Global.getLogger(DivisionTacticalMapOverlay.class);
     private static final int CIRCLE_SEGMENTS = 36;
     private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1150f;
     private static final Color FRIENDLY_LABEL_COLOR = new Color(165, 255, 185, 235);
     private static final Color ENEMY_LABEL_COLOR = new Color(165, 255, 185, 210);
 
-    private final CombatEngineAPI engine;
+    private CombatEngineAPI engine;
     private BattlegroupState alliedBg;
     private BattlegroupState enemyBg;
     private final Map<String, LabelAPI> labelCache = new HashMap<>();
 
     private boolean attachedToWarroom = false;
+    private boolean loggedHookFailure = false;
     private Object warroomInstance = null;
     private Object mapDisplayInstance = null;
-    private Method isShowingVideoFeedMethod = null;
-    private Method worldToMapScreenMethod = null;
+    private MethodHandle isShowingVideoFeedHandle = null;
+    private MethodHandle worldToMapScreenHandle = null;
 
     public DivisionTacticalMapOverlay(CombatEngineAPI engine) {
+        this.engine = engine;
+    }
+
+    public void setEngine(CombatEngineAPI engine) {
         this.engine = engine;
     }
 
@@ -66,9 +77,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     /**
-     * Attaches a 0x0 CustomPanelAPI directly to the Command Window warroom (OoOO, which implements UIPanelAPI).
-     * Because it is a child of warroom itself, its render() method is only invoked inside the Command Window
-     * render pass and never during the normal sprite battle view.
+     * Attaches a 0x0 CustomPanelAPI directly to the Command Window warroom (OoOO, which implements UIPanelAPI)
+     * using java.lang.invoke.MethodHandles so Starsector's classloader never blocks reflection.
      */
     public void ensureAttachedToWarroomUI() {
         if (attachedToWarroom || engine == null) return;
@@ -76,29 +86,51 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         if (ui == null) return;
 
         try {
-            Method getWarroom = ui.getClass().getMethod("getWarroom");
-            Object wr = getWarroom.invoke(ui);
+            ClassLoader cl = ui.getClass().getClassLoader();
+            Class<?> wrClass = Class.forName("com.fs.starfarer.combat.new.OoOO", false, cl);
+            Class<?> mdClass = Class.forName("com.fs.starfarer.combat.new.b", false, cl);
+
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            MethodHandle getWarroomHandle = lookup.findVirtual(
+                    ui.getClass(),
+                    "getWarroom",
+                    MethodType.methodType(wrClass));
+
+            Object wr = getWarroomHandle.invoke(ui);
             if (!(wr instanceof UIPanelAPI)) {
                 return; // Warroom not yet constructed
             }
 
-            Method getMapDisplay = wr.getClass().getMethod("getMapDisplay");
-            Object md = getMapDisplay.invoke(wr);
+            MethodHandle getMapDisplayHandle = lookup.findVirtual(
+                    wrClass,
+                    "getMapDisplay",
+                    MethodType.methodType(mdClass));
+            Object md = getMapDisplayHandle.invoke(wr);
             if (md == null) {
                 return;
             }
 
             this.warroomInstance = wr;
             this.mapDisplayInstance = md;
-            this.isShowingVideoFeedMethod = wr.getClass().getMethod("isShowingVideoFeed");
-            this.worldToMapScreenMethod = md.getClass().getMethod("o00000", Vector2f.class);
+            this.isShowingVideoFeedHandle = lookup.findVirtual(
+                    wrClass,
+                    "isShowingVideoFeed",
+                    MethodType.methodType(boolean.class));
+            this.worldToMapScreenHandle = lookup.findVirtual(
+                    mdClass,
+                    "o00000",
+                    MethodType.methodType(Vector2f.class, Vector2f.class));
 
             UIPanelAPI warroomPanel = (UIPanelAPI) wr;
             CustomPanelAPI custom = Global.getSettings().createCustom(0f, 0f, this);
             warroomPanel.addComponent(custom).inBL(0f, 0f);
             this.attachedToWarroom = true;
-        } catch (Throwable ignored) {
-            // Will retry on next advance if warroom is still initializing
+            LOG.info("[DivisionAI] Attached Command Window tactical overlay to warroom.");
+        } catch (Throwable t) {
+            if (!loggedHookFailure) {
+                loggedHookFailure = true;
+                LOG.warn("[DivisionAI] Failed to attach Command Window overlay to warroom", t);
+            }
         }
     }
 
@@ -118,17 +150,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
 
         // Do not render if the player is viewing a live sprite Video Feed inside the Command UI
-        if (warroomInstance != null && isShowingVideoFeedMethod != null) {
+        if (warroomInstance != null && isShowingVideoFeedHandle != null) {
             try {
-                Boolean showingFeed = (Boolean) isShowingVideoFeedMethod.invoke(warroomInstance);
-                if (Boolean.TRUE.equals(showingFeed)) {
+                boolean showingFeed = (boolean) isShowingVideoFeedHandle.invoke(warroomInstance);
+                if (showingFeed) {
                     return;
                 }
             } catch (Throwable ignored) {
             }
         }
 
-        if (mapDisplayInstance == null || worldToMapScreenMethod == null) {
+        if (mapDisplayInstance == null || worldToMapScreenHandle == null) {
             return;
         }
 
@@ -137,8 +169,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float offsetX;
         float offsetY;
         try {
-            Vector2f p0 = (Vector2f) worldToMapScreenMethod.invoke(mapDisplayInstance, new Vector2f(0f, 0f));
-            Vector2f p1 = (Vector2f) worldToMapScreenMethod.invoke(mapDisplayInstance, new Vector2f(1000f, 0f));
+            Vector2f p0 = (Vector2f) worldToMapScreenHandle.invoke(mapDisplayInstance, new Vector2f(0f, 0f));
+            Vector2f p1 = (Vector2f) worldToMapScreenHandle.invoke(mapDisplayInstance, new Vector2f(1000f, 0f));
             if (p0 == null || p1 == null) return;
             scale = (p1.x - p0.x) / 1000f;
             if (scale <= 1e-5f) return;

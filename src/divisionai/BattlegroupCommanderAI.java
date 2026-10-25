@@ -211,11 +211,13 @@ public class BattlegroupCommanderAI {
             }
         }
 
-        // Second pass: pick a mobile reserve candidate (never pick Main Effort, Battle Divisions, or Carrier groups)
+        // Second pass: pick a mobile reserve candidate (never pick Main Effort, Battle Divisions, Cruiser lines, or Carrier groups)
         for (DivisionState div : myBg.divisions) {
             if (!div.isCombatEffective()) continue;
             if (div == strongestLineDiv
                     || div.archetype == DivisionArchetype.BATTLE_DIVISION
+                    || div.archetype == DivisionArchetype.CRUISER_DIVISION
+                    || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
                 continue;
             }
