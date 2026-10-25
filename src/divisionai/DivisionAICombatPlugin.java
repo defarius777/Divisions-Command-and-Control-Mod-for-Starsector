@@ -4,6 +4,7 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.combat.BaseEveryFrameCombatPlugin;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
+import com.fs.starfarer.api.combat.ViewportAPI;
 import com.fs.starfarer.api.input.InputEventAPI;
 import divisionai.DivisionModel.BattlegroupState;
 import divisionai.DivisionModel.CommanderProfile;
@@ -31,6 +32,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private CombatEngineAPI engine;
     private BattlegroupState alliedBg;
     private BattlegroupState enemyBg;
+    private DivisionTacticalMapOverlay tacticalOverlay;
 
     private float divisionTimer = 0f;
     private float bgTimer = 0f;
@@ -42,6 +44,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.initializedBattle = false;
         this.divisionTimer = 0f;
         this.bgTimer = 0f;
+        this.tacticalOverlay = new DivisionTacticalMapOverlay(engine);
         if (engine != null) {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
         }
@@ -53,6 +56,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             engine = Global.getCombatEngine();
             if (engine == null) return;
         }
+        if (tacticalOverlay == null) {
+            tacticalOverlay = new DivisionTacticalMapOverlay(engine);
+        }
+        tacticalOverlay.ensureAttachedToWarroomUI();
+
         if (engine.isPaused() || engine.isCombatOver()) {
             return;
         }
@@ -68,6 +76,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             alliedBg.missionContext = DivisionAutoFormer.detectMissionContext(engine, 0);
             enemyBg.missionContext = DivisionAutoFormer.detectMissionContext(engine, 1);
+            tacticalOverlay.setAlliedBattlegroup(alliedBg);
 
             initializedBattle = true;
             LOG.info(String.format(
@@ -130,6 +139,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         // Maintain concise player flagship HUD status items so the player can always see their division & BG phase
         maintainPlayerHudStatus();
+    }
+
+    @Override
+    public void renderInUICoords(ViewportAPI viewport) {
+        if (tacticalOverlay != null) {
+            tacticalOverlay.renderFallbackFromUICoords(viewport);
+        }
     }
 
     private void maintainPlayerHudStatus() {

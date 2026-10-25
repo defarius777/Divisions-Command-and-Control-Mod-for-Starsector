@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")"
 
 JDK=toolchain/jdk17/bin
-CP="lib/starfarer.api.jar;lib/log4j-1.2.9.jar;lib/LazyLib.jar;lib/lwjgl.jar;lib/lwjgl_util.jar"
+CP="lib/starfarer.api.jar;lib/log4j-1.2.9.jar;lib/LazyLib.jar;lib/lwjgl.jar;lib/lwjgl_util.jar;lib/LunaLib.jar"
 
 rm -rf build
 mkdir -p build mod/jars mod/data/config

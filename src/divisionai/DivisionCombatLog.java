@@ -54,9 +54,9 @@ public class DivisionCombatLog {
                 div.commander.personalityId);
         LOG.info(text);
 
-        // Show friendly division formations + major enemy divisions in the HUD log
+        // Show friendly division formations in the HUD log if friendly division chatter is enabled
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
-        if (ui != null && div.side == 0) {
+        if (ui != null && div.side == 0 && DivisionAISettings.isDivisionChatterEnabled(div.side)) {
             Color divColor = Misc.getBrightPlayerColor();
             Color textColor = Misc.getTextColor();
             Color hlColor = Misc.getHighlightColor();
@@ -92,7 +92,7 @@ public class DivisionCombatLog {
                 sideTag, bg.bgCommander.personalityId, bg.currentPhase.displayName, directiveSummary));
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
-        if (ui != null) {
+        if (ui != null && DivisionAISettings.isBgChatterEnabled(bg.side)) {
             Color prefixColor = (bg.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
             Color textColor = Misc.getTextColor();
             Color hlColor = Misc.getHighlightColor();
@@ -151,7 +151,7 @@ public class DivisionCombatLog {
         LOG.info("[DivisionAI] " + fullLine);
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
-        if (ui != null) {
+        if (ui != null && DivisionAISettings.shouldShowIntentOnHud(div.side, div.currentIntent)) {
             Color actorColor = (div.side == 0) ? Misc.getBrightPlayerColor() : Misc.getNegativeHighlightColor();
             Color targetColor = resolveTargetColor(div, cleanTarget);
             Color textColor = Misc.getTextColor();
