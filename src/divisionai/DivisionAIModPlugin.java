@@ -7,6 +7,6 @@ import com.fs.starfarer.api.Global;
 public class DivisionAIModPlugin extends BaseModPlugin {
     @Override
     public void onApplicationLoad() throws Exception {
-        Global.getLogger(DivisionAIModPlugin.class).info("DivisionAI v0.2.0 loaded: Battlegroup Commander & Division Commander C2 AI active.");
+        Global.getLogger(DivisionAIModPlugin.class).info("DivisionAI v0.3.1 loaded: Battlegroup Commander & Division Commander C2 AI active.");
     }
 }
