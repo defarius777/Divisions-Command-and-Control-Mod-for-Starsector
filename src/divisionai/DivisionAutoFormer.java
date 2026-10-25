@@ -351,6 +351,8 @@ public class DivisionAutoFormer {
                 || (pdShips > 0);
         div.isFastFlanker = !div.hasCarrierCapability
                 && div.archetype != DivisionArchetype.BATTLE_DIVISION
+                && div.archetype != DivisionArchetype.CRUISER_DIVISION
+                && div.archetype != DivisionArchetype.STRIKE_CRUISER_DIVISION
                 && div.archetype != DivisionArchetype.AUXILIARY_CONVOY
                 && (div.avgMaxSpeed >= 105f
                 || div.archetype == DivisionArchetype.FRIGATE_DIVISION

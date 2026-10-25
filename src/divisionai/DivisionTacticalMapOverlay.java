@@ -48,8 +48,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private static final Logger LOG = Global.getLogger(DivisionTacticalMapOverlay.class);
     private static final int CIRCLE_SEGMENTS = 36;
     private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1150f;
-    private static final Color FRIENDLY_LABEL_COLOR = new Color(165, 255, 185, 235);
-    private static final Color ENEMY_LABEL_COLOR = new Color(165, 255, 185, 210);
+    private static final Color FRIENDLY_LABEL_COLOR = new Color(255, 235, 110, 240);
+    private static final Color ENEMY_LABEL_COLOR = new Color(255, 125, 120, 225);
 
     private CombatEngineAPI engine;
     private BattlegroupState alliedBg;
@@ -260,16 +260,20 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (visibleMembers.isEmpty()) continue;
             }
 
-            // 1a. Project a small translucent green circle around each constituent member ship.
-            //     Combined circles within a division and overlapping circles between divisions
-            //     blend to a less translucent green showing unit footprint and concentration.
+            // 1a. Project a small translucent circle around each constituent member ship
+            //     (Allied = Yellow, Enemy = Red). Combined circles within a division and
+            //     overlapping circles between divisions blend to show unit footprint.
             for (ShipAPI member : visibleMembers) {
                 float mx = member.getLocation().x * scale + offsetX;
                 float my = member.getLocation().y * scale + offsetY;
                 float worldRadius = getMemberFootprintRadiusWorld(member);
                 float radiusPx = clamp(worldRadius * scale, 13f, 48f);
 
-                GL11.glColor4f(0.18f, 0.92f, 0.38f, baseCircleAlpha);
+                if (isEnemy) {
+                    GL11.glColor4f(0.96f, 0.20f, 0.20f, baseCircleAlpha);
+                } else {
+                    GL11.glColor4f(1.00f, 0.86f, 0.16f, baseCircleAlpha);
+                }
                 GL11.glBegin(GL11.GL_TRIANGLE_FAN);
                 GL11.glVertex2f(mx, my);
                 for (int i = 0; i <= CIRCLE_SEGMENTS; i++) {
@@ -281,7 +285,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 GL11.glEnd();
 
                 GL11.glLineWidth(1.15f);
-                GL11.glColor4f(0.32f, 0.98f, 0.50f, ringAlpha);
+                if (isEnemy) {
+                    GL11.glColor4f(1.00f, 0.34f, 0.32f, ringAlpha);
+                } else {
+                    GL11.glColor4f(1.00f, 0.92f, 0.32f, ringAlpha);
+                }
                 GL11.glBegin(GL11.GL_LINE_LOOP);
                 for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
                     double angle = (2.0 * Math.PI * i) / CIRCLE_SEGMENTS;
@@ -309,7 +317,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float fy = flagship.getLocation().y * scale + offsetY;
 
                 GL11.glLineWidth(isEnemy ? 1.0f : 1.2f);
-                GL11.glColor4f(0.42f, 1.0f, 0.58f, lineAlpha);
+                if (isEnemy) {
+                    GL11.glColor4f(1.00f, 0.32f, 0.30f, lineAlpha);
+                } else {
+                    GL11.glColor4f(1.00f, 0.90f, 0.30f, lineAlpha);
+                }
                 GL11.glBegin(GL11.GL_LINES);
                 for (ShipAPI member : visibleMembers) {
                     if (member == flagship) continue;

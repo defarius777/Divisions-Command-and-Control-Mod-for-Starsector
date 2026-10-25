@@ -65,16 +65,30 @@ public class DivisionCommanderAI {
             BattlegroupState enemyBg,
             float now) {
 
+        DivisionState prevEnemyTarget = div.targetEnemyDivision;
+        BattleObjectiveAPI prevObjective = div.targetObjective;
+
         div.targetEnemyDivision = null;
         div.targetFriendlyDivision = null;
         div.targetObjective = null;
         String targetLabel = "";
         String reason = "";
 
-        DivisionState nearestEnemyDiv = findBestEnemyDivisionFor(div, enemyBg, false);
-        DivisionState torpedoTargetEnemyDiv = findBestEnemyDivisionFor(div, enemyBg, true);
+        DivisionState nearestEnemyDiv = findBestEnemyDivisionFor(engine, div, enemyBg, false, prevEnemyTarget);
+        DivisionState torpedoTargetEnemyDiv = findBestEnemyDivisionFor(engine, div, enemyBg, true, prevEnemyTarget);
         DivisionState endangeredFriendlyDiv = findEndangeredFriendlyDivision(div, myBg);
         DivisionState heavyFriendlyToScreen = findHeavyFriendlyDivisionToScreen(div, myBg);
+        BattleObjectiveAPI commandAssignedObj = findTaskManagerObjectiveForDivision(engine, div, myBg, prevObjective);
+        BattleObjectiveAPI uncapturedObj = (commandAssignedObj != null)
+                ? commandAssignedObj
+                : findNearestContestObjective(engine, div, myBg, prevObjective);
+
+        float distToVisibleEnemy = (nearestEnemyDiv != null)
+                ? distance(div.centroid, BattlegroupCommanderAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv))
+                : Float.MAX_VALUE;
+        float distToTorpedoEnemy = (torpedoTargetEnemyDiv != null)
+                ? distance(div.centroid, BattlegroupCommanderAI.getVisibleCentroidForSide(engine, div.side, torpedoTargetEnemyDiv))
+                : Float.MAX_VALUE;
 
         // 1. Check if a strike division just finished its strike window or is high-flux -> Strike-then-withdraw to reserve!
         boolean inActiveStrike = (div.currentIntent == DivisionIntentType.HARASS_TORPEDO_ATTACK
@@ -120,7 +134,34 @@ public class DivisionCommanderAI {
             return;
         }
 
-        // 3. Battlegroup Reserve designation (held back until committed)
+        // 3. Explicit Command Window Objective Order or Opening Probe Objective Seizure!
+        //    If the player (or Admiral task manager) ordered control points captured, or if enemy forces are hidden in Fog of War
+        //    / outside close contact during the opening probe, divisions prioritize seizing unclaimed control points!
+        boolean shouldSeizeObjective = false;
+        if (commandAssignedObj != null && div.localEnemyStrength < 18f) {
+            shouldSeizeObjective = true;
+        } else if (uncapturedObj != null
+                && div.localEnemyStrength < 12f
+                && div.archetype != DivisionArchetype.BATTLE_DIVISION
+                && div.archetype != DivisionArchetype.CARRIER_AND_ESCORT
+                && (nearestEnemyDiv == null
+                || myBg.currentPhase == BattlePhase.OPENING_PROBE
+                || (div.isFastFlanker && distance(div.centroid, uncapturedObj.getLocation()) + 400f < distToVisibleEnemy))) {
+            shouldSeizeObjective = true;
+        }
+
+        if (shouldSeizeObjective && uncapturedObj != null) {
+            div.currentIntent = DivisionIntentType.SEIZE_OBJECTIVE;
+            div.targetObjective = uncapturedObj;
+            div.maneuverAnchor.set(uncapturedObj.getLocation());
+            targetLabel = uncapturedObj.getDisplayName();
+            reason = (commandAssignedObj != null) ? "executing command order" : "contest tactical buoy";
+            div.lastIntentChangeTime = now;
+            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+            return;
+        }
+
+        // 4. Battlegroup Reserve designation (held back until committed)
         if (div.isDesignatedReserve && endangeredFriendlyDiv == null) {
             div.currentIntent = DivisionIntentType.HOLD_IN_RESERVE;
             div.maneuverAnchor.set(myBg.reserveAnchor);
@@ -130,7 +171,7 @@ public class DivisionCommanderAI {
             return;
         }
 
-        // 4. Relief of an endangered friendly division (cross-division mutual support)
+        // 5. Relief of an endangered friendly division (cross-division mutual support)
         if (endangeredFriendlyDiv != null
                 && div.avgFluxLevel < 0.58f
                 && (div.isFastFlanker || div.localEnemyStrength < 15f || myBg.currentPhase == BattlePhase.STABILIZE_AND_RELIEVE)) {
@@ -145,7 +186,7 @@ public class DivisionCommanderAI {
             return;
         }
 
-        // 5. Monotype Screening: e.g., "Destroyer Div 1" or "Frigate Div 1" screening "Battle Div 1" or "Carrier & Escort 1"
+        // 6. Monotype Screening: e.g., "Destroyer Div 1" or "Frigate Div 1" screening "Battle Div 1" or "Carrier & Escort 1"
         if (!div.archetype.isComposite
                 && div.isScreenCapable
                 && !div.hasTorpedoStrikeCapability
@@ -160,7 +201,7 @@ public class DivisionCommanderAI {
             if (heavyNeedsScreen) {
                 div.currentIntent = DivisionIntentType.SCREEN_FRIENDLY_DIVISION;
                 div.targetFriendlyDivision = heavyFriendlyToScreen;
-                computeScreenAnchor(heavyFriendlyToScreen, nearestEnemyDiv, div.maneuverAnchor, div.side);
+                computeScreenAnchor(engine, heavyFriendlyToScreen, nearestEnemyDiv, div.maneuverAnchor, div.side);
                 targetLabel = heavyFriendlyToScreen.displayName;
                 reason = "forward PD & anti-flank screen";
                 div.lastIntentChangeTime = now;
@@ -169,12 +210,12 @@ public class DivisionCommanderAI {
             }
         }
 
-        // 6. Torpedo / Strike Division: Harassing torpedo attack or Time-on-Target strike!
-        //    e.g., "Destroyer Div 1" intends to launch harassing torpedo attack at "Enemy Destroyer Div 4"
+        // 7. Torpedo / Strike Division: Harassing torpedo attack or Time-on-Target strike (ONLY against visible enemies within strike range <= 4600u)
         if (div.hasTorpedoStrikeCapability
                 && div.usableStrikeAmmoCount > 0
                 && div.avgFluxLevel < 0.55f
-                && torpedoTargetEnemyDiv != null) {
+                && torpedoTargetEnemyDiv != null
+                && distToTorpedoEnemy <= 4600f) {
 
             boolean timeOnTargetCue = (myBg.currentPhase == BattlePhase.COORDINATED_STRIKE)
                     && (myBg.mainEffortDivision != null && myBg.mainEffortDivision != div)
@@ -188,8 +229,9 @@ public class DivisionCommanderAI {
                 reason = String.format("%d strike salvos ready", div.usableStrikeAmmoCount);
             }
 
+            Vector2f visTargetPos = BattlegroupCommanderAI.getVisibleCentroidForSide(engine, div.side, torpedoTargetEnemyDiv);
             div.targetEnemyDivision = torpedoTargetEnemyDiv;
-            div.maneuverAnchor.set(torpedoTargetEnemyDiv.centroid);
+            div.maneuverAnchor.set(visTargetPos);
             div.strikeCommittedTimestamp = now;
             targetLabel = torpedoTargetEnemyDiv.displayName;
             div.lastIntentChangeTime = now;
@@ -197,35 +239,20 @@ public class DivisionCommanderAI {
             return;
         }
 
-        // 7. Fast flankers swing wide to flank enemy division when main line is engaged
+        // 8. Fast flankers swing wide to flank visible enemy division when within operational contact range (<= 4500u)
         if (div.isFastFlanker
                 && nearestEnemyDiv != null
+                && distToVisibleEnemy <= 4500f
                 && myBg.mainEffortDivision != null
                 && myBg.mainEffortDivision != div
                 && div.avgFluxLevel < 0.52f) {
 
             div.currentIntent = DivisionIntentType.FLANK_ENEMY_DIVISION;
             div.targetEnemyDivision = nearestEnemyDiv;
-            computeFlankAnchor(div, nearestEnemyDiv, div.maneuverAnchor);
+            computeFlankAnchor(engine, div, nearestEnemyDiv, div.maneuverAnchor);
             div.strikeCommittedTimestamp = now;
             targetLabel = nearestEnemyDiv.displayName;
             reason = "enveloping flank vector";
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-            return;
-        }
-
-        // 8. Objective seizure during opening probe or by fast divisions
-        BattleObjectiveAPI uncapturedObj = findNearestContestObjective(engine, div);
-        if (uncapturedObj != null
-                && (myBg.currentPhase == BattlePhase.OPENING_PROBE || div.isFastFlanker)
-                && div.localEnemyStrength < 15f) {
-
-            div.currentIntent = DivisionIntentType.SEIZE_OBJECTIVE;
-            div.targetObjective = uncapturedObj;
-            div.maneuverAnchor.set(uncapturedObj.getLocation());
-            targetLabel = uncapturedObj.getDisplayName();
-            reason = "contest tactical buoy";
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
             return;
@@ -241,13 +268,14 @@ public class DivisionCommanderAI {
             return;
         }
 
-        // 10. Press local overmatch vs standard line advance
+        // 10. Press local overmatch vs standard line advance (strictly respecting Fog of War)
         if (nearestEnemyDiv != null) {
+            Vector2f visEnemyPos = BattlegroupCommanderAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
             div.targetEnemyDivision = nearestEnemyDiv;
-            div.maneuverAnchor.set(nearestEnemyDiv.centroid);
+            div.maneuverAnchor.set(visEnemyPos);
             targetLabel = nearestEnemyDiv.displayName;
 
-            if (div.localOvermatchRatio >= Math.max(1.22f, div.commander.overmatchCommitRatio)) {
+            if (div.localOvermatchRatio >= Math.max(1.22f, div.commander.overmatchCommitRatio) && distToVisibleEnemy < 3200f) {
                 div.currentIntent = DivisionIntentType.PRESS_OVERMATCH;
                 reason = String.format("local advantage %.2fx", div.localOvermatchRatio);
             } else {
@@ -256,6 +284,22 @@ public class DivisionCommanderAI {
             }
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+        } else {
+            // No enemy visible in Fog of War yet: advance on reconnaissance / objective posture without map-hacking
+            if (uncapturedObj != null) {
+                div.currentIntent = DivisionIntentType.SEIZE_OBJECTIVE;
+                div.targetObjective = uncapturedObj;
+                div.maneuverAnchor.set(uncapturedObj.getLocation());
+                targetLabel = uncapturedObj.getDisplayName();
+                reason = "advancing in fog of war";
+                div.lastIntentChangeTime = now;
+                DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+            } else {
+                float scoutDirY = (div.side == 0) ? 1400f : -1400f;
+                div.currentIntent = DivisionIntentType.ADVANCE_ENGAGE_LINE;
+                div.maneuverAnchor.set(div.centroid.x * 0.6f, div.centroid.y + scoutDirY);
+                div.lastIntentChangeTime = now;
+            }
         }
     }
 
@@ -278,13 +322,13 @@ public class DivisionCommanderAI {
         List<ShipAPI> alive = div.getAliveMembers();
         if (alive.isEmpty()) return;
 
-        ShipAPI focusEnemyShip = pickFocusEnemyShip(div.targetEnemyDivision, div.centroid);
+        ShipAPI focusEnemyShip = pickFocusEnemyShip(engine, div.side, div.targetEnemyDivision, div.centroid);
 
         for (ShipAPI ship : alive) {
             if (playerManualControl && ship == playerShip) {
                 continue;
             }
-            if (hasExplicitPlayerDirectOrder(ship, tm)) {
+            if (hasExplicitCommandOrder(ship, div, tm)) {
                 continue;
             }
 
@@ -311,7 +355,7 @@ public class DivisionCommanderAI {
                         if (distance(ship.getLocation(), focusEnemyShip.getLocation()) > 2100f) {
                             flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, new Vector2f(focusEnemyShip.getLocation()));
                         }
-                    } else {
+                    } else if (div.targetEnemyDivision != null) {
                         flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, new Vector2f(div.maneuverAnchor));
                     }
                     break;
@@ -323,7 +367,7 @@ public class DivisionCommanderAI {
                         if (distance(ship.getLocation(), focusEnemyShip.getLocation()) > 2100f) {
                             flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, new Vector2f(focusEnemyShip.getLocation()));
                         }
-                    } else {
+                    } else if (div.targetEnemyDivision != null) {
                         flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, new Vector2f(div.maneuverAnchor));
                     }
                     break;
@@ -382,7 +426,7 @@ public class DivisionCommanderAI {
                         flags.setFlag(AIFlags.ESCORT_OTHER_SHIP, FLAG_TTL, div.flagship);
                     } else if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 2600f) {
                         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
-                    } else if (distance(ship.getLocation(), div.maneuverAnchor) > 1200f) {
+                    } else if (div.targetEnemyDivision != null && distance(ship.getLocation(), div.maneuverAnchor) > 1200f) {
                         flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, new Vector2f(div.maneuverAnchor));
                     }
                     break;
@@ -391,31 +435,60 @@ public class DivisionCommanderAI {
     }
 
     /**
-     * Respects explicit player orders on the player side so the player always has top C2 priority.
+     * Respects explicit Command Window orders (such as CAPTURE / ASSAULT / DEFEND on a control point,
+     * RALLY, ESCORT, RETREAT, etc.) so Division AI never pulls ships away from player-ordered control points.
+     * In vanilla Starsector, ships without an explicit task have assignment == null or SEARCH_AND_DESTROY.
      */
-    private static boolean hasExplicitPlayerDirectOrder(ShipAPI ship, CombatTaskManagerAPI tm) {
-        if (tm == null || ship.getOwner() != 0) return false;
+    private static boolean hasExplicitCommandOrder(ShipAPI ship, DivisionState div, CombatTaskManagerAPI tm) {
+        if (tm == null) return false;
         AssignmentInfo info = tm.getAssignmentFor(ship);
         if (info == null || info.getType() == null) return false;
         CombatAssignmentType t = info.getType();
-        return t == CombatAssignmentType.RETREAT
-                || t == CombatAssignmentType.REPAIR_AND_REFIT
-                || t == CombatAssignmentType.AVOID
-                || t == CombatAssignmentType.IGNORE;
+        if (t == CombatAssignmentType.SEARCH_AND_DESTROY) {
+            return false;
+        }
+        // If the ship is assigned to capture/control/assault an objective and its division is already seizing that
+        // exact objective, they are aligned; otherwise, let the ship execute its explicit Command Window assignment!
+        if (info.getTarget() instanceof BattleObjectiveAPI) {
+            if (div.currentIntent == DivisionIntentType.SEIZE_OBJECTIVE && div.targetObjective == info.getTarget()) {
+                return false;
+            }
+            return true;
+        }
+        return true;
     }
 
     private static DivisionState findBestEnemyDivisionFor(
+            CombatEngineAPI engine,
             DivisionState myDiv,
             BattlegroupState enemyBg,
-            boolean preferTorpedoPrey) {
+            boolean preferTorpedoPrey,
+            DivisionState previousTarget) {
 
         DivisionState best = null;
         float bestScore = -Float.MAX_VALUE;
 
         for (DivisionState eDiv : enemyBg.divisions) {
             if (!eDiv.isCombatEffective()) continue;
-            float dist = distance(myDiv.centroid, eDiv.centroid);
+            // Strict Fog of War check: cannot target enemy divisions hidden in the Fog of War!
+            if (!BattlegroupCommanderAI.isDivisionVisibleToSide(engine, myDiv.side, eDiv)) {
+                continue;
+            }
+
+            Vector2f visCentroid = BattlegroupCommanderAI.getVisibleCentroidForSide(engine, myDiv.side, eDiv);
+            float visFp = BattlegroupCommanderAI.getVisibleFpForSide(engine, myDiv.side, eDiv);
+            float dist = distance(myDiv.centroid, visCentroid);
             float score = -dist * 0.35f;
+
+            // Sticky target bonus prevents divisions from flip-flopping between two enemy divisions every few seconds
+            if (eDiv == previousTarget) {
+                score += 280f;
+            }
+
+            // Deprioritize civilian/auxiliary groups when combat divisions exist
+            if (eDiv.archetype == DivisionArchetype.AUXILIARY_CONVOY) {
+                score -= 450f;
+            }
 
             if (preferTorpedoPrey) {
                 // Torpedo destroyers/cruisers love enemy Destroyers, Cruisers, Carriers, or high-flux targets
@@ -428,7 +501,7 @@ public class DivisionCommanderAI {
                 }
                 score += eDiv.avgFluxLevel * 600f;
             } else {
-                score += eDiv.totalFpStrength * 6f;
+                score += visFp * 6f;
             }
 
             if (score > bestScore) {
@@ -545,12 +618,17 @@ public class DivisionCommanderAI {
         return best;
     }
 
-    private static ShipAPI pickFocusEnemyShip(DivisionState enemyDiv, Vector2f fromPoint) {
+    private static ShipAPI pickFocusEnemyShip(
+            CombatEngineAPI engine,
+            int observerSide,
+            DivisionState enemyDiv,
+            Vector2f fromPoint) {
         if (enemyDiv == null) return null;
         List<ShipAPI> enemies = enemyDiv.getAliveMembers();
         ShipAPI best = null;
         float bestScore = -Float.MAX_VALUE;
         for (ShipAPI e : enemies) {
+            if (!BattlegroupCommanderAI.isShipVisibleToSide(engine, observerSide, e)) continue;
             float d = distance(fromPoint, e.getLocation());
             // Prefer closer targets and high-flux/exposed targets inside the target division
             float score = -d * 0.45f + e.getFluxLevel() * 550f + (1f - e.getHullLevel()) * 400f;
@@ -562,30 +640,113 @@ public class DivisionCommanderAI {
         return best;
     }
 
-    private static BattleObjectiveAPI findNearestContestObjective(CombatEngineAPI engine, DivisionState div) {
-        List<BattleObjectiveAPI> objs = engine.getObjectives();
-        if (objs == null || objs.isEmpty()) return null;
-        BattleObjectiveAPI best = null;
-        float bestDist = Float.MAX_VALUE;
-        for (BattleObjectiveAPI obj : objs) {
-            if (obj == null || obj.getOwner() == div.side) continue;
-            float d = distance(div.centroid, obj.getLocation());
-            if (d < bestDist) {
-                bestDist = d;
-                best = obj;
+    /**
+     * Checks if any ship in this division has been directly assigned to an objective in CombatTaskManager,
+     * or if there is an unclaimed player/task-manager objective assignment in tm.getAllAssignments().
+     */
+    private static BattleObjectiveAPI findTaskManagerObjectiveForDivision(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattlegroupState myBg,
+            BattleObjectiveAPI previousObjective) {
+        if (engine == null) return null;
+        CombatFleetManagerAPI fm = engine.getFleetManager(div.side);
+        CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(false) : null;
+        if (tm == null) return null;
+
+        // 1. Check if any ship in this division is directly assigned to a BattleObjectiveAPI
+        for (ShipAPI s : div.getAliveMembers()) {
+            AssignmentInfo info = tm.getAssignmentFor(s);
+            if (info != null && info.getTarget() instanceof BattleObjectiveAPI) {
+                BattleObjectiveAPI obj = (BattleObjectiveAPI) info.getTarget();
+                if (!isObjectiveClaimedByOtherDivision(obj, div, myBg)) {
+                    return obj;
+                }
             }
         }
-        return best;
+
+        // 2. Check all active objective assignments in CombatTaskManager (e.g. when player clicks two control points)
+        List<AssignmentInfo> all = tm.getAllAssignments();
+        if (all != null) {
+            BattleObjectiveAPI best = null;
+            float bestScore = -Float.MAX_VALUE;
+            for (AssignmentInfo info : all) {
+                if (info == null || !(info.getTarget() instanceof BattleObjectiveAPI)) continue;
+                CombatAssignmentType t = info.getType();
+                if (t != CombatAssignmentType.CAPTURE
+                        && t != CombatAssignmentType.ASSAULT
+                        && t != CombatAssignmentType.CONTROL
+                        && t != CombatAssignmentType.DEFEND
+                        && t != CombatAssignmentType.RECON) {
+                    continue;
+                }
+                BattleObjectiveAPI obj = (BattleObjectiveAPI) info.getTarget();
+                if (isObjectiveClaimedByOtherDivision(obj, div, myBg)) continue;
+                float d = distance(div.centroid, obj.getLocation());
+                float sticky = (obj == previousObjective) ? 450f : 0f;
+                float score = -d + sticky;
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = obj;
+                }
+            }
+            if (best != null) {
+                return best;
+            }
+        }
+        return null;
+    }
+
+    private static BattleObjectiveAPI findNearestContestObjective(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattlegroupState myBg,
+            BattleObjectiveAPI previousObjective) {
+        List<BattleObjectiveAPI> objs = engine.getObjectives();
+        if (objs == null || objs.isEmpty()) return null;
+
+        // First pass: prefer uncaptured objectives NOT already claimed by another friendly division
+        BattleObjectiveAPI bestUnclaimed = null;
+        float bestScore = -Float.MAX_VALUE;
+        for (BattleObjectiveAPI obj : objs) {
+            if (obj == null || obj.getOwner() == div.side) continue;
+            if (isObjectiveClaimedByOtherDivision(obj, div, myBg)) continue;
+            float d = distance(div.centroid, obj.getLocation());
+            float sticky = (obj == previousObjective) ? 450f : 0f;
+            float score = -d + sticky;
+            if (score > bestScore) {
+                bestScore = score;
+                bestUnclaimed = obj;
+            }
+        }
+        return bestUnclaimed;
+    }
+
+    private static boolean isObjectiveClaimedByOtherDivision(
+            BattleObjectiveAPI obj,
+            DivisionState myDiv,
+            BattlegroupState myBg) {
+        if (obj == null || myBg == null) return false;
+        for (DivisionState peer : myBg.divisions) {
+            if (peer != myDiv && peer.isCombatEffective()
+                    && peer.currentIntent == DivisionIntentType.SEIZE_OBJECTIVE
+                    && peer.targetObjective == obj) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void computeScreenAnchor(
+            CombatEngineAPI engine,
             DivisionState protectedDiv,
             DivisionState enemyDiv,
             Vector2f outAnchor,
             int side) {
         if (enemyDiv != null) {
-            float dx = enemyDiv.centroid.x - protectedDiv.centroid.x;
-            float dy = enemyDiv.centroid.y - protectedDiv.centroid.y;
+            Vector2f visEnemyPos = BattlegroupCommanderAI.getVisibleCentroidForSide(engine, side, enemyDiv);
+            float dx = visEnemyPos.x - protectedDiv.centroid.x;
+            float dy = visEnemyPos.y - protectedDiv.centroid.y;
             float len = (float) Math.sqrt(dx * dx + dy * dy);
             if (len > 1f) {
                 outAnchor.set(
@@ -599,14 +760,16 @@ public class DivisionCommanderAI {
     }
 
     private static void computeFlankAnchor(
+            CombatEngineAPI engine,
             DivisionState flankerDiv,
             DivisionState enemyDiv,
             Vector2f outAnchor) {
-        float dx = enemyDiv.centroid.x - flankerDiv.centroid.x;
-        float dy = enemyDiv.centroid.y - flankerDiv.centroid.y;
+        Vector2f visEnemyPos = BattlegroupCommanderAI.getVisibleCentroidForSide(engine, flankerDiv.side, enemyDiv);
+        float dx = visEnemyPos.x - flankerDiv.centroid.x;
+        float dy = visEnemyPos.y - flankerDiv.centroid.y;
         float len = (float) Math.sqrt(dx * dx + dy * dy);
         if (len <= 1f) {
-            outAnchor.set(enemyDiv.centroid);
+            outAnchor.set(visEnemyPos);
             return;
         }
         // Perpendicular offset to swing wide around the enemy division's flank
@@ -614,8 +777,8 @@ public class DivisionCommanderAI {
         float perpY = dx / len;
         float sideSign = (flankerDiv.divisionNumber % 2 == 1) ? 1f : -1f;
         outAnchor.set(
-                enemyDiv.centroid.x + perpX * 1150f * sideSign,
-                enemyDiv.centroid.y + perpY * 1150f * sideSign);
+                visEnemyPos.x + perpX * 1150f * sideSign,
+                visEnemyPos.y + perpY * 1150f * sideSign);
     }
 
     private static float distance(Vector2f a, Vector2f b) {

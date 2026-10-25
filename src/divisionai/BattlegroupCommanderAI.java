@@ -3,6 +3,7 @@ package divisionai;
 import com.fs.starfarer.api.combat.BattleObjectiveAPI;
 import com.fs.starfarer.api.combat.CollisionGridAPI;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
+import com.fs.starfarer.api.combat.FogOfWarAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipwideAIFlags;
 import com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags;
@@ -153,7 +154,7 @@ public class BattlegroupCommanderAI {
             float readiness = Math.max(0.35f, s.getHullLevel() * (1.15f - 0.5f * s.getFluxLevel()));
             if (s.getOwner() == div.side) {
                 friendlyFp += fp * readiness;
-            } else {
+            } else if (isShipVisibleToSide(engine, div.side, s)) {
                 enemyFp += fp * readiness;
             }
         }
@@ -161,6 +162,55 @@ public class BattlegroupCommanderAI {
         div.localFriendlyStrength = Math.max(friendlyFp, div.totalFpStrength * 0.5f);
         div.localEnemyStrength = enemyFp;
         div.localOvermatchRatio = (enemyFp <= 1f) ? 3.0f : (div.localFriendlyStrength / enemyFp);
+    }
+
+    public static boolean isShipVisibleToSide(CombatEngineAPI engine, int observerSide, ShipAPI ship) {
+        if (ship == null || !ship.isAlive() || ship.isHulk()) return false;
+        if (engine == null) return true;
+        FogOfWarAPI fog = engine.getFogOfWar(observerSide);
+        return fog == null || fog.isVisible(ship);
+    }
+
+    public static boolean isDivisionVisibleToSide(CombatEngineAPI engine, int observerSide, DivisionState div) {
+        if (div == null) return false;
+        if (observerSide == div.side) return div.isCombatEffective();
+        for (ShipAPI s : div.getAliveMembers()) {
+            if (isShipVisibleToSide(engine, observerSide, s)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static Vector2f getVisibleCentroidForSide(CombatEngineAPI engine, int observerSide, DivisionState div) {
+        if (div == null) return new Vector2f(0f, 0f);
+        if (observerSide == div.side || engine == null) return div.centroid;
+        float sumX = 0f;
+        float sumY = 0f;
+        float weightSum = 0f;
+        for (ShipAPI s : div.getAliveMembers()) {
+            if (!isShipVisibleToSide(engine, observerSide, s)) continue;
+            float w = ShipCapabilityProfile.resolveShipFpStrength(s);
+            sumX += s.getLocation().x * w;
+            sumY += s.getLocation().y * w;
+            weightSum += w;
+        }
+        if (weightSum <= 0f) {
+            return div.centroid;
+        }
+        return new Vector2f(sumX / weightSum, sumY / weightSum);
+    }
+
+    public static float getVisibleFpForSide(CombatEngineAPI engine, int observerSide, DivisionState div) {
+        if (div == null) return 0f;
+        if (observerSide == div.side || engine == null) return div.totalFpStrength;
+        float fpSum = 0f;
+        for (ShipAPI s : div.getAliveMembers()) {
+            if (isShipVisibleToSide(engine, observerSide, s)) {
+                fpSum += ShipCapabilityProfile.resolveShipFpStrength(s);
+            }
+        }
+        return fpSum;
     }
 
     /**
@@ -172,10 +222,14 @@ public class BattlegroupCommanderAI {
             BattlegroupState enemyBg,
             float now) {
 
-        myBg.totalEnemyStrength = enemyBg.totalFriendlyStrength;
-        myBg.forceRatio = (enemyBg.totalFriendlyStrength <= 1f)
-                ? 2.5f
-                : (myBg.totalFriendlyStrength / enemyBg.totalFriendlyStrength);
+        float visibleEnemyFp = 0f;
+        for (DivisionState eDiv : enemyBg.divisions) {
+            visibleEnemyFp += getVisibleFpForSide(engine, myBg.side, eDiv);
+        }
+        myBg.totalEnemyStrength = visibleEnemyFp;
+        myBg.forceRatio = (visibleEnemyFp <= 1f)
+                ? 1.25f
+                : (myBg.totalFriendlyStrength / visibleEnemyFp);
 
         int activeDivCount = 0;
         DivisionState endangeredDiv = null;
@@ -204,6 +258,8 @@ public class BattlegroupCommanderAI {
             } else if (div.archetype == DivisionArchetype.CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
                 mainScore *= 1.35f;
+            } else if (div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
+                mainScore *= 0.55f;
             }
             if (mainScore > strongestLineFp) {
                 strongestLineFp = mainScore;
@@ -221,8 +277,9 @@ public class BattlegroupCommanderAI {
                     || div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
                 continue;
             }
-            float distToEnemy = distanceToNearestEnemyDivision(div, enemyBg);
-            float reserveScore = (distToEnemy * 0.001f) + (div.isFastFlanker ? 1.5f : 0.8f) - div.avgFluxLevel;
+            float distToEnemy = distanceToNearestEnemyDivision(engine, div, enemyBg);
+            float distFactor = (distToEnemy < Float.MAX_VALUE * 0.5f) ? (distToEnemy * 0.001f) : 2.0f;
+            float reserveScore = distFactor + (div.isFastFlanker ? 1.5f : 0.8f) - div.avgFluxLevel;
             if (reserveScore > bestReserveScore) {
                 bestReserveScore = reserveScore;
                 bestReserveCandidate = div;
@@ -230,20 +287,21 @@ public class BattlegroupCommanderAI {
         }
 
         myBg.mainEffortDivision = strongestLineDiv;
-        myBg.primaryThreatEnemyDivision = pickPrimaryEnemyTargetDivision(myBg, enemyBg);
+        myBg.primaryThreatEnemyDivision = pickPrimaryEnemyTargetDivision(engine, myBg, enemyBg);
 
-        // Determine operational BattlePhase
+        // Determine operational BattlePhase (strictly respecting Fog of War: if no enemy is spotted yet, stay in OPENING_PROBE)
         BattlePhase nextPhase;
-        float minContactDist = minDistanceBetweenFleets(myBg, enemyBg);
+        float minContactDist = minDistanceBetweenFleets(engine, myBg, enemyBg);
         List<BattleObjectiveAPI> objectives = engine.getObjectives();
         boolean hasUncapturedObjectives = hasContestObjectives(objectives, myBg.side);
+        boolean anyEnemyVisible = (myBg.primaryThreatEnemyDivision != null);
 
         if (myBg.missionContext == MissionContextType.FLEET_ESCAPE_REARGUARD
-                || (myBg.forceRatio < 0.58f && myBg.missionContext != MissionContextType.FIGHT_TO_THE_LAST)) {
+                || (anyEnemyVisible && myBg.forceRatio < 0.58f && myBg.missionContext != MissionContextType.FIGHT_TO_THE_LAST)) {
             nextPhase = BattlePhase.ORDERED_WITHDRAWAL;
         } else if (endangeredDiv != null && (worstOvermatch < 0.72f || (endangeredDiv.hasShipNeedingHelp && worstOvermatch < 0.85f))) {
             nextPhase = BattlePhase.STABILIZE_AND_RELIEVE;
-        } else if (minContactDist > 3300f && hasUncapturedObjectives && now < 55f) {
+        } else if (!anyEnemyVisible || (minContactDist > 3300f && hasUncapturedObjectives && now < 75f)) {
             nextPhase = BattlePhase.OPENING_PROBE;
         } else if (myBg.forceRatio >= 1.35f && minContactDist < 3000f) {
             nextPhase = BattlePhase.EXPLOIT_BREAKTHROUGH;
@@ -301,15 +359,22 @@ public class BattlegroupCommanderAI {
         }
     }
 
-    private static DivisionState pickPrimaryEnemyTargetDivision(BattlegroupState myBg, BattlegroupState enemyBg) {
+    private static DivisionState pickPrimaryEnemyTargetDivision(
+            CombatEngineAPI engine,
+            BattlegroupState myBg,
+            BattlegroupState enemyBg) {
         DivisionState best = null;
         float bestScore = -Float.MAX_VALUE;
         for (DivisionState eDiv : enemyBg.divisions) {
             if (!eDiv.isCombatEffective()) continue;
-            float dist = MiscDistance(myBg.fleetCentroid, eDiv.centroid);
+            if (!isDivisionVisibleToSide(engine, myBg.side, eDiv)) continue;
+            Vector2f visCentroid = getVisibleCentroidForSide(engine, myBg.side, eDiv);
+            float visFp = getVisibleFpForSide(engine, myBg.side, eDiv);
+            float dist = MiscDistance(myBg.fleetCentroid, visCentroid);
             // Prefer enemy divisions that are close, isolated, or high-value
             float isolationBonus = (eDiv.cohesionRatio > 1.3f) ? 350f : 0f;
-            float score = eDiv.totalFpStrength * 12f + isolationBonus - dist * 0.25f;
+            float auxPenalty = (eDiv.archetype == DivisionArchetype.AUXILIARY_CONVOY) ? -500f : 0f;
+            float score = visFp * 12f + isolationBonus + auxPenalty - dist * 0.25f;
             if (score > bestScore) {
                 bestScore = score;
                 best = eDiv;
@@ -337,21 +402,26 @@ public class BattlegroupCommanderAI {
         return false;
     }
 
-    private static float minDistanceBetweenFleets(BattlegroupState a, BattlegroupState b) {
+    private static float minDistanceBetweenFleets(CombatEngineAPI engine, BattlegroupState a, BattlegroupState b) {
         float minDist = Float.MAX_VALUE;
         for (DivisionState da : a.divisions) {
             if (!da.isCombatEffective()) continue;
-            float d = distanceToNearestEnemyDivision(da, b);
+            float d = distanceToNearestEnemyDivision(engine, da, b);
             if (d < minDist) minDist = d;
         }
         return minDist;
     }
 
-    public static float distanceToNearestEnemyDivision(DivisionState myDiv, BattlegroupState enemyBg) {
+    public static float distanceToNearestEnemyDivision(
+            CombatEngineAPI engine,
+            DivisionState myDiv,
+            BattlegroupState enemyBg) {
         float minDist = Float.MAX_VALUE;
         for (DivisionState eDiv : enemyBg.divisions) {
             if (!eDiv.isCombatEffective()) continue;
-            float d = MiscDistance(myDiv.centroid, eDiv.centroid);
+            if (!isDivisionVisibleToSide(engine, myDiv.side, eDiv)) continue;
+            Vector2f visCentroid = getVisibleCentroidForSide(engine, myDiv.side, eDiv);
+            float d = MiscDistance(myDiv.centroid, visCentroid);
             if (d < minDist) minDist = d;
         }
         return minDist;
