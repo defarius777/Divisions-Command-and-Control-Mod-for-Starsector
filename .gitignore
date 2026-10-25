@@ -1,0 +1,7 @@
+build/
+toolchain/
+lib/
+dist/
+*.class
+.DS_Store
+Thumbs.db
