@@ -83,6 +83,8 @@ public class DivisionAISettings {
             case CARRIER_PROTECT_FLEET_CAP:
             case CARRIER_DIVISION_STRIKE:
             case CARRIER_MULTI_DIV_STRIKE:
+            case FIX_ENEMY_DIVISION:
+            case STAGE_FOR_STRIKE:
                 return true;
             case HOLD_AND_COHERE:
             case ADVANCE_ENGAGE_LINE:
@@ -92,6 +94,7 @@ public class DivisionAISettings {
             case CARRIER_STRIKE_CRAFT_RECON:
             case CARRIER_VOID_SUPERIORITY_CAP:
             case CARRIER_STRIKE_AT_WILL:
+            case PURSUE_BROKEN_ENEMY:
             default:
                 return false;
         }

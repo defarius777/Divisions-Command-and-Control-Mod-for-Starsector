@@ -12,10 +12,12 @@ import com.fs.starfarer.api.ui.PositionAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
+import divisionai.PermanentDivisionManager.BattlegroupAuthority;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
+import divisionai.PermanentDivisionManager.OrchestrationPlay;
 import divisionai.PermanentDivisionManager.PreferredSpace;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
@@ -31,6 +33,8 @@ import java.util.Map;
  * "Fleet Doctrine" button on the left sidebar of the Fleet screen.
  *
  * Configures:
+ *  0. Battlegroup Command: the BG Commander's orchestration authority (A. Hybrid, B. Central Planning,
+ *     C. Mission-Type Tactics, D. Target Coordination Only) and On/Off toggles for each orchestration play.
  *  1. Battlegroup Settings (inherited by divisions of each type unless overridden in Division Settings):
  *     - Intra-division spacing (in units, with Paragon length = 364 units reference subtitle)
  *     - Inter-division spacing (in units)
@@ -54,9 +58,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
     private enum ActiveTab {
         ALL_DOCTRINE,
+        BATTLEGROUP_COMMAND,
         DIVISION_MODIFIERS,
         HULL_LIMITS
     }
+
+    private static final String BG_AUTHORITY_DROPDOWN_KEY = "BG_AUTHORITY";
 
     private final UIPanelAPI parentCoreUI;
     private CustomPanelAPI rootOverlayPanel;
@@ -155,7 +162,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         // 1. Header & Subtitle (including Paragon's in-game length = 364 units)
         TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 62f, false);
         header.setTitleOrbitronLarge();
-        header.addTitle("FLEET DOCTRINE — DIVISION TYPE MODIFIERS & HULL LIMITS", baseColor);
+        header.addTitle("FLEET DOCTRINE — BATTLEGROUP COMMAND, DIVISION MODIFIERS & HULL LIMITS", baseColor);
         header.addPara(
                 "Configure division-type spacing/standoff modifiers and min/max hull limits (Hard Cap: %s ships/division).",
                 3f,
@@ -181,12 +188,27 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        180f,
+                        150f,
                         24f,
                         0f),
                 "TAB:ALL");
         if (activeTab == ActiveTab.ALL_DOCTRINE) bTabAll.highlight();
         bTabAll.getPosition().inTL(0f, 2f);
+
+        ButtonAPI bTabBg = registerButton(
+                tb.addButton(
+                        "Battlegroup Command",
+                        "TAB:BG_COMMAND",
+                        activeTab == ActiveTab.BATTLEGROUP_COMMAND ? highlight : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        170f,
+                        24f,
+                        0f),
+                "TAB:BG_COMMAND");
+        if (activeTab == ActiveTab.BATTLEGROUP_COMMAND) bTabBg.highlight();
+        bTabBg.getPosition().inTL(156f, 2f);
 
         ButtonAPI bTabMod = registerButton(
                 tb.addButton(
@@ -196,12 +218,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        195f,
+                        180f,
                         24f,
                         0f),
                 "TAB:MODIFIERS");
         if (activeTab == ActiveTab.DIVISION_MODIFIERS) bTabMod.highlight();
-        bTabMod.getPosition().inTL(188f, 2f);
+        bTabMod.getPosition().inTL(332f, 2f);
 
         ButtonAPI bTabHull = registerButton(
                 tb.addButton(
@@ -211,12 +233,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        175f,
+                        150f,
                         24f,
                         0f),
                 "TAB:HULLS");
         if (activeTab == ActiveTab.HULL_LIMITS) bTabHull.highlight();
-        bTabHull.getPosition().inTL(391f, 2f);
+        bTabHull.getPosition().inTL(518f, 2f);
 
         ButtonAPI bReset = registerButton(
                 tb.addButton(
@@ -256,6 +278,41 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         float bodyWidth = DIALOG_WIDTH - 24f;
 
         TooltipMakerAPI body = contentContainer.createUIElement(bodyWidth, bodyHeight, true);
+
+        if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.BATTLEGROUP_COMMAND) {
+            body.addSectionHeading(
+                    "BATTLEGROUP COMMAND — ORCHESTRATION AUTHORITY & PLAYS",
+                    highlight,
+                    darkColor,
+                    Alignment.LMID,
+                    4f);
+            body.addPara(
+                    "How your Battlegroup Commander orchestrates the battle across divisions. Authority sets how far its "
+                            + "taskings may override each division's Opening/Main Mission; plays switch individual behaviours on or off.",
+                    4f,
+                    gray);
+
+            addAuthorityDropdownRow(
+                    body,
+                    bodyWidth - 16f,
+                    doctrine.getBgAuthority(),
+                    baseColor,
+                    darkColor,
+                    positive,
+                    gray);
+
+            for (OrchestrationPlay play : OrchestrationPlay.values()) {
+                addPlayToggleRow(
+                        body,
+                        bodyWidth - 16f,
+                        play,
+                        doctrine.isPlayEnabled(play),
+                        baseColor,
+                        darkColor,
+                        positive,
+                        gray);
+            }
+        }
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.DIVISION_MODIFIERS) {
             body.addSectionHeading(
@@ -494,6 +551,140 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         rowUi.setHeightSoFar(26f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 3f);
+    }
+
+    private void addAuthorityDropdownRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            BattlegroupAuthority current,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+
+        boolean expanded = BG_AUTHORITY_DROPDOWN_KEY.equals(expandedDropdownKey);
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        rowUi.addPara("Battlegroup Commander authority:", 4f, baseColor).getPosition().inTL(4f, 4f);
+
+        String toggleAct = "TOGGLE_DD:" + BG_AUTHORITY_DROPDOWN_KEY;
+        String btnText = (expanded ? "[^] " : "[v] ") + current.dropdownLabel + "  (Click to change)";
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        activeValueColor,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        420f,
+                        22f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(355f, 2f);
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+
+        if (expanded) {
+            for (BattlegroupAuthority option : BattlegroupAuthority.values()) {
+                boolean isCurrent = (option == current);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 42f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 22f, false);
+                String selAct = "SET_BG_AUTH:" + option.name();
+                ButtonAPI bOpt = registerButton(
+                        optUi.addButton(
+                                (isCurrent ? "* " : "   ") + option.dropdownLabel,
+                                selAct,
+                                isCurrent ? activeValueColor : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                285f,
+                                20f,
+                                0f),
+                        selAct);
+                if (isCurrent) {
+                    bOpt.highlight();
+                }
+                bOpt.getPosition().inTL(370f, 1f);
+                optUi.setHeightSoFar(22f);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+
+                TooltipMakerAPI optDesc = optPanel.createUIElement(rowWidth - 380f, 20f, false);
+                optDesc.addPara(option.summary, 0f, gray);
+                optPanel.addUIElement(optDesc).inTL(370f, 22f);
+                body.addCustom(optPanel, 1f);
+            }
+        } else {
+            CustomPanelAPI descPanel = Global.getSettings().createCustom(rowWidth, 34f, subPanelPlugin);
+            TooltipMakerAPI descUi = descPanel.createUIElement(rowWidth - 365f, 34f, false);
+            descUi.addPara(current.summary, 0f, gray);
+            descPanel.addUIElement(descUi).inTL(355f, 0f);
+            body.addCustom(descPanel, 1f);
+        }
+    }
+
+    private void addPlayToggleRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            OrchestrationPlay play,
+            boolean enabled,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 36f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        String label = "Play: " + play.displayName;
+        rowUi.addPara(label, 4f, enabled ? activeValueColor : gray, label).getPosition().inTL(4f, 4f);
+
+        String onAct = "SET_BG_PLAY:" + play.name() + ":ON";
+        ButtonAPI bOn = registerButton(
+                rowUi.addButton(
+                        "On",
+                        onAct,
+                        enabled ? activeValueColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        52f,
+                        21f,
+                        0f),
+                onAct);
+        if (enabled) bOn.highlight();
+        bOn.getPosition().inTL(355f, 2f);
+
+        String offAct = "SET_BG_PLAY:" + play.name() + ":OFF";
+        ButtonAPI bOff = registerButton(
+                rowUi.addButton(
+                        "Off",
+                        offAct,
+                        !enabled ? Misc.getNegativeHighlightColor() : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        52f,
+                        21f,
+                        0f),
+                offAct);
+        if (!enabled) bOff.highlight();
+        bOff.getPosition().inTL(413f, 2f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+
+        TooltipMakerAPI descUi = rowPanel.createUIElement(rowWidth - 490f, 34f, false);
+        descUi.addPara(play.summary, 0f, gray);
+        rowPanel.addUIElement(descUi).inTL(480f, 2f);
+
+        body.addCustom(rowPanel, 2f);
     }
 
     private void addPreferredSpaceRow(
@@ -866,6 +1057,30 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         if ("TAB:ALL".equals(cmd)) {
             activeTab = ActiveTab.ALL_DOCTRINE;
             rebuildContent();
+            return;
+        }
+        if ("TAB:BG_COMMAND".equals(cmd)) {
+            activeTab = ActiveTab.BATTLEGROUP_COMMAND;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_BG_AUTH:")) {
+            BattlegroupAuthority auth = BattlegroupAuthority.fromId(cmd.substring("SET_BG_AUTH:".length()), null);
+            if (auth != null) {
+                PermanentDivisionManager.updateBattlegroupAuthority(auth);
+            }
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_BG_PLAY:")) {
+            String rest = cmd.substring("SET_BG_PLAY:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                OrchestrationPlay play = OrchestrationPlay.valueOf(rest.substring(0, sep));
+                PermanentDivisionManager.updateOrchestrationPlay(play, "ON".equals(rest.substring(sep + 1)));
+                rebuildContent();
+            }
             return;
         }
         if ("TAB:MODIFIERS".equals(cmd)) {

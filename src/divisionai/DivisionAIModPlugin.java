@@ -9,7 +9,7 @@ public class DivisionAIModPlugin extends BaseModPlugin {
 
     @Override
     public void onApplicationLoad() throws Exception {
-        Global.getLogger(DivisionAIModPlugin.class).info("DivisionAI v0.4.7 loaded: Campaign Permanent Divisions, Fleet Doctrine & Combat C2 AI active.");
+        Global.getLogger(DivisionAIModPlugin.class).info("DivisionAI v0.5.0 loaded: Campaign Permanent Divisions, Fleet Doctrine, Battlegroup Orchestration & Combat C2 AI active.");
     }
 
     @Override
@@ -17,6 +17,7 @@ public class DivisionAIModPlugin extends BaseModPlugin {
         SectorAPI sector = Global.getSector();
         if (sector != null) {
             PermanentDivisionManager.ensureInitializedForPlayerFleet();
+            PermanentDivisionManager.migrateAutoStandoffToGunRange();
             sector.removeTransientScriptsOfClass(DivisionFleetTabInjector.class);
             sector.addTransientScript(new DivisionFleetTabInjector());
         }

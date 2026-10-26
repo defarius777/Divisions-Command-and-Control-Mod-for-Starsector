@@ -40,6 +40,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private BattlegroupState enemyBg;
     private DivisionTacticalMapOverlay tacticalOverlay;
     private DivisionDeploymentDialogOrganizer deploymentOrganizer;
+    private DivisionState passiveContactGroup;
 
     private float divisionTimer = 0f;
     private float bgTimer = 0f;
@@ -57,6 +58,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.loggedEnemyBgInit = false;
         this.divisionTimer = 0f;
         this.bgTimer = 0f;
+        this.passiveContactGroup = null;
         this.tacticalOverlay = new DivisionTacticalMapOverlay(engine);
         this.deploymentOrganizer = new DivisionDeploymentDialogOrganizer();
         if (engine != null) {
@@ -99,12 +101,20 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             alliedAiBg.isAlliedAi = true;
             enemyBg = new BattlegroupState(1, enemyCmdr);
 
+            // Player BG orchestration comes from Fleet Doctrine; Allied AI and Enemy BGs use the Hybrid defaults
+            PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
+            playerBg.authority = doctrine.getBgAuthority();
+            playerBg.plays.clear();
+            playerBg.plays.addAll(doctrine.getEnabledPlays());
+
             playerBg.missionContext = DivisionAutoFormer.detectMissionContext(engine, 0);
             alliedAiBg.missionContext = playerBg.missionContext;
             enemyBg.missionContext = DivisionAutoFormer.detectMissionContext(engine, 1);
 
             tacticalOverlay.setBattlegroups(playerBg, alliedAiBg, enemyBg);
             initializedBattle = true;
+            LOG.info(String.format("[DivisionAI] Player BG orchestration: authority=%s, plays=%s",
+                    playerBg.authority.shortName, playerBg.plays));
         }
 
         divisionTimer += amount;
@@ -266,15 +276,19 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     lead = s;
                 }
             }
-            CommanderProfile dummyCmdr = new CommanderProfile(lead.getCaptain(), "Player Fleet");
-            DivisionState passiveContactGroup = new DivisionState(
-                    "unassigned_player_contacts",
-                    0,
-                    99,
-                    DivisionArchetype.CRUISER_DIVISION,
-                    "Player Unassigned Element",
-                    dummyCmdr);
+            // Reuse one contact-group object so enemy taskings and strike plans aimed at it stay stable across ticks
+            if (passiveContactGroup == null) {
+                CommanderProfile dummyCmdr = new CommanderProfile(lead.getCaptain(), "Player Fleet");
+                passiveContactGroup = new DivisionState(
+                        "unassigned_player_contacts",
+                        0,
+                        99,
+                        DivisionArchetype.CRUISER_DIVISION,
+                        "Player Unassigned Element",
+                        dummyCmdr);
+            }
             passiveContactGroup.flagship = lead;
+            passiveContactGroup.members.clear();
             passiveContactGroup.members.addAll(unassignedPlayerHulls);
             view.divisions.add(passiveContactGroup);
         }

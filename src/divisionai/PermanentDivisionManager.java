@@ -47,6 +47,7 @@ public class PermanentDivisionManager {
     private static final String PERSISTENT_DIVISIONS_KEY = "divisionai_permanent_divisions_v2";
     private static final String PERSISTENT_SEQ_KEY = "divisionai_permanent_divisions_seq_v2";
     private static final String PERSISTENT_DOCTRINE_KEY = "divisionai_fleet_doctrine_v1";
+    private static final String PERSISTENT_STANDOFF_MIGRATION_KEY = "divisionai_standoff_gun_only_v1";
 
     /** Hard cap on division size regardless of individual hull maximums. */
     public static final int MAX_DIVISION_SIZE = 10;
@@ -496,6 +497,93 @@ public class PermanentDivisionManager {
     }
 
     /**
+     * How much authority the Battlegroup Commander has over each division's configured Opening/Main Mission
+     * when it orchestrates the battle (selectable in the Fleet Doctrine window).
+     */
+    public enum BattlegroupAuthority {
+        HYBRID(
+                "A. \"Hybrid\"",
+                "Hybrid",
+                "Missions set each division's style; the BG picks targets, timing, sectors and flank sides within it, "
+                        + "and only fully re-tasks reserve, relief and pursuit divisions."),
+        CENTRAL_PLANNING(
+                "B. \"Central Planning\"",
+                "Central Planning",
+                "BG taskings replace missions whenever issued (fix, support, flank, relieve, pursue, strike); "
+                        + "missions are only the default when the BG has no orders for a division."),
+        MISSION_TACTICS(
+                "C. \"Mission-Type Tactics\"",
+                "Mission-Type Tactics",
+                "The BG states intent (targets, flank sides, strike times, relief requests); divisions execute in their "
+                        + "own mission style and may decline or deviate when their local situation demands it."),
+        TARGET_COORDINATION(
+                "D. \"Target Coordination Only\"",
+                "Target Coordination Only",
+                "The BG only allocates enemy targets and synchronizes strike timing; it never moves, re-tasks or "
+                        + "positions divisions.");
+
+        public final String dropdownLabel;
+        public final String shortName;
+        public final String summary;
+
+        BattlegroupAuthority(String dropdownLabel, String shortName, String summary) {
+            this.dropdownLabel = dropdownLabel;
+            this.shortName = shortName;
+            this.summary = summary;
+        }
+
+        /** Whether the BG may position divisions (anchors, flank sides) rather than only pick their targets. */
+        public boolean allowsPositioning() {
+            return this != TARGET_COORDINATION;
+        }
+
+        /** Whether the BG may re-task divisions onto relief, reserve-commitment and pursuit tasks. */
+        public boolean allowsRetasking() {
+            return this != TARGET_COORDINATION;
+        }
+
+        /** Whether BG taskings are binding (true) or requests a division may decline (false). */
+        public boolean isBinding() {
+            return this != MISSION_TACTICS;
+        }
+
+        public static BattlegroupAuthority fromId(String id, BattlegroupAuthority fallback) {
+            if (id == null) return fallback;
+            try {
+                return BattlegroupAuthority.valueOf(id);
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Battle-wide orchestration plays the Battlegroup Commander may run (each toggled in the Fleet Doctrine window).
+     */
+    public enum OrchestrationPlay {
+        ANCHOR_AND_FIX(
+                "Anchor & Fix",
+                "Main Effort fixes the primary threat; supporting divisions get their own enemy divisions instead of piling onto the nearest."),
+        PINCER_FLANKS(
+                "Pincer Flanks",
+                "Flanking divisions are given opposite flank sides so they envelop the same target from left and right."),
+        TIMED_STRIKES(
+                "Timed Strikes",
+                "Missile and strike-craft divisions stage first, then commit together at a shared strike time on one focus target."),
+        RESERVE_AND_EXPLOIT(
+                "Reserve & Exploit",
+                "One relief division per crisis, reserve held until needed, and fast divisions pursue broken enemies on a leash.");
+
+        public final String displayName;
+        public final String summary;
+
+        OrchestrationPlay(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+    }
+
+    /**
      * Campaign-saved Battlegroup & Fleet Doctrine settings defining:
      *  1. Battlegroup Settings:
      *     - Opening Mission duration (30s - 60s, default 45s)
@@ -513,6 +601,8 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, DivisionMissionType> openingMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> mainMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, PreferredSpace> preferredSpaceByType = new LinkedHashMap<>();
+        private final Set<OrchestrationPlay> enabledPlays = EnumSet.allOf(OrchestrationPlay.class);
+        private BattlegroupAuthority bgAuthority = BattlegroupAuthority.HYBRID;
         private int openingDurationSeconds = 45;
 
         public FleetDoctrineConfig() {
@@ -529,6 +619,33 @@ public class PermanentDivisionManager {
                 mainMissionByType.put(dt, dt.defaultMainMission);
                 preferredSpaceByType.put(dt, dt.defaultPreferredSpace);
             }
+        }
+
+        public BattlegroupAuthority getBgAuthority() {
+            return bgAuthority != null ? bgAuthority : BattlegroupAuthority.HYBRID;
+        }
+
+        public void setBgAuthority(BattlegroupAuthority authority) {
+            if (authority != null) {
+                this.bgAuthority = authority;
+            }
+        }
+
+        public boolean isPlayEnabled(OrchestrationPlay play) {
+            return play != null && enabledPlays.contains(play);
+        }
+
+        public void setPlayEnabled(OrchestrationPlay play, boolean enabled) {
+            if (play == null) return;
+            if (enabled) {
+                enabledPlays.add(play);
+            } else {
+                enabledPlays.remove(play);
+            }
+        }
+
+        public Set<OrchestrationPlay> getEnabledPlays() {
+            return enabledPlays.isEmpty() ? EnumSet.noneOf(OrchestrationPlay.class) : EnumSet.copyOf(enabledPlays);
         }
 
         public PreferredSpace getPreferredSpace(DoctrineDivisionType dt) {
@@ -675,6 +792,16 @@ public class PermanentDivisionManager {
             if (opDurObj instanceof Number) {
                 cfg.setOpeningDurationSeconds(((Number) opDurObj).intValue());
             }
+            Object authObj = map.get("bg_authority");
+            if (authObj instanceof String) {
+                cfg.setBgAuthority(BattlegroupAuthority.fromId((String) authObj, BattlegroupAuthority.HYBRID));
+            }
+            for (OrchestrationPlay play : OrchestrationPlay.values()) {
+                Object playObj = map.get("bg_play_" + play.name());
+                if (playObj instanceof Boolean) {
+                    cfg.setPlayEnabled(play, (Boolean) playObj);
+                }
+            }
             for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
                 Object spObj = map.get("spacing_" + dt.name());
                 Object ispObj = map.get("inter_spacing_" + dt.name());
@@ -714,6 +841,10 @@ public class PermanentDivisionManager {
         if (sector == null || cfg == null) return;
         Map<String, Object> serialized = new HashMap<>();
         serialized.put("opening_duration_sec", cfg.getOpeningDurationSeconds());
+        serialized.put("bg_authority", cfg.getBgAuthority().name());
+        for (OrchestrationPlay play : OrchestrationPlay.values()) {
+            serialized.put("bg_play_" + play.name(), cfg.isPlayEnabled(play));
+        }
         for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
             serialized.put("min_" + cat.name(), cfg.getMin(cat));
             serialized.put("max_" + cat.name(), cfg.getMax(cat));
@@ -793,6 +924,20 @@ public class PermanentDivisionManager {
         if (dt == null || ps == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setPreferredSpace(dt, ps);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateBattlegroupAuthority(BattlegroupAuthority authority) {
+        if (authority == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setBgAuthority(authority);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateOrchestrationPlay(OrchestrationPlay play, boolean enabled) {
+        if (play == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setPlayEnabled(play, enabled);
         saveFleetDoctrine(cfg);
     }
 
@@ -899,11 +1044,17 @@ public class PermanentDivisionManager {
     }
 
     /**
-     * Calculates the longest-range non-PD firepower across all ships currently assigned to the division
-     * (scanning all fitted weapons with ship stat range bonuses and any fitted offensive fighter wings).
+     * Calculates the longest-range non-PD gun firepower across all ships currently assigned to the division
+     * (scanning fitted ballistic/energy weapons with ship stat range bonuses and any fitted offensive fighter wings).
+     * Missiles are excluded: a single long-range missile rack would otherwise push the whole division's standoff
+     * far beyond the range its guns can actually fight at.
      * Returns 0 if the division has no ships or no non-PD weapons.
      */
     public static int computeDivisionLongestWeaponRange(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+        return computeDivisionLongestWeaponRange(spec, fleet, false);
+    }
+
+    private static int computeDivisionLongestWeaponRange(PermanentDivisionSpec spec, CampaignFleetAPI fleet, boolean includeMissiles) {
         if (spec == null || fleet == null || spec.memberIds.isEmpty()) return 0;
         List<FleetMemberAPI> members = getMembersInDivision(spec, fleet);
         float maxRange = 0f;
@@ -921,6 +1072,7 @@ public class PermanentDivisionManager {
                 boolean pdOnly = hints != null && (hints.contains(AIHints.PD_ONLY)
                         || (hints.contains(AIHints.PD) && !hints.contains(AIHints.ANTI_FTR) && wSpec.getMaxRange() <= 550f));
                 if (pdOnly) continue;
+                if (!includeMissiles && wSpec.getType() == WeaponType.MISSILE) continue;
 
                 float baseRange = wSpec.getMaxRange();
                 if (baseRange <= 0f) continue;
@@ -967,6 +1119,37 @@ public class PermanentDivisionManager {
         int longest = computeDivisionLongestWeaponRange(spec, fleet);
         if (longest > 0) {
             spec.customLineStandoff = longest;
+        }
+    }
+
+    /**
+     * One-time save migration (v0.5.0): divisions whose Line Standoff was auto-set by the old missile-inclusive
+     * calculation are recalculated from gun range. Manually chosen standoff values are left untouched.
+     */
+    public static void migrateAutoStandoffToGunRange() {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || sector.getPlayerFleet() == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        if (Boolean.TRUE.equals(pdata.get(PERSISTENT_STANDOFF_MIGRATION_KEY))) return;
+
+        CampaignFleetAPI fleet = sector.getPlayerFleet();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        int migrated = 0;
+        for (PermanentDivisionSpec spec : specs) {
+            if (spec.customLineStandoff == null) continue;
+            int oldAuto = computeDivisionLongestWeaponRange(spec, fleet, true);
+            if (oldAuto > 0 && oldAuto == spec.customLineStandoff) {
+                int gunOnly = computeDivisionLongestWeaponRange(spec, fleet, false);
+                if (gunOnly > 0 && gunOnly != oldAuto) {
+                    spec.customLineStandoff = gunOnly;
+                    migrated++;
+                }
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+        pdata.put(PERSISTENT_STANDOFF_MIGRATION_KEY, Boolean.TRUE);
+        if (migrated > 0) {
+            LOG.info("[DivisionAI] Recalculated auto Line Standoff from gun range (missiles excluded) for " + migrated + " divisions.");
         }
     }
 

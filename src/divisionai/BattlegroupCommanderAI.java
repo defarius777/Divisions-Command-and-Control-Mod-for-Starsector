@@ -15,6 +15,8 @@ import divisionai.DivisionModel.BattlegroupState;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionState;
 import divisionai.DivisionModel.MissionContextType;
+import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.OrchestrationPlay;
 import org.lwjgl.util.vector.Vector2f;
 
 import java.util.Iterator;
@@ -32,6 +34,7 @@ import java.util.List;
 public class BattlegroupCommanderAI {
 
     private static final float LOCAL_EVAL_DIAMETER = 4600f; // 2300u radius around division centroid
+    private static final float MIN_PHASE_DWELL = 10f;
 
     public static void updateTelemetry(CombatEngineAPI engine, BattlegroupState bg) {
         float fleetWeightedX = 0f;
@@ -245,6 +248,9 @@ public class BattlegroupCommanderAI {
         DivisionState bestReserveCandidate = null;
         float bestReserveScore = -1f;
 
+        float significantFp = Math.max(10f, myBg.totalFriendlyStrength * 0.12f);
+        DivisionState minorEndangeredDiv = null;
+        float worstMinorOvermatch = Float.MAX_VALUE;
         for (DivisionState div : myBg.divisions) {
             if (!div.isCombatEffective()) {
                 div.isDesignatedMainEffort = false;
@@ -253,9 +259,18 @@ public class BattlegroupCommanderAI {
             }
             activeDivCount++;
 
-            if (div.localEnemyStrength > 8f && div.localOvermatchRatio < worstOvermatch) {
+            // Only divisions that matter to the battle can flip the whole battlegroup into Stabilize & Relieve;
+            // a lone frigate or destroyer in trouble is handled by local mutual support instead.
+            boolean significant = div.totalFpStrength >= significantFp
+                    || div.archetype == DivisionArchetype.BATTLE_DIVISION
+                    || div.archetype.isCarrierArchetype();
+            if (significant && div.localEnemyStrength > 8f && div.localOvermatchRatio < worstOvermatch) {
                 worstOvermatch = div.localOvermatchRatio;
                 endangeredDiv = div;
+            }
+            if (div.localEnemyStrength > 8f && div.localOvermatchRatio < 0.60f && div.localOvermatchRatio < worstMinorOvermatch) {
+                worstMinorOvermatch = div.localOvermatchRatio;
+                minorEndangeredDiv = div;
             }
 
             float mainScore = div.totalFpStrength * (1.2f - 0.5f * div.avgFluxLevel);
@@ -266,6 +281,16 @@ public class BattlegroupCommanderAI {
                 mainScore *= 1.35f;
             } else if (div.archetype.isCarrierArchetype()) {
                 mainScore *= 0.55f;
+            }
+            // The Main Effort anchors the line, so prefer divisions whose mission keeps them there
+            DivisionMissionType mission = DivisionCommanderAI.resolveActiveMission(div, now);
+            if (mission == DivisionMissionType.OUTFLANK_AND_DESTROY
+                    || mission == DivisionMissionType.SCREEN
+                    || mission == DivisionMissionType.BATTLEGROUP_RESERVE) {
+                mainScore *= 0.6f;
+            }
+            if (div == myBg.mainEffortDivision) {
+                mainScore *= 1.15f;
             }
             if (mainScore > strongestLineFp) {
                 strongestLineFp = mainScore;
@@ -286,6 +311,12 @@ public class BattlegroupCommanderAI {
             float distToEnemy = distanceToNearestEnemyDivision(engine, div, enemyBg);
             float distFactor = (distToEnemy < Float.MAX_VALUE * 0.5f) ? (distToEnemy * 0.001f) : 2.0f;
             float reserveScore = distFactor + (div.isFastFlanker ? 1.5f : 0.8f) - div.avgFluxLevel;
+            if (DivisionCommanderAI.resolveActiveMission(div, now) == DivisionMissionType.BATTLEGROUP_RESERVE) {
+                reserveScore += 5f;
+            }
+            if (div == myBg.reserveDivision) {
+                reserveScore += 1.0f; // sticky: don't swap the reserve between two similar divisions
+            }
             if (reserveScore > bestReserveScore) {
                 bestReserveScore = reserveScore;
                 bestReserveCandidate = div;
@@ -296,42 +327,79 @@ public class BattlegroupCommanderAI {
         myBg.primaryThreatEnemyDivision = pickPrimaryEnemyTargetDivision(engine, myBg, enemyBg);
 
         // Determine operational BattlePhase (strictly respecting Fog of War: if no enemy is spotted yet, stay in OPENING_PROBE)
-        BattlePhase nextPhase;
         float minContactDist = minDistanceBetweenFleets(engine, myBg, enemyBg);
         List<BattleObjectiveAPI> objectives = engine.getObjectives();
         boolean hasUncapturedObjectives = hasContestObjectives(objectives, myBg.side);
         boolean anyEnemyVisible = (myBg.primaryThreatEnemyDivision != null);
+        BattlePhase current = myBg.currentPhase;
 
+        // Hysteresis: entering a phase needs a clearer signal than staying in it, so the battlegroup does not
+        // flap between Stabilize and Breakthrough every few seconds.
+        boolean crisis = endangeredDiv != null
+                && (worstOvermatch < 0.72f || (endangeredDiv.hasShipNeedingHelp && worstOvermatch < 0.85f));
+        boolean crisisPersists = current == BattlePhase.STABILIZE_AND_RELIEVE
+                && endangeredDiv != null && worstOvermatch < 0.90f;
+        boolean breakthrough = myBg.forceRatio >= 1.35f && visibleEnemyFp >= 30f && minContactDist < 3000f;
+        boolean breakthroughPersists = current == BattlePhase.EXPLOIT_BREAKTHROUGH
+                && myBg.forceRatio >= 1.20f && visibleEnemyFp >= 15f && minContactDist < 3600f;
+        boolean strikeRunning = myBg.strikePlan != null && myBg.isPlayEnabled(OrchestrationPlay.TIMED_STRIKES);
+
+        BattlePhase nextPhase;
         if (myBg.missionContext == MissionContextType.FLEET_ESCAPE_REARGUARD
                 || (anyEnemyVisible && myBg.forceRatio < 0.58f && myBg.missionContext != MissionContextType.FIGHT_TO_THE_LAST)) {
             nextPhase = BattlePhase.ORDERED_WITHDRAWAL;
-        } else if (endangeredDiv != null && (worstOvermatch < 0.72f || (endangeredDiv.hasShipNeedingHelp && worstOvermatch < 0.85f))) {
+        } else if (crisis || crisisPersists) {
             nextPhase = BattlePhase.STABILIZE_AND_RELIEVE;
         } else if ((!anyEnemyVisible && now < 90f) || (minContactDist > 3300f && hasUncapturedObjectives && now < 75f)) {
             nextPhase = BattlePhase.OPENING_PROBE;
-        } else if (myBg.forceRatio >= 1.35f && visibleEnemyFp >= 30f && minContactDist < 3000f) {
+        } else if (breakthrough || breakthroughPersists) {
             nextPhase = BattlePhase.EXPLOIT_BREAKTHROUGH;
-        } else if (hasTorpedoOrStrikeDivisionReady(myBg) && minContactDist < 3400f) {
+        } else if (strikeRunning || (hasTorpedoOrStrikeDivisionReady(myBg) && minContactDist < 3400f)) {
             nextPhase = BattlePhase.COORDINATED_STRIKE;
         } else {
             nextPhase = BattlePhase.LINE_CONTACT;
         }
 
-        myBg.previousPhase = myBg.currentPhase;
-        myBg.currentPhase = nextPhase;
+        // Minimum dwell: a phase holds for MIN_PHASE_DWELL seconds unless withdrawal is ordered or a severe crisis erupts
+        boolean dwellElapsed = (now - myBg.phaseEnteredTime) >= MIN_PHASE_DWELL;
+        boolean severeCrisis = endangeredDiv != null && worstOvermatch < 0.45f;
+        if (nextPhase != current && !dwellElapsed
+                && nextPhase != BattlePhase.ORDERED_WITHDRAWAL
+                && !(nextPhase == BattlePhase.STABILIZE_AND_RELIEVE && severeCrisis)) {
+            nextPhase = current;
+        }
 
-        // Reserve management: keep 1 uncommitted reserve division ONLY during the opening 90s of battle
-        // if we have >= 3 divisions and cautious/steady commander, then commit all divisions afterward!
-        boolean holdReserve = (now < 90f)
-                && (activeDivCount >= 3)
-                && (nextPhase == BattlePhase.OPENING_PROBE || nextPhase == BattlePhase.LINE_CONTACT)
-                && (myBg.bgCommander.aggressionBias <= 1.20f);
+        myBg.previousPhase = current;
+        myBg.currentPhase = nextPhase;
+        if (nextPhase != current) {
+            myBg.phaseEnteredTime = now;
+        }
+
+        // Reserve management. With the Reserve & Exploit play the reserve is held until the BG commits it
+        // (relief, exploitation) or 150s pass; otherwise only during the opening 90s.
+        boolean reservePlay = myBg.isPlayEnabled(OrchestrationPlay.RESERVE_AND_EXPLOIT) && myBg.authority.allowsRetasking();
+        boolean holdReserve;
+        if (reservePlay) {
+            holdReserve = !myBg.reserveCommitted
+                    && (now < 150f)
+                    && (activeDivCount >= 3)
+                    && nextPhase != BattlePhase.ORDERED_WITHDRAWAL
+                    && (myBg.bgCommander.aggressionBias <= 1.35f);
+        } else {
+            holdReserve = (now < 90f)
+                    && (activeDivCount >= 3)
+                    && (nextPhase == BattlePhase.OPENING_PROBE || nextPhase == BattlePhase.LINE_CONTACT)
+                    && (myBg.bgCommander.aggressionBias <= 1.20f);
+        }
 
         for (DivisionState d : myBg.divisions) {
             d.isDesignatedMainEffort = (d == myBg.mainEffortDivision);
             d.isDesignatedReserve = holdReserve && (d == bestReserveCandidate);
         }
         myBg.reserveDivision = holdReserve ? bestReserveCandidate : null;
+
+        // Orchestrate: turn the battle plan into per-division taskings
+        BattlegroupOrchestrator.orchestrate(engine, myBg, enemyBg, endangeredDiv, minorEndangeredDiv, now);
 
         // Log Battlegroup Commander operational directive when phase or primary focus shifts
         String directive = buildBattlegroupDirectiveSummary(myBg, endangeredDiv);
@@ -349,6 +417,13 @@ public class BattlegroupCommanderAI {
                 }
                 return String.format("Advance %s to contest objectives and establish contact.", mainName);
             case COORDINATED_STRIKE:
+                if (bg.strikePlan != null && bg.strikePlan.target != null) {
+                    return String.format("Fix with %s; %d strike division%s timed against \"%s\".",
+                            mainName,
+                            bg.strikePlan.participants.size(),
+                            bg.strikePlan.participants.size() == 1 ? "" : "s",
+                            bg.strikePlan.target.displayName);
+                }
                 return String.format("Fix with %s and cue strike divisions against %s.", mainName, targetName);
             case STABILIZE_AND_RELIEVE:
                 if (endangeredDiv != null) {

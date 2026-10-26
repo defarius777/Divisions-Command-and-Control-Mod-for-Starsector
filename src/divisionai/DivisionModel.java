@@ -9,9 +9,12 @@ import com.fs.starfarer.api.impl.campaign.ids.Personalities;
 import org.lwjgl.util.vector.Vector2f;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Core data structures for Battlegroup Commander and Division Commander AI.
@@ -107,13 +110,93 @@ public class DivisionModel {
         CARRIER_PROTECT_FLEET_CAP("provide strike craft fleet air defense over"),
         CARRIER_STRIKE_AT_WILL("launch successive strike craft attacks on"),
         CARRIER_DIVISION_STRIKE("execute division coordinated strike craft attack on"),
-        CARRIER_MULTI_DIV_STRIKE("execute multi-division coordinated strike craft attack on");
+        CARRIER_MULTI_DIV_STRIKE("execute multi-division coordinated strike craft attack on"),
+        FIX_ENEMY_DIVISION("anchor the battle line and fix"),
+        STAGE_FOR_STRIKE("stage for synchronized strike against"),
+        PURSUE_BROKEN_ENEMY("pursue and destroy broken");
 
         public final String verbPhrase;
 
         DivisionIntentType(String verbPhrase) {
             this.verbPhrase = verbPhrase;
         }
+    }
+
+    /**
+     * Kind of task the Battlegroup Commander hands a division while orchestrating the battle.
+     */
+    public enum BgTaskType {
+        NONE,
+        FIX_PRIMARY,      // Main Effort: hold a fixing position on the BG primary threat
+        SUPPORT_ATTACK,   // engage a specific allocated enemy division
+        FLANK,            // envelop the target enemy division from an assigned flank side
+        STRIKE_STAGE,     // move to a staging point and wait for the strike time
+        STRIKE_COMMIT,    // strike time reached: everyone commits onto the shared focus target
+        RELIEVE,          // the one division sent to relieve the current crisis
+        HOLD_RESERVE,     // stay in battlegroup reserve until committed
+        PURSUE            // exploit: pursue a broken enemy division within the pursuit leash
+    }
+
+    /**
+     * A Battlegroup Commander tasking for one division. Re-issued every BG evaluation; it lapses at
+     * {@link #expiresTime} if the BG stops issuing it.
+     */
+    public static class BgTasking {
+        public BgTaskType type = BgTaskType.NONE;
+        public DivisionState targetEnemy;
+        public DivisionState targetFriendly;
+        public final Vector2f anchor = new Vector2f();
+        public boolean hasAnchor;
+        public float flankSide; // +1 / -1 relative to the enemy's facing axis, 0 = unassigned
+        public float expiresTime = -100f;
+        public String reason = "";
+        /** Incremented whenever the type or target changes, so division commanders re-evaluate immediately. */
+        public int version;
+
+        public boolean isActive(float now) {
+            return type != BgTaskType.NONE && now <= expiresTime;
+        }
+
+        public void clear() {
+            if (type != BgTaskType.NONE) {
+                version++;
+            }
+            type = BgTaskType.NONE;
+            targetEnemy = null;
+            targetFriendly = null;
+            hasAnchor = false;
+            flankSide = 0f;
+            reason = "";
+        }
+
+        /** Sets the tasking and bumps {@link #version} only if it actually changed. */
+        public void set(BgTaskType newType, DivisionState enemy, DivisionState friendly, float side, float expires, String why) {
+            if (newType != type || enemy != targetEnemy || friendly != targetFriendly || Math.signum(side) != Math.signum(flankSide)) {
+                version++;
+            }
+            type = newType;
+            targetEnemy = enemy;
+            targetFriendly = friendly;
+            flankSide = side;
+            hasAnchor = false;
+            expiresTime = expires;
+            reason = why != null ? why : "";
+        }
+    }
+
+    /**
+     * A synchronized multi-division strike: participants stage, then all commit at the strike time
+     * onto one focus ship of the target division.
+     */
+    public static class StrikePlan {
+        public DivisionState target;
+        public final List<DivisionState> participants = new ArrayList<>();
+        public final Map<String, Vector2f> stagingAnchors = new HashMap<>();
+        public float createdTime;
+        public float strikeTime;
+        public boolean committed;
+        public float commitTime = -100f;
+        public ShipAPI focusShip;
     }
 
     /**
@@ -130,6 +213,7 @@ public class DivisionModel {
         public float rotationFluxThreshold; // avg flux/hull pressure at which division rotates out
         public float overmatchCommitRatio;  // friendly/enemy ratio needed to press or strike
         public float decisionCadenceSeconds;
+        public float intentCommitSeconds;   // how long a non-urgent intent is held before it may change
 
         public CommanderProfile(PersonAPI person, String fallbackTitle) {
             this.person = person;
@@ -159,6 +243,7 @@ public class DivisionModel {
                     this.rotationFluxThreshold = 0.80f;
                     this.overmatchCommitRatio = 0.72f;
                     this.decisionCadenceSeconds = Math.max(2.2f, 3.2f - skillBonus * 2f);
+                    this.intentCommitSeconds = 5.0f;
                     break;
                 case Personalities.AGGRESSIVE:
                     this.aggressionBias = 1.28f;
@@ -166,6 +251,7 @@ public class DivisionModel {
                     this.rotationFluxThreshold = 0.72f;
                     this.overmatchCommitRatio = 0.88f;
                     this.decisionCadenceSeconds = Math.max(2.0f, 3.0f - skillBonus * 2f);
+                    this.intentCommitSeconds = 6.5f;
                     break;
                 case Personalities.CAUTIOUS:
                     this.aggressionBias = 0.78f;
@@ -173,6 +259,7 @@ public class DivisionModel {
                     this.rotationFluxThreshold = 0.56f;
                     this.overmatchCommitRatio = 1.22f;
                     this.decisionCadenceSeconds = Math.max(2.2f, 3.2f - skillBonus * 2f);
+                    this.intentCommitSeconds = 9.5f;
                     break;
                 case Personalities.TIMID:
                     this.aggressionBias = 0.55f;
@@ -180,6 +267,7 @@ public class DivisionModel {
                     this.rotationFluxThreshold = 0.48f;
                     this.overmatchCommitRatio = 1.45f;
                     this.decisionCadenceSeconds = Math.max(2.5f, 3.5f - skillBonus * 2f);
+                    this.intentCommitSeconds = 10.0f;
                     break;
                 case Personalities.STEADY:
                 default:
@@ -188,6 +276,7 @@ public class DivisionModel {
                     this.rotationFluxThreshold = 0.65f;
                     this.overmatchCommitRatio = 1.02f;
                     this.decisionCadenceSeconds = Math.max(2.0f, 3.0f - skillBonus * 2f);
+                    this.intentCommitSeconds = 8.0f;
                     break;
             }
         }
@@ -263,6 +352,12 @@ public class DivisionModel {
         public boolean isDesignatedReserve = false;
         public boolean isDesignatedMainEffort = false;
 
+        // Battlegroup orchestration & intent commitment
+        public final BgTasking bgTask = new BgTasking();
+        public int appliedBgTaskVersion = -1;
+        public float intentCommitUntil = -100f;
+        public final Set<String> fighterPullbackShipIds = new HashSet<>();
+
         public DivisionState(
                 String id,
                 int side,
@@ -320,6 +415,23 @@ public class DivisionModel {
         public float lastBgEvaluationTime = -100f;
         public float lastBgOrderLogTime = -100f;
         public String lastBgOrderSignature = "";
+
+        // Battlegroup orchestration (configured in Fleet Doctrine for the player; defaults for AI battlegroups)
+        public PermanentDivisionManager.BattlegroupAuthority authority =
+                PermanentDivisionManager.BattlegroupAuthority.HYBRID;
+        public final Set<PermanentDivisionManager.OrchestrationPlay> plays =
+                EnumSet.allOf(PermanentDivisionManager.OrchestrationPlay.class);
+        public float phaseEnteredTime = 0f;
+        public DivisionState crisisDivision;
+        public DivisionState reliefDivision;
+        public boolean reserveCommitted = false;
+        public StrikePlan strikePlan;
+        public float lastStrikePlanEndTime = -100f;
+        public final Map<String, Float> orderLogTimes = new HashMap<>();
+
+        public boolean isPlayEnabled(PermanentDivisionManager.OrchestrationPlay play) {
+            return plays.contains(play);
+        }
 
         public BattlegroupState(int side, CommanderProfile bgCommander) {
             this.side = side;

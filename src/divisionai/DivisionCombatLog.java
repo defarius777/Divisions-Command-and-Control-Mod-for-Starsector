@@ -106,6 +106,28 @@ public class DivisionCombatLog {
         }
     }
 
+    /**
+     * Logs a Battlegroup Commander orchestration order (strike plans, relief, pursuit, pincer sides).
+     * Throttling is done by the caller per order key.
+     */
+    public static void logBattlegroupOrder(CombatEngineAPI engine, BattlegroupState bg, String orderText) {
+        if (bg == null || orderText == null) return;
+        String sideTag = (bg.side == 0)
+                ? (bg.isAlliedAi ? "[Allied BG Cmdr]" : "[Player BG Cmdr]")
+                : "[Enemy BG Cmdr]";
+        LOG.info(String.format("%s (%s) Order [%s]: %s",
+                sideTag, bg.bgCommander.personalityId, bg.authority.shortName, orderText));
+
+        CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
+        if (ui != null && DivisionAISettings.isBgChatterEnabled(bg.side)) {
+            Color prefixColor = (bg.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
+            ui.addMessage(
+                    1,
+                    prefixColor, sideTag + " ",
+                    Misc.getTextColor(), orderText);
+        }
+    }
+
     public static void logDivisionIntent(
             CombatEngineAPI engine,
             DivisionState div,
