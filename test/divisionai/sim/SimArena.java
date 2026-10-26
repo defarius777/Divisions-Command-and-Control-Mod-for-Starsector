@@ -622,13 +622,7 @@ public class SimArena {
         sb.append("    const [cx,cy]=w2s(d.cx,d.cy);\n");
         sb.append("    if(d.side===0){\n");
         sb.append("      const [sx,sy]=w2s(d.sx,d.sy);\n");
-        sb.append("      const [hx,hy]=d.hasWp?w2s(d.wx,d.wy):[sx,sy];\n");
-        sb.append("      let dx=hx-cx,dy=hy-cy,len=Math.hypot(dx,dy)||1;dx/=len;dy/=len;\n");
-        sb.append("      const dp=divPolys.find(x=>x.d===d);\n");
-        sb.append("      let maxF=14;\n");
-        sb.append("      if(dp){maxF=-1e9;dp.poly.forEach(p=>{const f=(p[0]-cx)*dx+(p[1]-cy)*dy;if(f>maxF)maxF=f;});}\n");
-        sb.append("      const leadX=cx+dx*(maxF+2),leadY=cy+dy*(maxF+2);\n");
-        sb.append("      ctx.save();ctx.setLineDash([5,4]);ctx.strokeStyle='#5ce6a0';ctx.lineWidth=1.9;ctx.beginPath();ctx.moveTo(leadX,leadY);\n");
+        sb.append("      ctx.save();ctx.setLineDash([5,4]);ctx.strokeStyle='#5ce6a0';ctx.lineWidth=1.9;ctx.beginPath();ctx.moveTo(cx,cy);\n");
         sb.append("      if(d.hasWp){const [wx,wy]=w2s(d.wx,d.wy);ctx.lineTo(wx,wy);ctx.lineTo(sx,sy);ctx.stroke();ctx.setLineDash([]);ctx.strokeStyle='#ffd166';ctx.strokeRect(wx-4,wy-4,8,8);}else{ctx.lineTo(sx,sy);ctx.stroke();}\n");
         sb.append("      ctx.restore();\n");
         sb.append("    }\n");

@@ -646,7 +646,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
     /**
      * Renders the division waypoints (wide-arc out-of-contact route waypoint + final tactical goal)
-     * originating from the leading edge of the division polygon toward the first waypoint / destination.
+     * originating directly from the locational center of the division entity itself.
      */
     private void renderDivisionWaypointsAndIntent(
             RenderedDivisionPolygon rp,
@@ -668,43 +668,16 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 && div.routeWaypoint != null
                 && (div.routeWaypoint.x != 0f || div.routeWaypoint.y != 0f);
 
-        float cx = rp.centerScreen.x;
-        float cy = rp.centerScreen.y;
+        // Originate directly from the locational center of the division entity
+        float startX = rp.centerScreen.x;
+        float startY = rp.centerScreen.y;
         float tx = destWorld.x * scale + offsetX;
         float ty = destWorld.y * scale + offsetY;
-
-        float firstTargetX = tx;
-        float firstTargetY = ty;
-        if (drawWideArcDogleg) {
-            firstTargetX = div.routeWaypoint.x * scale + offsetX;
-            firstTargetY = div.routeWaypoint.y * scale + offsetY;
-        }
-
-        float hdx = firstTargetX - cx;
-        float hdy = firstTargetY - cy;
-        float hLen = (float) Math.sqrt(hdx * hdx + hdy * hdy);
-        if (hLen < 12f) return;
-
-        float dirX = hdx / hLen;
-        float dirY = hdy / hLen;
-
-        // Find where the division polygon boundary extends along (dirX, dirY) so the waypoint vector
-        // starts cleanly at the outer edge of the division polygon
-        float maxFwdPx = 12f;
-        for (Vector2f v : rp.polyScreen) {
-            float fwd = (v.x - cx) * dirX + (v.y - cy) * dirY;
-            if (fwd > maxFwdPx) {
-                maxFwdPx = fwd;
-            }
-        }
-
-        float startX = cx + dirX * Math.min(maxFwdPx + 2f, hLen * 0.45f);
-        float startY = cy + dirY * Math.min(maxFwdPx + 2f, hLen * 0.45f);
 
         float dx = tx - startX;
         float dy = ty - startY;
         float distPx = (float) Math.sqrt(dx * dx + dy * dy);
-        if (distPx < 10f) return;
+        if (distPx < 14f) return;
 
         float ux = dx / distPx;
         float uy = dy / distPx;
@@ -722,7 +695,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             GL11.glColor4f(0.48f, 1.00f, 0.70f, vecAlpha);
         }
 
-        float startOffset = 2f;
+        // Subtle origin pip at the division's locational center
+        float pipR = 3.2f;
+        GL11.glLineWidth(1.8f);
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        GL11.glVertex2f(startX, startY + pipR);
+        GL11.glVertex2f(startX + pipR, startY);
+        GL11.glVertex2f(startX, startY - pipR);
+        GL11.glVertex2f(startX - pipR, startY);
+        GL11.glEnd();
+
+        float startOffset = 4f;
         float endOffset = targetIsEnemy ? 14f : 6f;
 
         if (drawWideArcDogleg) {
