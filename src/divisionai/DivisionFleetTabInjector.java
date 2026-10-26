@@ -44,6 +44,7 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
     private transient ButtonAPI fleetDoctrineButton;
     private transient DivisionEditorDialog activeDialog;
     private transient FleetDoctrineDialog activeDoctrineDialog;
+    private transient CampaignFleetTooltipOrganizer fleetTooltipOrganizer;
 
     @Override
     public boolean isDone() {
@@ -61,6 +62,11 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
         if (sector == null) return;
         CampaignUIAPI campaignUI = sector.getCampaignUI();
         if (campaignUI == null) return;
+
+        if (fleetTooltipOrganizer == null) {
+            fleetTooltipOrganizer = new CampaignFleetTooltipOrganizer();
+        }
+        fleetTooltipOrganizer.advance();
 
         if (!CoreUITabId.FLEET.equals(campaignUI.getCurrentCoreTab())) {
             if (activeDialog != null && !activeDialog.isClosed()) {

@@ -3,6 +3,7 @@ toolchain/
 lib/
 dist/
 logo/
+Flavor Study/
 *.class
 .DS_Store
 Thumbs.db

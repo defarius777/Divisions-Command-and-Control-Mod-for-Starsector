@@ -309,6 +309,8 @@ public class DivisionModel {
         public final DivisionArchetype archetype;
         public final String displayName;
         public final CommanderProfile commander;
+        public DivisionNomenclature.NomenclatureCategory nomenclatureCategory =
+                DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL;
 
         public final List<ShipAPI> members = new ArrayList<>();
         public final List<ShipCapabilityProfile> profiles = new ArrayList<>();
@@ -412,6 +414,9 @@ public class DivisionModel {
         public final int side;
         public boolean isAlliedAi = false;
         public CommanderProfile otc;
+        public DivisionNomenclature.NomenclatureCategory nomenclatureCategory =
+                DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL;
+        public String factionId = "independent";
         public MissionContextType missionContext = MissionContextType.FLEET_ACTION;
         public BattlePhase currentPhase = BattlePhase.APPROACH;
         public BattlePhase previousPhase = null;

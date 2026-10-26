@@ -1,0 +1,921 @@
+package divisionai;
+
+import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.campaign.CampaignFleetAPI;
+import com.fs.starfarer.api.campaign.FactionAPI;
+import com.fs.starfarer.api.campaign.SectorAPI;
+import com.fs.starfarer.api.combat.ShipAPI;
+import com.fs.starfarer.api.combat.ShipHullSpecAPI;
+import com.fs.starfarer.api.fleet.FleetMemberAPI;
+import divisionai.DivisionModel.DivisionArchetype;
+
+import java.io.Serializable;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * Multi-faction nomenclature system and player division naming customization.
+ *
+ * Faction Nomenclature Categories:
+ *  - HUMAN_NAVAL:
+ *      Standard Naval divisions (Battle Division, Carrier Division, Cruiser Division,
+ *      Destroyer Division, Frigate Division, Phase Division, Service Group).
+ *  - POST_AI_WAR (remnant, derelict):
+ *      OTC Commander is "ORDO COGITATOR/MASTER".
+ *      Because vanilla lore has no tactical unit echelons below campaign-level Ordo/Sub-Ordo/Fragment,
+ *      all divisions display "UNKNOWN".
+ *  - THREAT_SWARM (threat):
+ *      OTC Commander is "<<UNKNOWN?? FRAGMENT COMPILER>>".
+ *      Divisions display shifting corrupted text on the Command Window and tooltips, e.g. "BAaTTLE?!? SWARM".
+ *  - ABYSSAL_ERROR (dweller, omega):
+ *      "ERROR" everywhere (OTC Commander, division names, intent readouts, and campaign tooltips).
+ */
+public final class DivisionNomenclature {
+
+    private static final String PERSISTENT_PLAYER_NAMING_KEY = "divisionai_player_naming_v1";
+
+    public static final String POST_AI_WAR_OTC_TITLE = "ORDO COGITATOR/MASTER";
+    public static final String POST_AI_WAR_DIVISION_NAME = "UNKNOWN";
+    public static final String THREAT_OTC_TITLE = "<<UNKNOWN?? FRAGMENT COMPILER>>";
+    public static final String ABYSSAL_ERROR_TEXT = "ERROR";
+
+    public enum NomenclatureCategory {
+        HUMAN_NAVAL("Human Naval Standard"),
+        POST_AI_WAR("Post-AI War AI (ORDO COGITATOR/MASTER / UNKNOWN)"),
+        THREAT_SWARM("The Threat (<<UNKNOWN?? FRAGMENT COMPILER>> / Corrupted SWARM)"),
+        ABYSSAL_ERROR("Abyssal / Otherworldly (ERROR)");
+
+        public final String displayName;
+
+        NomenclatureCategory(String displayName) {
+            this.displayName = displayName;
+        }
+    }
+
+    public enum NumberingStyle {
+        ARABIC("Arabic (1, 2, 3)", "Appends Arabic numerals (e.g. Battle Div 1, Battle Div 2)."),
+        ROMAN("Roman (I, II, III)", "Appends Roman numerals (e.g. Battle Div I, Battle Div II)."),
+        ORDINAL_PREFIX("Ordinal Prefix (1st, 2nd, 3rd)", "Prepends ordinal numbers (e.g. 1st Battle Div, 2nd Battle Div)."),
+        PHONETIC("Callsign (Alpha, Beta, Gamma)", "Appends phonetic callsigns (e.g. Battle Div Alpha, Battle Div Beta)."),
+        NONE("No Numbering", "Uses only the division base title without a sequence number.");
+
+        public final String displayName;
+        public final String summary;
+
+        NumberingStyle(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+
+        public static NumberingStyle fromId(String id, NumberingStyle fallback) {
+            if (id == null) return fallback;
+            for (NumberingStyle s : values()) {
+                if (s.name().equalsIgnoreCase(id.trim())) {
+                    return s;
+                }
+            }
+            return fallback;
+        }
+    }
+
+    public enum PlayerNamingPreset {
+        NAVAL_STANDARD(
+                "Naval Standard (Battle, Carrier, Cruiser, Destroyer, Frigate)",
+                "Standard naval nomenclature: Battle Div, Carrier Div, Cruiser Div, Destroyer Div, Frigate Div, Phase Div.",
+                NomenclatureCategory.HUMAN_NAVAL,
+                NumberingStyle.ARABIC),
+        CLASSIC_NAVAL(
+                "Detailed Naval (Battleship, Fleet/Light/Escort Carrier, Strike Cruiser)",
+                "Distinguishes Battleship Div, Fleet/Light/Escort Carrier Div, Cruiser/Strike Cruiser Div, Destroyer Div, Frigate Div.",
+                NomenclatureCategory.HUMAN_NAVAL,
+                NumberingStyle.ARABIC),
+        DOMAIN_ARMADA(
+                "Domain / Hegemony Armada (Battle Line, Squadron, Flotilla, Picket)",
+                "XIV Battlegroup style: Battle Line, Carrier Wing, Cruiser Squadron, Destroyer Flotilla, Frigate Picket.",
+                NomenclatureCategory.HUMAN_NAVAL,
+                NumberingStyle.ROMAN),
+        TRITACHYON_CORPORATE(
+                "Tri-Tachyon Corporate (Asset Group, Assurance Unit, Special Affairs)",
+                "Corporate security designations: Capital Asset Group, Flight Group, Cruiser Assurance Unit, Phase Special Affairs.",
+                NomenclatureCategory.HUMAN_NAVAL,
+                NumberingStyle.PHONETIC),
+        PERSEAN_NAVARCHY(
+                "Persean League Navarchy (Phalanx, Mora, Lochos, Peltast)",
+                "Kazeron Navarchy designations: Battle Phalanx, Carrier Group, Cruiser Mora, Destroyer Lochos, Frigate Peltast.",
+                NomenclatureCategory.HUMAN_NAVAL,
+                NumberingStyle.ROMAN),
+        SINDRIAN_GUARD(
+                "Sindrian Diktat / Lion's Guard (Executor Line, Solar Squadron)",
+                "Askonia Great Plan designations: Executor Line, Solar Carrier Wing, Cruiser Phalanx, Vanguard Flotilla, Picket Guard.",
+                NomenclatureCategory.HUMAN_NAVAL,
+                NumberingStyle.ROMAN),
+        LUDDIC_ARMADA(
+                "Luddic Armada (Hallowed Bastion, Righteous Hammer, Watchers Picket)",
+                "Knights of Ludd & Church designations: Hallowed Bastion, Ark Host, Righteous Hammer, Sword Flotilla, Watchers Picket.",
+                NomenclatureCategory.HUMAN_NAVAL,
+                NumberingStyle.ROMAN),
+        PIRATE_WOLFPACK(
+                "Pirate / Free Captain (Dreadnought Pack, Raider Pack, Wolfpack)",
+                "Outlaw flotilla designations: Dreadnought Pack, Flattop Pack, Raider Pack, Hunter Pack, Wolfpack, Ghost Pack.",
+                NomenclatureCategory.HUMAN_NAVAL,
+                NumberingStyle.ORDINAL_PREFIX),
+        REMNANT_ORDO(
+                "Remnant AI Echelons (Sub-Ordo & Fragment)",
+                "Uses Tri-Tachyon AI echelons: Heavy Sub-Ordo, Carrier Sub-Ordo, Cruiser Sub-Ordo, Destroyer Fragment, Frigate Fragment.",
+                NomenclatureCategory.HUMAN_NAVAL,
+                NumberingStyle.ROMAN),
+        POST_AI_WAR_UNKNOWN(
+                "Post-AI War AI (ORDO COGITATOR/MASTER — All Divisions 'UNKNOWN')",
+                "OTC is 'ORDO COGITATOR/MASTER' and all divisions display 'UNKNOWN'.",
+                NomenclatureCategory.POST_AI_WAR,
+                NumberingStyle.NONE),
+        THREAT_CORRUPTED(
+                "The Threat (<<UNKNOWN?? FRAGMENT COMPILER>> — Corrupted 'BAaTTLE?!? SWARM')",
+                "OTC is '<<UNKNOWN?? FRAGMENT COMPILER>>' and divisions display shifting corrupted text on the Command Window.",
+                NomenclatureCategory.THREAT_SWARM,
+                NumberingStyle.NONE),
+        ABYSSAL_ERROR(
+                "Abyssal / Otherworldly ('ERROR' Everywhere)",
+                "OTC and all divisions display 'ERROR' everywhere.",
+                NomenclatureCategory.ABYSSAL_ERROR,
+                NumberingStyle.NONE);
+
+        public final String displayName;
+        public final String summary;
+        public final NomenclatureCategory category;
+        public final NumberingStyle defaultNumbering;
+
+        PlayerNamingPreset(
+                String displayName,
+                String summary,
+                NomenclatureCategory category,
+                NumberingStyle defaultNumbering) {
+            this.displayName = displayName;
+            this.summary = summary;
+            this.category = category;
+            this.defaultNumbering = defaultNumbering;
+        }
+
+        public static PlayerNamingPreset fromId(String id, PlayerNamingPreset fallback) {
+            if (id == null) return fallback;
+            for (PlayerNamingPreset p : values()) {
+                if (p.name().equalsIgnoreCase(id.trim())) {
+                    return p;
+                }
+            }
+            return fallback;
+        }
+    }
+
+    public static final class PlayerNamingConfig implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        private String presetId = PlayerNamingPreset.NAVAL_STANDARD.name();
+        private String numberingStyleId = NumberingStyle.ARABIC.name();
+        private String customOtcTitle = "";
+        private Map<String, String> customPrefixes = new LinkedHashMap<>();
+
+        public PlayerNamingPreset getPreset() {
+            return PlayerNamingPreset.fromId(presetId, PlayerNamingPreset.NAVAL_STANDARD);
+        }
+
+        public void setPreset(PlayerNamingPreset preset) {
+            if (preset == null) preset = PlayerNamingPreset.NAVAL_STANDARD;
+            this.presetId = preset.name();
+            this.numberingStyleId = preset.defaultNumbering.name();
+        }
+
+        public NumberingStyle getNumberingStyle() {
+            return NumberingStyle.fromId(numberingStyleId, getPreset().defaultNumbering);
+        }
+
+        public void setNumberingStyle(NumberingStyle style) {
+            if (style != null) {
+                this.numberingStyleId = style.name();
+            }
+        }
+
+        public String getCustomOtcTitle() {
+            return customOtcTitle != null ? customOtcTitle.trim() : "";
+        }
+
+        public void setCustomOtcTitle(String title) {
+            this.customOtcTitle = title != null ? title.trim() : "";
+        }
+
+        public String getPrefixForArchetype(DivisionArchetype archetype) {
+            if (archetype == null) archetype = DivisionArchetype.CRUISER_DIVISION;
+            if (customPrefixes != null) {
+                String custom = customPrefixes.get(archetype.name());
+                if (custom != null && !custom.trim().isEmpty()) {
+                    return custom.trim();
+                }
+            }
+            return getDefaultPrefixForPreset(getPreset(), archetype);
+        }
+
+        public boolean hasCustomPrefix(DivisionArchetype archetype) {
+            if (archetype == null || customPrefixes == null) return false;
+            String custom = customPrefixes.get(archetype.name());
+            return custom != null && !custom.trim().isEmpty();
+        }
+
+        public void setCustomPrefixForArchetype(DivisionArchetype archetype, String prefix) {
+            if (archetype == null) return;
+            if (customPrefixes == null) {
+                customPrefixes = new LinkedHashMap<>();
+            }
+            if (prefix == null || prefix.trim().isEmpty()) {
+                customPrefixes.remove(archetype.name());
+            } else {
+                customPrefixes.put(archetype.name(), prefix.trim());
+            }
+        }
+
+        public void clearCustomPrefixes() {
+            if (customPrefixes != null) {
+                customPrefixes.clear();
+            }
+            customOtcTitle = "";
+        }
+    }
+
+    private DivisionNomenclature() {
+    }
+
+    public static PlayerNamingConfig getPlayerNamingConfig() {
+        SectorAPI sector = Global.getSector();
+        if (sector == null) {
+            return new PlayerNamingConfig();
+        }
+        Map<String, Object> data = sector.getPersistentData();
+        Object raw = data.get(PERSISTENT_PLAYER_NAMING_KEY);
+        if (raw instanceof PlayerNamingConfig) {
+            return (PlayerNamingConfig) raw;
+        }
+        PlayerNamingConfig fresh = new PlayerNamingConfig();
+        data.put(PERSISTENT_PLAYER_NAMING_KEY, fresh);
+        return fresh;
+    }
+
+    public static NomenclatureCategory getPlayerNomenclatureCategory() {
+        return getPlayerNamingConfig().getPreset().category;
+    }
+
+    /**
+     * Resolves the nomenclature category for a faction ID string.
+     */
+    public static NomenclatureCategory resolveCategoryForFactionId(String factionId) {
+        if (factionId == null) return NomenclatureCategory.HUMAN_NAVAL;
+        String id = factionId.trim().toLowerCase(Locale.ROOT);
+        if ("dweller".equals(id) || "omega".equals(id) || id.contains("abyssal") || id.contains("dweller")) {
+            return NomenclatureCategory.ABYSSAL_ERROR;
+        }
+        if ("threat".equals(id) || id.contains("threat")) {
+            return NomenclatureCategory.THREAT_SWARM;
+        }
+        if ("remnant".equals(id) || "remnants".equals(id) || "derelict".equals(id)) {
+            return NomenclatureCategory.POST_AI_WAR;
+        }
+        return NomenclatureCategory.HUMAN_NAVAL;
+    }
+
+    /**
+     * Resolves the nomenclature category for a campaign fleet (inspecting both faction ID
+     * and member hull tags so special encounter fleets using neutral faction are properly classified).
+     */
+    public static NomenclatureCategory resolveCategoryForCampaignFleet(CampaignFleetAPI fleet) {
+        if (fleet == null) return NomenclatureCategory.HUMAN_NAVAL;
+        if (fleet.isPlayerFleet()) {
+            return getPlayerNomenclatureCategory();
+        }
+        FactionAPI faction = fleet.getFaction();
+        if (faction != null) {
+            NomenclatureCategory byFaction = resolveCategoryForFactionId(faction.getId());
+            if (byFaction != NomenclatureCategory.HUMAN_NAVAL) {
+                return byFaction;
+            }
+        }
+        if (fleet.getFleetData() != null) {
+            List<FleetMemberAPI> members = fleet.getFleetData().getMembersListCopy();
+            return resolveCategoryForFleetMembers(members, faction != null ? faction.getId() : null);
+        }
+        return NomenclatureCategory.HUMAN_NAVAL;
+    }
+
+    public static NomenclatureCategory resolveCategoryForFleetMembers(
+            Collection<FleetMemberAPI> members,
+            String factionIdHint) {
+        NomenclatureCategory byFaction = resolveCategoryForFactionId(factionIdHint);
+        if (byFaction != NomenclatureCategory.HUMAN_NAVAL) {
+            return byFaction;
+        }
+        if (members == null || members.isEmpty()) {
+            return NomenclatureCategory.HUMAN_NAVAL;
+        }
+        int dwellerOrOmega = 0;
+        int threat = 0;
+        int postAiWar = 0;
+        int total = 0;
+        for (FleetMemberAPI m : members) {
+            if (m == null || m.isFighterWing()) continue;
+            total++;
+            ShipHullSpecAPI spec = m.getHullSpec();
+            if (spec == null) continue;
+            NomenclatureCategory hullCat = classifyHullSpec(spec);
+            if (hullCat == NomenclatureCategory.ABYSSAL_ERROR) dwellerOrOmega++;
+            else if (hullCat == NomenclatureCategory.THREAT_SWARM) threat++;
+            else if (hullCat == NomenclatureCategory.POST_AI_WAR) postAiWar++;
+        }
+        if (total == 0) return NomenclatureCategory.HUMAN_NAVAL;
+        if (dwellerOrOmega * 2 >= total) return NomenclatureCategory.ABYSSAL_ERROR;
+        if (threat * 2 >= total) return NomenclatureCategory.THREAT_SWARM;
+        if (postAiWar * 2 >= total) return NomenclatureCategory.POST_AI_WAR;
+        return NomenclatureCategory.HUMAN_NAVAL;
+    }
+
+    public static NomenclatureCategory resolveCategoryForCombatShips(
+            Collection<ShipAPI> ships,
+            String factionIdHint,
+            boolean isPlayerBattleGroup) {
+        if (isPlayerBattleGroup) {
+            return getPlayerNomenclatureCategory();
+        }
+        NomenclatureCategory byFaction = resolveCategoryForFactionId(factionIdHint);
+        if (byFaction != NomenclatureCategory.HUMAN_NAVAL) {
+            return byFaction;
+        }
+        if (ships == null || ships.isEmpty()) {
+            return NomenclatureCategory.HUMAN_NAVAL;
+        }
+        int dwellerOrOmega = 0;
+        int threat = 0;
+        int postAiWar = 0;
+        int total = 0;
+        for (ShipAPI s : ships) {
+            if (s == null || s.isFighter()) continue;
+            total++;
+            if (s.getFleetMember() != null && s.getFleetMember().getFleetData() != null
+                    && s.getFleetMember().getFleetData().getFleet() != null) {
+                CampaignFleetAPI sourceFleet = s.getFleetMember().getFleetData().getFleet();
+                NomenclatureCategory fleetCat = resolveCategoryForCampaignFleet(sourceFleet);
+                if (fleetCat != NomenclatureCategory.HUMAN_NAVAL) {
+                    return fleetCat;
+                }
+            }
+            ShipHullSpecAPI spec = s.getHullSpec();
+            if (spec == null) continue;
+            NomenclatureCategory hullCat = classifyHullSpec(spec);
+            if (hullCat == NomenclatureCategory.ABYSSAL_ERROR) dwellerOrOmega++;
+            else if (hullCat == NomenclatureCategory.THREAT_SWARM) threat++;
+            else if (hullCat == NomenclatureCategory.POST_AI_WAR) postAiWar++;
+        }
+        if (total == 0) return NomenclatureCategory.HUMAN_NAVAL;
+        if (dwellerOrOmega * 2 >= total) return NomenclatureCategory.ABYSSAL_ERROR;
+        if (threat * 2 >= total) return NomenclatureCategory.THREAT_SWARM;
+        if (postAiWar * 2 >= total) return NomenclatureCategory.POST_AI_WAR;
+        return NomenclatureCategory.HUMAN_NAVAL;
+    }
+
+    private static NomenclatureCategory classifyHullSpec(ShipHullSpecAPI spec) {
+        if (spec == null) return NomenclatureCategory.HUMAN_NAVAL;
+        String hullId = spec.getHullId() != null ? spec.getHullId().toLowerCase(Locale.ROOT) : "";
+        Collection<String> tags = spec.getTags();
+
+        if (tags != null) {
+            for (String t : tags) {
+                if (t == null) continue;
+                String tl = t.toLowerCase(Locale.ROOT);
+                if ("dweller".equals(tl) || "omega".equals(tl) || "shrouded".equals(tl)) {
+                    return NomenclatureCategory.ABYSSAL_ERROR;
+                }
+                if ("threat".equals(tl)) {
+                    return NomenclatureCategory.THREAT_SWARM;
+                }
+                if ("remnant".equals(tl) || "derelict".equals(tl)) {
+                    return NomenclatureCategory.POST_AI_WAR;
+                }
+            }
+        }
+        if (hullId.startsWith("shrouded_") || "tesseract".equals(hullId) || "facet".equals(hullId) || hullId.startsWith("shard_")) {
+            return NomenclatureCategory.ABYSSAL_ERROR;
+        }
+        if (hullId.endsWith("_unit") || "attack_swarm".equals(hullId)) {
+            return NomenclatureCategory.THREAT_SWARM;
+        }
+        if ("radiant".equals(hullId) || "nova".equals(hullId) || "apex".equals(hullId)
+                || "brilliant".equals(hullId) || "scintilla".equals(hullId) || "fulgent".equals(hullId)
+                || "glimmer".equals(hullId) || "lumen".equals(hullId) || "guardian".equals(hullId)
+                || "rampart".equals(hullId) || "berserker".equals(hullId) || "bastillon".equals(hullId)
+                || "warden".equals(hullId) || "sentry".equals(hullId) || "picket".equals(hullId)
+                || "defender".equals(hullId)) {
+            return NomenclatureCategory.POST_AI_WAR;
+        }
+        return NomenclatureCategory.HUMAN_NAVAL;
+    }
+
+    /**
+     * Resolves the OTC Commander title for a battle group or faction.
+     */
+    public static String resolveOtcCommanderTitle(
+            NomenclatureCategory category,
+            boolean isPlayerGroup,
+            boolean isAlliedAiGroup,
+            String fallbackTitle) {
+        if (category == NomenclatureCategory.ABYSSAL_ERROR) {
+            return ABYSSAL_ERROR_TEXT;
+        }
+        if (category == NomenclatureCategory.THREAT_SWARM) {
+            return THREAT_OTC_TITLE;
+        }
+        if (category == NomenclatureCategory.POST_AI_WAR) {
+            return POST_AI_WAR_OTC_TITLE;
+        }
+        if (isPlayerGroup) {
+            String custom = getPlayerNamingConfig().getCustomOtcTitle();
+            if (!custom.isEmpty()) {
+                return custom;
+            }
+        }
+        if (fallbackTitle != null && !fallbackTitle.trim().isEmpty()) {
+            return fallbackTitle;
+        }
+        if (isPlayerGroup) return "Player OTC";
+        if (isAlliedAiGroup) return "Allied OTC";
+        return "Enemy OTC";
+    }
+
+    /**
+     * Formats a division name for the player fleet according to the player's customized naming scheme.
+     */
+    public static String formatPlayerDivisionName(DivisionArchetype archetype, int sequenceNumber) {
+        PlayerNamingConfig cfg = getPlayerNamingConfig();
+        PlayerNamingPreset preset = cfg.getPreset();
+        if (preset.category == NomenclatureCategory.ABYSSAL_ERROR) {
+            return ABYSSAL_ERROR_TEXT;
+        }
+        if (preset.category == NomenclatureCategory.POST_AI_WAR) {
+            return POST_AI_WAR_DIVISION_NAME;
+        }
+        if (preset.category == NomenclatureCategory.THREAT_SWARM) {
+            return formatCorruptedThreatText(archetype, sequenceNumber, System.currentTimeMillis() / 260L);
+        }
+        String prefix = cfg.getPrefixForArchetype(archetype);
+        return applyNumbering(prefix, sequenceNumber, cfg.getNumberingStyle());
+    }
+
+    /**
+     * Formats a division name for any NPC faction fleet.
+     */
+    public static String formatFactionDivisionName(
+            String factionId,
+            NomenclatureCategory category,
+            DivisionArchetype archetype,
+            int sequenceNumber) {
+        if (category == NomenclatureCategory.ABYSSAL_ERROR) {
+            return ABYSSAL_ERROR_TEXT;
+        }
+        if (category == NomenclatureCategory.POST_AI_WAR) {
+            return POST_AI_WAR_DIVISION_NAME;
+        }
+        if (category == NomenclatureCategory.THREAT_SWARM) {
+            return formatCorruptedThreatText(archetype, sequenceNumber, System.currentTimeMillis() / 260L);
+        }
+        // Human Naval Standard: Battle, Carrier, Cruiser, Destroyer, Frigate, Phase, Service Divisions
+        String prefix = getDefaultPrefixForPreset(PlayerNamingPreset.NAVAL_STANDARD, archetype);
+        return applyNumbering(prefix, sequenceNumber, NumberingStyle.ARABIC);
+    }
+
+    /**
+     * Resolves the live display name for a division on the Command Window (Tab) or campaign tooltip,
+     * applying shifting corrupted text for The Threat fleets, "UNKNOWN" for Post-AI War AI fleets,
+     * and "ERROR" for Abyssal/Otherworldly fleets.
+     */
+    public static String resolveDynamicDivisionDisplayName(
+            NomenclatureCategory category,
+            DivisionArchetype archetype,
+            int divisionNumber,
+            String baseDisplayName) {
+        if (category == NomenclatureCategory.ABYSSAL_ERROR) {
+            return ABYSSAL_ERROR_TEXT;
+        }
+        if (category == NomenclatureCategory.POST_AI_WAR) {
+            return POST_AI_WAR_DIVISION_NAME;
+        }
+        if (category == NomenclatureCategory.THREAT_SWARM) {
+            long timeBucket = System.currentTimeMillis() / 240L;
+            return formatCorruptedThreatText(archetype, divisionNumber, timeBucket);
+        }
+        return baseDisplayName != null ? baseDisplayName : "Division " + divisionNumber;
+    }
+
+    /**
+     * Produces shifting corrupted Threat text e.g. "BAaTTLE?!? SWARM", "CRU!sER?? SWARM",
+     * "DEsTRoYER?! SWARM", "FR!GaTE?!? SWARM", "CARR!ER??! SWARM" that mutates deterministically
+     * across time buckets on the Command Window and campaign fleet tooltip.
+     */
+    public static String formatCorruptedThreatText(
+            DivisionArchetype archetype,
+            int divisionNumber,
+            long timeBucket) {
+        String baseWord = getThreatBaseWord(archetype);
+        long seed = timeBucket * 6364136223846793005L
+                + (divisionNumber * 1442695040888963407L)
+                + (archetype != null ? archetype.ordinal() * 2654435761L : 0L);
+
+        StringBuilder sb = new StringBuilder(baseWord.length() + 12);
+        int len = baseWord.length();
+        // Pick 1 or 2 indices to lowercase or glitch-substitute so it reads like "BAaTTLE?!? SWARM"
+        int lowerIdx1 = Math.floorMod((int) (seed ^ (seed >>> 11)), len);
+        int lowerIdx2 = Math.floorMod((int) (seed >>> 21), len);
+        int glitchIdx = Math.floorMod((int) (seed >>> 33), len + 3);
+
+        int mode = Math.floorMod((int) (seed >>> 7), 3);
+        for (int i = 0; i < len; i++) {
+            char c = baseWord.charAt(i);
+            if (mode == 0 && i == 1) {
+                // Vowel/consonant stutter corruption e.g. "BAaTTLE?!? SWARM"
+                sb.append(Character.toUpperCase(c));
+                sb.append(Character.toLowerCase(c));
+            } else if (i == lowerIdx1 || (i == lowerIdx2 && (seed & 3L) == 0L)) {
+                sb.append(Character.toLowerCase(c));
+            } else if (i == glitchIdx) {
+                sb.append(corruptChar(c, seed));
+            } else {
+                sb.append(Character.toUpperCase(c));
+            }
+        }
+
+        String[] puncts = {
+                "?!? ",
+                "??! ",
+                "?! ",
+                "?? ",
+                "!?! ",
+                "?!?? "
+        };
+        String punct = puncts[Math.floorMod((int) (seed >>> 17), puncts.length)];
+        sb.append(punct);
+
+        String[] swarmForms = {
+                "SWARM",
+                "SWaRM",
+                "SWArM",
+                "sWARM",
+                "SWARM",
+                "SWARM?"
+        };
+        sb.append(swarmForms[Math.floorMod((int) (seed >>> 27), swarmForms.length)]);
+        return sb.toString();
+    }
+
+    private static String getThreatBaseWord(DivisionArchetype archetype) {
+        if (archetype == null) return "FRAGMENT";
+        switch (archetype) {
+            case BATTLESHIP_DIVISION:
+                return "BATTLE";
+            case FLEET_CARRIER_DIVISION:
+            case LIGHT_CARRIER_DIVISION:
+            case ESCORT_CARRIER_DIVISION:
+            case CARRIER_GROUP:
+                return "CARRIER";
+            case CRUISER_DIVISION:
+                return "CRUISER";
+            case STRIKE_CRUISER_DIVISION:
+                return "ASSAULT";
+            case DESTROYER_DIVISION:
+                return "DESTROYER";
+            case FRIGATE_DIVISION:
+                return "FRIGATE";
+            case PHASE_DIVISION:
+                return "SKIRMISH";
+            case SERVICE_GROUP:
+                return "FABRICATOR";
+            default:
+                return "BATTLE";
+        }
+    }
+
+    private static char corruptChar(char c, long seed) {
+        switch (Character.toUpperCase(c)) {
+            case 'A':
+                return (seed & 1L) == 0L ? 'a' : '4';
+            case 'E':
+                return (seed & 1L) == 0L ? 'e' : '3';
+            case 'I':
+                return '!';
+            case 'O':
+                return (seed & 1L) == 0L ? 'o' : '0';
+            case 'S':
+                return (seed & 1L) == 0L ? 's' : '$';
+            case 'T':
+                return (seed & 1L) == 0L ? 't' : '7';
+            default:
+                return Character.toLowerCase(c);
+        }
+    }
+
+    public static String getDefaultPrefixForPreset(PlayerNamingPreset preset, DivisionArchetype archetype) {
+        if (archetype == null) archetype = DivisionArchetype.CRUISER_DIVISION;
+        if (preset == null) preset = PlayerNamingPreset.NAVAL_STANDARD;
+
+        switch (preset) {
+            case NAVAL_STANDARD:
+                switch (archetype) {
+                    case BATTLESHIP_DIVISION:
+                        return "Battle Div";
+                    case FLEET_CARRIER_DIVISION:
+                    case LIGHT_CARRIER_DIVISION:
+                    case ESCORT_CARRIER_DIVISION:
+                        return "Carrier Div";
+                    case CARRIER_GROUP:
+                        return "Carrier Group";
+                    case CRUISER_DIVISION:
+                        return "Cruiser Div";
+                    case STRIKE_CRUISER_DIVISION:
+                        return "Strike Cruiser Div";
+                    case DESTROYER_DIVISION:
+                        return "Destroyer Div";
+                    case FRIGATE_DIVISION:
+                        return "Frigate Div";
+                    case PHASE_DIVISION:
+                        return "Phase Div";
+                    case SERVICE_GROUP:
+                        return "Service Group";
+                    default:
+                        return archetype.shortPrefix;
+                }
+
+            case CLASSIC_NAVAL:
+                return archetype.shortPrefix;
+
+            case DOMAIN_ARMADA:
+                switch (archetype) {
+                    case BATTLESHIP_DIVISION:
+                        return "Battle Line";
+                    case FLEET_CARRIER_DIVISION:
+                        return "Fleet Carrier Wing";
+                    case LIGHT_CARRIER_DIVISION:
+                        return "Light Carrier Wing";
+                    case ESCORT_CARRIER_DIVISION:
+                        return "Escort Carrier Wing";
+                    case CARRIER_GROUP:
+                        return "Carrier Task Group";
+                    case CRUISER_DIVISION:
+                        return "Cruiser Squadron";
+                    case STRIKE_CRUISER_DIVISION:
+                        return "Strike Squadron";
+                    case DESTROYER_DIVISION:
+                        return "Destroyer Flotilla";
+                    case FRIGATE_DIVISION:
+                        return "Frigate Picket";
+                    case PHASE_DIVISION:
+                        return "Phase Detachment";
+                    case SERVICE_GROUP:
+                        return "Auxiliary Train";
+                    default:
+                        return archetype.shortPrefix;
+                }
+
+            case TRITACHYON_CORPORATE:
+                switch (archetype) {
+                    case BATTLESHIP_DIVISION:
+                        return "Capital Asset Group";
+                    case FLEET_CARRIER_DIVISION:
+                        return "Astral Flight Group";
+                    case LIGHT_CARRIER_DIVISION:
+                        return "Support Flight Group";
+                    case ESCORT_CARRIER_DIVISION:
+                        return "Tactical Flight Group";
+                    case CARRIER_GROUP:
+                        return "Integrated Flight Group";
+                    case CRUISER_DIVISION:
+                        return "Cruiser Assurance Unit";
+                    case STRIKE_CRUISER_DIVISION:
+                        return "Fast Response Unit";
+                    case DESTROYER_DIVISION:
+                        return "Destroyer Security Unit";
+                    case FRIGATE_DIVISION:
+                        return "Frigate Picket Unit";
+                    case PHASE_DIVISION:
+                        return "Phase Special Affairs";
+                    case SERVICE_GROUP:
+                        return "Logistics Asset Group";
+                    default:
+                        return archetype.shortPrefix;
+                }
+
+            case PERSEAN_NAVARCHY:
+                switch (archetype) {
+                    case BATTLESHIP_DIVISION:
+                        return "Battle Phalanx";
+                    case FLEET_CARRIER_DIVISION:
+                        return "Navarch Carrier Group";
+                    case LIGHT_CARRIER_DIVISION:
+                        return "Light Carrier Lochos";
+                    case ESCORT_CARRIER_DIVISION:
+                        return "Escort Carrier Lochos";
+                    case CARRIER_GROUP:
+                        return "Composite Carrier Group";
+                    case CRUISER_DIVISION:
+                        return "Cruiser Mora";
+                    case STRIKE_CRUISER_DIVISION:
+                        return "Strike Mora";
+                    case DESTROYER_DIVISION:
+                        return "Destroyer Lochos";
+                    case FRIGATE_DIVISION:
+                        return "Frigate Peltast";
+                    case PHASE_DIVISION:
+                        return "Phase Krypteia";
+                    case SERVICE_GROUP:
+                        return "Supply Hipparchy";
+                    default:
+                        return archetype.shortPrefix;
+                }
+
+            case SINDRIAN_GUARD:
+                switch (archetype) {
+                    case BATTLESHIP_DIVISION:
+                        return "Executor Line";
+                    case FLEET_CARRIER_DIVISION:
+                    case LIGHT_CARRIER_DIVISION:
+                    case ESCORT_CARRIER_DIVISION:
+                    case CARRIER_GROUP:
+                        return "Solar Flight Wing";
+                    case CRUISER_DIVISION:
+                        return "Cruiser Phalanx";
+                    case STRIKE_CRUISER_DIVISION:
+                        return "Solar Strike Squadron";
+                    case DESTROYER_DIVISION:
+                        return "Vanguard Flotilla";
+                    case FRIGATE_DIVISION:
+                        return "Picket Guard";
+                    case PHASE_DIVISION:
+                        return "Special Guard";
+                    case SERVICE_GROUP:
+                        return "Askonia Supply Train";
+                    default:
+                        return archetype.shortPrefix;
+                }
+
+            case LUDDIC_ARMADA:
+                switch (archetype) {
+                    case BATTLESHIP_DIVISION:
+                        return "Hallowed Bastion";
+                    case FLEET_CARRIER_DIVISION:
+                    case LIGHT_CARRIER_DIVISION:
+                    case ESCORT_CARRIER_DIVISION:
+                    case CARRIER_GROUP:
+                        return "Ark Carrier Host";
+                    case CRUISER_DIVISION:
+                        return "Righteous Hammer";
+                    case STRIKE_CRUISER_DIVISION:
+                        return "Zealot Strike Host";
+                    case DESTROYER_DIVISION:
+                        return "Sword Flotilla";
+                    case FRIGATE_DIVISION:
+                        return "Watchers Picket";
+                    case PHASE_DIVISION:
+                        return "Penitent Veil";
+                    case SERVICE_GROUP:
+                        return "Pilgrim Convoy";
+                    default:
+                        return archetype.shortPrefix;
+                }
+
+            case PIRATE_WOLFPACK:
+                switch (archetype) {
+                    case BATTLESHIP_DIVISION:
+                        return "Dreadnought Pack";
+                    case FLEET_CARRIER_DIVISION:
+                    case LIGHT_CARRIER_DIVISION:
+                    case ESCORT_CARRIER_DIVISION:
+                    case CARRIER_GROUP:
+                        return "Flattop Pack";
+                    case CRUISER_DIVISION:
+                        return "Heavy Raider Pack";
+                    case STRIKE_CRUISER_DIVISION:
+                        return "Outrider Pack";
+                    case DESTROYER_DIVISION:
+                        return "Hunter Pack";
+                    case FRIGATE_DIVISION:
+                        return "Wolfpack";
+                    case PHASE_DIVISION:
+                        return "Ghost Pack";
+                    case SERVICE_GROUP:
+                        return "Loot Train";
+                    default:
+                        return archetype.shortPrefix;
+                }
+
+            case REMNANT_ORDO:
+                switch (archetype) {
+                    case BATTLESHIP_DIVISION:
+                        return "Heavy Sub-Ordo";
+                    case FLEET_CARRIER_DIVISION:
+                    case LIGHT_CARRIER_DIVISION:
+                    case ESCORT_CARRIER_DIVISION:
+                    case CARRIER_GROUP:
+                        return "Carrier Sub-Ordo";
+                    case CRUISER_DIVISION:
+                        return "Cruiser Sub-Ordo";
+                    case STRIKE_CRUISER_DIVISION:
+                        return "Strike Sub-Ordo";
+                    case DESTROYER_DIVISION:
+                        return "Destroyer Fragment";
+                    case FRIGATE_DIVISION:
+                        return "Frigate Fragment";
+                    case PHASE_DIVISION:
+                        return "Phase Fragment";
+                    case SERVICE_GROUP:
+                        return "Utility Fragment";
+                    default:
+                        return archetype.shortPrefix;
+                }
+
+            case POST_AI_WAR_UNKNOWN:
+                return POST_AI_WAR_DIVISION_NAME;
+
+            case THREAT_CORRUPTED:
+                return formatCorruptedThreatText(archetype, 1, 0L);
+
+            case ABYSSAL_ERROR:
+                return ABYSSAL_ERROR_TEXT;
+
+            default:
+                return archetype.shortPrefix;
+        }
+    }
+
+    public static String applyNumbering(String basePrefix, int number, NumberingStyle style) {
+        if (basePrefix == null || basePrefix.trim().isEmpty()) {
+            basePrefix = "Division";
+        }
+        String trimmed = basePrefix.trim();
+        if (POST_AI_WAR_DIVISION_NAME.equals(trimmed) || ABYSSAL_ERROR_TEXT.equals(trimmed)) {
+            return trimmed;
+        }
+        if (style == null) style = NumberingStyle.ARABIC;
+        int n = Math.max(1, number);
+        switch (style) {
+            case NONE:
+                return trimmed;
+            case ROMAN:
+                return trimmed + " " + toRoman(n);
+            case ORDINAL_PREFIX:
+                return toOrdinal(n) + " " + trimmed;
+            case PHONETIC:
+                return trimmed + " " + toPhonetic(n);
+            case ARABIC:
+            default:
+                return trimmed + " " + n;
+        }
+    }
+
+    public static String toRoman(int number) {
+        int n = Math.max(1, Math.min(99, number));
+        int[] values = {90, 50, 40, 10, 9, 5, 4, 1};
+        String[] numerals = {"XC", "L", "XL", "X", "IX", "V", "IV", "I"};
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < values.length; i++) {
+            while (n >= values[i]) {
+                sb.append(numerals[i]);
+                n -= values[i];
+            }
+        }
+        return sb.toString();
+    }
+
+    public static String toOrdinal(int number) {
+        int n = Math.max(1, number);
+        int mod100 = n % 100;
+        if (mod100 >= 11 && mod100 <= 13) {
+            return n + "th";
+        }
+        switch (n % 10) {
+            case 1:
+                return n + "st";
+            case 2:
+                return n + "nd";
+            case 3:
+                return n + "rd";
+            default:
+                return n + "th";
+        }
+    }
+
+    public static String toPhonetic(int number) {
+        String[] callsigns = {
+                "Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta",
+                "Eta", "Theta", "Iota", "Kappa", "Lambda", "Sigma", "Omega"
+        };
+        int idx = Math.max(0, number - 1);
+        if (idx < callsigns.length) {
+            return callsigns[idx];
+        }
+        return callsigns[idx % callsigns.length] + "-" + ((idx / callsigns.length) + 1);
+    }
+}

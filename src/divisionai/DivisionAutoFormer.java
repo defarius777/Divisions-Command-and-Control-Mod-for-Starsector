@@ -140,12 +140,33 @@ public class DivisionAutoFormer {
 
         // Inherit campaign Permanent Divisions ONLY; any player ships not in a permanent division
         // remain unassigned and run vanilla Starsector combat AI.
+        playerGroup.nomenclatureCategory = DivisionNomenclature.getPlayerNomenclatureCategory();
         PermanentDivisionManager.applyPermanentDivisionsInCombat(
                 playerGroup,
                 unassigned,
                 newlyCreated);
 
         return newlyCreated;
+    }
+
+    public static String resolveFactionIdForCombatShips(List<ShipAPI> ships, CombatEngineAPI engine, int side) {
+        if (ships != null) {
+            for (ShipAPI s : ships) {
+                if (s == null || s.isFighter()) continue;
+                if (s.getFleetMember() != null && s.getFleetMember().getFleetData() != null
+                        && s.getFleetMember().getFleetData().getFleet() != null
+                        && s.getFleetMember().getFleetData().getFleet().getFaction() != null) {
+                    return s.getFleetMember().getFleetData().getFleet().getFaction().getId();
+                }
+            }
+        }
+        if (engine != null && engine.getContext() != null) {
+            BattleCreationContext ctx = engine.getContext();
+            if (side == 1 && ctx.getOtherFleet() != null && ctx.getOtherFleet().getFaction() != null) {
+                return ctx.getOtherFleet().getFaction().getId();
+            }
+        }
+        return "independent";
     }
 
     /**
@@ -159,6 +180,20 @@ public class DivisionAutoFormer {
 
         List<DivisionState> newlyCreated = new ArrayList<>();
         Set<String> assignedIds = new HashSet<>(battleGroup.shipIdToDivision.keySet());
+
+        if (eligibleShips != null && !eligibleShips.isEmpty()) {
+            String detectedFactionId = resolveFactionIdForCombatShips(eligibleShips, engine, battleGroup.side);
+            battleGroup.factionId = detectedFactionId;
+            battleGroup.nomenclatureCategory = DivisionNomenclature.resolveCategoryForCombatShips(
+                    eligibleShips,
+                    detectedFactionId,
+                    false);
+            PermanentDivisionManager.FleetDoctrineConfig fDoc =
+                    FactionFleetDoctrines.getDoctrineForFactionId(detectedFactionId, null);
+            battleGroup.authority = fDoc.getOtcAuthority();
+            battleGroup.plays.clear();
+            battleGroup.plays.addAll(fDoc.getEnabledPlays());
+        }
 
         List<ShipCapabilityProfile> unassigned = new ArrayList<>();
         for (ShipAPI ship : eligibleShips) {
@@ -182,7 +217,13 @@ public class DivisionAutoFormer {
             }
         });
 
-        if (!battleGroup.divisions.isEmpty()) {
+        // 1. Inherit campaign-sorted divisions from any instanced NPC CampaignFleetAPI first!
+        unassigned = FactionFleetDoctrines.applyCampaignNpcDivisionsInCombat(
+                battleGroup,
+                unassigned,
+                newlyCreated);
+
+        if (!unassigned.isEmpty() && !battleGroup.divisions.isEmpty()) {
             List<ShipCapabilityProfile> remaining = new ArrayList<>();
             for (ShipCapabilityProfile prof : unassigned) {
                 DivisionState match = findExistingDivisionForReinforcement(battleGroup, prof);
@@ -380,7 +421,20 @@ public class DivisionAutoFormer {
         boolean isAlliedAi = !members.isEmpty() && members.get(0).ship.isAlly();
         String sidePrefix = (battleGroup.side == 0) ? (isAlliedAi ? "Allied " : "") : "Enemy ";
         int number = nextDivisionNumberForPrefix(battleGroup, sidePrefix + archetype.shortPrefix);
-        String displayName = sidePrefix + archetype.shortPrefix + " " + number;
+
+        DivisionNomenclature.NomenclatureCategory nomCat = battleGroup.nomenclatureCategory;
+        String baseName = DivisionNomenclature.formatFactionDivisionName(
+                battleGroup.factionId,
+                nomCat,
+                archetype,
+                number);
+        String displayName;
+        if (nomCat == DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL) {
+            displayName = sidePrefix + baseName;
+        } else {
+            displayName = baseName;
+        }
+
         String divId = (battleGroup.side == 0 ? (isAlliedAi ? "ally_" : "player_") : "enemy_")
                 + archetype.name().toLowerCase() + "_" + number;
 
@@ -389,11 +443,17 @@ public class DivisionAutoFormer {
         CommanderProfile cmdr = new CommanderProfile(captain, displayName + " Cmdr");
 
         DivisionState div = new DivisionState(divId, battleGroup.side, number, archetype, displayName, cmdr);
+        div.nomenclatureCategory = nomCat;
         div.flagship = leaderShip;
         for (ShipCapabilityProfile prof : members) {
             addShipToDivision(battleGroup, div, prof);
         }
         recomputeDivisionCapabilities(div);
+        if (battleGroup.side == 1 || isAlliedAi) {
+            PermanentDivisionManager.FleetDoctrineConfig fDoc =
+                    FactionFleetDoctrines.getDoctrineForFactionId(battleGroup.factionId, null);
+            FactionFleetDoctrines.applyFactionDoctrineToCombatDivision(div, null, fDoc);
+        }
         battleGroup.divisions.add(div);
         return div;
     }

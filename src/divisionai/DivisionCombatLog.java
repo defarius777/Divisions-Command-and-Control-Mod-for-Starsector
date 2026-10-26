@@ -45,9 +45,14 @@ public class DivisionCombatLog {
             hullSummary.append(" +").append(alive.size() - shown);
         }
 
+        String divName = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                div.nomenclatureCategory,
+                div.archetype,
+                div.divisionNumber,
+                div.displayName);
         String text = String.format(
                 "[C2] Formed \"%s\" (%d hulls: %s | Cmdr: %s [%s])",
-                div.displayName,
+                divName,
                 alive.size(),
                 hullSummary.toString(),
                 div.commander.commanderName,
@@ -60,13 +65,30 @@ public class DivisionCombatLog {
             Color divColor = Misc.getBrightPlayerColor();
             Color textColor = Misc.getTextColor();
             Color hlColor = Misc.getHighlightColor();
-            ui.addMessage(
-                    1,
-                    divColor, "\"" + div.displayName + "\"",
-                    textColor, " formed (",
-                    hlColor, alive.size() + " hulls: " + hullSummary,
-                    textColor, ", Cmdr " + div.commander.personalityId + ").");
+            if (div.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
+                ui.addMessage(1, Misc.getNegativeHighlightColor(), "ERROR");
+            } else {
+                ui.addMessage(
+                        1,
+                        divColor, "\"" + divName + "\"",
+                        textColor, " formed (",
+                        hlColor, alive.size() + " hulls: " + hullSummary,
+                        textColor, ", Cmdr " + div.commander.personalityId + ").");
+            }
         }
+    }
+
+    private static String resolveOtcTag(BattleGroupState battleGroup) {
+        if (battleGroup == null) return "[OTC]";
+        String defaultTitle = (battleGroup.side == 0)
+                ? (battleGroup.isAlliedAi ? "Allied OTC" : "Player OTC")
+                : "Enemy OTC";
+        String title = DivisionNomenclature.resolveOtcCommanderTitle(
+                battleGroup.nomenclatureCategory,
+                battleGroup.side == 0 && !battleGroup.isAlliedAi,
+                battleGroup.isAlliedAi,
+                defaultTitle);
+        return "[" + title + "]";
     }
 
     public static void logOtcSignal(
@@ -87,9 +109,7 @@ public class DivisionCombatLog {
         battleGroup.lastOtcSignalSignature = sig;
         battleGroup.lastOtcSignalLogTime = now;
 
-        String sideTag = (battleGroup.side == 0)
-                ? (battleGroup.isAlliedAi ? "[Allied OTC]" : "[Player OTC]")
-                : "[Enemy OTC]";
+        String sideTag = resolveOtcTag(battleGroup);
         LOG.info(String.format("%s (%s) Phase=%s -> %s",
                 sideTag, battleGroup.otc.personalityId, battleGroup.currentPhase.displayName, directiveSummary));
 
@@ -98,11 +118,15 @@ public class DivisionCombatLog {
             Color prefixColor = (battleGroup.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
             Color textColor = Misc.getTextColor();
             Color hlColor = Misc.getHighlightColor();
-            ui.addMessage(
-                    1,
-                    prefixColor, sideTag + " ",
-                    hlColor, battleGroup.currentPhase.displayName,
-                    textColor, " — " + directiveSummary);
+            if (battleGroup.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
+                ui.addMessage(1, Misc.getNegativeHighlightColor(), sideTag + " ERROR");
+            } else {
+                ui.addMessage(
+                        1,
+                        prefixColor, sideTag + " ",
+                        hlColor, battleGroup.currentPhase.displayName,
+                        textColor, " — " + directiveSummary);
+            }
         }
     }
 
@@ -112,19 +136,21 @@ public class DivisionCombatLog {
      */
     public static void logOtcOrder(CombatEngineAPI engine, BattleGroupState battleGroup, String orderText) {
         if (battleGroup == null || orderText == null) return;
-        String sideTag = (battleGroup.side == 0)
-                ? (battleGroup.isAlliedAi ? "[Allied OTC]" : "[Player OTC]")
-                : "[Enemy OTC]";
+        String sideTag = resolveOtcTag(battleGroup);
         LOG.info(String.format("%s (%s) Order [%s]: %s",
                 sideTag, battleGroup.otc.personalityId, battleGroup.authority.shortName, orderText));
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
         if (ui != null && DivisionAISettings.isOtcSignalsEnabled(battleGroup.side)) {
             Color prefixColor = (battleGroup.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
-            ui.addMessage(
-                    1,
-                    prefixColor, sideTag + " ",
-                    Misc.getTextColor(), orderText);
+            if (battleGroup.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
+                ui.addMessage(1, Misc.getNegativeHighlightColor(), sideTag + " ERROR");
+            } else {
+                ui.addMessage(
+                        1,
+                        prefixColor, sideTag + " ",
+                        Misc.getTextColor(), orderText);
+            }
         }
     }
 
@@ -156,18 +182,24 @@ public class DivisionCombatLog {
                 ? " (" + tacticalReason + ")"
                 : "";
 
+        String actorName = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                div.nomenclatureCategory,
+                div.archetype,
+                div.divisionNumber,
+                div.displayName);
+
         String fullLine;
         if (!cleanTarget.isEmpty()) {
             fullLine = String.format(
                     "\"%s\" intends to %s \"%s\"%s.",
-                    div.displayName,
+                    actorName,
                     div.currentIntent.verbPhrase,
                     cleanTarget,
                     reasonSuffix);
         } else {
             fullLine = String.format(
                     "\"%s\" intends to %s%s.",
-                    div.displayName,
+                    actorName,
                     div.currentIntent.verbPhrase,
                     reasonSuffix);
         }
@@ -176,6 +208,10 @@ public class DivisionCombatLog {
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
         if (ui != null && DivisionAISettings.shouldShowIntentOnHud(div.side, div.currentIntent)) {
+            if (div.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
+                ui.addMessage(1, Misc.getNegativeHighlightColor(), "ERROR");
+                return;
+            }
             Color actorColor = (div.side == 0) ? Misc.getBrightPlayerColor() : Misc.getNegativeHighlightColor();
             Color targetColor = resolveTargetColor(div, cleanTarget);
             Color textColor = Misc.getTextColor();
@@ -185,14 +221,14 @@ public class DivisionCombatLog {
                 if (!reasonSuffix.isEmpty()) {
                     ui.addMessage(
                             1,
-                            actorColor, "\"" + div.displayName + "\"",
+                            actorColor, "\"" + actorName + "\"",
                             textColor, " intends to " + div.currentIntent.verbPhrase + " ",
                             targetColor, "\"" + cleanTarget + "\"",
                             grayColor, reasonSuffix + ".");
                 } else {
                     ui.addMessage(
                             1,
-                            actorColor, "\"" + div.displayName + "\"",
+                            actorColor, "\"" + actorName + "\"",
                             textColor, " intends to " + div.currentIntent.verbPhrase + " ",
                             targetColor, "\"" + cleanTarget + "\"",
                             textColor, ".");
@@ -200,7 +236,7 @@ public class DivisionCombatLog {
             } else {
                 ui.addMessage(
                         1,
-                        actorColor, "\"" + div.displayName + "\"",
+                        actorColor, "\"" + actorName + "\"",
                         textColor, " intends to " + div.currentIntent.verbPhrase,
                         grayColor, reasonSuffix + ".");
             }

@@ -9,9 +9,14 @@ import com.fs.starfarer.api.ui.ButtonAPI;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.CutStyle;
 import com.fs.starfarer.api.ui.PositionAPI;
+import com.fs.starfarer.api.ui.TextFieldAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
+import divisionai.DivisionModel.DivisionArchetype;
+import divisionai.DivisionNomenclature.NumberingStyle;
+import divisionai.DivisionNomenclature.PlayerNamingConfig;
+import divisionai.DivisionNomenclature.PlayerNamingPreset;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
@@ -60,10 +65,25 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         ALL_DOCTRINE,
         BATTLE_GROUP_COMMAND,
         DIVISION_MODIFIERS,
-        HULL_LIMITS
+        HULL_LIMITS,
+        NAMING_SCHEME
     }
 
     private static final String OTC_AUTHORITY_DROPDOWN_KEY = "OTC_AUTHORITY";
+    private static final String NAMING_PRESET_DROPDOWN_KEY = "NAMING_PRESET";
+    private static final DivisionArchetype[] CUSTOMIZABLE_ARCHETYPES = {
+            DivisionArchetype.BATTLESHIP_DIVISION,
+            DivisionArchetype.FLEET_CARRIER_DIVISION,
+            DivisionArchetype.LIGHT_CARRIER_DIVISION,
+            DivisionArchetype.ESCORT_CARRIER_DIVISION,
+            DivisionArchetype.CARRIER_GROUP,
+            DivisionArchetype.CRUISER_DIVISION,
+            DivisionArchetype.STRIKE_CRUISER_DIVISION,
+            DivisionArchetype.DESTROYER_DIVISION,
+            DivisionArchetype.FRIGATE_DIVISION,
+            DivisionArchetype.PHASE_DIVISION,
+            DivisionArchetype.SERVICE_GROUP
+    };
 
     private final UIPanelAPI parentCoreUI;
     private CustomPanelAPI rootOverlayPanel;
@@ -73,6 +93,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private String expandedDropdownKey = null;
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
+    private final Map<DivisionArchetype, TextFieldAPI> prefixTextFields = new LinkedHashMap<>();
+    private TextFieldAPI customOtcTitleField = null;
     private String pendingAction = null;
 
     private final CustomUIPanelPlugin subPanelPlugin = new BaseCustomUIPanelPlugin() {
@@ -103,10 +125,33 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
     public void close() {
         if (closed) return;
+        commitCustomPrefixTextFields();
         closed = true;
         activeButtons.clear();
+        prefixTextFields.clear();
+        customOtcTitleField = null;
         if (parentCoreUI != null && rootOverlayPanel != null) {
             parentCoreUI.removeComponent(rootOverlayPanel);
+        }
+    }
+
+    private void commitCustomPrefixTextFields() {
+        if (prefixTextFields.isEmpty() && customOtcTitleField == null) return;
+        PlayerNamingConfig cfg = DivisionNomenclature.getPlayerNamingConfig();
+        if (customOtcTitleField != null) {
+            cfg.setCustomOtcTitle(customOtcTitleField.getText());
+        }
+        for (Map.Entry<DivisionArchetype, TextFieldAPI> e : prefixTextFields.entrySet()) {
+            DivisionArchetype arch = e.getKey();
+            TextFieldAPI tf = e.getValue();
+            if (arch == null || tf == null) continue;
+            String typed = tf.getText() != null ? tf.getText().trim() : "";
+            String presetDefault = DivisionNomenclature.getDefaultPrefixForPreset(cfg.getPreset(), arch);
+            if (typed.isEmpty() || typed.equals(presetDefault)) {
+                cfg.setCustomPrefixForArchetype(arch, null);
+            } else {
+                cfg.setCustomPrefixForArchetype(arch, typed);
+            }
         }
     }
 
@@ -120,6 +165,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private void rebuildContent() {
         if (rootOverlayPanel == null) return;
         activeButtons.clear();
+        prefixTextFields.clear();
+        customOtcTitleField = null;
 
         if (contentContainer != null) {
             rootOverlayPanel.removeComponent(contentContainer);
@@ -182,13 +229,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bTabAll = registerButton(
                 tb.addButton(
-                        "All Doctrine Settings",
+                        "All Settings",
                         "TAB:ALL",
                         activeTab == ActiveTab.ALL_DOCTRINE ? highlight : baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        150f,
+                        115f,
                         24f,
                         0f),
                 "TAB:ALL");
@@ -203,27 +250,27 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        170f,
+                        162f,
                         24f,
                         0f),
                 "TAB:OTC_COMMAND");
         if (activeTab == ActiveTab.BATTLE_GROUP_COMMAND) bTabOtc.highlight();
-        bTabOtc.getPosition().inTL(156f, 2f);
+        bTabOtc.getPosition().inTL(120f, 2f);
 
         ButtonAPI bTabMod = registerButton(
                 tb.addButton(
-                        "Division Type Modifiers",
+                        "Division Modifiers",
                         "TAB:MODIFIERS",
                         activeTab == ActiveTab.DIVISION_MODIFIERS ? highlight : baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        180f,
+                        148f,
                         24f,
                         0f),
                 "TAB:MODIFIERS");
         if (activeTab == ActiveTab.DIVISION_MODIFIERS) bTabMod.highlight();
-        bTabMod.getPosition().inTL(332f, 2f);
+        bTabMod.getPosition().inTL(287f, 2f);
 
         ButtonAPI bTabHull = registerButton(
                 tb.addButton(
@@ -233,12 +280,27 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        150f,
+                        145f,
                         24f,
                         0f),
                 "TAB:HULLS");
         if (activeTab == ActiveTab.HULL_LIMITS) bTabHull.highlight();
-        bTabHull.getPosition().inTL(518f, 2f);
+        bTabHull.getPosition().inTL(440f, 2f);
+
+        ButtonAPI bTabNaming = registerButton(
+                tb.addButton(
+                        "Division Naming",
+                        "TAB:NAMING",
+                        activeTab == ActiveTab.NAMING_SCHEME ? highlight : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        136f,
+                        24f,
+                        0f),
+                "TAB:NAMING");
+        if (activeTab == ActiveTab.NAMING_SCHEME) bTabNaming.highlight();
+        bTabNaming.getPosition().inTL(590f, 2f);
 
         ButtonAPI bReset = registerButton(
                 tb.addButton(
@@ -248,11 +310,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        160f,
+                        130f,
                         24f,
                         0f),
                 "RESET_DEFAULTS");
-        bReset.getPosition().inTL(DIALOG_WIDTH - 24f - 140f - 168f, 2f);
+        bReset.getPosition().inTL(DIALOG_WIDTH - 24f - 120f - 136f, 2f);
 
         ButtonAPI bClose = registerButton(
                 tb.addButton(
@@ -262,11 +324,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        140f,
+                        120f,
                         24f,
                         0f),
                 "CLOSE");
-        bClose.getPosition().inTL(DIALOG_WIDTH - 24f - 140f, 2f);
+        bClose.getPosition().inTL(DIALOG_WIDTH - 24f - 120f, 2f);
 
         tb.setHeightSoFar(28f);
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
@@ -508,7 +570,222 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
         }
 
+        if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.NAMING_SCHEME) {
+            addPlayerNamingSchemeSection(
+                    body,
+                    bodyWidth - 16f,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive,
+                    gray);
+        }
+
         contentContainer.addUIElement(body).inTL(12f, bodyTop);
+    }
+
+    private void addPlayerNamingSchemeSection(
+            TooltipMakerAPI body,
+            float rowWidth,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        PlayerNamingConfig namingCfg = DivisionNomenclature.getPlayerNamingConfig();
+        PlayerNamingPreset currentPreset = namingCfg.getPreset();
+        NumberingStyle currentNumbering = namingCfg.getNumberingStyle();
+
+        body.addSectionHeading(
+                "DIVISION NOMENCLATURE — PLAYER FLEET NAMING SCHEME",
+                highlight,
+                darkColor,
+                Alignment.LMID,
+                10f);
+        body.addPara(
+                "Customize the naming scheme for your fleet's divisions and OTC Commander. "
+                        + "Select a faction/naval preset, choose a numbering style, or enter custom prefixes for each division type.",
+                4f,
+                gray);
+
+        // 1. Naming Preset Dropdown
+        boolean expanded = NAMING_PRESET_DROPDOWN_KEY.equals(expandedDropdownKey);
+        CustomPanelAPI presetRow = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI presetUi = presetRow.createUIElement(rowWidth, 28f, false);
+        presetUi.addPara("Naming Preset:", 4f, baseColor).getPosition().inTL(4f, 4f);
+
+        String toggleAct = "TOGGLE_DD:" + NAMING_PRESET_DROPDOWN_KEY;
+        String btnText = (expanded ? "[^] " : "[v] ") + currentPreset.displayName;
+        ButtonAPI bToggle = registerButton(
+                presetUi.addButton(
+                        btnText,
+                        toggleAct,
+                        positive,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        560f,
+                        22f,
+                        0f),
+                toggleAct);
+        if (expanded) bToggle.highlight();
+        bToggle.getPosition().inTL(220f, 3f);
+
+        ButtonAPI bApplyExisting = registerButton(
+                presetUi.addButton(
+                        "Apply Scheme to Existing Divisions",
+                        "APPLY_NAMING_TO_EXISTING",
+                        highlight,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        196f,
+                        22f,
+                        0f),
+                "APPLY_NAMING_TO_EXISTING");
+        bApplyExisting.getPosition().inTL(rowWidth - 200f, 3f);
+
+        presetUi.setHeightSoFar(28f);
+        presetRow.addUIElement(presetUi).inTL(0f, 0f);
+        body.addCustom(presetRow, 3f);
+
+        if (expanded) {
+            for (PlayerNamingPreset opt : PlayerNamingPreset.values()) {
+                boolean isCurrent = (opt == currentPreset);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 38f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 22f, false);
+                String selAct = "SET_NAMING_PRESET:" + opt.name();
+                ButtonAPI bOpt = registerButton(
+                        optUi.addButton(
+                                (isCurrent ? "* " : "   ") + opt.displayName,
+                                selAct,
+                                isCurrent ? positive : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                460f,
+                                20f,
+                                0f),
+                        selAct);
+                if (isCurrent) bOpt.highlight();
+                bOpt.getPosition().inTL(235f, 1f);
+                optUi.setHeightSoFar(22f);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+
+                TooltipMakerAPI optDesc = optPanel.createUIElement(rowWidth - 245f, 18f, false);
+                optDesc.addPara(opt.summary, 0f, gray);
+                optPanel.addUIElement(optDesc).inTL(235f, 21f);
+                body.addCustom(optPanel, 1f);
+            }
+        } else {
+            CustomPanelAPI descPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
+            TooltipMakerAPI descUi = descPanel.createUIElement(rowWidth - 230f, 22f, false);
+            descUi.addPara(currentPreset.summary, 0f, gray);
+            descPanel.addUIElement(descUi).inTL(220f, 0f);
+            body.addCustom(descPanel, 2f);
+        }
+
+        // 2. Numbering Style Row
+        CustomPanelAPI numRow = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI numUi = numRow.createUIElement(rowWidth, 28f, false);
+        numUi.addPara("Numbering Style:", 4f, baseColor).getPosition().inTL(4f, 4f);
+
+        float xCursor = 220f;
+        for (NumberingStyle style : NumberingStyle.values()) {
+            boolean selected = (style == currentNumbering);
+            String act = "SET_NUMBERING_STYLE:" + style.name();
+            ButtonAPI bStyle = registerButton(
+                    numUi.addButton(
+                            style.displayName,
+                            act,
+                            selected ? positive : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            146f,
+                            21f,
+                            0f),
+                    act);
+            if (selected) bStyle.highlight();
+            bStyle.getPosition().inTL(xCursor, 3f);
+            xCursor += 151f;
+        }
+        numUi.setHeightSoFar(28f);
+        numRow.addUIElement(numUi).inTL(0f, 0f);
+        body.addCustom(numRow, 4f);
+
+        // 3. Custom OTC Commander Title Row
+        CustomPanelAPI otcTitleRow = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI otcTitleUi = otcTitleRow.createUIElement(rowWidth, 28f, false);
+        otcTitleUi.addPara("Custom OTC Title (optional):", 4f, baseColor).getPosition().inTL(4f, 4f);
+        customOtcTitleField = otcTitleUi.addTextField(240f, 22f, "graphics/fonts/insignia15LTaa.fnt", 0f);
+        customOtcTitleField.setText(namingCfg.getCustomOtcTitle());
+        customOtcTitleField.getPosition().inTL(220f, 3f);
+
+        String resolvedOtcPreview = DivisionNomenclature.resolveOtcCommanderTitle(
+                currentPreset.category,
+                true,
+                false,
+                "Player OTC");
+        otcTitleUi.addPara(
+                "Active OTC Tag: [%s]",
+                4f,
+                gray,
+                positive,
+                resolvedOtcPreview).getPosition().inTL(475f, 4f);
+
+        ButtonAPI bSavePrefixes = registerButton(
+                otcTitleUi.addButton(
+                        "Save Custom Prefixes",
+                        "SAVE_CUSTOM_PREFIXES",
+                        positive,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        165f,
+                        22f,
+                        0f),
+                "SAVE_CUSTOM_PREFIXES");
+        bSavePrefixes.getPosition().inTL(rowWidth - 170f, 3f);
+
+        otcTitleUi.setHeightSoFar(28f);
+        otcTitleRow.addUIElement(otcTitleUi).inTL(0f, 0f);
+        body.addCustom(otcTitleRow, 4f);
+
+        // 4. Per-Archetype Custom Prefix Rows
+        body.addSectionHeading(
+                "CUSTOM DIVISION PREFIXES BY TYPE  (Edit text & click 'Save Custom Prefixes' or 'Apply Scheme to Existing Divisions')",
+                baseColor,
+                darkColor,
+                Alignment.LMID,
+                6f);
+
+        for (DivisionArchetype arch : CUSTOMIZABLE_ARCHETYPES) {
+            CustomPanelAPI archRow = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+            TooltipMakerAPI archUi = archRow.createUIElement(rowWidth, 26f, false);
+
+            archUi.addPara(arch.shortPrefix + ":", 4f, baseColor).getPosition().inTL(4f, 3f);
+
+            TextFieldAPI tf = archUi.addTextField(230f, 21f, "graphics/fonts/insignia15LTaa.fnt", 0f);
+            tf.setText(namingCfg.getPrefixForArchetype(arch));
+            tf.getPosition().inTL(220f, 2f);
+            prefixTextFields.put(arch, tf);
+
+            String sample1 = DivisionNomenclature.formatPlayerDivisionName(arch, 1);
+            String sample2 = DivisionNomenclature.formatPlayerDivisionName(arch, 2);
+            archUi.addPara(
+                    "Preview:  \"%s\",  \"%s\"",
+                    4f,
+                    gray,
+                    highlight,
+                    sample1,
+                    sample2).getPosition().inTL(465f, 3f);
+
+            archUi.setHeightSoFar(26f);
+            archRow.addUIElement(archUi).inTL(0f, 0f);
+            body.addCustom(archRow, 2f);
+        }
     }
 
     private void addOpeningDurationRow(
@@ -1054,6 +1331,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             close();
             return;
         }
+        // Save any edits in custom prefix fields before switching tabs or applying actions
+        commitCustomPrefixTextFields();
+
         if ("TAB:ALL".equals(cmd)) {
             activeTab = ActiveTab.ALL_DOCTRINE;
             rebuildContent();
@@ -1061,6 +1341,41 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
         if ("TAB:OTC_COMMAND".equals(cmd)) {
             activeTab = ActiveTab.BATTLE_GROUP_COMMAND;
+            rebuildContent();
+            return;
+        }
+        if ("TAB:NAMING".equals(cmd)) {
+            activeTab = ActiveTab.NAMING_SCHEME;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_NAMING_PRESET:")) {
+            PlayerNamingPreset preset = PlayerNamingPreset.fromId(
+                    cmd.substring("SET_NAMING_PRESET:".length()),
+                    PlayerNamingPreset.NAVAL_STANDARD);
+            PlayerNamingConfig cfg = DivisionNomenclature.getPlayerNamingConfig();
+            cfg.clearCustomPrefixes();
+            cfg.setPreset(preset);
+            prefixTextFields.clear();
+            customOtcTitleField = null;
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_NUMBERING_STYLE:")) {
+            NumberingStyle style = NumberingStyle.fromId(
+                    cmd.substring("SET_NUMBERING_STYLE:".length()),
+                    NumberingStyle.ARABIC);
+            DivisionNomenclature.getPlayerNamingConfig().setNumberingStyle(style);
+            rebuildContent();
+            return;
+        }
+        if ("SAVE_CUSTOM_PREFIXES".equals(cmd)) {
+            rebuildContent();
+            return;
+        }
+        if ("APPLY_NAMING_TO_EXISTING".equals(cmd)) {
+            PermanentDivisionManager.applyPlayerNamingSchemeToExistingDivisions();
             rebuildContent();
             return;
         }

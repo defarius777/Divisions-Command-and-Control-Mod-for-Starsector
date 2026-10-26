@@ -1918,14 +1918,20 @@ public class PermanentDivisionManager {
             }
 
             PersonAPI captain = leaderShip.getCaptain();
-            CommanderProfile cmdr = new CommanderProfile(captain, spec.name + " Cmdr");
+            String resolvedDisplayName = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                    battleGroup.nomenclatureCategory,
+                    spec.archetype,
+                    fallbackNumber,
+                    spec.name);
+            CommanderProfile cmdr = new CommanderProfile(captain, resolvedDisplayName + " Cmdr");
             DivisionState combatDiv = new DivisionState(
                     spec.id,
                     battleGroup.side,
                     fallbackNumber++,
                     spec.archetype,
-                    spec.name,
+                    resolvedDisplayName,
                     cmdr);
+            combatDiv.nomenclatureCategory = battleGroup.nomenclatureCategory;
             combatDiv.flagship = leaderShip;
             for (ShipCapabilityProfile p : members) {
                 combatDiv.members.add(p.ship);
@@ -2173,16 +2179,42 @@ public class PermanentDivisionManager {
 
         int prefixNumber = 1;
         for (PermanentDivisionSpec existing : specs) {
-            if (existing.name != null && existing.name.startsWith(arch.shortPrefix + " ")) {
+            if (existing.archetype == arch) {
                 prefixNumber++;
             }
         }
 
         String id = "perm_div_" + nextSeq;
-        String name = arch.shortPrefix + " " + prefixNumber;
+        String name = DivisionNomenclature.formatPlayerDivisionName(arch, prefixNumber);
         PermanentDivisionSpec created = new PermanentDivisionSpec(id, name, arch);
         specs.add(created);
         return created;
+    }
+
+    /**
+     * Applies the player's current DivisionNomenclature naming scheme (preset, numbering style,
+     * and any custom archetype prefixes) to all existing permanent divisions in the player's fleet.
+     */
+    public static int applyPlayerNamingSchemeToExistingDivisions() {
+        SectorAPI sector = Global.getSector();
+        if (sector == null) return 0;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        Map<DivisionArchetype, Integer> seqByArch = new LinkedHashMap<>();
+        int updated = 0;
+        for (PermanentDivisionSpec spec : specs) {
+            if (spec == null) continue;
+            DivisionArchetype arch = spec.archetype != null ? spec.archetype : DivisionArchetype.CRUISER_DIVISION;
+            int seq = (seqByArch.containsKey(arch) ? seqByArch.get(arch) : 0) + 1;
+            seqByArch.put(arch, seq);
+            String newName = DivisionNomenclature.formatPlayerDivisionName(arch, seq);
+            if (!newName.equals(spec.name)) {
+                spec.name = newName;
+                updated++;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+        return updated;
     }
 
     public static DivisionArchetype classifyFleetMemberArchetype(FleetMemberAPI member) {

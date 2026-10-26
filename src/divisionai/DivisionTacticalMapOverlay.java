@@ -585,18 +585,33 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetPx = clamp(getMemberFootprintRadiusWorld(flagship) * scale, 13f, 48f) + 4f;
             boolean isAlliedAiFlagship = !isEnemy && flagship.isAlly();
 
-            LabelAPI label = getOrCreateLabel(div.displayName, isEnemy, isAlliedAiFlagship, false);
+            DivisionNomenclature.NomenclatureCategory nomCat =
+                    div.nomenclatureCategory != null
+                            ? div.nomenclatureCategory
+                            : battleGroup.nomenclatureCategory;
+            String liveCallsign = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                    nomCat,
+                    div.archetype,
+                    div.divisionNumber,
+                    div.displayName);
+
+            String cacheKeyOverride = (nomCat == DivisionNomenclature.NomenclatureCategory.THREAT_SWARM)
+                    ? ("THREAT_DIV:" + div.id)
+                    : null;
+            LabelAPI label = getOrCreateLabel(liveCallsign, cacheKeyOverride, isEnemy, isAlliedAiFlagship, false);
             if (label != null) {
-                float textW = label.computeTextWidth(div.displayName);
-                float textH = label.computeTextHeight(div.displayName);
+                float textW = label.computeTextWidth(liveCallsign);
+                float textH = label.computeTextHeight(liveCallsign);
                 label.getPosition().setSize(textW + 10f, textH + 4f);
                 label.getPosition().setLocation(fx - (textW * 0.5f), fy + offsetPx + textH + (isEnemy ? 0f : 13f));
                 label.render(fade * (isEnemy ? 0.82f : 0.94f));
             }
 
             if (!isEnemy) {
-                String intentTag = buildCompactIntentTag(div);
-                LabelAPI subLabel = getOrCreateLabel(intentTag, false, isAlliedAiFlagship, true);
+                String intentTag = (nomCat == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR)
+                        ? "ERROR"
+                        : buildCompactIntentTag(div);
+                LabelAPI subLabel = getOrCreateLabel(intentTag, null, false, isAlliedAiFlagship, true);
                 if (subLabel != null) {
                     float subW = subLabel.computeTextWidth(intentTag);
                     float subH = subLabel.computeTextHeight(intentTag);
@@ -704,9 +719,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private LabelAPI getOrCreateLabel(String text, boolean isEnemy, boolean isAlliedAi, boolean isIntentBadge) {
+    private LabelAPI getOrCreateLabel(
+            String text,
+            String cacheKeyOverride,
+            boolean isEnemy,
+            boolean isAlliedAi,
+            boolean isIntentBadge) {
         String prefix = isEnemy ? "E:" : (isAlliedAi ? "A:" : (isIntentBadge ? "PI:" : "P:"));
-        String key = prefix + text;
+        String key = prefix + (cacheKeyOverride != null ? cacheKeyOverride : text);
         LabelAPI label = labelCache.get(key);
         if (label == null) {
             // Use Starsector's blocky, geometric Orbitron display typeface:
@@ -724,6 +744,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 label.setColor(PLAYER_LABEL_COLOR);
             }
             labelCache.put(key, label);
+        } else if (cacheKeyOverride != null) {
+            label.setText(text);
         }
         return label;
     }
