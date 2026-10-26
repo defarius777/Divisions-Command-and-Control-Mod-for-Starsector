@@ -48,7 +48,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private static final Logger LOG = Global.getLogger(DivisionTacticalMapOverlay.class);
     private static final int CIRCLE_SEGMENTS = 36;
     private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1150f;
-    private static final Color FRIENDLY_LABEL_COLOR = new Color(255, 235, 110, 240);
+    private static final Color PLAYER_LABEL_COLOR = new Color(165, 255, 185, 235);
+    private static final Color ALLY_LABEL_COLOR = new Color(255, 235, 110, 240);
     private static final Color ENEMY_LABEL_COLOR = new Color(255, 125, 120, 225);
 
     private CombatEngineAPI engine;
@@ -260,19 +261,23 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (visibleMembers.isEmpty()) continue;
             }
 
-            // 1a. Project a small translucent circle around each constituent member ship
-            //     (Allied = Yellow, Enemy = Red). Combined circles within a division and
-            //     overlapping circles between divisions blend to show unit footprint.
+            // 1a. Project a small translucent circle around each constituent member ship:
+            //     - Player's directly controlled forces (!isEnemy && !member.isAlly()) = Green
+            //     - Non-player-controlled friendly/allied forces (!isEnemy && member.isAlly()) = Yellow
+            //     - Visible enemy forces (isEnemy) = Red
             for (ShipAPI member : visibleMembers) {
                 float mx = member.getLocation().x * scale + offsetX;
                 float my = member.getLocation().y * scale + offsetY;
                 float worldRadius = getMemberFootprintRadiusWorld(member);
                 float radiusPx = clamp(worldRadius * scale, 13f, 48f);
+                boolean isAlliedAi = !isEnemy && member.isAlly();
 
                 if (isEnemy) {
                     GL11.glColor4f(0.96f, 0.20f, 0.20f, baseCircleAlpha);
-                } else {
+                } else if (isAlliedAi) {
                     GL11.glColor4f(1.00f, 0.86f, 0.16f, baseCircleAlpha);
+                } else {
+                    GL11.glColor4f(0.18f, 0.92f, 0.38f, baseCircleAlpha);
                 }
                 GL11.glBegin(GL11.GL_TRIANGLE_FAN);
                 GL11.glVertex2f(mx, my);
@@ -287,8 +292,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 GL11.glLineWidth(1.15f);
                 if (isEnemy) {
                     GL11.glColor4f(1.00f, 0.34f, 0.32f, ringAlpha);
-                } else {
+                } else if (isAlliedAi) {
                     GL11.glColor4f(1.00f, 0.92f, 0.32f, ringAlpha);
+                } else {
+                    GL11.glColor4f(0.32f, 0.98f, 0.50f, ringAlpha);
                 }
                 GL11.glBegin(GL11.GL_LINE_LOOP);
                 for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
@@ -315,12 +322,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             if (visibleMembers.size() > 1) {
                 float fx = flagship.getLocation().x * scale + offsetX;
                 float fy = flagship.getLocation().y * scale + offsetY;
+                boolean isAlliedAiFlagship = !isEnemy && flagship.isAlly();
 
                 GL11.glLineWidth(isEnemy ? 1.0f : 1.2f);
                 if (isEnemy) {
                     GL11.glColor4f(1.00f, 0.32f, 0.30f, lineAlpha);
-                } else {
+                } else if (isAlliedAiFlagship) {
                     GL11.glColor4f(1.00f, 0.90f, 0.30f, lineAlpha);
+                } else {
+                    GL11.glColor4f(0.42f, 1.00f, 0.58f, lineAlpha);
                 }
                 GL11.glBegin(GL11.GL_LINES);
                 for (ShipAPI member : visibleMembers) {
@@ -364,8 +374,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float fx = flagship.getLocation().x * scale + offsetX;
             float fy = flagship.getLocation().y * scale + offsetY;
             float offsetPx = clamp(getMemberFootprintRadiusWorld(flagship) * scale, 13f, 48f) + 4f;
+            boolean isAlliedAiFlagship = !isEnemy && flagship.isAlly();
 
-            LabelAPI label = getOrCreateLabel(div.displayName, isEnemy);
+            LabelAPI label = getOrCreateLabel(div.displayName, isEnemy, isAlliedAiFlagship);
             if (label != null) {
                 float textW = label.computeTextWidth(div.displayName);
                 float textH = label.computeTextHeight(div.displayName);
@@ -398,12 +409,19 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private LabelAPI getOrCreateLabel(String text, boolean isEnemy) {
-        String key = (isEnemy ? "E:" : "F:") + text;
+    private LabelAPI getOrCreateLabel(String text, boolean isEnemy, boolean isAlliedAi) {
+        String prefix = isEnemy ? "E:" : (isAlliedAi ? "A:" : "P:");
+        String key = prefix + text;
         LabelAPI label = labelCache.get(key);
         if (label == null) {
             label = Global.getSettings().createLabel(text, Fonts.DEFAULT_SMALL);
-            label.setColor(isEnemy ? ENEMY_LABEL_COLOR : FRIENDLY_LABEL_COLOR);
+            if (isEnemy) {
+                label.setColor(ENEMY_LABEL_COLOR);
+            } else if (isAlliedAi) {
+                label.setColor(ALLY_LABEL_COLOR);
+            } else {
+                label.setColor(PLAYER_LABEL_COLOR);
+            }
             labelCache.put(key, label);
         }
         return label;

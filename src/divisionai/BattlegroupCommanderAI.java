@@ -227,9 +227,15 @@ public class BattlegroupCommanderAI {
             visibleEnemyFp += getVisibleFpForSide(engine, myBg.side, eDiv);
         }
         myBg.totalEnemyStrength = visibleEnemyFp;
-        myBg.forceRatio = (visibleEnemyFp <= 1f)
+        // Under Fog of War, do not assume a single spotted 8 FP scout represents the entire enemy fleet!
+        // Use the larger of visibleEnemyFp or 75% of friendly strength (capped by actual deployed enemy strength)
+        // when estimating battle-wide force ratio so spotting 1 scout doesn't report a 27x breakthrough.
+        float estimatedEnemyFleetFp = Math.max(
+                visibleEnemyFp,
+                Math.min(enemyBg.totalFriendlyStrength, myBg.totalFriendlyStrength * 0.85f));
+        myBg.forceRatio = (estimatedEnemyFleetFp <= 1f)
                 ? 1.25f
-                : (myBg.totalFriendlyStrength / visibleEnemyFp);
+                : (myBg.totalFriendlyStrength / estimatedEnemyFleetFp);
 
         int activeDivCount = 0;
         DivisionState endangeredDiv = null;
@@ -254,7 +260,7 @@ public class BattlegroupCommanderAI {
 
             float mainScore = div.totalFpStrength * (1.2f - 0.5f * div.avgFluxLevel);
             if (div.archetype == DivisionArchetype.BATTLE_DIVISION) {
-                mainScore *= 1.65f;
+                mainScore = mainScore * 2.05f + 25f;
             } else if (div.archetype == DivisionArchetype.CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
                 mainScore *= 1.35f;
@@ -303,7 +309,7 @@ public class BattlegroupCommanderAI {
             nextPhase = BattlePhase.STABILIZE_AND_RELIEVE;
         } else if (!anyEnemyVisible || (minContactDist > 3300f && hasUncapturedObjectives && now < 75f)) {
             nextPhase = BattlePhase.OPENING_PROBE;
-        } else if (myBg.forceRatio >= 1.35f && minContactDist < 3000f) {
+        } else if (myBg.forceRatio >= 1.35f && visibleEnemyFp >= 30f && minContactDist < 3000f) {
             nextPhase = BattlePhase.EXPLOIT_BREAKTHROUGH;
         } else if (hasTorpedoOrStrikeDivisionReady(myBg) && minContactDist < 3400f) {
             nextPhase = BattlePhase.COORDINATED_STRIKE;

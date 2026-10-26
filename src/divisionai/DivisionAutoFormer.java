@@ -133,6 +133,31 @@ public class DivisionAutoFormer {
             }
         });
 
+        // Separate player-controlled hulls (!isAlly) from non-player-controlled allied AI hulls (isAlly)
+        // so player divisions (green) and allied AI divisions (yellow) never mix.
+        List<ShipCapabilityProfile> primaryOwnerPool = new ArrayList<>();
+        List<ShipCapabilityProfile> alliedAiPool = new ArrayList<>();
+        for (ShipCapabilityProfile p : unassigned) {
+            if (bg.side == 0 && p.ship.isAlly()) {
+                alliedAiPool.add(p);
+            } else {
+                primaryOwnerPool.add(p);
+            }
+        }
+
+        if (!primaryOwnerPool.isEmpty()) {
+            newlyCreated.addAll(formDivisionsFromPool(bg, primaryOwnerPool));
+        }
+        if (!alliedAiPool.isEmpty()) {
+            newlyCreated.addAll(formDivisionsFromPool(bg, alliedAiPool));
+        }
+        return newlyCreated;
+    }
+
+    private static List<DivisionState> formDivisionsFromPool(
+            BattlegroupState bg,
+            List<ShipCapabilityProfile> pool) {
+        List<DivisionState> newlyCreated = new ArrayList<>();
         List<ShipCapabilityProfile> carriers = new ArrayList<>();
         List<ShipCapabilityProfile> capitals = new ArrayList<>();
         List<ShipCapabilityProfile> strikeCruisers = new ArrayList<>();
@@ -145,7 +170,7 @@ public class DivisionAutoFormer {
         List<ShipCapabilityProfile> phaseShips = new ArrayList<>();
         List<ShipCapabilityProfile> auxiliaries = new ArrayList<>();
 
-        for (ShipCapabilityProfile p : unassigned) {
+        for (ShipCapabilityProfile p : pool) {
             if (p.primaryTag == TacticalTag.CIVILIAN_AUX) {
                 auxiliaries.add(p);
             } else if (p.primaryTag == TacticalTag.PHASE_RAIDER) {
@@ -290,10 +315,11 @@ public class DivisionAutoFormer {
             DivisionArchetype archetype,
             List<ShipCapabilityProfile> members) {
 
-        int number = nextDivisionNumberForPrefix(bg, archetype.shortPrefix);
-        String sidePrefix = (bg.side == 0) ? "" : "Enemy ";
+        boolean isAlliedAi = !members.isEmpty() && members.get(0).ship.isAlly();
+        String sidePrefix = (bg.side == 0) ? (isAlliedAi ? "Allied " : "") : "Enemy ";
+        int number = nextDivisionNumberForPrefix(bg, sidePrefix + archetype.shortPrefix);
         String displayName = sidePrefix + archetype.shortPrefix + " " + number;
-        String divId = (bg.side == 0 ? "allied_" : "enemy_")
+        String divId = (bg.side == 0 ? (isAlliedAi ? "ally_" : "player_") : "enemy_")
                 + archetype.name().toLowerCase() + "_" + number;
 
         ShipAPI leaderShip = pickDivisionFlagship(members);
@@ -383,10 +409,10 @@ public class DivisionAutoFormer {
         div.desiredCohesionRadius = baseRadius / Math.max(0.75f, div.commander.cohesionStrictness);
     }
 
-    private static int nextDivisionNumberForPrefix(BattlegroupState bg, String prefix) {
+    private static int nextDivisionNumberForPrefix(BattlegroupState bg, String fullPrefix) {
         int count = 0;
         for (DivisionState existing : bg.divisions) {
-            if (existing.archetype.shortPrefix.equals(prefix)) {
+            if (existing.displayName.startsWith(fullPrefix + " ")) {
                 count++;
             }
         }
@@ -416,6 +442,8 @@ public class DivisionAutoFormer {
             BattlegroupState bg,
             ShipCapabilityProfile prof) {
         for (DivisionState div : bg.divisions) {
+            boolean divIsAlly = (div.flagship != null && div.flagship.isAlly());
+            if (divIsAlly != prof.ship.isAlly()) continue;
             int aliveCount = div.getAliveMembers().size();
             int maxCap = (div.archetype == DivisionArchetype.FRIGATE_DIVISION
                     || div.archetype == DivisionArchetype.AUXILIARY_CONVOY)

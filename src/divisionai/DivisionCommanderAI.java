@@ -136,14 +136,15 @@ public class DivisionCommanderAI {
 
         // 3. Explicit Command Window Objective Order or Opening Probe Objective Seizure!
         //    If the player (or Admiral task manager) ordered control points captured, or if enemy forces are hidden in Fog of War
-        //    / outside close contact during the opening probe, divisions prioritize seizing unclaimed control points!
+        //    / outside close contact during the opening probe, maneuver divisions prioritize seizing unclaimed control points!
+        boolean isHeavyLineOrCarrier = (div.archetype == DivisionArchetype.BATTLE_DIVISION
+                || div.archetype == DivisionArchetype.CARRIER_AND_ESCORT);
         boolean shouldSeizeObjective = false;
-        if (commandAssignedObj != null && div.localEnemyStrength < 18f) {
+        if (commandAssignedObj != null && !isHeavyLineOrCarrier && div.localEnemyStrength < 18f) {
             shouldSeizeObjective = true;
         } else if (uncapturedObj != null
+                && !isHeavyLineOrCarrier
                 && div.localEnemyStrength < 12f
-                && div.archetype != DivisionArchetype.BATTLE_DIVISION
-                && div.archetype != DivisionArchetype.CARRIER_AND_ESCORT
                 && (nearestEnemyDiv == null
                 || myBg.currentPhase == BattlePhase.OPENING_PROBE
                 || (div.isFastFlanker && distance(div.centroid, uncapturedObj.getLocation()) + 400f < distToVisibleEnemy))) {
@@ -286,7 +287,7 @@ public class DivisionCommanderAI {
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
         } else {
             // No enemy visible in Fog of War yet: advance on reconnaissance / objective posture without map-hacking
-            if (uncapturedObj != null) {
+            if (uncapturedObj != null && !isHeavyLineOrCarrier) {
                 div.currentIntent = DivisionIntentType.SEIZE_OBJECTIVE;
                 div.targetObjective = uncapturedObj;
                 div.maneuverAnchor.set(uncapturedObj.getLocation());
@@ -317,7 +318,6 @@ public class DivisionCommanderAI {
         boolean playerManualControl = (playerShip != null && !engine.isUIAutopilotOn());
 
         CombatFleetManagerAPI fm = engine.getFleetManager(div.side);
-        CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(false) : null;
 
         List<ShipAPI> alive = div.getAliveMembers();
         if (alive.isEmpty()) return;
@@ -328,6 +328,7 @@ public class DivisionCommanderAI {
             if (playerManualControl && ship == playerShip) {
                 continue;
             }
+            CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(ship.isAlly()) : null;
             if (hasExplicitCommandOrder(ship, div, tm)) {
                 continue;
             }
@@ -650,8 +651,13 @@ public class DivisionCommanderAI {
             BattlegroupState myBg,
             BattleObjectiveAPI previousObjective) {
         if (engine == null) return null;
+        if (div.archetype == DivisionArchetype.CARRIER_AND_ESCORT
+                || div.archetype == DivisionArchetype.BATTLE_DIVISION) {
+            return null;
+        }
         CombatFleetManagerAPI fm = engine.getFleetManager(div.side);
-        CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(false) : null;
+        boolean divIsAlly = (div.flagship != null && div.flagship.isAlly());
+        CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(divIsAlly) : null;
         if (tm == null) return null;
 
         // 1. Check if any ship in this division is directly assigned to a BattleObjectiveAPI
@@ -665,7 +671,13 @@ public class DivisionCommanderAI {
             }
         }
 
-        // 2. Check all active objective assignments in CombatTaskManager (e.g. when player clicks two control points)
+        // 2. Check active objective assignments in CombatTaskManager for fast maneuver / destroyer divisions
+        if (div.archetype != DivisionArchetype.FRIGATE_DIVISION
+                && div.archetype != DivisionArchetype.PHASE_DIVISION
+                && div.archetype != DivisionArchetype.DESTROYER_DIVISION
+                && div.archetype != DivisionArchetype.TORPEDO_DESTROYER_DIVISION) {
+            return null;
+        }
         List<AssignmentInfo> all = tm.getAllAssignments();
         if (all != null) {
             BattleObjectiveAPI best = null;
