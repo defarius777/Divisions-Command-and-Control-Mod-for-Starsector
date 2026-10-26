@@ -7,9 +7,9 @@ import com.fs.starfarer.api.campaign.FactionAPI;
 import com.fs.starfarer.api.fleet.FleetMemberAPI;
 import com.fs.starfarer.api.ui.Alignment;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
+import com.fs.starfarer.api.ui.Fonts;
 import com.fs.starfarer.api.ui.LabelAPI;
 import com.fs.starfarer.api.ui.PositionAPI;
-import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIComponentAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
@@ -27,7 +27,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -88,26 +87,114 @@ public final class CampaignFleetTooltipOrganizer {
     }
 
     private static final class ThreatHeaderBinding {
-        final LabelAPI titleLabel;
+        final DivisionHeaderCardPlugin plugin;
         final DivisionArchetype archetype;
         final int divisionNumber;
 
-        ThreatHeaderBinding(LabelAPI titleLabel, DivisionArchetype archetype, int divisionNumber) {
-            this.titleLabel = titleLabel;
+        ThreatHeaderBinding(DivisionHeaderCardPlugin plugin, DivisionArchetype archetype, int divisionNumber) {
+            this.plugin = plugin;
             this.archetype = archetype;
             this.divisionNumber = divisionNumber;
         }
     }
 
     private static final class DivisionHeaderCardPlugin extends BaseCustomUIPanelPlugin {
-        private final CustomPanelAPI panel;
+        private CustomPanelAPI panel;
         private final Color accentColor;
-        private final boolean isContinuation;
+        private final Color textColor;
+        private final float boxWidth;
+        private final float boxHeight;
+        private final float divisionSpanWidth;
+        private LabelAPI line1Label;
+        private LabelAPI line2Label;
 
-        DivisionHeaderCardPlugin(CustomPanelAPI panel, Color accentColor, boolean isContinuation) {
-            this.panel = panel;
+        DivisionHeaderCardPlugin(
+                Color accentColor,
+                Color textColor,
+                float boxWidth,
+                float boxHeight,
+                float divisionSpanWidth) {
             this.accentColor = accentColor != null ? accentColor : Misc.getBasePlayerColor();
-            this.isContinuation = isContinuation;
+            this.textColor = textColor != null ? textColor : this.accentColor;
+            this.boxWidth = boxWidth;
+            this.boxHeight = boxHeight;
+            this.divisionSpanWidth = divisionSpanWidth;
+        }
+
+        void attachToPanel(CustomPanelAPI card, String initialTitle) {
+            this.panel = card;
+            this.line1Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
+            this.line1Label.setColor(textColor);
+            this.line1Label.setAlignment(Alignment.MID);
+
+            this.line2Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
+            this.line2Label.setColor(textColor);
+            this.line2Label.setAlignment(Alignment.MID);
+
+            card.addComponent((UIComponentAPI) line1Label).inTL(4f, 0f);
+            card.addComponent((UIComponentAPI) line2Label).inTL(4f, 0f);
+
+            updateTitleAndLayout(initialTitle);
+        }
+
+        void updateTitleAndLayout(String rawTitle) {
+            if (line1Label == null || line2Label == null) return;
+            String clean = rawTitle != null ? rawTitle.trim() : "";
+            float maxTextWidth = Math.max(40f, boxWidth - 14f);
+
+            String[] lines = splitBalancedTwoLines(clean, line1Label, maxTextWidth);
+            if (lines[1] == null || lines[1].isEmpty()) {
+                line1Label.setText(lines[0]);
+                line2Label.setText("");
+
+                PositionAPI p1 = ((UIComponentAPI) line1Label).getPosition();
+                p1.setSize(boxWidth - 8f, boxHeight);
+                p1.inTL(5f, 0f);
+
+                PositionAPI p2 = ((UIComponentAPI) line2Label).getPosition();
+                p2.setSize(0f, 0f);
+                p2.inTL(5f, 0f);
+            } else {
+                line1Label.setText(lines[0]);
+                line2Label.setText(lines[1]);
+
+                float lineH = 14f;
+                float blockH = lineH * 2f;
+                float topY = Math.max(2f, (boxHeight - blockH) * 0.5f);
+
+                PositionAPI p1 = ((UIComponentAPI) line1Label).getPosition();
+                p1.setSize(boxWidth - 8f, lineH);
+                p1.inTL(5f, topY);
+
+                PositionAPI p2 = ((UIComponentAPI) line2Label).getPosition();
+                p2.setSize(boxWidth - 8f, lineH);
+                p2.inTL(5f, topY + lineH);
+            }
+        }
+
+        private static String[] splitBalancedTwoLines(String text, LabelAPI measurer, float maxLineW) {
+            if (text.isEmpty() || measurer.computeTextWidth(text) <= maxLineW || !text.contains(" ")) {
+                return new String[]{text, ""};
+            }
+
+            int bestSpace = -1;
+            int mid = text.length() / 2;
+            int bestDist = Integer.MAX_VALUE;
+            for (int i = 1; i < text.length() - 1; i++) {
+                if (text.charAt(i) == ' ') {
+                    int dist = Math.abs(i - mid);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestSpace = i;
+                    }
+                }
+            }
+            if (bestSpace <= 0) {
+                return new String[]{text, ""};
+            }
+            String first = text.substring(0, bestSpace).trim();
+            String second = text.substring(bestSpace + 1).trim();
+            return new String[]{first, second};
         }
 
         @Override
@@ -118,46 +205,69 @@ public final class CampaignFleetTooltipOrganizer {
 
             float x = pos.getX();
             float y = pos.getY();
-            float w = pos.getWidth();
-            float h = pos.getHeight();
+            float w = boxWidth;
+            float h = boxHeight;
 
             float r = accentColor.getRed() / 255f;
             float g = accentColor.getGreen() / 255f;
             float b = accentColor.getBlue() / 255f;
+
+            float bx = x + 1f;
+            float by = y + 2f;
+            float bw = w - 4f;
+            float bh = h - 4f;
 
             GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
             GL11.glDisable(GL11.GL_TEXTURE_2D);
             GL11.glEnable(GL11.GL_BLEND);
             GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
-            // Subtle dark tactical card backdrop
-            float bgAlpha = (isContinuation ? 0.35f : 0.68f) * alphaMult;
-            GL11.glColor4f(0.03f, 0.06f, 0.10f, bgAlpha);
+            // Solid dark card backdrop covering the 2-column x N-row header area cleanly
+            GL11.glColor4f(0.03f, 0.06f, 0.10f, 0.96f * alphaMult);
             GL11.glBegin(GL11.GL_QUADS);
-            GL11.glVertex2f(x, y + 2f);
-            GL11.glVertex2f(x + w - 2f, y + 2f);
-            GL11.glVertex2f(x + w - 2f, y + h - 2f);
-            GL11.glVertex2f(x, y + h - 2f);
+            GL11.glVertex2f(bx, by);
+            GL11.glVertex2f(bx + bw, by);
+            GL11.glVertex2f(bx + bw, by + bh);
+            GL11.glVertex2f(bx, by + bh);
             GL11.glEnd();
 
-            // Left vertical accent bar
-            GL11.glColor4f(r, g, b, (isContinuation ? 0.50f : 0.92f) * alphaMult);
+            // Subtle accent wash inside the header box
+            GL11.glColor4f(r, g, b, 0.10f * alphaMult);
             GL11.glBegin(GL11.GL_QUADS);
-            GL11.glVertex2f(x, y + 2f);
-            GL11.glVertex2f(x + 3.5f, y + 2f);
-            GL11.glVertex2f(x + 3.5f, y + h - 2f);
-            GL11.glVertex2f(x, y + h - 2f);
+            GL11.glVertex2f(bx, by);
+            GL11.glVertex2f(bx + bw, by);
+            GL11.glVertex2f(bx + bw, by + bh);
+            GL11.glVertex2f(bx, by + bh);
             GL11.glEnd();
 
-            if (!isContinuation) {
-                // Top and bottom bracket lines
-                GL11.glLineWidth(1.0f);
-                GL11.glColor4f(r, g, b, 0.48f * alphaMult);
-                GL11.glBegin(GL11.GL_LINES);
-                GL11.glVertex2f(x, y + h - 2f);
-                GL11.glVertex2f(x + w - 2f, y + h - 2f);
-                GL11.glVertex2f(x, y + 2f);
-                GL11.glVertex2f(x + w - 2f, y + 2f);
+            // Left vertical accent bar spanning full division height
+            GL11.glColor4f(r, g, b, 0.95f * alphaMult);
+            GL11.glBegin(GL11.GL_QUADS);
+            GL11.glVertex2f(bx, by);
+            GL11.glVertex2f(bx + 3.0f, by);
+            GL11.glVertex2f(bx + 3.0f, by + bh);
+            GL11.glVertex2f(bx, by + bh);
+            GL11.glEnd();
+
+            // Clean box border around the header card
+            GL11.glLineWidth(1.0f);
+            GL11.glColor4f(r, g, b, 0.62f * alphaMult);
+            GL11.glBegin(GL11.GL_LINE_LOOP);
+            GL11.glVertex2f(bx, by);
+            GL11.glVertex2f(bx + bw, by);
+            GL11.glVertex2f(bx + bw, by + bh);
+            GL11.glVertex2f(bx, by + bh);
+            GL11.glEnd();
+
+            // Subtle outer frame enclosing the division's ships across all rows of this division
+            if (divisionSpanWidth > w + 4f) {
+                float spanW = divisionSpanWidth - 2f;
+                GL11.glColor4f(r, g, b, 0.35f * alphaMult);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(bx, by);
+                GL11.glVertex2f(x + spanW, by);
+                GL11.glVertex2f(x + spanW, by + bh);
+                GL11.glVertex2f(bx, by + bh);
                 GL11.glEnd();
             }
 
@@ -219,8 +329,8 @@ public final class CampaignFleetTooltipOrganizer {
                     if (bucket != lastThreatTimeBucket) {
                         lastThreatTimeBucket = bucket;
                         for (ThreatHeaderBinding b : activeThreatHeaders) {
-                            if (b.titleLabel != null) {
-                                b.titleLabel.setText(DivisionNomenclature.formatCorruptedThreatText(
+                            if (b.plugin != null) {
+                                b.plugin.updateTitleAndLayout(DivisionNomenclature.formatCorruptedThreatText(
                                         b.archetype,
                                         b.divisionNumber,
                                         bucket));
@@ -454,79 +564,71 @@ public final class CampaignFleetTooltipOrganizer {
 
         NomenclatureCategory nomCat = DivisionNomenclature.resolveCategoryForCampaignFleet(fleet);
         FactionAPI faction = fleet.getFaction();
-        Color accentColor = (faction != null) ? faction.getBaseUIColor() : Misc.getBasePlayerColor();
-        Map<String, FleetMemberAPI> fleetMembersById = new HashMap<>();
-        for (FleetMemberAPI fm : fleet.getFleetData().getMembersListCopy()) {
-            if (fm != null && fm.getId() != null) {
-                fleetMembersById.put(fm.getId(), fm);
-            }
-        }
+        Color factionColor = (faction != null) ? faction.getBaseUIColor() : Misc.getBasePlayerColor();
 
         listClearHandle.invoke(scrollingList, false);
         List<FleetMemberAPI> orderedMembers = new ArrayList<>(allEntries.size());
         int currentSlotIndex = 0;
         long timeBucket = System.currentTimeMillis() / 240L;
         lastThreatTimeBucket = timeBucket;
+        int lastPlacedColInRow = 0;
 
         for (int dIdx = 0; dIdx < nonEmptySpecs.size(); dIdx++) {
             PermanentDivisionSpec spec = nonEmptySpecs.get(dIdx);
             List<MemberIconEntry> divEntries = entriesPerDivision.get(dIdx);
 
-            int totalDivShips = 0;
-            int totalDivDp = 0;
-            for (String mId : spec.memberIds) {
-                FleetMemberAPI fm = fleetMembersById.get(mId);
-                if (fm != null) {
-                    totalDivShips++;
-                    totalDivDp += Math.round(fm.getDeploymentPointsCost());
-                }
-            }
-            if (totalDivShips == 0) {
-                totalDivShips = divEntries.size();
-            }
+            int rowsForDiv = Math.max(1, (divEntries.size() + shipsPerDivRow - 1) / shipsPerDivRow);
+            int maxShipsInDivRow = Math.min(shipsPerDivRow, divEntries.size());
+            float boxWidth = itemW * HEADER_COLS;
+            float boxHeight = itemH * rowsForDiv;
+            float divisionSpanWidth = itemW * (HEADER_COLS + maxShipsInDivRow);
+            Color divColor = resolveDivisionCardColor(spec.archetype, nomCat, factionColor);
 
             int idx = 0;
             boolean firstRowOfDiv = true;
             while (idx < divEntries.size()) {
                 while ((currentSlotIndex % totalCols) != 0) {
-                    addEmptySpacerCell(scrollingList, itemW, itemH);
+                    addEmptySpacerCell(scrollingList);
                     currentSlotIndex++;
                 }
 
-                CustomPanelAPI headerCard = createDivisionRowHeaderCard(
-                        spec,
-                        dIdx + 1,
-                        nomCat,
-                        accentColor,
-                        totalDivShips,
-                        totalDivDp,
-                        itemW * HEADER_COLS,
-                        itemH,
-                        !firstRowOfDiv,
-                        timeBucket);
-                listAddItemHandle.invoke(scrollingList, headerCard, null);
-                headerCard.getPosition().setSize(itemW * HEADER_COLS - 3f, itemH - 2f);
-                currentSlotIndex++;
-
-                for (int hc = 1; hc < HEADER_COLS; hc++) {
-                    CustomPanelAPI zeroSpacer = Global.getSettings().createCustom(0f, 0f, null);
-                    listAddItemHandle.invoke(scrollingList, zeroSpacer, null);
-                    zeroSpacer.getPosition().setSize(0f, 0f);
+                if (firstRowOfDiv) {
+                    addExpandedDivisionHeaderCard(
+                            scrollingList,
+                            spec,
+                            dIdx + 1,
+                            nomCat,
+                            divColor,
+                            boxWidth,
+                            boxHeight,
+                            divisionSpanWidth);
                     currentSlotIndex++;
+
+                    for (int hc = 1; hc < HEADER_COLS; hc++) {
+                        addEmptySpacerCell(scrollingList);
+                        currentSlotIndex++;
+                    }
+                    firstRowOfDiv = false;
+                } else {
+                    // Multi-row division: the single expanded box from row 0 spans across these columns
+                    for (int hc = 0; hc < HEADER_COLS; hc++) {
+                        addEmptySpacerCell(scrollingList);
+                        currentSlotIndex++;
+                    }
                 }
-                firstRowOfDiv = false;
 
                 int countInRow = 0;
                 while (idx < divEntries.size() && countInRow < shipsPerDivRow) {
                     MemberIconEntry entry = divEntries.get(idx++);
                     listAddItemHandle.invoke(scrollingList, entry.button, entry.icon);
                     orderedMembers.add(entry.member);
+                    lastPlacedColInRow = currentSlotIndex % totalCols;
                     currentSlotIndex++;
                     countInRow++;
                 }
 
                 while ((currentSlotIndex % totalCols) != 0) {
-                    addEmptySpacerCell(scrollingList, itemW, itemH);
+                    addEmptySpacerCell(scrollingList);
                     currentSlotIndex++;
                 }
             }
@@ -535,12 +637,27 @@ public final class CampaignFleetTooltipOrganizer {
         // Render unassigned ships (and fighter wings) as normal in the last row(s) starting at column 0!
         if (!unassignedEntries.isEmpty()) {
             while ((currentSlotIndex % totalCols) != 0) {
-                addEmptySpacerCell(scrollingList, itemW, itemH);
+                addEmptySpacerCell(scrollingList);
                 currentSlotIndex++;
             }
             for (MemberIconEntry entry : unassignedEntries) {
                 listAddItemHandle.invoke(scrollingList, entry.button, entry.icon);
                 orderedMembers.add(entry.member);
+                lastPlacedColInRow = currentSlotIndex % totalCols;
+                currentSlotIndex++;
+            }
+            while ((currentSlotIndex % totalCols) != 0) {
+                addEmptySpacerCell(scrollingList);
+                currentSlotIndex++;
+            }
+        }
+
+        // If the fleet has more members than displayed (compact tooltip "+N" badge in bottom-right cell)
+        // and the last row occupied the rightmost column, reserve an extra row so "+N" never overlaps a ship.
+        int totalFleetMembers = fleet.getFleetData().getMembersListCopy().size();
+        if (totalFleetMembers > allEntries.size() && lastPlacedColInRow == totalCols - 1) {
+            for (int c = 0; c < totalCols; c++) {
+                addEmptySpacerCell(scrollingList);
                 currentSlotIndex++;
             }
         }
@@ -575,85 +692,88 @@ public final class CampaignFleetTooltipOrganizer {
         }
     }
 
-    private void addEmptySpacerCell(Object scrollingList, float itemW, float itemH) throws Throwable {
-        CustomPanelAPI spacer = Global.getSettings().createCustom(itemW, itemH, null);
+    private void addEmptySpacerCell(Object scrollingList) throws Throwable {
+        CustomPanelAPI spacer = Global.getSettings().createCustom(0f, 0f, null);
         listAddItemHandle.invoke(scrollingList, spacer, null);
-        spacer.getPosition().setSize(itemW, itemH);
+        spacer.getPosition().setSize(0f, 0f);
     }
 
-    private CustomPanelAPI createDivisionRowHeaderCard(
+    private Color resolveDivisionCardColor(
+            DivisionArchetype archetype,
+            NomenclatureCategory nomCat,
+            Color factionColor) {
+        if (nomCat == NomenclatureCategory.ABYSSAL_ERROR) {
+            return new Color(235, 55, 75, 255);
+        }
+        if (nomCat == NomenclatureCategory.THREAT_SWARM) {
+            return new Color(175, 210, 155, 255);
+        }
+        if (nomCat == NomenclatureCategory.POST_AI_WAR) {
+            return new Color(110, 225, 255, 255);
+        }
+        if (archetype == null) {
+            return factionColor != null ? factionColor : Misc.getBasePlayerColor();
+        }
+        switch (archetype) {
+            case BATTLESHIP_DIVISION:
+                return new Color(255, 195, 75, 255);
+            case FLEET_CARRIER_DIVISION:
+            case LIGHT_CARRIER_DIVISION:
+            case ESCORT_CARRIER_DIVISION:
+            case CARRIER_GROUP:
+                return new Color(135, 215, 255, 255);
+            case CRUISER_DIVISION:
+            case STRIKE_CRUISER_DIVISION:
+                return new Color(110, 235, 190, 255);
+            case DESTROYER_DIVISION:
+            case MISSILE_DESTROYER_DIVISION:
+                return new Color(155, 225, 120, 255);
+            case FRIGATE_DIVISION:
+                return new Color(120, 200, 255, 255);
+            case PHASE_DIVISION:
+                return new Color(205, 140, 255, 255);
+            case SERVICE_GROUP:
+            default:
+                return new Color(185, 195, 205, 255);
+        }
+    }
+
+    private void addExpandedDivisionHeaderCard(
+            Object scrollingList,
             PermanentDivisionSpec spec,
             int divisionNumber,
             NomenclatureCategory nomCat,
             Color accentColor,
-            int shipCount,
-            int totalDp,
-            float width,
-            float height,
-            boolean isContinuation,
-            long timeBucket) {
+            float boxWidth,
+            float boxHeight,
+            float divisionSpanWidth) throws Throwable {
 
-        CustomPanelAPI cardHolder = Global.getSettings().createCustom(width - 3f, height - 2f, null);
-        CustomPanelAPI card = Global.getSettings().createCustom(
-                width - 3f,
-                height - 2f,
-                new DivisionHeaderCardPlugin(cardHolder, accentColor, isContinuation));
-        card.addComponent(cardHolder).inTL(0f, 0f);
-        TooltipMakerAPI tm = card.createUIElement(width - 3f, height - 2f, false);
+        String title = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                nomCat,
+                spec.archetype,
+                divisionNumber,
+                spec.name);
 
-        if (isContinuation) {
-            tm.setParaSmallInsignia();
-            String contText = (nomCat == NomenclatureCategory.ABYSSAL_ERROR)
-                    ? "ERROR"
-                    : "  ↳ CONT.";
-            LabelAPI lbl = tm.addPara(contText, 0f, Misc.getGrayColor());
-            lbl.getPosition().inTL(8f, Math.max(4f, (height - 18f) * 0.5f));
-        } else {
-            tm.setParaSmallInsignia();
-            String title = DivisionNomenclature.resolveDynamicDivisionDisplayName(
-                    nomCat,
-                    spec.archetype,
-                    divisionNumber,
-                    spec.name);
-            if (title.length() > 17 && nomCat == NomenclatureCategory.HUMAN_NAVAL) {
-                title = title.substring(0, 16) + ".";
-            }
-
-            Color titleColor = accentColor != null ? accentColor : Misc.getBasePlayerColor();
-            if (nomCat == NomenclatureCategory.ABYSSAL_ERROR) {
-                titleColor = Misc.getNegativeHighlightColor();
-            } else if (nomCat == NomenclatureCategory.THREAT_SWARM) {
-                titleColor = new Color(210, 235, 195, 255);
-            }
-
-            LabelAPI titleLbl = tm.addPara(title, 0f, titleColor);
-            titleLbl.getPosition().inTL(6f, 6f);
-
-            if (nomCat == NomenclatureCategory.THREAT_SWARM) {
-                activeThreatHeaders.add(new ThreatHeaderBinding(titleLbl, spec.archetype, divisionNumber));
-            }
-
-            String subText;
-            Color subColor;
-            if (nomCat == NomenclatureCategory.ABYSSAL_ERROR) {
-                subText = "ERROR";
-                subColor = Misc.getNegativeHighlightColor();
-            } else {
-                subText = String.format(
-                        Locale.ROOT,
-                        "%d %s • %d DP",
-                        shipCount,
-                        shipCount == 1 ? "SHIP" : "SHIPS",
-                        totalDp);
-                subColor = Misc.getHighlightColor();
-            }
-
-            LabelAPI subLbl = tm.addPara(subText, 0f, subColor);
-            subLbl.getPosition().inTL(6f, 24f);
+        Color textColor = accentColor != null ? accentColor : Misc.getBasePlayerColor();
+        if (nomCat == NomenclatureCategory.ABYSSAL_ERROR) {
+            textColor = Misc.getNegativeHighlightColor();
+        } else if (nomCat == NomenclatureCategory.THREAT_SWARM) {
+            textColor = new Color(210, 235, 195, 255);
         }
 
-        tm.setHeightSoFar(height - 2f);
-        card.addUIElement(tm).inTL(0f, 0f);
-        return card;
+        DivisionHeaderCardPlugin plugin = new DivisionHeaderCardPlugin(
+                accentColor,
+                textColor,
+                boxWidth,
+                boxHeight,
+                divisionSpanWidth);
+        CustomPanelAPI card = Global.getSettings().createCustom(boxWidth, boxHeight, plugin);
+        listAddItemHandle.invoke(scrollingList, card, null);
+        card.getPosition().setSize(boxWidth, boxHeight);
+        plugin.attachToPanel(card, title);
+
+        if (nomCat == NomenclatureCategory.THREAT_SWARM) {
+            activeThreatHeaders.add(new ThreatHeaderBinding(plugin, spec.archetype, divisionNumber));
+        }
     }
 }

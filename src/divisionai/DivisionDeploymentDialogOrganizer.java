@@ -423,6 +423,9 @@ public class DivisionDeploymentDialogOrganizer {
             totalDp += e.member.getDeploymentPointsCost();
         }
 
+        int rowsForGroup = Math.max(1, (entries.size() + shipsPerRow - 1) / shipsPerRow);
+        float groupCardHeight = itemH * rowsForGroup;
+
         int idx = 0;
         boolean firstRowOfGroup = true;
         while (idx < entries.size()) {
@@ -442,9 +445,9 @@ public class DivisionDeploymentDialogOrganizer {
                         isDivisionRow,
                         entries,
                         itemW * labelCols,
-                        itemH);
+                        groupCardHeight);
                 listAddItemHandle.invoke(scrollingList, headerCard, null);
-                headerCard.getPosition().setSize(itemW * labelCols - 3f, itemH - 2f);
+                headerCard.getPosition().setSize(itemW * labelCols - 3f, groupCardHeight - 2f);
                 currentSlotIndex++;
 
                 for (int c = 1; c < labelCols; c++) {
