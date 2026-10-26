@@ -304,10 +304,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             renderOverlappingPolygonStripes(renderedPolys, basePolyAlpha);
         }
 
-        // 3. Render leading-edge effective-frontage orientation brackets & intention vectors for friendly divisions
+        // 3. Render division waypoints & tactical intent vectors for friendly divisions
         for (RenderedDivisionPolygon rp : renderedPolys) {
             if (!rp.isEnemy) {
-                renderDivisionLeadingEdgeBracketAndIntent(rp, scale, offsetX, offsetY, friendlyLineAlpha, playerFog);
+                renderDivisionWaypointsAndIntent(rp, scale, offsetX, offsetY, friendlyLineAlpha, playerFog);
             }
         }
 
@@ -645,11 +645,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     /**
-     * Requirement 2: Renders the orientation bracket at the LEADING EDGE of the division polygon
-     * oriented by the average of where the division's hulls are pointed (blended with the vector
-     * toward their enemy or objective), spanning the division's effective frontage.
+     * Renders the division waypoints (wide-arc out-of-contact route waypoint + final tactical goal)
+     * originating from the leading edge of the division polygon toward the first waypoint / destination.
      */
-    private void renderDivisionLeadingEdgeBracketAndIntent(
+    private void renderDivisionWaypointsAndIntent(
             RenderedDivisionPolygon rp,
             float scale,
             float offsetX,
@@ -660,148 +659,52 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         DivisionState div = rp.div;
         DivisionIntentType intent = div.currentIntent;
 
+        Vector2f destWorld = resolveDivisionFinalGoalWorld(div, intent, playerFog);
+        if (destWorld == null) return;
+
+        boolean targetIsEnemy = isDirectEnemyTargetIntent(div, intent, playerFog);
+        boolean drawWideArcDogleg = !targetIsEnemy
+                && div.hasRouteWaypoint
+                && div.routeWaypoint != null
+                && (div.routeWaypoint.x != 0f || div.routeWaypoint.y != 0f);
+
         float cx = rp.centerScreen.x;
         float cy = rp.centerScreen.y;
-
-        // 1. Compute the average direction where the division's hulls are pointed
-        float sumCos = 0f;
-        float sumSin = 0f;
-        for (ShipAPI s : rp.hullMembers) {
-            if (s == null || !s.isAlive()) continue;
-            float w = getMemberFootprintRadiusWorld(s);
-            double rad = Math.toRadians(s.getFacing());
-            sumCos += (float) Math.cos(rad) * w;
-            sumSin += (float) Math.sin(rad) * w;
-        }
-        float hullLen = (float) Math.sqrt(sumCos * sumCos + sumSin * sumSin);
-        float hullDirX = (hullLen > 1e-4f) ? (sumCos / hullLen) : 0f;
-        float hullDirY = (hullLen > 1e-4f) ? (sumSin / hullLen) : 1f;
-
-        // 2. Resolve the division's enemy or objective goal in world space
-        Vector2f destWorld = resolveDivisionFinalGoalWorld(div, intent, playerFog);
-        boolean targetIsEnemy = isDirectEnemyTargetIntent(div, intent, playerFog);
-
-        Vector2f headingWorld = destWorld;
-        if (div.targetEnemyDivision != null && isDivisionVisibleOnCommandMap(div.targetEnemyDivision, playerFog)) {
-            headingWorld = OtcAI.getVisibleCentroidForSide(engine, 0, div.targetEnemyDivision);
-        } else if (!targetIsEnemy && div.hasRouteWaypoint && div.routeWaypoint != null
-                && (div.routeWaypoint.x != 0f || div.routeWaypoint.y != 0f)) {
-            headingWorld = div.routeWaypoint;
-        }
-
-        // Combine the average hull facing with the enemy/objective direction (when aligned)
-        float targetDirX = hullDirX;
-        float targetDirY = hullDirY;
-        if (headingWorld != null) {
-            float hx = headingWorld.x * scale + offsetX;
-            float hy = headingWorld.y * scale + offsetY;
-            float gx = hx - cx;
-            float gy = hy - cy;
-            float gLen = (float) Math.sqrt(gx * gx + gy * gy);
-            if (gLen > 8f) {
-                gx /= gLen;
-                gy /= gLen;
-                float dot = hullDirX * gx + hullDirY * gy;
-                if (dot >= -0.15f) {
-                    float bx = hullDirX * 0.72f + gx * 0.28f;
-                    float by = hullDirY * 0.72f + gy * 0.28f;
-                    float bLen = (float) Math.sqrt(bx * bx + by * by);
-                    if (bLen > 1e-4f) {
-                        targetDirX = bx / bLen;
-                        targetDirY = by / bLen;
-                    }
-                }
-            }
-        }
-
-        // Smooth the bracket orientation vector frame-to-frame so it glides without jitter
-        Vector2f prevDir = smoothedBracketDirByDivId.get(div.id);
-        float dirX;
-        float dirY;
-        if (prevDir == null) {
-            dirX = targetDirX;
-            dirY = targetDirY;
-            smoothedBracketDirByDivId.put(div.id, new Vector2f(dirX, dirY));
-        } else {
-            float sx = prevDir.x * 0.82f + targetDirX * 0.18f;
-            float sy = prevDir.y * 0.82f + targetDirY * 0.18f;
-            float sLen = (float) Math.sqrt(sx * sx + sy * sy);
-            if (sLen > 1e-4f) {
-                dirX = sx / sLen;
-                dirY = sy / sLen;
-            } else {
-                dirX = targetDirX;
-                dirY = targetDirY;
-            }
-            prevDir.set(dirX, dirY);
-        }
-        float latX = -dirY;
-        float latY = dirX;
-
-        // 2. Measure the division's leading edge along (dirX, dirY) and effective lateral frontage along (latX, latY)
-        float maxFwdPx = 14f;
-        float minLatPx = -18f;
-        float maxLatPx = 18f;
-        boolean firstProj = true;
-
-        for (Vector2f v : rp.polyScreen) {
-            float rx = v.x - cx;
-            float ry = v.y - cy;
-            float fwd = rx * dirX + ry * dirY;
-            float lat = rx * latX + ry * latY;
-            if (firstProj) {
-                maxFwdPx = fwd;
-                minLatPx = lat;
-                maxLatPx = lat;
-                firstProj = false;
-            } else {
-                if (fwd > maxFwdPx) maxFwdPx = fwd;
-                if (lat < minLatPx) minLatPx = lat;
-                if (lat > maxLatPx) maxLatPx = lat;
-            }
-        }
-
-        float leadAdvancePx = maxFwdPx + 4f;
-        float midLatPx = 0.5f * (minLatPx + maxLatPx);
-        float halfFrontagePx = clamp(0.5f * (maxLatPx - minLatPx), 18f, 185f);
-        float wingSweepPx = clamp(halfFrontagePx * 0.22f, 6f, 16f);
-
-        // Leading-edge anchor point of the division entity
-        float leadCenterX = cx + dirX * leadAdvancePx + latX * midLatPx;
-        float leadCenterY = cy + dirY * leadAdvancePx + latY * midLatPx;
-
-        float leftX = leadCenterX - latX * halfFrontagePx;
-        float leftY = leadCenterY - latY * halfFrontagePx;
-        float rightX = leadCenterX + latX * halfFrontagePx;
-        float rightY = leadCenterY + latY * halfFrontagePx;
-
-        // Render Leading-Edge Effective-Frontage Orientation Bracket
-        GL11.glLineWidth(2.6f);
-        if (rp.isAlliedAi) {
-            GL11.glColor4f(1.00f, 0.92f, 0.36f, Math.min(0.92f, lineAlpha * 1.15f));
-        } else if (intent == DivisionIntentType.HAUL_OUT_TO_VENT || intent == DivisionIntentType.BREAK_OFF_AND_RETIRE) {
-            GL11.glColor4f(0.50f, 0.88f, 1.00f, Math.min(0.92f, lineAlpha * 1.15f));
-        } else if (intent == DivisionIntentType.CLOSE_UP) {
-            GL11.glColor4f(1.00f, 0.76f, 0.26f, Math.min(0.92f, lineAlpha * 1.15f));
-        } else {
-            GL11.glColor4f(0.42f, 1.00f, 0.72f, Math.min(0.92f, lineAlpha * 1.15f));
-        }
-
-        GL11.glBegin(GL11.GL_LINE_STRIP);
-        GL11.glVertex2f(leftX - dirX * wingSweepPx, leftY - dirY * wingSweepPx);
-        GL11.glVertex2f(leftX, leftY);
-        GL11.glVertex2f(rightX, rightY);
-        GL11.glVertex2f(rightX - dirX * wingSweepPx, rightY - dirY * wingSweepPx);
-        GL11.glEnd();
-
-        // 3. Tactical Intent Vector & Destination Symbol originating from the Leading-Edge Bracket Center
-        if (destWorld == null) return;
         float tx = destWorld.x * scale + offsetX;
         float ty = destWorld.y * scale + offsetY;
-        float dx = tx - leadCenterX;
-        float dy = ty - leadCenterY;
+
+        float firstTargetX = tx;
+        float firstTargetY = ty;
+        if (drawWideArcDogleg) {
+            firstTargetX = div.routeWaypoint.x * scale + offsetX;
+            firstTargetY = div.routeWaypoint.y * scale + offsetY;
+        }
+
+        float hdx = firstTargetX - cx;
+        float hdy = firstTargetY - cy;
+        float hLen = (float) Math.sqrt(hdx * hdx + hdy * hdy);
+        if (hLen < 12f) return;
+
+        float dirX = hdx / hLen;
+        float dirY = hdy / hLen;
+
+        // Find where the division polygon boundary extends along (dirX, dirY) so the waypoint vector
+        // starts cleanly at the outer edge of the division polygon
+        float maxFwdPx = 12f;
+        for (Vector2f v : rp.polyScreen) {
+            float fwd = (v.x - cx) * dirX + (v.y - cy) * dirY;
+            if (fwd > maxFwdPx) {
+                maxFwdPx = fwd;
+            }
+        }
+
+        float startX = cx + dirX * Math.min(maxFwdPx + 2f, hLen * 0.45f);
+        float startY = cy + dirY * Math.min(maxFwdPx + 2f, hLen * 0.45f);
+
+        float dx = tx - startX;
+        float dy = ty - startY;
         float distPx = (float) Math.sqrt(dx * dx + dy * dy);
-        if (distPx < 12f) return;
+        if (distPx < 10f) return;
 
         float ux = dx / distPx;
         float uy = dy / distPx;
@@ -819,19 +722,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             GL11.glColor4f(0.48f, 1.00f, 0.70f, vecAlpha);
         }
 
-        float startOffset = 3f;
+        float startOffset = 2f;
         float endOffset = targetIsEnemy ? 14f : 6f;
-
-        boolean drawWideArcDogleg = !targetIsEnemy
-                && div.hasRouteWaypoint
-                && div.routeWaypoint != null
-                && (div.routeWaypoint.x != 0f || div.routeWaypoint.y != 0f);
 
         if (drawWideArcDogleg) {
             float wx = div.routeWaypoint.x * scale + offsetX;
             float wy = div.routeWaypoint.y * scale + offsetY;
-            float leg1Dx = wx - leadCenterX;
-            float leg1Dy = wy - leadCenterY;
+            float leg1Dx = wx - startX;
+            float leg1Dy = wy - startY;
             float leg1Len = (float) Math.sqrt(leg1Dx * leg1Dx + leg1Dy * leg1Dy);
             float leg2Dx = tx - wx;
             float leg2Dy = ty - wy;
@@ -842,7 +740,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float u2y = leg2Dy / leg2Len;
 
                 GL11.glLineWidth(2.15f);
-                drawDashedSegment(leadCenterX, leadCenterY, wx, wy, startOffset, 0f, 14f);
+                drawDashedSegment(startX, startY, wx, wy, startOffset, 0f, 14f);
                 drawDashedSegment(wx, wy, tx, ty, 0f, endOffset, 14f);
 
                 float wr = 4.5f;
@@ -864,7 +762,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         if (!drawWideArcDogleg) {
             GL11.glLineWidth(2.15f);
-            drawDashedSegment(leadCenterX, leadCenterY, tx, ty, startOffset, endOffset, 14f);
+            drawDashedSegment(startX, startY, tx, ty, startOffset, endOffset, 14f);
         }
 
         GL11.glLineWidth(2.4f);
