@@ -76,13 +76,81 @@ public class DivisionAutoFormer {
                 commander = fm.getDefaultCommander();
             }
         }
-        String fallback = (side == 0) ? "Allied BG Cmdr" : "OpFor BG Cmdr";
+        String fallback = (side == 0) ? "Player BG Cmdr" : "OpFor BG Cmdr";
         return new CommanderProfile(commander, fallback);
     }
 
+    public static CommanderProfile resolveAlliedAiBattlegroupCommander(CombatEngineAPI engine, List<ShipAPI> alliedShips) {
+        PersonAPI commander = null;
+        if (alliedShips != null) {
+            float bestFp = -1f;
+            for (ShipAPI s : alliedShips) {
+                if (s == null || !s.isAlly()) continue;
+                PersonAPI cap = s.getCaptain();
+                if (cap != null && !cap.isDefault()) {
+                    float fp = ShipCapabilityProfile.resolveShipFpStrength(s);
+                    if (fp > bestFp) {
+                        bestFp = fp;
+                        commander = cap;
+                    }
+                }
+            }
+        }
+        if (commander == null && engine != null) {
+            CombatFleetManagerAPI fm = engine.getFleetManager(0);
+            if (fm != null) {
+                commander = fm.getDefaultCommander();
+            }
+        }
+        return new CommanderProfile(commander, "Allied BG Cmdr");
+    }
+
     /**
-     * Reconciles newly deployed ships into existing divisions or builds initial divisions
-     * when a battle starts or reinforcement waves arrive.
+     * Synchronizes ONLY the player's campaign Permanent Divisions onto deployed player-controlled ships.
+     * Never forcibly assigns unassigned player ships to divisions on the battle layer.
+     */
+    public static List<DivisionState> syncPlayerPermanentDivisionsOnly(
+            CombatEngineAPI engine,
+            BattlegroupState playerBg,
+            List<ShipAPI> playerShips) {
+
+        List<DivisionState> newlyCreated = new ArrayList<>();
+        Set<String> assignedIds = new HashSet<>(playerBg.shipIdToDivision.keySet());
+
+        List<ShipCapabilityProfile> unassigned = new ArrayList<>();
+        for (ShipAPI ship : playerShips) {
+            if (ship == null || ship.isAlly() || !isEligibleCombatHull(ship)) continue;
+            if (!assignedIds.contains(ship.getId())) {
+                unassigned.add(new ShipCapabilityProfile(ship));
+            }
+        }
+
+        if (unassigned.isEmpty()) {
+            return newlyCreated;
+        }
+
+        Collections.sort(unassigned, new Comparator<ShipCapabilityProfile>() {
+            @Override
+            public int compare(ShipCapabilityProfile a, ShipCapabilityProfile b) {
+                int cmp = Float.compare(b.fpStrength, a.fpStrength);
+                if (cmp != 0) return cmp;
+                return Float.compare(a.ship.getLocation().x, b.ship.getLocation().x);
+            }
+        });
+
+        // Inherit campaign Permanent Divisions ONLY; any player ships not in a permanent division
+        // remain unassigned and run vanilla Starsector combat AI.
+        PermanentDivisionManager.applyPermanentDivisionsInCombat(
+                playerBg,
+                unassigned,
+                newlyCreated);
+
+        return newlyCreated;
+    }
+
+    /**
+     * Reconciles newly deployed AI fleet ships (Allied AI fleet or OpFor fleet) into existing divisions
+     * or builds initial divisions when a battle starts or reinforcement waves arrive.
      */
     public static List<DivisionState> syncDivisionsForSide(
             CombatEngineAPI engine,
@@ -114,62 +182,22 @@ public class DivisionAutoFormer {
             }
         });
 
-        // Separate player-controlled hulls (!isAlly) from non-player-controlled allied AI hulls (isAlly)
-        // so player divisions (green) and allied AI divisions (yellow) never mix.
-        List<ShipCapabilityProfile> primaryOwnerPool = new ArrayList<>();
-        List<ShipCapabilityProfile> alliedAiPool = new ArrayList<>();
-        for (ShipCapabilityProfile p : unassigned) {
-            if (bg.side == 0 && p.ship.isAlly()) {
-                alliedAiPool.add(p);
-            } else {
-                primaryOwnerPool.add(p);
-            }
-        }
-
-        // 1. For player-controlled ships in campaign battles, inherit Permanent Divisions first!
-        if (bg.side == 0 && !primaryOwnerPool.isEmpty()) {
-            primaryOwnerPool = PermanentDivisionManager.applyPermanentDivisionsInCombat(
-                    bg,
-                    primaryOwnerPool,
-                    newlyCreated);
-        }
-
-        // 2. If divisions already exist when unassigned reinforcement ships arrive, attach them
-        // to matching existing divisions that still have capacity before creating new divisions.
         if (!bg.divisions.isEmpty()) {
-            if (!primaryOwnerPool.isEmpty()) {
-                List<ShipCapabilityProfile> remPrimary = new ArrayList<>();
-                for (ShipCapabilityProfile prof : primaryOwnerPool) {
-                    DivisionState match = findExistingDivisionForReinforcement(bg, prof);
-                    if (match != null) {
-                        addShipToDivision(bg, match, prof);
-                        recomputeDivisionCapabilities(match);
-                    } else {
-                        remPrimary.add(prof);
-                    }
+            List<ShipCapabilityProfile> remaining = new ArrayList<>();
+            for (ShipCapabilityProfile prof : unassigned) {
+                DivisionState match = findExistingDivisionForReinforcement(bg, prof);
+                if (match != null) {
+                    addShipToDivision(bg, match, prof);
+                    recomputeDivisionCapabilities(match);
+                } else {
+                    remaining.add(prof);
                 }
-                primaryOwnerPool = remPrimary;
             }
-            if (!alliedAiPool.isEmpty()) {
-                List<ShipCapabilityProfile> remAllied = new ArrayList<>();
-                for (ShipCapabilityProfile prof : alliedAiPool) {
-                    DivisionState match = findExistingDivisionForReinforcement(bg, prof);
-                    if (match != null) {
-                        addShipToDivision(bg, match, prof);
-                        recomputeDivisionCapabilities(match);
-                    } else {
-                        remAllied.add(prof);
-                    }
-                }
-                alliedAiPool = remAllied;
-            }
+            unassigned = remaining;
         }
 
-        if (!primaryOwnerPool.isEmpty()) {
-            newlyCreated.addAll(formDivisionsFromPool(bg, primaryOwnerPool));
-        }
-        if (!alliedAiPool.isEmpty()) {
-            newlyCreated.addAll(formDivisionsFromPool(bg, alliedAiPool));
+        if (!unassigned.isEmpty()) {
+            newlyCreated.addAll(formDivisionsFromPool(bg, unassigned));
         }
         return newlyCreated;
     }

@@ -268,7 +268,7 @@ public class DivisionModel {
      */
     public static class BattlegroupState {
         public final int side;
-        public final CommanderProfile bgCommander;
+        public CommanderProfile bgCommander;
         public MissionContextType missionContext = MissionContextType.FULL_PITCHED_BATTLE;
         public BattlePhase currentPhase = BattlePhase.OPENING_PROBE;
         public BattlePhase previousPhase = null;

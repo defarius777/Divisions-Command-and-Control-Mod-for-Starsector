@@ -44,9 +44,8 @@ import java.util.Set;
 public class PermanentDivisionManager {
 
     private static final Logger LOG = Global.getLogger(PermanentDivisionManager.class);
-    private static final String PERSISTENT_DIVISIONS_KEY = "divisionai_permanent_divisions_v1";
-    private static final String PERSISTENT_INIT_FLAG_KEY = "divisionai_permanent_divisions_init_v1";
-    private static final String PERSISTENT_SEQ_KEY = "divisionai_permanent_divisions_seq_v1";
+    private static final String PERSISTENT_DIVISIONS_KEY = "divisionai_permanent_divisions_v2";
+    private static final String PERSISTENT_SEQ_KEY = "divisionai_permanent_divisions_seq_v2";
 
     public enum DoctrineOption {
         ADAPTIVE("Adaptive C2 (Default)", "Balanced division C2: screens, flanks, or presses overmatch based on live telemetry."),
@@ -90,8 +89,9 @@ public class PermanentDivisionManager {
     }
 
     /**
-     * Ensures permanent divisions are initialized for the player's campaign fleet and prunes any
+     * Loads the player's permanent divisions from campaign persistent data and prunes any
      * ship IDs that are no longer in the player's fleet.
+     * Never forcibly assigns player ships to divisions automatically.
      */
     public static List<PermanentDivisionSpec> ensureInitializedForPlayerFleet() {
         SectorAPI sector = Global.getSector();
@@ -101,25 +101,36 @@ public class PermanentDivisionManager {
 
         CampaignFleetAPI playerFleet = sector.getPlayerFleet();
         Map<String, Object> pdata = sector.getPersistentData();
-        boolean alreadyInitialized = Boolean.TRUE.equals(pdata.get(PERSISTENT_INIT_FLAG_KEY));
 
         List<PermanentDivisionSpec> specs = loadSpecsFromPersistentData(pdata);
         pruneRemovedFleetMembers(specs, playerFleet);
-
-        if (!alreadyInitialized && specs.isEmpty()) {
-            specs = buildDefaultPermanentDivisions(playerFleet, pdata);
-            pdata.put(PERSISTENT_INIT_FLAG_KEY, Boolean.TRUE);
-            saveSpecsToPersistentData(pdata, specs);
-            LOG.info("[DivisionAI] Initialized " + specs.size() + " permanent divisions for player campaign fleet.");
-        } else {
-            saveSpecsToPersistentData(pdata, specs);
-        }
-
+        saveSpecsToPersistentData(pdata, specs);
         return specs;
     }
 
     public static List<PermanentDivisionSpec> getPermanentDivisions() {
         return ensureInitializedForPlayerFleet();
+    }
+
+    /**
+     * Returns only the player's permanent divisions that have at least 1 ship currently in the player's fleet.
+     */
+    public static List<PermanentDivisionSpec> getNonEmptyPermanentDivisions() {
+        List<PermanentDivisionSpec> nonEmpty = new ArrayList<>();
+        for (PermanentDivisionSpec spec : ensureInitializedForPlayerFleet()) {
+            if (spec != null && spec.memberIds != null && !spec.memberIds.isEmpty()) {
+                nonEmpty.add(spec);
+            }
+        }
+        return nonEmpty;
+    }
+
+    public static void clearAllDivisions() {
+        SectorAPI sector = Global.getSector();
+        if (sector == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        saveSpecsToPersistentData(pdata, new ArrayList<PermanentDivisionSpec>());
+        LOG.info("[DivisionAI] Disbanded all permanent divisions.");
     }
 
     public static PermanentDivisionSpec getDivisionById(String divisionId) {
@@ -147,7 +158,6 @@ public class PermanentDivisionManager {
         if (sector == null || sector.getPlayerFleet() == null) return;
         Map<String, Object> pdata = sector.getPersistentData();
         List<PermanentDivisionSpec> specs = buildDefaultPermanentDivisions(sector.getPlayerFleet(), pdata);
-        pdata.put(PERSISTENT_INIT_FLAG_KEY, Boolean.TRUE);
         saveSpecsToPersistentData(pdata, specs);
         LOG.info("[DivisionAI] Reset and auto-formed " + specs.size() + " permanent divisions.");
     }

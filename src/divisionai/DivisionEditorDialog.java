@@ -155,34 +155,24 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 darkColor,
                 Alignment.MID,
                 CutStyle.TL_BR,
-                200f,
+                220f,
                 24f,
                 0f);
         bCreate.getPosition().inTL(0f, 2f);
 
-        ButtonAPI bAutoAssign = tb.addButton(
-                "Auto-Assign Unassigned (" + unassigned.size() + ")",
-                "AUTO_ASSIGN",
-                baseColor,
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                220f,
-                24f,
-                0f);
-        bAutoAssign.getPosition().inTL(210f, 2f);
-
-        ButtonAPI bReset = tb.addButton(
-                "Reset & Auto-Form All",
-                "RESET_AUTO",
-                baseColor,
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                195f,
-                24f,
-                0f);
-        bReset.getPosition().inTL(440f, 2f);
+        if (!divisions.isEmpty()) {
+            ButtonAPI bClearAll = tb.addButton(
+                    "Disband All Divisions",
+                    "CLEAR_ALL_DIVS",
+                    Misc.getNegativeHighlightColor(),
+                    darkColor,
+                    Alignment.MID,
+                    CutStyle.TL_BR,
+                    205f,
+                    24f,
+                    0f);
+            bClearAll.getPosition().inTL(230f, 2f);
+        }
 
         ButtonAPI bClose = tb.addButton(
                 "Close [Esc]",
@@ -210,7 +200,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         if (divisions.isEmpty()) {
             leftCol.addPara(
-                    "No permanent divisions configured. Click '+ Create New Division' or 'Reset & Auto-Form All' above.",
+                    "No permanent divisions configured. Your fleet will use vanilla combat AI until you create at least 1 division and assign ships to it.",
                     gray,
                     10f);
         } else {
@@ -660,6 +650,12 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             if (created != null) {
                 activeDivisionId = created.id;
             }
+            rebuildContent();
+            return;
+        }
+        if ("CLEAR_ALL_DIVS".equals(cmd)) {
+            PermanentDivisionManager.clearAllDivisions();
+            activeDivisionId = null;
             rebuildContent();
             return;
         }

@@ -53,7 +53,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private static final Color ENEMY_LABEL_COLOR = new Color(255, 125, 120, 225);
 
     private CombatEngineAPI engine;
-    private BattlegroupState alliedBg;
+    private BattlegroupState playerBg;
+    private BattlegroupState alliedAiBg;
     private BattlegroupState enemyBg;
     private final Map<String, LabelAPI> labelCache = new HashMap<>();
 
@@ -72,8 +73,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         this.engine = engine;
     }
 
-    public void setBattlegroups(BattlegroupState alliedBg, BattlegroupState enemyBg) {
-        this.alliedBg = alliedBg;
+    public void setBattlegroups(BattlegroupState playerBg, BattlegroupState alliedAiBg, BattlegroupState enemyBg) {
+        this.playerBg = playerBg;
+        this.alliedAiBg = alliedAiBg;
         this.enemyBg = enemyBg;
     }
 
@@ -137,7 +139,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
     @Override
     public void render(float alphaMult) {
-        if (!attachedToWarroom || engine == null || alliedBg == null) return;
+        if (!attachedToWarroom || engine == null) return;
         if (!DivisionAISettings.isTacticalMapOverlayEnabled()) return;
 
         CombatUIAPI ui = engine.getCombatUI();
@@ -197,20 +199,34 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glEnable(GL11.GL_LINE_SMOOTH);
 
-        // 1. Render Friendly Divisions (all alive constituent members)
-        renderBattlegroupCirclesAndLines(
-                alliedBg,
-                false,
-                null,
-                scale,
-                offsetX,
-                offsetY,
-                baseCircleAlpha,
-                ringAlpha,
-                friendlyLineAlpha);
+        // 1. Render Player Divisions (Green) and Allied AI Divisions (Yellow)
+        if (playerBg != null && !playerBg.divisions.isEmpty()) {
+            renderBattlegroupCirclesAndLines(
+                    playerBg,
+                    false,
+                    null,
+                    scale,
+                    offsetX,
+                    offsetY,
+                    baseCircleAlpha,
+                    ringAlpha,
+                    friendlyLineAlpha);
+        }
+        if (alliedAiBg != null && !alliedAiBg.divisions.isEmpty()) {
+            renderBattlegroupCirclesAndLines(
+                    alliedAiBg,
+                    false,
+                    null,
+                    scale,
+                    offsetX,
+                    offsetY,
+                    baseCircleAlpha,
+                    ringAlpha,
+                    friendlyLineAlpha);
+        }
 
         // 2. Render Enemy Divisions (ONLY ships visible to the player, with sparing OpSec-safe lines)
-        if (enemyBg != null) {
+        if (enemyBg != null && !enemyBg.divisions.isEmpty()) {
             renderBattlegroupCirclesAndLines(
                     enemyBg,
                     true,
@@ -226,9 +242,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glPopMatrix();
         GL11.glPopAttrib();
 
-        // 3. Render Flagship Division Labels (Friendly + OpSec-safe visible Enemy flagships)
-        renderBattlegroupLabels(alliedBg, false, null, scale, offsetX, offsetY, fade);
-        if (enemyBg != null) {
+        // 3. Render Flagship Division Labels (Player + Allied AI + OpSec-safe visible Enemy flagships)
+        if (playerBg != null && !playerBg.divisions.isEmpty()) {
+            renderBattlegroupLabels(playerBg, false, null, scale, offsetX, offsetY, fade);
+        }
+        if (alliedAiBg != null && !alliedAiBg.divisions.isEmpty()) {
+            renderBattlegroupLabels(alliedAiBg, false, null, scale, offsetX, offsetY, fade);
+        }
+        if (enemyBg != null && !enemyBg.divisions.isEmpty()) {
             renderBattlegroupLabels(enemyBg, true, playerFog, scale, offsetX, offsetY, fade);
         }
     }
