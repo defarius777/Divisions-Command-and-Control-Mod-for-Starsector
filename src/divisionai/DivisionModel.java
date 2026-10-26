@@ -109,11 +109,11 @@ public class DivisionModel {
         public final String personalityId;
         public final int level;
 
-        public final float aggressionBias;      // 0.3 (timid) .. 1.6 (reckless)
-        public final float cohesionStrictness;  // higher = tighter spacing & stricter pursuit leash
-        public final float rotationFluxThreshold; // avg flux/hull pressure at which division rotates out
-        public final float overmatchCommitRatio;  // friendly/enemy ratio needed to press or strike
-        public final float decisionCadenceSeconds;
+        public float aggressionBias;      // 0.3 (timid) .. 1.6 (reckless)
+        public float cohesionStrictness;  // higher = tighter spacing & stricter pursuit leash
+        public float rotationFluxThreshold; // avg flux/hull pressure at which division rotates out
+        public float overmatchCommitRatio;  // friendly/enemy ratio needed to press or strike
+        public float decisionCadenceSeconds;
 
         public CommanderProfile(PersonAPI person, String fallbackTitle) {
             this.person = person;

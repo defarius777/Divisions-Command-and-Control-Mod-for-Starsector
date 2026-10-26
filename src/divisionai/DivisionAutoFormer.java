@@ -104,25 +104,6 @@ public class DivisionAutoFormer {
             return newlyCreated;
         }
 
-        // If divisions already exist when reinforcement ships arrive, attach them
-        // to matching existing divisions that still have capacity before creating new divisions.
-        if (!bg.divisions.isEmpty()) {
-            List<ShipCapabilityProfile> remaining = new ArrayList<>();
-            for (ShipCapabilityProfile prof : unassigned) {
-                DivisionState match = findExistingDivisionForReinforcement(bg, prof);
-                if (match != null) {
-                    addShipToDivision(bg, match, prof);
-                    recomputeDivisionCapabilities(match);
-                } else {
-                    remaining.add(prof);
-                }
-            }
-            unassigned = remaining;
-            if (unassigned.isEmpty()) {
-                return newlyCreated;
-            }
-        }
-
         // Sort unassigned hulls deterministically by FP descending, then x-position
         Collections.sort(unassigned, new Comparator<ShipCapabilityProfile>() {
             @Override
@@ -142,6 +123,45 @@ public class DivisionAutoFormer {
                 alliedAiPool.add(p);
             } else {
                 primaryOwnerPool.add(p);
+            }
+        }
+
+        // 1. For player-controlled ships in campaign battles, inherit Permanent Divisions first!
+        if (bg.side == 0 && !primaryOwnerPool.isEmpty()) {
+            primaryOwnerPool = PermanentDivisionManager.applyPermanentDivisionsInCombat(
+                    bg,
+                    primaryOwnerPool,
+                    newlyCreated);
+        }
+
+        // 2. If divisions already exist when unassigned reinforcement ships arrive, attach them
+        // to matching existing divisions that still have capacity before creating new divisions.
+        if (!bg.divisions.isEmpty()) {
+            if (!primaryOwnerPool.isEmpty()) {
+                List<ShipCapabilityProfile> remPrimary = new ArrayList<>();
+                for (ShipCapabilityProfile prof : primaryOwnerPool) {
+                    DivisionState match = findExistingDivisionForReinforcement(bg, prof);
+                    if (match != null) {
+                        addShipToDivision(bg, match, prof);
+                        recomputeDivisionCapabilities(match);
+                    } else {
+                        remPrimary.add(prof);
+                    }
+                }
+                primaryOwnerPool = remPrimary;
+            }
+            if (!alliedAiPool.isEmpty()) {
+                List<ShipCapabilityProfile> remAllied = new ArrayList<>();
+                for (ShipCapabilityProfile prof : alliedAiPool) {
+                    DivisionState match = findExistingDivisionForReinforcement(bg, prof);
+                    if (match != null) {
+                        addShipToDivision(bg, match, prof);
+                        recomputeDivisionCapabilities(match);
+                    } else {
+                        remAllied.add(prof);
+                    }
+                }
+                alliedAiPool = remAllied;
             }
         }
 
