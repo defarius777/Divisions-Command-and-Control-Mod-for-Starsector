@@ -91,6 +91,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private boolean closed = false;
     private ActiveTab activeTab = ActiveTab.ALL_DOCTRINE;
     private String expandedDropdownKey = null;
+    private String pendingConfirmationCmd = null;
+    private int lastReinitFleetCount = -1;
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
     private final Map<DivisionArchetype, TextFieldAPI> prefixTextFields = new LinkedHashMap<>();
@@ -302,6 +304,23 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         if (activeTab == ActiveTab.NAMING_SCHEME) bTabNaming.highlight();
         bTabNaming.getPosition().inTL(590f, 2f);
 
+        String reinitLabel = lastReinitFleetCount >= 0
+                ? ("Reinitialized (" + lastReinitFleetCount + ")!")
+                : "Reinit Sector Divs";
+        ButtonAPI bReinitSector = registerButton(
+                tb.addButton(
+                        reinitLabel,
+                        "REINIT_SECTOR_DIVISIONS",
+                        lastReinitFleetCount >= 0 ? positive : highlight,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        148f,
+                        24f,
+                        0f),
+                "REINIT_SECTOR_DIVISIONS");
+        bReinitSector.getPosition().inTL(DIALOG_WIDTH - 24f - 120f - 136f - 154f, 2f);
+
         ButtonAPI bReset = registerButton(
                 tb.addButton(
                         "Reset Defaults",
@@ -333,6 +352,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         tb.setHeightSoFar(28f);
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
         contentContainer.addComponent(toolbarRow).inTL(12f, 70f);
+
+        if (pendingConfirmationCmd != null) {
+            buildConfirmationScreen(contentContainer, baseColor, darkColor, highlight);
+            return;
+        }
 
         // 3. Scrollable Body
         float bodyTop = 104f;
@@ -1326,9 +1350,86 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
+    private void buildConfirmationScreen(
+            CustomPanelAPI parent,
+            Color baseColor,
+            Color darkColor,
+            Color highlight) {
+
+        float boxW = 600f;
+        float boxH = 220f;
+        float boxX = Math.round((DIALOG_WIDTH - boxW) * 0.5f);
+        float boxY = Math.round((DIALOG_HEIGHT - boxH) * 0.5f);
+
+        CustomPanelAPI confirmBox = Global.getSettings().createCustom(boxW, boxH, subPanelPlugin);
+        TooltipMakerAPI ui = confirmBox.createUIElement(boxW, boxH, false);
+
+        ui.setTitleOrbitronLarge();
+        ui.addTitle("ARE YOU SURE?", highlight);
+        ui.addPara(
+                "Reinitialize sector-wide division lists for all AI fleets across the sector? "
+                        + "Story and special fleets will be prioritized first for low-numbered permanent divisions, "
+                        + "and faction division record tables will be rebuilt.",
+                10f,
+                Misc.getTextColor());
+
+        ButtonAPI bYes = registerButton(
+                ui.addButton(
+                        "Yes, Reinitialize Sector Lists",
+                        "CONFIRM_YES",
+                        Misc.getPositiveHighlightColor(),
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        230f,
+                        30f,
+                        0f),
+                "CONFIRM_YES");
+        bYes.getPosition().inTL(boxW * 0.5f - 240f, boxH - 46f);
+
+        ButtonAPI bNo = registerButton(
+                ui.addButton(
+                        "Cancel",
+                        "CONFIRM_NO",
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        180f,
+                        30f,
+                        0f),
+                "CONFIRM_NO");
+        bNo.getPosition().inTL(boxW * 0.5f + 20f, boxH - 46f);
+
+        ui.setHeightSoFar(boxH);
+        confirmBox.addUIElement(ui).inTL(0f, 0f);
+        parent.addComponent(confirmBox).inTL(boxX, boxY);
+    }
+
     private void handleAction(String cmd) {
         if ("CLOSE".equals(cmd)) {
             close();
+            return;
+        }
+        if ("CONFIRM_NO".equals(cmd)) {
+            pendingConfirmationCmd = null;
+            rebuildContent();
+            return;
+        }
+        if ("CONFIRM_YES".equals(cmd)) {
+            String confirmed = pendingConfirmationCmd;
+            pendingConfirmationCmd = null;
+            if ("REINIT_SECTOR_DIVISIONS".equals(confirmed)) {
+                if (Global.getSector() != null) {
+                    lastReinitFleetCount = FactionFleetDoctrines.reinitializeSectorWideDivisionLists(Global.getSector());
+                }
+            }
+            rebuildContent();
+            return;
+        }
+        if ("REINIT_SECTOR_DIVISIONS".equals(cmd)) {
+            pendingConfirmationCmd = "REINIT_SECTOR_DIVISIONS";
+            rebuildContent();
             return;
         }
         // Save any edits in custom prefix fields before switching tabs or applying actions

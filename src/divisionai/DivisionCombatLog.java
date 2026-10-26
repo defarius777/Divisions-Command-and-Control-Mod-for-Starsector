@@ -78,6 +78,28 @@ public class DivisionCombatLog {
         }
     }
 
+    public static void logReinforcementJoined(DivisionState div, ShipAPI ship) {
+        if (div == null || ship == null) return;
+        String divName = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                div.nomenclatureCategory,
+                div.archetype,
+                div.divisionNumber,
+                div.displayName);
+        String hullName = (ship.getHullSpec() != null && ship.getHullSpec().getHullName() != null)
+                ? ship.getHullSpec().getHullName()
+                : ship.getName();
+        String sideTag = (div.side == 0)
+                ? (ship.isAlly() ? "Allied" : "Friendly")
+                : "Enemy";
+        LOG.info(String.format(
+                "[C2] Reinforcement (%s): %s (%s) joined \"%s\" (now %d hulls)",
+                sideTag,
+                ship.getName(),
+                hullName,
+                divName,
+                div.getAliveMembers().size()));
+    }
+
     private static String resolveOtcTag(BattleGroupState battleGroup) {
         if (battleGroup == null) return "[OTC]";
         String defaultTitle = (battleGroup.side == 0)
@@ -170,6 +192,9 @@ public class DivisionCombatLog {
             return;
         }
         // Throttle rapid re-evaluations so the battle log remains crisp and readable
+        if (div.lastLogAnnouncementTime > 0f && (now - div.lastLogAnnouncementTime) < 3.5f) {
+            return;
+        }
         if ((now - div.lastLogAnnouncementTime) < MIN_DIVISION_LOG_INTERVAL
                 && div.currentIntent == DivisionIntentType.CLOSE_UP) {
             return;
@@ -204,7 +229,10 @@ public class DivisionCombatLog {
                     reasonSuffix);
         }
 
-        LOG.info("[DivisionAI] " + fullLine);
+        String sideTag = (div.side == 0)
+                ? (div.flagship != null && div.flagship.isAlly() ? "[Allied]" : "[Friendly]")
+                : "[Enemy]";
+        LOG.info("[DivisionAI] " + sideTag + " " + fullLine);
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
         if (ui != null && DivisionAISettings.shouldShowIntentOnHud(div.side, div.currentIntent)) {

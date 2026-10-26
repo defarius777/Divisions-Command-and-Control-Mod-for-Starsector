@@ -468,6 +468,40 @@ public final class DivisionNomenclature {
     }
 
     /**
+     * Returns a canonical numbering bucket key for a DivisionArchetype so sub-archetypes
+     * that share a display family (such as FLEET_CARRIER_DIVISION, LIGHT_CARRIER_DIVISION,
+     * ESCORT_CARRIER_DIVISION, and CARRIER_GROUP) share a single numbering sequence and
+     * never produce duplicate "Carrier Div 1" names in the same fleet or faction table.
+     */
+    public static String resolvePrefixBucketKey(DivisionArchetype archetype) {
+        if (archetype == null) return "CRUISER";
+        switch (archetype) {
+            case BATTLESHIP_DIVISION:
+                return "BATTLE";
+            case FLEET_CARRIER_DIVISION:
+            case LIGHT_CARRIER_DIVISION:
+            case ESCORT_CARRIER_DIVISION:
+            case CARRIER_GROUP:
+                return "CARRIER";
+            case STRIKE_CRUISER_DIVISION:
+                return "STRIKE_CRUISER";
+            case CRUISER_DIVISION:
+                return "CRUISER";
+            case DESTROYER_DIVISION:
+            case MISSILE_DESTROYER_DIVISION:
+                return "DESTROYER";
+            case FRIGATE_DIVISION:
+                return "FRIGATE";
+            case PHASE_DIVISION:
+                return "PHASE";
+            case SERVICE_GROUP:
+                return "SERVICE";
+            default:
+                return archetype.name();
+        }
+    }
+
+    /**
      * Formats a division name for any NPC faction fleet.
      */
     public static String formatFactionDivisionName(
@@ -475,6 +509,22 @@ public final class DivisionNomenclature {
             NomenclatureCategory category,
             DivisionArchetype archetype,
             int sequenceNumber) {
+        return formatFactionDivisionName(factionId, category, archetype, sequenceNumber, null, 0L);
+    }
+
+    /**
+     * Formats a division name for an NPC faction fleet, incorporating cultural diversity for
+     * Pirates/Independents ("Flotilla", "Fleet", "Warband", "Pack", "Group", "Unit", "Gang", "Division",
+     * varied Roman/Arabic/Ordinal numbering, and commander possessive names like
+     * "James Vega's 17th Warband" or "Vega's Warband") and Persean League polities.
+     */
+    public static String formatFactionDivisionName(
+            String factionId,
+            NomenclatureCategory category,
+            DivisionArchetype archetype,
+            int sequenceNumber,
+            com.fs.starfarer.api.characters.PersonAPI commander,
+            long unitSeed) {
         if (category == NomenclatureCategory.ABYSSAL_ERROR) {
             return ABYSSAL_ERROR_TEXT;
         }
@@ -484,9 +534,207 @@ public final class DivisionNomenclature {
         if (category == NomenclatureCategory.THREAT_SWARM) {
             return formatCorruptedThreatText(archetype, sequenceNumber, System.currentTimeMillis() / 260L);
         }
-        // Human Naval Standard: Battle, Carrier, Cruiser, Destroyer, Frigate, Phase, Service Divisions
+
+        String fId = factionId != null ? factionId.toLowerCase(Locale.ROOT) : "";
+        int num = Math.max(1, sequenceNumber);
+        long seed = unitSeed != 0L
+                ? unitSeed
+                : (fId.hashCode() * 6364136223846793005L
+                        + num * 1442695040888963407L
+                        + (archetype != null ? archetype.ordinal() * 2654435761L : 0L));
+
+        if (isPirateOrIndependentFaction(fId)) {
+            return formatPirateOrIndependentDivisionName(fId, archetype, num, commander, seed);
+        }
+        if ("persean".equals(fId)) {
+            return formatPerseanDivisionName(archetype, num, commander, seed);
+        }
+
+        // Standard Human Naval nomenclature: use Roman numerals for Battle Divisions ("Battle Div. I")
+        // or when the unit is #1..#5 in formal navies, and clean Naval Standard elsewhere.
         String prefix = getDefaultPrefixForPreset(PlayerNamingPreset.NAVAL_STANDARD, archetype);
-        return applyNumbering(prefix, sequenceNumber, NumberingStyle.ARABIC);
+        if (archetype == DivisionArchetype.BATTLESHIP_DIVISION) {
+            return "Battle Div. " + toRoman(num);
+        }
+        return applyNumbering(prefix, num, NumberingStyle.ARABIC);
+    }
+
+    private static boolean isPirateOrIndependentFaction(String fId) {
+        if (fId == null) return false;
+        return "pirates".equals(fId)
+                || "independent".equals(fId)
+                || "mercenary".equals(fId)
+                || "scavengers".equals(fId)
+                || "luddic_path".equals(fId);
+    }
+
+    private static final String[] PIRATE_INDIE_UNIT_NOUNS = {
+            "Flotilla", "Fleet", "Warband", "Pack", "Group", "Unit", "Gang", "Division"
+    };
+
+    private static final String[] PERSEAN_UNIT_NOUNS = {
+            "Division", "Flotilla", "Squadron", "Group", "Unit", "Fleet", "Phalanx", "Task Group"
+    };
+
+    private static String formatPirateOrIndependentDivisionName(
+            String factionId,
+            DivisionArchetype archetype,
+            int num,
+            com.fs.starfarer.api.characters.PersonAPI commander,
+            long seed) {
+
+        int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 13)), PIRATE_INDIE_UNIT_NOUNS.length);
+        // For independents/mercenaries, slightly favor Flotilla/Group/Unit/Division/Pack/Fleet over Gang
+        if (!"pirates".equals(factionId) && "Gang".equals(PIRATE_INDIE_UNIT_NOUNS[nounIdx])) {
+            if (Math.floorMod((int) (seed >>> 29), 3) != 0) {
+                nounIdx = Math.floorMod(nounIdx + 1, PIRATE_INDIE_UNIT_NOUNS.length);
+            }
+        }
+        String noun = PIRATE_INDIE_UNIT_NOUNS[nounIdx];
+
+        String cmdFirst = null;
+        String cmdLast = null;
+        if (commander != null && !commander.isDefault() && commander.getName() != null) {
+            cmdFirst = commander.getName().getFirst() != null ? commander.getName().getFirst().trim() : "";
+            cmdLast = commander.getName().getLast() != null ? commander.getName().getLast().trim() : "";
+        }
+        boolean hasCommanderName = (cmdFirst != null && !cmdFirst.isEmpty()) || (cmdLast != null && !cmdLast.isEmpty());
+
+        // If a named commander leads this division, 55% chance for Pirates / 40% for Independents to name it after them
+        int narcissismRoll = Math.floorMod((int) (seed >>> 19), 100);
+        int narcissismThreshold = "pirates".equals(factionId) ? 55 : 40;
+        if (hasCommanderName && narcissismRoll < narcissismThreshold) {
+            String possessive = buildCommanderPossessive(cmdFirst, cmdLast, seed);
+            int numStyleRoll = Math.floorMod((int) (seed >>> 27), 100);
+            if (numStyleRoll < 42) {
+                // No number instantiated by chance, e.g. "Vega's Warband" or "James Vega's Pack"
+                return possessive + " " + noun;
+            } else if (numStyleRoll < 82) {
+                // Ordinal + Noun, e.g. "James Vega's 17th Warband" or "Vega's 4th Flotilla"
+                return possessive + " " + toOrdinal(num) + " " + noun;
+            } else {
+                // Roman + Noun, e.g. "Vega's XIV Warband"
+                return possessive + " " + toRoman(num) + " " + noun;
+            }
+        }
+
+        // Non-possessive cultural variants across the Sector:
+        // 0: "XIV Warband" (Roman prefix)
+        // 1: "Flotilla 18" (Noun + Arabic)
+        // 2: "17th Warband" (Ordinal prefix)
+        // 3: "Warband XIV" (Noun + Roman)
+        int pattern = Math.floorMod((int) (seed >>> 35), 4);
+        switch (pattern) {
+            case 0:
+                return toRoman(num) + " " + noun;
+            case 1:
+                return noun + " " + num;
+            case 2:
+                return toOrdinal(num) + " " + noun;
+            case 3:
+            default:
+                return noun + " " + toRoman(num);
+        }
+    }
+
+    private static String formatPerseanDivisionName(
+            DivisionArchetype archetype,
+            int num,
+            com.fs.starfarer.api.characters.PersonAPI commander,
+            long seed) {
+
+        int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 11)), PERSEAN_UNIT_NOUNS.length);
+        String noun = PERSEAN_UNIT_NOUNS[nounIdx];
+
+        String cmdFirst = null;
+        String cmdLast = null;
+        if (commander != null && !commander.isDefault() && commander.getName() != null) {
+            cmdFirst = commander.getName().getFirst() != null ? commander.getName().getFirst().trim() : "";
+            cmdLast = commander.getName().getLast() != null ? commander.getName().getLast().trim() : "";
+        }
+        boolean hasCommanderName = (cmdLast != null && !cmdLast.isEmpty()) || (cmdFirst != null && !cmdFirst.isEmpty());
+
+        // Persean League has less narcissism (~15% chance when led by a named commander)
+        int narcissismRoll = Math.floorMod((int) (seed >>> 21), 100);
+        if (hasCommanderName && narcissismRoll < 15) {
+            // Prefer surname or full name for Persean navarchs/Aristoi
+            String owner = (cmdLast != null && !cmdLast.isEmpty()) ? (cmdLast + "'s") : (cmdFirst + "'s");
+            if (Math.floorMod((int) (seed >>> 31), 3) == 0) {
+                return owner + " " + noun;
+            }
+            return owner + " " + toOrdinal(num) + " " + noun;
+        }
+
+        // Whether to include the tactical role prefix (e.g., "Battle", "Cruiser", "Destroyer") or just the state unit noun
+        boolean includeRole = Math.floorMod((int) (seed >>> 17), 100) < 55;
+        String roleWord = getShortRoleWord(archetype);
+        String coreNoun = (includeRole && !noun.startsWith(roleWord)) ? (roleWord + " " + noun) : noun;
+        if ("Battle Division".equals(coreNoun) && Math.floorMod((int) (seed >>> 7), 2) == 0) {
+            coreNoun = "Battle Div.";
+        }
+
+        // Diverse Persean polity numbering systems:
+        // 0: Roman prefix ("XIV Flotilla", "IV Cruiser Squadron")
+        // 1: Arabic suffix ("Flotilla 18", "Cruiser Squadron 4")
+        // 2: Ordinal prefix ("17th Flotilla", "3rd Battle Division")
+        // 3: Roman suffix ("Battle Div. I", "Flotilla XIV")
+        int numPattern = Math.floorMod((int) (seed >>> 37), 4);
+        switch (numPattern) {
+            case 0:
+                return toRoman(num) + " " + coreNoun;
+            case 1:
+                return coreNoun + " " + num;
+            case 2:
+                return toOrdinal(num) + " " + coreNoun;
+            case 3:
+            default:
+                return coreNoun + " " + toRoman(num);
+        }
+    }
+
+    private static String getShortRoleWord(DivisionArchetype archetype) {
+        if (archetype == null) return "Cruiser";
+        switch (archetype) {
+            case BATTLESHIP_DIVISION:
+                return "Battle";
+            case FLEET_CARRIER_DIVISION:
+            case LIGHT_CARRIER_DIVISION:
+            case ESCORT_CARRIER_DIVISION:
+            case CARRIER_GROUP:
+                return "Carrier";
+            case STRIKE_CRUISER_DIVISION:
+                return "Strike";
+            case CRUISER_DIVISION:
+                return "Cruiser";
+            case DESTROYER_DIVISION:
+            case MISSILE_DESTROYER_DIVISION:
+                return "Destroyer";
+            case FRIGATE_DIVISION:
+                return "Frigate";
+            case PHASE_DIVISION:
+                return "Phase";
+            case SERVICE_GROUP:
+                return "Supply";
+            default:
+                return "Line";
+        }
+    }
+
+    private static String buildCommanderPossessive(String first, String last, long seed) {
+        boolean hasFirst = first != null && !first.isEmpty();
+        boolean hasLast = last != null && !last.isEmpty();
+        if (hasFirst && hasLast) {
+            int form = Math.floorMod((int) (seed >>> 23), 3);
+            if (form == 0) {
+                return first + " " + last + "'s";
+            } else if (form == 1) {
+                return last + "'s";
+            } else {
+                return first + "'s";
+            }
+        }
+        if (hasLast) return last + "'s";
+        return first + "'s";
     }
 
     /**

@@ -108,6 +108,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     private final List<ShipIconTile> shipIconTiles = new ArrayList<>();
     private final List<DropTargetZone> dropTargetZones = new ArrayList<>();
     private String pendingAction = null;
+    private String pendingConfirmAction = null;
+    private String pendingConfirmTitle = null;
+    private String pendingConfirmMessage = null;
+    private String pendingConfirmYesLabel = null;
 
     // Mouse & Drag-and-Drop state
     private float mouseX = 0f;
@@ -227,6 +231,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             selectedOverviewDivisionId = divisions.get(0).id;
         }
 
+        if (pendingConfirmAction != null) {
+            buildConfirmationScreen(contentContainer);
+            return;
+        }
+
         if (activeDivisionId != null) {
             PermanentDivisionSpec spec = PermanentDivisionManager.getDivisionById(activeDivisionId);
             if (spec != null) {
@@ -238,6 +247,103 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
 
         buildOverviewScreen(contentContainer);
+    }
+
+    private void buildConfirmationScreen(CustomPanelAPI container) {
+        Color baseColor = Misc.getBasePlayerColor();
+        Color darkColor = Misc.getDarkPlayerColor();
+        Color highlight = Misc.getHighlightColor();
+        Color negative = Misc.getNegativeHighlightColor();
+        Color positive = Misc.getPositiveHighlightColor();
+
+        float boxW = 560f;
+        float boxH = 220f;
+        float boxX = (DIALOG_WIDTH - boxW) * 0.5f;
+        float boxY = (DIALOG_HEIGHT - boxH) * 0.5f;
+
+        final CustomPanelAPI[] cardRef = new CustomPanelAPI[1];
+        CustomPanelAPI confirmPanel = Global.getSettings().createCustom(boxW, boxH, new BaseCustomUIPanelPlugin() {
+            @Override
+            public void renderBelow(float alphaMult) {
+                CustomPanelAPI self = cardRef[0];
+                if (self == null) return;
+                PositionAPI p = self.getPosition();
+                if (p == null) return;
+                float x = p.getX();
+                float y = p.getY();
+                float w = p.getWidth();
+                float h = p.getHeight();
+
+                GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+                GL11.glColor4f(0.03f, 0.05f, 0.08f, 0.98f * alphaMult);
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(x, y);
+                GL11.glVertex2f(x + w, y);
+                GL11.glVertex2f(x + w, y + h);
+                GL11.glVertex2f(x, y + h);
+                GL11.glEnd();
+
+                GL11.glLineWidth(2.0f);
+                GL11.glColor4f(1.0f, 0.78f, 0.22f, 0.95f * alphaMult);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(x, y);
+                GL11.glVertex2f(x + w, y);
+                GL11.glVertex2f(x + w, y + h);
+                GL11.glVertex2f(x, y + h);
+                GL11.glEnd();
+                GL11.glPopAttrib();
+            }
+
+            @Override
+            public void buttonPressed(Object buttonId) {
+                DivisionEditorDialog.this.buttonPressed(buttonId);
+            }
+        });
+        cardRef[0] = confirmPanel;
+
+        TooltipMakerAPI tm = confirmPanel.createUIElement(boxW - 24f, boxH - 20f, false);
+        tm.setTitleOrbitronLarge();
+        tm.addTitle(pendingConfirmTitle != null ? pendingConfirmTitle : "ARE YOU SURE?", highlight);
+        tm.addPara(pendingConfirmMessage != null ? pendingConfirmMessage : "Are you sure you want to proceed?", 14f);
+
+        String yesText = pendingConfirmYesLabel != null ? pendingConfirmYesLabel : "Yes, Confirm";
+        boolean isDelete = pendingConfirmAction != null
+                && (pendingConfirmAction.startsWith("EXEC_DELETE_DIV:") || pendingConfirmAction.equals("EXEC_CLEAR_ALL_DIVS"));
+        ButtonAPI bYes = registerButton(
+                tm.addButton(
+                        yesText,
+                        "CONFIRM_YES",
+                        isDelete ? negative : positive,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        230f,
+                        28f,
+                        0f),
+                "CONFIRM_YES");
+        bYes.getPosition().inTL(24f, boxH - 58f);
+
+        ButtonAPI bCancel = registerButton(
+                tm.addButton(
+                        "Cancel",
+                        "CONFIRM_CANCEL",
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.BL_TR,
+                        180f,
+                        28f,
+                        0f),
+                "CONFIRM_CANCEL");
+        bCancel.getPosition().inTL(boxW - 228f, boxH - 58f);
+
+        tm.setHeightSoFar(boxH - 20f);
+        confirmPanel.addUIElement(tm).inTL(12f, 10f);
+        container.addComponent(confirmPanel).inTL(boxX, boxY);
     }
 
     // ========================================================================================
@@ -1663,7 +1769,36 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
+        if ("CONFIRM_CANCEL".equals(cmd)) {
+            pendingConfirmAction = null;
+            pendingConfirmTitle = null;
+            pendingConfirmMessage = null;
+            pendingConfirmYesLabel = null;
+            rebuildContent();
+            return;
+        }
+        if ("CONFIRM_YES".equals(cmd)) {
+            String execCmd = pendingConfirmAction;
+            pendingConfirmAction = null;
+            pendingConfirmTitle = null;
+            pendingConfirmMessage = null;
+            pendingConfirmYesLabel = null;
+            if (execCmd != null) {
+                handleAction(execCmd);
+            } else {
+                rebuildContent();
+            }
+            return;
+        }
         if ("CLEAR_ALL_DIVS".equals(cmd)) {
+            pendingConfirmAction = "EXEC_CLEAR_ALL_DIVS";
+            pendingConfirmTitle = "DELETE ALL DIVISIONS — ARE YOU SURE?";
+            pendingConfirmMessage = "Are you sure you want to delete all permanent divisions in your fleet? All ships will return to the unassigned fleet pool.";
+            pendingConfirmYesLabel = "Yes, Delete All";
+            rebuildContent();
+            return;
+        }
+        if ("EXEC_CLEAR_ALL_DIVS".equals(cmd)) {
             PermanentDivisionManager.clearAllDivisions();
             activeDivisionId = null;
             selectedOverviewDivisionId = null;
@@ -1671,11 +1806,27 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             return;
         }
         if ("AUTO_ASSIGN".equals(cmd)) {
+            pendingConfirmAction = "EXEC_AUTO_ASSIGN";
+            pendingConfirmTitle = "AUTO-ASSIGN SHIPS — ARE YOU SURE?";
+            pendingConfirmMessage = "Are you sure you want to automatically assign unassigned fleet ships to divisions based on your Fleet Doctrine?";
+            pendingConfirmYesLabel = "Yes, Auto-Assign";
+            rebuildContent();
+            return;
+        }
+        if ("EXEC_AUTO_ASSIGN".equals(cmd)) {
             PermanentDivisionManager.autoAssignUnassignedMembers();
             rebuildContent();
             return;
         }
         if ("RESET_AUTO".equals(cmd)) {
+            pendingConfirmAction = "EXEC_RESET_AUTO";
+            pendingConfirmTitle = "RESET & AUTO-FORM — ARE YOU SURE?";
+            pendingConfirmMessage = "Are you sure you want to clear existing divisions and auto-form new divisions across your fleet?";
+            pendingConfirmYesLabel = "Yes, Reset & Auto-Form";
+            rebuildContent();
+            return;
+        }
+        if ("EXEC_RESET_AUTO".equals(cmd)) {
             PermanentDivisionManager.resetAndAutoFormFromPlayerFleet();
             activeDivisionId = null;
             rebuildContent();
@@ -1689,6 +1840,17 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         if (cmd.startsWith("DELETE_DIV:")) {
             String delId = cmd.substring("DELETE_DIV:".length());
+            PermanentDivisionSpec delSpec = PermanentDivisionManager.getDivisionById(delId);
+            String divName = delSpec != null ? delSpec.name : delId;
+            pendingConfirmAction = "EXEC_DELETE_DIV:" + delId;
+            pendingConfirmTitle = "DELETE DIVISION — ARE YOU SURE?";
+            pendingConfirmMessage = "Are you sure you want to delete division \"" + divName + "\"? Its ships will return to the unassigned fleet pool.";
+            pendingConfirmYesLabel = "Yes, Delete Division";
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("EXEC_DELETE_DIV:")) {
+            String delId = cmd.substring("EXEC_DELETE_DIV:".length());
             PermanentDivisionManager.deleteDivision(delId);
             if (delId.equals(activeDivisionId)) {
                 activeDivisionId = null;
@@ -1885,6 +2047,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
             if (event.isKeyDownEvent() && event.getEventValue() == Keyboard.KEY_ESCAPE) {
                 event.consume();
+                if (pendingConfirmAction != null) {
+                    pendingConfirmAction = null;
+                    pendingConfirmTitle = null;
+                    pendingConfirmMessage = null;
+                    pendingConfirmYesLabel = null;
+                    rebuildContent();
+                    return;
+                }
                 if (isDraggingShip) {
                     isDraggingShip = false;
                     pressedTile = null;

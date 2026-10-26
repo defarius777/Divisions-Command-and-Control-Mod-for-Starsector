@@ -67,6 +67,7 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
             fleetTooltipOrganizer = new CampaignFleetTooltipOrganizer();
         }
         fleetTooltipOrganizer.advance();
+        DivisionAISettings.advanceLunaSettingsReinitButton();
 
         if (!CoreUITabId.FLEET.equals(campaignUI.getCurrentCoreTab())) {
             if (activeDialog != null && !activeDialog.isClosed()) {

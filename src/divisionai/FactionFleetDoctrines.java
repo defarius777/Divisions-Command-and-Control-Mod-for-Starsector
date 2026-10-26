@@ -2,15 +2,20 @@ package divisionai;
 
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.BaseCampaignEventListener;
+import com.fs.starfarer.api.campaign.CampaignEventListener.FleetDespawnReason;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.FactionAPI;
 import com.fs.starfarer.api.campaign.FactionDoctrineAPI;
 import com.fs.starfarer.api.campaign.LocationAPI;
+import com.fs.starfarer.api.campaign.PersonImportance;
 import com.fs.starfarer.api.campaign.SectorAPI;
 import com.fs.starfarer.api.campaign.StarSystemAPI;
 import com.fs.starfarer.api.campaign.rules.MemoryAPI;
+import com.fs.starfarer.api.characters.PersonAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
+import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import com.fs.starfarer.api.fleet.FleetMemberAPI;
+import com.fs.starfarer.api.impl.campaign.ids.MemFlags;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
@@ -27,18 +32,23 @@ import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Ascribes lore-accurate Fleet Doctrines to all vanilla Starsector factions, sorts NPC fleets
- * into divisions upon fleet initialization, and executes the one-time "divisions pass" across
- * all already-instanced campaign fleets on first load.
+ * into divisions upon fleet initialization, maintains per-faction division unit record tables
+ * (prioritizing Story/Special fleets first and reactivating destroyed divisions smaller-numbers-first),
+ * keeps AI fleet divisions sticky across reinforcement/dispersal events, and executes the sector-wide
+ * divisions pass.
  *
  * Player fleets are never forcibly assigned to divisions.
  */
@@ -47,6 +57,7 @@ public final class FactionFleetDoctrines {
     private static final Logger LOG = Global.getLogger(FactionFleetDoctrines.class);
 
     public static final String PERSISTENT_INITIAL_PASS_KEY = "divisionai_initial_divisions_pass_v1";
+    public static final String PERSISTENT_FACTION_TABLES_KEY = "divisionai_faction_division_tables_v1";
     public static final String MEM_NPC_DIVISIONS_KEY = "$divisionai_npc_divisions_v1";
     public static final String MEM_NPC_SIGNATURE_KEY = "$divisionai_npc_sig_v1";
 
@@ -56,7 +67,29 @@ public final class FactionFleetDoctrines {
     }
 
     /**
-     * Transient campaign listener that sorts newly spawned NPC fleets into divisions upon initialization.
+     * Represents a single recorded division unit in a faction's Sector-wide Order of Battle table.
+     * Destroyed/deactivated records (active == false) are reactivated smaller-numbers-first when
+     * new fleets or reinforcements form divisions for that faction.
+     */
+    public static final class FactionDivisionRecord {
+        public String recordId;
+        public String factionId;
+        public String bucketKey;
+        public DivisionArchetype archetype;
+        public int unitNumber;
+        public long unitSeed;
+        public String divisionName;
+        public String assignedFleetId;
+        public boolean heldByStoryFleet;
+        public boolean active;
+        public int timesActivated;
+        public String flagshipMemberId;
+        public final List<String> memberIds = new ArrayList<>();
+    }
+
+    /**
+     * Transient campaign listener that sorts newly spawned NPC fleets into divisions upon initialization
+     * and marks division records inactive when fleets despawn/are destroyed.
      */
     public static final class FleetInitializationDivisionListener extends BaseCampaignEventListener {
         public FleetInitializationDivisionListener() {
@@ -69,9 +102,22 @@ public final class FactionFleetDoctrines {
                 return;
             }
             try {
+                consolidateWholeDivisionTransfersWithNearbyFleets(fleet);
                 ensureFleetDivisionsSorted(fleet);
             } catch (Throwable t) {
                 LOG.warn("[DivisionAI] Failed to sort newly spawned fleet into divisions: " + fleet.getName(), t);
+            }
+        }
+
+        @Override
+        public void reportFleetDespawned(CampaignFleetAPI fleet, FleetDespawnReason reason, Object param) {
+            if (fleet == null || fleet.isPlayerFleet()) {
+                return;
+            }
+            try {
+                deactivateFleetDivisionsOnDespawn(fleet);
+            } catch (Throwable t) {
+                LOG.warn("[DivisionAI] Failed to deactivate divisions for despawned fleet: " + fleet.getName(), t);
             }
         }
     }
@@ -87,9 +133,34 @@ public final class FactionFleetDoctrines {
     }
 
     /**
-     * Runs the one-time "divisions pass" through all already-instanced NPC fleets in hyperspace
-     * and all star systems, assigning their ships to divisions based on their faction's Fleet Doctrine.
+     * Clears all NPC faction division record tables and cached NPC fleet division lists, then
+     * re-runs the sector-wide divisions pass (with Story/Special fleets prioritized first).
      * Never modifies the player's fleet.
+     *
+     * @return number of non-player fleets reinitialized across the sector.
+     */
+    public static int reinitializeSectorWideDivisionLists(SectorAPI sector) {
+        if (sector == null) return 0;
+        Map<String, Object> pdata = sector.getPersistentData();
+        pdata.remove(PERSISTENT_INITIAL_PASS_KEY);
+        pdata.remove(PERSISTENT_FACTION_TABLES_KEY);
+
+        List<CampaignFleetAPI> allNpcFleets = collectAllInstancedNpcFleets(sector);
+        for (CampaignFleetAPI fleet : allNpcFleets) {
+            MemoryAPI mem = fleet.getMemoryWithoutUpdate();
+            if (mem != null) {
+                mem.unset(MEM_NPC_DIVISIONS_KEY);
+                mem.unset(MEM_NPC_SIGNATURE_KEY);
+            }
+        }
+
+        return executeSectorWideDivisionsPass(sector);
+    }
+
+    /**
+     * Runs the one-time "divisions pass" through all already-instanced NPC fleets in hyperspace
+     * and all star systems, assigning their ships to divisions based on their faction's Fleet Doctrine
+     * (Story/Special fleets prioritized first). Never modifies the player's fleet.
      */
     public static void runInitialSectorDivisionsPassIfNeeded(SectorAPI sector) {
         if (sector == null) return;
@@ -97,11 +168,51 @@ public final class FactionFleetDoctrines {
         if (Boolean.TRUE.equals(pdata.get(PERSISTENT_INITIAL_PASS_KEY))) {
             return;
         }
+        executeSectorWideDivisionsPass(sector);
+    }
+
+    private static int executeSectorWideDivisionsPass(SectorAPI sector) {
+        if (sector == null) return 0;
+        Map<String, Object> pdata = sector.getPersistentData();
+
+        List<CampaignFleetAPI> allNpcFleets = collectAllInstancedNpcFleets(sector);
+        // Sort fleets so Story Fleets / Special Fleets / Major Named Armadas get first priority
+        // for permanent divisions (#1, #2, etc.) in their respective faction!
+        Collections.sort(allNpcFleets, new Comparator<CampaignFleetAPI>() {
+            @Override
+            public int compare(CampaignFleetAPI a, CampaignFleetAPI b) {
+                return Float.compare(computeFleetPriorityScore(b), computeFleetPriorityScore(a));
+            }
+        });
 
         int fleetsProcessed = 0;
         int divisionsCreated = 0;
         int shipsAssigned = 0;
 
+        for (CampaignFleetAPI fleet : allNpcFleets) {
+            List<PermanentDivisionSpec> divs = ensureFleetDivisionsSorted(fleet);
+            if (!divs.isEmpty()) {
+                fleetsProcessed++;
+                divisionsCreated += divs.size();
+                for (PermanentDivisionSpec d : divs) {
+                    shipsAssigned += d.memberIds.size();
+                }
+            }
+        }
+
+        pdata.put(PERSISTENT_INITIAL_PASS_KEY, Boolean.TRUE);
+        LOG.info(String.format(
+                Locale.ROOT,
+                "[DivisionAI] Completed sector-wide campaign divisions pass: sorted %d instanced NPC fleets into %d divisions (%d ships).",
+                fleetsProcessed,
+                divisionsCreated,
+                shipsAssigned));
+        return fleetsProcessed;
+    }
+
+    private static List<CampaignFleetAPI> collectAllInstancedNpcFleets(SectorAPI sector) {
+        List<CampaignFleetAPI> out = new ArrayList<>();
+        if (sector == null) return out;
         List<LocationAPI> locations = new ArrayList<>();
         if (sector.getHyperspace() != null) {
             locations.add(sector.getHyperspace());
@@ -113,7 +224,6 @@ public final class FactionFleetDoctrines {
                 }
             }
         }
-
         for (LocationAPI loc : locations) {
             List<CampaignFleetAPI> fleets = loc.getFleets();
             if (fleets == null) continue;
@@ -121,24 +231,94 @@ public final class FactionFleetDoctrines {
                 if (fleet == null || fleet.isPlayerFleet() || fleet.isStationMode()) {
                     continue;
                 }
-                List<PermanentDivisionSpec> divs = ensureFleetDivisionsSorted(fleet);
-                if (!divs.isEmpty()) {
-                    fleetsProcessed++;
-                    divisionsCreated += divs.size();
-                    for (PermanentDivisionSpec d : divs) {
-                        shipsAssigned += d.memberIds.size();
+                out.add(fleet);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Determines whether an NPC fleet is a Story Fleet or Special Fleet that should receive
+     * first priority for prestigious low-numbered divisions (e.g., Battle Div. I) in its faction.
+     */
+    public static boolean isStoryOrSpecialFleet(CampaignFleetAPI fleet) {
+        if (fleet == null || fleet.isPlayerFleet()) return false;
+        MemoryAPI mem = fleet.getMemoryWithoutUpdate();
+        if (mem != null) {
+            if (mem.getBoolean(MemFlags.ENTITY_MISSION_IMPORTANT)
+                    || mem.getBoolean("$storyFleet")
+                    || mem.getBoolean("$specialFleet")
+                    || mem.getBoolean("$uniqueFleet")
+                    || mem.getBoolean("$bossFleet")) {
+                return true;
+            }
+            Collection<String> keys = mem.getKeys();
+            if (keys != null) {
+                for (String k : keys) {
+                    if (k == null) continue;
+                    String kl = k.toLowerCase(Locale.ROOT);
+                    if (kl.startsWith("$ga_")
+                            || kl.startsWith("$pk_")
+                            || kl.startsWith("$ziggurat")
+                            || kl.contains("grandarmada")
+                            || kl.contains("armada_leader")
+                            || kl.contains("story")
+                            || kl.contains("crisis")
+                            || kl.contains("inspection_fleet")
+                            || kl.contains("blockade_boss")
+                            || kl.contains("sentinel_fleet")) {
+                        return true;
                     }
                 }
             }
         }
+        PersonAPI cmdr = fleet.getCommander();
+        if (cmdr != null && !cmdr.isDefault()) {
+            PersonImportance imp = cmdr.getImportance();
+            if (imp == PersonImportance.VERY_HIGH || imp == PersonImportance.HIGH) {
+                return true;
+            }
+            if (cmdr.getStats() != null && cmdr.getStats().getLevel() >= 7 && fleet.getFleetPoints() >= 150) {
+                return true;
+            }
+        }
+        String fName = fleet.getName() != null ? fleet.getName().toLowerCase(Locale.ROOT) : "";
+        if (fName.contains("armada") || fName.contains("grand") || fName.contains("first fleet")
+                || fName.contains("invasion") || fName.contains("task force")) {
+            if (fleet.getFleetPoints() >= 160) {
+                return true;
+            }
+        }
+        return false;
+    }
 
-        pdata.put(PERSISTENT_INITIAL_PASS_KEY, Boolean.TRUE);
-        LOG.info(String.format(
-                Locale.ROOT,
-                "[DivisionAI] Completed initial campaign divisions pass: sorted %d instanced NPC fleets into %d divisions (%d ships).",
-                fleetsProcessed,
-                divisionsCreated,
-                shipsAssigned));
+    /**
+     * Computes a priority score for sorting NPC fleets during division allocation so Story/Special
+     * fleets and major capital-led armadas get #1 divisions first.
+     */
+    public static float computeFleetPriorityScore(CampaignFleetAPI fleet) {
+        if (fleet == null || fleet.isPlayerFleet()) return -1f;
+        float score = fleet.getFleetPoints();
+        if (isStoryOrSpecialFleet(fleet)) {
+            score += 100000f;
+        }
+        PersonAPI cmdr = fleet.getCommander();
+        if (cmdr != null && !cmdr.isDefault()) {
+            int lvl = cmdr.getStats() != null ? cmdr.getStats().getLevel() : 1;
+            score += 500f + lvl * 200f;
+            PersonImportance imp = cmdr.getImportance();
+            if (imp == PersonImportance.VERY_HIGH) score += 10000f;
+            else if (imp == PersonImportance.HIGH) score += 5000f;
+            else if (imp == PersonImportance.MEDIUM) score += 1500f;
+        }
+        if (fleet.getFleetData() != null) {
+            for (FleetMemberAPI m : fleet.getFleetData().getMembersListCopy()) {
+                if (m != null && m.getHullSpec() != null && m.getHullSpec().getHullSize() == HullSize.CAPITAL_SHIP) {
+                    score += 350f;
+                }
+            }
+        }
+        return score;
     }
 
     /**
@@ -623,12 +803,342 @@ public final class FactionFleetDoctrines {
         NomenclatureCategory nomCat = DivisionNomenclature.resolveCategoryForCampaignFleet(fleet);
         String factionId = fleet.getFaction() != null ? fleet.getFaction().getId() : "independent";
 
-        List<PermanentDivisionSpec> sorted = sortMembersByDoctrine(fleet, eligible, doctrine, factionId, nomCat);
+        List<PermanentDivisionSpec> sorted;
+        Object existingDivsObj = (mem != null) ? mem.get(MEM_NPC_DIVISIONS_KEY) : null;
+        if (existingDivsObj instanceof List && !((List<?>) existingDivsObj).isEmpty()) {
+            // Sticky AI fleet divisions: preserve existing divisions across casualties, merges, and reinforcements
+            sorted = updateStickyNpcFleetDivisions(
+                    fleet,
+                    (List<PermanentDivisionSpec>) existingDivsObj,
+                    eligible,
+                    doctrine,
+                    factionId,
+                    nomCat);
+        } else {
+            sorted = sortMembersByDoctrine(fleet, eligible, doctrine, factionId, nomCat);
+        }
+
         if (mem != null) {
             mem.set(MEM_NPC_SIGNATURE_KEY, currentSig);
             mem.set(MEM_NPC_DIVISIONS_KEY, sorted);
         }
         return sorted;
+    }
+
+    /**
+     * When a newly spawned/split AI fleet appears near a parent fleet of the same faction that just
+     * transferred part of its divisions into this fleet, swaps same-hull-size ships between the two
+     * fleets so whole divisions are transferred intact whenever possible.
+     */
+    @SuppressWarnings("unchecked")
+    public static void consolidateWholeDivisionTransfersWithNearbyFleets(CampaignFleetAPI childFleet) {
+        if (childFleet == null || childFleet.isPlayerFleet() || childFleet.getFleetData() == null) return;
+        LocationAPI loc = childFleet.getContainingLocation();
+        if (loc == null || loc.getFleets() == null) return;
+        String factionId = childFleet.getFaction() != null ? childFleet.getFaction().getId() : null;
+        if (factionId == null) return;
+
+        Map<String, FleetMemberAPI> childById = new HashMap<>();
+        for (FleetMemberAPI m : childFleet.getFleetData().getMembersListCopy()) {
+            if (m != null && m.getId() != null) {
+                childById.put(m.getId(), m);
+            }
+        }
+        if (childById.isEmpty()) return;
+
+        for (CampaignFleetAPI other : loc.getFleets()) {
+            if (other == null || other == childFleet || other.isPlayerFleet() || other.isStationMode()) continue;
+            if (other.getFaction() == null || !factionId.equals(other.getFaction().getId())) continue;
+            if (other.getFleetData() == null) continue;
+
+            MemoryAPI otherMem = other.getMemoryWithoutUpdate();
+            if (otherMem == null) continue;
+            Object rawDivs = otherMem.get(MEM_NPC_DIVISIONS_KEY);
+            if (!(rawDivs instanceof List)) continue;
+            List<PermanentDivisionSpec> parentDivs = (List<PermanentDivisionSpec>) rawDivs;
+            if (parentDivs.isEmpty()) continue;
+
+            Map<String, FleetMemberAPI> parentById = new HashMap<>();
+            for (FleetMemberAPI m : other.getFleetData().getMembersListCopy()) {
+                if (m != null && m.getId() != null) {
+                    parentById.put(m.getId(), m);
+                }
+            }
+
+            // Find if any parent divisions were split across parentFleet and childFleet
+            List<PermanentDivisionSpec> majorityInChild = new ArrayList<>();
+            List<PermanentDivisionSpec> minorityInChild = new ArrayList<>();
+            for (PermanentDivisionSpec d : parentDivs) {
+                if (d == null || d.memberIds.isEmpty()) continue;
+                int inChild = 0;
+                int inParent = 0;
+                for (String mId : d.memberIds) {
+                    if (childById.containsKey(mId)) inChild++;
+                    else if (parentById.containsKey(mId)) inParent++;
+                }
+                if (inChild > 0 && inParent > 0) {
+                    if (inChild >= inParent) {
+                        majorityInChild.add(d);
+                    } else {
+                        minorityInChild.add(d);
+                    }
+                }
+            }
+
+            if (majorityInChild.isEmpty() || minorityInChild.isEmpty()) continue;
+
+            // Swap compatible-hull-size ships between majorityInChild (in parent) and minorityInChild (in child)
+            // so whole divisions stay together!
+            for (PermanentDivisionSpec majDiv : majorityInChild) {
+                for (String mId : new ArrayList<>(majDiv.memberIds)) {
+                    FleetMemberAPI stayInParent = parentById.get(mId);
+                    if (stayInParent == null || stayInParent.isFlagship()) continue;
+                    HullSize targetSize = stayInParent.getHullSpec() != null
+                            ? stayInParent.getHullSpec().getHullSize()
+                            : HullSize.FRIGATE;
+
+                    FleetMemberAPI swapFromChild = null;
+                    for (PermanentDivisionSpec minDiv : minorityInChild) {
+                        for (String cId : minDiv.memberIds) {
+                            FleetMemberAPI cand = childById.get(cId);
+                            if (cand != null && !cand.isFlagship()
+                                    && cand.getHullSpec() != null
+                                    && cand.getHullSpec().getHullSize() == targetSize) {
+                                swapFromChild = cand;
+                                break;
+                            }
+                        }
+                        if (swapFromChild != null) break;
+                    }
+
+                    if (swapFromChild != null) {
+                        other.getFleetData().removeFleetMember(stayInParent);
+                        childFleet.getFleetData().removeFleetMember(swapFromChild);
+                        childFleet.getFleetData().addFleetMember(stayInParent);
+                        other.getFleetData().addFleetMember(swapFromChild);
+
+                        parentById.remove(stayInParent.getId());
+                        childById.remove(swapFromChild.getId());
+                        childById.put(stayInParent.getId(), stayInParent);
+                        parentById.put(swapFromChild.getId(), swapFromChild);
+                    }
+                }
+            }
+        }
+    }
+
+    private static List<PermanentDivisionSpec> updateStickyNpcFleetDivisions(
+            CampaignFleetAPI fleet,
+            List<PermanentDivisionSpec> existingDivs,
+            List<FleetMemberAPI> eligible,
+            FleetDoctrineConfig doctrine,
+            String factionId,
+            NomenclatureCategory nomCat) {
+
+        Map<String, FleetMemberAPI> eligibleById = new LinkedHashMap<>();
+        for (FleetMemberAPI m : eligible) {
+            if (m != null && m.getId() != null) {
+                eligibleById.put(m.getId(), m);
+            }
+        }
+
+        List<FactionDivisionRecord> factionTable = getOrCreateFactionDivisionTable(factionId);
+        Map<String, FactionDivisionRecord> recordById = new HashMap<>();
+        Map<String, FactionDivisionRecord> recordByMemberId = new HashMap<>();
+        for (FactionDivisionRecord rec : factionTable) {
+            recordById.put(rec.recordId, rec);
+            for (String mId : rec.memberIds) {
+                recordByMemberId.put(mId, rec);
+            }
+        }
+
+        List<PermanentDivisionSpec> retained = new ArrayList<>();
+        Set<String> assignedMemberIds = new HashSet<>();
+
+        // 1. Keep existing divisions in this fleet sticky
+        for (PermanentDivisionSpec spec : existingDivs) {
+            if (spec == null) continue;
+            for (int i = spec.memberIds.size() - 1; i >= 0; i--) {
+                String mId = spec.memberIds.get(i);
+                if (!eligibleById.containsKey(mId) || assignedMemberIds.contains(mId)) {
+                    spec.memberIds.remove(i);
+                } else {
+                    assignedMemberIds.add(mId);
+                }
+            }
+
+            if (spec.memberIds.isEmpty()) {
+                FactionDivisionRecord rec = recordById.get(spec.id);
+                if (rec != null && (fleet.getId() == null || fleet.getId().equals(rec.assignedFleetId))) {
+                    rec.active = false;
+                    rec.assignedFleetId = null;
+                    rec.heldByStoryFleet = false;
+                    rec.memberIds.clear();
+                    rec.flagshipMemberId = null;
+                }
+                continue;
+            }
+
+            refreshNpcDivisionFlagship(spec, eligibleById);
+            PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(spec, fleet);
+            retained.add(spec);
+
+            FactionDivisionRecord rec = recordById.get(spec.id);
+            if (rec != null) {
+                rec.active = true;
+                rec.assignedFleetId = fleet.getId();
+                rec.heldByStoryFleet = isStoryOrSpecialFleet(fleet);
+                rec.memberIds.clear();
+                rec.memberIds.addAll(spec.memberIds);
+                rec.flagshipMemberId = spec.flagshipMemberId;
+            }
+        }
+
+        // 2. Check if any newly arrived ships in this fleet belong to a division transferred from another fleet
+        Map<String, List<FleetMemberAPI>> transferredByRecordId = new LinkedHashMap<>();
+        for (FleetMemberAPI m : eligible) {
+            if (assignedMemberIds.contains(m.getId())) continue;
+            FactionDivisionRecord prevRec = recordByMemberId.get(m.getId());
+            if (prevRec != null && !prevRec.recordId.isEmpty()) {
+                List<FleetMemberAPI> bucket = transferredByRecordId.get(prevRec.recordId);
+                if (bucket == null) {
+                    bucket = new ArrayList<>();
+                    transferredByRecordId.put(prevRec.recordId, bucket);
+                }
+                bucket.add(m);
+            }
+        }
+
+        for (Map.Entry<String, List<FleetMemberAPI>> entry : transferredByRecordId.entrySet()) {
+            FactionDivisionRecord rec = recordById.get(entry.getKey());
+            List<FleetMemberAPI> transferredMembers = entry.getValue();
+            if (rec == null || transferredMembers.isEmpty()) continue;
+
+            // Adopt the transferred division intact if it isn't already in retained
+            PermanentDivisionSpec targetSpec = null;
+            for (PermanentDivisionSpec s : retained) {
+                if (rec.recordId.equals(s.id)) {
+                    targetSpec = s;
+                    break;
+                }
+            }
+            if (targetSpec == null) {
+                targetSpec = new PermanentDivisionSpec(rec.recordId, rec.divisionName, rec.archetype);
+                retained.add(targetSpec);
+            }
+            for (FleetMemberAPI tm : transferredMembers) {
+                if (!targetSpec.memberIds.contains(tm.getId())) {
+                    targetSpec.memberIds.add(tm.getId());
+                    assignedMemberIds.add(tm.getId());
+                }
+            }
+            refreshNpcDivisionFlagship(targetSpec, eligibleById);
+            PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(targetSpec, fleet);
+
+            rec.active = true;
+            rec.assignedFleetId = fleet.getId();
+            rec.heldByStoryFleet = isStoryOrSpecialFleet(fleet);
+            rec.memberIds.clear();
+            rec.memberIds.addAll(targetSpec.memberIds);
+            rec.flagshipMemberId = targetSpec.flagshipMemberId;
+        }
+
+        // 3. Any remaining genuinely new ships: first top up under-strength divisions of matching archetype,
+        // then form/reactivate divisions for any leftover ships
+        List<FleetMemberAPI> remainingNew = new ArrayList<>();
+        for (FleetMemberAPI m : eligible) {
+            if (!assignedMemberIds.contains(m.getId())) {
+                remainingNew.add(m);
+            }
+        }
+
+        if (!remainingNew.isEmpty()) {
+            for (int i = remainingNew.size() - 1; i >= 0; i--) {
+                FleetMemberAPI m = remainingNew.get(i);
+                DivisionArchetype arch = classifyNpcFleetMemberArchetype(m, factionId, nomCat);
+                int maxCap = getMaxForArchetype(doctrine, arch);
+                PermanentDivisionSpec bestUnderStrength = null;
+                for (PermanentDivisionSpec s : retained) {
+                    if (s.archetype == arch && s.memberIds.size() < maxCap) {
+                        bestUnderStrength = s;
+                        break;
+                    }
+                }
+                if (bestUnderStrength != null) {
+                    bestUnderStrength.memberIds.add(m.getId());
+                    assignedMemberIds.add(m.getId());
+                    remainingNew.remove(i);
+                    refreshNpcDivisionFlagship(bestUnderStrength, eligibleById);
+                    PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(bestUnderStrength, fleet);
+                    FactionDivisionRecord rec = recordById.get(bestUnderStrength.id);
+                    if (rec != null) {
+                        rec.memberIds.clear();
+                        rec.memberIds.addAll(bestUnderStrength.memberIds);
+                        rec.flagshipMemberId = bestUnderStrength.flagshipMemberId;
+                    }
+                }
+            }
+
+            if (!remainingNew.isEmpty()) {
+                List<PermanentDivisionSpec> newlyFormed = sortMembersByDoctrine(
+                        fleet,
+                        remainingNew,
+                        doctrine,
+                        factionId,
+                        nomCat);
+                retained.addAll(newlyFormed);
+            }
+        }
+
+        saveFactionDivisionTablesToPersistentData();
+        return retained;
+    }
+
+    private static int getMaxForArchetype(FleetDoctrineConfig doctrine, DivisionArchetype arch) {
+        if (doctrine == null || arch == null) return 4;
+        switch (arch) {
+            case BATTLESHIP_DIVISION:
+            case FLEET_CARRIER_DIVISION:
+                return Math.max(1, doctrine.getMax(DoctrineHullCategory.CAPITAL));
+            case LIGHT_CARRIER_DIVISION:
+                return Math.min(3, Math.max(1, doctrine.getMax(DoctrineHullCategory.CRUISER)));
+            case ESCORT_CARRIER_DIVISION:
+                return Math.min(4, Math.max(1, doctrine.getMax(DoctrineHullCategory.DESTROYER)));
+            case CARRIER_GROUP:
+                return 3;
+            case CRUISER_DIVISION:
+            case STRIKE_CRUISER_DIVISION:
+                return Math.max(1, doctrine.getMax(DoctrineHullCategory.CRUISER));
+            case DESTROYER_DIVISION:
+            case MISSILE_DESTROYER_DIVISION:
+                return Math.max(1, doctrine.getMax(DoctrineHullCategory.DESTROYER));
+            case PHASE_DIVISION:
+                return Math.min(4, Math.max(1, doctrine.getMax(DoctrineHullCategory.FRIGATE)));
+            case SERVICE_GROUP:
+                return Math.max(4, doctrine.getMax(DoctrineHullCategory.FREIGHTER));
+            case FRIGATE_DIVISION:
+            default:
+                return Math.max(1, doctrine.getMax(DoctrineHullCategory.FRIGATE));
+        }
+    }
+
+    private static void refreshNpcDivisionFlagship(
+            PermanentDivisionSpec spec,
+            Map<String, FleetMemberAPI> eligibleById) {
+        if (spec == null || spec.memberIds.isEmpty()) return;
+        boolean preferCarrier = spec.archetype != null && spec.archetype.isCarrierArchetype();
+        FleetMemberAPI best = null;
+        float bestScore = -1f;
+        for (String mId : spec.memberIds) {
+            FleetMemberAPI m = eligibleById.get(mId);
+            if (m == null) continue;
+            float score = PermanentDivisionManager.computeFlagshipCandidateScore(m, preferCarrier);
+            if (score > bestScore) {
+                bestScore = score;
+                best = m;
+            }
+        }
+        spec.flagshipMemberId = (best != null) ? best.getId() : spec.memberIds.get(0);
     }
 
     private static List<PermanentDivisionSpec> sortMembersByDoctrine(
@@ -746,6 +1256,7 @@ public final class FactionFleetDoctrines {
         // 6. Auxiliary / Service Groups
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.SERVICE_GROUP, auxiliaries, auxMax, factionId, nomCat);
 
+        saveFactionDivisionTablesToPersistentData();
         return specs;
     }
 
@@ -788,44 +1299,369 @@ public final class FactionFleetDoctrines {
             String factionId,
             NomenclatureCategory nomCat) {
         if (pool == null || pool.isEmpty()) return;
-        int cap = Math.max(1, Math.min(PermanentDivisionManager.MAX_DIVISION_SIZE, maxPerDiv));
-        int idx = 0;
-        while (idx < pool.size()) {
-            int remaining = pool.size() - idx;
-            int take = Math.min(cap, remaining);
-            if (remaining > cap && (remaining - take) == 1 && take > 2) {
-                take -= 1;
-            }
-            List<FleetMemberAPI> sub = pool.subList(idx, idx + take);
-            int seq = (seqByArch.containsKey(archetype) ? seqByArch.get(archetype) : 0) + 1;
-            seqByArch.put(archetype, seq);
 
-            String divId = "npc_div_" + (out.size() + 1);
-            String divName = DivisionNomenclature.formatFactionDivisionName(factionId, nomCat, archetype, seq);
-            PermanentDivisionSpec spec = new PermanentDivisionSpec(divId, divName, archetype);
+        List<List<FleetMemberAPI>> chunks = PermanentDivisionManager.distributePoolWithCommandersFirst(pool, maxPerDiv);
+        boolean preferCarrier = archetype != null && archetype.isCarrierArchetype();
+
+        for (List<FleetMemberAPI> sub : chunks) {
+            if (sub.isEmpty()) continue;
 
             FleetMemberAPI bestFlagship = null;
             float bestScore = -1f;
+            List<String> memberIdList = new ArrayList<>(sub.size());
             for (FleetMemberAPI m : sub) {
-                spec.memberIds.add(m.getId());
-                float score = m.getDeploymentPointsCost();
-                if (m.getCaptain() != null && !m.getCaptain().isDefault()) {
-                    score += 25f + m.getCaptain().getStats().getLevel() * 5f;
-                }
-                if (m.isFlagship()) {
-                    score += 100f;
-                }
+                memberIdList.add(m.getId());
+                float score = PermanentDivisionManager.computeFlagshipCandidateScore(m, preferCarrier);
                 if (score > bestScore) {
                     bestScore = score;
                     bestFlagship = m;
                 }
             }
-            spec.flagshipMemberId = (bestFlagship != null) ? bestFlagship.getId() : sub.get(0).getId();
+            if (bestFlagship == null) {
+                bestFlagship = sub.get(0);
+            }
+            PersonAPI flagCommander = bestFlagship.getCaptain();
+            if ((flagCommander == null || flagCommander.isDefault()) && fleet != null && bestFlagship.isFlagship()) {
+                flagCommander = fleet.getCommander();
+            }
+
+            FactionDivisionRecord record = allocateOrReactivateFactionDivisionRecord(
+                    factionId,
+                    nomCat,
+                    archetype,
+                    fleet,
+                    flagCommander,
+                    memberIdList,
+                    bestFlagship.getId());
+
+            PermanentDivisionSpec spec = new PermanentDivisionSpec(record.recordId, record.divisionName, archetype);
+            spec.memberIds.addAll(memberIdList);
+            spec.flagshipMemberId = bestFlagship.getId();
             PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(spec, fleet);
             out.add(spec);
-
-            idx += take;
         }
+    }
+
+    private static final Map<String, List<FactionDivisionRecord>> RUNTIME_FACTION_TABLES = new HashMap<>();
+    private static SectorAPI lastLoadedTablesSector = null;
+
+    @SuppressWarnings("unchecked")
+    public static List<FactionDivisionRecord> getOrCreateFactionDivisionTable(String factionId) {
+        String fId = (factionId != null && !factionId.isEmpty()) ? factionId.toLowerCase(Locale.ROOT) : "independent";
+        SectorAPI sector = Global.getSector();
+        if (sector != null && sector != lastLoadedTablesSector) {
+            RUNTIME_FACTION_TABLES.clear();
+            loadFactionDivisionTablesFromPersistentData(sector);
+            lastLoadedTablesSector = sector;
+        }
+        List<FactionDivisionRecord> table = RUNTIME_FACTION_TABLES.get(fId);
+        if (table == null) {
+            table = new ArrayList<>();
+            RUNTIME_FACTION_TABLES.put(fId, table);
+        }
+        return table;
+    }
+
+    /**
+     * Marks all division records assigned to a despawned/destroyed fleet as inactive (destroyed)
+     * unless their ships were transferred to another live fleet in the sector.
+     */
+    public static void deactivateFleetDivisionsOnDespawn(CampaignFleetAPI fleet) {
+        if (fleet == null || fleet.isPlayerFleet()) return;
+        String factionId = fleet.getFaction() != null ? fleet.getFaction().getId() : "independent";
+        List<FactionDivisionRecord> table = getOrCreateFactionDivisionTable(factionId);
+        String fId = fleet.getId();
+        boolean changed = false;
+        for (FactionDivisionRecord rec : table) {
+            if (rec.active && fId != null && fId.equals(rec.assignedFleetId)) {
+                rec.active = false;
+                rec.assignedFleetId = null;
+                rec.heldByStoryFleet = false;
+                rec.memberIds.clear();
+                rec.flagshipMemberId = null;
+                changed = true;
+            }
+        }
+        if (changed) {
+            saveFactionDivisionTablesToPersistentData();
+        }
+    }
+
+    private static FactionDivisionRecord allocateOrReactivateFactionDivisionRecord(
+            String factionId,
+            NomenclatureCategory nomCat,
+            DivisionArchetype archetype,
+            CampaignFleetAPI fleet,
+            PersonAPI flagCommander,
+            List<String> memberIds,
+            String flagshipMemberId) {
+
+        String fId = (factionId != null && !factionId.isEmpty()) ? factionId.toLowerCase(Locale.ROOT) : "independent";
+        String bucketKey = DivisionNomenclature.resolvePrefixBucketKey(archetype);
+        List<FactionDivisionRecord> table = getOrCreateFactionDivisionTable(fId);
+        reconcileFactionTableLiveness(fId, table);
+
+        boolean isStory = isStoryOrSpecialFleet(fleet);
+        String fleetId = fleet != null ? fleet.getId() : null;
+
+        // Sort matching bucket records by unitNumber ascending (smaller numbers first!)
+        List<FactionDivisionRecord> bucketRecords = new ArrayList<>();
+        int maxUnitNum = 0;
+        for (FactionDivisionRecord rec : table) {
+            if (bucketKey.equals(rec.bucketKey)) {
+                bucketRecords.add(rec);
+                if (rec.unitNumber > maxUnitNum) {
+                    maxUnitNum = rec.unitNumber;
+                }
+            }
+        }
+        Collections.sort(bucketRecords, new Comparator<FactionDivisionRecord>() {
+            @Override
+            public int compare(FactionDivisionRecord a, FactionDivisionRecord b) {
+                return Integer.compare(a.unitNumber, b.unitNumber);
+            }
+        });
+
+        // 1. Look for the lowest-numbered inactive (destroyed) record to reactivate!
+        FactionDivisionRecord chosen = null;
+        for (FactionDivisionRecord rec : bucketRecords) {
+            if (!rec.active) {
+                chosen = rec;
+                break;
+            }
+        }
+
+        // 2. If this is a Story/Special fleet and all lower-numbered records are active, check if Unit #1 (or a lower number)
+        // is currently held by a non-story fleet; if so, preempt it so the Story Fleet gets Unit #1 (e.g. Battle Div. I)!
+        if (isStory) {
+            for (FactionDivisionRecord rec : bucketRecords) {
+                if (rec.active && !rec.heldByStoryFleet && (chosen == null || rec.unitNumber < chosen.unitNumber)) {
+                    // Bump the non-story fleet's division to the next available number
+                    bumpPreemptedRecordToNewNumber(fId, nomCat, table, rec, maxUnitNum + 1);
+                    chosen = rec;
+                    break;
+                }
+            }
+        }
+
+        if (chosen == null) {
+            int nextNum = maxUnitNum + 1;
+            chosen = new FactionDivisionRecord();
+            chosen.factionId = fId;
+            chosen.bucketKey = bucketKey;
+            chosen.unitNumber = nextNum;
+            chosen.recordId = fId + "_" + bucketKey + "_" + nextNum;
+            chosen.unitSeed = fId.hashCode() * 6364136223846793005L
+                    + bucketKey.hashCode() * 1442695040888963407L
+                    + nextNum * 2654435761L;
+            table.add(chosen);
+        }
+
+        chosen.archetype = archetype;
+        chosen.active = true;
+        chosen.timesActivated++;
+        chosen.assignedFleetId = fleetId;
+        chosen.heldByStoryFleet = isStory;
+        chosen.memberIds.clear();
+        if (memberIds != null) {
+            chosen.memberIds.addAll(memberIds);
+        }
+        chosen.flagshipMemberId = flagshipMemberId;
+        chosen.divisionName = DivisionNomenclature.formatFactionDivisionName(
+                fId,
+                nomCat,
+                archetype,
+                chosen.unitNumber,
+                flagCommander,
+                chosen.unitSeed);
+        return chosen;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void bumpPreemptedRecordToNewNumber(
+            String factionId,
+            NomenclatureCategory nomCat,
+            List<FactionDivisionRecord> table,
+            FactionDivisionRecord preempted,
+            int newUnitNumber) {
+
+        String oldFleetId = preempted.assignedFleetId;
+        FactionDivisionRecord replacement = new FactionDivisionRecord();
+        replacement.factionId = factionId;
+        replacement.bucketKey = preempted.bucketKey;
+        replacement.archetype = preempted.archetype;
+        replacement.unitNumber = newUnitNumber;
+        replacement.recordId = factionId + "_" + preempted.bucketKey + "_" + newUnitNumber;
+        replacement.unitSeed = factionId.hashCode() * 6364136223846793005L
+                + preempted.bucketKey.hashCode() * 1442695040888963407L
+                + newUnitNumber * 2654435761L;
+        replacement.active = true;
+        replacement.timesActivated = 1;
+        replacement.assignedFleetId = oldFleetId;
+        replacement.heldByStoryFleet = false;
+        replacement.memberIds.addAll(preempted.memberIds);
+        replacement.flagshipMemberId = preempted.flagshipMemberId;
+        replacement.divisionName = DivisionNomenclature.formatFactionDivisionName(
+                factionId,
+                nomCat,
+                replacement.archetype,
+                newUnitNumber,
+                null,
+                replacement.unitSeed);
+        table.add(replacement);
+
+        // Update the bumped fleet's cached PermanentDivisionSpec if that fleet is currently instanced
+        SectorAPI sector = Global.getSector();
+        if (sector != null && oldFleetId != null) {
+            CampaignFleetAPI oldFleet = findLiveFleetById(sector, oldFleetId);
+            if (oldFleet != null && oldFleet.getMemoryWithoutUpdate() != null) {
+                Object rawDivs = oldFleet.getMemoryWithoutUpdate().get(MEM_NPC_DIVISIONS_KEY);
+                if (rawDivs instanceof List) {
+                    List<PermanentDivisionSpec> specs = (List<PermanentDivisionSpec>) rawDivs;
+                    for (int i = 0; i < specs.size(); i++) {
+                        PermanentDivisionSpec s = specs.get(i);
+                        if (s != null && preempted.recordId.equals(s.id)) {
+                            PermanentDivisionSpec updated = new PermanentDivisionSpec(
+                                    replacement.recordId,
+                                    replacement.divisionName,
+                                    replacement.archetype);
+                            updated.memberIds.addAll(s.memberIds);
+                            updated.flagshipMemberId = s.flagshipMemberId;
+                            updated.customStandoffRange = s.customStandoffRange;
+                            specs.set(i, updated);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static void reconcileFactionTableLiveness(String factionId, List<FactionDivisionRecord> table) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || table == null || table.isEmpty()) return;
+        for (FactionDivisionRecord rec : table) {
+            if (!rec.active) continue;
+            if (rec.assignedFleetId == null) {
+                rec.active = false;
+                rec.heldByStoryFleet = false;
+                continue;
+            }
+            CampaignFleetAPI liveFleet = findLiveFleetById(sector, rec.assignedFleetId);
+            if (liveFleet == null || !liveFleet.isAlive() || liveFleet.isDespawning()) {
+                rec.active = false;
+                rec.assignedFleetId = null;
+                rec.heldByStoryFleet = false;
+                rec.memberIds.clear();
+                rec.flagshipMemberId = null;
+            }
+        }
+    }
+
+    private static CampaignFleetAPI findLiveFleetById(SectorAPI sector, String fleetId) {
+        if (sector == null || fleetId == null) return null;
+        if (sector.getHyperspace() != null) {
+            CampaignFleetAPI f = findFleetInLocation(sector.getHyperspace(), fleetId);
+            if (f != null) return f;
+        }
+        if (sector.getStarSystems() != null) {
+            for (StarSystemAPI sys : sector.getStarSystems()) {
+                if (sys == null) continue;
+                CampaignFleetAPI f = findFleetInLocation(sys, fleetId);
+                if (f != null) return f;
+            }
+        }
+        return null;
+    }
+
+    private static CampaignFleetAPI findFleetInLocation(LocationAPI loc, String fleetId) {
+        if (loc == null || loc.getFleets() == null) return null;
+        for (CampaignFleetAPI f : loc.getFleets()) {
+            if (f != null && fleetId.equals(f.getId())) {
+                return f;
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void loadFactionDivisionTablesFromPersistentData(SectorAPI sector) {
+        if (sector == null) return;
+        Object raw = sector.getPersistentData().get(PERSISTENT_FACTION_TABLES_KEY);
+        if (!(raw instanceof Map)) return;
+        Map<String, Object> byFaction = (Map<String, Object>) raw;
+        for (Map.Entry<String, Object> entry : byFaction.entrySet()) {
+            String fId = entry.getKey();
+            if (!(entry.getValue() instanceof List)) continue;
+            List<?> rawRecords = (List<?>) entry.getValue();
+            List<FactionDivisionRecord> table = new ArrayList<>();
+            for (Object item : rawRecords) {
+                if (!(item instanceof Map)) continue;
+                Map<String, Object> m = (Map<String, Object>) item;
+                FactionDivisionRecord rec = new FactionDivisionRecord();
+                rec.recordId = (String) m.get("recordId");
+                rec.factionId = fId;
+                rec.bucketKey = (String) m.get("bucketKey");
+                String archStr = (String) m.get("archetype");
+                if (archStr != null) {
+                    try {
+                        rec.archetype = DivisionArchetype.valueOf(archStr);
+                    } catch (IllegalArgumentException ignored) {
+                        rec.archetype = DivisionArchetype.CRUISER_DIVISION;
+                    }
+                }
+                Object uNum = m.get("unitNumber");
+                rec.unitNumber = (uNum instanceof Number) ? ((Number) uNum).intValue() : 1;
+                Object uSeed = m.get("unitSeed");
+                rec.unitSeed = (uSeed instanceof Number) ? ((Number) uSeed).longValue() : 0L;
+                rec.divisionName = (String) m.get("divisionName");
+                rec.assignedFleetId = (String) m.get("assignedFleetId");
+                rec.heldByStoryFleet = Boolean.TRUE.equals(m.get("heldByStoryFleet"));
+                rec.active = Boolean.TRUE.equals(m.get("active"));
+                Object tAct = m.get("timesActivated");
+                rec.timesActivated = (tAct instanceof Number) ? ((Number) tAct).intValue() : 1;
+                rec.flagshipMemberId = (String) m.get("flagshipMemberId");
+                Object mIds = m.get("memberIds");
+                if (mIds instanceof List) {
+                    for (Object idObj : (List<?>) mIds) {
+                        if (idObj instanceof String) {
+                            rec.memberIds.add((String) idObj);
+                        }
+                    }
+                }
+                if (rec.recordId != null && rec.bucketKey != null) {
+                    table.add(rec);
+                }
+            }
+            RUNTIME_FACTION_TABLES.put(fId, table);
+        }
+    }
+
+    private static void saveFactionDivisionTablesToPersistentData() {
+        SectorAPI sector = Global.getSector();
+        if (sector == null) return;
+        Map<String, Object> serializedByFaction = new HashMap<>();
+        for (Map.Entry<String, List<FactionDivisionRecord>> entry : RUNTIME_FACTION_TABLES.entrySet()) {
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (FactionDivisionRecord rec : entry.getValue()) {
+                Map<String, Object> m = new HashMap<>();
+                m.put("recordId", rec.recordId);
+                m.put("bucketKey", rec.bucketKey);
+                m.put("archetype", rec.archetype != null ? rec.archetype.name() : DivisionArchetype.CRUISER_DIVISION.name());
+                m.put("unitNumber", rec.unitNumber);
+                m.put("unitSeed", rec.unitSeed);
+                m.put("divisionName", rec.divisionName);
+                m.put("assignedFleetId", rec.assignedFleetId);
+                m.put("heldByStoryFleet", rec.heldByStoryFleet);
+                m.put("active", rec.active);
+                m.put("timesActivated", rec.timesActivated);
+                m.put("flagshipMemberId", rec.flagshipMemberId);
+                m.put("memberIds", new ArrayList<>(rec.memberIds));
+                list.add(m);
+            }
+            serializedByFaction.put(entry.getKey(), list);
+        }
+        sector.getPersistentData().put(PERSISTENT_FACTION_TABLES_KEY, serializedByFaction);
     }
 
     /**
@@ -909,6 +1745,7 @@ public final class FactionFleetDoctrines {
                 DivisionAutoFormer.recomputeDivisionCapabilities(existingCombatDiv);
                 CampaignFleetAPI sourceFleet = specIdToFleet.get(spec.id);
                 applyFactionDoctrineToCombatDivision(existingCombatDiv, spec, getDoctrineForFleet(sourceFleet));
+                DivisionCombatLog.logReinforcementJoined(existingCombatDiv, prof.ship);
             } else {
                 specById.put(spec.id, spec);
                 List<ShipCapabilityProfile> list = groupedBySpecId.get(spec.id);

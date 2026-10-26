@@ -230,6 +230,7 @@ public class DivisionAutoFormer {
                 if (match != null) {
                     addShipToDivision(battleGroup, match, prof);
                     recomputeDivisionCapabilities(match);
+                    DivisionCombatLog.logReinforcementJoined(match, prof.ship);
                 } else {
                     remaining.add(prof);
                 }
@@ -420,14 +421,22 @@ public class DivisionAutoFormer {
 
         boolean isAlliedAi = !members.isEmpty() && members.get(0).ship.isAlly();
         String sidePrefix = (battleGroup.side == 0) ? (isAlliedAi ? "Allied " : "") : "Enemy ";
-        int number = nextDivisionNumberForPrefix(battleGroup, sidePrefix + archetype.shortPrefix);
+        int number = nextDivisionNumberForBucket(battleGroup, archetype, isAlliedAi);
+
+        ShipAPI leaderShip = pickDivisionFlagship(members, archetype);
+        PersonAPI captain = (leaderShip != null) ? leaderShip.getCaptain() : null;
 
         DivisionNomenclature.NomenclatureCategory nomCat = battleGroup.nomenclatureCategory;
+        long seed = (leaderShip != null && leaderShip.getId() != null)
+                ? leaderShip.getId().hashCode() * 6364136223846793005L + number * 1442695040888963407L
+                : 0L;
         String baseName = DivisionNomenclature.formatFactionDivisionName(
                 battleGroup.factionId,
                 nomCat,
                 archetype,
-                number);
+                number,
+                captain,
+                seed);
         String displayName;
         if (nomCat == DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL) {
             displayName = sidePrefix + baseName;
@@ -438,8 +447,6 @@ public class DivisionAutoFormer {
         String divId = (battleGroup.side == 0 ? (isAlliedAi ? "ally_" : "player_") : "enemy_")
                 + archetype.name().toLowerCase() + "_" + number;
 
-        ShipAPI leaderShip = pickDivisionFlagship(members, archetype);
-        PersonAPI captain = (leaderShip != null) ? leaderShip.getCaptain() : null;
         CommanderProfile cmdr = new CommanderProfile(captain, displayName + " Cmdr");
 
         DivisionState div = new DivisionState(divId, battleGroup.side, number, archetype, displayName, cmdr);
@@ -615,10 +622,16 @@ public class DivisionAutoFormer {
                 / Math.max(0.75f, Math.min(1.18f, strictness));
     }
 
-    private static int nextDivisionNumberForPrefix(BattleGroupState battleGroup, String fullPrefix) {
+    private static int nextDivisionNumberForBucket(
+            BattleGroupState battleGroup,
+            DivisionArchetype archetype,
+            boolean isAlliedAi) {
+        String bucketKey = DivisionNomenclature.resolvePrefixBucketKey(archetype);
         int count = 0;
         for (DivisionState existing : battleGroup.divisions) {
-            if (existing.displayName.startsWith(fullPrefix + " ")) {
+            boolean existingAlly = existing.flagship != null && existing.flagship.isAlly();
+            if (existingAlly == isAlliedAi
+                    && bucketKey.equals(DivisionNomenclature.resolvePrefixBucketKey(existing.archetype))) {
                 count++;
             }
         }
@@ -632,10 +645,11 @@ public class DivisionAutoFormer {
         for (ShipCapabilityProfile p : members) {
             float score = p.fpStrength;
             if (p.ship.getCaptain() != null && !p.ship.getCaptain().isDefault()) {
-                score += 25f + p.ship.getCaptain().getStats().getLevel() * 5f;
+                // Ships that already have a commander naturally become division flagships
+                score += 1000f + p.ship.getCaptain().getStats().getLevel() * 25f;
             }
             if (preferCarrier && (p.isCarrier || p.ship.getNumFighterBays() > 0)) {
-                score += 500f;
+                score += 400f;
             }
             if (p.ship.isAlly()) {
                 score -= 5f;

@@ -1574,6 +1574,16 @@ public class PermanentDivisionManager {
         }
 
         // 3b. Group any remaining unassigned ships into new divisions (up to doctrine.getMax(cat) and MAX_DIVISION_SIZE = 10)
+        // Sort unassigned so ships with commanders lead new divisions first!
+        Collections.sort(unassigned, new Comparator<FleetMemberAPI>() {
+            @Override
+            public int compare(FleetMemberAPI a, FleetMemberAPI b) {
+                boolean aCmd = a.getCaptain() != null && !a.getCaptain().isDefault();
+                boolean bCmd = b.getCaptain() != null && !b.getCaptain().isDefault();
+                if (aCmd != bCmd) return aCmd ? -1 : 1;
+                return Float.compare(b.getDeploymentPointsCost(), a.getDeploymentPointsCost());
+            }
+        });
         while (!unassigned.isEmpty()) {
             FleetMemberAPI lead = unassigned.remove(0);
             DoctrineHullCategory leadCat = classifyHullCategory(lead);
@@ -1583,16 +1593,24 @@ public class PermanentDivisionManager {
             PermanentDivisionSpec newSpec = createNewDivisionInternal(specs, pdata, arch);
             newSpec.memberIds.add(lead.getId());
 
-            for (int i = 0; i < unassigned.size() && newSpec.memberIds.size() < MAX_DIVISION_SIZE; ) {
-                FleetMemberAPI cand = unassigned.get(i);
-                DoctrineHullCategory cCat = classifyHullCategory(cand);
-                DivisionArchetype cArch = classifyFleetMemberArchetype(cand);
-                if (cCat == leadCat && cArch == arch
-                        && countCategoryInDivision(newSpec, leadCat, fleetById) < effectiveCatMax) {
-                    newSpec.memberIds.add(cand.getId());
-                    unassigned.remove(i);
-                } else {
-                    i++;
+            // Prefer filling remaining slots with non-commanded ships first if other same-category ships have commanders to lead the next division
+            for (int pass = 0; pass < 2 && newSpec.memberIds.size() < MAX_DIVISION_SIZE; pass++) {
+                for (int i = 0; i < unassigned.size() && newSpec.memberIds.size() < MAX_DIVISION_SIZE; ) {
+                    FleetMemberAPI cand = unassigned.get(i);
+                    DoctrineHullCategory cCat = classifyHullCategory(cand);
+                    DivisionArchetype cArch = classifyFleetMemberArchetype(cand);
+                    boolean candHasCmd = cand.getCaptain() != null && !cand.getCaptain().isDefault();
+                    if (pass == 0 && candHasCmd) {
+                        i++;
+                        continue;
+                    }
+                    if (cCat == leadCat && cArch == arch
+                            && countCategoryInDivision(newSpec, leadCat, fleetById) < effectiveCatMax) {
+                        newSpec.memberIds.add(cand.getId());
+                        unassigned.remove(i);
+                    } else {
+                        i++;
+                    }
                 }
             }
             ensureValidFlagship(newSpec, fleet);
@@ -1888,6 +1906,7 @@ public class PermanentDivisionManager {
                 }
                 DivisionAutoFormer.recomputeDivisionCapabilities(existingCombatDiv);
                 applyDoctrineModifiersToCombatDivision(existingCombatDiv, spec);
+                DivisionCombatLog.logReinforcementJoined(existingCombatDiv, prof.ship);
             } else {
                 specById.put(spec.id, spec);
                 List<ShipCapabilityProfile> list = groupedByPermId.get(spec.id);
@@ -2121,22 +2140,102 @@ public class PermanentDivisionManager {
         return specs;
     }
 
+    public static float computeFlagshipCandidateScore(FleetMemberAPI m, boolean preferCarrierFlagship) {
+        if (m == null) return -1f;
+        float score = m.getDeploymentPointsCost();
+        if (m.getCaptain() != null && !m.getCaptain().isDefault()) {
+            // Ships that already have a commander naturally take top priority as division flagships
+            score += 1000f + m.getCaptain().getStats().getLevel() * 25f;
+        }
+        if (m.isFlagship()) {
+            score += 500f;
+        }
+        if (preferCarrierFlagship && (m.isCarrier() || m.getNumFlightDecks() > 0)) {
+            score += 400f;
+        }
+        return score;
+    }
+
+    public static List<List<FleetMemberAPI>> distributePoolWithCommandersFirst(
+            List<FleetMemberAPI> pool,
+            int maxPerDiv) {
+        List<List<FleetMemberAPI>> chunks = new ArrayList<>();
+        if (pool == null || pool.isEmpty()) return chunks;
+        int cap = Math.max(1, Math.min(MAX_DIVISION_SIZE, maxPerDiv));
+
+        List<FleetMemberAPI> withCmd = new ArrayList<>();
+        List<FleetMemberAPI> withoutCmd = new ArrayList<>();
+        for (FleetMemberAPI m : pool) {
+            if (m == null) continue;
+            if (m.getCaptain() != null && !m.getCaptain().isDefault()) {
+                withCmd.add(m);
+            } else {
+                withoutCmd.add(m);
+            }
+        }
+        Comparator<FleetMemberAPI> byScore = new Comparator<FleetMemberAPI>() {
+            @Override
+            public int compare(FleetMemberAPI a, FleetMemberAPI b) {
+                return Float.compare(
+                        computeFlagshipCandidateScore(b, false),
+                        computeFlagshipCandidateScore(a, false));
+            }
+        };
+        Collections.sort(withCmd, byScore);
+        Collections.sort(withoutCmd, byScore);
+
+        // Compute division sizes so we don't leave a lone 1-ship tail when avoidable
+        int total = withCmd.size() + withoutCmd.size();
+        List<Integer> targetSizes = new ArrayList<>();
+        int rem = total;
+        while (rem > 0) {
+            int take = Math.min(cap, rem);
+            if (rem > cap && (rem - take) == 1 && take > 2) {
+                take -= 1;
+            }
+            targetSizes.add(take);
+            rem -= take;
+        }
+
+        for (int i = 0; i < targetSizes.size(); i++) {
+            chunks.add(new ArrayList<FleetMemberAPI>());
+        }
+
+        // 1. Seed each division with 1 commander-led ship first (so every division gets a commander flagship if possible)
+        int cmdIdx = 0;
+        for (int c = 0; c < chunks.size() && cmdIdx < withCmd.size(); c++) {
+            if (chunks.get(c).size() < targetSizes.get(c)) {
+                chunks.get(c).add(withCmd.get(cmdIdx++));
+            }
+        }
+
+        // 2. Remaining ships (any extra commander-led ships + non-commanded ships) fill out the divisions
+        List<FleetMemberAPI> rest = new ArrayList<>();
+        while (cmdIdx < withCmd.size()) {
+            rest.add(withCmd.get(cmdIdx++));
+        }
+        rest.addAll(withoutCmd);
+
+        int rIdx = 0;
+        for (int c = 0; c < chunks.size(); c++) {
+            List<FleetMemberAPI> divList = chunks.get(c);
+            int target = targetSizes.get(c);
+            while (divList.size() < target && rIdx < rest.size()) {
+                divList.add(rest.get(rIdx++));
+            }
+        }
+        return chunks;
+    }
+
     private static void chunkFleetMembersIntoSpecs(
             List<PermanentDivisionSpec> specs,
             Map<String, Object> pdata,
             DivisionArchetype archetype,
             List<FleetMemberAPI> pool,
             int maxPerDiv) {
-        int idx = 0;
-        while (idx < pool.size()) {
-            int remaining = pool.size() - idx;
-            int take = Math.min(maxPerDiv, remaining);
-            if (remaining > maxPerDiv && (remaining - take) == 1 && take > 2) {
-                take -= 1;
-            }
-            List<FleetMemberAPI> sub = new ArrayList<>(pool.subList(idx, idx + take));
+        List<List<FleetMemberAPI>> chunks = distributePoolWithCommandersFirst(pool, maxPerDiv);
+        for (List<FleetMemberAPI> sub : chunks) {
             addBuiltDivision(specs, pdata, archetype, sub);
-            idx += take;
         }
     }
 
@@ -2149,12 +2248,10 @@ public class PermanentDivisionManager {
         PermanentDivisionSpec spec = createNewDivisionInternal(specs, pdata, archetype);
         FleetMemberAPI bestFlagship = null;
         float bestScore = -1f;
+        boolean preferCarrier = archetype != null && archetype.isCarrierArchetype();
         for (FleetMemberAPI m : members) {
             spec.memberIds.add(m.getId());
-            float score = m.getDeploymentPointsCost();
-            if (m.getCaptain() != null && !m.getCaptain().isDefault()) {
-                score += 25f + m.getCaptain().getStats().getLevel() * 5f;
-            }
+            float score = computeFlagshipCandidateScore(m, preferCarrier);
             if (score > bestScore) {
                 bestScore = score;
                 bestFlagship = m;
@@ -2177,9 +2274,10 @@ public class PermanentDivisionManager {
         }
         pdata.put(PERSISTENT_SEQ_KEY, nextSeq);
 
+        String bucketKey = DivisionNomenclature.resolvePrefixBucketKey(arch);
         int prefixNumber = 1;
         for (PermanentDivisionSpec existing : specs) {
-            if (existing.archetype == arch) {
+            if (bucketKey.equals(DivisionNomenclature.resolvePrefixBucketKey(existing.archetype))) {
                 prefixNumber++;
             }
         }
@@ -2200,13 +2298,14 @@ public class PermanentDivisionManager {
         if (sector == null) return 0;
         Map<String, Object> pdata = sector.getPersistentData();
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        Map<DivisionArchetype, Integer> seqByArch = new LinkedHashMap<>();
+        Map<String, Integer> seqByBucket = new LinkedHashMap<>();
         int updated = 0;
         for (PermanentDivisionSpec spec : specs) {
             if (spec == null) continue;
             DivisionArchetype arch = spec.archetype != null ? spec.archetype : DivisionArchetype.CRUISER_DIVISION;
-            int seq = (seqByArch.containsKey(arch) ? seqByArch.get(arch) : 0) + 1;
-            seqByArch.put(arch, seq);
+            String bucketKey = DivisionNomenclature.resolvePrefixBucketKey(arch);
+            int seq = (seqByBucket.containsKey(bucketKey) ? seqByBucket.get(bucketKey) : 0) + 1;
+            seqByBucket.put(bucketKey, seq);
             String newName = DivisionNomenclature.formatPlayerDivisionName(arch, seq);
             if (!newName.equals(spec.name)) {
                 spec.name = newName;
@@ -2357,13 +2456,7 @@ public class PermanentDivisionManager {
         for (String id : spec.memberIds) {
             FleetMemberAPI m = byId.get(id);
             if (m == null) continue;
-            float score = m.getDeploymentPointsCost();
-            if (m.getCaptain() != null && !m.getCaptain().isDefault()) {
-                score += 25f + m.getCaptain().getStats().getLevel() * 5f;
-            }
-            if (preferCarrierFlagship && (m.isCarrier() || m.getNumFlightDecks() > 0)) {
-                score += 500f;
-            }
+            float score = computeFlagshipCandidateScore(m, preferCarrierFlagship);
             if (score > bestScore) {
                 bestScore = score;
                 best = m;

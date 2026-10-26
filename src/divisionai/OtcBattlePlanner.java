@@ -641,6 +641,15 @@ public class OtcBattlePlanner {
 
             DivisionState target = allocation.get(d);
             if (target == null) target = primary;
+            // Keep existing flank target sticky unless it is no longer combat-effective or a new target is >1400u closer
+            if (d.otcOrder.type == OtcOrderType.FLANK
+                    && d.otcOrder.targetEnemy != null
+                    && d.otcOrder.targetEnemy.isCombatEffective()
+                    && OtcAI.isDivisionVisibleToSide(engine, myGroup.side, d.otcOrder.targetEnemy)) {
+                if (target == null || distance(d.centroid, d.otcOrder.targetEnemy.centroid) <= distance(d.centroid, target.centroid) + 1400f) {
+                    target = d.otcOrder.targetEnemy;
+                }
+            }
             if (target == null || !target.isCombatEffective()) continue;
             List<DivisionState> list = flankersByTarget.get(target);
             if (list == null) {
@@ -672,18 +681,31 @@ public class OtcBattlePlanner {
                 }
             });
 
+            // Count already-committed flank sides first so existing flankers don't flip port <-> starboard
             int left = 0;
             int right = 0;
             for (DivisionState d : flankers) {
-                float natural = Math.signum((d.centroid.x - tPos.x) * perpX + (d.centroid.y - tPos.y) * perpY);
-                if (natural == 0f) natural = 1f;
+                if (d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target && d.otcOrder.flankSide != 0f) {
+                    if (d.otcOrder.flankSide > 0f) right++;
+                    else left++;
+                }
+            }
+
+            for (DivisionState d : flankers) {
                 float previous = (d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target) ? d.otcOrder.flankSide : 0f;
-                float side = previous != 0f ? previous : natural;
-                // Balance: never put a second flanker on a side while the other side is empty
-                if (side > 0f && right > left) side = -1f;
-                else if (side < 0f && left > right) side = 1f;
-                if (side > 0f) right++;
-                else left++;
+                float side;
+                if (previous != 0f) {
+                    side = previous;
+                } else {
+                    float natural = Math.signum((d.centroid.x - tPos.x) * perpX + (d.centroid.y - tPos.y) * perpY);
+                    if (natural == 0f) natural = 1f;
+                    side = natural;
+                    // Balance newly assigned flankers across port and starboard
+                    if (side > 0f && right > left) side = -1f;
+                    else if (side < 0f && left > right) side = 1f;
+                    if (side > 0f) right++;
+                    else left++;
+                }
 
                 boolean newOrder = !(d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target
                         && Math.signum(d.otcOrder.flankSide) == Math.signum(side));
@@ -692,7 +714,7 @@ public class OtcBattlePlanner {
                 d.otcOrder.hasStation = false;
                 tasked.add(d);
                 if (newOrder && flankers.size() >= 2) {
-                    logOrder(engine, myGroup, "flank:" + d.id + ">" + target.id + (side > 0f ? "P" : "S"), String.format(
+                    logOrder(engine, myGroup, "flank:" + d.id, String.format(
                             "Doubling: \"%s\" takes the %s flank of \"%s\".",
                             d.displayName, side > 0f ? "port" : "starboard", target.displayName), now);
                 }

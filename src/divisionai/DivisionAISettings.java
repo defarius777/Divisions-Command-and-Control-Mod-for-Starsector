@@ -1,19 +1,37 @@
 package divisionai;
 
 import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.campaign.SectorAPI;
+import com.fs.starfarer.api.ui.LabelAPI;
+import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.DivisionIntentType;
+import lunalib.backend.ui.components.base.LunaUIBaseElement;
+import lunalib.backend.ui.components.base.LunaUIButton;
+import lunalib.backend.ui.settings.LunaSettingsData;
+import lunalib.backend.ui.settings.LunaSettingsUISettingsPanel;
 import lunalib.lunaSettings.LunaSettings;
+
+import java.awt.Color;
+import java.util.List;
 
 /**
  * Reads Mod Settings (via LunaLib's Mod Settings menu) to control on-screen HUD chatter
  * by side (Friendly vs Enemy) and level (OTC, Single-Division, Multi-Division),
- * as well as Tactical Map (Tab) division visualization.
+ * as well as Tactical Map (Tab) division visualization and the "Reinitialize Sector-Wide
+ * Division Lists" action button with an "Are you sure?" confirmation prompt.
  *
  * Note: starsector.log always records 100% of C2 telemetry regardless of HUD mute settings.
  */
 public class DivisionAISettings {
 
     public static final String MOD_ID = "division_ai";
+    public static final String REINIT_FIELD_ID = "divai_reinit_sector_divisions";
+
+    private static Object trackedReinitButton = null;
+    private static boolean lastObservedButtonValue = false;
+    private static int reinitPromptState = 0; // 0 = idle, 1 = "Are you sure?", 2 = completed
+    private static long promptStateTimestampMs = 0L;
+    private static int lastReinitializedFleetCount = 0;
 
     private static boolean isLunaLibEnabled() {
         return Global.getSettings().getModManager().isModEnabled("lunalib");
@@ -107,5 +125,104 @@ public class DivisionAISettings {
     public static float getDivisionCircleBaseAlpha() {
         int pct = getInt("divai_circle_alpha_pct", 18);
         return Math.max(0.05f, Math.min(0.50f, pct / 100f));
+    }
+
+    /**
+     * Drives the "Reinitialize Sector-Wide Division Lists" button inside LunaLib's Mod Settings
+     * UI so clicking it once shows an "Are you sure? Click to Confirm" prompt, and clicking a
+     * second time executes FactionFleetDoctrines.reinitializeSectorWideDivisionLists(sector).
+     */
+    public static void advanceLunaSettingsReinitButton() {
+        if (!isLunaLibEnabled()) return;
+        try {
+            List<LunaUIBaseElement> elements = LunaSettingsUISettingsPanel.Companion.getAddedElements();
+            if (elements == null || elements.isEmpty()) {
+                trackedReinitButton = null;
+                return;
+            }
+
+            LunaUIButton foundBtn = null;
+            for (LunaUIBaseElement el : elements) {
+                if (el instanceof LunaUIButton) {
+                    Object keyObj = el.getKey();
+                    if (keyObj instanceof LunaSettingsData) {
+                        LunaSettingsData data = (LunaSettingsData) keyObj;
+                        if (MOD_ID.equals(data.getModID()) && REINIT_FIELD_ID.equals(data.getFieldID())) {
+                            foundBtn = (LunaUIButton) el;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (foundBtn == null) {
+                trackedReinitButton = null;
+                return;
+            }
+
+            foundBtn.setRegularButton(false);
+
+            long nowMs = System.currentTimeMillis();
+            if (foundBtn != trackedReinitButton) {
+                trackedReinitButton = foundBtn;
+                lastObservedButtonValue = foundBtn.getValue();
+                reinitPromptState = 0;
+                promptStateTimestampMs = nowMs;
+            }
+
+            boolean curVal = foundBtn.getValue();
+            if (curVal != lastObservedButtonValue) {
+                lastObservedButtonValue = curVal;
+                if (reinitPromptState == 0 || reinitPromptState == 2) {
+                    reinitPromptState = 1;
+                    promptStateTimestampMs = nowMs;
+                } else if (reinitPromptState == 1) {
+                    SectorAPI sector = Global.getSector();
+                    if (sector != null) {
+                        lastReinitializedFleetCount = FactionFleetDoctrines.reinitializeSectorWideDivisionLists(sector);
+                    } else {
+                        lastReinitializedFleetCount = 0;
+                    }
+                    reinitPromptState = 2;
+                    promptStateTimestampMs = nowMs;
+                }
+            }
+
+            if ((reinitPromptState == 1 || reinitPromptState == 2) && (nowMs - promptStateTimestampMs) > 6000L) {
+                reinitPromptState = 0;
+            }
+
+            LabelAPI lbl = foundBtn.getButtonText();
+            if (lbl != null) {
+                String labelStr;
+                Color textColor;
+                Color borderColor;
+                if (reinitPromptState == 1) {
+                    labelStr = "Are you sure? Click to Confirm";
+                    textColor = Misc.getHighlightColor();
+                    borderColor = Misc.getHighlightColor();
+                } else if (reinitPromptState == 2) {
+                    labelStr = (Global.getSector() != null)
+                            ? ("Reinitialized (" + lastReinitializedFleetCount + " fleets)!")
+                            : "Load a campaign save first";
+                    textColor = Misc.getPositiveHighlightColor();
+                    borderColor = Misc.getPositiveHighlightColor();
+                } else {
+                    labelStr = "Reinitialize Lists";
+                    textColor = Misc.getBasePlayerColor();
+                    borderColor = Misc.getDarkPlayerColor();
+                }
+
+                lbl.setText(labelStr);
+                lbl.setColor(textColor);
+                foundBtn.setBorderColor(borderColor);
+                float tw = lbl.computeTextWidth(labelStr);
+                float th = lbl.computeTextHeight(labelStr);
+                lbl.getPosition().inTL(
+                        Math.max(4f, (foundBtn.getWidth() - tw) * 0.5f),
+                        Math.max(2f, (foundBtn.getHeight() - th) * 0.5f));
+            }
+        } catch (Throwable ignored) {
+        }
     }
 }

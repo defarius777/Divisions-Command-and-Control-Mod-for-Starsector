@@ -12,3 +12,6 @@ divai_enemy_multidiv_chatter,Enemy Multi-Division Signals,Boolean,true,,"Show en
 divai_overlayHeader,Tactical Map Overlay (Tab),Header,Tactical Map (Tab) Visualization,,,,,
 divai_show_tactical_overlay,Show Division Overlay on Tactical Map,Boolean,true,,"Project translucent green division circles and flagship command links on the Tactical Map (Tab). Overlapping division circles become less translucent.",,,
 divai_circle_alpha_pct,Division Circle Opacity,Int,18,,"Base translucency of each division circle on the Tactical Map. Overlapping regions automatically become less translucent.",5,50,
+,,,,,,,,
+divai_sectorHeader,Sector Campaign Divisions,Header,Sector-Wide Division Lists,,,,,
+divai_reinit_sector_divisions,Reinitialize Sector-Wide Division Lists,Boolean,false,,"Reinitializes all NPC faction division record tables and re-sorts all instanced non-player fleets across the sector (Story/Special fleets prioritized first). Click once to arm 'Are you sure?', then click again to confirm.",,,
