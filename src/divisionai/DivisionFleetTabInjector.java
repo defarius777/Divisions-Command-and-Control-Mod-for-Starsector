@@ -41,7 +41,9 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
 
     private transient CustomPanelAPI injectedButtonPanel;
     private transient ButtonAPI divisionEditorButton;
+    private transient ButtonAPI fleetDoctrineButton;
     private transient DivisionEditorDialog activeDialog;
+    private transient FleetDoctrineDialog activeDoctrineDialog;
 
     @Override
     public boolean isDone() {
@@ -65,6 +67,10 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 activeDialog.close();
             }
             activeDialog = null;
+            if (activeDoctrineDialog != null && !activeDoctrineDialog.isClosed()) {
+                activeDoctrineDialog.close();
+            }
+            activeDoctrineDialog = null;
             return;
         }
 
@@ -81,11 +87,21 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
 
             ensureButtonInjectedIntoFleetTab(coreUI, currentTab);
 
+            boolean anyModalOpen = (activeDialog != null && !activeDialog.isClosed())
+                    || (activeDoctrineDialog != null && !activeDoctrineDialog.isClosed());
+
             if (divisionEditorButton != null && divisionEditorButton.isChecked()) {
                 divisionEditorButton.setChecked(false);
-                if (activeDialog == null || activeDialog.isClosed()) {
+                if (!anyModalOpen) {
                     activeDialog = new DivisionEditorDialog(coreUI);
                     activeDialog.show();
+                }
+            }
+            if (fleetDoctrineButton != null && fleetDoctrineButton.isChecked()) {
+                fleetDoctrineButton.setChecked(false);
+                if (!anyModalOpen) {
+                    activeDoctrineDialog = new FleetDoctrineDialog(coreUI);
+                    activeDoctrineDialog.show();
                 }
             }
         } catch (Throwable t) {
@@ -177,9 +193,10 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
 
         float btnW = autoAssignButton.getPosition().getWidth();
         float btnH = autoAssignButton.getPosition().getHeight();
+        float panelH = btnH * 2f + 8f;
 
-        injectedButtonPanel = Global.getSettings().createCustom(btnW, btnH, new BaseCustomUIPanelPlugin());
-        TooltipMakerAPI tt = injectedButtonPanel.createUIElement(btnW, btnH, false);
+        injectedButtonPanel = Global.getSettings().createCustom(btnW, panelH, new BaseCustomUIPanelPlugin());
+        TooltipMakerAPI tt = injectedButtonPanel.createUIElement(btnW, panelH, false);
         divisionEditorButton = tt.addButton(
                 "Division Editor",
                 "OPEN_DIVISION_EDITOR",
@@ -190,6 +207,16 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 btnW,
                 btnH,
                 0f);
+        fleetDoctrineButton = tt.addButton(
+                "Fleet Doctrine",
+                "OPEN_FLEET_DOCTRINE",
+                Misc.getBasePlayerColor(),
+                Misc.getDarkPlayerColor(),
+                Alignment.MID,
+                CutStyle.TL_BR,
+                btnW,
+                btnH,
+                6f);
         injectedButtonPanel.addUIElement(tt).inTL(-5f, 0f);
 
         // Compute top-left Y offset below "Auto-assign idle officers" (and below AoTD's "Talk to your officers" if present)
@@ -198,6 +225,6 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
         float topY = Global.getSettings().getScreenHeightPixels() - autoAssignButton.getPosition().getY() + extraOffset;
 
         leftControlPanel.addComponent(injectedButtonPanel).inTL(0f, topY);
-        LOG.info("[DivisionAI] Injected 'Division Editor' button onto Fleet tab.");
+        LOG.info("[DivisionAI] Injected 'Division Editor' and 'Fleet Doctrine' buttons onto Fleet tab.");
     }
 }

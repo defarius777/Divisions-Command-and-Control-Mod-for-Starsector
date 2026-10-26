@@ -46,6 +46,179 @@ public class PermanentDivisionManager {
     private static final Logger LOG = Global.getLogger(PermanentDivisionManager.class);
     private static final String PERSISTENT_DIVISIONS_KEY = "divisionai_permanent_divisions_v2";
     private static final String PERSISTENT_SEQ_KEY = "divisionai_permanent_divisions_seq_v2";
+    private static final String PERSISTENT_DOCTRINE_KEY = "divisionai_fleet_doctrine_v1";
+
+    /** Hard cap on division size regardless of individual hull maximums. */
+    public static final int MAX_DIVISION_SIZE = 10;
+
+    /**
+     * Hull categories configurable in the Fleet Doctrine screen (minimum & maximum hulls per division).
+     */
+    public enum DoctrineHullCategory {
+        CRUISER(
+                "Cruiser Hulls",
+                "Minimum cruiser hulls for division",
+                "Maximum cruiser hulls for division",
+                0,
+                4,
+                DivisionArchetype.CRUISER_DIVISION),
+        CAPITAL(
+                "Capital Hulls",
+                "Minimum capital hulls for division",
+                "Maximum capital hulls for division",
+                0,
+                2,
+                DivisionArchetype.BATTLE_DIVISION),
+        DESTROYER(
+                "Destroyer Hulls",
+                "Minimum destroyer hulls for division",
+                "Maximum destroyer hulls for division",
+                0,
+                4,
+                DivisionArchetype.DESTROYER_DIVISION),
+        FRIGATE(
+                "Frigate Hulls",
+                "Minimum frigate hulls for division",
+                "Maximum frigate hulls for division",
+                0,
+                5,
+                DivisionArchetype.FRIGATE_DIVISION),
+        FREIGHTER(
+                "Freighter Hulls",
+                "Minimum freighter hulls for division",
+                "Maximum freighter hulls for division",
+                0,
+                4,
+                DivisionArchetype.AUXILIARY_CONVOY),
+        TANKER(
+                "Tanker Hulls",
+                "Minimum tanker hulls for division",
+                "Maximum tanker hulls for division",
+                0,
+                4,
+                DivisionArchetype.AUXILIARY_CONVOY),
+        TRANSPORT(
+                "Transport Hulls",
+                "Minimum transport hulls for division",
+                "Maximum transport hulls for division",
+                0,
+                4,
+                DivisionArchetype.AUXILIARY_CONVOY);
+
+        public final String displayName;
+        public final String minLabel;
+        public final String maxLabel;
+        public final int defaultMin;
+        public final int defaultMax;
+        public final DivisionArchetype defaultArchetype;
+
+        DoctrineHullCategory(
+                String displayName,
+                String minLabel,
+                String maxLabel,
+                int defaultMin,
+                int defaultMax,
+                DivisionArchetype defaultArchetype) {
+            this.displayName = displayName;
+            this.minLabel = minLabel;
+            this.maxLabel = maxLabel;
+            this.defaultMin = defaultMin;
+            this.defaultMax = defaultMax;
+            this.defaultArchetype = defaultArchetype;
+        }
+    }
+
+    /**
+     * Campaign-saved Fleet Doctrine settings defining minimum and maximum hulls per division
+     * for each of the 7 hull categories, subject to MAX_DIVISION_SIZE = 10.
+     */
+    public static class FleetDoctrineConfig {
+        private final Map<DoctrineHullCategory, Integer> minByCat = new LinkedHashMap<>();
+        private final Map<DoctrineHullCategory, Integer> maxByCat = new LinkedHashMap<>();
+
+        public FleetDoctrineConfig() {
+            for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
+                minByCat.put(cat, cat.defaultMin);
+                maxByCat.put(cat, cat.defaultMax);
+            }
+        }
+
+        public int getMin(DoctrineHullCategory cat) {
+            Integer v = minByCat.get(cat);
+            return v != null ? Math.max(0, Math.min(MAX_DIVISION_SIZE, v)) : 0;
+        }
+
+        public int getMax(DoctrineHullCategory cat) {
+            Integer v = maxByCat.get(cat);
+            int maxVal = v != null ? Math.max(0, Math.min(MAX_DIVISION_SIZE, v)) : cat.defaultMax;
+            return Math.max(getMin(cat), maxVal);
+        }
+
+        public void setMin(DoctrineHullCategory cat, int value) {
+            int clamped = Math.max(0, Math.min(MAX_DIVISION_SIZE, value));
+            minByCat.put(cat, clamped);
+            if (getMax(cat) < clamped) {
+                maxByCat.put(cat, clamped);
+            }
+        }
+
+        public void setMax(DoctrineHullCategory cat, int value) {
+            int clamped = Math.max(0, Math.min(MAX_DIVISION_SIZE, value));
+            maxByCat.put(cat, clamped);
+            if (getMin(cat) > clamped) {
+                minByCat.put(cat, clamped);
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public static FleetDoctrineConfig getFleetDoctrine() {
+        FleetDoctrineConfig cfg = new FleetDoctrineConfig();
+        SectorAPI sector = Global.getSector();
+        if (sector == null) return cfg;
+        Map<String, Object> pdata = sector.getPersistentData();
+        Object raw = pdata.get(PERSISTENT_DOCTRINE_KEY);
+        if (raw instanceof Map) {
+            Map<String, Object> map = (Map<String, Object>) raw;
+            for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
+                Object minObj = map.get("min_" + cat.name());
+                Object maxObj = map.get("max_" + cat.name());
+                if (minObj instanceof Number) {
+                    cfg.setMin(cat, ((Number) minObj).intValue());
+                }
+                if (maxObj instanceof Number) {
+                    cfg.setMax(cat, ((Number) maxObj).intValue());
+                }
+            }
+        }
+        return cfg;
+    }
+
+    public static void saveFleetDoctrine(FleetDoctrineConfig cfg) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || cfg == null) return;
+        Map<String, Object> serialized = new HashMap<>();
+        for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
+            serialized.put("min_" + cat.name(), cfg.getMin(cat));
+            serialized.put("max_" + cat.name(), cfg.getMax(cat));
+        }
+        sector.getPersistentData().put(PERSISTENT_DOCTRINE_KEY, serialized);
+    }
+
+    public static void updateFleetDoctrineLimit(DoctrineHullCategory cat, boolean isMin, int newValue) {
+        if (cat == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        if (isMin) {
+            cfg.setMin(cat, newValue);
+        } else {
+            cfg.setMax(cat, newValue);
+        }
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void resetFleetDoctrineToDefaults() {
+        saveFleetDoctrine(new FleetDoctrineConfig());
+    }
 
     public enum DoctrineOption {
         ADAPTIVE("Adaptive C2 (Default)", "Balanced division C2: screens, flanks, or presses overmatch based on live telemetry."),
@@ -162,36 +335,236 @@ public class PermanentDivisionManager {
         LOG.info("[DivisionAI] Reset and auto-formed " + specs.size() + " permanent divisions.");
     }
 
+    /**
+     * Auto-assigns all unassigned ships in the player's fleet:
+     *  1. First assigns ships to existing divisions if there is space (filling any unmet Fleet Doctrine
+     *     minimum hull counts first, then filling up to Fleet Doctrine maximum hull counts per category,
+     *     strictly capped at MAX_DIVISION_SIZE = 10 ships per division).
+     *  2. Then automatically creates new divisions for any remaining unassigned ships (or all ships if
+     *     no divisions existed yet), following the Fleet Doctrine min/max hull limits and MAX_DIVISION_SIZE = 10.
+     */
     public static void autoAssignUnassignedMembers() {
         SectorAPI sector = Global.getSector();
         if (sector == null || sector.getPlayerFleet() == null) return;
         CampaignFleetAPI fleet = sector.getPlayerFleet();
         Map<String, Object> pdata = sector.getPersistentData();
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        FleetDoctrineConfig doctrine = getFleetDoctrine();
 
         List<FleetMemberAPI> unassigned = getUnassignedCombatMembers(fleet, specs);
         if (unassigned.isEmpty()) return;
 
-        for (FleetMemberAPI m : unassigned) {
-            DivisionArchetype desiredArch = classifyFleetMemberArchetype(m);
-            PermanentDivisionSpec bestMatch = null;
-            int maxCap = (desiredArch == DivisionArchetype.FRIGATE_DIVISION
-                    || desiredArch == DivisionArchetype.AUXILIARY_CONVOY) ? 5 : 4;
+        Collections.sort(unassigned, new Comparator<FleetMemberAPI>() {
+            @Override
+            public int compare(FleetMemberAPI a, FleetMemberAPI b) {
+                return Float.compare(b.getDeploymentPointsCost(), a.getDeploymentPointsCost());
+            }
+        });
 
-            for (PermanentDivisionSpec spec : specs) {
-                if (spec.archetype == desiredArch && spec.memberIds.size() < maxCap) {
-                    bestMatch = spec;
-                    break;
+        Map<String, FleetMemberAPI> fleetById = mapFleetMembersById(fleet);
+
+        // Pass 1: Satisfy unmet Fleet Doctrine minimum hull counts in existing divisions that have space (< 10)
+        for (PermanentDivisionSpec spec : specs) {
+            if (spec.memberIds.size() >= MAX_DIVISION_SIZE) continue;
+            for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
+                int minReq = doctrine.getMin(cat);
+                if (minReq <= 0) continue;
+                int currentCatCount = countCategoryInDivision(spec, cat, fleetById);
+                while (currentCatCount < minReq && spec.memberIds.size() < MAX_DIVISION_SIZE) {
+                    FleetMemberAPI match = popFirstUnassignedOfCategory(unassigned, cat);
+                    if (match == null) break;
+                    spec.memberIds.add(match.getId());
+                    ensureValidFlagship(spec, fleet);
+                    currentCatCount++;
                 }
             }
-            if (bestMatch == null) {
-                bestMatch = createNewDivisionInternal(specs, pdata, desiredArch);
+        }
+
+        // Pass 2: Assign remaining unassigned ships into existing divisions that have space
+        // (up to doctrine.getMax(cat) and strictly < MAX_DIVISION_SIZE = 10)
+        List<FleetMemberAPI> afterExistingPass = new ArrayList<>();
+        for (FleetMemberAPI m : unassigned) {
+            DoctrineHullCategory cat = classifyHullCategory(m);
+            DivisionArchetype desiredArch = classifyFleetMemberArchetype(m);
+            int catMax = doctrine.getMax(cat);
+
+            PermanentDivisionSpec bestMatch = null;
+            if (catMax > 0) {
+                // First prefer an existing division of the matching archetype
+                for (PermanentDivisionSpec spec : specs) {
+                    if (spec.memberIds.size() >= MAX_DIVISION_SIZE) continue;
+                    if (spec.archetype == desiredArch
+                            && countCategoryInDivision(spec, cat, fleetById) < catMax) {
+                        bestMatch = spec;
+                        break;
+                    }
+                }
+                // Next check any existing division that already includes this hull category or has composite min > 0
+                if (bestMatch == null) {
+                    for (PermanentDivisionSpec spec : specs) {
+                        if (spec.memberIds.size() >= MAX_DIVISION_SIZE) continue;
+                        int currCat = countCategoryInDivision(spec, cat, fleetById);
+                        if (currCat < catMax && (currCat > 0 || doctrine.getMin(cat) > 0)) {
+                            bestMatch = spec;
+                            break;
+                        }
+                    }
+                }
             }
-            bestMatch.memberIds.add(m.getId());
-            ensureValidFlagship(bestMatch, fleet);
+
+            if (bestMatch != null) {
+                bestMatch.memberIds.add(m.getId());
+                ensureValidFlagship(bestMatch, fleet);
+            } else {
+                afterExistingPass.add(m);
+            }
+        }
+        unassigned = afterExistingPass;
+
+        // Pass 3: Automatically create new divisions for all remaining unassigned ships
+        boolean hasAnyPositiveMin = false;
+        for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
+            if (doctrine.getMin(cat) > 0) {
+                hasAnyPositiveMin = true;
+                break;
+            }
+        }
+
+        // 3a. If the player configured positive minimums in Fleet Doctrine, form composite divisions first
+        if (hasAnyPositiveMin && !unassigned.isEmpty()) {
+            while (!unassigned.isEmpty()) {
+                List<FleetMemberAPI> seedMembers = new ArrayList<>();
+                for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
+                    int minReq = doctrine.getMin(cat);
+                    for (int i = 0; i < minReq && seedMembers.size() < MAX_DIVISION_SIZE; i++) {
+                        FleetMemberAPI picked = popFirstUnassignedOfCategory(unassigned, cat);
+                        if (picked != null) {
+                            seedMembers.add(picked);
+                        }
+                    }
+                }
+                if (seedMembers.isEmpty()) break;
+
+                // Top up this new division up to max hulls (capped at 10) from remaining unassigned ships
+                DivisionArchetype arch = classifyFleetMemberArchetype(seedMembers.get(0));
+                PermanentDivisionSpec newSpec = createNewDivisionInternal(specs, pdata, arch);
+                for (FleetMemberAPI sm : seedMembers) {
+                    newSpec.memberIds.add(sm.getId());
+                }
+
+                for (int i = 0; i < unassigned.size() && newSpec.memberIds.size() < MAX_DIVISION_SIZE; ) {
+                    FleetMemberAPI cand = unassigned.get(i);
+                    DoctrineHullCategory cCat = classifyHullCategory(cand);
+                    int cMax = doctrine.getMax(cCat);
+                    if (cMax > 0 && countCategoryInDivision(newSpec, cCat, fleetById) < cMax
+                            && (classifyFleetMemberArchetype(cand) == arch || doctrine.getMin(cCat) > 0)) {
+                        newSpec.memberIds.add(cand.getId());
+                        unassigned.remove(i);
+                    } else {
+                        i++;
+                    }
+                }
+                ensureValidFlagship(newSpec, fleet);
+            }
+        }
+
+        // 3b. Group any remaining unassigned ships into new divisions (up to doctrine.getMax(cat) and MAX_DIVISION_SIZE = 10)
+        while (!unassigned.isEmpty()) {
+            FleetMemberAPI lead = unassigned.remove(0);
+            DoctrineHullCategory leadCat = classifyHullCategory(lead);
+            DivisionArchetype arch = classifyFleetMemberArchetype(lead);
+            int effectiveCatMax = Math.min(MAX_DIVISION_SIZE, Math.max(1, doctrine.getMax(leadCat)));
+
+            PermanentDivisionSpec newSpec = createNewDivisionInternal(specs, pdata, arch);
+            newSpec.memberIds.add(lead.getId());
+
+            for (int i = 0; i < unassigned.size() && newSpec.memberIds.size() < MAX_DIVISION_SIZE; ) {
+                FleetMemberAPI cand = unassigned.get(i);
+                DoctrineHullCategory cCat = classifyHullCategory(cand);
+                DivisionArchetype cArch = classifyFleetMemberArchetype(cand);
+                if (cCat == leadCat && cArch == arch
+                        && countCategoryInDivision(newSpec, leadCat, fleetById) < effectiveCatMax) {
+                    newSpec.memberIds.add(cand.getId());
+                    unassigned.remove(i);
+                } else {
+                    i++;
+                }
+            }
+            ensureValidFlagship(newSpec, fleet);
         }
 
         saveSpecsToPersistentData(pdata, specs);
+        LOG.info("[DivisionAI] Auto-assigned fleet ships across " + specs.size() + " permanent divisions.");
+    }
+
+    private static int countCategoryInDivision(
+            PermanentDivisionSpec spec,
+            DoctrineHullCategory cat,
+            Map<String, FleetMemberAPI> fleetById) {
+        if (spec == null || cat == null || fleetById == null) return 0;
+        int count = 0;
+        for (String id : spec.memberIds) {
+            FleetMemberAPI m = fleetById.get(id);
+            if (m != null && classifyHullCategory(m) == cat) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static FleetMemberAPI popFirstUnassignedOfCategory(
+            List<FleetMemberAPI> unassigned,
+            DoctrineHullCategory cat) {
+        for (int i = 0; i < unassigned.size(); i++) {
+            FleetMemberAPI m = unassigned.get(i);
+            if (classifyHullCategory(m) == cat) {
+                return unassigned.remove(i);
+            }
+        }
+        return null;
+    }
+
+    public static DoctrineHullCategory classifyHullCategory(FleetMemberAPI member) {
+        if (member == null) return DoctrineHullCategory.FRIGATE;
+        ShipHullSpecAPI hullSpec = member.getHullSpec();
+        HullSize size = hullSpec != null ? hullSpec.getHullSize() : HullSize.FRIGATE;
+        EnumSet<ShipTypeHints> hints = (hullSpec != null && hullSpec.getHints() != null)
+                ? hullSpec.getHints()
+                : EnumSet.noneOf(ShipTypeHints.class);
+
+        if (hints.contains(ShipTypeHints.TANKER)) {
+            return DoctrineHullCategory.TANKER;
+        }
+        if (hints.contains(ShipTypeHints.LINER)) {
+            return DoctrineHullCategory.TRANSPORT;
+        }
+        if (hints.contains(ShipTypeHints.FREIGHTER)) {
+            return DoctrineHullCategory.FREIGHTER;
+        }
+        if (member.isCivilian() || hints.contains(ShipTypeHints.CIVILIAN)) {
+            float fuel = member.getFuelCapacity();
+            float cargo = member.getCargoCapacity();
+            float extraCrew = Math.max(0f, member.getMaxCrew() - member.getMinCrew());
+            if (fuel > cargo && fuel >= 100f) {
+                return DoctrineHullCategory.TANKER;
+            }
+            if (extraCrew > cargo && extraCrew >= 50f) {
+                return DoctrineHullCategory.TRANSPORT;
+            }
+            return DoctrineHullCategory.FREIGHTER;
+        }
+
+        switch (size) {
+            case CAPITAL_SHIP:
+                return DoctrineHullCategory.CAPITAL;
+            case CRUISER:
+                return DoctrineHullCategory.CRUISER;
+            case DESTROYER:
+                return DoctrineHullCategory.DESTROYER;
+            case FRIGATE:
+            default:
+                return DoctrineHullCategory.FRIGATE;
+        }
     }
 
     public static PermanentDivisionSpec createNewDivision(DivisionArchetype archetype, String optionalFirstMemberId) {
@@ -244,7 +617,7 @@ public class PermanentDivisionManager {
                 target = spec;
             }
         }
-        if (target != null && !target.memberIds.contains(memberId)) {
+        if (target != null && !target.memberIds.contains(memberId) && target.memberIds.size() < MAX_DIVISION_SIZE) {
             target.memberIds.add(memberId);
             ensureValidFlagship(target, fleet);
         }
@@ -682,8 +1055,12 @@ public class PermanentDivisionManager {
                 ? hullSpec.getHints()
                 : EnumSet.noneOf(ShipTypeHints.class);
 
-        boolean isCivilian = member.isCivilian() || hints.contains(ShipTypeHints.CIVILIAN);
-        if (isCivilian) {
+        boolean isAux = member.isCivilian()
+                || hints.contains(ShipTypeHints.CIVILIAN)
+                || hints.contains(ShipTypeHints.FREIGHTER)
+                || hints.contains(ShipTypeHints.TANKER)
+                || hints.contains(ShipTypeHints.LINER);
+        if (isAux) {
             return DivisionArchetype.AUXILIARY_CONVOY;
         }
 

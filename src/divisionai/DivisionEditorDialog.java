@@ -155,10 +155,23 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 darkColor,
                 Alignment.MID,
                 CutStyle.TL_BR,
-                220f,
+                210f,
                 24f,
                 0f);
         bCreate.getPosition().inTL(0f, 2f);
+
+        ButtonAPI bAutoAssign = tb.addButton(
+                "Auto-Assign Fleet Ships (" + unassigned.size() + ")",
+                "AUTO_ASSIGN",
+                baseColor,
+                darkColor,
+                Alignment.MID,
+                CutStyle.TL_BR,
+                250f,
+                24f,
+                0f);
+        bAutoAssign.setEnabled(!unassigned.isEmpty());
+        bAutoAssign.getPosition().inTL(220f, 2f);
 
         if (!divisions.isEmpty()) {
             ButtonAPI bClearAll = tb.addButton(
@@ -171,7 +184,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     205f,
                     24f,
                     0f);
-            bClearAll.getPosition().inTL(230f, 2f);
+            bClearAll.getPosition().inTL(480f, 2f);
         }
 
         ButtonAPI bClose = tb.addButton(
@@ -221,10 +234,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 }
 
                 String headerTitle = String.format(
-                        "%s  —  %s  (%d Ships, %.0f DP)",
+                        "%s  —  %s  (%d/%d Ships, %.0f DP)",
                         spec.name,
                         spec.archetype.shortPrefix,
                         members.size(),
+                        PermanentDivisionManager.MAX_DIVISION_SIZE,
                         totalDp);
                 leftCol.addSectionHeading(headerTitle, baseColor, darkColor, Alignment.LMID, 8f);
 
@@ -478,10 +492,12 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         float bodyHeight = DIALOG_HEIGHT - bodyTop - 12f;
         float colWidth = (DIALOG_WIDTH - 36f) * 0.5f;
 
+        boolean divisionAtCap = divMembers.size() >= PermanentDivisionManager.MAX_DIVISION_SIZE;
+
         // Left Column: Ships Currently Assigned to This Division
         TooltipMakerAPI leftCol = container.createUIElement(colWidth, bodyHeight, true);
         leftCol.addSectionHeading(
-                "Ships in " + spec.name + " (" + divMembers.size() + ")",
+                "Ships in " + spec.name + " (" + divMembers.size() + "/" + PermanentDivisionManager.MAX_DIVISION_SIZE + " Max)",
                 Alignment.MID,
                 4f);
 
@@ -566,8 +582,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         m.getHullSpec().getHullName(),
                         String.format("%.0f", m.getDeploymentPointsCost()),
                         officerStr);
-                rightCol.addButton(
-                        "<- Put in " + spec.name,
+                ButtonAPI bAdd = rightCol.addButton(
+                        divisionAtCap ? "Division Full (10/10 Max)" : ("<- Put in " + spec.name),
                         "ADD_SHIP:" + m.getId(),
                         positive,
                         darkColor,
@@ -576,6 +592,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         220f,
                         21f,
                         2f);
+                bAdd.setEnabled(!divisionAtCap);
             }
         }
 
@@ -595,8 +612,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         m.getShipName(),
                         m.getHullSpec().getHullName(),
                         String.format("%.0f", m.getDeploymentPointsCost()));
-                rightCol.addButton(
-                        "<- Transfer to " + spec.name,
+                ButtonAPI bTrans = rightCol.addButton(
+                        divisionAtCap ? "Division Full (10/10 Max)" : ("<- Transfer to " + spec.name),
                         "ADD_SHIP:" + m.getId(),
                         baseColor,
                         darkColor,
@@ -605,6 +622,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         220f,
                         21f,
                         2f);
+                bTrans.setEnabled(!divisionAtCap);
             }
         }
         if (!anyOther) {
