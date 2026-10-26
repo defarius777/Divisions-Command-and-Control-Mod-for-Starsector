@@ -84,10 +84,10 @@ public class DivisionCommanderAI {
             }
 
             // Keep maneuver anchors tracking moving targets between intent evaluations
-            refreshStationPoint(engine, div, myGroup, now);
+            refreshStationPoint(engine, div, myGroup, enemyGroup, now);
 
             // Apply per-tick (0.5s cadence) ShipwideAIFlags nudges to division members
-            applyDivisionFlagsToShips(engine, div, myGroup, now);
+            applyDivisionFlagsToShips(engine, div, myGroup, enemyGroup, now);
         }
     }
 
@@ -153,6 +153,9 @@ public class DivisionCommanderAI {
         }
         if (div.currentIntent == DivisionIntentType.REINFORCE_DIVISION
                 && div.targetFriendlyDivision != null && div.targetFriendlyDivision.localForceRatio >= 1.0f) {
+            return true;
+        }
+        if (div.currentIntent == DivisionIntentType.CLOSE_UP && div.localEnemyStrength >= 8f) {
             return true;
         }
         return false;
@@ -392,13 +395,16 @@ public class DivisionCommanderAI {
             return;
         }
 
-        // 8. Cohesion check: if division ships have scattered too far apart, pause and reform before the mission.
-        //    Uses hysteresis (enter at > 1.48x, exit once tightened below <= 1.08x) so divisions finish closing up cleanly.
+        // 8. Cohesion check: if the division's core cluster has scattered while out of contact, pause and reform.
+        //    Never freeze a division in CLOSE_UP when it is already in enemy contact or when only detached stragglers
+        //    are separated by an intervening enemy line (detached stragglers rejoin via wide out-of-contact arcs).
         boolean enterCloseUp = div.stationKeepingRatio > 1.48f;
         boolean stayClosingUp = (prevIntent == DivisionIntentType.CLOSE_UP) && div.stationKeepingRatio > 1.08f;
-        if ((enterCloseUp || stayClosingUp) && div.getAliveMembers().size() >= 2) {
+        boolean outOfEnemyContact = div.localEnemyStrength < 8f && distToVisibleEnemy >= 2100f;
+        if ((enterCloseUp || stayClosingUp) && div.coreMemberCount >= 2 && outOfEnemyContact) {
             div.currentIntent = DivisionIntentType.CLOSE_UP;
-            if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()) {
+            if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
+                    && !div.detachedStragglerIds.contains(div.flagship.getId())) {
                 div.stationPoint.set(div.flagship.getLocation());
             } else {
                 div.stationPoint.set(div.centroid);
@@ -901,8 +907,13 @@ public class DivisionCommanderAI {
         return 0f;
     }
 
-    /** Recomputes the current intent's maneuver station so it tracks moving targets every tick. */
-    private static void refreshStationPoint(CombatEngineAPI engine, DivisionState div, BattleGroupState myGroup, float now) {
+    /** Recomputes the current intent's maneuver station and out-of-contact wide-arc route waypoint every tick. */
+    private static void refreshStationPoint(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup,
+            float now) {
         DivisionState enemy = div.targetEnemyDivision;
         DivisionState friend = div.targetFriendlyDivision;
         boolean enemyTrackable = enemy != null && enemy.isCombatEffective()
@@ -959,7 +970,8 @@ public class DivisionCommanderAI {
                 div.stationPoint.set(myGroup.reserveStation);
                 break;
             case CLOSE_UP:
-                if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()) {
+                if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
+                        && !div.detachedStragglerIds.contains(div.flagship.getId())) {
                     div.stationPoint.set(div.flagship.getLocation());
                 } else {
                     div.stationPoint.set(div.centroid);
@@ -992,6 +1004,8 @@ public class DivisionCommanderAI {
             default:
                 break;
         }
+
+        updateDivisionOutOfContactRoute(engine, div, myGroup, enemyGroup);
     }
 
     private static void computePatrolStation(DivisionState carrierDiv, DivisionState protectedDiv, Vector2f outStation) {
@@ -1009,6 +1023,7 @@ public class DivisionCommanderAI {
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
+            BattleGroupState enemyGroup,
             float now) {
 
         ShipAPI playerShip = engine.getPlayerShip();
@@ -1049,17 +1064,62 @@ public class DivisionCommanderAI {
             ShipwideAIFlags flags = ship.getAIFlags();
             if (flags == null) continue;
 
+            boolean isDetachedStraggler = div.detachedStragglerIds.contains(ship.getId());
+            if (isDetachedStraggler) {
+                // Detached straggler: route around any intervening enemy battle line out of contact to rejoin the Core Cluster,
+                // without freezing the Core Cluster in CLOSE_UP!
+                Vector2f rejoinGoal = (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
+                        && !div.detachedStragglerIds.contains(div.flagship.getId()))
+                        ? div.flagship.getLocation()
+                        : div.centroid;
+                Float prevSideObj = div.stragglerSkirtSideByShipId.get(ship.getId());
+                float prevSkirtSide = prevSideObj != null ? prevSideObj : div.routeSkirtSide;
+                float[] chosenSide = new float[]{prevSkirtSide};
+                Vector2f rejoinWaypoint = computeOutOfContactRoutePoint(
+                        engine,
+                        div.side,
+                        ship.getLocation(),
+                        rejoinGoal,
+                        null,
+                        null,
+                        prevSkirtSide,
+                        enemyGroup,
+                        chosenSide);
+                div.stragglerSkirtSideByShipId.put(ship.getId(), chosenSide[0]);
+
+                flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+                flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, rejoinWaypoint);
+                // If an enemy division is blocking the chord and pressing close to the straggler, keep distance while skirting
+                if (ship.getFluxLevel() >= 0.42f || isShipNearVisibleEnemy(engine, div.side, ship.getLocation(), enemyGroup, 1450f)) {
+                    flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
+                }
+                continue;
+            } else {
+                div.stragglerSkirtSideByShipId.remove(ship.getId());
+            }
+
             Vector2f slotPos = computeShipFormationSlot(engine, ship, shipIdx, alive, div, myGroup);
             boolean crowdedByPeer = isShipCrowdedByDivisionPeer(ship, alive, div.stationSpacing * 0.72f);
 
             float distToDivCenter = distance(ship.getLocation(), div.centroid);
-            boolean shipStraggling = alive.size() >= 2 && distToDivCenter > (div.stationKeepingRadius * 1.35f);
+            boolean shipStraggling = div.coreMemberCount >= 2 && distToDivCenter > (div.stationKeepingRadius * 1.38f);
 
             // Bounded pursuit & cohesion leash: prevent lone ships from chasing bait 3000u away
             if (shipStraggling && div.currentIntent != DivisionIntentType.HARASSING_MISSILE_ATTACK
                     && div.currentIntent != DivisionIntentType.TOT_MISSILE_STRIKE) {
+                float[] chosenSide = new float[]{div.routeSkirtSide};
+                Vector2f safeSlotPos = computeOutOfContactRoutePoint(
+                        engine,
+                        div.side,
+                        ship.getLocation(),
+                        slotPos,
+                        null,
+                        null,
+                        div.routeSkirtSide,
+                        enemyGroup,
+                        chosenSide);
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
-                flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
+                flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, safeSlotPos);
                 continue;
             }
 
@@ -1610,9 +1670,12 @@ public class DivisionCommanderAI {
 
         Vector2f rawCenter;
         if (closingUp) {
-            rawCenter = (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk())
+            rawCenter = (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
+                    && !div.detachedStragglerIds.contains(div.flagship.getId()))
                     ? div.flagship.getLocation()
                     : div.centroid;
+        } else if (div.hasRouteWaypoint) {
+            rawCenter = div.routeWaypoint;
         } else {
             rawCenter = div.stationPoint;
         }
@@ -1781,9 +1844,11 @@ public class DivisionCommanderAI {
             Vector2f outStation,
             BattleGroupState myGroup) {
         Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, flankerDiv.side, enemyDiv);
-        float flankRadius = Math.max(1050f, flankerDiv.standoffRange + flankerDiv.stationSpacing * 0.65f);
+        float flankRadius = Math.max(
+                1250f,
+                flankerDiv.standoffRange + enemyDiv.spreadRadius * 0.55f + flankerDiv.stationSpacing * 0.65f);
 
-        // Pincer: a OTC-assigned flank side is measured on the battlegroup's attack axis (fleet centre -> target),
+        // Pincer: an OTC-assigned flank side is measured on the battlegroup's attack axis (fleet centre -> target),
         // so two flankers on opposite sides really do envelop the target from left and right.
         float assignedSide = assignedFlankSide(flankerDiv, enemyDiv, myGroup);
         if (assignedSide != 0f) {
@@ -1795,10 +1860,18 @@ public class DivisionCommanderAI {
                 float fwdY = ay / aLen;
                 float perpX = -fwdY;
                 float perpY = fwdX;
-                // Slightly past the target's line so the flank gets at its side rather than its face
+                // Check if the flanker is still approaching from the front hemisphere of the target division;
+                // if so, swing wider laterally so it sweeps around the enemy's outer wing out of contact.
+                float relX = flankerDiv.centroid.x - visEnemyPos.x;
+                float relY = flankerDiv.centroid.y - visEnemyPos.y;
+                float relLen = (float) Math.sqrt(relX * relX + relY * relY);
+                float forwardDot = (relLen > 1f) ? ((relX * fwdX + relY * fwdY) / relLen) : -1f;
+                float lateralMult = (forwardDot < -0.15f) ? 1.28f : 1.0f;
+                float depthMult = (forwardDot < -0.15f) ? 0.15f : 0.32f;
                 outStation.set(
-                        visEnemyPos.x + perpX * flankRadius * assignedSide + fwdX * flankRadius * 0.2f,
-                        visEnemyPos.y + perpY * flankRadius * assignedSide + fwdY * flankRadius * 0.2f);
+                        visEnemyPos.x + perpX * flankRadius * lateralMult * assignedSide + fwdX * flankRadius * depthMult,
+                        visEnemyPos.y + perpY * flankRadius * lateralMult * assignedSide + fwdY * flankRadius * depthMult);
+                clampToMapBounds(engine, outStation, 650f);
                 return;
             }
         }
@@ -1817,6 +1890,321 @@ public class DivisionCommanderAI {
         outStation.set(
                 visEnemyPos.x + perpX * flankRadius * sideSign,
                 visEnemyPos.y + perpY * flankRadius * sideSign);
+        clampToMapBounds(engine, outStation, 650f);
+    }
+
+    /**
+     * Updates a division's out-of-contact wide-arc route waypoint (div.routeWaypoint).
+     * When a division is executing a flank, staging for a strike, seizing an objective, reinforcing,
+     * screening, or retiring to vent, and an enemy division / battle line lies across the straight chord
+     * from div.centroid to div.stationPoint, projects an intermediate tangent waypoint around the outer
+     * perimeter of the enemy threat zone so the division maneuvers out of contact before assuming station.
+     */
+    private static void updateDivisionOutOfContactRoute(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup) {
+
+        div.routeWaypoint.set(div.stationPoint);
+        div.hasRouteWaypoint = false;
+        if (enemyGroup == null || enemyGroup.divisions.isEmpty()) return;
+
+        DivisionIntentType intent = div.currentIntent;
+        if (intent == DivisionIntentType.CLOSE_UP) {
+            return;
+        }
+
+        // Direct close-in attack intents do not detour around their own attack target once within 2400u,
+        // though they still skirt around other intervening enemy divisions on long transits.
+        boolean directAttackIntent = (intent == DivisionIntentType.PRESS_HOME
+                || intent == DivisionIntentType.TOT_MISSILE_STRIKE
+                || intent == DivisionIntentType.HARASSING_MISSILE_ATTACK
+                || intent == DivisionIntentType.GIVE_GENERAL_CHASE
+                || (intent == DivisionIntentType.CLOSE_AND_ENGAGE
+                && resolveActiveMission(div, engine != null ? engine.getTotalElapsedTime(false) : 0f) == DivisionMissionType.CLOSE_ACTION));
+
+        DivisionState ignoreDirectTarget = directAttackIntent ? div.targetEnemyDivision : null;
+        DivisionState flankTarget = (intent == DivisionIntentType.WORK_FLANK) ? div.targetEnemyDivision : null;
+
+        float preferredSide = assignedFlankSide(div, div.targetEnemyDivision, myGroup);
+        if (preferredSide == 0f) {
+            preferredSide = div.routeSkirtSide;
+        }
+
+        float[] chosenSide = new float[]{preferredSide};
+        Vector2f wp = computeOutOfContactRoutePoint(
+                engine,
+                div.side,
+                div.centroid,
+                div.stationPoint,
+                ignoreDirectTarget,
+                flankTarget,
+                preferredSide,
+                enemyGroup,
+                chosenSide);
+        div.routeSkirtSide = chosenSide[0];
+        div.routeWaypoint.set(wp);
+        div.hasRouteWaypoint = distance(div.routeWaypoint, div.stationPoint) > 220f;
+    }
+
+    /**
+     * Computes an out-of-contact wide-arc waypoint from startPos (A) to goalPos (B) that skirts around
+     * any intervening visible enemy division threat zones.
+     *
+     * If the straight chord A -> B slices through an enemy threat circle (or enemy battle line cluster),
+     * returns a tangent/arc waypoint W at ~52 degrees ahead along the outer perimeter of the obstacle
+     * on the open flank side. Once the chord A -> B is clear of enemy threat zones, returns goalPos (B).
+     */
+    private static Vector2f computeOutOfContactRoutePoint(
+            CombatEngineAPI engine,
+            int side,
+            Vector2f startPos,
+            Vector2f goalPos,
+            DivisionState ignoreDirectAttackTarget,
+            DivisionState flankTargetDiv,
+            float preferredSideHint,
+            BattleGroupState enemyGroup,
+            float[] outChosenSide) {
+
+        if (startPos == null || goalPos == null) {
+            return goalPos != null ? new Vector2f(goalPos) : new Vector2f();
+        }
+        if (enemyGroup == null || enemyGroup.divisions.isEmpty()) {
+            return new Vector2f(goalPos);
+        }
+
+        float chordX = goalPos.x - startPos.x;
+        float chordY = goalPos.y - startPos.y;
+        float chordLen = (float) Math.sqrt(chordX * chordX + chordY * chordY);
+        if (chordLen < 360f) {
+            return new Vector2f(goalPos);
+        }
+
+        float dirX = chordX / chordLen;
+        float dirY = chordY / chordLen;
+
+        // Find the primary visible enemy division whose threat zone blocks the straight segment A -> B
+        DivisionState blockingDiv = null;
+        Vector2f blockingCenter = null;
+        float blockingRadius = 0f;
+        float earliestBlockProj = Float.MAX_VALUE;
+
+        for (DivisionState eDiv : enemyGroup.divisions) {
+            if (eDiv == null || !eDiv.isCombatEffective()) continue;
+            if (!OtcAI.isDivisionVisibleToSide(engine, side, eDiv)) continue;
+            if (eDiv == ignoreDirectAttackTarget && chordLen < 2600f) continue;
+
+            Vector2f eCenter = OtcAI.getVisibleCentroidForSide(engine, side, eDiv);
+            float distGoalToEnemy = distance(goalPos, eCenter);
+            float distStartToEnemy = distance(startPos, eCenter);
+
+            // Threat avoidance radius: enemy engagement range + spread + out-of-contact buffer
+            float threatRadius = Math.max(1150f, eDiv.avgEngageRange * 1.10f)
+                    + Math.min(700f, eDiv.spreadRadius * 0.70f)
+                    + 320f;
+            if (eDiv == flankTargetDiv) {
+                // For the enemy division being flanked, keep the avoidance disc just inside the flank station radius
+                // so the flanker sweeps around its front/beam out of contact rather than cutting across its nose.
+                threatRadius = Math.min(threatRadius, Math.max(850f, distGoalToEnemy * 0.88f));
+            } else if (distGoalToEnemy < threatRadius + 140f) {
+                // If goalPos itself sits close to this enemy division, shrink avoidance radius so goalPos remains reachable
+                threatRadius = Math.max(700f, distGoalToEnemy - 140f);
+            }
+
+            // Project eCenter onto segment A -> B
+            float relX = eCenter.x - startPos.x;
+            float relY = eCenter.y - startPos.y;
+            float proj = relX * dirX + relY * dirY;
+            if (proj <= 60f || proj >= chordLen - 40f) {
+                continue;
+            }
+
+            float closestX = startPos.x + dirX * proj;
+            float closestY = startPos.y + dirY * proj;
+            float perpDist = (float) Math.sqrt(
+                    (eCenter.x - closestX) * (eCenter.x - closestX)
+                            + (eCenter.y - closestY) * (eCenter.y - closestY));
+
+            if (perpDist < threatRadius * 0.96f && proj < earliestBlockProj) {
+                // Also skip if startPos is already closer to goalPos than to eCenter and moving away
+                if (distStartToEnemy > distGoalToEnemy && proj > chordLen * 0.75f) {
+                    continue;
+                }
+                earliestBlockProj = proj;
+                blockingDiv = eDiv;
+                blockingCenter = eCenter;
+                blockingRadius = threatRadius;
+            }
+        }
+
+        if (blockingDiv == null || blockingCenter == null) {
+            return new Vector2f(goalPos);
+        }
+
+        // Expand obstacle center/radius slightly if adjacent enemy divisions form a contiguous battle line with blockingDiv
+        float clusterX = blockingCenter.x * blockingDiv.totalFpStrength;
+        float clusterY = blockingCenter.y * blockingDiv.totalFpStrength;
+        float clusterWeight = Math.max(1f, blockingDiv.totalFpStrength);
+        for (DivisionState otherE : enemyGroup.divisions) {
+            if (otherE == null || otherE == blockingDiv || !otherE.isCombatEffective()) continue;
+            if (!OtcAI.isDivisionVisibleToSide(engine, side, otherE)) continue;
+            if (otherE == ignoreDirectAttackTarget) continue;
+            Vector2f oPos = OtcAI.getVisibleCentroidForSide(engine, side, otherE);
+            float dBetween = distance(blockingCenter, oPos);
+            if (dBetween < 1850f) {
+                // Project onto A -> B as well
+                float oProj = (oPos.x - startPos.x) * dirX + (oPos.y - startPos.y) * dirY;
+                if (oProj > 0f && oProj < chordLen) {
+                    float w = otherE.totalFpStrength * 0.55f;
+                    clusterX += oPos.x * w;
+                    clusterY += oPos.y * w;
+                    clusterWeight += w;
+                }
+            }
+        }
+        Vector2f obsCenter = new Vector2f(clusterX / clusterWeight, clusterY / clusterWeight);
+        float extraClusterSpan = distance(obsCenter, blockingCenter);
+        float skirtRadius = Math.min(2850f, blockingRadius + extraClusterSpan * 0.65f + 240f);
+
+        // Two candidate normals perpendicular to A -> B: +1 (Port / Left of chord) and -1 (Starboard / Right of chord)
+        float normX = -dirY;
+        float normY = dirX;
+
+        float bestSide = (preferredSideHint != 0f) ? Math.signum(preferredSideHint) : 1f;
+        float bestSideScore = -Float.MAX_VALUE;
+
+        for (int sIdx = 0; sIdx < 2; sIdx++) {
+            float candidateSide = (sIdx == 0) ? 1f : -1f;
+            float candX = obsCenter.x + normX * candidateSide * skirtRadius;
+            float candY = obsCenter.y + normY * candidateSide * skirtRadius;
+            Vector2f candApex = new Vector2f(candX, candY);
+
+            float score = 0f;
+            // 1. Prefer swinging around the OUTSIDE of the enemy fleet centroid rather than between enemy divisions
+            if (enemyGroup.totalFriendlyStrength > 0f) {
+                score += distance(candApex, enemyGroup.fleetCentroid) * 0.42f;
+            }
+            // 2. Penalize candidate apex if other visible enemy divisions sit near that side
+            for (DivisionState otherE : enemyGroup.divisions) {
+                if (otherE == null || otherE == blockingDiv || !otherE.isCombatEffective()) continue;
+                if (!OtcAI.isDivisionVisibleToSide(engine, side, otherE)) continue;
+                Vector2f oPos = OtcAI.getVisibleCentroidForSide(engine, side, otherE);
+                float dToCand = distance(candApex, oPos);
+                if (dToCand < 1900f) {
+                    score -= (1900f - dToCand) * 0.65f;
+                }
+            }
+            // 3. Shorter tangent geometry from startPos around obsCenter
+            float crossStart = (startPos.x - obsCenter.x) * normX * candidateSide
+                    + (startPos.y - obsCenter.y) * normY * candidateSide;
+            score += crossStart * 0.35f;
+
+            // 4. Hysteresis / OTC flank-side stickiness so units don't flip-flop mid-flank
+            if (preferredSideHint != 0f && Math.signum(preferredSideHint) == candidateSide) {
+                score += 620f;
+            }
+
+            // 5. Penalize proximity to combat map borders
+            if (engine != null) {
+                float halfW = engine.getMapWidth() * 0.5f - 900f;
+                float halfH = engine.getMapHeight() * 0.5f - 900f;
+                if (Math.abs(candX) > halfW) {
+                    score -= (Math.abs(candX) - halfW) * 1.2f;
+                }
+                if (Math.abs(candY) > halfH) {
+                    score -= (Math.abs(candY) - halfH) * 1.2f;
+                }
+            }
+
+            if (score > bestSideScore) {
+                bestSideScore = score;
+                bestSide = candidateSide;
+            }
+        }
+
+        if (outChosenSide != null && outChosenSide.length > 0) {
+            outChosenSide[0] = bestSide;
+        }
+
+        // Place waypoint W along the outer perimeter of obsCenter, stepped ~52 degrees ahead along the chosen side arc
+        float rx = startPos.x - obsCenter.x;
+        float ry = startPos.y - obsCenter.y;
+        float rLen = (float) Math.sqrt(rx * rx + ry * ry);
+        float ux;
+        float uy;
+        if (rLen > 1f) {
+            ux = rx / rLen;
+            uy = ry / rLen;
+        } else {
+            ux = normX * bestSide;
+            uy = normY * bestSide;
+        }
+
+        // Tangent vector perpendicular to u that advances toward goalPos around the chosen side
+        float t1x = -uy;
+        float t1y = ux;
+        float t2x = uy;
+        float t2y = -ux;
+        // Pick the tangent whose projection along (dir + 0.5 * chosenNormal) is positive
+        float guideX = dirX + normX * bestSide * 0.65f;
+        float guideY = dirY + normY * bestSide * 0.65f;
+        float tx;
+        float ty;
+        if (t1x * guideX + t1y * guideY >= t2x * guideX + t2y * guideY) {
+            tx = t1x;
+            ty = t1y;
+        } else {
+            tx = t2x;
+            ty = t2y;
+        }
+
+        // 52-degree angular step around the perimeter (cos 52° ≈ 0.616, sin 52° ≈ 0.788)
+        float stepDirX = 0.616f * ux + 0.788f * tx;
+        float stepDirY = 0.616f * uy + 0.788f * ty;
+        float stepLen = (float) Math.sqrt(stepDirX * stepDirX + stepDirY * stepDirY);
+        if (stepLen > 1e-4f) {
+            stepDirX /= stepLen;
+            stepDirY /= stepLen;
+        }
+
+        Vector2f waypoint = new Vector2f(
+                obsCenter.x + stepDirX * skirtRadius,
+                obsCenter.y + stepDirY * skirtRadius);
+        clampToMapBounds(engine, waypoint, 650f);
+        return waypoint;
+    }
+
+    private static boolean isShipNearVisibleEnemy(
+            CombatEngineAPI engine,
+            int side,
+            Vector2f pos,
+            BattleGroupState enemyGroup,
+            float radius) {
+        if (pos == null || enemyGroup == null) return false;
+        float rSq = radius * radius;
+        for (DivisionState eDiv : enemyGroup.divisions) {
+            if (eDiv == null || !eDiv.isCombatEffective()) continue;
+            for (ShipAPI e : eDiv.getAliveMembers()) {
+                if (!OtcAI.isShipVisibleToSide(engine, side, e)) continue;
+                float dx = pos.x - e.getLocation().x;
+                float dy = pos.y - e.getLocation().y;
+                if ((dx * dx + dy * dy) <= rSq) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static void clampToMapBounds(CombatEngineAPI engine, Vector2f pt, float margin) {
+        if (engine == null || pt == null) return;
+        float maxW = Math.max(2000f, engine.getMapWidth() * 0.5f - margin);
+        float maxH = Math.max(2000f, engine.getMapHeight() * 0.5f - margin);
+        if (pt.x > maxW) pt.x = maxW;
+        if (pt.x < -maxW) pt.x = -maxW;
+        if (pt.y > maxH) pt.y = maxH;
+        if (pt.y < -maxH) pt.y = -maxH;
     }
 
     private static float distance(Vector2f a, Vector2f b) {

@@ -43,12 +43,22 @@ public class OtcAI {
 
         for (DivisionState div : battleGroup.divisions) {
             List<ShipAPI> alive = div.getAliveMembers();
+            div.detachedStragglerIds.clear();
             if (alive.isEmpty()) {
+                div.coreMemberCount = 0;
+                div.coreFpRatio = 1f;
                 div.localFriendlyStrength = 0f;
                 div.localEnemyStrength = 0f;
                 div.localForceRatio = 1f;
                 continue;
             }
+
+            div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(
+                    div.archetype,
+                    alive.size(),
+                    div.stationSpacing,
+                    div.stationKeepingMult,
+                    div.commander.stationKeepingStrictness);
 
             float sumX = 0f;
             float sumY = 0f;
@@ -62,8 +72,11 @@ public class OtcAI {
             boolean needsHelp = false;
             ShipAPI helpShip = null;
 
-            for (ShipAPI s : alive) {
+            float[] weights = new float[alive.size()];
+            for (int i = 0; i < alive.size(); i++) {
+                ShipAPI s = alive.get(i);
                 float w = ShipCapabilityProfile.resolveShipFpStrength(s);
+                weights[i] = w;
                 sumX += s.getLocation().x * w;
                 sumY += s.getLocation().y * w;
                 sumVx += s.getVelocity().x * w;
@@ -87,8 +100,144 @@ public class OtcAI {
                 strikeAmmo += countUsableStrikeAmmo(s);
             }
 
-            div.centroid.set(sumX / weightSum, sumY / weightSum);
-            div.velocity.set(sumVx / weightSum, sumVy / weightSum);
+            float rawCenterX = sumX / Math.max(1f, weightSum);
+            float rawCenterY = sumY / Math.max(1f, weightSum);
+            float rawDistSqSum = 0f;
+            for (ShipAPI s : alive) {
+                float dx = s.getLocation().x - rawCenterX;
+                float dy = s.getLocation().y - rawCenterY;
+                rawDistSqSum += (dx * dx + dy * dy);
+            }
+            div.rawAllMemberSpreadRadius = (float) Math.sqrt(rawDistSqSum / alive.size());
+
+            // Identify Core Cluster vs. Detached Stragglers so 1-2 cut-off ships on the other side of the
+            // enemy battle line never drag div.centroid into the enemy line or freeze a formed core in CLOSE_UP.
+            float coreSumX = sumX;
+            float coreSumY = sumY;
+            float coreSumVx = sumVx;
+            float coreSumVy = sumVy;
+            float coreWeightSum = weightSum;
+            int coreCount = alive.size();
+
+            if (alive.size() >= 2) {
+                float neighborRadius = Math.max(820f, div.stationKeepingRadius * 1.45f);
+                float neighborRadiusSq = neighborRadius * neighborRadius;
+
+                int anchorIdx = 0;
+                float bestClusterScore = -1f;
+                for (int i = 0; i < alive.size(); i++) {
+                    ShipAPI si = alive.get(i);
+                    float score = weights[i] * (si == div.flagship ? 1.30f : 1.0f);
+                    for (int j = 0; j < alive.size(); j++) {
+                        if (i == j) continue;
+                        ShipAPI sj = alive.get(j);
+                        float dx = si.getLocation().x - sj.getLocation().x;
+                        float dy = si.getLocation().y - sj.getLocation().y;
+                        if ((dx * dx + dy * dy) <= neighborRadiusSq) {
+                            score += weights[j];
+                        }
+                    }
+                    if (score > bestClusterScore) {
+                        bestClusterScore = score;
+                        anchorIdx = i;
+                    }
+                }
+
+                // Single-linkage expansion from anchorIdx within neighborRadius (captures cohesive line-abreast formations)
+                boolean[] inCore = new boolean[alive.size()];
+                inCore[anchorIdx] = true;
+                boolean addedAny = true;
+                while (addedAny) {
+                    addedAny = false;
+                    for (int i = 0; i < alive.size(); i++) {
+                        if (inCore[i]) continue;
+                        ShipAPI si = alive.get(i);
+                        for (int j = 0; j < alive.size(); j++) {
+                            if (!inCore[j]) continue;
+                            ShipAPI sj = alive.get(j);
+                            float dx = si.getLocation().x - sj.getLocation().x;
+                            float dy = si.getLocation().y - sj.getLocation().y;
+                            if ((dx * dx + dy * dy) <= neighborRadiusSq) {
+                                inCore[i] = true;
+                                addedAny = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Also include any ship within outlierCutoff of the preliminary core centroid
+                float prelimX = 0f;
+                float prelimY = 0f;
+                float prelimW = 0f;
+                for (int i = 0; i < alive.size(); i++) {
+                    if (inCore[i]) {
+                        prelimX += alive.get(i).getLocation().x * weights[i];
+                        prelimY += alive.get(i).getLocation().y * weights[i];
+                        prelimW += weights[i];
+                    }
+                }
+                if (prelimW > 0f) {
+                    prelimX /= prelimW;
+                    prelimY /= prelimW;
+                    float outlierCutoff = Math.max(1050f, div.stationKeepingRadius * 1.68f);
+                    float outlierCutoffSq = outlierCutoff * outlierCutoff;
+                    for (int i = 0; i < alive.size(); i++) {
+                        if (!inCore[i]) {
+                            float dx = alive.get(i).getLocation().x - prelimX;
+                            float dy = alive.get(i).getLocation().y - prelimY;
+                            if ((dx * dx + dy * dy) <= outlierCutoffSq) {
+                                inCore[i] = true;
+                            }
+                        }
+                    }
+                }
+
+                int candidateCoreCount = 0;
+                float candidateCoreWeight = 0f;
+                for (int i = 0; i < alive.size(); i++) {
+                    if (inCore[i]) {
+                        candidateCoreCount++;
+                        candidateCoreWeight += weights[i];
+                    }
+                }
+
+                boolean validMultiShipCore = alive.size() >= 3
+                        && candidateCoreCount >= 2
+                        && candidateCoreCount < alive.size()
+                        && (candidateCoreWeight >= weightSum * 0.50f || candidateCoreCount * 2 >= alive.size());
+                boolean validTwoShipSplit = alive.size() == 2
+                        && candidateCoreCount == 1
+                        && div.rawAllMemberSpreadRadius > Math.max(950f, div.stationKeepingRadius * 1.35f);
+
+                if (validMultiShipCore || validTwoShipSplit) {
+                    coreSumX = 0f;
+                    coreSumY = 0f;
+                    coreSumVx = 0f;
+                    coreSumVy = 0f;
+                    coreWeightSum = 0f;
+                    coreCount = 0;
+                    for (int i = 0; i < alive.size(); i++) {
+                        ShipAPI s = alive.get(i);
+                        if (inCore[i]) {
+                            float w = weights[i];
+                            coreSumX += s.getLocation().x * w;
+                            coreSumY += s.getLocation().y * w;
+                            coreSumVx += s.getVelocity().x * w;
+                            coreSumVy += s.getVelocity().y * w;
+                            coreWeightSum += w;
+                            coreCount++;
+                        } else {
+                            div.detachedStragglerIds.add(s.getId());
+                        }
+                    }
+                }
+            }
+
+            div.coreMemberCount = coreCount;
+            div.coreFpRatio = coreWeightSum / Math.max(1f, weightSum);
+            div.centroid.set(coreSumX / Math.max(1f, coreWeightSum), coreSumY / Math.max(1f, coreWeightSum));
+            div.velocity.set(coreSumVx / Math.max(1f, coreWeightSum), coreSumVy / Math.max(1f, coreWeightSum));
             div.avgFluxLevel = fluxSum / alive.size();
             div.maxMemberFluxLevel = maxFlux;
             div.avgHullLevel = hullSum / alive.size();
@@ -97,20 +246,19 @@ public class OtcAI {
             div.usableStrikeAmmoCount = strikeAmmo;
             div.totalFpStrength = weightSum;
 
-            // Compute RMS spread radius around division centroid and refresh stationKeepingRadius for current alive count
-            div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(
-                    div.archetype,
-                    alive.size(),
-                    div.stationSpacing,
-                    div.stationKeepingMult,
-                    div.commander.stationKeepingStrictness);
-            float distSqSum = 0f;
+            // Compute RMS spread radius around the Core Cluster (excluding detached stragglers)
+            float coreDistSqSum = 0f;
+            int spreadSamples = 0;
             for (ShipAPI s : alive) {
+                if (div.detachedStragglerIds.contains(s.getId())) continue;
                 float dx = s.getLocation().x - div.centroid.x;
                 float dy = s.getLocation().y - div.centroid.y;
-                distSqSum += (dx * dx + dy * dy);
+                coreDistSqSum += (dx * dx + dy * dy);
+                spreadSamples++;
             }
-            div.spreadRadius = (float) Math.sqrt(distSqSum / alive.size());
+            div.spreadRadius = (spreadSamples > 0)
+                    ? (float) Math.sqrt(coreDistSqSum / spreadSamples)
+                    : div.rawAllMemberSpreadRadius;
             div.stationKeepingRatio = div.spreadRadius / Math.max(300f, div.stationKeepingRadius);
 
             // Spatial-grid local overmatch scan around division centroid (never O(N^2))

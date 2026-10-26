@@ -298,6 +298,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float worldRadius = getMemberFootprintRadiusWorld(member);
                 float radiusPx = clamp(worldRadius * scale, 14f, 52f);
                 boolean isAlliedAi = !isEnemy && member.isAlly();
+                boolean isMemberStraggler = !isEnemy && div.detachedStragglerIds.contains(member.getId());
 
                 float cr;
                 float cg;
@@ -310,7 +311,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     cr = 1.00f;
                     cg = 0.86f;
                     cb = 0.16f;
-                } else if (scatteredCohesion) {
+                } else if (scatteredCohesion || isMemberStraggler) {
                     cr = 1.00f;
                     cg = 0.64f;
                     cb = 0.18f;
@@ -503,19 +504,85 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         float startOffset = 16f;
         float endOffset = targetIsEnemy ? 14f : 6f;
-        float shaftLen = distPx - startOffset - endOffset;
-        if (shaftLen > 8f) {
-            GL11.glLineWidth(2.15f);
-            int dashes = Math.max(3, Math.min(18, (int) (shaftLen / 14f)));
-            float step = shaftLen / dashes;
-            GL11.glBegin(GL11.GL_LINES);
-            for (int i = 0; i < dashes; i++) {
-                float s0 = startOffset + i * step;
-                float s1 = startOffset + (i + 0.65f) * step;
-                GL11.glVertex2f(fx + ux * s0, fy + uy * s0);
-                GL11.glVertex2f(fx + ux * s1, fy + uy * s1);
+
+        boolean drawWideArcDogleg = !targetIsEnemy
+                && div.hasRouteWaypoint
+                && div.routeWaypoint != null
+                && (div.routeWaypoint.x != 0f || div.routeWaypoint.y != 0f);
+
+        if (drawWideArcDogleg) {
+            float wx = div.routeWaypoint.x * scale + offsetX;
+            float wy = div.routeWaypoint.y * scale + offsetY;
+            float leg1Dx = wx - fx;
+            float leg1Dy = wy - fy;
+            float leg1Len = (float) Math.sqrt(leg1Dx * leg1Dx + leg1Dy * leg1Dy);
+            float leg2Dx = tx - wx;
+            float leg2Dy = ty - wy;
+            float leg2Len = (float) Math.sqrt(leg2Dx * leg2Dx + leg2Dy * leg2Dy);
+
+            if (leg1Len > 18f && leg2Len > 14f) {
+                float u1x = leg1Dx / leg1Len;
+                float u1y = leg1Dy / leg1Len;
+                float u2x = leg2Dx / leg2Len;
+                float u2y = leg2Dy / leg2Len;
+
+                GL11.glLineWidth(2.15f);
+                // Leg 1: flagship -> out-of-contact routeWaypoint
+                float s1Len = leg1Len - startOffset;
+                int d1 = Math.max(2, Math.min(14, (int) (s1Len / 14f)));
+                float step1 = s1Len / d1;
+                GL11.glBegin(GL11.GL_LINES);
+                for (int i = 0; i < d1; i++) {
+                    float s0 = startOffset + i * step1;
+                    float s1 = startOffset + (i + 0.65f) * step1;
+                    GL11.glVertex2f(fx + u1x * s0, fy + u1y * s0);
+                    GL11.glVertex2f(fx + u1x * s1, fy + u1y * s1);
+                }
+                // Leg 2: routeWaypoint -> final stationPoint
+                float s2Len = Math.max(0f, leg2Len - endOffset);
+                int d2 = Math.max(2, Math.min(14, (int) (s2Len / 14f)));
+                float step2 = s2Len / d2;
+                for (int i = 0; i < d2; i++) {
+                    float s0 = i * step2;
+                    float s1 = (i + 0.65f) * step2;
+                    GL11.glVertex2f(wx + u2x * s0, wy + u2y * s0);
+                    GL11.glVertex2f(wx + u2x * s1, wy + u2y * s1);
+                }
+                GL11.glEnd();
+
+                // Small waypoint diamond at routeWaypoint
+                float wr = 4.5f;
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(wx, wy + wr);
+                GL11.glVertex2f(wx + wr, wy);
+                GL11.glVertex2f(wx, wy - wr);
+                GL11.glVertex2f(wx - wr, wy);
+                GL11.glEnd();
+
+                ux = u2x;
+                uy = u2y;
+                px = -uy;
+                py = ux;
+            } else {
+                drawWideArcDogleg = false;
             }
-            GL11.glEnd();
+        }
+
+        if (!drawWideArcDogleg) {
+            float shaftLen = distPx - startOffset - endOffset;
+            if (shaftLen > 8f) {
+                GL11.glLineWidth(2.15f);
+                int dashes = Math.max(3, Math.min(18, (int) (shaftLen / 14f)));
+                float step = shaftLen / dashes;
+                GL11.glBegin(GL11.GL_LINES);
+                for (int i = 0; i < dashes; i++) {
+                    float s0 = startOffset + i * step;
+                    float s1 = startOffset + (i + 0.65f) * step;
+                    GL11.glVertex2f(fx + ux * s0, fy + uy * s0);
+                    GL11.glVertex2f(fx + ux * s1, fy + uy * s1);
+                }
+                GL11.glEnd();
+            }
         }
 
         GL11.glLineWidth(2.4f);

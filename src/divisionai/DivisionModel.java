@@ -342,8 +342,12 @@ public class DivisionModel {
         public final Vector2f centroid = new Vector2f();
         public final Vector2f velocity = new Vector2f();
         public float spreadRadius;
+        public float rawAllMemberSpreadRadius;
         public float stationKeepingRadius;
-        public float stationKeepingRatio; // spreadRadius / stationKeepingRadius
+        public float stationKeepingRatio; // spreadRadius / stationKeepingRadius (measured on the core cluster)
+        public final Set<String> detachedStragglerIds = new HashSet<>();
+        public int coreMemberCount;
+        public float coreFpRatio = 1.0f;
         public float avgFluxLevel;
         public float maxMemberFluxLevel;
         public float avgHullLevel;
@@ -354,12 +358,16 @@ public class DivisionModel {
         public ShipAPI shipNeedingHelp;
         public int usableStrikeAmmoCount;
 
-        // Current C2 orders and intent
+        // Current C2 orders, station endpoint, and out-of-contact wide-arc route waypoint
         public DivisionIntentType currentIntent = DivisionIntentType.CLOSE_UP;
         public DivisionState targetEnemyDivision;
         public DivisionState targetFriendlyDivision;
         public BattleObjectiveAPI targetObjective;
         public final Vector2f stationPoint = new Vector2f();
+        public final Vector2f routeWaypoint = new Vector2f();
+        public boolean hasRouteWaypoint = false;
+        public float routeSkirtSide = 0f;
+        public final Map<String, Float> stragglerSkirtSideByShipId = new HashMap<>();
 
         public AssignmentTargetAPI activeWaypoint;
         public AssignmentInfo activeAssignment;
