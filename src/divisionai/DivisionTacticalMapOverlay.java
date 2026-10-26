@@ -69,7 +69,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final boolean isEnemy;
         final boolean isAlliedAi;
         final List<ShipAPI> hullMembers;
-        final List<ShipAPI> stragglerMembers;
         final List<Vector2f> polyScreen; // CCW smooth convex polygon in screen pixels
         final Vector2f centerScreen;     // Division entity center in screen pixels
         final float minX;
@@ -79,7 +78,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final float cr;
         final float cg;
         final float cb;
-        final float cohesionAlphaMult;   // 1.0 = tight cohesion, ~0.08 = very poor cohesion
+        final float cohesionAlphaMult;   // 1.0 = tight cohesion, ~0.05 = very poor cohesion
 
         RenderedDivisionPolygon(
                 DivisionState div,
@@ -87,7 +86,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 boolean isEnemy,
                 boolean isAlliedAi,
                 List<ShipAPI> hullMembers,
-                List<ShipAPI> stragglerMembers,
                 List<Vector2f> polyScreen,
                 Vector2f centerScreen,
                 float cr,
@@ -99,7 +97,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             this.isEnemy = isEnemy;
             this.isAlliedAi = isAlliedAi;
             this.hullMembers = hullMembers;
-            this.stragglerMembers = stragglerMembers;
             this.polyScreen = polyScreen;
             this.centerScreen = centerScreen;
             this.cr = cr;
@@ -129,6 +126,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private BattleGroupState alliedAiGroup;
     private BattleGroupState enemyGroup;
     private final Map<String, LabelAPI> labelCache = new HashMap<>();
+    private final Map<String, Float> smoothedCohesionByDivId = new HashMap<>();
+    private final Map<String, Vector2f> smoothedBracketDirByDivId = new HashMap<>();
 
     private boolean attachedToWarroom = false;
     private boolean loggedHookFailure = false;
@@ -136,6 +135,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private Object mapDisplayInstance = null;
     private MethodHandle isShowingVideoFeedHandle = null;
     private MethodHandle worldToMapScreenHandle = null;
+    private MethodHandle mapGetIconHandle = null;
+    private MethodHandle iconRenderSpriteHandle = null;
+    private MethodHandle iconRenderBarsHandle = null;
 
     public DivisionTacticalMapOverlay(CombatEngineAPI engine) {
         this.engine = engine;
@@ -164,6 +166,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             ClassLoader cl = ui.getClass().getClassLoader();
             Class<?> wrClass = Class.forName("com.fs.starfarer.combat.new.OoOO", false, cl);
             Class<?> mdClass = Class.forName("com.fs.starfarer.combat.new.b", false, cl);
+            Class<?> iconClass = Class.forName("com.fs.starfarer.combat.new.OOoO", false, cl);
 
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             MethodHandle getWarroomHandle = lookup.findVirtual(
@@ -195,6 +198,18 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     mdClass,
                     "o00000",
                     MethodType.methodType(Vector2f.class, Vector2f.class));
+            this.mapGetIconHandle = lookup.findVirtual(
+                    mdClass,
+                    "o00000",
+                    MethodType.methodType(iconClass, Object.class));
+            this.iconRenderSpriteHandle = lookup.findVirtual(
+                    iconClass,
+                    "\u00d300000",
+                    MethodType.methodType(void.class, boolean.class, float.class, float.class));
+            this.iconRenderBarsHandle = lookup.findVirtual(
+                    iconClass,
+                    "\u00d200000",
+                    MethodType.methodType(void.class, boolean.class, float.class, float.class));
 
             UIPanelAPI warroomPanel = (UIPanelAPI) wr;
             CustomPanelAPI custom = Global.getSettings().createCustom(0f, 0f, this);
@@ -279,9 +294,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glEnable(GL11.GL_LINE_SMOOTH);
 
-        // 1. Render fluid division polygons with variable cohesion translucency
+        // 1. Render unbroken fluid division polygons with mild shading & variable cohesion translucency
         for (RenderedDivisionPolygon rp : renderedPolys) {
-            renderSingleDivisionPolygon(rp, basePolyAlpha, scale, offsetX, offsetY);
+            renderSingleDivisionPolygon(rp, basePolyAlpha);
         }
 
         // 2. Render thickly striped overlap zones wherever two division polygons intersect
@@ -299,7 +314,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glPopMatrix();
         GL11.glPopAttrib();
 
-        // 4. Render division labels anchored to the division entity itself
+        // 4. Re-render Warroom Ship Sprites & Status Bars on the TOP LAYER above division polygons
+        renderShipSpritesOnTopLayer(renderedPolys, scale, offsetX, offsetY, fade);
+
+        // 5. Render division labels anchored to the division entity itself
         for (RenderedDivisionPolygon rp : renderedPolys) {
             renderDivisionEntityLabel(rp, fade);
         }
@@ -318,29 +336,20 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             List<ShipAPI> alive = div.getAliveMembers();
             if (alive.isEmpty()) continue;
 
-            List<ShipAPI> hullMembers = new ArrayList<>(alive.size());
-            List<ShipAPI> stragglerMembers = new ArrayList<>();
-
+            // Requirement 1: Never break or split the division polygon under any circumstances.
+            // All alive division members (or all visible alive members for enemy divisions) are
+            // always included in a single unbroken polygon; low cohesion makes the polygon transparent.
+            List<ShipAPI> hullMembers;
             if (!isEnemy) {
-                for (ShipAPI s : alive) {
-                    if (div.detachedStragglerIds.contains(s.getId())) {
-                        stragglerMembers.add(s);
-                    } else {
-                        hullMembers.add(s);
-                    }
-                }
-                if (hullMembers.isEmpty()) {
-                    hullMembers.addAll(alive);
-                    stragglerMembers.clear();
-                }
+                hullMembers = alive;
             } else {
                 ShipAPI flag = resolveActiveFlagship(div, alive);
                 if (flag == null || !isEnemyShipVisibleOnCommandMap(flag, playerFog)) {
                     continue;
                 }
+                hullMembers = new ArrayList<>(alive.size());
                 for (ShipAPI s : alive) {
-                    if (isEnemyShipVisibleOnCommandMap(s, playerFog)
-                            && distance(flag.getLocation(), s.getLocation()) <= ENEMY_OPSEC_MAX_LINE_DIST) {
+                    if (isEnemyShipVisibleOnCommandMap(s, playerFog)) {
                         hullMembers.add(s);
                     }
                 }
@@ -349,16 +358,21 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
             boolean isAlliedAi = !isEnemy && (battleGroup.isAlliedAi || hullMembers.get(0).isAlly());
 
-            // Cohesion-driven variable translucency:
-            // Measure overall dispersion (including rawAllMemberSpreadRadius so stragglers or wide scatter
-            // reduce polygon opacity). At ratio <= 0.85 -> 1.0x opacity; at ratio >= 2.15 -> 0.08x (nearly transparent).
-            float overallSpread = Math.max(div.spreadRadius, div.rawAllMemberSpreadRadius);
-            float overallRatio = overallSpread / Math.max(300f, div.stationKeepingRadius);
-            float scatterPenalty = clamp((overallRatio - 0.85f) / 1.30f, 0f, 1f);
-            float cohesionAlphaMult = 1.0f - scatterPenalty * 0.92f;
+            // Compute live continuous RMS dispersion directly from current ship positions so opacity
+            // never steps or jitters on 0.5s telemetry ticks, and smooth it across frames.
+            float liveRmsSpread = computeInstantaneousRmsSpreadWorld(hullMembers);
+            float overallRatio = liveRmsSpread / Math.max(300f, div.stationKeepingRadius);
+            float scatterPenalty = clamp((overallRatio - 0.85f) / 1.25f, 0f, 1f);
+            float targetCohesionAlpha = 1.0f - scatterPenalty * 0.94f;
             if (!isEnemy && div.currentIntent == DivisionIntentType.CLOSE_UP) {
-                cohesionAlphaMult = Math.min(cohesionAlphaMult, 0.22f);
+                targetCohesionAlpha = Math.min(targetCohesionAlpha, 0.16f);
             }
+
+            Float prevCoh = smoothedCohesionByDivId.get(div.id);
+            float cohesionAlphaMult = (prevCoh == null)
+                    ? targetCohesionAlpha
+                    : (prevCoh * 0.84f + targetCohesionAlpha * 0.16f);
+            smoothedCohesionByDivId.put(div.id, cohesionAlphaMult);
 
             float cr;
             float cg;
@@ -387,7 +401,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     isEnemy,
                     isAlliedAi,
                     hullMembers,
-                    stragglerMembers,
                     polyScreen,
                     centerScreen,
                     cr,
@@ -395,6 +408,26 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     cb,
                     cohesionAlphaMult));
         }
+    }
+
+    private static float computeInstantaneousRmsSpreadWorld(List<ShipAPI> members) {
+        int n = members.size();
+        if (n <= 1) return 0f;
+        float cx = 0f;
+        float cy = 0f;
+        for (ShipAPI s : members) {
+            cx += s.getLocation().x;
+            cy += s.getLocation().y;
+        }
+        cx /= n;
+        cy /= n;
+        float sumSq = 0f;
+        for (ShipAPI s : members) {
+            float dx = s.getLocation().x - cx;
+            float dy = s.getLocation().y - cy;
+            sumSq += (dx * dx + dy * dy);
+        }
+        return (float) Math.sqrt(sumSq / n);
     }
 
     /**
@@ -434,20 +467,18 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
     private void renderSingleDivisionPolygon(
             RenderedDivisionPolygon rp,
-            float basePolyAlpha,
-            float scale,
-            float offsetX,
-            float offsetY) {
+            float basePolyAlpha) {
 
         List<Vector2f> poly = rp.polyScreen;
         if (poly.size() < 3) return;
 
+        // Mild shading so ship sprites and map grid remain clear underneath and on top
         float effectiveAlpha = basePolyAlpha * rp.cohesionAlphaMult;
-        float centerAlpha = Math.min(0.46f, effectiveAlpha * 1.25f);
-        float edgeAlpha = Math.min(0.36f, effectiveAlpha * 0.82f);
-        float borderAlpha = Math.min(0.75f, effectiveAlpha * 2.10f);
+        float centerAlpha = Math.min(0.18f, effectiveAlpha * 0.72f);
+        float edgeAlpha = Math.min(0.13f, effectiveAlpha * 0.50f);
+        float borderAlpha = Math.min(0.62f, effectiveAlpha * 1.65f);
 
-        // 1. Fluid translucent polygon fill
+        // 1. Mildly shaded fluid translucent polygon fill
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
         GL11.glColor4f(rp.cr, rp.cg, rp.cb, centerAlpha);
         GL11.glVertex2f(rp.centerScreen.x, rp.centerScreen.y);
@@ -460,8 +491,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glVertex2f(first.x, first.y);
         GL11.glEnd();
 
-        // 2. Soft fluid perimeter contour (fades with cohesionAlphaMult)
-        GL11.glLineWidth(rp.isEnemy ? 1.5f : 1.9f);
+        // 2. Soft fluid perimeter contour (fades smoothly to transparent when cohesion is low)
+        GL11.glLineWidth(rp.isEnemy ? 1.4f : 1.8f);
         GL11.glColor4f(
                 Math.min(1f, rp.cr + 0.15f),
                 Math.min(1f, rp.cg + 0.15f),
@@ -472,25 +503,54 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             GL11.glVertex2f(v.x, v.y);
         }
         GL11.glEnd();
+    }
 
-        // 3. If a friendly division has detached stragglers, draw a subtle amber marker and dashed tether to the division
-        if (!rp.isEnemy && !rp.stragglerMembers.isEmpty()) {
-            for (ShipAPI stray : rp.stragglerMembers) {
-                float sx = stray.getLocation().x * scale + offsetX;
-                float sy = stray.getLocation().y * scale + offsetY;
-                float sr = clamp(getMemberFootprintRadiusWorld(stray) * scale * 0.65f, 10f, 28f);
+    /**
+     * Re-renders the Command Window warroom ship icons (sprites, facing arrows, selection rings,
+     * and HP/CR bars) on the TOP LAYER above the division polygons so every ship is immediately
+     * identifiable for rapid order issuing.
+     */
+    private void renderShipSpritesOnTopLayer(
+            List<RenderedDivisionPolygon> renderedPolys,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade) {
+        if (mapDisplayInstance == null
+                || mapGetIconHandle == null
+                || iconRenderSpriteHandle == null
+                || iconRenderBarsHandle == null
+                || renderedPolys.isEmpty()) {
+            return;
+        }
 
-                GL11.glLineWidth(1.5f);
-                GL11.glColor4f(1.00f, 0.68f, 0.22f, Math.min(0.65f, basePolyAlpha * 2.2f));
-                GL11.glBegin(GL11.GL_LINE_LOOP);
-                for (int i = 0; i < 12; i++) {
-                    double ang = (2.0 * Math.PI * i) / 12;
-                    GL11.glVertex2f(sx + (float) Math.cos(ang) * sr, sy + (float) Math.sin(ang) * sr);
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glPushMatrix();
+        GL11.glTranslatef((float) ((int) offsetX), (float) ((int) offsetY), 0.0f);
+
+        try {
+            for (RenderedDivisionPolygon rp : renderedPolys) {
+                for (ShipAPI ship : rp.hullMembers) {
+                    if (ship == null || !ship.isAlive()) continue;
+                    Object icon = mapGetIconHandle.invoke(mapDisplayInstance, (Object) ship);
+                    if (icon != null) {
+                        iconRenderSpriteHandle.invoke(icon, false, scale, fade);
+                    }
                 }
-                GL11.glEnd();
-
-                drawDashedSegment(sx, sy, rp.centerScreen.x, rp.centerScreen.y, sr + 4f, 8f, 12f);
             }
+            for (RenderedDivisionPolygon rp : renderedPolys) {
+                for (ShipAPI ship : rp.hullMembers) {
+                    if (ship == null || !ship.isAlive()) continue;
+                    Object icon = mapGetIconHandle.invoke(mapDisplayInstance, (Object) ship);
+                    if (icon != null) {
+                        iconRenderBarsHandle.invoke(icon, false, scale, fade);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            GL11.glPopMatrix();
+            GL11.glPopAttrib();
         }
     }
 
@@ -527,9 +587,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     if (u > maxU) maxU = u;
                 }
 
-                float pairCohesion = Math.max(0.22f, Math.min(a.cohesionAlphaMult, b.cohesionAlphaMult));
-                float stripeAlphaA = Math.min(0.62f, Math.max(0.22f, basePolyAlpha * 2.15f * pairCohesion));
-                float stripeAlphaB = Math.min(0.58f, Math.max(0.20f, basePolyAlpha * 1.95f * pairCohesion));
+                float pairCohesion = Math.max(0.12f, Math.min(a.cohesionAlphaMult, b.cohesionAlphaMult));
+                float stripeAlphaA = Math.min(0.28f, Math.max(0.08f, basePolyAlpha * 1.15f * pairCohesion));
+                float stripeAlphaB = Math.min(0.24f, Math.max(0.06f, basePolyAlpha * 0.95f * pairCohesion));
 
                 // When two same-side divisions overlap, alternate between bright primary and a distinct dark/contrasting band
                 boolean sameColorFamily = (a.isEnemy == b.isEnemy) && (a.isAlliedAi == b.isAlliedAi);
@@ -585,9 +645,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     /**
-     * Renders the orientation bracket at the LEADING EDGE of the division polygon toward what the
-     * division considers its main objective or survival goal, wide enough to encompass the division's
-     * effective frontage, and draws the tactical intent vector from that leading-edge bracket.
+     * Requirement 2: Renders the orientation bracket at the LEADING EDGE of the division polygon
+     * oriented by the average of where the division's hulls are pointed (blended with the vector
+     * toward their enemy or objective), spanning the division's effective frontage.
      */
     private void renderDivisionLeadingEdgeBracketAndIntent(
             RenderedDivisionPolygon rp,
@@ -603,42 +663,77 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float cx = rp.centerScreen.x;
         float cy = rp.centerScreen.y;
 
-        // 1. Resolve the division's final objective/survival goal (destWorld) and immediate heading goal (headingWorld)
+        // 1. Compute the average direction where the division's hulls are pointed
+        float sumCos = 0f;
+        float sumSin = 0f;
+        for (ShipAPI s : rp.hullMembers) {
+            if (s == null || !s.isAlive()) continue;
+            float w = getMemberFootprintRadiusWorld(s);
+            double rad = Math.toRadians(s.getFacing());
+            sumCos += (float) Math.cos(rad) * w;
+            sumSin += (float) Math.sin(rad) * w;
+        }
+        float hullLen = (float) Math.sqrt(sumCos * sumCos + sumSin * sumSin);
+        float hullDirX = (hullLen > 1e-4f) ? (sumCos / hullLen) : 0f;
+        float hullDirY = (hullLen > 1e-4f) ? (sumSin / hullLen) : 1f;
+
+        // 2. Resolve the division's enemy or objective goal in world space
         Vector2f destWorld = resolveDivisionFinalGoalWorld(div, intent, playerFog);
         boolean targetIsEnemy = isDirectEnemyTargetIntent(div, intent, playerFog);
 
         Vector2f headingWorld = destWorld;
-        if (!targetIsEnemy && div.hasRouteWaypoint && div.routeWaypoint != null
+        if (div.targetEnemyDivision != null && isDivisionVisibleOnCommandMap(div.targetEnemyDivision, playerFog)) {
+            headingWorld = OtcAI.getVisibleCentroidForSide(engine, 0, div.targetEnemyDivision);
+        } else if (!targetIsEnemy && div.hasRouteWaypoint && div.routeWaypoint != null
                 && (div.routeWaypoint.x != 0f || div.routeWaypoint.y != 0f)) {
             headingWorld = div.routeWaypoint;
         }
 
-        // Compute unit forward direction (dirX, dirY) from the division entity center toward its heading goal
-        float dirX = 0f;
-        float dirY = 1f;
+        // Combine the average hull facing with the enemy/objective direction (when aligned)
+        float targetDirX = hullDirX;
+        float targetDirY = hullDirY;
         if (headingWorld != null) {
             float hx = headingWorld.x * scale + offsetX;
             float hy = headingWorld.y * scale + offsetY;
-            float dx = hx - cx;
-            float dy = hy - cy;
-            float len = (float) Math.sqrt(dx * dx + dy * dy);
-            if (len > 8f) {
-                dirX = dx / len;
-                dirY = dy / len;
-            } else if (div.targetEnemyDivision != null && isDivisionVisibleOnCommandMap(div.targetEnemyDivision, playerFog)) {
-                Vector2f visE = OtcAI.getVisibleCentroidForSide(engine, 0, div.targetEnemyDivision);
-                float ex = (visE.x * scale + offsetX) - cx;
-                float ey = (visE.y * scale + offsetY) - cy;
-                float eLen = (float) Math.sqrt(ex * ex + ey * ey);
-                if (eLen > 1f) {
-                    dirX = ex / eLen;
-                    dirY = ey / eLen;
+            float gx = hx - cx;
+            float gy = hy - cy;
+            float gLen = (float) Math.sqrt(gx * gx + gy * gy);
+            if (gLen > 8f) {
+                gx /= gLen;
+                gy /= gLen;
+                float dot = hullDirX * gx + hullDirY * gy;
+                if (dot >= -0.15f) {
+                    float bx = hullDirX * 0.72f + gx * 0.28f;
+                    float by = hullDirY * 0.72f + gy * 0.28f;
+                    float bLen = (float) Math.sqrt(bx * bx + by * by);
+                    if (bLen > 1e-4f) {
+                        targetDirX = bx / bLen;
+                        targetDirY = by / bLen;
+                    }
                 }
-            } else if (div.flagship != null) {
-                double rad = Math.toRadians(div.flagship.getFacing());
-                dirX = (float) Math.cos(rad);
-                dirY = (float) Math.sin(rad);
             }
+        }
+
+        // Smooth the bracket orientation vector frame-to-frame so it glides without jitter
+        Vector2f prevDir = smoothedBracketDirByDivId.get(div.id);
+        float dirX;
+        float dirY;
+        if (prevDir == null) {
+            dirX = targetDirX;
+            dirY = targetDirY;
+            smoothedBracketDirByDivId.put(div.id, new Vector2f(dirX, dirY));
+        } else {
+            float sx = prevDir.x * 0.82f + targetDirX * 0.18f;
+            float sy = prevDir.y * 0.82f + targetDirY * 0.18f;
+            float sLen = (float) Math.sqrt(sx * sx + sy * sy);
+            if (sLen > 1e-4f) {
+                dirX = sx / sLen;
+                dirY = sy / sLen;
+            } else {
+                dirX = targetDirX;
+                dirY = targetDirY;
+            }
+            prevDir.set(dirX, dirY);
         }
         float latX = -dirY;
         float latY = dirX;
