@@ -275,7 +275,8 @@ public class DivisionCommanderAI {
         //    Once rotating, stay out until flux has genuinely bled off instead of bouncing at the threshold.
         boolean stillRotating = prevIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                 && div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.55f;
-        if (isUnderHighFluxPressure(div, myGroup) || stillRotating || myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT) {
+        boolean fightingRetirementVent = (myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT && div.avgFluxLevel >= 0.32f);
+        if (isUnderHighFluxPressure(div, myGroup) || stillRotating || fightingRetirementVent) {
 
             DivisionState candidateFriend = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
                     ? myGroup.mainEffortDivision

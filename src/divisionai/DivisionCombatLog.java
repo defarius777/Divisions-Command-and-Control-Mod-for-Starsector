@@ -22,9 +22,19 @@ import java.util.List;
  */
 public class DivisionCombatLog {
 
-    private static final Logger LOG = Global.getLogger(DivisionCombatLog.class);
+    private static final Logger LOG = Logger.getLogger(DivisionCombatLog.class);
     private static final float MIN_DIVISION_LOG_INTERVAL = 7.5f;
     private static final float MIN_OTC_LOG_INTERVAL = 10.0f;
+
+    /** Optional sink populated during headless tactical simulation runs (./test.sh). */
+    public static List<String> simLogSink = null;
+
+    private static void emitLogLine(float now, String text) {
+        LOG.info(text);
+        if (simLogSink != null) {
+            simLogSink.add(String.format(java.util.Locale.ROOT, "[t=%5.1fs] %s", Math.max(0f, now), text));
+        }
+    }
 
     public static void logDivisionFormed(CombatEngineAPI engine, DivisionState div, float now) {
         if (div == null) return;
@@ -57,7 +67,7 @@ public class DivisionCombatLog {
                 hullSummary.toString(),
                 div.commander.commanderName,
                 div.commander.personalityId);
-        LOG.info(text);
+        emitLogLine(now, text);
 
         // Show friendly division formations in the HUD log if friendly division chatter is enabled
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
@@ -132,7 +142,7 @@ public class DivisionCombatLog {
         battleGroup.lastOtcSignalLogTime = now;
 
         String sideTag = resolveOtcTag(battleGroup);
-        LOG.info(String.format("%s (%s) Phase=%s -> %s",
+        emitLogLine(now, String.format("%s (%s) Phase=%s -> %s",
                 sideTag, battleGroup.otc.personalityId, battleGroup.currentPhase.displayName, directiveSummary));
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
@@ -159,7 +169,8 @@ public class DivisionCombatLog {
     public static void logOtcOrder(CombatEngineAPI engine, BattleGroupState battleGroup, String orderText) {
         if (battleGroup == null || orderText == null) return;
         String sideTag = resolveOtcTag(battleGroup);
-        LOG.info(String.format("%s (%s) Order [%s]: %s",
+        float now = engine != null ? engine.getTotalElapsedTime(false) : 0f;
+        emitLogLine(now, String.format("%s (%s) Order [%s]: %s",
                 sideTag, battleGroup.otc.personalityId, battleGroup.authority.shortName, orderText));
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
@@ -232,7 +243,7 @@ public class DivisionCombatLog {
         String sideTag = (div.side == 0)
                 ? (div.flagship != null && div.flagship.isAlly() ? "[Allied]" : "[Friendly]")
                 : "[Enemy]";
-        LOG.info("[DivisionAI] " + sideTag + " " + fullLine);
+        emitLogLine(now, "[DivisionAI] " + sideTag + " " + fullLine);
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
         if (ui != null && DivisionAISettings.shouldShowIntentOnHud(div.side, div.currentIntent)) {

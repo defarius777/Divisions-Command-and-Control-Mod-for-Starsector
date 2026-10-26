@@ -452,7 +452,8 @@ public class OtcAI {
             }
         }
 
-        // Second pass: pick a mobile reserve candidate (never pick Main Effort, Battle Divisions, Cruiser lines, or Carrier groups)
+        // Second pass: pick a mobile reserve candidate (never pick Main Effort, Battle Divisions, Cruiser lines,
+        // Carrier groups, or divisions explicitly tasked to ENVELOPMENT / SCREEN unless their mission is RESERVE)
         for (DivisionState div : myGroup.divisions) {
             if (!div.isCombatEffective()) continue;
             if (div == strongestLineDiv
@@ -462,10 +463,19 @@ public class OtcAI {
                     || div.archetype.isCarrierArchetype()) {
                 continue;
             }
+            DivisionMissionType divMission = DivisionCommanderAI.resolveActiveMission(div, now);
+            if (divMission != DivisionMissionType.RESERVE) {
+                // Do not hijack divisions explicitly assigned to Envelopment or Screen, or in small (<4 division) groups
+                if (activeDivCount < 4
+                        || divMission == DivisionMissionType.ENVELOPMENT
+                        || divMission == DivisionMissionType.SCREEN) {
+                    continue;
+                }
+            }
             float distToEnemy = distanceToNearestEnemyDivision(engine, div, enemyGroup);
             float distFactor = (distToEnemy < Float.MAX_VALUE * 0.5f) ? (distToEnemy * 0.001f) : 2.0f;
             float reserveScore = distFactor + (div.isFastFlanker ? 1.5f : 0.8f) - div.avgFluxLevel;
-            if (DivisionCommanderAI.resolveActiveMission(div, now) == DivisionMissionType.RESERVE) {
+            if (divMission == DivisionMissionType.RESERVE) {
                 reserveScore += 5f;
             }
             if (div == myGroup.reserveDivision) {
@@ -498,9 +508,11 @@ public class OtcAI {
                 && myGroup.forceRatio >= 1.20f && visibleEnemyFp >= 15f && minContactDist < 3600f;
         boolean strikeRunning = myGroup.strikePlan != null && myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES);
 
+        boolean pressuredForRetirement = endangeredDiv != null && worstLocalRatio < 0.55f && endangeredDiv.avgFluxLevel >= 0.35f;
         BattlePhase nextPhase;
         if (myGroup.missionContext == MissionContextType.REARGUARD_ACTION
-                || (anyEnemyVisible && myGroup.forceRatio < 0.58f && myGroup.missionContext != MissionContextType.FIGHT_TO_THE_LAST)) {
+                || (anyEnemyVisible && now > 40f && myGroup.forceRatio < 0.45f && pressuredForRetirement
+                && myGroup.missionContext != MissionContextType.FIGHT_TO_THE_LAST)) {
             nextPhase = BattlePhase.FIGHTING_RETIREMENT;
         } else if (crisis || crisisPersists) {
             nextPhase = BattlePhase.REINFORCE_THE_LINE;
