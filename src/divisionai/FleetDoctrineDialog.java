@@ -2,6 +2,7 @@ package divisionai;
 
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.BaseCustomUIPanelPlugin;
+import com.fs.starfarer.api.campaign.CustomUIPanelPlugin;
 import com.fs.starfarer.api.input.InputEventAPI;
 import com.fs.starfarer.api.ui.Alignment;
 import com.fs.starfarer.api.ui.ButtonAPI;
@@ -48,6 +49,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
     private String pendingAction = null;
 
+    private final CustomUIPanelPlugin subPanelPlugin = new BaseCustomUIPanelPlugin() {
+        @Override
+        public void buttonPressed(Object buttonId) {
+            FleetDoctrineDialog.this.buttonPressed(buttonId);
+        }
+    };
+
     public FleetDoctrineDialog(UIPanelAPI parentCoreUI) {
         this.parentCoreUI = parentCoreUI;
     }
@@ -58,11 +66,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
     public void show() {
         if (parentCoreUI == null) return;
-        float screenW = Global.getSettings().getScreenWidthPixels();
-        float screenH = Global.getSettings().getScreenHeightPixels();
+        float screenW = Global.getSettings().getScreenWidth();
+        float screenH = Global.getSettings().getScreenHeight();
 
         rootOverlayPanel = Global.getSettings().createCustom(screenW, screenH, this);
         parentCoreUI.addComponent(rootOverlayPanel).inTL(0f, 0f);
+        parentCoreUI.bringComponentToTop(rootOverlayPanel);
         rebuildContent();
     }
 
@@ -75,10 +84,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private void registerButton(ButtonAPI button, String actionId) {
+    private ButtonAPI registerButton(ButtonAPI button, String actionId) {
         if (button != null && actionId != null) {
             activeButtons.put(button, actionId);
         }
+        return button;
     }
 
     private void rebuildContent() {
@@ -89,12 +99,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             rootOverlayPanel.removeComponent(contentContainer);
         }
 
-        float screenW = Global.getSettings().getScreenWidthPixels();
-        float screenH = Global.getSettings().getScreenHeightPixels();
+        float screenW = Global.getSettings().getScreenWidth();
+        float screenH = Global.getSettings().getScreenHeight();
         float x = Math.round((screenW - DIALOG_WIDTH) * 0.5f);
         float y = Math.round((screenH - DIALOG_HEIGHT) * 0.5f);
 
-        contentContainer = Global.getSettings().createCustom(DIALOG_WIDTH, DIALOG_HEIGHT, new BaseCustomUIPanelPlugin());
+        contentContainer = Global.getSettings().createCustom(DIALOG_WIDTH, DIALOG_HEIGHT, subPanelPlugin);
         rootOverlayPanel.addComponent(contentContainer).inTL(x, y);
 
         FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
@@ -105,8 +115,26 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         Color positive = Misc.getPositiveHighlightColor();
         Color gray = Misc.getGrayColor();
 
-        // 1. Header & Top Toolbar (height 84f)
-        TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 24f, 84f, false);
+        // Top-right [X] button
+        TooltipMakerAPI topCloseUi = contentContainer.createUIElement(36f, 24f, false);
+        ButtonAPI bTopX = registerButton(
+                topCloseUi.addButton(
+                        "X",
+                        "CLOSE",
+                        Misc.getNegativeHighlightColor(),
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        32f,
+                        22f,
+                        0f),
+                "CLOSE");
+        bTopX.getPosition().inTL(2f, 1f);
+        topCloseUi.setHeightSoFar(24f);
+        contentContainer.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
+
+        // 1. Header & Top Toolbar
+        TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 50f, false);
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET DOCTRINE — DIVISION HULL COMPOSITION LIMITS", baseColor);
         header.addPara(
@@ -115,42 +143,46 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 4f,
                 highlight,
                 String.valueOf(PermanentDivisionManager.MAX_DIVISION_SIZE));
+        header.setHeightSoFar(50f);
+        contentContainer.addUIElement(header).inTL(12f, 8f);
 
-        CustomPanelAPI toolbarRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, null);
+        CustomPanelAPI toolbarRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, subPanelPlugin);
         TooltipMakerAPI tb = toolbarRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
 
-        ButtonAPI bReset = tb.addButton(
-                "Reset Defaults",
-                "RESET_DEFAULTS",
-                baseColor,
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                180f,
-                24f,
-                0f);
-        registerButton(bReset, "RESET_DEFAULTS");
+        ButtonAPI bReset = registerButton(
+                tb.addButton(
+                        "Reset Defaults",
+                        "RESET_DEFAULTS",
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        180f,
+                        24f,
+                        0f),
+                "RESET_DEFAULTS");
         bReset.getPosition().inTL(0f, 2f);
 
-        ButtonAPI bClose = tb.addButton(
-                "Close [Esc]",
-                "CLOSE",
-                Misc.getNegativeHighlightColor(),
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                140f,
-                24f,
-                0f);
-        registerButton(bClose, "CLOSE");
+        ButtonAPI bClose = registerButton(
+                tb.addButton(
+                        "Close [Esc]",
+                        "CLOSE",
+                        Misc.getNegativeHighlightColor(),
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        140f,
+                        24f,
+                        0f),
+                "CLOSE");
         bClose.getPosition().inTL(DIALOG_WIDTH - 24f - 140f, 2f);
 
+        tb.setHeightSoFar(28f);
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
-        header.addCustom(toolbarRow, 6f);
-        contentContainer.addUIElement(header).inTL(12f, 10f);
+        contentContainer.addComponent(toolbarRow).inTL(12f, 60f);
 
         // 2. Scrollable Body with the 7 Hull Categories (Minimum & Maximum rows for each)
-        float bodyTop = 100f;
+        float bodyTop = 94f;
         float bodyHeight = DIALOG_HEIGHT - bodyTop - 14f;
         float bodyWidth = DIALOG_WIDTH - 24f;
 
@@ -207,7 +239,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color activeValueColor,
             Color gray) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, null);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
         rowUi.addPara(
@@ -220,59 +252,72 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         float xCursor = 340f;
 
         // [-] button
-        ButtonAPI bDec = rowUi.addButton(
-                "-",
-                actionPrefix + Math.max(0, currentValue - 1),
-                baseColor,
-                darkColor,
-                Alignment.MID,
-                CutStyle.ALL,
-                28f,
-                21f,
-                0f);
+        String decAct = actionPrefix + Math.max(0, currentValue - 1);
+        ButtonAPI bDec = registerButton(
+                rowUi.addButton(
+                        "-",
+                        decAct,
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        28f,
+                        21f,
+                        0f),
+                decAct);
         bDec.setEnabled(currentValue > 0);
-        registerButton(bDec, actionPrefix + Math.max(0, currentValue - 1));
         bDec.getPosition().inTL(xCursor, 2f);
         xCursor += 34f;
 
         // Direct 0..10 selector buttons
         for (int v = 0; v <= PermanentDivisionManager.MAX_DIVISION_SIZE; v++) {
             boolean selected = (v == currentValue);
-            ButtonAPI bVal = rowUi.addButton(
-                    String.valueOf(v),
-                    actionPrefix + v,
-                    selected ? activeValueColor : baseColor,
-                    darkColor,
-                    Alignment.MID,
-                    CutStyle.ALL,
-                    38f,
-                    21f,
-                    0f);
+            String valAct = actionPrefix + v;
+            ButtonAPI bVal = registerButton(
+                    rowUi.addButton(
+                            String.valueOf(v),
+                            valAct,
+                            selected ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            38f,
+                            21f,
+                            0f),
+                    valAct);
             if (selected) {
                 bVal.highlight();
             }
-            registerButton(bVal, actionPrefix + v);
             bVal.getPosition().inTL(xCursor, 2f);
             xCursor += 42f;
         }
 
         // [+] button
-        ButtonAPI bInc = rowUi.addButton(
-                "+",
-                actionPrefix + Math.min(PermanentDivisionManager.MAX_DIVISION_SIZE, currentValue + 1),
-                baseColor,
-                darkColor,
-                Alignment.MID,
-                CutStyle.ALL,
-                28f,
-                21f,
-                0f);
+        String incAct = actionPrefix + Math.min(PermanentDivisionManager.MAX_DIVISION_SIZE, currentValue + 1);
+        ButtonAPI bInc = registerButton(
+                rowUi.addButton(
+                        "+",
+                        incAct,
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        28f,
+                        21f,
+                        0f),
+                incAct);
         bInc.setEnabled(currentValue < PermanentDivisionManager.MAX_DIVISION_SIZE);
-        registerButton(bInc, actionPrefix + Math.min(PermanentDivisionManager.MAX_DIVISION_SIZE, currentValue + 1));
         bInc.getPosition().inTL(xCursor + 4f, 2f);
 
+        rowUi.setHeightSoFar(26f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
+    }
+
+    @Override
+    public void buttonPressed(Object buttonId) {
+        if (closed || !(buttonId instanceof String)) return;
+        pendingAction = (String) buttonId;
     }
 
     @Override
@@ -340,7 +385,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 close();
                 return;
             }
-            if (event.isMouseEvent() || event.isKeyDownEvent() || event.isKeyUpEvent()) {
+            if (!event.isMouseUpEvent()) {
                 event.consume();
             }
         }
@@ -350,8 +395,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     public void renderBelow(float alphaMult) {
         if (closed || contentContainer == null) return;
 
-        float screenW = Global.getSettings().getScreenWidthPixels();
-        float screenH = Global.getSettings().getScreenHeightPixels();
+        float screenW = Global.getSettings().getScreenWidth();
+        float screenH = Global.getSettings().getScreenHeight();
         PositionAPI pos = contentContainer.getPosition();
         float x = pos.getX();
         float y = pos.getY();

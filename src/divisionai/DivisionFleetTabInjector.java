@@ -222,7 +222,7 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
         // Compute top-left Y offset below "Auto-assign idle officers" (and below AoTD's "Talk to your officers" if present)
         boolean aotdVokPresent = Global.getSettings().getModManager().isModEnabled("aotd_vok");
         float extraOffset = aotdVokPresent ? 132f : 100f;
-        float topY = Global.getSettings().getScreenHeightPixels() - autoAssignButton.getPosition().getY() + extraOffset;
+        float topY = Global.getSettings().getScreenHeight() - autoAssignButton.getPosition().getY() + extraOffset;
 
         leftControlPanel.addComponent(injectedButtonPanel).inTL(0f, topY);
         LOG.info("[DivisionAI] Injected 'Division Editor' and 'Fleet Doctrine' buttons onto Fleet tab.");

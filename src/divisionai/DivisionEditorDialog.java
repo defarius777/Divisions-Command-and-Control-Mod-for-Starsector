@@ -3,6 +3,7 @@ package divisionai;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.BaseCustomUIPanelPlugin;
 import com.fs.starfarer.api.campaign.CampaignFleetAPI;
+import com.fs.starfarer.api.campaign.CustomUIPanelPlugin;
 import com.fs.starfarer.api.characters.PersonAPI;
 import com.fs.starfarer.api.fleet.FleetMemberAPI;
 import com.fs.starfarer.api.input.InputEventAPI;
@@ -14,7 +15,6 @@ import com.fs.starfarer.api.ui.Fonts;
 import com.fs.starfarer.api.ui.PositionAPI;
 import com.fs.starfarer.api.ui.TextFieldAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
-import com.fs.starfarer.api.ui.UIComponentAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.DivisionArchetype;
@@ -26,7 +26,9 @@ import org.lwjgl.opengl.GL11;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Full-screen / modal Division Editor UI opened from the "Division Editor" button on the left side
@@ -53,8 +55,25 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     private String activeDivisionId = null;
     private boolean closed = false;
 
+    private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
+    private String pendingAction = null;
+
+    private final CustomUIPanelPlugin subPanelPlugin = new BaseCustomUIPanelPlugin() {
+        @Override
+        public void buttonPressed(Object buttonId) {
+            DivisionEditorDialog.this.buttonPressed(buttonId);
+        }
+    };
+
     public DivisionEditorDialog(UIPanelAPI hostCoreUI) {
         this.hostCoreUI = hostCoreUI;
+    }
+
+    private ButtonAPI registerButton(ButtonAPI button, String actionId) {
+        if (button != null && actionId != null) {
+            activeButtons.put(button, actionId);
+        }
+        return button;
     }
 
     public void show() {
@@ -79,6 +98,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         if (closed) return;
         savePendingNameFieldIfAny();
         closed = true;
+        activeButtons.clear();
         if (hostCoreUI != null && rootModalPanel != null) {
             hostCoreUI.removeComponent(rootModalPanel);
         }
@@ -87,8 +107,29 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         activeNameField = null;
     }
 
+    @Override
+    public void advance(float amount) {
+        if (closed) return;
+
+        for (Map.Entry<ButtonAPI, String> entry : activeButtons.entrySet()) {
+            ButtonAPI btn = entry.getKey();
+            if (btn != null && btn.isChecked()) {
+                btn.setChecked(false);
+                pendingAction = entry.getValue();
+                break;
+            }
+        }
+
+        if (pendingAction != null) {
+            String cmd = pendingAction;
+            pendingAction = null;
+            handleAction(cmd);
+        }
+    }
+
     private void rebuildContent() {
         if (rootModalPanel == null) return;
+        activeButtons.clear();
         if (contentContainer != null) {
             rootModalPanel.removeComponent(contentContainer);
             contentContainer = null;
@@ -100,7 +141,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         float boxX = Math.max(20f, (screenW - DIALOG_WIDTH) * 0.5f);
         float boxYTop = Math.max(20f, (screenH - DIALOG_HEIGHT) * 0.5f);
 
-        contentContainer = Global.getSettings().createCustom(DIALOG_WIDTH, DIALOG_HEIGHT, null);
+        contentContainer = Global.getSettings().createCustom(DIALOG_WIDTH, DIALOG_HEIGHT, subPanelPlugin);
         rootModalPanel.addComponent(contentContainer).inTL(boxX, boxYTop);
 
         if (activeDivisionId != null) {
@@ -133,8 +174,26 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         Color highlight = Misc.getHighlightColor();
         Color gray = Misc.getGrayColor();
 
-        // 1. Header & Top Toolbar (height 78f)
-        TooltipMakerAPI header = container.createUIElement(DIALOG_WIDTH - 24f, 78f, false);
+        // Top-right [X] button
+        TooltipMakerAPI topCloseUi = container.createUIElement(36f, 24f, false);
+        ButtonAPI bTopX = registerButton(
+                topCloseUi.addButton(
+                        "X",
+                        "CLOSE",
+                        Misc.getNegativeHighlightColor(),
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        32f,
+                        22f,
+                        0f),
+                "CLOSE");
+        bTopX.getPosition().inTL(2f, 1f);
+        topCloseUi.setHeightSoFar(24f);
+        container.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
+
+        // 1. Header & Top Toolbar
+        TooltipMakerAPI header = container.createUIElement(DIALOG_WIDTH - 64f, 50f, false);
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET DIVISION EDITOR — PERMANENT C2 ORGANIZATION", baseColor);
         header.addPara(
@@ -145,66 +204,76 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 String.valueOf(divisions.size()),
                 String.valueOf(assignedCount),
                 String.valueOf(unassigned.size()));
+        header.setHeightSoFar(50f);
+        container.addUIElement(header).inTL(12f, 8f);
 
-        CustomPanelAPI toolbarRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, null);
+        CustomPanelAPI toolbarRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, subPanelPlugin);
         TooltipMakerAPI tb = toolbarRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
-        ButtonAPI bCreate = tb.addButton(
-                "+ Create New Division",
-                "CREATE_DIV",
-                baseColor,
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                210f,
-                24f,
-                0f);
+        ButtonAPI bCreate = registerButton(
+                tb.addButton(
+                        "+ Create New Division",
+                        "CREATE_DIV",
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        210f,
+                        24f,
+                        0f),
+                "CREATE_DIV");
         bCreate.getPosition().inTL(0f, 2f);
 
-        ButtonAPI bAutoAssign = tb.addButton(
-                "Auto-Assign Fleet Ships (" + unassigned.size() + ")",
-                "AUTO_ASSIGN",
-                baseColor,
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                250f,
-                24f,
-                0f);
+        ButtonAPI bAutoAssign = registerButton(
+                tb.addButton(
+                        "Auto-Assign Fleet Ships (" + unassigned.size() + ")",
+                        "AUTO_ASSIGN",
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        250f,
+                        24f,
+                        0f),
+                "AUTO_ASSIGN");
         bAutoAssign.setEnabled(!unassigned.isEmpty());
         bAutoAssign.getPosition().inTL(220f, 2f);
 
         if (!divisions.isEmpty()) {
-            ButtonAPI bClearAll = tb.addButton(
-                    "Disband All Divisions",
-                    "CLEAR_ALL_DIVS",
-                    Misc.getNegativeHighlightColor(),
-                    darkColor,
-                    Alignment.MID,
-                    CutStyle.TL_BR,
-                    205f,
-                    24f,
-                    0f);
+            ButtonAPI bClearAll = registerButton(
+                    tb.addButton(
+                            "Disband All Divisions",
+                            "CLEAR_ALL_DIVS",
+                            Misc.getNegativeHighlightColor(),
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.TL_BR,
+                            205f,
+                            24f,
+                            0f),
+                    "CLEAR_ALL_DIVS");
             bClearAll.getPosition().inTL(480f, 2f);
         }
 
-        ButtonAPI bClose = tb.addButton(
-                "Close [Esc]",
-                "CLOSE",
-                Misc.getNegativeHighlightColor(),
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                140f,
-                24f,
-                0f);
+        ButtonAPI bClose = registerButton(
+                tb.addButton(
+                        "Close [Esc]",
+                        "CLOSE",
+                        Misc.getNegativeHighlightColor(),
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        140f,
+                        24f,
+                        0f),
+                "CLOSE");
         bClose.getPosition().inTL(DIALOG_WIDTH - 24f - 140f, 2f);
 
+        tb.setHeightSoFar(28f);
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
-        header.addCustom(toolbarRow, 6f);
-        container.addUIElement(header).inTL(12f, 10f);
+        container.addComponent(toolbarRow).inTL(12f, 60f);
 
         // 2. Left Column: Permanent Divisions Scrollable List (width 595f, height 540f)
-        float bodyHeight = DIALOG_HEIGHT - 102f;
+        float bodyHeight = DIALOG_HEIGHT - 104f;
         float leftWidth = 595f;
         float rightWidth = DIALOG_WIDTH - leftWidth - 36f;
 
@@ -268,37 +337,44 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     leftCol.addPara("No ships assigned yet — open division screen to add ships.", gray, 2f);
                 }
 
-                CustomPanelAPI btnRow = Global.getSettings().createCustom(leftWidth - 16f, 26f, null);
+                CustomPanelAPI btnRow = Global.getSettings().createCustom(leftWidth - 16f, 26f, subPanelPlugin);
                 TooltipMakerAPI rowUi = btnRow.createUIElement(leftWidth - 16f, 26f, false);
-                ButtonAPI bOpen = rowUi.addButton(
-                        "Open Division Screen ->",
-                        "OPEN_DIV:" + spec.id,
-                        baseColor,
-                        darkColor,
-                        Alignment.MID,
-                        CutStyle.TL_BR,
-                        215f,
-                        22f,
-                        0f);
+                String openAct = "OPEN_DIV:" + spec.id;
+                ButtonAPI bOpen = registerButton(
+                        rowUi.addButton(
+                                "Open Division Screen ->",
+                                openAct,
+                                baseColor,
+                                darkColor,
+                                Alignment.MID,
+                                CutStyle.TL_BR,
+                                215f,
+                                22f,
+                                0f),
+                        openAct);
                 bOpen.getPosition().inTL(0f, 2f);
 
-                ButtonAPI bDel = rowUi.addButton(
-                        "Disband Division",
-                        "DELETE_DIV:" + spec.id,
-                        Misc.getNegativeHighlightColor(),
-                        darkColor,
-                        Alignment.MID,
-                        CutStyle.TL_BR,
-                        145f,
-                        22f,
-                        0f);
+                String delAct = "DELETE_DIV:" + spec.id;
+                ButtonAPI bDel = registerButton(
+                        rowUi.addButton(
+                                "Disband Division",
+                                delAct,
+                                Misc.getNegativeHighlightColor(),
+                                darkColor,
+                                Alignment.MID,
+                                CutStyle.TL_BR,
+                                145f,
+                                22f,
+                                0f),
+                        delAct);
                 bDel.getPosition().inTL(225f, 2f);
 
+                rowUi.setHeightSoFar(26f);
                 btnRow.addUIElement(rowUi).inTL(0f, 0f);
                 leftCol.addCustom(btnRow, 4f);
             }
         }
-        container.addUIElement(leftCol).inTL(12f, 92f);
+        container.addUIElement(leftCol).inTL(12f, 94f);
 
         // 3. Right Column: Unassigned Combat Hulls Pool
         TooltipMakerAPI rightCol = container.createUIElement(rightWidth, bodyHeight, true);
@@ -330,19 +406,22 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         m.getHullSpec().getHullName(),
                         String.format("%.0f", m.getDeploymentPointsCost()),
                         officerStr);
-                rightCol.addButton(
-                        "+ New Division With " + m.getHullSpec().getHullName(),
-                        "NEW_DIV_WITH:" + m.getId(),
-                        baseColor,
-                        darkColor,
-                        Alignment.MID,
-                        CutStyle.TL_BR,
-                        rightWidth - 20f,
-                        22f,
-                        3f);
+                String newDivAct = "NEW_DIV_WITH:" + m.getId();
+                registerButton(
+                        rightCol.addButton(
+                                "+ New Division With " + m.getHullSpec().getHullName(),
+                                newDivAct,
+                                baseColor,
+                                darkColor,
+                                Alignment.MID,
+                                CutStyle.TL_BR,
+                                rightWidth - 20f,
+                                22f,
+                                3f),
+                        newDivAct);
             }
         }
-        container.addUIElement(rightCol).inTL(leftWidth + 24f, 92f);
+        container.addUIElement(rightCol).inTL(leftWidth + 24f, 94f);
     }
 
     // ========================================================================================
@@ -360,36 +439,59 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         Color positive = Misc.getPositiveHighlightColor();
         Color gray = Misc.getGrayColor();
 
+        // Top-right [X] button
+        TooltipMakerAPI topCloseUi = container.createUIElement(36f, 24f, false);
+        ButtonAPI bTopX = registerButton(
+                topCloseUi.addButton(
+                        "X",
+                        "CLOSE",
+                        Misc.getNegativeHighlightColor(),
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        32f,
+                        22f,
+                        0f),
+                "CLOSE");
+        bTopX.getPosition().inTL(2f, 1f);
+        topCloseUi.setHeightSoFar(24f);
+        container.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
+
         // 1. Top Control & Doctrine Header (height 188f)
         float headerH = 188f;
         TooltipMakerAPI top = container.createUIElement(DIALOG_WIDTH - 24f, headerH, false);
 
         // Row A: Back button, Title, Close button
-        CustomPanelAPI navRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, null);
-        TooltipMakerAPI navUi = navRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
-        ButtonAPI bBack = navUi.addButton(
-                "<- Back to All Divisions",
-                "BACK_TO_LIST",
-                baseColor,
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                195f,
-                24f,
-                0f);
+        CustomPanelAPI navRow = Global.getSettings().createCustom(DIALOG_WIDTH - 72f, 28f, subPanelPlugin);
+        TooltipMakerAPI navUi = navRow.createUIElement(DIALOG_WIDTH - 72f, 28f, false);
+        ButtonAPI bBack = registerButton(
+                navUi.addButton(
+                        "<- Back to All Divisions",
+                        "BACK_TO_LIST",
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        195f,
+                        24f,
+                        0f),
+                "BACK_TO_LIST");
         bBack.getPosition().inTL(0f, 2f);
 
-        ButtonAPI bClose = navUi.addButton(
-                "Close Editor [Esc]",
-                "CLOSE",
-                Misc.getNegativeHighlightColor(),
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                150f,
-                24f,
-                0f);
-        bClose.getPosition().inTL(DIALOG_WIDTH - 24f - 150f, 2f);
+        ButtonAPI bClose = registerButton(
+                navUi.addButton(
+                        "Close Editor [Esc]",
+                        "CLOSE",
+                        Misc.getNegativeHighlightColor(),
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        150f,
+                        24f,
+                        0f),
+                "CLOSE");
+        bClose.getPosition().inTL(DIALOG_WIDTH - 72f - 150f, 2f);
+        navUi.setHeightSoFar(28f);
         navRow.addUIElement(navUi).inTL(0f, 0f);
         top.addCustom(navRow, 2f);
 
@@ -397,24 +499,27 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         top.addTitle("DIVISION COMMAND & DOCTRINE: " + spec.name.toUpperCase(), highlight);
 
         // Row B: Editable Callsign TextField + Apply Name Button
-        CustomPanelAPI nameRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 30f, null);
+        CustomPanelAPI nameRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 30f, subPanelPlugin);
         TooltipMakerAPI nameUi = nameRow.createUIElement(DIALOG_WIDTH - 24f, 30f, false);
         activeNameField = nameUi.addTextField(260f, Fonts.DEFAULT_SMALL, 0f);
         activeNameField.setText(spec.name);
         activeNameField.setMaxChars(32);
         activeNameField.getPosition().inTL(0f, 3f);
 
-        ButtonAPI bSaveName = nameUi.addButton(
-                "Apply Division Name",
-                "APPLY_NAME",
-                baseColor,
-                darkColor,
-                Alignment.MID,
-                CutStyle.TL_BR,
-                165f,
-                24f,
-                0f);
+        ButtonAPI bSaveName = registerButton(
+                nameUi.addButton(
+                        "Apply Division Name",
+                        "APPLY_NAME",
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        165f,
+                        24f,
+                        0f),
+                "APPLY_NAME");
         bSaveName.getPosition().inTL(270f, 3f);
+        nameUi.setHeightSoFar(30f);
         nameRow.addUIElement(nameUi).inTL(0f, 0f);
         top.addCustom(nameRow, 4f);
 
@@ -430,51 +535,59 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 DivisionArchetype.PHASE_DIVISION,
                 DivisionArchetype.AUXILIARY_CONVOY
         };
-        CustomPanelAPI archRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 26f, null);
+        CustomPanelAPI archRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 26f, subPanelPlugin);
         TooltipMakerAPI archUi = archRow.createUIElement(DIALOG_WIDTH - 24f, 26f, false);
         float ax = 0f;
         for (DivisionArchetype arch : archetypes) {
             boolean selected = (spec.archetype == arch);
             Color fg = selected ? highlight : baseColor;
             Color bg = selected ? baseColor.darker() : darkColor;
-            ButtonAPI bArch = archUi.addButton(
-                    arch.shortPrefix,
-                    "SET_ARCH:" + arch.name(),
-                    fg,
-                    bg,
-                    Alignment.MID,
-                    CutStyle.TL_BR,
-                    102f,
-                    22f,
-                    0f);
+            String archAct = "SET_ARCH:" + arch.name();
+            ButtonAPI bArch = registerButton(
+                    archUi.addButton(
+                            arch.shortPrefix,
+                            archAct,
+                            fg,
+                            bg,
+                            Alignment.MID,
+                            CutStyle.TL_BR,
+                            102f,
+                            22f,
+                            0f),
+                    archAct);
             bArch.getPosition().inTL(ax, 2f);
             ax += 106f;
         }
+        archUi.setHeightSoFar(26f);
         archRow.addUIElement(archUi).inTL(0f, 0f);
         top.addCustom(archRow, 4f);
 
         // Row D: Division Doctrine Selector (Foundation for Customizable Doctrine)
         DoctrineOption[] doctrines = DoctrineOption.values();
-        CustomPanelAPI docRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 26f, null);
+        CustomPanelAPI docRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 26f, subPanelPlugin);
         TooltipMakerAPI docUi = docRow.createUIElement(DIALOG_WIDTH - 24f, 26f, false);
         float dx = 0f;
         for (DoctrineOption doc : doctrines) {
             boolean selected = (spec.doctrine == doc);
             Color fg = selected ? positive : baseColor;
             Color bg = selected ? baseColor.darker() : darkColor;
-            ButtonAPI bDoc = docUi.addButton(
-                    doc.displayName,
-                    "SET_DOC:" + doc.name(),
-                    fg,
-                    bg,
-                    Alignment.MID,
-                    CutStyle.TL_BR,
-                    154f,
-                    22f,
-                    0f);
+            String docAct = "SET_DOC:" + doc.name();
+            ButtonAPI bDoc = registerButton(
+                    docUi.addButton(
+                            doc.displayName,
+                            docAct,
+                            fg,
+                            bg,
+                            Alignment.MID,
+                            CutStyle.TL_BR,
+                            154f,
+                            22f,
+                            0f),
+                    docAct);
             bDoc.getPosition().inTL(dx, 2f);
             dx += 159f;
         }
+        docUi.setHeightSoFar(26f);
         docRow.addUIElement(docUi).inTL(0f, 0f);
         top.addCustom(docRow, 4f);
 
@@ -485,6 +598,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 spec.doctrine.displayName,
                 spec.doctrine.summary);
 
+        top.setHeightSoFar(headerH);
         container.addUIElement(top).inTL(12f, 10f);
 
         // 2. Two-Column Ship Assignment Body (height = DIALOG_HEIGHT - 210f)
@@ -529,35 +643,42 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         String.format("%.0f", m.getDeploymentPointsCost()),
                         officerStr);
 
-                CustomPanelAPI rowBtns = Global.getSettings().createCustom(colWidth - 20f, 24f, null);
+                CustomPanelAPI rowBtns = Global.getSettings().createCustom(colWidth - 20f, 24f, subPanelPlugin);
                 TooltipMakerAPI rUi = rowBtns.createUIElement(colWidth - 20f, 24f, false);
 
                 if (!isFlagship) {
-                    ButtonAPI bFlag = rUi.addButton(
-                            "Designate Flagship",
-                            "SET_FLAGSHIP:" + m.getId(),
-                            baseColor,
-                            darkColor,
-                            Alignment.MID,
-                            CutStyle.TL_BR,
-                            160f,
-                            21f,
-                            0f);
+                    String flagAct = "SET_FLAGSHIP:" + m.getId();
+                    ButtonAPI bFlag = registerButton(
+                            rUi.addButton(
+                                    "Designate Flagship",
+                                    flagAct,
+                                    baseColor,
+                                    darkColor,
+                                    Alignment.MID,
+                                    CutStyle.TL_BR,
+                                    160f,
+                                    21f,
+                                    0f),
+                            flagAct);
                     bFlag.getPosition().inTL(0f, 1f);
                 }
 
-                ButtonAPI bRem = rUi.addButton(
-                        "Remove from Division ->",
-                        "REMOVE_SHIP:" + m.getId(),
-                        Misc.getNegativeHighlightColor(),
-                        darkColor,
-                        Alignment.MID,
-                        CutStyle.TL_BR,
-                        185f,
-                        21f,
-                        0f);
+                String remAct = "REMOVE_SHIP:" + m.getId();
+                ButtonAPI bRem = registerButton(
+                        rUi.addButton(
+                                "Remove from Division ->",
+                                remAct,
+                                Misc.getNegativeHighlightColor(),
+                                darkColor,
+                                Alignment.MID,
+                                CutStyle.TL_BR,
+                                185f,
+                                21f,
+                                0f),
+                        remAct);
                 bRem.getPosition().inTL(isFlagship ? 0f : 170f, 1f);
 
+                rUi.setHeightSoFar(24f);
                 rowBtns.addUIElement(rUi).inTL(0f, 0f);
                 leftCol.addCustom(rowBtns, 2f);
             }
@@ -582,16 +703,19 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         m.getHullSpec().getHullName(),
                         String.format("%.0f", m.getDeploymentPointsCost()),
                         officerStr);
-                ButtonAPI bAdd = rightCol.addButton(
-                        divisionAtCap ? "Division Full (10/10 Max)" : ("<- Put in " + spec.name),
-                        "ADD_SHIP:" + m.getId(),
-                        positive,
-                        darkColor,
-                        Alignment.MID,
-                        CutStyle.TL_BR,
-                        220f,
-                        21f,
-                        2f);
+                String addAct = "ADD_SHIP:" + m.getId();
+                ButtonAPI bAdd = registerButton(
+                        rightCol.addButton(
+                                divisionAtCap ? "Division Full (10/10 Max)" : ("<- Put in " + spec.name),
+                                addAct,
+                                positive,
+                                darkColor,
+                                Alignment.MID,
+                                CutStyle.TL_BR,
+                                220f,
+                                21f,
+                                2f),
+                        addAct);
                 bAdd.setEnabled(!divisionAtCap);
             }
         }
@@ -612,16 +736,19 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         m.getShipName(),
                         m.getHullSpec().getHullName(),
                         String.format("%.0f", m.getDeploymentPointsCost()));
-                ButtonAPI bTrans = rightCol.addButton(
-                        divisionAtCap ? "Division Full (10/10 Max)" : ("<- Transfer to " + spec.name),
-                        "ADD_SHIP:" + m.getId(),
-                        baseColor,
-                        darkColor,
-                        Alignment.MID,
-                        CutStyle.TL_BR,
-                        220f,
-                        21f,
-                        2f);
+                String transAct = "ADD_SHIP:" + m.getId();
+                ButtonAPI bTrans = registerButton(
+                        rightCol.addButton(
+                                divisionAtCap ? "Division Full (10/10 Max)" : ("<- Transfer to " + spec.name),
+                                transAct,
+                                baseColor,
+                                darkColor,
+                                Alignment.MID,
+                                CutStyle.TL_BR,
+                                220f,
+                                21f,
+                                2f),
+                        transAct);
                 bTrans.setEnabled(!divisionAtCap);
             }
         }
@@ -643,8 +770,12 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
     @Override
     public void buttonPressed(Object buttonId) {
-        if (!(buttonId instanceof String)) return;
-        String cmd = (String) buttonId;
+        if (closed || !(buttonId instanceof String)) return;
+        pendingAction = (String) buttonId;
+    }
+
+    private void handleAction(String cmd) {
+        if (closed || cmd == null) return;
 
         if ("CLOSE".equals(cmd)) {
             close();
