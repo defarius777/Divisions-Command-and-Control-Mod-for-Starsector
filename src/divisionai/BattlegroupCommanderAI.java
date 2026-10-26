@@ -407,37 +407,37 @@ public class BattlegroupCommanderAI {
     }
 
     private static String buildBattlegroupDirectiveSummary(BattlegroupState bg, DivisionState endangeredDiv) {
-        String mainName = bg.mainEffortDivision != null ? "\"" + bg.mainEffortDivision.displayName + "\"" : "main line";
-        String targetName = bg.primaryThreatEnemyDivision != null ? "\"" + bg.primaryThreatEnemyDivision.displayName + "\"" : "enemy line";
+        String mainName = bg.mainEffortDivision != null ? "\"" + bg.mainEffortDivision.displayName + "\"" : "the main body";
+        String targetName = bg.primaryThreatEnemyDivision != null ? "\"" + bg.primaryThreatEnemyDivision.displayName + "\"" : "the enemy line";
 
         switch (bg.currentPhase) {
             case OPENING_PROBE:
                 if (bg.reserveDivision != null) {
-                    return String.format("Advance %s while holding \"%s\" in reserve.", mainName, bg.reserveDivision.displayName);
+                    return String.format("Scouts ahead, %s leading; \"%s\" held in reserve.", mainName, bg.reserveDivision.displayName);
                 }
-                return String.format("Advance %s to contest objectives and establish contact.", mainName);
+                return String.format("Scouts ahead, %s leading, to take objectives and gain contact.", mainName);
             case COORDINATED_STRIKE:
                 if (bg.strikePlan != null && bg.strikePlan.target != null) {
-                    return String.format("Fix with %s; %d strike division%s timed against \"%s\".",
+                    return String.format("%s fixes; %d strike division%s on time-on-target against \"%s\".",
                             mainName,
                             bg.strikePlan.participants.size(),
                             bg.strikePlan.participants.size() == 1 ? "" : "s",
                             bg.strikePlan.target.displayName);
                 }
-                return String.format("Fix with %s and cue strike divisions against %s.", mainName, targetName);
+                return String.format("%s fixes; strike divisions stand by against %s.", mainName, targetName);
             case STABILIZE_AND_RELIEVE:
                 if (endangeredDiv != null) {
-                    return String.format("Relieve \"%s\" (local ratio %.2f) and tighten division screens.",
+                    return String.format("Reinforce \"%s\" (local ratio %.2f); close up the screens.",
                             endangeredDiv.displayName, endangeredDiv.localOvermatchRatio);
                 }
-                return "Stabilize local overmatch and rotate high-flux divisions.";
+                return "Reinforce the line and haul hot divisions out to vent.";
             case EXPLOIT_BREAKTHROUGH:
-                return String.format("Press force advantage (%.2fx) against %s.", bg.forceRatio, targetName);
+                return String.format("General chase: press the advantage (%.2fx) on %s.", bg.forceRatio, targetName);
             case ORDERED_WITHDRAWAL:
-                return "Execute phased leapfrog withdrawal toward reserve anchor.";
+                return "Retire by divisions toward the rendezvous, covering each other.";
             case LINE_CONTACT:
             default:
-                return String.format("Anchor battle line on %s against %s.", mainName, targetName);
+                return String.format("Line of battle formed on %s, engaging %s.", mainName, targetName);
         }
     }
 

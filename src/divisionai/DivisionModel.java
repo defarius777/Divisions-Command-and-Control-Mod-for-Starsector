@@ -25,18 +25,18 @@ public class DivisionModel {
      * How a division was formed and what kind of ship composition it represents.
      */
     public enum DivisionArchetype {
-        BATTLE_DIVISION("Battle Div", true),
+        BATTLE_DIVISION("Battleship Div", true),
         FLEET_CARRIER_DIVISION("Fleet Carrier Div", false),
         LIGHT_CARRIER_DIVISION("Light Carrier Div", false),
         ESCORT_CARRIER_DIVISION("Escort Carrier Div", false),
-        CARRIER_AND_ESCORT("Mixed Carrier Div", true),
+        CARRIER_AND_ESCORT("Carrier Group", true),
         CRUISER_DIVISION("Cruiser Div", false),
         STRIKE_CRUISER_DIVISION("Strike Cruiser Div", false),
         DESTROYER_DIVISION("Destroyer Div", false),
         TORPEDO_DESTROYER_DIVISION("Destroyer Div", false),
         FRIGATE_DIVISION("Frigate Div", false),
         PHASE_DIVISION("Phase Div", false),
-        AUXILIARY_CONVOY("Aux Group", true);
+        AUXILIARY_CONVOY("Service Group", true);
 
         public final String shortPrefix;
         public final boolean isComposite;
@@ -58,11 +58,11 @@ public class DivisionModel {
      * Mission-level context derived from BattleCreationContext, FleetGoal, and objectives.
      */
     public enum MissionContextType {
-        OBJECTIVE_CONTEST("Objective Contest"),
-        FULL_PITCHED_BATTLE("Pitched Battle"),
+        OBJECTIVE_CONTEST("Contested Objectives"),
+        FULL_PITCHED_BATTLE("Fleet Action"),
         FIGHT_TO_THE_LAST("Fight to the Last"),
-        FLEET_ESCAPE_REARGUARD("Rearguard Escape"),
-        PURSUIT_INTERCEPTION("Pursuit Interception");
+        FLEET_ESCAPE_REARGUARD("Rearguard Action"),
+        PURSUIT_INTERCEPTION("Interception");
 
         public final String displayName;
 
@@ -72,15 +72,15 @@ public class DivisionModel {
     }
 
     /**
-     * High-level operational phase chosen by the Battlegroup Commander.
+     * High-level operational phase chosen by the Battle Group Commander (OTC).
      */
     public enum BattlePhase {
-        OPENING_PROBE("Opening Probe & Objective Seizure"),
-        LINE_CONTACT("Main Line Engagement"),
-        COORDINATED_STRIKE("Coordinated Multi-Division Strike"),
-        STABILIZE_AND_RELIEVE("Line Stabilization & Relief"),
-        EXPLOIT_BREAKTHROUGH("Breakthrough Exploitation"),
-        ORDERED_WITHDRAWAL("Ordered Phased Withdrawal");
+        OPENING_PROBE("Approach & Scouting"),
+        LINE_CONTACT("General Engagement"),
+        COORDINATED_STRIKE("Coordinated Strike"),
+        STABILIZE_AND_RELIEVE("Reinforce the Line"),
+        EXPLOIT_BREAKTHROUGH("General Chase"),
+        ORDERED_WITHDRAWAL("Fighting Retirement");
 
         public final String displayName;
 
@@ -93,27 +93,27 @@ public class DivisionModel {
      * Concrete tactical intent chosen by a Division Commander (or directed by BG Commander).
      */
     public enum DivisionIntentType {
-        HOLD_AND_COHERE("form up and maintain division cohesion"),
-        ADVANCE_ENGAGE_LINE("advance and engage"),
-        HARASS_TORPEDO_ATTACK("launch harassing missile attack at"),
-        COORDINATED_TORPEDO_STRIKE("execute coordinated missile strike against"),
-        PRESS_OVERMATCH("press local overmatch against"),
-        SCREEN_FRIENDLY_DIVISION("screen and escort"),
-        RELIEVE_FRIENDLY_DIVISION("move to relieve"),
-        FLANK_ENEMY_DIVISION("swing wide to flank"),
-        STRIKE_AND_WITHDRAW("complete strike window and withdraw to reserve from"),
-        ROTATE_TO_RESERVE("rotate high-flux hulls back to reserve behind"),
-        HOLD_IN_RESERVE("hold in battlegroup reserve awaiting commitment"),
-        SEIZE_OBJECTIVE("secure tactical objective"),
-        CARRIER_STRIKE_CRAFT_RECON("conduct strike craft reconnaissance toward"),
-        CARRIER_VOID_SUPERIORITY_CAP("contest void superiority with strike craft against"),
-        CARRIER_PROTECT_FLEET_CAP("provide strike craft fleet air defense over"),
-        CARRIER_STRIKE_AT_WILL("launch successive strike craft attacks on"),
-        CARRIER_DIVISION_STRIKE("execute division coordinated strike craft attack on"),
-        CARRIER_MULTI_DIV_STRIKE("execute multi-division coordinated strike craft attack on"),
-        FIX_ENEMY_DIVISION("anchor the battle line and fix"),
-        STAGE_FOR_STRIKE("stage for synchronized strike against"),
-        PURSUE_BROKEN_ENEMY("pursue and destroy broken");
+        HOLD_AND_COHERE("close up and re-form"),
+        ADVANCE_ENGAGE_LINE("close and engage"),
+        HARASS_TORPEDO_ATTACK("make a harassing missile attack on"),
+        COORDINATED_TORPEDO_STRIKE("deliver a time-on-target missile strike on"),
+        PRESS_OVERMATCH("press home the attack on"),
+        SCREEN_FRIENDLY_DIVISION("take screening station on"),
+        RELIEVE_FRIENDLY_DIVISION("move to reinforce"),
+        FLANK_ENEMY_DIVISION("work around the flank of"),
+        STRIKE_AND_WITHDRAW("break off and retire from"),
+        ROTATE_TO_RESERVE("haul out of the line to vent behind"),
+        HOLD_IN_RESERVE("hold in reserve, awaiting orders"),
+        SEIZE_OBJECTIVE("take and hold"),
+        CARRIER_STRIKE_CRAFT_RECON("fly armed reconnaissance toward"),
+        CARRIER_VOID_SUPERIORITY_CAP("fly fighter sweeps for space superiority against"),
+        CARRIER_PROTECT_FLEET_CAP("fly combat space patrol over"),
+        CARRIER_STRIKE_AT_WILL("fly cyclic strikes against"),
+        CARRIER_DIVISION_STRIKE("launch a deckload strike on"),
+        CARRIER_MULTI_DIV_STRIKE("launch an alpha strike on"),
+        FIX_ENEMY_DIVISION("form the line and fix"),
+        STAGE_FOR_STRIKE("proceed to the marshal point to strike"),
+        PURSUE_BROKEN_ENEMY("give general chase to");
 
         public final String verbPhrase;
 

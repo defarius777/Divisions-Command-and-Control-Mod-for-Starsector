@@ -284,7 +284,7 @@ public class DivisionCommanderAI {
                 targetLabel = anchorFriend.displayName;
             } else {
                 div.maneuverAnchor.set(myBg.reserveAnchor);
-                targetLabel = "Battlegroup Reserve";
+                targetLabel = "the reserve station";
             }
             reason = String.format("flux %.0f%%, local ratio %.2f", div.avgFluxLevel * 100f, div.localOvermatchRatio);
             div.lastIntentChangeTime = now;
@@ -303,7 +303,7 @@ public class DivisionCommanderAI {
             div.targetObjective = commandAssignedObj;
             div.maneuverAnchor.set(commandAssignedObj.getLocation());
             div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, commandAssignedObj.getDisplayName(), "executing command order", now);
+            DivisionCombatLog.logDivisionIntent(engine, div, commandAssignedObj.getDisplayName(), "under direct orders", now);
             return;
         }
 
@@ -345,8 +345,8 @@ public class DivisionCommanderAI {
                 div.currentIntent = DivisionIntentType.HOLD_IN_RESERVE;
                 div.maneuverAnchor.set(myBg.reserveAnchor);
                 reason = (activeMission == DivisionMissionType.BATTLEGROUP_RESERVE)
-                        ? (missionPhaseTag + "Battlegroup Reserve (awaiting BG call-up)")
-                        : "awaiting BG commitment";
+                        ? (missionPhaseTag + "Reserve, awaiting OTC orders")
+                        : "awaiting OTC orders";
                 div.lastIntentChangeTime = now;
                 DivisionCombatLog.logDivisionIntent(engine, div, "", reason, now);
                 return;
@@ -373,8 +373,8 @@ public class DivisionCommanderAI {
             div.maneuverAnchor.set(endangeredFriendlyDiv.centroid);
             targetLabel = endangeredFriendlyDiv.displayName;
             reason = (activeMission == DivisionMissionType.BATTLEGROUP_RESERVE || div.isDesignatedReserve)
-                    ? String.format("BG Reserve called up to relieve (ratio %.2f)", endangeredFriendlyDiv.localOvermatchRatio)
-                    : String.format("under heavy pressure, ratio %.2f", endangeredFriendlyDiv.localOvermatchRatio);
+                    ? String.format("reserve called forward to reinforce (local ratio %.2f)", endangeredFriendlyDiv.localOvermatchRatio)
+                    : String.format("hard pressed, local ratio %.2f", endangeredFriendlyDiv.localOvermatchRatio);
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
             return;
@@ -384,7 +384,7 @@ public class DivisionCommanderAI {
         if (div.cohesionRatio > 1.48f && div.getAliveMembers().size() >= 2) {
             div.currentIntent = DivisionIntentType.HOLD_AND_COHERE;
             div.maneuverAnchor.set(div.centroid);
-            reason = String.format("spread %.0fu > %.0fu leash", div.spreadRadius, div.desiredCohesionRadius);
+            reason = String.format("stations spread to %.0fu, limit %.0fu", div.spreadRadius, div.desiredCohesionRadius);
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, "", reason, now);
             return;
@@ -500,7 +500,7 @@ public class DivisionCommanderAI {
                         div.maneuverAnchor.set(myBg.reserveAnchor);
                     }
                     String syncPartner = (myBg.mainEffortDivision != null && myBg.mainEffortDivision != div)
-                            ? (" synced w/ \"" + myBg.mainEffortDivision.displayName + "\"")
+                            ? (" with \"" + myBg.mainEffortDivision.displayName + "\"")
                             : "";
                     reason = missionPhaseTag + activeMission.shortName + syncPartner;
                     div.lastIntentChangeTime = now;
@@ -567,7 +567,7 @@ public class DivisionCommanderAI {
             div.targetEnemyDivision = nearestEnemyDiv;
             computeStandoffAnchor(engine, div, nearestEnemyDiv, div.maneuverAnchor);
             targetLabel = nearestEnemyDiv.displayName;
-            reason = String.format("%s%s (standoff %.0fu)", missionPhaseTag, activeMission.shortName, div.lineStandoffDistance);
+            reason = String.format("%s%s (standoff range %.0fu)", missionPhaseTag, activeMission.shortName, div.lineStandoffDistance);
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
             return;
@@ -610,7 +610,7 @@ public class DivisionCommanderAI {
                 div.targetEnemyDivision = nearestEnemyDiv;
                 computeScreenAnchor(engine, div, heavyFriendlyToScreen, nearestEnemyDiv, div.maneuverAnchor, div.side);
                 targetLabel = heavyFriendlyToScreen.displayName;
-                reason = "forward PD & anti-flank screen";
+                reason = "forward PD and anti-flank screen";
                 div.lastIntentChangeTime = now;
                 DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
                 return;
@@ -632,10 +632,10 @@ public class DivisionCommanderAI {
 
             if (timeOnTargetCue) {
                 div.currentIntent = DivisionIntentType.COORDINATED_TORPEDO_STRIKE;
-                reason = "synced with \"" + myBg.mainEffortDivision.displayName + "\"";
+                reason = "time-on-target with \"" + myBg.mainEffortDivision.displayName + "\"";
             } else {
                 div.currentIntent = DivisionIntentType.HARASS_TORPEDO_ATTACK;
-                reason = String.format("%d strike salvos ready", div.usableStrikeAmmoCount);
+                reason = String.format("%d missile salvos ready", div.usableStrikeAmmoCount);
             }
 
             Vector2f visTargetPos = BattlegroupCommanderAI.getVisibleCentroidForSide(engine, div.side, torpedoTargetEnemyDiv);
@@ -666,7 +666,7 @@ public class DivisionCommanderAI {
                 div.strikeCommittedTimestamp = now;
             }
             targetLabel = nearestEnemyDiv.displayName;
-            reason = "enveloping flank vector" + flankSideTag(div, nearestEnemyDiv, myBg);
+            reason = "envelopment" + flankSideTag(div, nearestEnemyDiv, myBg);
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
             return;
@@ -684,7 +684,7 @@ public class DivisionCommanderAI {
                 reason = String.format("local advantage %.2fx", div.localOvermatchRatio);
             } else {
                 div.currentIntent = DivisionIntentType.ADVANCE_ENGAGE_LINE;
-                reason = "maintaining firing line";
+                reason = "keeping the line";
             }
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
@@ -695,7 +695,7 @@ public class DivisionCommanderAI {
                 div.targetObjective = uncapturedObj;
                 div.maneuverAnchor.set(uncapturedObj.getLocation());
                 targetLabel = uncapturedObj.getDisplayName();
-                reason = "advancing in fog of war";
+                reason = "advancing without contact";
                 div.lastIntentChangeTime = now;
                 DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
             } else {
@@ -791,7 +791,7 @@ public class DivisionCommanderAI {
                     div.currentIntent = DivisionIntentType.PRESS_OVERMATCH;
                     div.targetEnemyDivision = target;
                     div.maneuverAnchor.set(BattlegroupCommanderAI.getVisibleCentroidForSide(engine, div.side, target));
-                    reason = "BG: strike time, press \"" + target.displayName + "\"";
+                    reason = "OTC: execute, press home on \"" + target.displayName + "\"";
                     break;
                 }
                 // Only Central Planning overrides the Main Effort's own mission style with a fixing posture
@@ -863,7 +863,7 @@ public class DivisionCommanderAI {
     private static String flankSideTag(DivisionState div, DivisionState enemyDiv, BattlegroupState myBg) {
         float side = assignedFlankSide(div, enemyDiv, myBg);
         if (side == 0f) return "";
-        return side > 0f ? " [BG: right flank]" : " [BG: left flank]";
+        return side > 0f ? " [OTC: port flank]" : " [OTC: starboard flank]";
     }
 
     /** The BG-assigned flank side for this target, or 0 if the BG has not assigned one. */

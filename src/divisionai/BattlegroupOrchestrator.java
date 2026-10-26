@@ -104,7 +104,7 @@ public class BattlegroupOrchestrator {
             if (!myBg.reserveCommitted && myBg.reserveDivision != null) {
                 myBg.reserveCommitted = true;
                 logOrder(engine, myBg, "exploit_reserve",
-                        String.format("Committing reserve \"%s\" to exploit the breakthrough.", myBg.reserveDivision.displayName), now);
+                        String.format("Committing the reserve, \"%s\", to the general chase.", myBg.reserveDivision.displayName), now);
                 myBg.reserveDivision.isDesignatedReserve = false;
                 myBg.reserveDivision = null;
             }
@@ -120,7 +120,7 @@ public class BattlegroupOrchestrator {
                         || (reserveMission && myBg.currentPhase != BattlePhase.EXPLOIT_BREAKTHROUGH
                         && myBg.currentPhase != BattlePhase.ORDERED_WITHDRAWAL);
                 if (holdAsReserve) {
-                    d.bgTask.set(BgTaskType.HOLD_RESERVE, null, null, 0f, expires, "held in battlegroup reserve");
+                    d.bgTask.set(BgTaskType.HOLD_RESERVE, null, null, 0f, expires, "OTC: held in reserve");
                     d.bgTask.hasAnchor = true;
                     d.bgTask.anchor.set(myBg.reserveAnchor);
                     tasked.add(d);
@@ -175,9 +175,9 @@ public class BattlegroupOrchestrator {
             if (!targetValid || plan.participants.isEmpty()) {
                 if (!plan.committed && plan.target != null) {
                     logOrder(engine, myBg, "strike_abort", String.format(
-                            "Timed strike on \"%s\" aborted (%s).",
+                            "Strike on \"%s\" cancelled (%s).",
                             plan.target.displayName,
-                            targetValid ? "no strike divisions left" : "target lost"), now);
+                            targetValid ? "no strike divisions left" : "contact lost"), now);
                 }
                 endStrikePlan(myBg, now);
                 plan = null;
@@ -189,7 +189,7 @@ public class BattlegroupOrchestrator {
                 plan.commitTime = now;
                 plan.focusShip = pickStrikeFocusShip(engine, myBg.side, plan.target);
                 logOrder(engine, myBg, "strike_commit", String.format(
-                        "STRIKE: %d divisions commit on \"%s\"%s.",
+                        "Execute: %d division(s) strike \"%s\" together%s.",
                         plan.participants.size(),
                         plan.target.displayName,
                         plan.focusShip != null ? " (focus " + plan.focusShip.getName() + ")" : ""), now);
@@ -207,8 +207,8 @@ public class BattlegroupOrchestrator {
             Vector2f offset = plan.stagingAnchors.get(p.id);
             BgTaskType type = plan.committed ? BgTaskType.STRIKE_COMMIT : BgTaskType.STRIKE_STAGE;
             String why = plan.committed
-                    ? "strike time: commit on \"" + plan.target.displayName + "\""
-                    : String.format("strike in %.0fs", Math.max(0f, plan.strikeTime - now));
+                    ? "OTC: execute, strike \"" + plan.target.displayName + "\""
+                    : String.format("OTC: marshal, strike in %.0fs", Math.max(0f, plan.strikeTime - now));
             p.bgTask.set(type, plan.target, null, 0f, expires, why);
             if (offset != null) {
                 p.bgTask.hasAnchor = true;
@@ -274,12 +274,12 @@ public class BattlegroupOrchestrator {
         plan.strikeTime = now + Math.max(STRIKE_STAGE_MIN, Math.min(STRIKE_STAGE_MAX, maxEta));
 
         logOrder(engine, myBg, "strike_plan", String.format(
-                "Timed strike: %d division%s staging against \"%s\", strike in %.0fs%s.",
+                "Time-on-target strike: %d division%s to marshal against \"%s\", strike in %.0fs%s.",
                 strikers.size(),
                 strikers.size() == 1 ? "" : "s",
                 target.displayName,
                 plan.strikeTime - now,
-                mainEffortCanFix ? " (\"" + myBg.mainEffortDivision.displayName + "\" fixes)" : ""), now);
+                mainEffortCanFix ? " (\"" + myBg.mainEffortDivision.displayName + "\" fixes the target)" : ""), now);
         return plan;
     }
 
@@ -399,14 +399,14 @@ public class BattlegroupOrchestrator {
         if (best == null) {
             if (majorCrisis) {
                 logOrder(engine, myBg, "relief_none:" + crisis.id, String.format(
-                        "No uncommitted division free to relieve \"%s\" (ratio %.2f).",
+                        "No division free to reinforce \"%s\" (local ratio %.2f).",
                         crisis.displayName, crisis.localOvermatchRatio), now);
             }
             return;
         }
 
         best.bgTask.set(BgTaskType.RELIEVE, null, crisis, 0f, expires,
-                String.format("BG: relieve \"%s\" (ratio %.2f)", crisis.displayName, crisis.localOvermatchRatio));
+                String.format("OTC: reinforce \"%s\" (local ratio %.2f)", crisis.displayName, crisis.localOvermatchRatio));
         tasked.add(best);
 
         if (best != previousRelief) {
@@ -417,10 +417,10 @@ public class BattlegroupOrchestrator {
                 myBg.reserveDivision = null;
             }
             logOrder(engine, myBg, "relief:" + best.id + ">" + crisis.id, String.format(
-                    "%s \"%s\" to %srelieve \"%s\" (local ratio %.2f).",
-                    fromReserve ? "Committing reserve" : "Ordering",
+                    "%s \"%s\" to %sreinforce \"%s\" (local ratio %.2f).",
+                    fromReserve ? "Committing the reserve," : "Detaching",
                     best.displayName,
-                    majorCrisis ? "" : "locally ",
+                    majorCrisis ? "" : "close-in ",
                     crisis.displayName, crisis.localOvermatchRatio), now);
         }
     }
@@ -463,12 +463,12 @@ public class BattlegroupOrchestrator {
             if (nearest == null || nearestDist > 4000f) continue;
 
             boolean newOrder = !(d.bgTask.type == BgTaskType.PURSUE && d.bgTask.targetEnemy == nearest);
-            d.bgTask.set(BgTaskType.PURSUE, nearest, null, 0f, expires, "BG: pursue broken \"" + nearest.displayName + "\"");
+            d.bgTask.set(BgTaskType.PURSUE, nearest, null, 0f, expires, "OTC: general chase on \"" + nearest.displayName + "\"");
             tasked.add(d);
             pursuers++;
             if (newOrder) {
                 logOrder(engine, myBg, "pursue:" + d.id + ">" + nearest.id, String.format(
-                        "\"%s\" to pursue broken \"%s\" (leash %.0fu).", d.displayName, nearest.displayName, PURSUIT_LEASH), now);
+                        "General chase: \"%s\" to pursue \"%s\" (leash %.0fu).", d.displayName, nearest.displayName, PURSUIT_LEASH), now);
             }
         }
     }
@@ -531,7 +531,7 @@ public class BattlegroupOrchestrator {
             Vector2f primaryPos = BattlegroupCommanderAI.getVisibleCentroidForSide(engine, myBg.side, primary);
             boolean newOrder = !(main.bgTask.type == BgTaskType.FIX_PRIMARY && main.bgTask.targetEnemy == primary);
             main.bgTask.set(BgTaskType.FIX_PRIMARY, primary, null, 0f, expires,
-                    "BG Main Effort: fix \"" + primary.displayName + "\"");
+                    "OTC: Main Effort, form the line on \"" + primary.displayName + "\"");
             if (myBg.authority.allowsPositioning()) {
                 float dx = myBg.fleetCentroid.x - primaryPos.x;
                 float dy = myBg.fleetCentroid.y - primaryPos.y;
@@ -552,7 +552,7 @@ public class BattlegroupOrchestrator {
             assignedFp.put(primary, assignedFp.get(primary) + main.totalFpStrength);
             if (newOrder) {
                 logOrder(engine, myBg, "fix:" + main.id + ">" + primary.id, String.format(
-                        "Main Effort \"%s\" to fix \"%s\".", main.displayName, primary.displayName), now);
+                        "Main Effort \"%s\" to form the line on \"%s\" and fix it.", main.displayName, primary.displayName), now);
             }
         }
 
@@ -593,7 +593,7 @@ public class BattlegroupOrchestrator {
             }
             if (best == null) continue;
 
-            d.bgTask.set(BgTaskType.SUPPORT_ATTACK, best, null, 0f, expires, "BG: engage \"" + best.displayName + "\"");
+            d.bgTask.set(BgTaskType.SUPPORT_ATTACK, best, null, 0f, expires, "OTC: fire distribution, engage \"" + best.displayName + "\"");
             d.bgTask.hasAnchor = false;
             tasked.add(d);
             allocationOut.put(d, best);
@@ -679,13 +679,13 @@ public class BattlegroupOrchestrator {
                 boolean newOrder = !(d.bgTask.type == BgTaskType.FLANK && d.bgTask.targetEnemy == target
                         && Math.signum(d.bgTask.flankSide) == Math.signum(side));
                 d.bgTask.set(BgTaskType.FLANK, target, null, side, expires,
-                        String.format("BG: %s flank of \"%s\"", side > 0f ? "right" : "left", target.displayName));
+                        String.format("OTC: %s flank of \"%s\"", side > 0f ? "port" : "starboard", target.displayName));
                 d.bgTask.hasAnchor = false;
                 tasked.add(d);
                 if (newOrder && flankers.size() >= 2) {
-                    logOrder(engine, myBg, "flank:" + d.id + ">" + target.id + (side > 0f ? "R" : "L"), String.format(
-                            "Pincer: \"%s\" takes the %s flank of \"%s\".",
-                            d.displayName, side > 0f ? "right" : "left", target.displayName), now);
+                    logOrder(engine, myBg, "flank:" + d.id + ">" + target.id + (side > 0f ? "P" : "S"), String.format(
+                            "Doubling: \"%s\" takes the %s flank of \"%s\".",
+                            d.displayName, side > 0f ? "port" : "starboard", target.displayName), now);
                 }
             }
         }

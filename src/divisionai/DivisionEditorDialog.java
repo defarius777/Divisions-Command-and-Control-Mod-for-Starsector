@@ -216,7 +216,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI tb = toolbarRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
         ButtonAPI bCreate = registerButton(
                 tb.addButton(
-                        "+ Create New Division",
+                        "+ Establish New Division",
                         "CREATE_DIV",
                         baseColor,
                         darkColor,
@@ -246,7 +246,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         if (!divisions.isEmpty()) {
             ButtonAPI bClearAll = registerButton(
                     tb.addButton(
-                            "Disband All Divisions",
+                            "Disestablish All Divisions",
                             "CLEAR_ALL_DIVS",
                             Misc.getNegativeHighlightColor(),
                             darkColor,
@@ -344,7 +344,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 DivisionMissionType effOpen = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, bgCfg);
                 DivisionMissionType effMain = PermanentDivisionManager.resolveEffectiveMainMission(spec, bgCfg);
                 leftCol.addPara(
-                        "Division Settings: Space: %s | Intra %su | Inter %su | Standoff %su | %s -> %s",
+                        "Division Settings: Station %s | Spacing %su | Interval %su | Standoff %su | %s -> %s",
                         2f,
                         Misc.getPositiveHighlightColor(),
                         effSpace.displayName,
@@ -380,13 +380,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 String delAct = "DELETE_DIV:" + spec.id;
                 ButtonAPI bDel = registerButton(
                         rowUi.addButton(
-                                "Disband Division",
+                                "Disestablish Division",
                                 delAct,
                                 Misc.getNegativeHighlightColor(),
                                 darkColor,
                                 Alignment.MID,
                                 CutStyle.TL_BR,
-                                145f,
+                                170f,
                                 22f,
                                 0f),
                         delAct);
@@ -663,7 +663,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 colWidth - 16f,
                 String.format(
                         Locale.ROOT,
-                        "Intra-div spacing: %du (%.2fx Paragon) [%s]",
+                        "Station spacing: %du (%.2fx Paragon) [%s]",
                         effIntra,
                         effIntra / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
                         spec.customIntraSpacing != null ? "Custom" : "Inherited"),
@@ -683,7 +683,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 colWidth - 16f,
                 String.format(
                         Locale.ROOT,
-                        "Inter-div spacing: %du (%.2fx Paragon) [%s]",
+                        "Division interval: %du (%.2fx Paragon) [%s]",
                         effInter,
                         effInter / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
                         spec.customInterSpacing != null ? "Custom" : "Inherited"),
@@ -934,7 +934,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         String inhAct = actionPrefix + "INHERIT";
         ButtonAPI bInh = registerButton(
-                rowUi.addButton("Inherit BG", inhAct, isCustom ? baseColor : activeColor, darkColor, Alignment.MID, CutStyle.ALL, 82f, 20f, 0f),
+                rowUi.addButton("Inherit", inhAct, isCustom ? baseColor : activeColor, darkColor, Alignment.MID, CutStyle.ALL, 82f, 20f, 0f),
                 inhAct);
         if (!isCustom) bInh.highlight();
         bInh.getPosition().inTL(x + 112f, 2f);
@@ -959,11 +959,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 48f, false);
 
         String statusTag = isCustom
-                ? ((longestWeaponRange > 0 && Math.abs(effStandoff - longestWeaponRange) <= 25) ? "Auto-Weapon" : "Custom")
+                ? ((longestWeaponRange > 0 && Math.abs(effStandoff - longestWeaponRange) <= 25) ? "Auto (Guns)" : "Custom")
                 : "Inherited";
         String label = String.format(
                 Locale.ROOT,
-                "Line Standoff: %du (%.2fx Paragon) [%s | Max Range: %du]",
+                "Standoff range: %du (%.2fx Paragon) [%s | Max Gun Range: %du]",
                 effStandoff,
                 effStandoff / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
                 statusTag,
@@ -983,7 +983,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         bInc.getPosition().inTL(62f, 25f);
 
         String autoLabel = longestWeaponRange > 0
-                ? ("Auto-Set From Max Weapon (" + longestWeaponRange + "u)")
+                ? ("Auto-Set From Max Gun Range (" + longestWeaponRange + "u)")
                 : "Auto-Set From Max Weapon";
         ButtonAPI bAuto = registerButton(
                 rowUi.addButton(autoLabel, "DIV_STANDOFF:AUTO", positive, darkColor, Alignment.MID, CutStyle.TL_BR, 230f, 20f, 0f),
@@ -992,7 +992,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         bAuto.getPosition().inTL(122f, 25f);
 
         ButtonAPI bInh = registerButton(
-                rowUi.addButton("Inherit BG", "DIV_STANDOFF:INHERIT", !isCustom ? positive : baseColor, darkColor, Alignment.MID, CutStyle.ALL, 88f, 20f, 0f),
+                rowUi.addButton("Inherit", "DIV_STANDOFF:INHERIT", !isCustom ? positive : baseColor, darkColor, Alignment.MID, CutStyle.ALL, 88f, 20f, 0f),
                 "DIV_STANDOFF:INHERIT");
         if (!isCustom) bInh.highlight();
         bInh.getPosition().inTL(356f, 25f);
@@ -1016,7 +1016,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         String labelText = String.format(
                 Locale.ROOT,
-                "Preferred Space: %s [%s]",
+                "Station in Line: %s [%s]",
                 effSpace.displayName,
                 isCustom ? "Custom/Auto" : "Inherited");
         rowUi.addPara(labelText, 3f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(2f, 4f);
@@ -1045,7 +1045,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         String inhAct = "DIV_SPACE:INHERIT";
         ButtonAPI bInh = registerButton(
                 rowUi.addButton(
-                        "Inherit BG",
+                        "Inherit",
                         inhAct,
                         !isCustom ? activeColor : baseColor,
                         darkColor,
@@ -1085,7 +1085,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         rowUi.addPara(labelText, 3f, baseColor).getPosition().inTL(2f, 4f);
 
         String toggleAct = "TOGGLE_DD:" + dropdownKey;
-        String prefix = isCustom ? "" : "[BG] ";
+        String prefix = isCustom ? "" : "[Doctrine] ";
         String btnText = (expanded ? "[^] " : "[v] ") + prefix + effMission.dropdownLabel;
         ButtonAPI bToggle = registerButton(
                 rowUi.addButton(btnText, toggleAct, activeColor, darkColor, Alignment.LMID, CutStyle.TL_BR, 265f, 21f, 0f),
@@ -1104,7 +1104,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             String inhAct = actionPrefix + "INHERIT";
             ButtonAPI bInh = registerButton(
                     inhUi.addButton(
-                            (!isCustom ? "* " : "   ") + "Inherit Battlegroup Default",
+                            (!isCustom ? "* " : "   ") + "Inherit Battle Group Default",
                             inhAct,
                             !isCustom ? activeColor : baseColor,
                             darkColor,

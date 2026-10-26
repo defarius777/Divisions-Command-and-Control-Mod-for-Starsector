@@ -48,6 +48,7 @@ public class PermanentDivisionManager {
     private static final String PERSISTENT_SEQ_KEY = "divisionai_permanent_divisions_seq_v2";
     private static final String PERSISTENT_DOCTRINE_KEY = "divisionai_fleet_doctrine_v1";
     private static final String PERSISTENT_STANDOFF_MIGRATION_KEY = "divisionai_standoff_gun_only_v1";
+    private static final String PERSISTENT_NAVAL_NAMES_MIGRATION_KEY = "divisionai_naval_names_v1";
 
     /** Hard cap on division size regardless of individual hull maximums. */
     public static final int MAX_DIVISION_SIZE = 10;
@@ -65,13 +66,13 @@ public class PermanentDivisionManager {
     public static final int MAX_OPENING_DURATION_SEC = 60;
 
     /**
-     * Preferred battlefield depth zone for a division (Forward, Middle, Back).
+     * Preferred station in the line of battle for a division (Van, Center, Rear).
      * Automatically selected by certain mission types, or manually set by the player.
      */
     public enum PreferredSpace {
-        FORWARD("Forward", "Deploys and maneuvers ahead of the main battle line."),
-        MIDDLE("Middle", "Maintains station along the main battle line."),
-        BACK("Back", "Stays behind the main battle line in rear standoff or reserve.");
+        FORWARD("Van", "Leads the line of battle, ahead of the main body."),
+        MIDDLE("Center", "Keeps station in the center of the line of battle."),
+        BACK("Rear", "Stays astern of the line of battle, in standoff or in reserve.");
 
         public final String displayName;
         public final String summary;
@@ -99,79 +100,79 @@ public class PermanentDivisionManager {
     public enum DivisionMissionType {
         // General Combat Missions
         RECONNAISSANCE(
-                "a. \"Reconnaissance\"",
-                "Reconnaissance",
-                "Probe forward, seize unclaimed tactical objectives/buoys, and maintain standoff recon.",
+                "a. \"Scouting\"",
+                "Scouting",
+                "Scout ahead, take unclaimed objectives (buoys, relays, jammers) and keep contact at standoff range.",
                 false,
                 PreferredSpace.FORWARD),
         DOMINATE_SPACE_INTO_BRAWL(
-                "b. \"Dominate Space into Brawl\"",
-                "Dominate Space into Brawl",
-                "Advance to contest space and close aggressively into a decisive main-line brawl.",
+                "b. \"Close Action\"",
+                "Close Action",
+                "Close the enemy and fight it out at close range: engage the enemy more closely.",
                 false,
                 PreferredSpace.FORWARD),
         STANDOFF_AT_RANGE(
-                "c. \"Standoff at Range\"",
-                "Standoff at Range",
-                "Hold firing line at Line Standoff distance (longest weapon range) and kite back if pressed.",
+                "c. \"Standoff Engagement\"",
+                "Standoff Engagement",
+                "Hold the line at Standoff Range (longest gun range) and open the range if pressed.",
                 false,
                 PreferredSpace.MIDDLE),
         OUTFLANK_AND_DESTROY(
-                "d. \"Outflank and Destroy\"",
-                "Outflank and Destroy",
-                "Swing wide around enemy flanks to envelop and destroy isolated or vulnerable targets.",
+                "d. \"Envelopment\"",
+                "Envelopment",
+                "Work around the enemy flanks to envelop and destroy isolated or exposed ships.",
                 false,
                 PreferredSpace.FORWARD),
         SCREEN(
                 "e. \"Screen\"",
                 "Screen",
-                "Form a spaced forward/flank picket screen protecting heavier friendly divisions.",
+                "Take spaced screening stations ahead of and abeam heavier friendly divisions.",
                 false,
                 PreferredSpace.MIDDLE),
 
         // Carrier Missions and Tactics (a..f)
         CARRIER_RECON_STRIKE_CRAFT(
-                "a. \"Reconnaissance by Strike Craft\"",
-                "Recon by Strike Craft",
-                "Keep carriers safely back while sending strike craft forward to spot and harass.",
+                "a. \"Armed Reconnaissance\"",
+                "Armed Reconnaissance",
+                "Carriers stay back while strike craft scout forward and hit targets of opportunity.",
                 true,
                 PreferredSpace.BACK),
         CARRIER_VOID_SUPERIORITY(
-                "b. \"Void Superiority\"",
-                "Void Superiority",
-                "Contest fighter/air superiority and strip enemy strike craft and light flankers.",
+                "b. \"Space Superiority\"",
+                "Space Superiority",
+                "Fighter sweeps to win control of space: strip enemy strike craft and light escorts.",
                 true,
                 PreferredSpace.MIDDLE),
         CARRIER_PROTECT_FLEET(
-                "c. \"Protect Fleet\"",
-                "Protect Fleet",
-                "Provide fleet air defense cover over friendly heavy/endangered divisions.",
+                "c. \"Combat Space Patrol\"",
+                "Combat Space Patrol",
+                "Keep fighters on patrol over heavy or threatened friendly divisions.",
                 true,
                 PreferredSpace.BACK),
         CARRIER_SUCCESSIVE_STRIKES(
-                "d. \"Successive Strikes/Fire at Will\"",
-                "Successive Strikes / Fire at Will",
-                "Launch continuous strike craft attacks at will against the best visible enemy target.",
+                "d. \"Cyclic Strikes\"",
+                "Cyclic Strikes",
+                "Launch, recover and relaunch strikes continuously against the best visible target.",
                 true,
                 PreferredSpace.BACK),
         CARRIER_DIVISION_COORDINATED_STRIKE(
-                "e. \"Division Coordinated Strike\"",
-                "Division Coordinated Strike",
-                "Synchronize all carriers in this division onto the same focus target ship.",
+                "e. \"Deckload Strike\"",
+                "Deckload Strike",
+                "Every carrier in the division launches together onto one focus target.",
                 true,
                 PreferredSpace.BACK),
         CARRIER_MULTI_DIVISION_STRIKE(
-                "f. \"Multi-Division Coordinated Strike\"",
-                "Multi-Division Coordinated Strike",
-                "Synchronize strike craft with the Battlegroup Main Effort / missile divisions on primary threat.",
+                "f. \"Alpha Strike\"",
+                "Alpha Strike",
+                "Full coordinated strike with the Main Effort and missile divisions on the primary threat (joins time-on-target strikes).",
                 true,
                 PreferredSpace.BACK),
 
         // Universal Reserve Mission
         BATTLEGROUP_RESERVE(
-                "g. \"Battlegroup Reserve\"",
-                "Battlegroup Reserve",
-                "Stay behind the front line in reserve until called up by the Battlegroup Commander for relief/tasks.",
+                "g. \"Reserve\"",
+                "Reserve",
+                "Hold astern of the line in reserve until the OTC commits the division to reinforce or exploit.",
                 false,
                 PreferredSpace.BACK);
 
@@ -283,7 +284,7 @@ public class PermanentDivisionManager {
                 DivisionMissionType.OUTFLANK_AND_DESTROY,
                 PreferredSpace.FORWARD),
         BATTLE_CAPITAL(
-                "Battle Division (Capital)",
+                "Battleship Division (Capital)",
                 DivisionArchetype.BATTLE_DIVISION,
                 675,
                 1200,
@@ -323,7 +324,7 @@ public class PermanentDivisionManager {
                 DivisionMissionType.CARRIER_SUCCESSIVE_STRIKES,
                 PreferredSpace.BACK),
         CARRIER_ESCORT(
-                "Mixed Carrier Division",
+                "Carrier Group (Carrier & Escorts)",
                 DivisionArchetype.CARRIER_AND_ESCORT,
                 575,
                 1300,
@@ -343,7 +344,7 @@ public class PermanentDivisionManager {
                 DivisionMissionType.OUTFLANK_AND_DESTROY,
                 PreferredSpace.FORWARD),
         AUXILIARY(
-                "Auxiliary Convoy",
+                "Service Group (Auxiliaries)",
                 DivisionArchetype.AUXILIARY_CONVOY,
                 450,
                 1200,
@@ -497,30 +498,30 @@ public class PermanentDivisionManager {
     }
 
     /**
-     * How much authority the Battlegroup Commander has over each division's configured Opening/Main Mission
-     * when it orchestrates the battle (selectable in the Fleet Doctrine window).
+     * How much authority the Battle Group Commander (Officer in Tactical Command, OTC) has over each division's
+     * configured Opening/Main Mission when it orchestrates the battle (selectable in the Fleet Doctrine window).
      */
     public enum BattlegroupAuthority {
         HYBRID(
-                "A. \"Hybrid\"",
-                "Hybrid",
-                "Missions set each division's style; the BG picks targets, timing, sectors and flank sides within it, "
-                        + "and only fully re-tasks reserve, relief and pursuit divisions."),
+                "A. \"Command by Direction\"",
+                "Command by Direction",
+                "Missions set each division's style; the OTC directs targets, timing, stations and flank sides within it, "
+                        + "and only fully re-tasks reserve, reinforcement and pursuit divisions."),
         CENTRAL_PLANNING(
-                "B. \"Central Planning\"",
-                "Central Planning",
-                "BG taskings replace missions whenever issued (fix, support, flank, relieve, pursue, strike); "
-                        + "missions are only the default when the BG has no orders for a division."),
+                "B. \"Positive Control\"",
+                "Positive Control",
+                "OTC orders replace missions whenever issued (fix, engage, flank, reinforce, chase, strike); "
+                        + "missions are only the default when the OTC has no orders for a division."),
         MISSION_TACTICS(
-                "C. \"Mission-Type Tactics\"",
-                "Mission-Type Tactics",
-                "The BG states intent (targets, flank sides, strike times, relief requests); divisions execute in their "
-                        + "own mission style and may decline or deviate when their local situation demands it."),
+                "C. \"Command by Negation\"",
+                "Command by Negation",
+                "The OTC states intent (targets, flank sides, strike times, reinforcement requests); divisions act on their "
+                        + "own initiative in their mission style and may decline or deviate unless the OTC overrides them."),
         TARGET_COORDINATION(
-                "D. \"Target Coordination Only\"",
-                "Target Coordination Only",
-                "The BG only allocates enemy targets and synchronizes strike timing; it never moves, re-tasks or "
-                        + "positions divisions.");
+                "D. \"Fire Distribution Only\"",
+                "Fire Distribution Only",
+                "The OTC only distributes enemy targets and times strikes; it never moves, re-tasks or "
+                        + "stations divisions.");
 
         public final String dropdownLabel;
         public final String shortName;
@@ -558,21 +559,21 @@ public class PermanentDivisionManager {
     }
 
     /**
-     * Battle-wide orchestration plays the Battlegroup Commander may run (each toggled in the Fleet Doctrine window).
+     * Battle-wide plays the Battle Group Commander (OTC) may run (each toggled in the Fleet Doctrine window).
      */
     public enum OrchestrationPlay {
         ANCHOR_AND_FIX(
-                "Anchor & Fix",
-                "Main Effort fixes the primary threat; supporting divisions get their own enemy divisions instead of piling onto the nearest."),
+                "Line & Fire Distribution",
+                "The Main Effort forms the line on the primary threat and fixes it; fire is distributed so each other division takes its own target."),
         PINCER_FLANKS(
-                "Pincer Flanks",
-                "Flanking divisions are given opposite flank sides so they envelop the same target from left and right."),
+                "Doubling",
+                "Flankers on the same target are sent down opposite sides (port and starboard) to double it."),
         TIMED_STRIKES(
-                "Timed Strikes",
-                "Missile and strike-craft divisions stage first, then commit together at a shared strike time on one focus target."),
+                "Time-on-Target Strikes",
+                "Missile and strike-craft divisions go to their marshal points, then strike together at one time on one focus ship."),
         RESERVE_AND_EXPLOIT(
-                "Reserve & Exploit",
-                "One relief division per crisis, reserve held until needed, and fast divisions pursue broken enemies on a leash.");
+                "Reserve & General Chase",
+                "One division sent to reinforce each crisis, the reserve held until needed, and fast divisions give general chase to broken enemies on a leash.");
 
         public final String displayName;
         public final String summary;
@@ -946,12 +947,12 @@ public class PermanentDivisionManager {
     }
 
     public enum DoctrineOption {
-        ADAPTIVE("Adaptive C2 (Default)", "Balanced division C2: screens, flanks, or presses overmatch based on live telemetry."),
-        SPEARHEAD("Aggressive Spearhead", "Commits early to line contact and presses local overmatch aggressively."),
-        STANDOFF("Standoff Fire Support", "Maintains maximum weapon/fighter standoff range and avoids close brawls."),
-        SCREEN_ESCORT("Screen & Escort", "Prioritizes screening friendly capital and carrier divisions against flankers."),
-        FLANK_STRIKE("Flank & Missile Strike", "Swings wide around enemy flanks and looks for missile strike windows."),
-        RESERVE_HOLD("Tactical Reserve", "Holds behind the main battle line until a friendly division requires relief.");
+        ADAPTIVE("Adaptive (Default)", "Balanced division tactics: screens, flanks, or presses home the attack as the action develops."),
+        SPEARHEAD("Spearhead", "Closes the enemy early and presses home the attack wherever it has the advantage."),
+        STANDOFF("Fire Support", "Keeps to maximum gun or strike-craft range and avoids close action."),
+        SCREEN_ESCORT("Escort & Screen", "Takes screening station on friendly battleship and carrier divisions against flankers."),
+        FLANK_STRIKE("Flanking & Missile Strike", "Works around the enemy flanks and looks for missile strike opportunities."),
+        RESERVE_HOLD("Reserve", "Holds astern of the line until a friendly division needs reinforcing.");
 
         public final String displayName;
         public final String summary;
@@ -1150,6 +1151,51 @@ public class PermanentDivisionManager {
         pdata.put(PERSISTENT_STANDOFF_MIGRATION_KEY, Boolean.TRUE);
         if (migrated > 0) {
             LOG.info("[DivisionAI] Recalculated auto Line Standoff from gun range (missiles excluded) for " + migrated + " divisions.");
+        }
+    }
+
+    /**
+     * One-time save migration (v0.5.1): auto-generated division names that used the old prefixes are renamed to the
+     * naval terminology ("Battle Div 2" -> "Battleship Div 2", "Mixed Carrier Div 1" -> "Carrier Group 1",
+     * "Aux Group 1" -> "Service Group 1"). Names the player typed in themselves are left untouched.
+     */
+    public static void migrateDivisionNamesToNavalTerms() {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || sector.getPlayerFleet() == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        if (Boolean.TRUE.equals(pdata.get(PERSISTENT_NAVAL_NAMES_MIGRATION_KEY))) return;
+
+        Map<String, String> oldToNewPrefix = new LinkedHashMap<>();
+        oldToNewPrefix.put("Battle Div", DivisionArchetype.BATTLE_DIVISION.shortPrefix);
+        oldToNewPrefix.put("Mixed Carrier Div", DivisionArchetype.CARRIER_AND_ESCORT.shortPrefix);
+        oldToNewPrefix.put("Aux Group", DivisionArchetype.AUXILIARY_CONVOY.shortPrefix);
+
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        Set<String> takenNames = new HashSet<>();
+        for (PermanentDivisionSpec spec : specs) {
+            if (spec.name != null) takenNames.add(spec.name);
+        }
+        int renamed = 0;
+        for (PermanentDivisionSpec spec : specs) {
+            if (spec.name == null) continue;
+            for (Map.Entry<String, String> e : oldToNewPrefix.entrySet()) {
+                String oldPrefix = e.getKey() + " ";
+                if (!spec.name.startsWith(oldPrefix)) continue;
+                String suffix = spec.name.substring(oldPrefix.length());
+                if (!suffix.matches("\\d+")) continue;
+                String newName = e.getValue() + " " + suffix;
+                if (takenNames.contains(newName)) continue;
+                takenNames.remove(spec.name);
+                takenNames.add(newName);
+                spec.name = newName;
+                renamed++;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+        pdata.put(PERSISTENT_NAVAL_NAMES_MIGRATION_KEY, Boolean.TRUE);
+        if (renamed > 0) {
+            LOG.info("[DivisionAI] Renamed " + renamed + " auto-named divisions to naval terminology.");
         }
     }
 

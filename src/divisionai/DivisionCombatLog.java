@@ -88,8 +88,8 @@ public class DivisionCombatLog {
         bg.lastBgOrderLogTime = now;
 
         String sideTag = (bg.side == 0)
-                ? (bg.isAlliedAi ? "[Allied BG Cmdr]" : "[Player BG Cmdr]")
-                : "[Enemy BG Cmdr]";
+                ? (bg.isAlliedAi ? "[Allied OTC]" : "[Player OTC]")
+                : "[Enemy OTC]";
         LOG.info(String.format("%s (%s) Phase=%s -> %s",
                 sideTag, bg.bgCommander.personalityId, bg.currentPhase.displayName, directiveSummary));
 
@@ -113,8 +113,8 @@ public class DivisionCombatLog {
     public static void logBattlegroupOrder(CombatEngineAPI engine, BattlegroupState bg, String orderText) {
         if (bg == null || orderText == null) return;
         String sideTag = (bg.side == 0)
-                ? (bg.isAlliedAi ? "[Allied BG Cmdr]" : "[Player BG Cmdr]")
-                : "[Enemy BG Cmdr]";
+                ? (bg.isAlliedAi ? "[Allied OTC]" : "[Player OTC]")
+                : "[Enemy OTC]";
         LOG.info(String.format("%s (%s) Order [%s]: %s",
                 sideTag, bg.bgCommander.personalityId, bg.authority.shortName, orderText));
 

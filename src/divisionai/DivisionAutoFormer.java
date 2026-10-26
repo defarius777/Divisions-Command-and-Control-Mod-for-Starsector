@@ -76,7 +76,7 @@ public class DivisionAutoFormer {
                 commander = fm.getDefaultCommander();
             }
         }
-        String fallback = (side == 0) ? "Player BG Cmdr" : "OpFor BG Cmdr";
+        String fallback = (side == 0) ? "Player OTC" : "OpFor OTC";
         return new CommanderProfile(commander, fallback);
     }
 
@@ -102,7 +102,7 @@ public class DivisionAutoFormer {
                 commander = fm.getDefaultCommander();
             }
         }
-        return new CommanderProfile(commander, "Allied BG Cmdr");
+        return new CommanderProfile(commander, "Allied OTC");
     }
 
     /**

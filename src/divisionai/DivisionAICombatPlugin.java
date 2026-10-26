@@ -113,7 +113,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             tacticalOverlay.setBattlegroups(playerBg, alliedAiBg, enemyBg);
             initializedBattle = true;
-            LOG.info(String.format("[DivisionAI] Player BG orchestration: authority=%s, plays=%s",
+            LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, plays=%s",
                     playerBg.authority.shortName, playerBg.plays));
         }
 
@@ -166,7 +166,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             if (playerHasDivisions && !loggedPlayerBgInit) {
                 loggedPlayerBgInit = true;
                 LOG.info(String.format(
-                        "[DivisionAI] Player Battlegroup Commander initialized (Mission=%s, Cmdr=%s [%s], ActiveDivs=%d)",
+                        "[DivisionAI] Player Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], ActiveDivs=%d)",
                         playerBg.missionContext.displayName,
                         playerBg.bgCommander.commanderName,
                         playerBg.bgCommander.personalityId,
@@ -175,7 +175,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             if (alliedAiHasDivisions && !loggedAlliedAiBgInit) {
                 loggedAlliedAiBgInit = true;
                 LOG.info(String.format(
-                        "[DivisionAI] Allied AI Battlegroup Commander initialized (Mission=%s, Cmdr=%s [%s], ActiveDivs=%d)",
+                        "[DivisionAI] Allied AI Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], ActiveDivs=%d)",
                         alliedAiBg.missionContext.displayName,
                         alliedAiBg.bgCommander.commanderName,
                         alliedAiBg.bgCommander.personalityId,
@@ -184,7 +184,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             if (enemyHasDivisions && !loggedEnemyBgInit) {
                 loggedEnemyBgInit = true;
                 LOG.info(String.format(
-                        "[DivisionAI] Enemy Battlegroup Commander initialized (Mission=%s, Cmdr=%s [%s], ActiveDivs=%d)",
+                        "[DivisionAI] Enemy Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], ActiveDivs=%d)",
                         enemyBg.missionContext.displayName,
                         enemyBg.bgCommander.commanderName,
                         enemyBg.bgCommander.personalityId,
@@ -325,8 +325,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         engine.maintainStatusForPlayerShip(
                 HUD_STATUS_KEY_BG,
                 "graphics/icons/hullsys/reserve_deployment.png",
-                "BG Phase: " + playerBg.currentPhase.displayName,
-                String.format("Force Ratio %.2fx | %d Active Divs", playerBg.forceRatio, playerBg.divisions.size()),
+                "OTC Phase: " + playerBg.currentPhase.displayName,
+                String.format("Force Ratio %.2fx | %d Divisions in Action", playerBg.forceRatio, playerBg.divisions.size()),
                 false);
     }
 }

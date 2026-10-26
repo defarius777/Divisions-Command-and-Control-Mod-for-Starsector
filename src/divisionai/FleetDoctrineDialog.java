@@ -162,9 +162,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         // 1. Header & Subtitle (including Paragon's in-game length = 364 units)
         TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 62f, false);
         header.setTitleOrbitronLarge();
-        header.addTitle("FLEET DOCTRINE — BATTLEGROUP COMMAND, DIVISION MODIFIERS & HULL LIMITS", baseColor);
+        header.addTitle("FLEET DOCTRINE — BATTLE GROUP COMMAND, DIVISION MODIFIERS & HULL LIMITS", baseColor);
         header.addPara(
-                "Configure division-type spacing/standoff modifiers and min/max hull limits (Hard Cap: %s ships/division).",
+                "Configure OTC command doctrine, division-type station spacing and standoff range, and min/max hull limits (Hard Cap: %s ships/division).",
                 3f,
                 highlight,
                 String.valueOf(PermanentDivisionManager.MAX_DIVISION_SIZE));
@@ -197,7 +197,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bTabBg = registerButton(
                 tb.addButton(
-                        "Battlegroup Command",
+                        "Battle Group Command",
                         "TAB:BG_COMMAND",
                         activeTab == ActiveTab.BATTLEGROUP_COMMAND ? highlight : baseColor,
                         darkColor,
@@ -281,14 +281,14 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.BATTLEGROUP_COMMAND) {
             body.addSectionHeading(
-                    "BATTLEGROUP COMMAND — ORCHESTRATION AUTHORITY & PLAYS",
+                    "BATTLE GROUP COMMAND — OTC AUTHORITY & PLAYS",
                     highlight,
                     darkColor,
                     Alignment.LMID,
                     4f);
             body.addPara(
-                    "How your Battlegroup Commander orchestrates the battle across divisions. Authority sets how far its "
-                            + "taskings may override each division's Opening/Main Mission; plays switch individual behaviours on or off.",
+                    "How your Battle Group Commander, the Officer in Tactical Command (OTC), fights the battle across divisions. Authority sets how far its "
+                            + "orders may override each division's Opening/Main Mission; plays switch individual behaviours on or off.",
                     4f,
                     gray);
 
@@ -316,14 +316,14 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.DIVISION_MODIFIERS) {
             body.addSectionHeading(
-                    "BATTLEGROUP SETTINGS — SPACING, LINE STANDOFF & MISSIONS  (Paragon Length = "
+                    "BATTLE GROUP SETTINGS — STATION SPACING, STANDOFF RANGE & MISSIONS  (Paragon Length = "
                             + PermanentDivisionManager.PARAGON_LENGTH_UNITS + "u)",
                     highlight,
                     darkColor,
                     Alignment.LMID,
                     4f);
             body.addPara(
-                    "Battlegroup Settings are inherited by all divisions of each type unless overridden on an individual division in the Division Editor. "
+                    "Battle Group Settings are inherited by all divisions of each type unless overridden on an individual division in the Division Editor. "
                             + "Opening Mission runs for the first 30-60s (%ss); Main Mission runs for the rest of the battle.",
                     4f,
                     gray,
@@ -353,7 +353,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
                 String dtTitle = String.format(
                         Locale.ROOT,
-                        "%s  —  Space: %s  |  Intra: %du  |  Inter: %du  |  Standoff: %du  |  %s -> %s",
+                        "%s  —  Station: %s  |  Spacing: %du  |  Interval: %du  |  Standoff: %du  |  %s -> %s",
                         dt.displayName.toUpperCase(Locale.ROOT),
                         currPrefSpace.displayName,
                         currSpacing,
@@ -369,7 +369,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         bodyWidth - 16f,
                         String.format(
                                 Locale.ROOT,
-                                "Intra-division spacing: %du (%.2fx Paragon)",
+                                "Station spacing (ship to ship): %du (%.2fx Paragon)",
                                 currSpacing,
                                 spacingParagons),
                         currSpacing,
@@ -388,7 +388,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         bodyWidth - 16f,
                         String.format(
                                 Locale.ROOT,
-                                "Inter-division spacing: %du (%.2fx Paragon)",
+                                "Division interval (division to division): %du (%.2fx Paragon)",
                                 currInter,
                                 interParagons),
                         currInter,
@@ -407,7 +407,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         bodyWidth - 16f,
                         String.format(
                                 Locale.ROOT,
-                                "Line Standoff distance: %du (%.2fx Paragon)",
+                                "Standoff range: %du (%.2fx Paragon)",
                                 currStandoff,
                                 standoffParagons),
                         currStandoff,
@@ -424,7 +424,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addPreferredSpaceRow(
                         body,
                         bodyWidth - 16f,
-                        dt.displayName + " Preferred Space: " + currPrefSpace.displayName,
+                        dt.displayName + " Station in Line: " + currPrefSpace.displayName,
                         currPrefSpace,
                         "SET_PREF_SPACE:" + dt.name() + ":",
                         baseColor,
@@ -566,7 +566,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
-        rowUi.addPara("Battlegroup Commander authority:", 4f, baseColor).getPosition().inTL(4f, 4f);
+        rowUi.addPara("OTC authority:", 4f, baseColor).getPosition().inTL(4f, 4f);
 
         String toggleAct = "TOGGLE_DD:" + BG_AUTHORITY_DROPDOWN_KEY;
         String btnText = (expanded ? "[^] " : "[v] ") + current.dropdownLabel + "  (Click to change)";
