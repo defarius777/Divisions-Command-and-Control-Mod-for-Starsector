@@ -537,11 +537,14 @@ public final class DivisionNomenclature {
 
         String fId = factionId != null ? factionId.toLowerCase(Locale.ROOT) : "";
         int num = Math.max(1, sequenceNumber);
-        long seed = unitSeed != 0L
+        long rawSeed = unitSeed != 0L
                 ? unitSeed
                 : (fId.hashCode() * 6364136223846793005L
                         + num * 1442695040888963407L
                         + (archetype != null ? archetype.ordinal() * 2654435761L : 0L));
+        long seed = mixSeed64(rawSeed
+                ^ (num * 0x9E3779B97F4A7C15L)
+                ^ (archetype != null ? (archetype.ordinal() + 1L) * 0xBF58476D1CE4E5B9L : 0L));
 
         if (isPirateOrIndependentFaction(fId)) {
             return formatPirateOrIndependentDivisionName(fId, archetype, num, commander, seed);
@@ -551,12 +554,18 @@ public final class DivisionNomenclature {
         }
 
         // Standard Human Naval nomenclature: use Roman numerals for Battle Divisions ("Battle Div. I")
-        // or when the unit is #1..#5 in formal navies, and clean Naval Standard elsewhere.
+        // or clean Naval Standard elsewhere.
         String prefix = getDefaultPrefixForPreset(PlayerNamingPreset.NAVAL_STANDARD, archetype);
         if (archetype == DivisionArchetype.BATTLESHIP_DIVISION) {
             return "Battle Div. " + toRoman(num);
         }
         return applyNumbering(prefix, num, NumberingStyle.ARABIC);
+    }
+
+    private static long mixSeed64(long z) {
+        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+        return z ^ (z >>> 31);
     }
 
     private static boolean isPirateOrIndependentFaction(String fId) {
