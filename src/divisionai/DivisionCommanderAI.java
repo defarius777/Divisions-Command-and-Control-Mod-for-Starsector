@@ -380,10 +380,17 @@ public class DivisionCommanderAI {
             return;
         }
 
-        // 8. Cohesion check: if division ships have scattered too far apart, pause and reform before the mission
-        if (div.stationKeepingRatio > 1.48f && div.getAliveMembers().size() >= 2) {
+        // 8. Cohesion check: if division ships have scattered too far apart, pause and reform before the mission.
+        //    Uses hysteresis (enter at > 1.48x, exit once tightened below <= 1.08x) so divisions finish closing up cleanly.
+        boolean enterCloseUp = div.stationKeepingRatio > 1.48f;
+        boolean stayClosingUp = (prevIntent == DivisionIntentType.CLOSE_UP) && div.stationKeepingRatio > 1.08f;
+        if ((enterCloseUp || stayClosingUp) && div.getAliveMembers().size() >= 2) {
             div.currentIntent = DivisionIntentType.CLOSE_UP;
-            div.stationPoint.set(div.centroid);
+            if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()) {
+                div.stationPoint.set(div.flagship.getLocation());
+            } else {
+                div.stationPoint.set(div.centroid);
+            }
             reason = String.format("stations spread to %.0fu, limit %.0fu", div.spreadRadius, div.stationKeepingRadius);
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, "", reason, now);
@@ -421,6 +428,7 @@ public class DivisionCommanderAI {
                         targetLabel = uncapturedObj.getDisplayName();
                     } else {
                         div.stationPoint.set(myGroup.reserveStation);
+                        targetLabel = "the contact zone";
                     }
                     reason = missionPhaseTag + activeMission.shortName;
                     div.lastIntentChangeTime = now;
@@ -435,6 +443,7 @@ public class DivisionCommanderAI {
                         targetLabel = carrierTargetDiv.displayName;
                     } else {
                         div.stationPoint.set(myGroup.reserveStation);
+                        targetLabel = "the contact zone";
                     }
                     reason = missionPhaseTag + activeMission.shortName;
                     div.lastIntentChangeTime = now;
@@ -456,6 +465,7 @@ public class DivisionCommanderAI {
                         targetLabel = carrierTargetDiv.displayName;
                     } else {
                         div.stationPoint.set(myGroup.reserveStation);
+                        targetLabel = "the battle line";
                     }
                     reason = missionPhaseTag + activeMission.shortName;
                     div.lastIntentChangeTime = now;
@@ -470,6 +480,7 @@ public class DivisionCommanderAI {
                         targetLabel = carrierTargetDiv.displayName;
                     } else {
                         div.stationPoint.set(myGroup.reserveStation);
+                        targetLabel = "the contact zone";
                     }
                     reason = missionPhaseTag + activeMission.shortName;
                     div.lastIntentChangeTime = now;
@@ -484,6 +495,7 @@ public class DivisionCommanderAI {
                         targetLabel = carrierTargetDiv.displayName;
                     } else {
                         div.stationPoint.set(myGroup.reserveStation);
+                        targetLabel = "the contact zone";
                     }
                     reason = missionPhaseTag + activeMission.shortName;
                     div.lastIntentChangeTime = now;
@@ -498,6 +510,7 @@ public class DivisionCommanderAI {
                         targetLabel = carrierTargetDiv.displayName;
                     } else {
                         div.stationPoint.set(myGroup.reserveStation);
+                        targetLabel = "the contact zone";
                     }
                     String syncPartner = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
                             ? (" with \"" + myGroup.mainEffortDivision.displayName + "\"")
@@ -933,6 +946,13 @@ public class DivisionCommanderAI {
             case BREAK_OFF_AND_RETIRE:
                 div.stationPoint.set(myGroup.reserveStation);
                 break;
+            case CLOSE_UP:
+                if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()) {
+                    div.stationPoint.set(div.flagship.getLocation());
+                } else {
+                    div.stationPoint.set(div.centroid);
+                }
+                break;
             case HAUL_OUT_TO_VENT:
                 if (friend != null && friend.isCombatEffective()) {
                     float retreatDirY = (div.side == 0) ? -1f : 1f;
@@ -1141,7 +1161,7 @@ public class DivisionCommanderAI {
 
                 case CLOSE_UP:
                     flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
-                    if (distToDivCenter > div.stationKeepingRadius * 0.85f || crowdedByPeer) {
+                    if (distance(ship.getLocation(), slotPos) > Math.max(200f, div.stationSpacing * 0.42f) || crowdedByPeer) {
                         flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
                     }
                     break;
@@ -1558,8 +1578,11 @@ public class DivisionCommanderAI {
 
     /**
      * Computes a ship's individual formation slot around its division's maneuver station using the division's
-     * configured stationSpacing (in units) and applies peer-separation + main-battle-line standoff repulsion
-     * so frigates and line ships maintain their doctrinal intra-division spacing instead of balling up.
+     * configured stationSpacing (in units).
+     *  - Inter-division spacing (`divisionInterval`) and main-line clearance shift the division's `baseCenter`
+     *    as a single cohesive unit so friendly division repulsion never splits a division in two.
+     *  - During `CLOSE_UP`, slots contract to 60% of `stationSpacing` around the division flagship (or centroid)
+     *    without inter-division repulsion so scattered ships rally tightly back into formation.
      */
     private static Vector2f computeShipFormationSlot(
             CombatEngineAPI engine,
@@ -1569,10 +1592,60 @@ public class DivisionCommanderAI {
             DivisionState div,
             BattleGroupState myGroup) {
 
-        float spacing = Math.max(150f, div.stationSpacing);
-        Vector2f baseCenter = (div.currentIntent == DivisionIntentType.CLOSE_UP)
-                ? div.centroid
-                : div.stationPoint;
+        boolean closingUp = (div.currentIntent == DivisionIntentType.CLOSE_UP);
+        float baseSpacing = Math.max(150f, div.stationSpacing);
+        float effectiveSlotSpacing = closingUp ? Math.max(140f, baseSpacing * 0.60f) : baseSpacing;
+
+        Vector2f rawCenter;
+        if (closingUp) {
+            rawCenter = (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk())
+                    ? div.flagship.getLocation()
+                    : div.centroid;
+        } else {
+            rawCenter = div.stationPoint;
+        }
+
+        float centerX = rawCenter.x;
+        float centerY = rawCenter.y;
+
+        // Whole-division inter-division spacing & main-line clearance (applied to the division center as a unit,
+        // never pushing individual ships of the same division in opposite directions!)
+        if (!closingUp && myGroup != null) {
+            float desiredInter = Math.max(400f, div.divisionInterval);
+            for (DivisionState peerDiv : myGroup.divisions) {
+                if (peerDiv == null || peerDiv == div || !peerDiv.isCombatEffective()) continue;
+                // Do not repel from the friendly division we are actively screening, reinforcing, or venting behind
+                if (peerDiv == div.targetFriendlyDivision) continue;
+                float minInter = Math.max(desiredInter, peerDiv.divisionInterval) * 0.85f;
+                float idx = div.centroid.x - peerDiv.centroid.x;
+                float idy = div.centroid.y - peerDiv.centroid.y;
+                float iDist = (float) Math.sqrt(idx * idx + idy * idy);
+                if (iDist > 1f && iDist < minInter) {
+                    float push = Math.min(420f, (minInter - iDist) * 0.55f);
+                    centerX += (idx / iDist) * push;
+                    centerY += (idy / iDist) * push;
+                }
+            }
+
+            // Anti-balling with main battle line: shift Frigate & Phase division center clear of heavy main-line centroid
+            if ((div.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || div.archetype == DivisionArchetype.PHASE_DIVISION)
+                    && myGroup.mainEffortDivision != null
+                    && myGroup.mainEffortDivision != div
+                    && myGroup.mainEffortDivision != div.targetFriendlyDivision
+                    && myGroup.mainEffortDivision.isCombatEffective()) {
+                Vector2f mainPos = myGroup.mainEffortDivision.centroid;
+                float mdx = div.centroid.x - mainPos.x;
+                float mdy = div.centroid.y - mainPos.y;
+                float mDist = (float) Math.sqrt(mdx * mdx + mdy * mdy);
+                float minClearance = Math.max(550f, Math.max(div.divisionInterval * 0.80f, div.standoffRange * 0.75f));
+                if (mDist > 1f && mDist < minClearance) {
+                    float push = Math.min(500f, (minClearance - mDist) * 0.70f);
+                    centerX += (mdx / mDist) * push;
+                    centerY += (mdy / mDist) * push;
+                }
+            }
+        }
 
         float fwdX = 0f;
         float fwdY = (div.side == 0) ? 1f : -1f;
@@ -1592,12 +1665,13 @@ public class DivisionCommanderAI {
 
         int rank = (shipIdx + 1) / 2;
         float sideSign = (shipIdx == 0) ? 0f : ((shipIdx % 2 == 1) ? -1f : 1f);
-        float latOffset = sideSign * rank * spacing;
-        float depthOffset = -rank * (spacing * 0.16f);
+        float latOffset = sideSign * rank * effectiveSlotSpacing;
+        float depthOffset = -rank * (effectiveSlotSpacing * 0.16f);
 
-        // Preferred Space depth bias (Forward / Middle / Back) relative to the main battle line
+        // Station in Line depth bias (Van / Center / Rear) relative to the main battle line
         LineStation lineStation = (div.lineStation != null) ? div.lineStation : LineStation.CENTER;
-        if (div.currentIntent != DivisionIntentType.HOLD_IN_RESERVE
+        if (!closingUp
+                && div.currentIntent != DivisionIntentType.HOLD_IN_RESERVE
                 && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                 && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE) {
             if (lineStation == LineStation.VAN) {
@@ -1607,55 +1681,19 @@ public class DivisionCommanderAI {
             }
         }
 
-        float slotX = baseCenter.x + latX * latOffset + fwdX * depthOffset;
-        float slotY = baseCenter.y + latY * latOffset + fwdY * depthOffset;
+        float slotX = centerX + latX * latOffset + fwdX * depthOffset;
+        float slotY = centerY + latY * latOffset + fwdY * depthOffset;
 
-        // Peer repulsion: if another ship in the same division is closer than stationSpacing * 0.90f, push apart
+        // Intra-division peer repulsion: if another ship in the same division is closer than 0.85 * effectiveSlotSpacing, push apart
         for (ShipAPI peer : alive) {
             if (peer == null || peer == ship || !peer.isAlive()) continue;
             float pdx = ship.getLocation().x - peer.getLocation().x;
             float pdy = ship.getLocation().y - peer.getLocation().y;
             float pDist = (float) Math.sqrt(pdx * pdx + pdy * pdy);
-            if (pDist > 1f && pDist < spacing * 0.90f) {
-                float push = (spacing - pDist) * 0.75f;
+            if (pDist > 1f && pDist < effectiveSlotSpacing * 0.85f) {
+                float push = (effectiveSlotSpacing - pDist) * 0.65f;
                 slotX += (pdx / pDist) * push;
                 slotY += (pdy / pDist) * push;
-            }
-        }
-
-        // Inter-division spacing repulsion: keep friendly divisions separated by their configured divisionInterval
-        if (myGroup != null) {
-            float desiredInter = Math.max(400f, div.divisionInterval);
-            for (DivisionState peerDiv : myGroup.divisions) {
-                if (peerDiv == null || peerDiv == div || !peerDiv.isCombatEffective()) continue;
-                float minInter = Math.max(desiredInter, peerDiv.divisionInterval) * 0.85f;
-                float idx = div.centroid.x - peerDiv.centroid.x;
-                float idy = div.centroid.y - peerDiv.centroid.y;
-                float iDist = (float) Math.sqrt(idx * idx + idy * idy);
-                if (iDist > 1f && iDist < minInter) {
-                    float push = (minInter - iDist) * 0.65f;
-                    slotX += (idx / iDist) * push;
-                    slotY += (idy / iDist) * push;
-                }
-            }
-        }
-
-        // Anti-balling with main battle line: keep Frigate & Phase divisions spaced clear of heavy main-line centroid
-        if ((div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || div.archetype == DivisionArchetype.PHASE_DIVISION)
-                && myGroup != null
-                && myGroup.mainEffortDivision != null
-                && myGroup.mainEffortDivision != div
-                && myGroup.mainEffortDivision.isCombatEffective()) {
-            Vector2f mainPos = myGroup.mainEffortDivision.centroid;
-            float mdx = ship.getLocation().x - mainPos.x;
-            float mdy = ship.getLocation().y - mainPos.y;
-            float mDist = (float) Math.sqrt(mdx * mdx + mdy * mdy);
-            float minClearance = Math.max(550f, Math.max(div.divisionInterval * 0.80f, div.standoffRange * 0.75f));
-            if (mDist > 1f && mDist < minClearance) {
-                float push = (minClearance - mDist) * 0.85f;
-                slotX += (mdx / mDist) * push;
-                slotY += (mdy / mDist) * push;
             }
         }
 

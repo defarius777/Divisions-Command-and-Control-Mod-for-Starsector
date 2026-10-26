@@ -97,7 +97,13 @@ public class OtcAI {
             div.usableStrikeAmmoCount = strikeAmmo;
             div.totalFpStrength = weightSum;
 
-            // Compute RMS spread radius around division centroid
+            // Compute RMS spread radius around division centroid and refresh stationKeepingRadius for current alive count
+            div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(
+                    div.archetype,
+                    alive.size(),
+                    div.stationSpacing,
+                    div.stationKeepingMult,
+                    div.commander.stationKeepingStrictness);
             float distSqSum = 0f;
             for (ShipAPI s : alive) {
                 float dx = s.getLocation().x - div.centroid.x;

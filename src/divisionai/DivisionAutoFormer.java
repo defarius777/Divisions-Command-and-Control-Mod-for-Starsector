@@ -497,9 +497,62 @@ public class DivisionAutoFormer {
                 baseRadius = 680f;
                 break;
         }
-        float spacingBasedRadius = div.stationSpacing * (0.95f + 0.38f * Math.min(6, Math.max(1, count - 1)));
-        div.stationKeepingRadius = (Math.max(baseRadius, spacingBasedRadius) * div.stationKeepingMult)
-                / Math.max(0.75f, div.commander.stationKeepingStrictness);
+        div.stationKeepingRadius = computeStationKeepingRadius(
+                div.archetype,
+                count,
+                div.stationSpacing,
+                div.stationKeepingMult,
+                div.commander.stationKeepingStrictness);
+    }
+
+    /**
+     * Computes the division's station-keeping radius from the actual RMS geometry of an N-ship
+     * line-abreast formation at `stationSpacing` plus combat maneuvering headroom, so holding
+     * configured station spacing never triggers false cohesion alarms.
+     */
+    public static float computeStationKeepingRadius(
+            DivisionArchetype archetype,
+            int shipCount,
+            float stationSpacing,
+            float stationKeepingMult,
+            float strictness) {
+        float baseRadius;
+        if (archetype == null) {
+            baseRadius = 750f;
+        } else {
+            switch (archetype) {
+                case BATTLESHIP_DIVISION:
+                case FLEET_CARRIER_DIVISION:
+                case LIGHT_CARRIER_DIVISION:
+                case ESCORT_CARRIER_DIVISION:
+                case CARRIER_GROUP:
+                    baseRadius = 900f;
+                    break;
+                case CRUISER_DIVISION:
+                case STRIKE_CRUISER_DIVISION:
+                    baseRadius = 850f;
+                    break;
+                case DESTROYER_DIVISION:
+                case MISSILE_DESTROYER_DIVISION:
+                    baseRadius = 780f;
+                    break;
+                case FRIGATE_DIVISION:
+                case PHASE_DIVISION:
+                default:
+                    baseRadius = 720f;
+                    break;
+            }
+        }
+        int n = Math.max(1, Math.min(10, shipCount));
+        float rankSqSum = 0f;
+        for (int i = 0; i < n; i++) {
+            int rank = (i + 1) / 2;
+            rankSqSum += (rank * rank) * 1.0256f; // includes 0.16x depth offset squared
+        }
+        float slotRms = stationSpacing * (float) Math.sqrt(rankSqSum / n);
+        float spacingBasedRadius = slotRms + Math.max(380f, stationSpacing * 0.75f);
+        return (Math.max(baseRadius, spacingBasedRadius) * Math.max(0.75f, stationKeepingMult))
+                / Math.max(0.75f, Math.min(1.18f, strictness));
     }
 
     private static int nextDivisionNumberForPrefix(BattleGroupState battleGroup, String fullPrefix) {

@@ -1957,9 +1957,12 @@ public class PermanentDivisionManager {
         }
 
         int count = Math.max(1, div.profiles.size());
-        float spacingBasedRadius = div.stationSpacing * (0.95f + 0.38f * Math.min(6, Math.max(1, count - 1)));
-        div.stationKeepingRadius = (Math.max(680f, spacingBasedRadius) * div.stationKeepingMult)
-                / Math.max(0.75f, div.commander.stationKeepingStrictness);
+        div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(
+                div.archetype,
+                count,
+                div.stationSpacing,
+                div.stationKeepingMult,
+                div.commander.stationKeepingStrictness);
 
         DoctrineOption doctrine = spec.doctrine;
         if (doctrine == null) return;
