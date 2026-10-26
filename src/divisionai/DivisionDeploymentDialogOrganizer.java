@@ -182,6 +182,10 @@ public class DivisionDeploymentDialogOrganizer {
         if (engine == null) return;
         CombatUIAPI ui = engine.getCombatUI();
         if (ui == null) return;
+        // Skip TitleScreenState background battles on the Main Menu (only hook real CombatState battles)
+        if (!"com.fs.starfarer.combat.CombatState".equals(ui.getClass().getName())) {
+            return;
+        }
 
         // Only organize the Deployment Window when the player has at least 1 non-empty Permanent Division
         List<PermanentDivisionSpec> nonEmptyDivisions = PermanentDivisionManager.getNonEmptyPermanentDivisions();
@@ -496,6 +500,15 @@ public class DivisionDeploymentDialogOrganizer {
         final ButtonAPI[] toggleBtnHolder = new ButtonAPI[1];
 
         BaseCustomUIPanelPlugin cardPlugin = new BaseCustomUIPanelPlugin() {
+            @Override
+            public void buttonPressed(Object buttonId) {
+                if ("TOGGLE_ROW".equals(buttonId)) {
+                    ButtonAPI btn = toggleBtnHolder[0];
+                    if (btn != null) btn.setChecked(false);
+                    toggleGroupSelection(fdd, groupEntries);
+                }
+            }
+
             @Override
             public void advance(float amount) {
                 ButtonAPI btn = toggleBtnHolder[0];

@@ -90,18 +90,24 @@ public class DivisionCommanderAI {
                 ? distance(div.centroid, BattlegroupCommanderAI.getVisibleCentroidForSide(engine, div.side, torpedoTargetEnemyDiv))
                 : Float.MAX_VALUE;
 
-        // 1. Check if a strike division just finished its strike window or is high-flux -> Strike-then-withdraw to reserve!
-        boolean inActiveStrike = (div.currentIntent == DivisionIntentType.HARASS_TORPEDO_ATTACK
-                || div.currentIntent == DivisionIntentType.COORDINATED_TORPEDO_STRIKE
-                || div.currentIntent == DivisionIntentType.FLANK_ENEMY_DIVISION);
+        // 1. Check if a torpedo strike division just finished its strike window or expended its torpedoes / built high flux
+        //    -> Strike-then-withdraw to reserve! (Never trigger on 0 torpedo ammo for non-torpedo FLANK_ENEMY_DIVISION!)
+        boolean inTorpedoStrike = (div.currentIntent == DivisionIntentType.HARASS_TORPEDO_ATTACK
+                || div.currentIntent == DivisionIntentType.COORDINATED_TORPEDO_STRIKE);
+        boolean inFlankManeuver = (div.currentIntent == DivisionIntentType.FLANK_ENEMY_DIVISION);
 
-        if (inActiveStrike && ((now - div.strikeCommittedTimestamp) >= STRIKE_WINDOW_DURATION
+        boolean torpedoRunComplete = inTorpedoStrike && ((now - div.strikeCommittedTimestamp) >= STRIKE_WINDOW_DURATION
                 || div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.90f
-                || (div.hasTorpedoStrikeCapability && div.usableStrikeAmmoCount <= 0))) {
+                || (div.hasTorpedoStrikeCapability && div.usableStrikeAmmoCount <= 0));
+        boolean flankWithdrawNeeded = inFlankManeuver
+                && (div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.88f
+                || ((now - div.strikeCommittedTimestamp) >= (STRIKE_WINDOW_DURATION * 1.5f) && div.avgFluxLevel >= 0.45f));
 
+        if (torpedoRunComplete || flankWithdrawNeeded) {
             div.currentIntent = DivisionIntentType.STRIKE_AND_WITHDRAW;
             div.targetEnemyDivision = nearestEnemyDiv;
             div.maneuverAnchor.set(myBg.reserveAnchor);
+            div.lastStrikeWithdrawTimestamp = now;
             targetLabel = nearestEnemyDiv != null ? nearestEnemyDiv.displayName : "contact zone";
             reason = String.format("avg flux %.0f%%", div.avgFluxLevel * 100f);
             div.lastIntentChangeTime = now;
@@ -109,10 +115,14 @@ public class DivisionCommanderAI {
             return;
         }
 
-        // 2. High flux / damaged line division or outgunned locally -> Rotate to reserve behind a friendly division
-        if ((div.avgFluxLevel >= div.commander.rotationFluxThreshold
-                || (div.localEnemyStrength > 12f && div.localOvermatchRatio < 0.58f && div.commander.aggressionBias < 1.35f)
-                || myBg.currentPhase == BattlePhase.ORDERED_WITHDRAWAL)) {
+        // 2. High flux / damaged division -> Rotate to reserve behind a friendly division
+        //    Requires actual flux buildup (or critical hull damage under heavy local overmatch) so fresh divisions at 0-15% flux never retreat!
+        boolean highFluxPressure = div.avgFluxLevel >= div.commander.rotationFluxThreshold
+                || (div.maxMemberFluxLevel >= 0.78f && div.localEnemyStrength > 12f && div.localOvermatchRatio < 0.65f)
+                || (div.avgFluxLevel >= 0.45f && div.localEnemyStrength > 14f && div.localOvermatchRatio < 0.50f && div.commander.aggressionBias < 1.35f);
+        boolean canRotateOut = (div != myBg.mainEffortDivision || div.avgFluxLevel >= 0.72f || myBg.divisions.size() >= 3);
+
+        if ((highFluxPressure && canRotateOut) || myBg.currentPhase == BattlePhase.ORDERED_WITHDRAWAL) {
 
             DivisionState anchorFriend = (myBg.mainEffortDivision != null && myBg.mainEffortDivision != div)
                     ? myBg.mainEffortDivision
@@ -212,7 +222,9 @@ public class DivisionCommanderAI {
         }
 
         // 7. Torpedo / Strike Division: Harassing torpedo attack or Time-on-Target strike (ONLY against visible enemies within strike range <= 4600u)
-        if (div.hasTorpedoStrikeCapability
+        boolean strikeCooldownElapsed = (now - div.lastStrikeWithdrawTimestamp) >= 12.0f;
+        if (strikeCooldownElapsed
+                && div.hasTorpedoStrikeCapability
                 && div.usableStrikeAmmoCount > 0
                 && div.avgFluxLevel < 0.55f
                 && torpedoTargetEnemyDiv != null
@@ -233,7 +245,9 @@ public class DivisionCommanderAI {
             Vector2f visTargetPos = BattlegroupCommanderAI.getVisibleCentroidForSide(engine, div.side, torpedoTargetEnemyDiv);
             div.targetEnemyDivision = torpedoTargetEnemyDiv;
             div.maneuverAnchor.set(visTargetPos);
-            div.strikeCommittedTimestamp = now;
+            if (!inTorpedoStrike) {
+                div.strikeCommittedTimestamp = now;
+            }
             targetLabel = torpedoTargetEnemyDiv.displayName;
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
@@ -241,7 +255,8 @@ public class DivisionCommanderAI {
         }
 
         // 8. Fast flankers swing wide to flank visible enemy division when within operational contact range (<= 4500u)
-        if (div.isFastFlanker
+        if (strikeCooldownElapsed
+                && div.isFastFlanker
                 && nearestEnemyDiv != null
                 && distToVisibleEnemy <= 4500f
                 && myBg.mainEffortDivision != null
@@ -251,7 +266,9 @@ public class DivisionCommanderAI {
             div.currentIntent = DivisionIntentType.FLANK_ENEMY_DIVISION;
             div.targetEnemyDivision = nearestEnemyDiv;
             computeFlankAnchor(engine, div, nearestEnemyDiv, div.maneuverAnchor);
-            div.strikeCommittedTimestamp = now;
+            if (!inFlankManeuver) {
+                div.strikeCommittedTimestamp = now;
+            }
             targetLabel = nearestEnemyDiv.displayName;
             reason = "enveloping flank vector";
             div.lastIntentChangeTime = now;

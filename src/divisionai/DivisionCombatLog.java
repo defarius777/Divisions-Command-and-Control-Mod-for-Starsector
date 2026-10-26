@@ -87,7 +87,9 @@ public class DivisionCombatLog {
         bg.lastBgOrderSignature = sig;
         bg.lastBgOrderLogTime = now;
 
-        String sideTag = (bg.side == 0) ? "[Allied BG Cmdr]" : "[Enemy BG Cmdr]";
+        String sideTag = (bg.side == 0)
+                ? (bg.isAlliedAi ? "[Allied BG Cmdr]" : "[Player BG Cmdr]")
+                : "[Enemy BG Cmdr]";
         LOG.info(String.format("%s (%s) Phase=%s -> %s",
                 sideTag, bg.bgCommander.personalityId, bg.currentPhase.displayName, directiveSummary));
 

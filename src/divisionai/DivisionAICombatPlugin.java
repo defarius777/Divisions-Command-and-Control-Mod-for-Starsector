@@ -96,6 +96,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             playerBg = new BattlegroupState(0, playerCmdr);
             alliedAiBg = new BattlegroupState(0, alliedAiCmdr);
+            alliedAiBg.isAlliedAi = true;
             enemyBg = new BattlegroupState(1, enemyCmdr);
 
             playerBg.missionContext = DivisionAutoFormer.detectMissionContext(engine, 0);

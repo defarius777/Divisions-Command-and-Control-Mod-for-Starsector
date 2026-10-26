@@ -123,9 +123,7 @@ public class ShipCapabilityProfile {
                 weightedRangeSum += range * weight;
 
                 boolean isPd = w.hasAIHint(AIHints.PD) || w.hasAIHint(AIHints.PD_ONLY) || w.hasAIHint(AIHints.PD_ALSO) || w.hasAIHint(AIHints.ANTI_FTR);
-                boolean isStrike = w.hasAIHint(AIHints.STRIKE)
-                        || w.hasAIHint(AIHints.DANGEROUS)
-                        || (type == WeaponType.MISSILE && !isPd && (w.usesAmmo() || w.getSize() != WeaponSize.SMALL));
+                boolean isStrike = w.hasAIHint(AIHints.STRIKE);
 
                 if (isPd) {
                     pdSum += weight;

@@ -307,7 +307,7 @@ public class BattlegroupCommanderAI {
             nextPhase = BattlePhase.ORDERED_WITHDRAWAL;
         } else if (endangeredDiv != null && (worstOvermatch < 0.72f || (endangeredDiv.hasShipNeedingHelp && worstOvermatch < 0.85f))) {
             nextPhase = BattlePhase.STABILIZE_AND_RELIEVE;
-        } else if (!anyEnemyVisible || (minContactDist > 3300f && hasUncapturedObjectives && now < 75f)) {
+        } else if ((!anyEnemyVisible && now < 90f) || (minContactDist > 3300f && hasUncapturedObjectives && now < 75f)) {
             nextPhase = BattlePhase.OPENING_PROBE;
         } else if (myBg.forceRatio >= 1.35f && visibleEnemyFp >= 30f && minContactDist < 3000f) {
             nextPhase = BattlePhase.EXPLOIT_BREAKTHROUGH;
@@ -320,9 +320,10 @@ public class BattlegroupCommanderAI {
         myBg.previousPhase = myBg.currentPhase;
         myBg.currentPhase = nextPhase;
 
-        // Reserve management: keep 1 uncommitted reserve division during Opening Probe / Line Contact
-        // if we have >= 3 divisions and cautious/steady commander, then commit it on Coordinated Strike / Stabilize!
-        boolean holdReserve = (activeDivCount >= 3)
+        // Reserve management: keep 1 uncommitted reserve division ONLY during the opening 90s of battle
+        // if we have >= 3 divisions and cautious/steady commander, then commit all divisions afterward!
+        boolean holdReserve = (now < 90f)
+                && (activeDivCount >= 3)
                 && (nextPhase == BattlePhase.OPENING_PROBE || nextPhase == BattlePhase.LINE_CONTACT)
                 && (myBg.bgCommander.aggressionBias <= 1.20f);
 
@@ -439,8 +440,7 @@ public class BattlegroupCommanderAI {
         if (weapons == null) return 0;
         for (WeaponAPI w : weapons) {
             if (w == null || w.isDisabled() || w.isPermanentlyDisabled()) continue;
-            boolean isStrikeMissile = (w.getType() == WeaponType.MISSILE)
-                    && (w.hasAIHint(AIHints.STRIKE) || w.hasAIHint(AIHints.DANGEROUS) || w.usesAmmo());
+            boolean isStrikeMissile = (w.getType() == WeaponType.MISSILE) && w.hasAIHint(AIHints.STRIKE);
             if (isStrikeMissile) {
                 total += w.usesAmmo() ? w.getAmmo() : 4;
             }

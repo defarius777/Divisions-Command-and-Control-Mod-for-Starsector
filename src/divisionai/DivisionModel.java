@@ -230,6 +230,7 @@ public class DivisionModel {
         public float lastLogAnnouncementTime = -100f;
         public String lastLoggedSignature = "";
         public float strikeCommittedTimestamp = -100f;
+        public float lastStrikeWithdrawTimestamp = -100f;
         public boolean isDesignatedReserve = false;
         public boolean isDesignatedMainEffort = false;
 
@@ -268,6 +269,7 @@ public class DivisionModel {
      */
     public static class BattlegroupState {
         public final int side;
+        public boolean isAlliedAi = false;
         public CommanderProfile bgCommander;
         public MissionContextType missionContext = MissionContextType.FULL_PITCHED_BATTLE;
         public BattlePhase currentPhase = BattlePhase.OPENING_PROBE;
