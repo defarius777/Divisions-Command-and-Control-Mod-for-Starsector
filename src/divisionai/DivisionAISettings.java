@@ -80,12 +80,18 @@ public class DivisionAISettings {
             case COORDINATED_TORPEDO_STRIKE:
             case HARASS_TORPEDO_ATTACK:
             case FLANK_ENEMY_DIVISION:
+            case CARRIER_PROTECT_FLEET_CAP:
+            case CARRIER_DIVISION_STRIKE:
+            case CARRIER_MULTI_DIV_STRIKE:
                 return true;
             case HOLD_AND_COHERE:
             case ADVANCE_ENGAGE_LINE:
             case PRESS_OVERMATCH:
             case HOLD_IN_RESERVE:
             case SEIZE_OBJECTIVE:
+            case CARRIER_STRIKE_CRAFT_RECON:
+            case CARRIER_VOID_SUPERIORITY_CAP:
+            case CARRIER_STRIKE_AT_WILL:
             default:
                 return false;
         }

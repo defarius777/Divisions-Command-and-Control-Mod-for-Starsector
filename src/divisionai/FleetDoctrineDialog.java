@@ -16,6 +16,7 @@ import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
+import divisionai.PermanentDivisionManager.PreferredSpace;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
@@ -287,6 +288,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 int currStandoff = doctrine.getLineStandoff(dt);
                 DivisionMissionType currOpenMis = doctrine.getOpeningMission(dt);
                 DivisionMissionType currMainMis = doctrine.getMainMission(dt);
+                PreferredSpace currPrefSpace = doctrine.getPreferredSpace(dt);
 
                 float spacingParagons = currSpacing / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
                 float interParagons = currInter / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
@@ -294,8 +296,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
                 String dtTitle = String.format(
                         Locale.ROOT,
-                        "%s  —  Intra: %du  |  Inter: %du  |  Standoff: %du  |  %s -> %s",
+                        "%s  —  Space: %s  |  Intra: %du  |  Inter: %du  |  Standoff: %du  |  %s -> %s",
                         dt.displayName.toUpperCase(Locale.ROOT),
+                        currPrefSpace.displayName,
                         currSpacing,
                         currInter,
                         currStandoff,
@@ -360,26 +363,39 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         highlight);
 
-                // Row 4: Opening Mission Drop-Down Menu (30s - 60s)
+                // Row 4: Preferred Space (Forward, Middle, Back)
+                addPreferredSpaceRow(
+                        body,
+                        bodyWidth - 16f,
+                        dt.displayName + " Preferred Space: " + currPrefSpace.displayName,
+                        currPrefSpace,
+                        "SET_PREF_SPACE:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        positive);
+
+                // Row 5: Opening Mission Drop-Down Menu (30s - 60s)
                 addMissionDropdownRow(
                         body,
                         bodyWidth - 16f,
                         dt.displayName + " Opening Mission (0-" + doctrine.getOpeningDurationSeconds() + "s):",
                         "OPEN_MIS_" + dt.name(),
                         currOpenMis,
+                        DivisionMissionType.missionsForDoctrineType(dt),
                         "SET_OPEN_MIS:" + dt.name() + ":",
                         baseColor,
                         darkColor,
                         positive,
                         gray);
 
-                // Row 5: Main Mission Drop-Down Menu (rest of battle)
+                // Row 6: Main Mission Drop-Down Menu (rest of battle)
                 addMissionDropdownRow(
                         body,
                         bodyWidth - 16f,
                         dt.displayName + " Main Mission (rest of battle):",
                         "MAIN_MIS_" + dt.name(),
                         currMainMis,
+                        DivisionMissionType.missionsForDoctrineType(dt),
                         "SET_MAIN_MIS:" + dt.name() + ":",
                         baseColor,
                         darkColor,
@@ -480,12 +496,56 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 3f);
     }
 
+    private void addPreferredSpaceRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            PreferredSpace currentSpace,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        rowUi.addPara(labelText, 4f, activeValueColor, labelText).getPosition().inTL(4f, 4f);
+
+        float xCursor = 355f;
+        for (PreferredSpace ps : PreferredSpace.values()) {
+            boolean selected = (ps == currentSpace);
+            String act = actionPrefix + ps.name();
+            ButtonAPI bPs = registerButton(
+                    rowUi.addButton(
+                            ps.displayName,
+                            act,
+                            selected ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            110f,
+                            21f,
+                            0f),
+                    act);
+            if (selected) {
+                bPs.highlight();
+            }
+            bPs.getPosition().inTL(xCursor, 2f);
+            xCursor += 118f;
+        }
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
     private void addMissionDropdownRow(
             TooltipMakerAPI body,
             float rowWidth,
             String labelText,
             String dropdownKey,
             DivisionMissionType currentMission,
+            DivisionMissionType[] primaryOptions,
             String selectActionPrefix,
             Color baseColor,
             Color darkColor,
@@ -523,7 +583,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 2f);
 
         if (expanded) {
-            for (DivisionMissionType option : DivisionMissionType.values()) {
+            DivisionMissionType[] optionsToShow = (primaryOptions != null && primaryOptions.length > 0)
+                    ? primaryOptions
+                    : DivisionMissionType.values();
+            for (DivisionMissionType option : optionsToShow) {
                 boolean isCurrent = (option == currentMission);
                 CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 24f, subPanelPlugin);
                 TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
@@ -865,6 +928,19 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 int val = Integer.parseInt(rest.substring(sep + 1));
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
                 PermanentDivisionManager.updateDivisionTypeStandoff(dt, val);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_PREF_SPACE:")) {
+            String rest = cmd.substring("SET_PREF_SPACE:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                String dtStr = rest.substring(0, sep);
+                String psStr = rest.substring(sep + 1);
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
+                PreferredSpace ps = PreferredSpace.valueOf(psStr);
+                PermanentDivisionManager.updateDivisionTypePreferredSpace(dt, ps);
                 rebuildContent();
             }
             return;

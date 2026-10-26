@@ -264,7 +264,7 @@ public class BattlegroupCommanderAI {
             } else if (div.archetype == DivisionArchetype.CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
                 mainScore *= 1.35f;
-            } else if (div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
+            } else if (div.archetype.isCarrierArchetype()) {
                 mainScore *= 0.55f;
             }
             if (mainScore > strongestLineFp) {
@@ -280,7 +280,7 @@ public class BattlegroupCommanderAI {
                     || div.archetype == DivisionArchetype.BATTLE_DIVISION
                     || div.archetype == DivisionArchetype.CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
-                    || div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
+                    || div.archetype.isCarrierArchetype()) {
                 continue;
             }
             float distToEnemy = distanceToNearestEnemyDivision(engine, div, enemyBg);

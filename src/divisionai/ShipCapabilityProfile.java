@@ -99,7 +99,6 @@ public class ShipCapabilityProfile {
         this.bomberWings = bombers;
         this.interceptorSupportWings = interceptors;
         this.isCarrier = bays > 0 || hints.contains(ShipTypeHints.CARRIER);
-        this.isDedicatedCarrier = (bays >= 2) || (hints.contains(ShipTypeHints.CARRIER) && bays >= 1);
 
         float opSum = 0f;
         float strikeSum = 0f;
@@ -140,6 +139,12 @@ public class ShipCapabilityProfile {
                 }
             }
         }
+
+        // Battlecarriers (e.g. Legion, Odyssey, or capitals with COMBAT hint / heavy gun batteries) default to Battle Divisions, not Carrier Divisions
+        boolean isBattlecarrier = (bays > 0) && (hints.contains(ShipTypeHints.COMBAT)
+                || (this.hullSize == HullSize.CAPITAL_SHIP && bays <= 2 && (opSum - pdSum) >= 20f));
+        this.isDedicatedCarrier = !isBattlecarrier
+                && ((bays >= 1 && hints.contains(ShipTypeHints.CARRIER)) || (bays >= 2));
 
         this.totalWeaponOP = Math.max(1f, opSum);
         this.strikeMissileWeight = strikeSum;

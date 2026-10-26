@@ -23,7 +23,10 @@ public class DivisionModel {
      */
     public enum DivisionArchetype {
         BATTLE_DIVISION("Battle Div", true),
-        CARRIER_AND_ESCORT("Carrier & Escort", true),
+        FLEET_CARRIER_DIVISION("Fleet Carrier Div", false),
+        LIGHT_CARRIER_DIVISION("Light Carrier Div", false),
+        ESCORT_CARRIER_DIVISION("Escort Carrier Div", false),
+        CARRIER_AND_ESCORT("Mixed Carrier Div", true),
         CRUISER_DIVISION("Cruiser Div", false),
         STRIKE_CRUISER_DIVISION("Strike Cruiser Div", false),
         DESTROYER_DIVISION("Destroyer Div", false),
@@ -38,6 +41,13 @@ public class DivisionModel {
         DivisionArchetype(String shortPrefix, boolean isComposite) {
             this.shortPrefix = shortPrefix;
             this.isComposite = isComposite;
+        }
+
+        public boolean isCarrierArchetype() {
+            return this == FLEET_CARRIER_DIVISION
+                    || this == LIGHT_CARRIER_DIVISION
+                    || this == ESCORT_CARRIER_DIVISION
+                    || this == CARRIER_AND_ESCORT;
         }
     }
 
@@ -82,16 +92,22 @@ public class DivisionModel {
     public enum DivisionIntentType {
         HOLD_AND_COHERE("form up and maintain division cohesion"),
         ADVANCE_ENGAGE_LINE("advance and engage"),
-        HARASS_TORPEDO_ATTACK("launch harassing torpedo attack at"),
-        COORDINATED_TORPEDO_STRIKE("execute time-on-target strike against"),
+        HARASS_TORPEDO_ATTACK("launch harassing missile attack at"),
+        COORDINATED_TORPEDO_STRIKE("execute coordinated missile strike against"),
         PRESS_OVERMATCH("press local overmatch against"),
         SCREEN_FRIENDLY_DIVISION("screen and escort"),
         RELIEVE_FRIENDLY_DIVISION("move to relieve"),
         FLANK_ENEMY_DIVISION("swing wide to flank"),
         STRIKE_AND_WITHDRAW("complete strike window and withdraw to reserve from"),
         ROTATE_TO_RESERVE("rotate high-flux hulls back to reserve behind"),
-        HOLD_IN_RESERVE("hold in reserve awaiting commitment"),
-        SEIZE_OBJECTIVE("secure tactical objective");
+        HOLD_IN_RESERVE("hold in battlegroup reserve awaiting commitment"),
+        SEIZE_OBJECTIVE("secure tactical objective"),
+        CARRIER_STRIKE_CRAFT_RECON("conduct strike craft reconnaissance toward"),
+        CARRIER_VOID_SUPERIORITY_CAP("contest void superiority with strike craft against"),
+        CARRIER_PROTECT_FLEET_CAP("provide strike craft fleet air defense over"),
+        CARRIER_STRIKE_AT_WILL("launch successive strike craft attacks on"),
+        CARRIER_DIVISION_STRIKE("execute division coordinated strike craft attack on"),
+        CARRIER_MULTI_DIV_STRIKE("execute multi-division coordinated strike craft attack on");
 
         public final String verbPhrase;
 
@@ -211,6 +227,8 @@ public class DivisionModel {
                 PermanentDivisionManager.DivisionMissionType.RECONNAISSANCE;
         public PermanentDivisionManager.DivisionMissionType mainMission =
                 PermanentDivisionManager.DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL;
+        public PermanentDivisionManager.PreferredSpace preferredSpace =
+                PermanentDivisionManager.PreferredSpace.MIDDLE;
 
         // Dynamic telemetry updated every evaluation tick
         public final Vector2f centroid = new Vector2f();

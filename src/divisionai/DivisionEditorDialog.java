@@ -22,6 +22,7 @@ import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
+import divisionai.PermanentDivisionManager.PreferredSpace;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
@@ -339,12 +340,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 int effIntra = PermanentDivisionManager.resolveEffectiveIntraSpacing(spec, bgCfg);
                 int effInter = PermanentDivisionManager.resolveEffectiveInterSpacing(spec, bgCfg);
                 int effStandoff = PermanentDivisionManager.resolveEffectiveLineStandoff(spec, bgCfg);
+                PreferredSpace effSpace = PermanentDivisionManager.resolveEffectivePreferredSpace(spec, bgCfg);
                 DivisionMissionType effOpen = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, bgCfg);
                 DivisionMissionType effMain = PermanentDivisionManager.resolveEffectiveMainMission(spec, bgCfg);
                 leftCol.addPara(
-                        "Division Settings: Intra %su | Inter %su | Standoff %su  |  Opening: %s -> Main: %s",
+                        "Division Settings: Space: %s | Intra %su | Inter %su | Standoff %su | %s -> %s",
                         2f,
                         Misc.getPositiveHighlightColor(),
+                        effSpace.displayName,
                         String.valueOf(effIntra),
                         String.valueOf(effInter),
                         String.valueOf(effStandoff),
@@ -477,8 +480,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         topCloseUi.setHeightSoFar(24f);
         container.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
 
-        // 1. Top Control & Doctrine Header (height 188f)
-        float headerH = 188f;
+        // 1. Top Control & Doctrine Header (height 212f)
+        float headerH = 212f;
         TooltipMakerAPI top = container.createUIElement(DIALOG_WIDTH - 24f, headerH, false);
 
         // Row A: Back button, Title, Close button
@@ -543,7 +546,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         nameRow.addUIElement(nameUi).inTL(0f, 0f);
         top.addCustom(nameRow, 4f);
 
-        // Row C: Division Archetype Selector
+        // Row C: Division Archetype Selector (2 compact rows of 6 buttons covering Combat & Carrier Divisions)
         DivisionArchetype[] archetypes = new DivisionArchetype[]{
                 DivisionArchetype.BATTLE_DIVISION,
                 DivisionArchetype.CRUISER_DIVISION,
@@ -551,14 +554,21 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 DivisionArchetype.DESTROYER_DIVISION,
                 DivisionArchetype.TORPEDO_DESTROYER_DIVISION,
                 DivisionArchetype.FRIGATE_DIVISION,
+                DivisionArchetype.FLEET_CARRIER_DIVISION,
+                DivisionArchetype.LIGHT_CARRIER_DIVISION,
+                DivisionArchetype.ESCORT_CARRIER_DIVISION,
                 DivisionArchetype.CARRIER_AND_ESCORT,
                 DivisionArchetype.PHASE_DIVISION,
                 DivisionArchetype.AUXILIARY_CONVOY
         };
-        CustomPanelAPI archRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 26f, subPanelPlugin);
-        TooltipMakerAPI archUi = archRow.createUIElement(DIALOG_WIDTH - 24f, 26f, false);
-        float ax = 0f;
-        for (DivisionArchetype arch : archetypes) {
+        CustomPanelAPI archRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 50f, subPanelPlugin);
+        TooltipMakerAPI archUi = archRow.createUIElement(DIALOG_WIDTH - 24f, 50f, false);
+        for (int i = 0; i < archetypes.length; i++) {
+            DivisionArchetype arch = archetypes[i];
+            int colIdx = i % 6;
+            int rowIdx = i / 6;
+            float ax = colIdx * 159f;
+            float ay = 2f + rowIdx * 24f;
             boolean selected = (spec.archetype == arch);
             Color fg = selected ? highlight : baseColor;
             Color bg = selected ? baseColor.darker() : darkColor;
@@ -571,16 +581,16 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                             bg,
                             Alignment.MID,
                             CutStyle.TL_BR,
-                            102f,
-                            22f,
+                            154f,
+                            21f,
                             0f),
                     archAct);
-            bArch.getPosition().inTL(ax, 2f);
-            ax += 106f;
+            if (selected) bArch.highlight();
+            bArch.getPosition().inTL(ax, ay);
         }
-        archUi.setHeightSoFar(26f);
+        archUi.setHeightSoFar(50f);
         archRow.addUIElement(archUi).inTL(0f, 0f);
-        top.addCustom(archRow, 4f);
+        top.addCustom(archRow, 3f);
 
         // Row D: Division Doctrine Selector (Foundation for Customizable Doctrine)
         DoctrineOption[] doctrines = DoctrineOption.values();
@@ -609,11 +619,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         docUi.setHeightSoFar(26f);
         docRow.addUIElement(docUi).inTL(0f, 0f);
-        top.addCustom(docRow, 4f);
+        top.addCustom(docRow, 3f);
 
         top.addPara(
                 "Active Doctrine — %s: %s",
-                4f,
+                3f,
                 positive,
                 spec.doctrine.displayName,
                 spec.doctrine.summary);
@@ -621,8 +631,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         top.setHeightSoFar(headerH);
         container.addUIElement(top).inTL(12f, 10f);
 
-        // 2. Two-Column Ship Assignment Body (height = DIALOG_HEIGHT - 210f)
-        float bodyTop = 202f;
+        // 2. Two-Column Ship Assignment Body (height = DIALOG_HEIGHT - 234f)
+        float bodyTop = 224f;
         float bodyHeight = DIALOG_HEIGHT - bodyTop - 12f;
         float colWidth = (DIALOG_WIDTH - 36f) * 0.5f;
 
@@ -636,6 +646,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         int effInter = PermanentDivisionManager.resolveEffectiveInterSpacing(spec, bgCfg);
         int effStandoff = PermanentDivisionManager.resolveEffectiveLineStandoff(spec, bgCfg);
         int longestWeaponRange = PermanentDivisionManager.computeDivisionLongestWeaponRange(spec, fleet);
+        PreferredSpace effPrefSpace = PermanentDivisionManager.resolveEffectivePreferredSpace(spec, bgCfg);
         DivisionMissionType effOpenMis = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, bgCfg);
         DivisionMissionType effMainMis = PermanentDivisionManager.resolveEffectiveMainMission(spec, bgCfg);
 
@@ -698,13 +709,24 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 highlight,
                 positive);
 
-        // 4. Opening Mission Drop-Down (0 - openingDurationSeconds)
+        // 4. Preferred Space row (Forward, Middle, Back — auto-selected by some missions or manually set)
+        addDivisionPreferredSpaceRow(
+                leftCol,
+                colWidth - 16f,
+                effPrefSpace,
+                spec.customPreferredSpace != null,
+                baseColor,
+                darkColor,
+                positive);
+
+        // 5. Opening Mission Drop-Down (0 - openingDurationSeconds)
         addDivisionMissionDropdownRow(
                 leftCol,
                 colWidth - 16f,
                 "Opening Mission (0-" + bgCfg.getOpeningDurationSeconds() + "s):",
                 "DIV_OPEN_DD",
                 effOpenMis,
+                spec.archetype,
                 spec.customOpeningMission != null,
                 "DIV_OPEN_MIS:",
                 baseColor,
@@ -712,13 +734,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 positive,
                 gray);
 
-        // 5. Main Mission Drop-Down (rest of battle)
+        // 6. Main Mission Drop-Down (rest of battle)
         addDivisionMissionDropdownRow(
                 leftCol,
                 colWidth - 16f,
                 "Main Mission (rest of battle):",
                 "DIV_MAIN_DD",
                 effMainMis,
+                spec.archetype,
                 spec.customMainMission != null,
                 "DIV_MAIN_MIS:",
                 baseColor,
@@ -979,12 +1002,74 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         col.addCustom(rowPanel, 2f);
     }
 
+    private void addDivisionPreferredSpaceRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            PreferredSpace effSpace,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color activeColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 25f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 25f, false);
+
+        String labelText = String.format(
+                Locale.ROOT,
+                "Preferred Space: %s [%s]",
+                effSpace.displayName,
+                isCustom ? "Custom/Auto" : "Inherited");
+        rowUi.addPara(labelText, 3f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(2f, 4f);
+
+        float x = rowWidth - 266f;
+        for (PreferredSpace ps : PreferredSpace.values()) {
+            boolean selected = (ps == effSpace);
+            String act = "DIV_SPACE:" + ps.name();
+            ButtonAPI bPs = registerButton(
+                    rowUi.addButton(
+                            ps.displayName,
+                            act,
+                            selected ? activeColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            58f,
+                            20f,
+                            0f),
+                    act);
+            if (selected) bPs.highlight();
+            bPs.getPosition().inTL(x, 2f);
+            x += 61f;
+        }
+
+        String inhAct = "DIV_SPACE:INHERIT";
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton(
+                        "Inherit BG",
+                        inhAct,
+                        !isCustom ? activeColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        80f,
+                        20f,
+                        0f),
+                inhAct);
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(x, 2f);
+
+        rowUi.setHeightSoFar(25f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
     private void addDivisionMissionDropdownRow(
             TooltipMakerAPI col,
             float rowWidth,
             String labelText,
             String dropdownKey,
             DivisionMissionType effMission,
+            DivisionArchetype archetype,
             boolean isCustom,
             String actionPrefix,
             Color baseColor,
@@ -1035,14 +1120,29 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             inhPanel.addUIElement(inhUi).inTL(0f, 0f);
             col.addCustom(inhPanel, 1f);
 
-            for (DivisionMissionType opt : DivisionMissionType.values()) {
+            // Show archetype-preferred missions first, then the remaining missions so a carrier in any division can select carrier missions
+            DivisionMissionType[] primary = DivisionMissionType.missionsForArchetype(archetype);
+            List<DivisionMissionType> ordered = new ArrayList<>();
+            for (DivisionMissionType m : primary) {
+                ordered.add(m);
+            }
+            for (DivisionMissionType m : DivisionMissionType.values()) {
+                if (!ordered.contains(m)) {
+                    ordered.add(m);
+                }
+            }
+
+            for (DivisionMissionType opt : ordered) {
                 boolean selected = isCustom && (opt == effMission);
                 CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
                 TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 22f, false);
                 String selAct = actionPrefix + opt.name();
+                String spaceHint = (opt.autoPreferredSpace != null)
+                        ? ("  [->" + opt.autoPreferredSpace.displayName + "]")
+                        : "";
                 ButtonAPI bOpt = registerButton(
                         optUi.addButton(
-                                (selected ? "* " : "   ") + opt.dropdownLabel,
+                                (selected ? "* " : "   ") + opt.dropdownLabel + spaceHint,
                                 selAct,
                                 selected ? activeColor : baseColor,
                                 darkColor,
@@ -1125,6 +1225,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 PermanentDivisionManager.updateIndividualDivisionSettings(
                         activeDivisionId, false, null, false, null, true, val, false, null, false, null);
             }
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_SPACE:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_SPACE:".length());
+            PreferredSpace ps = "INHERIT".equals(arg) ? null : PreferredSpace.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionPreferredSpace(activeDivisionId, ps);
             rebuildContent();
             return;
         }

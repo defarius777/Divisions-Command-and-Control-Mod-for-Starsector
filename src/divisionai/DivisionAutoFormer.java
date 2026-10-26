@@ -244,37 +244,51 @@ public class DivisionAutoFormer {
             }
         }
 
-        // 1. Form "Carrier & Escort" composite divisions.
-        // In defensive/escape missions or when escort destroyers/PD frigates are available,
-        // pair 1-2 dedicated PD escorts directly into the Carrier & Escort division.
-        // However, if there are enough destroyers to form a standalone Destroyer Division,
-        // leave monotype destroyers intact so they can act as an independent screening/strike division!
+        // 1. Form Carrier Divisions (Fleet Carrier, Light Carrier, Escort Carrier, or Mixed Carrier Division when paired with escorts).
         boolean keepStandaloneDestroyerDiv = (escortDestroyers.size() + lineDestroyers.size()) >= 2
                 && bg.missionContext != MissionContextType.FLEET_ESCAPE_REARGUARD;
 
-        for (int i = 0; i < carriers.size(); i += 2) {
-            List<ShipCapabilityProfile> group = new ArrayList<>();
-            ShipCapabilityProfile primaryCarrier = carriers.get(i);
-            group.add(primaryCarrier);
-            if (i + 1 < carriers.size() && primaryCarrier.hullSize != HullSize.CAPITAL_SHIP) {
-                group.add(carriers.get(i + 1));
+        List<ShipCapabilityProfile> fleetCarriers = new ArrayList<>();
+        List<ShipCapabilityProfile> lightCarriers = new ArrayList<>();
+        List<ShipCapabilityProfile> escortCarriers = new ArrayList<>();
+        for (ShipCapabilityProfile c : carriers) {
+            if (c.hullSize == HullSize.CAPITAL_SHIP) {
+                fleetCarriers.add(c);
+            } else if (c.hullSize == HullSize.CRUISER) {
+                lightCarriers.add(c);
+            } else {
+                escortCarriers.add(c);
             }
+        }
 
-            int escortsWanted = (primaryCarrier.hullSize == HullSize.CAPITAL_SHIP) ? 2 : 1;
-            while (escortsWanted > 0) {
-                ShipCapabilityProfile escort = null;
-                if (!keepStandaloneDestroyerDiv && !escortDestroyers.isEmpty()) {
-                    escort = popNearest(primaryCarrier.ship, escortDestroyers);
-                } else if (!screenFrigates.isEmpty() && (screenFrigates.size() > 2 || bg.missionContext == MissionContextType.FLEET_ESCAPE_REARGUARD)) {
-                    escort = popNearest(primaryCarrier.ship, screenFrigates);
+        if (bg.missionContext == MissionContextType.FLEET_ESCAPE_REARGUARD) {
+            // In rearguard escape, pair carriers with organic escorts as Mixed Carrier Divisions
+            for (int i = 0; i < carriers.size(); i += 2) {
+                List<ShipCapabilityProfile> group = new ArrayList<>();
+                ShipCapabilityProfile primaryCarrier = carriers.get(i);
+                group.add(primaryCarrier);
+                if (i + 1 < carriers.size() && primaryCarrier.hullSize != HullSize.CAPITAL_SHIP) {
+                    group.add(carriers.get(i + 1));
                 }
-                if (escort == null) break;
-                group.add(escort);
-                escortsWanted--;
+                int escortsWanted = (primaryCarrier.hullSize == HullSize.CAPITAL_SHIP) ? 2 : 1;
+                while (escortsWanted > 0) {
+                    ShipCapabilityProfile escort = null;
+                    if (!keepStandaloneDestroyerDiv && !escortDestroyers.isEmpty()) {
+                        escort = popNearest(primaryCarrier.ship, escortDestroyers);
+                    } else if (!screenFrigates.isEmpty()) {
+                        escort = popNearest(primaryCarrier.ship, screenFrigates);
+                    }
+                    if (escort == null) break;
+                    group.add(escort);
+                    escortsWanted--;
+                }
+                DivisionState div = createDivision(bg, DivisionArchetype.CARRIER_AND_ESCORT, group);
+                newlyCreated.add(div);
             }
-
-            DivisionState div = createDivision(bg, DivisionArchetype.CARRIER_AND_ESCORT, group);
-            newlyCreated.add(div);
+        } else {
+            newlyCreated.addAll(chunkIntoDivisions(bg, DivisionArchetype.FLEET_CARRIER_DIVISION, fleetCarriers, 2));
+            newlyCreated.addAll(chunkIntoDivisions(bg, DivisionArchetype.LIGHT_CARRIER_DIVISION, lightCarriers, 3));
+            newlyCreated.addAll(chunkIntoDivisions(bg, DivisionArchetype.ESCORT_CARRIER_DIVISION, escortCarriers, 4));
         }
 
         // 2. Form "Battle Div" from capitals.
@@ -370,7 +384,7 @@ public class DivisionAutoFormer {
         String divId = (bg.side == 0 ? (isAlliedAi ? "ally_" : "player_") : "enemy_")
                 + archetype.name().toLowerCase() + "_" + number;
 
-        ShipAPI leaderShip = pickDivisionFlagship(members);
+        ShipAPI leaderShip = pickDivisionFlagship(members, archetype);
         PersonAPI captain = (leaderShip != null) ? leaderShip.getCaptain() : null;
         CommanderProfile cmdr = new CommanderProfile(captain, displayName + " Cmdr");
 
@@ -412,7 +426,7 @@ public class DivisionAutoFormer {
         div.avgMaxSpeed = speedSum / count;
         div.avgEngageRange = rangeSum / count;
 
-        div.hasCarrierCapability = (div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) || (carrierShips > 0);
+        div.hasCarrierCapability = div.archetype.isCarrierArchetype() || (carrierShips > 0);
         div.hasTorpedoStrikeCapability = !div.hasCarrierCapability
                 && div.archetype != DivisionArchetype.BATTLE_DIVISION
                 && div.archetype != DivisionArchetype.CRUISER_DIVISION
@@ -434,7 +448,7 @@ public class DivisionAutoFormer {
                 || div.archetype == DivisionArchetype.PHASE_DIVISION
                 || div.archetype == DivisionArchetype.TORPEDO_DESTROYER_DIVISION);
 
-        // Customizable Fleet Doctrine division-type modifiers (intra-spacing, inter-spacing, standoff, leash, opening & main missions)
+        // Customizable Fleet Doctrine division-type modifiers (intra-spacing, inter-spacing, standoff, leash, opening & main missions, preferred space)
         PermanentDivisionManager.DoctrineDivisionType docType =
                 PermanentDivisionManager.DoctrineDivisionType.forArchetype(div.archetype);
         boolean isPlayerOwnedDiv = (div.side == 0) && (div.flagship == null || !div.flagship.isAlly());
@@ -447,6 +461,7 @@ public class DivisionAutoFormer {
             div.openingPhaseDurationSeconds = docCfg.getOpeningDurationSeconds();
             div.openingMission = docCfg.getOpeningMission(docType);
             div.mainMission = docCfg.getMainMission(docType);
+            div.preferredSpace = docCfg.getPreferredSpace(docType);
         } else {
             div.idealIntraSpacing = docType.defaultIdealSpacingUnits;
             div.idealInterSpacing = docType.defaultInterSpacingUnits;
@@ -455,12 +470,16 @@ public class DivisionAutoFormer {
             div.openingPhaseDurationSeconds = 45f;
             div.openingMission = docType.defaultOpeningMission;
             div.mainMission = docType.defaultMainMission;
+            div.preferredSpace = docType.defaultPreferredSpace;
         }
 
         // Desired cohesion radius scales by archetype, ideal intra-division spacing, and commander strictness
         float baseRadius;
         switch (div.archetype) {
             case BATTLE_DIVISION:
+            case FLEET_CARRIER_DIVISION:
+            case LIGHT_CARRIER_DIVISION:
+            case ESCORT_CARRIER_DIVISION:
             case CARRIER_AND_ESCORT:
                 baseRadius = 900f;
                 break;
@@ -493,13 +512,17 @@ public class DivisionAutoFormer {
         return count + 1;
     }
 
-    private static ShipAPI pickDivisionFlagship(List<ShipCapabilityProfile> members) {
+    private static ShipAPI pickDivisionFlagship(List<ShipCapabilityProfile> members, DivisionArchetype archetype) {
         ShipCapabilityProfile best = null;
         float bestScore = -1f;
+        boolean preferCarrier = archetype != null && archetype.isCarrierArchetype();
         for (ShipCapabilityProfile p : members) {
             float score = p.fpStrength;
             if (p.ship.getCaptain() != null && !p.ship.getCaptain().isDefault()) {
                 score += 25f + p.ship.getCaptain().getStats().getLevel() * 5f;
+            }
+            if (preferCarrier && (p.isCarrier || p.ship.getNumFighterBays() > 0)) {
+                score += 500f;
             }
             if (p.ship.isAlly()) {
                 score -= 5f;
@@ -531,7 +554,7 @@ public class DivisionAutoFormer {
             if (prof.primaryTag == TacticalTag.PHASE_RAIDER && div.archetype == DivisionArchetype.PHASE_DIVISION) {
                 return div;
             }
-            if (prof.primaryTag == TacticalTag.CARRIER && div.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
+            if (prof.primaryTag == TacticalTag.CARRIER && div.archetype.isCarrierArchetype()) {
                 return div;
             }
             if (prof.hullSize == HullSize.CAPITAL_SHIP && div.archetype == DivisionArchetype.BATTLE_DIVISION) {

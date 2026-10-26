@@ -64,39 +64,161 @@ public class PermanentDivisionManager {
     public static final int MAX_OPENING_DURATION_SEC = 60;
 
     /**
+     * Preferred battlefield depth zone for a division (Forward, Middle, Back).
+     * Automatically selected by certain mission types, or manually set by the player.
+     */
+    public enum PreferredSpace {
+        FORWARD("Forward", "Deploys and maneuvers ahead of the main battle line."),
+        MIDDLE("Middle", "Maintains station along the main battle line."),
+        BACK("Back", "Stays behind the main battle line in rear standoff or reserve.");
+
+        public final String displayName;
+        public final String summary;
+
+        PreferredSpace(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+
+        public static PreferredSpace fromId(String id, PreferredSpace fallback) {
+            if (id == null) return fallback;
+            try {
+                return PreferredSpace.valueOf(id);
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
      * Selectable Opening Mission (first 30-60s) and Main Mission (rest of battle) for Battlegroup
-     * division types and individual divisions.
+     * division types and individual divisions, including both General Combat Missions,
+     * Carrier Missions & Tactics (a..f), and generic "Battlegroup Reserve".
      */
     public enum DivisionMissionType {
+        // General Combat Missions
         RECONNAISSANCE(
                 "a. \"Reconnaissance\"",
                 "Reconnaissance",
-                "Probe forward, seize unclaimed tactical objectives/buoys, and maintain standoff recon."),
+                "Probe forward, seize unclaimed tactical objectives/buoys, and maintain standoff recon.",
+                false,
+                PreferredSpace.FORWARD),
         DOMINATE_SPACE_INTO_BRAWL(
                 "b. \"Dominate Space into Brawl\"",
                 "Dominate Space into Brawl",
-                "Advance to contest space and close aggressively into a decisive main-line brawl."),
+                "Advance to contest space and close aggressively into a decisive main-line brawl.",
+                false,
+                PreferredSpace.FORWARD),
         STANDOFF_AT_RANGE(
                 "c. \"Standoff at Range\"",
                 "Standoff at Range",
-                "Hold firing line at Line Standoff distance (longest weapon range) and kite back if pressed."),
+                "Hold firing line at Line Standoff distance (longest weapon range) and kite back if pressed.",
+                false,
+                PreferredSpace.MIDDLE),
         OUTFLANK_AND_DESTROY(
                 "d. \"Outflank and Destroy\"",
                 "Outflank and Destroy",
-                "Swing wide around enemy flanks to envelop and destroy isolated or vulnerable targets."),
+                "Swing wide around enemy flanks to envelop and destroy isolated or vulnerable targets.",
+                false,
+                PreferredSpace.FORWARD),
         SCREEN(
                 "e. \"Screen\"",
                 "Screen",
-                "Form a spaced forward/flank picket screen protecting heavier friendly divisions.");
+                "Form a spaced forward/flank picket screen protecting heavier friendly divisions.",
+                false,
+                PreferredSpace.MIDDLE),
+
+        // Carrier Missions and Tactics (a..f)
+        CARRIER_RECON_STRIKE_CRAFT(
+                "a. \"Reconnaissance by Strike Craft\"",
+                "Recon by Strike Craft",
+                "Keep carriers safely back while sending strike craft forward to spot and harass.",
+                true,
+                PreferredSpace.BACK),
+        CARRIER_VOID_SUPERIORITY(
+                "b. \"Void Superiority\"",
+                "Void Superiority",
+                "Contest fighter/air superiority and strip enemy strike craft and light flankers.",
+                true,
+                PreferredSpace.MIDDLE),
+        CARRIER_PROTECT_FLEET(
+                "c. \"Protect Fleet\"",
+                "Protect Fleet",
+                "Provide fleet air defense cover over friendly heavy/endangered divisions.",
+                true,
+                PreferredSpace.BACK),
+        CARRIER_SUCCESSIVE_STRIKES(
+                "d. \"Successive Strikes/Fire at Will\"",
+                "Successive Strikes / Fire at Will",
+                "Launch continuous strike craft attacks at will against the best visible enemy target.",
+                true,
+                PreferredSpace.BACK),
+        CARRIER_DIVISION_COORDINATED_STRIKE(
+                "e. \"Division Coordinated Strike\"",
+                "Division Coordinated Strike",
+                "Synchronize all carriers in this division onto the same focus target ship.",
+                true,
+                PreferredSpace.BACK),
+        CARRIER_MULTI_DIVISION_STRIKE(
+                "f. \"Multi-Division Coordinated Strike\"",
+                "Multi-Division Coordinated Strike",
+                "Synchronize strike craft with the Battlegroup Main Effort / missile divisions on primary threat.",
+                true,
+                PreferredSpace.BACK),
+
+        // Universal Reserve Mission
+        BATTLEGROUP_RESERVE(
+                "g. \"Battlegroup Reserve\"",
+                "Battlegroup Reserve",
+                "Stay behind the front line in reserve until called up by the Battlegroup Commander for relief/tasks.",
+                false,
+                PreferredSpace.BACK);
 
         public final String dropdownLabel;
         public final String shortName;
         public final String summary;
+        public final boolean carrierSpecific;
+        public final boolean isCarrierMission;
+        public final PreferredSpace autoPreferredSpace;
 
-        DivisionMissionType(String dropdownLabel, String shortName, String summary) {
+        DivisionMissionType(
+                String dropdownLabel,
+                String shortName,
+                String summary,
+                boolean carrierSpecific,
+                PreferredSpace autoPreferredSpace) {
             this.dropdownLabel = dropdownLabel;
             this.shortName = shortName;
             this.summary = summary;
+            this.carrierSpecific = carrierSpecific;
+            this.isCarrierMission = carrierSpecific;
+            this.autoPreferredSpace = autoPreferredSpace;
+        }
+
+        public static List<DivisionMissionType> getOptionsForDivisionType(boolean isCarrierType) {
+            List<DivisionMissionType> list = new ArrayList<>();
+            for (DivisionMissionType m : values()) {
+                if (m == BATTLEGROUP_RESERVE) {
+                    list.add(m);
+                } else if (isCarrierType && m.carrierSpecific) {
+                    list.add(m);
+                } else if (!isCarrierType && !m.carrierSpecific) {
+                    list.add(m);
+                }
+            }
+            return list;
+        }
+
+        public static DivisionMissionType[] missionsForArchetype(DivisionArchetype archetype) {
+            boolean isCarrier = archetype != null && archetype.isCarrierArchetype();
+            List<DivisionMissionType> list = getOptionsForDivisionType(isCarrier);
+            return list.toArray(new DivisionMissionType[0]);
+        }
+
+        public static DivisionMissionType[] missionsForDoctrineType(DoctrineDivisionType dt) {
+            boolean isCarrier = dt != null && dt.primaryArchetype != null && dt.primaryArchetype.isCarrierArchetype();
+            List<DivisionMissionType> list = getOptionsForDivisionType(isCarrier);
+            return list.toArray(new DivisionMissionType[0]);
         }
 
         public static DivisionMissionType fromId(String id, DivisionMissionType fallback) {
@@ -116,6 +238,7 @@ public class PermanentDivisionManager {
      *  - Line Standoff distance (units)
      *  - Opening Mission (first 30-60s)
      *  - Main Mission (rest of battle)
+     *  - Preferred Space (Forward, Middle, Back)
      */
     public enum DoctrineDivisionType {
         FRIGATE(
@@ -126,7 +249,8 @@ public class PermanentDivisionManager {
                 950,
                 1.15f,
                 DivisionMissionType.RECONNAISSANCE,
-                DivisionMissionType.OUTFLANK_AND_DESTROY),
+                DivisionMissionType.OUTFLANK_AND_DESTROY,
+                PreferredSpace.FORWARD),
         DESTROYER(
                 "Destroyer Division",
                 DivisionArchetype.DESTROYER_DIVISION,
@@ -135,7 +259,8 @@ public class PermanentDivisionManager {
                 850,
                 1.05f,
                 DivisionMissionType.RECONNAISSANCE,
-                DivisionMissionType.SCREEN),
+                DivisionMissionType.SCREEN,
+                PreferredSpace.MIDDLE),
         CRUISER(
                 "Cruiser Division",
                 DivisionArchetype.CRUISER_DIVISION,
@@ -144,7 +269,8 @@ public class PermanentDivisionManager {
                 800,
                 1.00f,
                 DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL,
-                DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL),
+                DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL,
+                PreferredSpace.MIDDLE),
         STRIKE_CRUISER(
                 "Strike Cruiser Division",
                 DivisionArchetype.STRIKE_CRUISER_DIVISION,
@@ -153,7 +279,8 @@ public class PermanentDivisionManager {
                 900,
                 1.10f,
                 DivisionMissionType.RECONNAISSANCE,
-                DivisionMissionType.OUTFLANK_AND_DESTROY),
+                DivisionMissionType.OUTFLANK_AND_DESTROY,
+                PreferredSpace.FORWARD),
         BATTLE_CAPITAL(
                 "Battle Division (Capital)",
                 DivisionArchetype.BATTLE_DIVISION,
@@ -162,16 +289,48 @@ public class PermanentDivisionManager {
                 750,
                 0.95f,
                 DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL,
-                DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL),
+                DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL,
+                PreferredSpace.FORWARD),
+        FLEET_CARRIER(
+                "Fleet Carrier Division (Capital)",
+                DivisionArchetype.FLEET_CARRIER_DIVISION,
+                650,
+                1350,
+                1600,
+                0.95f,
+                DivisionMissionType.CARRIER_RECON_STRIKE_CRAFT,
+                DivisionMissionType.CARRIER_MULTI_DIVISION_STRIKE,
+                PreferredSpace.BACK),
+        LIGHT_CARRIER(
+                "Light Carrier Division (Cruiser)",
+                DivisionArchetype.LIGHT_CARRIER_DIVISION,
+                550,
+                1250,
+                1450,
+                0.95f,
+                DivisionMissionType.CARRIER_RECON_STRIKE_CRAFT,
+                DivisionMissionType.CARRIER_DIVISION_COORDINATED_STRIKE,
+                PreferredSpace.BACK),
+        ESCORT_CARRIER(
+                "Escort Carrier Division (Destroyer & Below)",
+                DivisionArchetype.ESCORT_CARRIER_DIVISION,
+                475,
+                1150,
+                1350,
+                0.95f,
+                DivisionMissionType.CARRIER_PROTECT_FLEET,
+                DivisionMissionType.CARRIER_SUCCESSIVE_STRIKES,
+                PreferredSpace.BACK),
         CARRIER_ESCORT(
-                "Carrier Division",
+                "Mixed Carrier Division",
                 DivisionArchetype.CARRIER_AND_ESCORT,
                 575,
                 1300,
-                1400,
+                1450,
                 0.95f,
-                DivisionMissionType.STANDOFF_AT_RANGE,
-                DivisionMissionType.STANDOFF_AT_RANGE),
+                DivisionMissionType.CARRIER_RECON_STRIKE_CRAFT,
+                DivisionMissionType.CARRIER_DIVISION_COORDINATED_STRIKE,
+                PreferredSpace.BACK),
         PHASE_RAIDER(
                 "Phase Division",
                 DivisionArchetype.PHASE_DIVISION,
@@ -180,7 +339,8 @@ public class PermanentDivisionManager {
                 1050,
                 1.25f,
                 DivisionMissionType.RECONNAISSANCE,
-                DivisionMissionType.OUTFLANK_AND_DESTROY),
+                DivisionMissionType.OUTFLANK_AND_DESTROY,
+                PreferredSpace.FORWARD),
         AUXILIARY(
                 "Auxiliary Convoy",
                 DivisionArchetype.AUXILIARY_CONVOY,
@@ -188,8 +348,9 @@ public class PermanentDivisionManager {
                 1200,
                 1500,
                 0.90f,
-                DivisionMissionType.STANDOFF_AT_RANGE,
-                DivisionMissionType.STANDOFF_AT_RANGE);
+                DivisionMissionType.BATTLEGROUP_RESERVE,
+                DivisionMissionType.BATTLEGROUP_RESERVE,
+                PreferredSpace.BACK);
 
         public final String displayName;
         public final DivisionArchetype primaryArchetype;
@@ -199,6 +360,7 @@ public class PermanentDivisionManager {
         public final float defaultLeashMult;
         public final DivisionMissionType defaultOpeningMission;
         public final DivisionMissionType defaultMainMission;
+        public final PreferredSpace defaultPreferredSpace;
 
         DoctrineDivisionType(
                 String displayName,
@@ -208,7 +370,8 @@ public class PermanentDivisionManager {
                 int defaultLineStandoffUnits,
                 float defaultLeashMult,
                 DivisionMissionType defaultOpeningMission,
-                DivisionMissionType defaultMainMission) {
+                DivisionMissionType defaultMainMission,
+                PreferredSpace defaultPreferredSpace) {
             this.displayName = displayName;
             this.primaryArchetype = primaryArchetype;
             this.defaultIdealSpacingUnits = defaultIdealSpacingUnits;
@@ -217,6 +380,11 @@ public class PermanentDivisionManager {
             this.defaultLeashMult = defaultLeashMult;
             this.defaultOpeningMission = defaultOpeningMission;
             this.defaultMainMission = defaultMainMission;
+            this.defaultPreferredSpace = defaultPreferredSpace;
+        }
+
+        public boolean isCarrierType() {
+            return primaryArchetype != null && primaryArchetype.isCarrierArchetype();
         }
 
         public static DoctrineDivisionType forArchetype(DivisionArchetype arch) {
@@ -231,6 +399,12 @@ public class PermanentDivisionManager {
                     return STRIKE_CRUISER;
                 case BATTLE_DIVISION:
                     return BATTLE_CAPITAL;
+                case FLEET_CARRIER_DIVISION:
+                    return FLEET_CARRIER;
+                case LIGHT_CARRIER_DIVISION:
+                    return LIGHT_CARRIER;
+                case ESCORT_CARRIER_DIVISION:
+                    return ESCORT_CARRIER;
                 case CARRIER_AND_ESCORT:
                     return CARRIER_ESCORT;
                 case PHASE_DIVISION:
@@ -338,6 +512,7 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, Float> leashByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> openingMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> mainMissionByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, PreferredSpace> preferredSpaceByType = new LinkedHashMap<>();
         private int openingDurationSeconds = 45;
 
         public FleetDoctrineConfig() {
@@ -352,7 +527,19 @@ public class PermanentDivisionManager {
                 leashByType.put(dt, dt.defaultLeashMult);
                 openingMissionByType.put(dt, dt.defaultOpeningMission);
                 mainMissionByType.put(dt, dt.defaultMainMission);
+                preferredSpaceByType.put(dt, dt.defaultPreferredSpace);
             }
+        }
+
+        public PreferredSpace getPreferredSpace(DoctrineDivisionType dt) {
+            if (dt == null) return PreferredSpace.MIDDLE;
+            PreferredSpace ps = preferredSpaceByType.get(dt);
+            return ps != null ? ps : dt.defaultPreferredSpace;
+        }
+
+        public void setPreferredSpace(DoctrineDivisionType dt, PreferredSpace ps) {
+            if (dt == null || ps == null) return;
+            preferredSpaceByType.put(dt, ps);
         }
 
         public int getOpeningDurationSeconds() {
@@ -495,6 +682,7 @@ public class PermanentDivisionManager {
                 Object lsObj = map.get("leash_" + dt.name());
                 Object opMisObj = map.get("opening_mission_" + dt.name());
                 Object mnMisObj = map.get("main_mission_" + dt.name());
+                Object psObj = map.get("pref_space_" + dt.name());
                 if (spObj instanceof Number) {
                     cfg.setIdealSpacing(dt, ((Number) spObj).intValue());
                 }
@@ -512,6 +700,9 @@ public class PermanentDivisionManager {
                 }
                 if (mnMisObj instanceof String) {
                     cfg.setMainMission(dt, DivisionMissionType.fromId((String) mnMisObj, dt.defaultMainMission));
+                }
+                if (psObj instanceof String) {
+                    cfg.setPreferredSpace(dt, PreferredSpace.fromId((String) psObj, dt.defaultPreferredSpace));
                 }
             }
         }
@@ -534,6 +725,7 @@ public class PermanentDivisionManager {
             serialized.put("leash_" + dt.name(), cfg.getLeashMult(dt));
             serialized.put("opening_mission_" + dt.name(), cfg.getOpeningMission(dt).name());
             serialized.put("main_mission_" + dt.name(), cfg.getMainMission(dt).name());
+            serialized.put("pref_space_" + dt.name(), cfg.getPreferredSpace(dt).name());
         }
         sector.getPersistentData().put(PERSISTENT_DOCTRINE_KEY, serialized);
     }
@@ -591,6 +783,16 @@ public class PermanentDivisionManager {
         } else {
             cfg.setMainMission(dt, mission);
         }
+        if (mission.autoPreferredSpace != null) {
+            cfg.setPreferredSpace(dt, mission.autoPreferredSpace);
+        }
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypePreferredSpace(DoctrineDivisionType dt, PreferredSpace ps) {
+        if (dt == null || ps == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setPreferredSpace(dt, ps);
         saveFleetDoctrine(cfg);
     }
 
@@ -603,7 +805,7 @@ public class PermanentDivisionManager {
         SPEARHEAD("Aggressive Spearhead", "Commits early to line contact and presses local overmatch aggressively."),
         STANDOFF("Standoff Fire Support", "Maintains maximum weapon/fighter standoff range and avoids close brawls."),
         SCREEN_ESCORT("Screen & Escort", "Prioritizes screening friendly capital and carrier divisions against flankers."),
-        FLANK_STRIKE("Flank & Torpedo Strike", "Swings wide around enemy flanks and looks for torpedo/missile strike windows."),
+        FLANK_STRIKE("Flank & Missile Strike", "Swings wide around enemy flanks and looks for missile strike windows."),
         RESERVE_HOLD("Tactical Reserve", "Holds behind the main battle line until a friendly division requires relief.");
 
         public final String displayName;
@@ -639,6 +841,7 @@ public class PermanentDivisionManager {
         public Integer customLineStandoff = null;
         public DivisionMissionType customOpeningMission = null;
         public DivisionMissionType customMainMission = null;
+        public PreferredSpace customPreferredSpace = null;
 
         public PermanentDivisionSpec(String id, String name, DivisionArchetype archetype) {
             this.id = id;
@@ -685,6 +888,14 @@ public class PermanentDivisionManager {
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
         return cfg != null ? cfg.getMainMission(dt) : dt.defaultMainMission;
+    }
+
+    public static PreferredSpace resolveEffectivePreferredSpace(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customPreferredSpace != null) {
+            return spec.customPreferredSpace;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getPreferredSpace(dt) : dt.defaultPreferredSpace;
     }
 
     /**
@@ -809,10 +1020,30 @@ public class PermanentDivisionManager {
                 }
                 if (updateOpeningMission) {
                     spec.customOpeningMission = openingMission;
+                    if (openingMission != null && openingMission.autoPreferredSpace != null) {
+                        spec.customPreferredSpace = openingMission.autoPreferredSpace;
+                    }
                 }
                 if (updateMainMission) {
                     spec.customMainMission = mainMission;
+                    if (mainMission != null && mainMission.autoPreferredSpace != null) {
+                        spec.customPreferredSpace = mainMission.autoPreferredSpace;
+                    }
                 }
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionPreferredSpace(String divisionId, PreferredSpace preferredSpace) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customPreferredSpace = preferredSpace;
                 break;
             }
         }
@@ -1403,6 +1634,11 @@ public class PermanentDivisionManager {
         div.openingPhaseDurationSeconds = cfg.getOpeningDurationSeconds();
         div.openingMission = resolveEffectiveOpeningMission(spec, cfg);
         div.mainMission = resolveEffectiveMainMission(spec, cfg);
+        div.preferredSpace = resolveEffectivePreferredSpace(spec, cfg);
+        if (div.openingMission == DivisionMissionType.BATTLEGROUP_RESERVE
+                || div.mainMission == DivisionMissionType.BATTLEGROUP_RESERVE) {
+            div.isDesignatedReserve = true;
+        }
 
         int count = Math.max(1, div.profiles.size());
         float spacingBasedRadius = div.idealIntraSpacing * (0.95f + 0.38f * Math.min(6, Math.max(1, count - 1)));
@@ -1466,7 +1702,9 @@ public class PermanentDivisionManager {
             }
         });
 
-        List<FleetMemberAPI> carriers = new ArrayList<>();
+        List<FleetMemberAPI> fleetCarriers = new ArrayList<>();
+        List<FleetMemberAPI> lightCarriers = new ArrayList<>();
+        List<FleetMemberAPI> escortCarriers = new ArrayList<>();
         List<FleetMemberAPI> capitals = new ArrayList<>();
         List<FleetMemberAPI> strikeCruisers = new ArrayList<>();
         List<FleetMemberAPI> lineCruisers = new ArrayList<>();
@@ -1485,8 +1723,15 @@ public class PermanentDivisionManager {
                 case PHASE_DIVISION:
                     phaseShips.add(m);
                     break;
+                case FLEET_CARRIER_DIVISION:
+                    fleetCarriers.add(m);
+                    break;
+                case LIGHT_CARRIER_DIVISION:
+                    lightCarriers.add(m);
+                    break;
+                case ESCORT_CARRIER_DIVISION:
                 case CARRIER_AND_ESCORT:
-                    carriers.add(m);
+                    escortCarriers.add(m);
                     break;
                 case BATTLE_DIVISION:
                     capitals.add(m);
@@ -1510,19 +1755,10 @@ public class PermanentDivisionManager {
             }
         }
 
-        // 1. Carrier & Escort divisions
-        for (int i = 0; i < carriers.size(); i += 2) {
-            List<FleetMemberAPI> group = new ArrayList<>();
-            FleetMemberAPI c1 = carriers.get(i);
-            group.add(c1);
-            if (i + 1 < carriers.size() && !c1.isCapital()) {
-                group.add(carriers.get(i + 1));
-            }
-            if (frigates.size() > 2) {
-                group.add(frigates.remove(frigates.size() - 1));
-            }
-            addBuiltDivision(specs, pdata, DivisionArchetype.CARRIER_AND_ESCORT, group);
-        }
+        // 1. Carrier Divisions (Fleet Carrier, Light Carrier, Escort Carrier)
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.FLEET_CARRIER_DIVISION, fleetCarriers, 2);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.LIGHT_CARRIER_DIVISION, lightCarriers, 3);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.ESCORT_CARRIER_DIVISION, escortCarriers, 4);
 
         // 2. Battle Divisions
         for (int i = 0; i < capitals.size(); i += 2) {
@@ -1654,11 +1890,24 @@ public class PermanentDivisionManager {
         }
 
         int bays = (variant != null && variant.getFittedWings() != null) ? variant.getFittedWings().size() : 0;
-        boolean isCarrier = member.isCarrier()
-                || hints.contains(ShipTypeHints.CARRIER)
-                || (bays >= 2 && !hints.contains(ShipTypeHints.COMBAT));
-        if (isCarrier) {
-            return DivisionArchetype.CARRIER_AND_ESCORT;
+        if (bays == 0 && hullSpec != null) {
+            bays = hullSpec.getFighterBays();
+        }
+        // Battlecarriers (e.g. Legion, Odyssey — hulls with fighter bays + COMBAT hint) default to Battle Divisions!
+        boolean isBattlecarrier = (bays > 0) && hints.contains(ShipTypeHints.COMBAT);
+        boolean isDedicatedCarrier = !isBattlecarrier
+                && (member.isCarrier() || hints.contains(ShipTypeHints.CARRIER) || bays >= 2);
+        if (isDedicatedCarrier) {
+            switch (size) {
+                case CAPITAL_SHIP:
+                    return DivisionArchetype.FLEET_CARRIER_DIVISION;
+                case CRUISER:
+                    return DivisionArchetype.LIGHT_CARRIER_DIVISION;
+                case DESTROYER:
+                case FRIGATE:
+                default:
+                    return DivisionArchetype.ESCORT_CARRIER_DIVISION;
+            }
         }
 
         int strikeWeaponCount = 0;
@@ -1724,7 +1973,27 @@ public class PermanentDivisionManager {
             return;
         }
         if (spec.flagshipMemberId != null && spec.memberIds.contains(spec.flagshipMemberId)) {
-            return;
+            if (fleet != null && spec.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
+                Map<String, FleetMemberAPI> byId = mapFleetMembersById(fleet);
+                FleetMemberAPI currFlag = byId.get(spec.flagshipMemberId);
+                boolean currIsCarrier = currFlag != null && (currFlag.isCarrier() || currFlag.getNumFlightDecks() > 0);
+                if (!currIsCarrier) {
+                    // Check if any member is a carrier; if so, fall through to promote the carrier to flagship!
+                    boolean anyCarrier = false;
+                    for (String id : spec.memberIds) {
+                        FleetMemberAPI m = byId.get(id);
+                        if (m != null && (m.isCarrier() || m.getNumFlightDecks() > 0)) {
+                            anyCarrier = true;
+                            break;
+                        }
+                    }
+                    if (!anyCarrier) return;
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
         }
         if (fleet == null) {
             spec.flagshipMemberId = spec.memberIds.get(0);
@@ -1733,12 +2002,16 @@ public class PermanentDivisionManager {
         Map<String, FleetMemberAPI> byId = mapFleetMembersById(fleet);
         FleetMemberAPI best = null;
         float bestScore = -1f;
+        boolean preferCarrierFlagship = spec.archetype != null && spec.archetype.isCarrierArchetype();
         for (String id : spec.memberIds) {
             FleetMemberAPI m = byId.get(id);
             if (m == null) continue;
             float score = m.getDeploymentPointsCost();
             if (m.getCaptain() != null && !m.getCaptain().isDefault()) {
                 score += 25f + m.getCaptain().getStats().getLevel() * 5f;
+            }
+            if (preferCarrierFlagship && (m.isCarrier() || m.getNumFlightDecks() > 0)) {
+                score += 500f;
             }
             if (score > bestScore) {
                 bestScore = score;
@@ -1794,11 +2067,13 @@ public class PermanentDivisionManager {
             Object cStandoff = map.get("customLineStandoff");
             Object cOpenMis = map.get("customOpeningMission");
             Object cMainMis = map.get("customMainMission");
+            Object cPrefSpace = map.get("customPreferredSpace");
             if (cIntra instanceof Number) spec.customIntraSpacing = ((Number) cIntra).intValue();
             if (cInter instanceof Number) spec.customInterSpacing = ((Number) cInter).intValue();
             if (cStandoff instanceof Number) spec.customLineStandoff = ((Number) cStandoff).intValue();
             if (cOpenMis instanceof String) spec.customOpeningMission = DivisionMissionType.fromId((String) cOpenMis, null);
             if (cMainMis instanceof String) spec.customMainMission = DivisionMissionType.fromId((String) cMainMis, null);
+            if (cPrefSpace instanceof String) spec.customPreferredSpace = PreferredSpace.fromId((String) cPrefSpace, null);
 
             Object membersObj = map.get("memberIds");
             if (membersObj instanceof List) {
@@ -1829,6 +2104,7 @@ public class PermanentDivisionManager {
             if (spec.customLineStandoff != null) map.put("customLineStandoff", spec.customLineStandoff);
             if (spec.customOpeningMission != null) map.put("customOpeningMission", spec.customOpeningMission.name());
             if (spec.customMainMission != null) map.put("customMainMission", spec.customMainMission.name());
+            if (spec.customPreferredSpace != null) map.put("customPreferredSpace", spec.customPreferredSpace.name());
             serialized.add(map);
         }
         pdata.put(PERSISTENT_DIVISIONS_KEY, serialized);

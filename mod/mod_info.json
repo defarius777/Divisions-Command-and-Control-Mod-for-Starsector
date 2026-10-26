@@ -6,7 +6,7 @@
 	"version": {
 		"major": "0",
 		"minor": "4",
-		"patch": "6"
+		"patch": "7"
 	},
 	"description": "Force-cohesion layer for ship AI: local overmatch evaluation and coordinated repositioning across the whole battlefield.",
 	"gameVersion": "0.98a-RC8",

@@ -15,6 +15,7 @@ import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.PreferredSpace;
 import org.lwjgl.util.vector.Vector2f;
 
 import java.util.List;
@@ -156,20 +157,27 @@ public class DivisionCommanderAI {
         boolean inOpeningWindow = now <= Math.max(30f, Math.min(60f, div.openingPhaseDurationSeconds));
         DivisionMissionType activeMission = inOpeningWindow ? div.openingMission : div.mainMission;
         if (activeMission == null) {
-            activeMission = inOpeningWindow
-                    ? DivisionMissionType.RECONNAISSANCE
-                    : DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL;
+            if (div.archetype.isCarrierArchetype()) {
+                activeMission = inOpeningWindow
+                        ? DivisionMissionType.CARRIER_RECON_STRIKE_CRAFT
+                        : DivisionMissionType.CARRIER_DIVISION_COORDINATED_STRIKE;
+            } else {
+                activeMission = inOpeningWindow
+                        ? DivisionMissionType.RECONNAISSANCE
+                        : DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL;
+            }
         }
         String missionPhaseTag = inOpeningWindow ? "Opening: " : "Main: ";
 
         // 3. Explicit Command Window Objective Order or Mission-Driven Objective Seizure!
         boolean isHeavyLineOrCarrier = (div.archetype == DivisionArchetype.BATTLE_DIVISION
-                || div.archetype == DivisionArchetype.CARRIER_AND_ESCORT);
+                || div.archetype.isCarrierArchetype());
         boolean shouldSeizeObjective = false;
         if (commandAssignedObj != null && !isHeavyLineOrCarrier && div.localEnemyStrength < 18f) {
             shouldSeizeObjective = true;
         } else if (uncapturedObj != null
                 && !isHeavyLineOrCarrier
+                && activeMission != DivisionMissionType.BATTLEGROUP_RESERVE
                 && div.localEnemyStrength < 14f
                 && (activeMission == DivisionMissionType.RECONNAISSANCE
                 || nearestEnemyDiv == null
@@ -191,33 +199,169 @@ public class DivisionCommanderAI {
             return;
         }
 
-        // 4. Battlegroup Reserve designation (held back until committed)
-        if (div.isDesignatedReserve && endangeredFriendlyDiv == null) {
+        // 4. Battlegroup Reserve mission or BG Reserve designation:
+        // Stays behind the front until called up by the BG commander for tasks (relieving an endangered division,
+        // stabilizing a threatened sector, or exploiting a breakthrough / coordinated strike).
+        boolean calledUpByBg = (endangeredFriendlyDiv != null)
+                || (myBg.currentPhase == BattlePhase.STABILIZE_AND_RELIEVE && nearestEnemyDiv != null)
+                || (myBg.currentPhase == BattlePhase.EXPLOIT_BREAKTHROUGH && nearestEnemyDiv != null)
+                || (myBg.currentPhase == BattlePhase.COORDINATED_STRIKE && nearestEnemyDiv != null && div.hasTorpedoStrikeCapability);
+
+        if ((activeMission == DivisionMissionType.BATTLEGROUP_RESERVE || div.isDesignatedReserve) && !calledUpByBg) {
             div.currentIntent = DivisionIntentType.HOLD_IN_RESERVE;
             div.maneuverAnchor.set(myBg.reserveAnchor);
-            reason = "awaiting BG commitment";
+            reason = (activeMission == DivisionMissionType.BATTLEGROUP_RESERVE)
+                    ? (missionPhaseTag + "Battlegroup Reserve (awaiting BG call-up)")
+                    : "awaiting BG commitment";
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, "", reason, now);
             return;
         }
 
-        // 5. Relief of an endangered friendly division (cross-division mutual support)
+        // 5. Relief of an endangered friendly division (cross-division mutual support or BG Reserve call-up)
         if (endangeredFriendlyDiv != null
                 && div.avgFluxLevel < 0.58f
-                && (div.isFastFlanker || div.localEnemyStrength < 15f || myBg.currentPhase == BattlePhase.STABILIZE_AND_RELIEVE)) {
+                && (activeMission == DivisionMissionType.BATTLEGROUP_RESERVE
+                || div.isDesignatedReserve
+                || div.isFastFlanker
+                || div.localEnemyStrength < 15f
+                || myBg.currentPhase == BattlePhase.STABILIZE_AND_RELIEVE)) {
 
             div.currentIntent = DivisionIntentType.RELIEVE_FRIENDLY_DIVISION;
             div.targetFriendlyDivision = endangeredFriendlyDiv;
             div.maneuverAnchor.set(endangeredFriendlyDiv.centroid);
             targetLabel = endangeredFriendlyDiv.displayName;
-            reason = String.format("under heavy pressure, ratio %.2f", endangeredFriendlyDiv.localOvermatchRatio);
+            reason = (activeMission == DivisionMissionType.BATTLEGROUP_RESERVE || div.isDesignatedReserve)
+                    ? String.format("BG Reserve called up to relieve (ratio %.2f)", endangeredFriendlyDiv.localOvermatchRatio)
+                    : String.format("under heavy pressure, ratio %.2f", endangeredFriendlyDiv.localOvermatchRatio);
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
             return;
         }
 
-        // 6. Execute configured Opening Mission / Main Mission priority!
+        // 6. Execute configured Opening Mission / Main Mission priority (including Carrier Missions a..f)!
         boolean strikeCooldownElapsed = (now - div.lastStrikeWithdrawTimestamp) >= 12.0f;
+
+        if (activeMission.isCarrierMission) {
+            DivisionState carrierTargetDiv = nearestEnemyDiv;
+            if (activeMission == DivisionMissionType.CARRIER_MULTI_DIVISION_STRIKE
+                    && myBg.primaryThreatEnemyDivision != null
+                    && BattlegroupCommanderAI.isDivisionVisibleToSide(engine, div.side, myBg.primaryThreatEnemyDivision)) {
+                carrierTargetDiv = myBg.primaryThreatEnemyDivision;
+            } else if (activeMission == DivisionMissionType.CARRIER_PROTECT_FLEET
+                    && endangeredFriendlyDiv != null) {
+                DivisionState threatToFriend = findBestEnemyDivisionFor(engine, endangeredFriendlyDiv, enemyBg, false, div.targetEnemyDivision);
+                if (threatToFriend != null) {
+                    carrierTargetDiv = threatToFriend;
+                }
+            }
+
+            switch (activeMission) {
+                case CARRIER_RECON_STRIKE_CRAFT:
+                    div.currentIntent = DivisionIntentType.CARRIER_STRIKE_CRAFT_RECON;
+                    div.targetEnemyDivision = carrierTargetDiv;
+                    if (carrierTargetDiv != null) {
+                        computeStandoffAnchor(engine, div, carrierTargetDiv, div.maneuverAnchor);
+                        targetLabel = carrierTargetDiv.displayName;
+                    } else if (uncapturedObj != null) {
+                        div.targetObjective = uncapturedObj;
+                        div.maneuverAnchor.set(div.centroid.x * 0.7f, div.centroid.y + (div.side == 0 ? 700f : -700f));
+                        targetLabel = uncapturedObj.getDisplayName();
+                    } else {
+                        div.maneuverAnchor.set(myBg.reserveAnchor);
+                    }
+                    reason = missionPhaseTag + activeMission.shortName;
+                    div.lastIntentChangeTime = now;
+                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+                    return;
+
+                case CARRIER_VOID_SUPERIORITY:
+                    div.currentIntent = DivisionIntentType.CARRIER_VOID_SUPERIORITY_CAP;
+                    div.targetEnemyDivision = carrierTargetDiv;
+                    if (carrierTargetDiv != null) {
+                        computeStandoffAnchor(engine, div, carrierTargetDiv, div.maneuverAnchor);
+                        targetLabel = carrierTargetDiv.displayName;
+                    } else {
+                        div.maneuverAnchor.set(myBg.reserveAnchor);
+                    }
+                    reason = missionPhaseTag + activeMission.shortName;
+                    div.lastIntentChangeTime = now;
+                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+                    return;
+
+                case CARRIER_PROTECT_FLEET:
+                    div.currentIntent = DivisionIntentType.CARRIER_PROTECT_FLEET_CAP;
+                    DivisionState protectedFriendly = (endangeredFriendlyDiv != null)
+                            ? endangeredFriendlyDiv
+                            : ((heavyFriendlyToScreen != null) ? heavyFriendlyToScreen : myBg.mainEffortDivision);
+                    div.targetFriendlyDivision = protectedFriendly;
+                    div.targetEnemyDivision = carrierTargetDiv;
+                    if (protectedFriendly != null && protectedFriendly != div) {
+                        float backSign = (div.side == 0) ? -1f : 1f;
+                        div.maneuverAnchor.set(
+                                protectedFriendly.centroid.x,
+                                protectedFriendly.centroid.y + backSign * Math.max(600f, div.lineStandoffDistance * 0.45f));
+                        targetLabel = protectedFriendly.displayName;
+                    } else if (carrierTargetDiv != null) {
+                        computeStandoffAnchor(engine, div, carrierTargetDiv, div.maneuverAnchor);
+                        targetLabel = carrierTargetDiv.displayName;
+                    } else {
+                        div.maneuverAnchor.set(myBg.reserveAnchor);
+                    }
+                    reason = missionPhaseTag + activeMission.shortName;
+                    div.lastIntentChangeTime = now;
+                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+                    return;
+
+                case CARRIER_SUCCESSIVE_STRIKES:
+                    div.currentIntent = DivisionIntentType.CARRIER_STRIKE_AT_WILL;
+                    div.targetEnemyDivision = carrierTargetDiv;
+                    if (carrierTargetDiv != null) {
+                        computeStandoffAnchor(engine, div, carrierTargetDiv, div.maneuverAnchor);
+                        targetLabel = carrierTargetDiv.displayName;
+                    } else {
+                        div.maneuverAnchor.set(myBg.reserveAnchor);
+                    }
+                    reason = missionPhaseTag + activeMission.shortName;
+                    div.lastIntentChangeTime = now;
+                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+                    return;
+
+                case CARRIER_DIVISION_COORDINATED_STRIKE:
+                    div.currentIntent = DivisionIntentType.CARRIER_DIVISION_STRIKE;
+                    div.targetEnemyDivision = carrierTargetDiv;
+                    if (carrierTargetDiv != null) {
+                        computeStandoffAnchor(engine, div, carrierTargetDiv, div.maneuverAnchor);
+                        targetLabel = carrierTargetDiv.displayName;
+                    } else {
+                        div.maneuverAnchor.set(myBg.reserveAnchor);
+                    }
+                    reason = missionPhaseTag + activeMission.shortName;
+                    div.lastIntentChangeTime = now;
+                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+                    return;
+
+                case CARRIER_MULTI_DIVISION_STRIKE:
+                    div.currentIntent = DivisionIntentType.CARRIER_MULTI_DIV_STRIKE;
+                    div.targetEnemyDivision = carrierTargetDiv;
+                    if (carrierTargetDiv != null) {
+                        computeStandoffAnchor(engine, div, carrierTargetDiv, div.maneuverAnchor);
+                        targetLabel = carrierTargetDiv.displayName;
+                    } else {
+                        div.maneuverAnchor.set(myBg.reserveAnchor);
+                    }
+                    String syncPartner = (myBg.mainEffortDivision != null && myBg.mainEffortDivision != div)
+                            ? (" synced w/ \"" + myBg.mainEffortDivision.displayName + "\"")
+                            : "";
+                    reason = missionPhaseTag + activeMission.shortName + syncPartner;
+                    div.lastIntentChangeTime = now;
+                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+                    return;
+
+                default:
+                    break;
+            }
+        }
 
         if (activeMission == DivisionMissionType.SCREEN && heavyFriendlyToScreen != null) {
             div.currentIntent = DivisionIntentType.SCREEN_FRIENDLY_DIVISION;
@@ -302,7 +446,7 @@ public class DivisionCommanderAI {
                 && heavyFriendlyToScreen != null) {
 
             float distToHeavy = distance(div.centroid, heavyFriendlyToScreen.centroid);
-            boolean isCapitalOrCarrier = heavyFriendlyToScreen.archetype == DivisionArchetype.CARRIER_AND_ESCORT
+            boolean isCapitalOrCarrier = heavyFriendlyToScreen.archetype.isCarrierArchetype()
                     || heavyFriendlyToScreen.archetype == DivisionArchetype.BATTLE_DIVISION;
             boolean cruiserNeedsScreen = !div.isFastFlanker
                     || nearestEnemyDiv == null
@@ -540,6 +684,47 @@ public class DivisionCommanderAI {
                     }
                     break;
 
+                case CARRIER_STRIKE_CRAFT_RECON:
+                case CARRIER_VOID_SUPERIORITY_CAP:
+                case CARRIER_PROTECT_FLEET_CAP:
+                case CARRIER_STRIKE_AT_WILL:
+                case CARRIER_DIVISION_STRIKE:
+                case CARRIER_MULTI_DIV_STRIKE:
+                    // In a Mixed Carrier Division, non-carrier escorts protect the carrier flagship closely
+                    if (div.archetype == DivisionArchetype.CARRIER_AND_ESCORT
+                            && div.flagship != null
+                            && ship != div.flagship
+                            && ship.getNumFighterBays() == 0) {
+                        flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+                        flags.setFlag(AIFlags.ESCORT_OTHER_SHIP, FLAG_TTL, div.flagship);
+                        break;
+                    }
+                    flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+                    if (focusEnemyShip != null) {
+                        float distToEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
+                        if (distToEnemy < div.lineStandoffDistance * 0.85f) {
+                            flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
+                            flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
+                        } else if (distance(ship.getLocation(), slotPos) > Math.max(320f, div.idealIntraSpacing * 0.65f) || crowdedByPeer) {
+                            flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
+                        }
+                        if (ship.getNumFighterBays() > 0) {
+                            if (div.currentIntent == DivisionIntentType.CARRIER_PROTECT_FLEET_CAP
+                                    && distToEnemy > 2400f
+                                    && (div.targetFriendlyDivision == null || div.targetFriendlyDivision.localEnemyStrength < 8f)) {
+                                // Keep fighters on defensive CAP unless enemy closes on protected fleet
+                                flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, FLAG_TTL, focusEnemyShip);
+                            } else {
+                                directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
+                            }
+                        } else if (distToEnemy < 2200f) {
+                            directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
+                        }
+                    } else {
+                        flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
+                    }
+                    break;
+
                 case ADVANCE_ENGAGE_LINE:
                 default:
                     boolean inOpeningWindow = now <= Math.max(30f, Math.min(60f, div.openingPhaseDurationSeconds));
@@ -640,11 +825,11 @@ public class DivisionCommanderAI {
             }
 
             if (preferTorpedoPrey) {
-                // Torpedo destroyers/cruisers love enemy Destroyers, Cruisers, Carriers, or high-flux targets
+                // Missile destroyers/cruisers love enemy Destroyers, Cruisers, Carriers, or high-flux targets
                 if (eDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
                         || eDiv.archetype == DivisionArchetype.TORPEDO_DESTROYER_DIVISION
                         || eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
-                        || eDiv.archetype == DivisionArchetype.CARRIER_AND_ESCORT
+                        || eDiv.archetype.isCarrierArchetype()
                         || eDiv.archetype == DivisionArchetype.BATTLE_DIVISION) {
                     score += 420f;
                 }
@@ -701,7 +886,7 @@ public class DivisionCommanderAI {
             if (other.hasShipNeedingHelp) {
                 urgency += 300f;
             }
-            if (other.archetype == DivisionArchetype.CARRIER_AND_ESCORT
+            if (other.archetype.isCarrierArchetype()
                     || other.archetype == DivisionArchetype.BATTLE_DIVISION) {
                 urgency += 200f;
             }
@@ -724,11 +909,11 @@ public class DivisionCommanderAI {
         for (DivisionState other : myBg.divisions) {
             if (other == myDiv || !other.isCombatEffective()) continue;
             boolean isHeavy = other.archetype == DivisionArchetype.BATTLE_DIVISION
-                    || other.archetype == DivisionArchetype.CARRIER_AND_ESCORT
+                    || other.archetype.isCarrierArchetype()
                     || other.archetype == DivisionArchetype.CRUISER_DIVISION;
             if (!isHeavy) continue;
 
-            // A composite Carrier & Escort division already has organic escorts; only assign an extra
+            // A Mixed Carrier division already has organic escorts; only assign an extra
             // screening division if it is under local enemy pressure or lost its escorts.
             if (other.archetype == DivisionArchetype.CARRIER_AND_ESCORT
                     && other.getAliveMembers().size() >= 2
@@ -756,8 +941,8 @@ public class DivisionCommanderAI {
             float score = other.totalFpStrength * 10f - dist * 0.3f + stickyBonus;
             if (other.archetype == DivisionArchetype.BATTLE_DIVISION) {
                 score += 650f;
-            } else if (other.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
-                score += 400f;
+            } else if (other.archetype.isCarrierArchetype()) {
+                score += 450f;
             }
             if (score > bestScore) {
                 bestScore = score;
@@ -799,7 +984,7 @@ public class DivisionCommanderAI {
             BattlegroupState myBg,
             BattleObjectiveAPI previousObjective) {
         if (engine == null) return null;
-        if (div.archetype == DivisionArchetype.CARRIER_AND_ESCORT
+        if (div.archetype.isCarrierArchetype()
                 || div.archetype == DivisionArchetype.BATTLE_DIVISION) {
             return null;
         }
@@ -947,6 +1132,18 @@ public class DivisionCommanderAI {
         float latOffset = sideSign * rank * spacing;
         float depthOffset = -rank * (spacing * 0.16f);
 
+        // Preferred Space depth bias (Forward / Middle / Back) relative to the main battle line
+        PreferredSpace prefSpace = (div.preferredSpace != null) ? div.preferredSpace : PreferredSpace.MIDDLE;
+        if (div.currentIntent != DivisionIntentType.HOLD_IN_RESERVE
+                && div.currentIntent != DivisionIntentType.ROTATE_TO_RESERVE
+                && div.currentIntent != DivisionIntentType.STRIKE_AND_WITHDRAW) {
+            if (prefSpace == PreferredSpace.FORWARD) {
+                depthOffset += 220f;
+            } else if (prefSpace == PreferredSpace.BACK) {
+                depthOffset -= 320f;
+            }
+        }
+
         float slotX = baseCenter.x + latX * latOffset + fwdX * depthOffset;
         float slotY = baseCenter.y + latY * latOffset + fwdY * depthOffset;
 
@@ -1016,6 +1213,12 @@ public class DivisionCommanderAI {
         float dy = div.centroid.y - visEnemyPos.y;
         float len = (float) Math.sqrt(dx * dx + dy * dy);
         float standoff = Math.max(400f, div.lineStandoffDistance);
+        PreferredSpace prefSpace = (div.preferredSpace != null) ? div.preferredSpace : PreferredSpace.MIDDLE;
+        if (prefSpace == PreferredSpace.FORWARD) {
+            standoff = Math.max(350f, standoff * 0.85f);
+        } else if (prefSpace == PreferredSpace.BACK) {
+            standoff = standoff * 1.18f;
+        }
         if (len > 1f) {
             outAnchor.set(
                     visEnemyPos.x + (dx / len) * standoff,
