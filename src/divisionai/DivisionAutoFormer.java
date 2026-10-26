@@ -434,7 +434,22 @@ public class DivisionAutoFormer {
                 || div.archetype == DivisionArchetype.PHASE_DIVISION
                 || div.archetype == DivisionArchetype.TORPEDO_DESTROYER_DIVISION);
 
-        // Desired cohesion radius scales by archetype and commander strictness
+        // Customizable Fleet Doctrine division-type modifiers (ideal intra-division spacing, standoff, leash)
+        PermanentDivisionManager.DoctrineDivisionType docType =
+                PermanentDivisionManager.DoctrineDivisionType.forArchetype(div.archetype);
+        boolean isPlayerOwnedDiv = (div.side == 0) && (div.flagship == null || !div.flagship.isAlly());
+        if (isPlayerOwnedDiv) {
+            PermanentDivisionManager.FleetDoctrineConfig docCfg = PermanentDivisionManager.getFleetDoctrine();
+            div.idealIntraSpacing = docCfg.getIdealSpacing(docType);
+            div.lineStandoffDistance = docCfg.getLineStandoff(docType);
+            div.cohesionLeashMult = docCfg.getLeashMult(docType);
+        } else {
+            div.idealIntraSpacing = docType.defaultIdealSpacingUnits;
+            div.lineStandoffDistance = docType.defaultLineStandoffUnits;
+            div.cohesionLeashMult = docType.defaultLeashMult;
+        }
+
+        // Desired cohesion radius scales by archetype, ideal intra-division spacing, and commander strictness
         float baseRadius;
         switch (div.archetype) {
             case BATTLE_DIVISION:
@@ -455,7 +470,9 @@ public class DivisionAutoFormer {
                 baseRadius = 680f;
                 break;
         }
-        div.desiredCohesionRadius = baseRadius / Math.max(0.75f, div.commander.cohesionStrictness);
+        float spacingBasedRadius = div.idealIntraSpacing * (0.95f + 0.38f * Math.min(6, Math.max(1, count - 1)));
+        div.desiredCohesionRadius = (Math.max(baseRadius, spacingBasedRadius) * div.cohesionLeashMult)
+                / Math.max(0.75f, div.commander.cohesionStrictness);
     }
 
     private static int nextDivisionNumberForPrefix(BattlegroupState bg, String fullPrefix) {

@@ -51,6 +51,112 @@ public class PermanentDivisionManager {
     /** Hard cap on division size regardless of individual hull maximums. */
     public static final int MAX_DIVISION_SIZE = 10;
 
+    /** In-game length of the Paragon-class Battleship (from data/hulls/paragon.ship height = 364u, bounds = 354u). */
+    public static final int PARAGON_LENGTH_UNITS = 364;
+
+    public static final int MIN_INTRA_SPACING_UNITS = 150;
+    public static final int MAX_INTRA_SPACING_UNITS = 1200;
+    public static final int MIN_STANDOFF_UNITS = 400;
+    public static final int MAX_STANDOFF_UNITS = 1800;
+
+    /**
+     * Configurable division types in Fleet Doctrine, with default ideal intra-division spacing (in units),
+     * battle-line standoff/screen distance (in units), and cohesion leash multiplier.
+     */
+    public enum DoctrineDivisionType {
+        FRIGATE(
+                "Frigate Division",
+                DivisionArchetype.FRIGATE_DIVISION,
+                400,
+                950,
+                1.15f),
+        DESTROYER(
+                "Destroyer Division",
+                DivisionArchetype.DESTROYER_DIVISION,
+                450,
+                800,
+                1.05f),
+        CRUISER(
+                "Cruiser Division",
+                DivisionArchetype.CRUISER_DIVISION,
+                525,
+                650,
+                1.00f),
+        STRIKE_CRUISER(
+                "Strike Cruiser Division",
+                DivisionArchetype.STRIKE_CRUISER_DIVISION,
+                550,
+                750,
+                1.10f),
+        BATTLE_CAPITAL(
+                "Battle Division (Capital)",
+                DivisionArchetype.BATTLE_DIVISION,
+                675,
+                550,
+                0.95f),
+        CARRIER_ESCORT(
+                "Carrier & Escort Division",
+                DivisionArchetype.CARRIER_AND_ESCORT,
+                575,
+                1100,
+                0.95f),
+        PHASE_RAIDER(
+                "Phase Division",
+                DivisionArchetype.PHASE_DIVISION,
+                475,
+                1050,
+                1.25f),
+        AUXILIARY(
+                "Auxiliary Convoy",
+                DivisionArchetype.AUXILIARY_CONVOY,
+                450,
+                1300,
+                0.90f);
+
+        public final String displayName;
+        public final DivisionArchetype primaryArchetype;
+        public final int defaultIdealSpacingUnits;
+        public final int defaultLineStandoffUnits;
+        public final float defaultLeashMult;
+
+        DoctrineDivisionType(
+                String displayName,
+                DivisionArchetype primaryArchetype,
+                int defaultIdealSpacingUnits,
+                int defaultLineStandoffUnits,
+                float defaultLeashMult) {
+            this.displayName = displayName;
+            this.primaryArchetype = primaryArchetype;
+            this.defaultIdealSpacingUnits = defaultIdealSpacingUnits;
+            this.defaultLineStandoffUnits = defaultLineStandoffUnits;
+            this.defaultLeashMult = defaultLeashMult;
+        }
+
+        public static DoctrineDivisionType forArchetype(DivisionArchetype arch) {
+            if (arch == null) return CRUISER;
+            switch (arch) {
+                case FRIGATE_DIVISION:
+                    return FRIGATE;
+                case DESTROYER_DIVISION:
+                case TORPEDO_DESTROYER_DIVISION:
+                    return DESTROYER;
+                case STRIKE_CRUISER_DIVISION:
+                    return STRIKE_CRUISER;
+                case BATTLE_DIVISION:
+                    return BATTLE_CAPITAL;
+                case CARRIER_AND_ESCORT:
+                    return CARRIER_ESCORT;
+                case PHASE_DIVISION:
+                    return PHASE_RAIDER;
+                case AUXILIARY_CONVOY:
+                    return AUXILIARY;
+                case CRUISER_DIVISION:
+                default:
+                    return CRUISER;
+            }
+        }
+    }
+
     /**
      * Hull categories configurable in the Fleet Doctrine screen (minimum & maximum hulls per division).
      */
@@ -129,18 +235,67 @@ public class PermanentDivisionManager {
     }
 
     /**
-     * Campaign-saved Fleet Doctrine settings defining minimum and maximum hulls per division
-     * for each of the 7 hull categories, subject to MAX_DIVISION_SIZE = 10.
+     * Campaign-saved Fleet Doctrine settings defining:
+     *  1. Per-division-type tactical modifiers (ideal intra-division spacing in units,
+     *     main-line standoff/screen distance in units, and cohesion leash multiplier).
+     *  2. Minimum and maximum hulls per division for each of the 7 hull categories (capped at 10).
      */
     public static class FleetDoctrineConfig {
         private final Map<DoctrineHullCategory, Integer> minByCat = new LinkedHashMap<>();
         private final Map<DoctrineHullCategory, Integer> maxByCat = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Integer> spacingByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Integer> standoffByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Float> leashByType = new LinkedHashMap<>();
 
         public FleetDoctrineConfig() {
             for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
                 minByCat.put(cat, cat.defaultMin);
                 maxByCat.put(cat, cat.defaultMax);
             }
+            for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
+                spacingByType.put(dt, dt.defaultIdealSpacingUnits);
+                standoffByType.put(dt, dt.defaultLineStandoffUnits);
+                leashByType.put(dt, dt.defaultLeashMult);
+            }
+        }
+
+        public int getIdealSpacing(DoctrineDivisionType dt) {
+            if (dt == null) return 450;
+            Integer v = spacingByType.get(dt);
+            int raw = v != null ? v : dt.defaultIdealSpacingUnits;
+            return Math.max(MIN_INTRA_SPACING_UNITS, Math.min(MAX_INTRA_SPACING_UNITS, raw));
+        }
+
+        public void setIdealSpacing(DoctrineDivisionType dt, int units) {
+            if (dt == null) return;
+            int clamped = Math.max(MIN_INTRA_SPACING_UNITS, Math.min(MAX_INTRA_SPACING_UNITS, units));
+            spacingByType.put(dt, clamped);
+        }
+
+        public int getLineStandoff(DoctrineDivisionType dt) {
+            if (dt == null) return 850;
+            Integer v = standoffByType.get(dt);
+            int raw = v != null ? v : dt.defaultLineStandoffUnits;
+            return Math.max(MIN_STANDOFF_UNITS, Math.min(MAX_STANDOFF_UNITS, raw));
+        }
+
+        public void setLineStandoff(DoctrineDivisionType dt, int units) {
+            if (dt == null) return;
+            int clamped = Math.max(MIN_STANDOFF_UNITS, Math.min(MAX_STANDOFF_UNITS, units));
+            standoffByType.put(dt, clamped);
+        }
+
+        public float getLeashMult(DoctrineDivisionType dt) {
+            if (dt == null) return 1.0f;
+            Float v = leashByType.get(dt);
+            float raw = v != null ? v : dt.defaultLeashMult;
+            return Math.max(0.65f, Math.min(1.85f, raw));
+        }
+
+        public void setLeashMult(DoctrineDivisionType dt, float mult) {
+            if (dt == null) return;
+            float clamped = Math.max(0.65f, Math.min(1.85f, mult));
+            leashByType.put(dt, clamped);
         }
 
         public int getMin(DoctrineHullCategory cat) {
@@ -190,6 +345,20 @@ public class PermanentDivisionManager {
                     cfg.setMax(cat, ((Number) maxObj).intValue());
                 }
             }
+            for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
+                Object spObj = map.get("spacing_" + dt.name());
+                Object stObj = map.get("standoff_" + dt.name());
+                Object lsObj = map.get("leash_" + dt.name());
+                if (spObj instanceof Number) {
+                    cfg.setIdealSpacing(dt, ((Number) spObj).intValue());
+                }
+                if (stObj instanceof Number) {
+                    cfg.setLineStandoff(dt, ((Number) stObj).intValue());
+                }
+                if (lsObj instanceof Number) {
+                    cfg.setLeashMult(dt, ((Number) lsObj).floatValue());
+                }
+            }
         }
         return cfg;
     }
@@ -202,6 +371,11 @@ public class PermanentDivisionManager {
             serialized.put("min_" + cat.name(), cfg.getMin(cat));
             serialized.put("max_" + cat.name(), cfg.getMax(cat));
         }
+        for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
+            serialized.put("spacing_" + dt.name(), cfg.getIdealSpacing(dt));
+            serialized.put("standoff_" + dt.name(), cfg.getLineStandoff(dt));
+            serialized.put("leash_" + dt.name(), cfg.getLeashMult(dt));
+        }
         sector.getPersistentData().put(PERSISTENT_DOCTRINE_KEY, serialized);
     }
 
@@ -213,6 +387,27 @@ public class PermanentDivisionManager {
         } else {
             cfg.setMax(cat, newValue);
         }
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeSpacing(DoctrineDivisionType dt, int newSpacingUnits) {
+        if (dt == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setIdealSpacing(dt, newSpacingUnits);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeStandoff(DoctrineDivisionType dt, int newStandoffUnits) {
+        if (dt == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setLineStandoff(dt, newStandoffUnits);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeLeash(DoctrineDivisionType dt, float newLeashMult) {
+        if (dt == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setLeashMult(dt, newLeashMult);
         saveFleetDoctrine(cfg);
     }
 

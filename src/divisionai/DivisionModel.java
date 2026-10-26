@@ -201,6 +201,11 @@ public class DivisionModel {
         public float avgMaxSpeed;
         public float avgEngageRange;
 
+        // Customizable Fleet Doctrine division-type modifiers (in-game units; Paragon length = 364u)
+        public float idealIntraSpacing = 450f;
+        public float lineStandoffDistance = 850f;
+        public float cohesionLeashMult = 1.0f;
+
         // Dynamic telemetry updated every evaluation tick
         public final Vector2f centroid = new Vector2f();
         public final Vector2f velocity = new Vector2f();
