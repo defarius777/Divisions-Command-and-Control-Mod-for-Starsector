@@ -600,6 +600,14 @@ public class DivisionAutoFormer {
                     ? MAX_FRIGATE_DIV_SIZE
                     : MAX_MONOTYPE_DIV_SIZE;
             if (aliveCount >= maxCap) continue;
+            // Only merge mid-battle reinforcement ships into an existing division if they spawn within <= 2200u
+            // of that division's centroid; otherwise form a new reinforcement division so a ship spawning 4000u
+            // away at the map edge doesn't spike the frontline division's spreadRadius and force CLOSE_UP!
+            if (prof.ship != null && prof.ship.getLocation() != null && (div.centroid.x != 0f || div.centroid.y != 0f)) {
+                float dx = prof.ship.getLocation().x - div.centroid.x;
+                float dy = prof.ship.getLocation().y - div.centroid.y;
+                if ((dx * dx + dy * dy) > (2200f * 2200f)) continue;
+            }
 
             if (prof.primaryTag == TacticalTag.CIVILIAN_AUX && div.archetype == DivisionArchetype.SERVICE_GROUP) {
                 return div;

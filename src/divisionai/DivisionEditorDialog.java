@@ -6,12 +6,14 @@ import com.fs.starfarer.api.campaign.CampaignFleetAPI;
 import com.fs.starfarer.api.campaign.CustomUIPanelPlugin;
 import com.fs.starfarer.api.characters.PersonAPI;
 import com.fs.starfarer.api.fleet.FleetMemberAPI;
+import com.fs.starfarer.api.graphics.SpriteAPI;
 import com.fs.starfarer.api.input.InputEventAPI;
 import com.fs.starfarer.api.ui.Alignment;
 import com.fs.starfarer.api.ui.ButtonAPI;
 import com.fs.starfarer.api.ui.CutStyle;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.Fonts;
+import com.fs.starfarer.api.ui.LabelAPI;
 import com.fs.starfarer.api.ui.PositionAPI;
 import com.fs.starfarer.api.ui.TextFieldAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
@@ -38,17 +40,57 @@ import java.util.Map;
  * Full-screen / modal Division Editor UI opened from the "Division Editor" button on the left side
  * of the Campaign Fleet screen (CoreUITabId.FLEET):
  *  - Screen 1 (Overview): Displays all permanent divisions in the player's fleet alongside the
- *    Unassigned Ships pool, allowing the player to create divisions, auto-assign/reset, or open any
- *    division.
- *  - Screen 2 (Dedicated Single-Division Screen): Clicking any division (or creating a new one)
- *    transitions the entire window into that division's own screen where the player can rename the
- *    division, choose its archetype & doctrine posture, designate its flagship, and put ships inside
- *    or remove them.
+ *    Unassigned Fleet Ships pool with interactive visual Ship Icon Tiles:
+ *      * Left-click a division card to select it as the active quick-assign target (or double-click
+ *        its header / click "Deep Editor ->" to open its dedicated single-division screen).
+ *      * Drag-and-drop ship icons between any Division Card and the Unassigned Fleet Pool (or between divisions).
+ *      * Right-click any unassigned ship icon to assign it to the selected division; right-click any ship
+ *        icon inside a division to unassign it back to the fleet pool.
+ *      * Left-click a ship icon inside a division to designate it as that division's Flagship.
+ *  - Screen 2 (Deep Division Editor): Dedicated single-division command & doctrine screen with visual
+ *    Ship Icon Tiles for both the division bay and the unassigned/transfer fleet pool, supporting the
+ *    exact same drag-and-drop, right-click assign/unassign, and left-click flagship designation.
  */
 public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
-    private static final float DIALOG_WIDTH = 980f;
-    private static final float DIALOG_HEIGHT = 650f;
+    private static final float DIALOG_WIDTH = 1040f;
+    private static final float DIALOG_HEIGHT = 680f;
+    private static final float DRAG_START_THRESHOLD_PX = 6f;
+
+    private static class ShipIconTile {
+        final FleetMemberAPI member;
+        final String sourceDivisionId; // null if in Unassigned Fleet Pool
+        final boolean isFlagship;
+        final CustomPanelAPI tilePanel;
+        final UIPanelAPI clipContainer;
+
+        ShipIconTile(
+                FleetMemberAPI member,
+                String sourceDivisionId,
+                boolean isFlagship,
+                CustomPanelAPI tilePanel,
+                UIPanelAPI clipContainer) {
+            this.member = member;
+            this.sourceDivisionId = sourceDivisionId;
+            this.isFlagship = isFlagship;
+            this.tilePanel = tilePanel;
+            this.clipContainer = clipContainer;
+        }
+    }
+
+    private static class DropTargetZone {
+        final String targetDivisionId; // null = Unassigned Fleet Pool
+        final String label;
+        final UIPanelAPI panel;
+        final UIPanelAPI clipContainer;
+
+        DropTargetZone(String targetDivisionId, String label, UIPanelAPI panel, UIPanelAPI clipContainer) {
+            this.targetDivisionId = targetDivisionId;
+            this.label = label;
+            this.panel = panel;
+            this.clipContainer = clipContainer;
+        }
+    }
 
     private final UIPanelAPI hostCoreUI;
     private CustomPanelAPI rootModalPanel;
@@ -57,11 +99,27 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
     // When null -> Screen 1 (Fleet Divisions Overview); when non-null -> Screen 2 (Dedicated Division Screen)
     private String activeDivisionId = null;
+    // Selected division on Screen 1 (Overview) for quick right-click ship assignment
+    private String selectedOverviewDivisionId = null;
     private String expandedDropdownKey = null;
     private boolean closed = false;
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
+    private final List<ShipIconTile> shipIconTiles = new ArrayList<>();
+    private final List<DropTargetZone> dropTargetZones = new ArrayList<>();
     private String pendingAction = null;
+
+    // Mouse & Drag-and-Drop state
+    private float mouseX = 0f;
+    private float mouseY = 0f;
+    private ShipIconTile pressedTile = null;
+    private float pressStartX = 0f;
+    private float pressStartY = 0f;
+    private boolean isDraggingShip = false;
+    private String lastClickedDivId = null;
+    private long lastDivClickTimeMs = 0L;
+
+    private LabelAPI dragFloatingLabel = null;
 
     private final CustomUIPanelPlugin subPanelPlugin = new BaseCustomUIPanelPlugin() {
         @Override
@@ -87,6 +145,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         float screenH = Global.getSettings().getScreenHeight();
 
         PermanentDivisionManager.ensureInitializedForPlayerFleet();
+        List<PermanentDivisionSpec> divs = PermanentDivisionManager.getPermanentDivisions();
+        if (selectedOverviewDivisionId == null && !divs.isEmpty()) {
+            selectedOverviewDivisionId = divs.get(0).id;
+        }
 
         rootModalPanel = Global.getSettings().createCustom(screenW, screenH, this);
         hostCoreUI.addComponent(rootModalPanel).inTL(0f, 0f);
@@ -104,6 +166,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         savePendingNameFieldIfAny();
         closed = true;
         activeButtons.clear();
+        shipIconTiles.clear();
+        dropTargetZones.clear();
+        pressedTile = null;
+        isDraggingShip = false;
         if (hostCoreUI != null && rootModalPanel != null) {
             hostCoreUI.removeComponent(rootModalPanel);
         }
@@ -135,6 +201,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     private void rebuildContent() {
         if (rootModalPanel == null) return;
         activeButtons.clear();
+        shipIconTiles.clear();
+        dropTargetZones.clear();
+        pressedTile = null;
+        isDraggingShip = false;
+
         if (contentContainer != null) {
             rootModalPanel.removeComponent(contentContainer);
             contentContainer = null;
@@ -149,9 +220,17 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         contentContainer = Global.getSettings().createCustom(DIALOG_WIDTH, DIALOG_HEIGHT, subPanelPlugin);
         rootModalPanel.addComponent(contentContainer).inTL(boxX, boxYTop);
 
+        List<PermanentDivisionSpec> divisions = PermanentDivisionManager.getPermanentDivisions();
+        if (selectedOverviewDivisionId != null && PermanentDivisionManager.getDivisionById(selectedOverviewDivisionId) == null) {
+            selectedOverviewDivisionId = divisions.isEmpty() ? null : divisions.get(0).id;
+        } else if (selectedOverviewDivisionId == null && !divisions.isEmpty()) {
+            selectedOverviewDivisionId = divisions.get(0).id;
+        }
+
         if (activeDivisionId != null) {
             PermanentDivisionSpec spec = PermanentDivisionManager.getDivisionById(activeDivisionId);
             if (spec != null) {
+                selectedOverviewDivisionId = spec.id;
                 buildSingleDivisionScreen(contentContainer, spec);
                 return;
             }
@@ -162,7 +241,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     }
 
     // ========================================================================================
-    // SCREEN 1: FLEET DIVISION EDITOR OVERVIEW
+    // SCREEN 1: FLEET DIVISION EDITOR OVERVIEW (Drag & Drop + Left-Click Select + Right-Click Assign)
     // ========================================================================================
     private void buildOverviewScreen(CustomPanelAPI container) {
         CampaignFleetAPI fleet = Global.getSector() != null ? Global.getSector().getPlayerFleet() : null;
@@ -177,6 +256,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         Color baseColor = Misc.getBasePlayerColor();
         Color darkColor = Misc.getDarkPlayerColor();
         Color highlight = Misc.getHighlightColor();
+        Color positive = Misc.getPositiveHighlightColor();
         Color gray = Misc.getGrayColor();
 
         // Top-right [X] button
@@ -198,34 +278,36 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         container.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
 
         // 1. Header & Top Toolbar
-        TooltipMakerAPI header = container.createUIElement(DIALOG_WIDTH - 64f, 50f, false);
+        PermanentDivisionSpec selectedSpec = selectedOverviewDivisionId != null
+                ? PermanentDivisionManager.getDivisionById(selectedOverviewDivisionId)
+                : null;
+        String selectedDivName = selectedSpec != null ? selectedSpec.name : "None";
+
+        TooltipMakerAPI header = container.createUIElement(DIALOG_WIDTH - 64f, 52f, false);
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET DIVISION EDITOR — PERMANENT C2 ORGANIZATION", baseColor);
         header.addPara(
-                "Permanent divisions are saved with your campaign fleet and inherited automatically in tactical battles. "
-                        + "Active Divisions: %s  |  Assigned Combat Ships: %s  |  Unassigned Combat Ships: %s",
+                "Selected Division: %s  |  Drag & Drop ship icons between divisions and fleet  |  Right-Click ship: Assign / Unassign  |  Left-Click ship in division: Set Flagship",
                 4f,
                 highlight,
-                String.valueOf(divisions.size()),
-                String.valueOf(assignedCount),
-                String.valueOf(unassigned.size()));
-        header.setHeightSoFar(50f);
-        container.addUIElement(header).inTL(12f, 8f);
+                selectedDivName);
+        header.setHeightSoFar(52f);
+        container.addUIElement(header).inTL(12f, 6f);
 
         CustomPanelAPI toolbarRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, subPanelPlugin);
         TooltipMakerAPI tb = toolbarRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
         ButtonAPI bCreate = registerButton(
                 tb.addButton(
                         "+ Establish New Division",
-                        "CREATE_DIV",
-                        baseColor,
+                        "CREATE_DIV_OVERVIEW",
+                        positive,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
                         210f,
                         24f,
                         0f),
-                "CREATE_DIV");
+                "CREATE_DIV_OVERVIEW");
         bCreate.getPosition().inTL(0f, 2f);
 
         ButtonAPI bAutoAssign = registerButton(
@@ -236,27 +318,44 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        250f,
+                        240f,
                         24f,
                         0f),
                 "AUTO_ASSIGN");
         bAutoAssign.setEnabled(!unassigned.isEmpty());
-        bAutoAssign.getPosition().inTL(220f, 2f);
+        bAutoAssign.getPosition().inTL(218f, 2f);
+
+        if (selectedSpec != null) {
+            String openSelectedAct = "OPEN_DIV:" + selectedSpec.id;
+            ButtonAPI bOpenSel = registerButton(
+                    tb.addButton(
+                            "Deep Editor: " + truncateText(selectedSpec.name, 16) + " ->",
+                            openSelectedAct,
+                            highlight,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.TL_BR,
+                            215f,
+                            24f,
+                            0f),
+                    openSelectedAct);
+            bOpenSel.getPosition().inTL(466f, 2f);
+        }
 
         if (!divisions.isEmpty()) {
             ButtonAPI bClearAll = registerButton(
                     tb.addButton(
-                            "Disestablish All Divisions",
+                            "Disestablish All",
                             "CLEAR_ALL_DIVS",
                             Misc.getNegativeHighlightColor(),
                             darkColor,
                             Alignment.MID,
                             CutStyle.TL_BR,
-                            205f,
+                            150f,
                             24f,
                             0f),
                     "CLEAR_ALL_DIVS");
-            bClearAll.getPosition().inTL(480f, 2f);
+            bClearAll.getPosition().inTL(689f, 2f);
         }
 
         ButtonAPI bClose = registerButton(
@@ -277,174 +376,279 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
         container.addComponent(toolbarRow).inTL(12f, 60f);
 
-        // 2. Left Column: Permanent Divisions Scrollable List (width 595f, height 540f)
+        // 2. Left Column: Permanent Divisions Scrollable List (width 625f)
         float bodyHeight = DIALOG_HEIGHT - 104f;
-        float leftWidth = 595f;
+        float leftWidth = 625f;
         float rightWidth = DIALOG_WIDTH - leftWidth - 36f;
 
         TooltipMakerAPI leftCol = container.createUIElement(leftWidth, bodyHeight, true);
-        leftCol.addSectionHeading("Permanent Divisions (" + divisions.size() + ")", Alignment.MID, 4f);
+        leftCol.addSectionHeading(
+                "Permanent Divisions (" + divisions.size() + " Active | " + assignedCount + " Ships Assigned)",
+                Alignment.MID,
+                4f);
 
         if (divisions.isEmpty()) {
             leftCol.addPara(
-                    "No permanent divisions configured. Your fleet will use vanilla combat AI until you create at least 1 division and assign ships to it.",
+                    "No permanent divisions configured. Click '+ Establish New Division' or 'Auto-Assign Fleet Ships' above, or click '+ New Div' on a ship on the right.",
                     gray,
                     10f);
         } else {
+            FleetDoctrineConfig doctrineCfg = PermanentDivisionManager.getFleetDoctrine();
             for (PermanentDivisionSpec spec : divisions) {
+                boolean isSelected = spec.id.equals(selectedOverviewDivisionId);
                 List<FleetMemberAPI> members = PermanentDivisionManager.getMembersInDivision(spec, fleet);
                 float totalDp = 0f;
                 FleetMemberAPI flagship = null;
-                List<String> shipNames = new ArrayList<>();
                 for (FleetMemberAPI m : members) {
                     totalDp += m.getDeploymentPointsCost();
                     if (m.getId().equals(spec.flagshipMemberId)) {
                         flagship = m;
                     }
-                    shipNames.add(m.getHullSpec().getHullName());
                 }
                 if (flagship == null && !members.isEmpty()) {
                     flagship = members.get(0);
                 }
 
-                String headerTitle = String.format(
-                        "%s  —  %s  (%d/%d Ships, %.0f DP)",
-                        spec.name,
-                        spec.archetype.shortPrefix,
-                        members.size(),
-                        PermanentDivisionManager.MAX_DIVISION_SIZE,
-                        totalDp);
-                leftCol.addSectionHeading(headerTitle, baseColor, darkColor, Alignment.LMID, 8f);
-
-                if (!members.isEmpty()) {
-                    leftCol.addShipList(Math.min(8, members.size()), 1, 46f, baseColor, members, 4f);
-                }
-
-                String flagshipDesc = (flagship != null)
-                        ? (flagship.getShipName() + " (" + flagship.getHullSpec().getHullName() + ")")
-                        : "None (Empty Division)";
-                PersonAPI cap = (flagship != null) ? flagship.getCaptain() : null;
-                String cmdrDesc = (cap != null && !cap.isDefault())
-                        ? (cap.getNameString() + " [" + cap.getPersonalityAPI().getDisplayName() + "]")
-                        : "Default Division Commander";
-
-                leftCol.addPara(
-                        "Flagship: %s  |  Cmdr: %s  |  Doctrine: %s",
-                        3f,
-                        highlight,
-                        flagshipDesc,
-                        cmdrDesc,
-                        spec.doctrine.displayName);
-
-                FleetDoctrineConfig doctrineCfg = PermanentDivisionManager.getFleetDoctrine();
-                int effIntra = PermanentDivisionManager.resolveEffectiveStationSpacing(spec, doctrineCfg);
-                int effInter = PermanentDivisionManager.resolveEffectiveDivisionInterval(spec, doctrineCfg);
-                int effStandoff = PermanentDivisionManager.resolveEffectiveStandoffRange(spec, doctrineCfg);
-                LineStation effSpace = PermanentDivisionManager.resolveEffectiveLineStation(spec, doctrineCfg);
-                DivisionMissionType effOpen = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
-                DivisionMissionType effMain = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
-                leftCol.addPara(
-                        "Division Settings: Station %s | Spacing %su | Interval %su | Standoff %su | %s -> %s",
-                        2f,
-                        Misc.getPositiveHighlightColor(),
-                        effSpace.displayName,
-                        String.valueOf(effIntra),
-                        String.valueOf(effInter),
-                        String.valueOf(effStandoff),
-                        effOpen.shortName,
-                        effMain.shortName);
-
-                if (!shipNames.isEmpty()) {
-                    leftCol.addPara("Constituent Hulls: " + joinStrings(shipNames, ", "), gray, 2f);
-                } else {
-                    leftCol.addPara("No ships assigned yet — open division screen to add ships.", gray, 2f);
-                }
-
-                CustomPanelAPI btnRow = Global.getSettings().createCustom(leftWidth - 16f, 26f, subPanelPlugin);
-                TooltipMakerAPI rowUi = btnRow.createUIElement(leftWidth - 16f, 26f, false);
-                String openAct = "OPEN_DIV:" + spec.id;
-                ButtonAPI bOpen = registerButton(
-                        rowUi.addButton(
-                                "Open Division Screen ->",
-                                openAct,
-                                baseColor,
-                                darkColor,
-                                Alignment.MID,
-                                CutStyle.TL_BR,
-                                215f,
-                                22f,
-                                0f),
-                        openAct);
-                bOpen.getPosition().inTL(0f, 2f);
-
-                String delAct = "DELETE_DIV:" + spec.id;
-                ButtonAPI bDel = registerButton(
-                        rowUi.addButton(
-                                "Disestablish Division",
-                                delAct,
-                                Misc.getNegativeHighlightColor(),
-                                darkColor,
-                                Alignment.MID,
-                                CutStyle.TL_BR,
-                                170f,
-                                22f,
-                                0f),
-                        delAct);
-                bDel.getPosition().inTL(225f, 2f);
-
-                rowUi.setHeightSoFar(26f);
-                btnRow.addUIElement(rowUi).inTL(0f, 0f);
-                leftCol.addCustom(btnRow, 4f);
+                // Division Card Container (also acts as a DropTargetZone and Left-Click Selection Area)
+                CustomPanelAPI divCard = createDivisionCardPanel(spec, isSelected, leftWidth - 14f, members, flagship, totalDp, doctrineCfg, leftCol);
+                leftCol.addCustom(divCard, 6f);
+                dropTargetZones.add(new DropTargetZone(spec.id, spec.name, divCard, leftCol));
             }
         }
         container.addUIElement(leftCol).inTL(12f, 94f);
 
-        // 3. Right Column: Unassigned Combat Hulls Pool
+        // 3. Right Column: Unassigned Combat Hulls Pool (DropTargetZone with targetDivisionId == null)
         TooltipMakerAPI rightCol = container.createUIElement(rightWidth, bodyHeight, true);
-        rightCol.addSectionHeading("Unassigned Combat Hulls (" + unassigned.size() + ")", Alignment.MID, 4f);
+        String poolHeading = selectedSpec != null
+                ? ("Unassigned Fleet Ships (" + unassigned.size() + ") — Right-Click -> " + truncateText(selectedSpec.name, 14))
+                : ("Unassigned Fleet Ships (" + unassigned.size() + ")");
+        rightCol.addSectionHeading(poolHeading, Alignment.MID, 4f);
 
         if (unassigned.isEmpty()) {
             rightCol.addPara(
                     "All eligible combat hulls in your fleet are assigned to permanent divisions.",
-                    Misc.getPositiveHighlightColor(),
+                    positive,
                     8f);
             rightCol.addPara(
-                    "Click 'Open Division Screen ->' on any division on the left to move ships, change flagships, or customize doctrine.",
+                    "Drag any ship icon from a division on the left and drop it here (or Right-Click it) to unassign it back to the fleet pool.",
                     gray,
                     6f);
         } else {
             rightCol.addPara(
-                    "Open any division on the left to add these ships, or spin up a new division directly from a ship below:",
+                    "Drag ship icons onto any division on the left, or Right-Click a ship icon to assign it to the selected division:",
                     gray,
-                    4f);
-            for (FleetMemberAPI m : unassigned) {
-                rightCol.addShipList(1, 1, 42f, baseColor, Collections.singletonList(m), 6f);
-                PersonAPI cap = m.getCaptain();
-                String officerStr = (cap != null && !cap.isDefault()) ? cap.getNameString() : "No Officer";
-                rightCol.addPara(
-                        "%s — %s (%s DP | %s)",
-                        2f,
-                        highlight,
-                        m.getShipName(),
-                        m.getHullSpec().getHullName(),
-                        String.format("%.0f", m.getDeploymentPointsCost()),
-                        officerStr);
-                String newDivAct = "NEW_DIV_WITH:" + m.getId();
-                registerButton(
-                        rightCol.addButton(
-                                "+ New Division With " + m.getHullSpec().getHullName(),
-                                newDivAct,
-                                baseColor,
-                                darkColor,
-                                Alignment.MID,
-                                CutStyle.TL_BR,
-                                rightWidth - 20f,
-                                22f,
-                                3f),
-                        newDivAct);
-            }
+                    3f);
+            addInteractiveShipGrid(
+                    rightCol,
+                    rightWidth - 16f,
+                    unassigned,
+                    null,
+                    null,
+                    4,
+                    true);
         }
         container.addUIElement(rightCol).inTL(leftWidth + 24f, 94f);
+        dropTargetZones.add(new DropTargetZone(null, "Unassigned Fleet Pool", rightCol, null));
+    }
+
+    private CustomPanelAPI createDivisionCardPanel(
+            final PermanentDivisionSpec spec,
+            final boolean isSelected,
+            float cardWidth,
+            List<FleetMemberAPI> members,
+            FleetMemberAPI flagship,
+            float totalDp,
+            FleetDoctrineConfig doctrineCfg,
+            UIPanelAPI clipContainer) {
+
+        Color baseColor = Misc.getBasePlayerColor();
+        Color darkColor = Misc.getDarkPlayerColor();
+        Color highlight = Misc.getHighlightColor();
+        Color positive = Misc.getPositiveHighlightColor();
+        Color gray = Misc.getGrayColor();
+
+        int cols = 6;
+        int iconRows = members.isEmpty() ? 1 : ((members.size() + cols - 1) / cols);
+        float gridHeight = members.isEmpty() ? 52f : (iconRows * 84f + 6f);
+        float cardHeight = 68f + gridHeight;
+
+        final String divId = spec.id;
+        CustomPanelAPI cardPanel = Global.getSettings().createCustom(cardWidth, cardHeight, new BaseCustomUIPanelPlugin() {
+            @Override
+            public void buttonPressed(Object buttonId) {
+                DivisionEditorDialog.this.buttonPressed(buttonId);
+            }
+
+            @Override
+            public void renderBelow(float alphaMult) {
+                PositionAPI p = getPanelPosition();
+                if (p == null) return;
+                float x = p.getX();
+                float y = p.getY();
+                float w = p.getWidth();
+                float h = p.getHeight();
+
+                boolean hoveredDrop = isDraggingShip && isPointInside(mouseX, mouseY, p);
+
+                GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+                if (hoveredDrop) {
+                    GL11.glColor4f(0.10f, 0.32f, 0.18f, 0.85f * alphaMult);
+                } else if (isSelected) {
+                    GL11.glColor4f(0.08f, 0.16f, 0.24f, 0.88f * alphaMult);
+                } else {
+                    GL11.glColor4f(0.05f, 0.08f, 0.13f, 0.72f * alphaMult);
+                }
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(x, y);
+                GL11.glVertex2f(x + w, y);
+                GL11.glVertex2f(x + w, y + h);
+                GL11.glVertex2f(x, y + h);
+                GL11.glEnd();
+
+                GL11.glLineWidth(hoveredDrop ? 2.5f : (isSelected ? 2.2f : 1.2f));
+                if (hoveredDrop) {
+                    GL11.glColor4f(0.30f, 1.00f, 0.48f, 0.98f * alphaMult);
+                } else if (isSelected) {
+                    GL11.glColor4f(1.00f, 0.84f, 0.22f, 0.95f * alphaMult);
+                } else {
+                    GL11.glColor4f(
+                            baseColor.getRed() / 255f,
+                            baseColor.getGreen() / 255f,
+                            baseColor.getBlue() / 255f,
+                            0.55f * alphaMult);
+                }
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(x, y);
+                GL11.glVertex2f(x + w, y);
+                GL11.glVertex2f(x + w, y + h);
+                GL11.glVertex2f(x, y + h);
+                GL11.glEnd();
+                GL11.glPopAttrib();
+            }
+
+            private PositionAPI getPanelPosition() {
+                for (DropTargetZone z : dropTargetZones) {
+                    if (z.panel != null && divId.equals(z.targetDivisionId)) {
+                        return z.panel.getPosition();
+                    }
+                }
+                return null;
+            }
+        });
+
+        // Header bar inside card
+        TooltipMakerAPI topUi = cardPanel.createUIElement(cardWidth - 8f, 60f, false);
+
+        String selectAct = "SELECT_DIV:" + spec.id;
+        String selectLabel = (isSelected ? "[SELECTED] " : "[Select] ")
+                + spec.name + " — " + spec.archetype.shortPrefix
+                + String.format(Locale.ROOT, " (%d/%d | %.0f DP)", members.size(), PermanentDivisionManager.MAX_DIVISION_SIZE, totalDp);
+        ButtonAPI bSelect = registerButton(
+                topUi.addButton(
+                        selectLabel,
+                        selectAct,
+                        isSelected ? highlight : baseColor,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        cardWidth - 268f,
+                        22f,
+                        0f),
+                selectAct);
+        if (isSelected) bSelect.highlight();
+        bSelect.getPosition().inTL(4f, 4f);
+
+        String openAct = "OPEN_DIV:" + spec.id;
+        ButtonAPI bOpen = registerButton(
+                topUi.addButton(
+                        "Deep Editor ->",
+                        openAct,
+                        positive,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        136f,
+                        22f,
+                        0f),
+                openAct);
+        bOpen.getPosition().inTL(cardWidth - 260f, 4f);
+
+        String delAct = "DELETE_DIV:" + spec.id;
+        ButtonAPI bDel = registerButton(
+                topUi.addButton(
+                        "Disestablish",
+                        delAct,
+                        Misc.getNegativeHighlightColor(),
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        112f,
+                        22f,
+                        0f),
+                delAct);
+        bDel.getPosition().inTL(cardWidth - 118f, 4f);
+
+        int effIntra = PermanentDivisionManager.resolveEffectiveStationSpacing(spec, doctrineCfg);
+        int effStandoff = PermanentDivisionManager.resolveEffectiveStandoffRange(spec, doctrineCfg);
+        LineStation effSpace = PermanentDivisionManager.resolveEffectiveLineStation(spec, doctrineCfg);
+        DivisionMissionType effOpen = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
+        DivisionMissionType effMain = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
+
+        PersonAPI cap = (flagship != null) ? flagship.getCaptain() : null;
+        String cmdrDesc = (cap != null && !cap.isDefault())
+                ? (cap.getNameString() + " [" + cap.getPersonalityAPI().getDisplayName() + "]")
+                : "Default Cmdr";
+
+        LabelAPI sub1 = topUi.addPara(
+                "Cmdr: %s  |  Station: %s  |  Spacing: %su  |  Standoff: %su  |  %s -> %s",
+                2f,
+                isSelected ? positive : gray,
+                cmdrDesc,
+                effSpace.displayName,
+                String.valueOf(effIntra),
+                String.valueOf(effStandoff),
+                effOpen.shortName,
+                effMain.shortName);
+        sub1.getPosition().inTL(6f, 30f);
+
+        topUi.setHeightSoFar(56f);
+        cardPanel.addUIElement(topUi).inTL(2f, 2f);
+
+        // Ship Icon Grid inside card
+        if (members.isEmpty()) {
+            TooltipMakerAPI emptyUi = cardPanel.createUIElement(cardWidth - 16f, 44f, false);
+            emptyUi.addPara(
+                    isSelected
+                            ? "Empty Division — Drag ships here or Right-Click ships in the Unassigned Fleet Pool to assign."
+                            : "Empty Division — Left-click this division to select it, or drag ships here.",
+                    gray,
+                    10f);
+            emptyUi.setHeightSoFar(44f);
+            cardPanel.addUIElement(emptyUi).inTL(8f, 60f);
+        } else {
+            float tileW = 94f;
+            float tileH = 78f;
+            float gapX = 6f;
+            float gapY = 6f;
+            String flagId = (flagship != null) ? flagship.getId() : spec.flagshipMemberId;
+
+            for (int i = 0; i < members.size(); i++) {
+                FleetMemberAPI m = members.get(i);
+                int r = i / cols;
+                int c = i % cols;
+                float tx = 8f + c * (tileW + gapX);
+                float ty = 62f + r * (tileH + gapY);
+                boolean isFlag = m.getId().equals(flagId);
+                CustomPanelAPI tile = createInteractiveShipTile(m, spec.id, isFlag, tileW, tileH, clipContainer);
+                cardPanel.addComponent(tile).inTL(tx, ty);
+            }
+        }
+
+        return cardPanel;
     }
 
     // ========================================================================================
@@ -749,153 +953,316 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 highlight,
                 gray);
 
+        // Visual Ship Icon Bay in Deep Division Editor
         leftCol.addSectionHeading(
                 "Ships in " + spec.name + " (" + divMembers.size() + "/" + PermanentDivisionManager.MAX_DIVISION_SIZE + " Max)",
                 Alignment.MID,
                 8f);
-
-        if (!divMembers.isEmpty()) {
-            leftCol.addShipList(Math.min(7, divMembers.size()), 1, 48f, baseColor, divMembers, 4f);
-        }
+        leftCol.addPara(
+                "Left-Click ship icon: Designate Flagship  |  Right-Click or Drag to Right Column: Unassign",
+                gray,
+                3f);
 
         if (divMembers.isEmpty()) {
             leftCol.addPara(
-                    "This division currently has no ships. Click '<- Put in Division' on any ship in the right column to add it.",
+                    "No ships in this division. Drag ship icons from the right column and drop them here, or Right-Click any ship on the right.",
                     gray,
-                    10f);
+                    8f);
         } else {
-            for (FleetMemberAPI m : divMembers) {
-                boolean isFlagship = m.getId().equals(spec.flagshipMemberId);
-                String badge = isFlagship ? "[FLAGSHIP]" : "[MEMBER]";
-                PersonAPI cap = m.getCaptain();
-                String officerStr = (cap != null && !cap.isDefault())
-                        ? (cap.getNameString() + " [" + cap.getPersonalityAPI().getDisplayName() + "]")
-                        : "No Officer";
-
-                leftCol.addPara(
-                        "%s %s — %s (%s DP | %s)",
-                        6f,
-                        isFlagship ? positive : highlight,
-                        badge,
-                        m.getShipName(),
-                        m.getHullSpec().getHullName(),
-                        String.format("%.0f", m.getDeploymentPointsCost()),
-                        officerStr);
-
-                CustomPanelAPI rowBtns = Global.getSettings().createCustom(colWidth - 20f, 24f, subPanelPlugin);
-                TooltipMakerAPI rUi = rowBtns.createUIElement(colWidth - 20f, 24f, false);
-
-                if (!isFlagship) {
-                    String flagAct = "SET_FLAGSHIP:" + m.getId();
-                    ButtonAPI bFlag = registerButton(
-                            rUi.addButton(
-                                    "Designate Flagship",
-                                    flagAct,
-                                    baseColor,
-                                    darkColor,
-                                    Alignment.MID,
-                                    CutStyle.TL_BR,
-                                    160f,
-                                    21f,
-                                    0f),
-                            flagAct);
-                    bFlag.getPosition().inTL(0f, 1f);
-                }
-
-                String remAct = "REMOVE_SHIP:" + m.getId();
-                ButtonAPI bRem = registerButton(
-                        rUi.addButton(
-                                "Remove from Division ->",
-                                remAct,
-                                Misc.getNegativeHighlightColor(),
-                                darkColor,
-                                Alignment.MID,
-                                CutStyle.TL_BR,
-                                185f,
-                                21f,
-                                0f),
-                        remAct);
-                bRem.getPosition().inTL(isFlagship ? 0f : 170f, 1f);
-
-                rUi.setHeightSoFar(24f);
-                rowBtns.addUIElement(rUi).inTL(0f, 0f);
-                leftCol.addCustom(rowBtns, 2f);
+            String flagId = spec.flagshipMemberId;
+            if (flagId == null && !divMembers.isEmpty()) {
+                flagId = divMembers.get(0).getId();
             }
+            addInteractiveShipGrid(
+                    leftCol,
+                    colWidth - 16f,
+                    divMembers,
+                    spec.id,
+                    flagId,
+                    5,
+                    false);
         }
-        container.addUIElement(leftCol).inTL(12f, bodyTop);
 
-        // Right Column: Unassigned Ships + Ships in Other Divisions
+        container.addUIElement(leftCol).inTL(12f, bodyTop);
+        dropTargetZones.add(new DropTargetZone(spec.id, spec.name, leftCol, null));
+
+        // Right Column: Visual Ship Icons for Unassigned Ships + Ships in Other Divisions
         TooltipMakerAPI rightCol = container.createUIElement(colWidth, bodyHeight, true);
-        rightCol.addSectionHeading("Unassigned Fleet Ships (" + unassigned.size() + ")", Alignment.MID, 4f);
+        rightCol.addSectionHeading(
+                "Unassigned Fleet Ships (" + unassigned.size() + ") — Drag or Right-Click to Assign",
+                Alignment.MID,
+                4f);
 
         if (unassigned.isEmpty()) {
-            rightCol.addPara("No unassigned combat ships in fleet.", gray, 4f);
+            rightCol.addPara("No unassigned combat ships in fleet. Drag ships here to unassign them.", gray, 4f);
         } else {
-            for (FleetMemberAPI m : unassigned) {
-                PersonAPI cap = m.getCaptain();
-                String officerStr = (cap != null && !cap.isDefault()) ? cap.getNameString() : "No Officer";
-                rightCol.addPara(
-                        "%s — %s (%s DP | %s)",
-                        5f,
-                        highlight,
-                        m.getShipName(),
-                        m.getHullSpec().getHullName(),
-                        String.format("%.0f", m.getDeploymentPointsCost()),
-                        officerStr);
-                String addAct = "ADD_SHIP:" + m.getId();
-                ButtonAPI bAdd = registerButton(
-                        rightCol.addButton(
-                                divisionAtCap ? "Division Full (10/10 Max)" : ("<- Put in " + spec.name),
-                                addAct,
-                                positive,
-                                darkColor,
-                                Alignment.MID,
-                                CutStyle.TL_BR,
-                                220f,
-                                21f,
-                                2f),
-                        addAct);
-                bAdd.setEnabled(!divisionAtCap);
-            }
+            rightCol.addPara(
+                    "Drag any ship icon to the left panel (or Right-Click / Left-Click it) to add to " + spec.name + ":",
+                    gray,
+                    3f);
+            addInteractiveShipGrid(
+                    rightCol,
+                    colWidth - 16f,
+                    unassigned,
+                    null,
+                    null,
+                    5,
+                    false);
         }
 
-        // Also list ships from other divisions so the player can transfer ships directly
-        rightCol.addSectionHeading("Transfer From Other Divisions", Alignment.MID, 10f);
+        rightCol.addSectionHeading("Transfer From Other Divisions (Drag or Right-Click)", Alignment.MID, 10f);
         boolean anyOther = false;
         for (PermanentDivisionSpec other : allDivs) {
             if (other.id.equals(spec.id)) continue;
             List<FleetMemberAPI> otherMembers = PermanentDivisionManager.getMembersInDivision(other, fleet);
-            for (FleetMemberAPI m : otherMembers) {
-                anyOther = true;
-                rightCol.addPara(
-                        "[%s] %s — %s (%s DP)",
-                        5f,
-                        gray,
-                        other.name,
-                        m.getShipName(),
-                        m.getHullSpec().getHullName(),
-                        String.format("%.0f", m.getDeploymentPointsCost()));
-                String transAct = "ADD_SHIP:" + m.getId();
-                ButtonAPI bTrans = registerButton(
-                        rightCol.addButton(
-                                divisionAtCap ? "Division Full (10/10 Max)" : ("<- Transfer to " + spec.name),
-                                transAct,
-                                baseColor,
-                                darkColor,
-                                Alignment.MID,
-                                CutStyle.TL_BR,
-                                220f,
-                                21f,
-                                2f),
-                        transAct);
-                bTrans.setEnabled(!divisionAtCap);
-            }
+            if (otherMembers.isEmpty()) continue;
+            anyOther = true;
+            rightCol.addPara(
+                    other.name + " (" + other.archetype.shortPrefix + ", " + otherMembers.size() + " ships):",
+                    highlight,
+                    5f);
+            addInteractiveShipGrid(
+                    rightCol,
+                    colWidth - 16f,
+                    otherMembers,
+                    other.id,
+                    other.flagshipMemberId,
+                    5,
+                    false);
         }
         if (!anyOther) {
             rightCol.addPara("No ships in other divisions.", gray, 4f);
         }
 
         container.addUIElement(rightCol).inTL(colWidth + 24f, bodyTop);
+        dropTargetZones.add(new DropTargetZone(null, "Unassigned Fleet Pool", rightCol, null));
+    }
+
+    /**
+     * Builds a multi-column grid of interactive ShipIconTile widgets inside a TooltipMakerAPI column.
+     */
+    private void addInteractiveShipGrid(
+            TooltipMakerAPI col,
+            float gridWidth,
+            List<FleetMemberAPI> ships,
+            String sourceDivisionId,
+            String flagshipId,
+            int numCols,
+            boolean showNewDivButtonBelow) {
+
+        if (ships == null || ships.isEmpty()) return;
+
+        float gapX = 6f;
+        float tileW = (float) Math.floor((gridWidth - (numCols - 1) * gapX) / numCols);
+        float tileH = 78f;
+
+        int rows = (ships.size() + numCols - 1) / numCols;
+        float rowBlockH = tileH + (showNewDivButtonBelow ? 22f : 0f);
+        float totalH = rows * rowBlockH + (rows - 1) * 6f + 4f;
+
+        CustomPanelAPI gridPanel = Global.getSettings().createCustom(gridWidth, totalH, subPanelPlugin);
+        TooltipMakerAPI btnLayer = showNewDivButtonBelow ? gridPanel.createUIElement(gridWidth, totalH, false) : null;
+
+        Color baseColor = Misc.getBasePlayerColor();
+        Color darkColor = Misc.getDarkPlayerColor();
+
+        for (int i = 0; i < ships.size(); i++) {
+            FleetMemberAPI m = ships.get(i);
+            int r = i / numCols;
+            int c = i % numCols;
+            float tx = c * (tileW + gapX);
+            float ty = r * (rowBlockH + 6f);
+            boolean isFlag = (flagshipId != null && flagshipId.equals(m.getId()));
+
+            CustomPanelAPI tile = createInteractiveShipTile(m, sourceDivisionId, isFlag, tileW, tileH, col);
+            gridPanel.addComponent(tile).inTL(tx, ty);
+
+            if (showNewDivButtonBelow && btnLayer != null) {
+                String newDivAct = "NEW_DIV_WITH:" + m.getId();
+                ButtonAPI bNew = registerButton(
+                        btnLayer.addButton(
+                                "+ New Div",
+                                newDivAct,
+                                baseColor,
+                                darkColor,
+                                Alignment.MID,
+                                CutStyle.ALL,
+                                tileW,
+                                18f,
+                                0f),
+                        newDivAct);
+                bNew.getPosition().inTL(tx, ty + tileH + 2f);
+            }
+        }
+
+        if (btnLayer != null) {
+            btnLayer.setHeightSoFar(totalH);
+            gridPanel.addUIElement(btnLayer).inTL(0f, 0f);
+        }
+
+        col.addCustom(gridPanel, 4f);
+    }
+
+    /**
+     * Creates a single interactive ShipIconTile that renders the ship's actual hull sprite,
+     * flagship badge, officer badge, DP cost, and hull name, and registers it for drag-and-drop
+     * and left/right-click actions.
+     */
+    private CustomPanelAPI createInteractiveShipTile(
+            final FleetMemberAPI member,
+            final String sourceDivisionId,
+            final boolean isFlagship,
+            final float width,
+            final float height,
+            final UIPanelAPI clipContainer) {
+
+        final Color baseColor = Misc.getBasePlayerColor();
+        final Color highlight = Misc.getHighlightColor();
+        final Color positive = Misc.getPositiveHighlightColor();
+
+        final CustomPanelAPI[] panelRef = new CustomPanelAPI[1];
+        CustomPanelAPI tilePanel = Global.getSettings().createCustom(width, height, new BaseCustomUIPanelPlugin() {
+            @Override
+            public void render(float alphaMult) {
+                CustomPanelAPI selfPanel = panelRef[0];
+                if (selfPanel == null) return;
+                PositionAPI p = selfPanel.getPosition();
+                if (p == null) return;
+
+                float x = p.getX();
+                float y = p.getY();
+                float w = p.getWidth();
+                float h = p.getHeight();
+
+                boolean insideClip = clipContainer == null || isPointInside(mouseX, mouseY, clipContainer.getPosition());
+                boolean hovered = insideClip && isPointInside(mouseX, mouseY, p);
+                boolean beingDragged = isDraggingShip && pressedTile != null && pressedTile.member == member;
+
+                GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+                // Tile background
+                if (beingDragged) {
+                    GL11.glColor4f(0.18f, 0.24f, 0.30f, 0.45f * alphaMult);
+                } else if (hovered) {
+                    GL11.glColor4f(0.12f, 0.24f, 0.34f, 0.92f * alphaMult);
+                } else if (isFlagship) {
+                    GL11.glColor4f(0.14f, 0.14f, 0.05f, 0.85f * alphaMult);
+                } else {
+                    GL11.glColor4f(0.04f, 0.07f, 0.11f, 0.85f * alphaMult);
+                }
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(x, y);
+                GL11.glVertex2f(x + w, y);
+                GL11.glVertex2f(x + w, y + h);
+                GL11.glVertex2f(x, y + h);
+                GL11.glEnd();
+
+                // Tile border
+                GL11.glLineWidth(hovered ? 2.0f : (isFlagship ? 1.8f : 1.1f));
+                if (hovered) {
+                    GL11.glColor4f(0.45f, 0.95f, 1.00f, 0.98f * alphaMult);
+                } else if (isFlagship) {
+                    GL11.glColor4f(1.00f, 0.84f, 0.20f, 0.95f * alphaMult);
+                } else {
+                    GL11.glColor4f(
+                            baseColor.getRed() / 255f,
+                            baseColor.getGreen() / 255f,
+                            baseColor.getBlue() / 255f,
+                            0.65f * alphaMult);
+                }
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(x, y);
+                GL11.glVertex2f(x + w, y);
+                GL11.glVertex2f(x + w, y + h);
+                GL11.glVertex2f(x, y + h);
+                GL11.glEnd();
+
+                // Officer pip (top-right corner)
+                PersonAPI cap = member.getCaptain();
+                if (cap != null && !cap.isDefault()) {
+                    GL11.glColor4f(0.30f, 0.88f, 1.00f, 0.95f * alphaMult);
+                    GL11.glBegin(GL11.GL_QUADS);
+                    GL11.glVertex2f(x + w - 9f, y + h - 9f);
+                    GL11.glVertex2f(x + w - 3f, y + h - 9f);
+                    GL11.glVertex2f(x + w - 3f, y + h - 3f);
+                    GL11.glVertex2f(x + w - 9f, y + h - 3f);
+                    GL11.glEnd();
+                }
+
+                GL11.glPopAttrib();
+
+                // Render Ship Hull Sprite centered in upper portion of tile
+                renderShipMemberSprite(
+                        member,
+                        x + w * 0.5f,
+                        y + h * 0.56f,
+                        w - 14f,
+                        h - 30f,
+                        beingDragged ? 0.45f * alphaMult : alphaMult);
+            }
+        });
+        panelRef[0] = tilePanel;
+
+        // Text overlay labels inside the tile (top badge: FLAG/DP, bottom label: hull name)
+        TooltipMakerAPI textUi = tilePanel.createUIElement(width, height, false);
+        String topBadge = (isFlagship ? "★FLAG " : "")
+                + String.format(Locale.ROOT, "%.0fDP", member.getDeploymentPointsCost());
+        LabelAPI topLbl = textUi.addPara(topBadge, isFlagship ? highlight : positive, 0f);
+        topLbl.getPosition().inTL(3f, 2f);
+
+        String hullName = member.getHullSpec() != null ? member.getHullSpec().getHullName() : member.getShipName();
+        LabelAPI botLbl = textUi.addPara(truncateText(hullName, 11), baseColor, 0f);
+        botLbl.getPosition().inTL(3f, height - 17f);
+
+        textUi.setHeightSoFar(height);
+        tilePanel.addUIElement(textUi).inTL(0f, 0f);
+
+        shipIconTiles.add(new ShipIconTile(member, sourceDivisionId, isFlagship, tilePanel, clipContainer));
+        return tilePanel;
+    }
+
+    private static void renderShipMemberSprite(
+            FleetMemberAPI member,
+            float centerX,
+            float centerY,
+            float maxW,
+            float maxH,
+            float alpha) {
+        if (member == null || member.getHullSpec() == null) return;
+        String spriteName = member.getHullSpec().getSpriteName();
+        if (spriteName == null || spriteName.isEmpty()) return;
+
+        try {
+            SpriteAPI sprite = Global.getSettings().getSprite(spriteName);
+            if (sprite == null) return;
+
+            float origW = sprite.getWidth();
+            float origH = sprite.getHeight();
+            if (origW <= 0f || origH <= 0f) return;
+
+            float scale = Math.min(maxW / origW, maxH / origH);
+            scale = Math.min(scale, 0.85f);
+            float drawW = origW * scale;
+            float drawH = origH * scale;
+
+            Color oldColor = sprite.getColor();
+            float oldAngle = sprite.getAngle();
+
+            sprite.setSize(drawW, drawH);
+            sprite.setAngle(0f);
+            sprite.setColor(new Color(255, 255, 255, Math.max(0, Math.min(255, Math.round(alpha * 255f)))));
+            sprite.renderAtCenter(centerX, centerY);
+
+            sprite.setSize(origW, origH);
+            sprite.setAngle(oldAngle);
+            if (oldColor != null) {
+                sprite.setColor(oldColor);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private void addDivisionSpacingRow(
@@ -1190,6 +1557,20 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
+        if (cmd.startsWith("SELECT_DIV:")) {
+            String divId = cmd.substring("SELECT_DIV:".length());
+            long nowMs = System.currentTimeMillis();
+            if (divId.equals(lastClickedDivId) && (nowMs - lastDivClickTimeMs) < 380L) {
+                activeDivisionId = divId;
+                selectedOverviewDivisionId = divId;
+            } else {
+                selectedOverviewDivisionId = divId;
+            }
+            lastClickedDivId = divId;
+            lastDivClickTimeMs = nowMs;
+            rebuildContent();
+            return;
+        }
         if (cmd.startsWith("TOGGLE_DD:")) {
             savePendingNameFieldIfAny();
             String key = cmd.substring("TOGGLE_DD:".length());
@@ -1261,12 +1642,23 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
+        if ("CREATE_DIV_OVERVIEW".equals(cmd)) {
+            PermanentDivisionSpec created = PermanentDivisionManager.createNewDivision(
+                    DivisionArchetype.CRUISER_DIVISION,
+                    null);
+            if (created != null) {
+                selectedOverviewDivisionId = created.id;
+            }
+            rebuildContent();
+            return;
+        }
         if ("CREATE_DIV".equals(cmd)) {
             PermanentDivisionSpec created = PermanentDivisionManager.createNewDivision(
                     DivisionArchetype.CRUISER_DIVISION,
                     null);
             if (created != null) {
                 activeDivisionId = created.id;
+                selectedOverviewDivisionId = created.id;
             }
             rebuildContent();
             return;
@@ -1274,6 +1666,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         if ("CLEAR_ALL_DIVS".equals(cmd)) {
             PermanentDivisionManager.clearAllDivisions();
             activeDivisionId = null;
+            selectedOverviewDivisionId = null;
             rebuildContent();
             return;
         }
@@ -1290,6 +1683,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         if (cmd.startsWith("OPEN_DIV:")) {
             activeDivisionId = cmd.substring("OPEN_DIV:".length());
+            selectedOverviewDivisionId = activeDivisionId;
             rebuildContent();
             return;
         }
@@ -1298,6 +1692,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             PermanentDivisionManager.deleteDivision(delId);
             if (delId.equals(activeDivisionId)) {
                 activeDivisionId = null;
+            }
+            if (delId.equals(selectedOverviewDivisionId)) {
+                selectedOverviewDivisionId = null;
             }
             rebuildContent();
             return;
@@ -1316,7 +1713,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             }
             PermanentDivisionSpec created = PermanentDivisionManager.createNewDivision(arch, mId);
             if (created != null) {
-                activeDivisionId = created.id;
+                selectedOverviewDivisionId = created.id;
             }
             rebuildContent();
             return;
@@ -1416,12 +1813,83 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     }
 
     @Override
+    public void render(float alphaMult) {
+        if (closed || !isDraggingShip || pressedTile == null || pressedTile.member == null) return;
+
+        FleetMemberAPI m = pressedTile.member;
+        DropTargetZone hoveredZone = findDropZoneAt(mouseX, mouseY);
+
+        float ghostW = 96f;
+        float ghostH = 78f;
+        float gx = mouseX - ghostW * 0.5f;
+        float gy = mouseY - ghostH * 0.5f;
+
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+        GL11.glColor4f(0.06f, 0.16f, 0.24f, 0.90f * alphaMult);
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glVertex2f(gx, gy);
+        GL11.glVertex2f(gx + ghostW, gy);
+        GL11.glVertex2f(gx + ghostW, gy + ghostH);
+        GL11.glVertex2f(gx, gy + ghostH);
+        GL11.glEnd();
+
+        GL11.glLineWidth(2.2f);
+        if (hoveredZone != null) {
+            GL11.glColor4f(0.35f, 1.00f, 0.50f, 0.98f * alphaMult);
+        } else {
+            GL11.glColor4f(1.00f, 0.85f, 0.25f, 0.95f * alphaMult);
+        }
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        GL11.glVertex2f(gx, gy);
+        GL11.glVertex2f(gx + ghostW, gy);
+        GL11.glVertex2f(gx + ghostW, gy + ghostH);
+        GL11.glVertex2f(gx, gy + ghostH);
+        GL11.glEnd();
+        GL11.glPopAttrib();
+
+        renderShipMemberSprite(m, mouseX, mouseY + 4f, ghostW - 14f, ghostH - 24f, 0.95f * alphaMult);
+
+        String actionDesc;
+        if (hoveredZone != null) {
+            actionDesc = (hoveredZone.targetDivisionId == null)
+                    ? ("Drop -> Unassign " + m.getHullSpec().getHullName())
+                    : ("Drop -> Assign to " + hoveredZone.label);
+        } else {
+            actionDesc = "Dragging " + m.getHullSpec().getHullName();
+        }
+
+        if (dragFloatingLabel == null || !actionDesc.equals(dragFloatingLabel.getText())) {
+            dragFloatingLabel = Global.getSettings().createLabel(actionDesc, Fonts.DEFAULT_SMALL);
+            dragFloatingLabel.setColor(hoveredZone != null ? Misc.getPositiveHighlightColor() : Misc.getHighlightColor());
+        }
+        float tw = dragFloatingLabel.computeTextWidth(actionDesc);
+        dragFloatingLabel.getPosition().setSize(tw + 10f, 18f);
+        dragFloatingLabel.getPosition().setLocation(mouseX - tw * 0.5f, gy - 18f);
+        dragFloatingLabel.render(alphaMult);
+    }
+
+    @Override
     public void processInput(List<InputEventAPI> events) {
         if (events == null || closed) return;
         for (InputEventAPI event : events) {
             if (event.isConsumed()) continue;
+
+            if (event.isMouseEvent()) {
+                mouseX = event.getX();
+                mouseY = event.getY();
+            }
+
             if (event.isKeyDownEvent() && event.getEventValue() == Keyboard.KEY_ESCAPE) {
                 event.consume();
+                if (isDraggingShip) {
+                    isDraggingShip = false;
+                    pressedTile = null;
+                    return;
+                }
                 if (activeDivisionId != null) {
                     savePendingNameFieldIfAny();
                     activeDivisionId = null;
@@ -1434,6 +1902,70 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             if (event.isKeyDownEvent() && event.getEventValue() == Keyboard.KEY_RETURN && activeNameField != null) {
                 savePendingNameFieldIfAny();
             }
+
+            // Right-Click on a Ship Icon Tile -> Quick Assign / Unassign
+            if (event.isRMBDownEvent()) {
+                ShipIconTile rmbTile = findShipTileAt(event.getX(), event.getY());
+                if (rmbTile != null && rmbTile.member != null) {
+                    event.consume();
+                    handleShipTileRightClick(rmbTile);
+                    return;
+                }
+            }
+
+            // Left-Mouse Down -> Start potential drag on a Ship Icon Tile, or select a Division Card
+            if (event.isLMBDownEvent()) {
+                ShipIconTile lmbTile = findShipTileAt(event.getX(), event.getY());
+                if (lmbTile != null && lmbTile.member != null) {
+                    pressedTile = lmbTile;
+                    pressStartX = event.getX();
+                    pressStartY = event.getY();
+                    isDraggingShip = false;
+                    event.consume();
+                    continue;
+                }
+
+                // On Screen 1 (Overview), clicking inside a Division Card (outside its buttons) selects that division
+                if (activeDivisionId == null && !isPointOverAnyButton(event.getX(), event.getY())) {
+                    DropTargetZone clickedZone = findDropZoneAt(event.getX(), event.getY());
+                    if (clickedZone != null && clickedZone.targetDivisionId != null) {
+                        event.consume();
+                        handleAction("SELECT_DIV:" + clickedZone.targetDivisionId);
+                        return;
+                    }
+                }
+            }
+
+            // Mouse Move while holding a Ship Icon Tile -> Transition to active Drag-and-Drop
+            if (event.isMouseMoveEvent() && pressedTile != null) {
+                float dx = event.getX() - pressStartX;
+                float dy = event.getY() - pressStartY;
+                if ((dx * dx + dy * dy) >= (DRAG_START_THRESHOLD_PX * DRAG_START_THRESHOLD_PX)) {
+                    isDraggingShip = true;
+                }
+                event.consume();
+                continue;
+            }
+
+            // Left-Mouse Up -> Complete Drag-and-Drop OR execute clean Left-Click on Ship Icon Tile
+            if (event.isLMBUpEvent() && pressedTile != null) {
+                ShipIconTile finishedTile = pressedTile;
+                boolean wasDragging = isDraggingShip;
+                pressedTile = null;
+                isDraggingShip = false;
+                event.consume();
+
+                if (wasDragging) {
+                    DropTargetZone dropZone = findDropZoneAt(event.getX(), event.getY());
+                    if (dropZone != null) {
+                        handleShipTileDrop(finishedTile, dropZone);
+                    }
+                } else {
+                    handleShipTileLeftClick(finishedTile);
+                }
+                return;
+            }
+
             // Consume all remaining mouse/key events so clicks don't leak through to the Fleet screen behind the modal
             if (!event.isMouseUpEvent()) {
                 event.consume();
@@ -1441,12 +1973,148 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private static String joinStrings(List<String> items, String sep) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < items.size(); i++) {
-            if (i > 0) sb.append(sep);
-            sb.append(items.get(i));
+    private void handleShipTileLeftClick(ShipIconTile tile) {
+        if (tile == null || tile.member == null) return;
+        savePendingNameFieldIfAny();
+        String memberId = tile.member.getId();
+
+        if (activeDivisionId != null) {
+            // Deep Division Editor (Screen 2)
+            if (activeDivisionId.equals(tile.sourceDivisionId)) {
+                // Left-clicking a ship inside this division designates it as Flagship
+                PermanentDivisionManager.setDivisionFlagship(activeDivisionId, memberId);
+                rebuildContent();
+            } else {
+                // Left-clicking a ship in Unassigned / Other Division pool assigns it to activeDivisionId
+                PermanentDivisionManager.assignShipToDivision(memberId, activeDivisionId);
+                rebuildContent();
+            }
+        } else {
+            // Overview Screen (Screen 1)
+            if (tile.sourceDivisionId != null) {
+                // Select that division and designate the clicked ship as its Flagship
+                selectedOverviewDivisionId = tile.sourceDivisionId;
+                PermanentDivisionManager.setDivisionFlagship(tile.sourceDivisionId, memberId);
+                rebuildContent();
+            } else if (selectedOverviewDivisionId != null) {
+                // Left-clicking an unassigned ship assigns it to the currently selected division
+                PermanentDivisionManager.assignShipToDivision(memberId, selectedOverviewDivisionId);
+                rebuildContent();
+            }
         }
-        return sb.toString();
+    }
+
+    private void handleShipTileRightClick(ShipIconTile tile) {
+        if (tile == null || tile.member == null) return;
+        savePendingNameFieldIfAny();
+        String memberId = tile.member.getId();
+
+        if (activeDivisionId != null) {
+            // Deep Division Editor (Screen 2)
+            if (activeDivisionId.equals(tile.sourceDivisionId)) {
+                // Right-clicking a ship inside this division unassigns it back to the Fleet Pool
+                PermanentDivisionManager.removeShipFromDivision(memberId, activeDivisionId);
+            } else {
+                // Right-clicking a ship in Unassigned / Other Division assigns it to this division
+                PermanentDivisionManager.assignShipToDivision(memberId, activeDivisionId);
+            }
+            rebuildContent();
+        } else {
+            // Overview Screen (Screen 1)
+            if (tile.sourceDivisionId != null) {
+                // Right-clicking a ship inside any division unassigns it back to the Fleet Pool
+                selectedOverviewDivisionId = tile.sourceDivisionId;
+                PermanentDivisionManager.removeShipFromDivision(memberId, tile.sourceDivisionId);
+                rebuildContent();
+            } else {
+                // Right-clicking an unassigned ship assigns it to the currently selected division
+                String targetDiv = selectedOverviewDivisionId;
+                if (targetDiv == null) {
+                    List<PermanentDivisionSpec> divs = PermanentDivisionManager.getPermanentDivisions();
+                    if (!divs.isEmpty()) {
+                        targetDiv = divs.get(0).id;
+                        selectedOverviewDivisionId = targetDiv;
+                    }
+                }
+                if (targetDiv != null) {
+                    PermanentDivisionManager.assignShipToDivision(memberId, targetDiv);
+                    rebuildContent();
+                }
+            }
+        }
+    }
+
+    private void handleShipTileDrop(ShipIconTile tile, DropTargetZone dropZone) {
+        if (tile == null || tile.member == null || dropZone == null) return;
+        savePendingNameFieldIfAny();
+        String memberId = tile.member.getId();
+        String targetDivId = dropZone.targetDivisionId;
+
+        if (targetDivId == null) {
+            // Dropped onto the Unassigned Fleet Pool -> Unassign from source division
+            if (tile.sourceDivisionId != null) {
+                PermanentDivisionManager.removeShipFromDivision(memberId, tile.sourceDivisionId);
+                rebuildContent();
+            }
+        } else {
+            // Dropped onto a Division Card / Division Bay -> Assign or transfer to that division
+            selectedOverviewDivisionId = targetDivId;
+            if (!targetDivId.equals(tile.sourceDivisionId)) {
+                PermanentDivisionManager.assignShipToDivision(memberId, targetDivId);
+                rebuildContent();
+            }
+        }
+    }
+
+    private ShipIconTile findShipTileAt(float x, float y) {
+        for (int i = shipIconTiles.size() - 1; i >= 0; i--) {
+            ShipIconTile tile = shipIconTiles.get(i);
+            if (tile.tilePanel == null) continue;
+            if (tile.clipContainer != null && !isPointInside(x, y, tile.clipContainer.getPosition())) {
+                continue;
+            }
+            if (isPointInside(x, y, tile.tilePanel.getPosition())) {
+                return tile;
+            }
+        }
+        return null;
+    }
+
+    private DropTargetZone findDropZoneAt(float x, float y) {
+        for (int i = dropTargetZones.size() - 1; i >= 0; i--) {
+            DropTargetZone zone = dropTargetZones.get(i);
+            if (zone.panel == null) continue;
+            if (zone.clipContainer != null && !isPointInside(x, y, zone.clipContainer.getPosition())) {
+                continue;
+            }
+            if (isPointInside(x, y, zone.panel.getPosition())) {
+                return zone;
+            }
+        }
+        return null;
+    }
+
+    private boolean isPointOverAnyButton(float x, float y) {
+        for (ButtonAPI btn : activeButtons.keySet()) {
+            if (btn != null && isPointInside(x, y, btn.getPosition())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isPointInside(float x, float y, PositionAPI pos) {
+        if (pos == null) return false;
+        float px = pos.getX();
+        float py = pos.getY();
+        float pw = pos.getWidth();
+        float ph = pos.getHeight();
+        return x >= px && x <= (px + pw) && y >= py && y <= (py + ph);
+    }
+
+    private static String truncateText(String s, int maxLen) {
+        if (s == null) return "";
+        if (s.length() <= maxLen) return s;
+        return s.substring(0, Math.max(1, maxLen - 2)) + "..";
     }
 }

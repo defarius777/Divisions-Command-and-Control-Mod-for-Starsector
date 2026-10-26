@@ -2,6 +2,7 @@ build/
 toolchain/
 lib/
 dist/
+logo/
 *.class
 .DS_Store
 Thumbs.db

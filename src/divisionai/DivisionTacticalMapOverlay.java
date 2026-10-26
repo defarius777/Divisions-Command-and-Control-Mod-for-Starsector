@@ -12,6 +12,7 @@ import com.fs.starfarer.api.ui.Fonts;
 import com.fs.starfarer.api.ui.LabelAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import divisionai.DivisionModel.BattleGroupState;
+import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
 import org.apache.log4j.Logger;
 import org.lwjgl.opengl.GL11;
@@ -24,6 +25,7 @@ import java.lang.invoke.MethodType;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -33,15 +35,18 @@ import java.util.Map;
  *    or warroom.isShowingVideoFeed() is true; never renders on the full sprite battle view).
  *  - Uses java.lang.invoke.MethodHandles (never java.lang.reflect.*, which Starsector's
  *    script classloader blocks with SecurityException).
- *  - Every alive constituent member of a division projects a small translucent green circle.
- *    Combined circles within a division and overlapping circles between divisions blend via
- *    standard alpha blending (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) into a less translucent green,
- *    informing the player of the location and footprint of maneuver units.
- *  - Over each division flagship is the division name, with faint lines projecting from the
- *    flagship toward its constituent members.
- *  - Visible enemy ships project the same small translucent circles, with sparing OpSec-safe
- *    flagship-to-member lines (only when both flagship and member are visible to the player's
- *    FogOfWarAPI and within close formation range <= 1150u, preventing fog-of-war leaks).
+ *  - Communicates both Division Footprint and Tactical Intentions:
+ *    1. Footprint: Translucent per-hull discs + an oriented Naval Battle-Line Frontage Bar
+ *       (with swept wingtips perpendicular to the division's facing axis) + cohesion health
+ *       coloring (green when coherent, amber when scattered/reforming).
+ *    2. Intentions (Friendly Divisions): Tactical C2 symbology vectors from the division flagship
+ *       to its maneuver anchor or target enemy division:
+ *       - Attack / Strike: Target vector + crosshair reticle on the enemy division.
+ *       - Standoff / Firing Line: Maneuver vector terminating in a perpendicular T-bar firing line.
+ *       - Flank / Doubling: Angled flanking arrow with double chevron.
+ *       - Screen / Escort: Protective curved shield arc oriented toward the threat.
+ *       - Haul Out / Reserve / Close Up: Withdrawal vector or inward rally brackets.
+ *    3. Two-Line HUD Readout above Flagship: Division Callsign + compact [INTENT | FLUX] sub-badge.
  */
 public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
@@ -49,6 +54,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private static final int CIRCLE_SEGMENTS = 36;
     private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1150f;
     private static final Color PLAYER_LABEL_COLOR = new Color(165, 255, 185, 235);
+    private static final Color PLAYER_INTENT_COLOR = new Color(130, 235, 255, 225);
     private static final Color ALLY_LABEL_COLOR = new Color(255, 235, 110, 240);
     private static final Color ENEMY_LABEL_COLOR = new Color(255, 125, 120, 225);
 
@@ -282,8 +288,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (visibleMembers.isEmpty()) continue;
             }
 
+            boolean scatteredCohesion = !isEnemy
+                    && (div.currentIntent == DivisionIntentType.CLOSE_UP || div.stationKeepingRatio > 1.30f);
+
             // 1a. Project a small translucent circle around each constituent member ship:
-            //     - Player's directly controlled forces (!isEnemy && !member.isAlly()) = Green
+            //     - Player's directly controlled forces (!isEnemy && !member.isAlly()) = Green (Amber if CLOSE_UP)
             //     - Non-player-controlled friendly/allied forces (!isEnemy && member.isAlly()) = Yellow
             //     - Visible enemy forces (isEnemy) = Red
             for (ShipAPI member : visibleMembers) {
@@ -297,6 +306,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     GL11.glColor4f(0.96f, 0.20f, 0.20f, baseCircleAlpha);
                 } else if (isAlliedAi) {
                     GL11.glColor4f(1.00f, 0.86f, 0.16f, baseCircleAlpha);
+                } else if (scatteredCohesion) {
+                    GL11.glColor4f(1.00f, 0.64f, 0.18f, baseCircleAlpha);
                 } else {
                     GL11.glColor4f(0.18f, 0.92f, 0.38f, baseCircleAlpha);
                 }
@@ -315,6 +326,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     GL11.glColor4f(1.00f, 0.34f, 0.32f, ringAlpha);
                 } else if (isAlliedAi) {
                     GL11.glColor4f(1.00f, 0.92f, 0.32f, ringAlpha);
+                } else if (scatteredCohesion) {
+                    GL11.glColor4f(1.00f, 0.75f, 0.25f, ringAlpha);
                 } else {
                     GL11.glColor4f(0.32f, 0.98f, 0.50f, ringAlpha);
                 }
@@ -350,6 +363,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     GL11.glColor4f(1.00f, 0.32f, 0.30f, lineAlpha);
                 } else if (isAlliedAiFlagship) {
                     GL11.glColor4f(1.00f, 0.90f, 0.30f, lineAlpha);
+                } else if (scatteredCohesion) {
+                    GL11.glColor4f(1.00f, 0.72f, 0.24f, lineAlpha);
                 } else {
                     GL11.glColor4f(0.42f, 1.00f, 0.58f, lineAlpha);
                 }
@@ -366,6 +381,187 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 }
                 GL11.glEnd();
             }
+
+            // 1c. Friendly Division Frontage Bar & Tactical Intent Vector Symbology
+            if (!isEnemy) {
+                renderFriendlyDivisionFrontageAndIntent(div, flagship, visibleMembers, scale, offsetX, offsetY, lineAlpha, playerFog);
+            }
+        }
+    }
+
+    /**
+     * Renders an oriented Naval Battle-Line Frontage Bracket across the division's lateral axis
+     * plus a tactical C2 maneuver / target vector symbol indicating the division's active intent.
+     */
+    private void renderFriendlyDivisionFrontageAndIntent(
+            DivisionState div,
+            ShipAPI flagship,
+            List<ShipAPI> members,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float lineAlpha,
+            FogOfWarAPI playerFog) {
+
+        float fx = flagship.getLocation().x * scale + offsetX;
+        float fy = flagship.getLocation().y * scale + offsetY;
+        boolean isAllied = flagship.isAlly();
+
+        // Compute forward facing unit vector toward target enemy division, assigned anchor, or flagship facing
+        float dirX;
+        float dirY;
+        if (div.targetEnemyDivision != null && !div.targetEnemyDivision.centroid.equals(new Vector2f(0f, 0f))) {
+            float dx = div.targetEnemyDivision.centroid.x - flagship.getLocation().x;
+            float dy = div.targetEnemyDivision.centroid.y - flagship.getLocation().y;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            if (len > 1f) {
+                dirX = dx / len;
+                dirY = dy / len;
+            } else {
+                double rad = Math.toRadians(flagship.getFacing());
+                dirX = (float) Math.cos(rad);
+                dirY = (float) Math.sin(rad);
+            }
+        } else {
+            double rad = Math.toRadians(flagship.getFacing());
+            dirX = (float) Math.cos(rad);
+            dirY = (float) Math.sin(rad);
+        }
+        float latX = -dirY;
+        float latY = dirX;
+
+        // 1. Oriented Formation Frontage Bracket (shows line-abreast width & facing orientation)
+        if (members.size() >= 2) {
+            float halfWidthWorld = Math.min(1100f, Math.max(260f, (members.size() - 1) * div.stationSpacing * 0.48f));
+            float halfW = clamp(halfWidthWorld * scale, 18f, 95f);
+            float fwdOffset = 14f;
+            float wingSweep = 7f;
+
+            float bx = fx + dirX * fwdOffset;
+            float by = fy + dirY * fwdOffset;
+            float lx = bx - latX * halfW;
+            float ly = by - latY * halfW;
+            float rx = bx + latX * halfW;
+            float ry = by + latY * halfW;
+
+            GL11.glLineWidth(1.8f);
+            if (isAllied) {
+                GL11.glColor4f(1.00f, 0.90f, 0.32f, Math.min(0.68f, lineAlpha * 1.3f));
+            } else if (div.currentIntent == DivisionIntentType.CLOSE_UP) {
+                GL11.glColor4f(1.00f, 0.72f, 0.22f, Math.min(0.72f, lineAlpha * 1.4f));
+            } else {
+                GL11.glColor4f(0.35f, 0.96f, 0.68f, Math.min(0.68f, lineAlpha * 1.3f));
+            }
+
+            GL11.glBegin(GL11.GL_LINE_STRIP);
+            GL11.glVertex2f(lx - dirX * wingSweep, ly - dirY * wingSweep);
+            GL11.glVertex2f(lx, ly);
+            GL11.glVertex2f(rx, ry);
+            GL11.glVertex2f(rx - dirX * wingSweep, ry - dirY * wingSweep);
+            GL11.glEnd();
+        }
+
+        // 2. Tactical Intent Vector & Destination Symbol
+        DivisionIntentType intent = div.currentIntent;
+        Vector2f destWorld = null;
+        boolean targetIsEnemy = false;
+
+        if (div.targetEnemyDivision != null
+                && (intent == DivisionIntentType.PRESS_HOME
+                || intent == DivisionIntentType.FORM_LINE_AND_FIX
+                || intent == DivisionIntentType.TOT_MISSILE_STRIKE
+                || intent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
+                || intent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                || intent == DivisionIntentType.HARASSING_MISSILE_ATTACK
+                || intent == DivisionIntentType.GIVE_GENERAL_CHASE)) {
+            ShipAPI enemyFlag = div.targetEnemyDivision.flagship;
+            if (enemyFlag != null && isEnemyShipVisibleOnCommandMap(enemyFlag, playerFog)) {
+                destWorld = enemyFlag.getLocation();
+                targetIsEnemy = true;
+            } else if (div.stationPoint != null && (div.stationPoint.x != 0f || div.stationPoint.y != 0f)) {
+                destWorld = div.stationPoint;
+            }
+        } else if (div.stationPoint != null && (div.stationPoint.x != 0f || div.stationPoint.y != 0f)) {
+            destWorld = div.stationPoint;
+        }
+
+        if (destWorld == null) return;
+        float tx = destWorld.x * scale + offsetX;
+        float ty = destWorld.y * scale + offsetY;
+        float dx = tx - fx;
+        float dy = ty - fy;
+        float distPx = (float) Math.sqrt(dx * dx + dy * dy);
+        if (distPx < 16f) return;
+
+        float ux = dx / distPx;
+        float uy = dy / distPx;
+        float px = -uy;
+        float py = ux;
+
+        float vecAlpha = Math.min(0.70f, lineAlpha * 1.35f);
+        if (targetIsEnemy) {
+            GL11.glColor4f(1.00f, 0.58f, 0.22f, vecAlpha);
+        } else if (intent == DivisionIntentType.HAUL_OUT_TO_VENT || intent == DivisionIntentType.BREAK_OFF_AND_RETIRE) {
+            GL11.glColor4f(0.45f, 0.85f, 1.00f, vecAlpha);
+        } else if (intent == DivisionIntentType.TAKE_SCREENING_STATION || intent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL) {
+            GL11.glColor4f(0.35f, 0.95f, 0.85f, vecAlpha);
+        } else {
+            GL11.glColor4f(0.40f, 0.95f, 0.65f, vecAlpha);
+        }
+
+        float startOffset = 16f;
+        float endOffset = targetIsEnemy ? 14f : 6f;
+        float shaftLen = distPx - startOffset - endOffset;
+        if (shaftLen > 8f) {
+            GL11.glLineWidth(1.5f);
+            int dashes = Math.max(3, Math.min(18, (int) (shaftLen / 14f)));
+            float step = shaftLen / dashes;
+            GL11.glBegin(GL11.GL_LINES);
+            for (int i = 0; i < dashes; i++) {
+                float s0 = startOffset + i * step;
+                float s1 = startOffset + (i + 0.62f) * step;
+                GL11.glVertex2f(fx + ux * s0, fy + uy * s0);
+                GL11.glVertex2f(fx + ux * s1, fy + uy * s1);
+            }
+            GL11.glEnd();
+        }
+
+        GL11.glLineWidth(1.8f);
+        if (targetIsEnemy) {
+            float r = 9f;
+            GL11.glBegin(GL11.GL_LINE_LOOP);
+            GL11.glVertex2f(tx + ux * r, ty + uy * r);
+            GL11.glVertex2f(tx + px * r, ty + py * r);
+            GL11.glVertex2f(tx - ux * r, ty - uy * r);
+            GL11.glVertex2f(tx - px * r, ty - py * r);
+            GL11.glEnd();
+        } else if (intent == DivisionIntentType.CLOSE_AND_ENGAGE || intent == DivisionIntentType.FORM_LINE_AND_FIX) {
+            float barHalf = 14f;
+            GL11.glBegin(GL11.GL_LINES);
+            GL11.glVertex2f(tx - px * barHalf, ty - py * barHalf);
+            GL11.glVertex2f(tx + px * barHalf, ty + py * barHalf);
+            GL11.glVertex2f(tx, ty);
+            GL11.glVertex2f(tx - ux * 7f + px * 5f, ty - uy * 7f + py * 5f);
+            GL11.glVertex2f(tx, ty);
+            GL11.glVertex2f(tx - ux * 7f - px * 5f, ty - uy * 7f - py * 5f);
+            GL11.glEnd();
+        } else if (intent == DivisionIntentType.TAKE_SCREENING_STATION || intent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL) {
+            float arcW = 15f;
+            float arcFwd = 5f;
+            GL11.glBegin(GL11.GL_LINE_STRIP);
+            GL11.glVertex2f(tx - px * arcW - ux * arcFwd, ty - py * arcW - uy * arcFwd);
+            GL11.glVertex2f(tx - px * (arcW * 0.5f), ty - py * (arcW * 0.5f));
+            GL11.glVertex2f(tx + ux * arcFwd, ty + uy * arcFwd);
+            GL11.glVertex2f(tx + px * (arcW * 0.5f), ty + py * (arcW * 0.5f));
+            GL11.glVertex2f(tx + px * arcW - ux * arcFwd, ty + py * arcW - uy * arcFwd);
+            GL11.glEnd();
+        } else {
+            GL11.glBegin(GL11.GL_LINES);
+            GL11.glVertex2f(tx, ty);
+            GL11.glVertex2f(tx - ux * 8f + px * 5.5f, ty - uy * 8f + py * 5.5f);
+            GL11.glVertex2f(tx, ty);
+            GL11.glVertex2f(tx - ux * 8f - px * 5.5f, ty - uy * 8f - py * 5.5f);
+            GL11.glEnd();
         }
     }
 
@@ -397,15 +593,101 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetPx = clamp(getMemberFootprintRadiusWorld(flagship) * scale, 13f, 48f) + 4f;
             boolean isAlliedAiFlagship = !isEnemy && flagship.isAlly();
 
-            LabelAPI label = getOrCreateLabel(div.displayName, isEnemy, isAlliedAiFlagship);
+            LabelAPI label = getOrCreateLabel(div.displayName, isEnemy, isAlliedAiFlagship, false);
             if (label != null) {
                 float textW = label.computeTextWidth(div.displayName);
                 float textH = label.computeTextHeight(div.displayName);
                 label.getPosition().setSize(textW + 10f, textH + 4f);
-                label.getPosition().setLocation(fx - (textW * 0.5f), fy + offsetPx + textH);
-                label.render(fade * (isEnemy ? 0.82f : 0.92f));
+                label.getPosition().setLocation(fx - (textW * 0.5f), fy + offsetPx + textH + (isEnemy ? 0f : 13f));
+                label.render(fade * (isEnemy ? 0.82f : 0.94f));
+            }
+
+            if (!isEnemy) {
+                String intentTag = buildCompactIntentTag(div);
+                LabelAPI subLabel = getOrCreateLabel(intentTag, false, isAlliedAiFlagship, true);
+                if (subLabel != null) {
+                    float subW = subLabel.computeTextWidth(intentTag);
+                    float subH = subLabel.computeTextHeight(intentTag);
+                    subLabel.getPosition().setSize(subW + 10f, subH + 4f);
+                    subLabel.getPosition().setLocation(fx - (subW * 0.5f), fy + offsetPx + subH);
+                    subLabel.render(fade * 0.86f);
+                }
             }
         }
+    }
+
+    private static String buildCompactIntentTag(DivisionState div) {
+        String intentShort;
+        switch (div.currentIntent) {
+            case FORM_LINE_AND_FIX:
+                intentShort = "FORM & FIX";
+                break;
+            case CLOSE_AND_ENGAGE:
+                intentShort = "ENGAGE";
+                break;
+            case PRESS_HOME:
+                intentShort = "PRESS HOME";
+                break;
+            case TAKE_SCREENING_STATION:
+                intentShort = "SCREEN";
+                break;
+            case REINFORCE_DIVISION:
+                intentShort = "REINFORCE";
+                break;
+            case WORK_FLANK:
+                intentShort = "FLANK";
+                break;
+            case HARASSING_MISSILE_ATTACK:
+                intentShort = "HARASS";
+                break;
+            case MARSHAL_FOR_STRIKE:
+                intentShort = "MARSHAL";
+                break;
+            case TOT_MISSILE_STRIKE:
+                intentShort = "TOT STRIKE";
+                break;
+            case BREAK_OFF_AND_RETIRE:
+                intentShort = "RETIRE";
+                break;
+            case HAUL_OUT_TO_VENT:
+                intentShort = "VENTING";
+                break;
+            case CLOSE_UP:
+                intentShort = "CLOSE UP";
+                break;
+            case HOLD_IN_RESERVE:
+                intentShort = "RESERVE";
+                break;
+            case TAKE_AND_HOLD:
+                intentShort = "HOLD OBJ";
+                break;
+            case FLY_COMBAT_SPACE_PATROL:
+                intentShort = "FLEET CAP";
+                break;
+            case FLY_CYCLIC_STRIKES:
+                intentShort = "CYCLIC STRIKE";
+                break;
+            case LAUNCH_DECKLOAD_STRIKE:
+                intentShort = "DECK STRIKE";
+                break;
+            case LAUNCH_ALPHA_STRIKE:
+                intentShort = "ALPHA STRIKE";
+                break;
+            case FLY_ARMED_RECONNAISSANCE:
+                intentShort = "RECON";
+                break;
+            case FLY_FIGHTER_SWEEP:
+                intentShort = "FIGHTER SWEEP";
+                break;
+            case GIVE_GENERAL_CHASE:
+                intentShort = "CHASE";
+                break;
+            default:
+                intentShort = div.currentIntent.name();
+                break;
+        }
+        int fluxPct = Math.round(div.avgFluxLevel * 100f);
+        return String.format(Locale.ROOT, "[%s | %d%% FLUX]", intentShort, fluxPct);
     }
 
     private static boolean isEnemyShipVisibleOnCommandMap(ShipAPI ship, FogOfWarAPI playerFog) {
@@ -430,8 +712,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private LabelAPI getOrCreateLabel(String text, boolean isEnemy, boolean isAlliedAi) {
-        String prefix = isEnemy ? "E:" : (isAlliedAi ? "A:" : "P:");
+    private LabelAPI getOrCreateLabel(String text, boolean isEnemy, boolean isAlliedAi, boolean isIntentBadge) {
+        String prefix = isEnemy ? "E:" : (isAlliedAi ? "A:" : (isIntentBadge ? "PI:" : "P:"));
         String key = prefix + text;
         LabelAPI label = labelCache.get(key);
         if (label == null) {
@@ -440,6 +722,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 label.setColor(ENEMY_LABEL_COLOR);
             } else if (isAlliedAi) {
                 label.setColor(ALLY_LABEL_COLOR);
+            } else if (isIntentBadge) {
+                label.setColor(PLAYER_INTENT_COLOR);
             } else {
                 label.setColor(PLAYER_LABEL_COLOR);
             }

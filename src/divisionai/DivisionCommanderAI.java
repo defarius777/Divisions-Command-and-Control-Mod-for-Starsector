@@ -158,15 +158,17 @@ public class DivisionCommanderAI {
         return false;
     }
 
-    /** A torpedo run finished its window, ran dry, or built flux; or a flank maneuver has run out of steam. */
+    /** A missile run finished its window (and built flux / drew close fire / ran dry), or a flank maneuver ran out of steam. */
     private static boolean isStrikeRunOver(DivisionState div, float now) {
         boolean inMissileStrike = (div.currentIntent == DivisionIntentType.HARASSING_MISSILE_ATTACK
                 || div.currentIntent == DivisionIntentType.TOT_MISSILE_STRIKE);
         boolean inFlankManeuver = (div.currentIntent == DivisionIntentType.WORK_FLANK);
 
-        boolean missileRunComplete = inMissileStrike && ((now - div.strikeCommittedTimestamp) >= STRIKE_WINDOW_DURATION
+        boolean windowElapsedAndPressured = ((now - div.strikeCommittedTimestamp) >= STRIKE_WINDOW_DURATION)
+                && (div.avgFluxLevel >= 0.30f || div.localEnemyStrength >= 10f);
+        boolean missileRunComplete = inMissileStrike && (windowElapsedAndPressured
                 || div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.90f
-                || (div.hasMissileStrikeCapability && div.usableStrikeAmmoCount <= 0));
+                || (div.hasMissileStrikeCapability && div.usableStrikeAmmoCount <= 0 && div.avgFluxLevel >= 0.25f));
         boolean flankBreakOffNeeded = inFlankManeuver
                 && (div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.88f
                 || ((now - div.strikeCommittedTimestamp) >= (STRIKE_WINDOW_DURATION * 1.5f) && div.avgFluxLevel >= 0.45f));
@@ -272,9 +274,19 @@ public class DivisionCommanderAI {
                 && div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.55f;
         if (isUnderHighFluxPressure(div, myGroup) || stillRotating || myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT) {
 
-            DivisionState ventBehindFriend = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
+            DivisionState candidateFriend = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
                     ? myGroup.mainEffortDivision
                     : heavyFriendlyToScreen;
+            // Do not vent behind a division that is itself hauling out to vent (prevents mutual vent loops),
+            // and combat divisions do not vent behind fragile carrier divisions.
+            DivisionState ventBehindFriend = null;
+            if (candidateFriend != null
+                    && candidateFriend.isCombatEffective()
+                    && candidateFriend.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
+                    && candidateFriend.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
+                    && (div.archetype.isCarrierArchetype() || !candidateFriend.archetype.isCarrierArchetype())) {
+                ventBehindFriend = candidateFriend;
+            }
 
             div.currentIntent = DivisionIntentType.HAUL_OUT_TO_VENT;
             div.targetFriendlyDivision = ventBehindFriend;

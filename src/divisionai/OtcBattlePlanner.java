@@ -366,6 +366,10 @@ public class OtcBattlePlanner {
             float expires,
             Set<DivisionState> tasked) {
 
+        if (crisis == null || !crisis.isCombatEffective() || crisis.localForceRatio >= 0.85f) {
+            myGroup.reinforcingDivision = null;
+            return;
+        }
         boolean linePlay = myGroup.isPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION);
         DivisionState best = null;
         float bestScore = -Float.MAX_VALUE;
