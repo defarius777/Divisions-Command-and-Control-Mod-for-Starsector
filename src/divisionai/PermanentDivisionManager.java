@@ -14,7 +14,7 @@ import com.fs.starfarer.api.loading.FighterWingSpecAPI;
 import com.fs.starfarer.api.loading.WeaponSpecAPI;
 import com.fs.starfarer.api.combat.WeaponAPI.AIHints;
 import com.fs.starfarer.api.combat.WeaponAPI.WeaponType;
-import divisionai.DivisionModel.BattlegroupState;
+import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionState;
@@ -56,12 +56,12 @@ public class PermanentDivisionManager {
     /** In-game length of the Paragon-class Battleship (from data/hulls/paragon.ship height = 364u, bounds = 354u). */
     public static final int PARAGON_LENGTH_UNITS = 364;
 
-    public static final int MIN_INTRA_SPACING_UNITS = 150;
-    public static final int MAX_INTRA_SPACING_UNITS = 1200;
-    public static final int MIN_INTER_SPACING_UNITS = 400;
-    public static final int MAX_INTER_SPACING_UNITS = 2200;
-    public static final int MIN_STANDOFF_UNITS = 300;
-    public static final int MAX_STANDOFF_UNITS = 2400;
+    public static final int MIN_STATION_SPACING_UNITS = 150;
+    public static final int MAX_STATION_SPACING_UNITS = 1200;
+    public static final int MIN_DIVISION_INTERVAL_UNITS = 400;
+    public static final int MAX_DIVISION_INTERVAL_UNITS = 2200;
+    public static final int MIN_STANDOFF_RANGE_UNITS = 300;
+    public static final int MAX_STANDOFF_RANGE_UNITS = 2400;
     public static final int MIN_OPENING_DURATION_SEC = 30;
     public static final int MAX_OPENING_DURATION_SEC = 60;
 
@@ -69,23 +69,29 @@ public class PermanentDivisionManager {
      * Preferred station in the line of battle for a division (Van, Center, Rear).
      * Automatically selected by certain mission types, or manually set by the player.
      */
-    public enum PreferredSpace {
-        FORWARD("Van", "Leads the line of battle, ahead of the main body."),
-        MIDDLE("Center", "Keeps station in the center of the line of battle."),
-        BACK("Rear", "Stays astern of the line of battle, in standoff or in reserve.");
+    public enum LineStation {
+        VAN("Van", "Leads the line of battle, ahead of the main body."),
+        CENTER("Center", "Keeps station in the center of the line of battle."),
+        REAR("Rear", "Stays astern of the line of battle, in standoff or in reserve.");
 
         public final String displayName;
         public final String summary;
 
-        PreferredSpace(String displayName, String summary) {
+        LineStation(String displayName, String summary) {
             this.displayName = displayName;
             this.summary = summary;
         }
 
-        public static PreferredSpace fromId(String id, PreferredSpace fallback) {
+        /** Pre-v0.5.2 saved names (the enum was PreferredSpace: FORWARD / MIDDLE / BACK). */
+        private static final Map<String, String> LEGACY_NAMES = legacyNames(
+                "FORWARD", "VAN",
+                "MIDDLE", "CENTER",
+                "BACK", "REAR");
+
+        public static LineStation fromId(String id, LineStation fallback) {
             if (id == null) return fallback;
             try {
-                return PreferredSpace.valueOf(id);
+                return LineStation.valueOf(LEGACY_NAMES.getOrDefault(id, id));
             } catch (IllegalArgumentException e) {
                 return fallback;
             }
@@ -93,114 +99,114 @@ public class PermanentDivisionManager {
     }
 
     /**
-     * Selectable Opening Mission (first 30-60s) and Main Mission (rest of battle) for Battlegroup
+     * Selectable Opening Mission (first 30-60s) and Main Mission (rest of battle) for Battle Group
      * division types and individual divisions, including both General Combat Missions,
-     * Carrier Missions & Tactics (a..f), and generic "Battlegroup Reserve".
+     * Carrier Missions & Tactics (a..f), and generic "Battle Group Reserve".
      */
     public enum DivisionMissionType {
         // General Combat Missions
-        RECONNAISSANCE(
+        SCOUTING(
                 "a. \"Scouting\"",
                 "Scouting",
                 "Scout ahead, take unclaimed objectives (buoys, relays, jammers) and keep contact at standoff range.",
                 false,
-                PreferredSpace.FORWARD),
-        DOMINATE_SPACE_INTO_BRAWL(
+                LineStation.VAN),
+        CLOSE_ACTION(
                 "b. \"Close Action\"",
                 "Close Action",
                 "Close the enemy and fight it out at close range: engage the enemy more closely.",
                 false,
-                PreferredSpace.FORWARD),
-        STANDOFF_AT_RANGE(
+                LineStation.VAN),
+        STANDOFF_ENGAGEMENT(
                 "c. \"Standoff Engagement\"",
                 "Standoff Engagement",
                 "Hold the line at Standoff Range (longest gun range) and open the range if pressed.",
                 false,
-                PreferredSpace.MIDDLE),
-        OUTFLANK_AND_DESTROY(
+                LineStation.CENTER),
+        ENVELOPMENT(
                 "d. \"Envelopment\"",
                 "Envelopment",
                 "Work around the enemy flanks to envelop and destroy isolated or exposed ships.",
                 false,
-                PreferredSpace.FORWARD),
+                LineStation.VAN),
         SCREEN(
                 "e. \"Screen\"",
                 "Screen",
                 "Take spaced screening stations ahead of and abeam heavier friendly divisions.",
                 false,
-                PreferredSpace.MIDDLE),
+                LineStation.CENTER),
 
         // Carrier Missions and Tactics (a..f)
-        CARRIER_RECON_STRIKE_CRAFT(
+        ARMED_RECONNAISSANCE(
                 "a. \"Armed Reconnaissance\"",
                 "Armed Reconnaissance",
                 "Carriers stay back while strike craft scout forward and hit targets of opportunity.",
                 true,
-                PreferredSpace.BACK),
-        CARRIER_VOID_SUPERIORITY(
+                LineStation.REAR),
+        SPACE_SUPERIORITY(
                 "b. \"Space Superiority\"",
                 "Space Superiority",
                 "Fighter sweeps to win control of space: strip enemy strike craft and light escorts.",
                 true,
-                PreferredSpace.MIDDLE),
-        CARRIER_PROTECT_FLEET(
+                LineStation.CENTER),
+        COMBAT_SPACE_PATROL(
                 "c. \"Combat Space Patrol\"",
                 "Combat Space Patrol",
                 "Keep fighters on patrol over heavy or threatened friendly divisions.",
                 true,
-                PreferredSpace.BACK),
-        CARRIER_SUCCESSIVE_STRIKES(
+                LineStation.REAR),
+        CYCLIC_STRIKES(
                 "d. \"Cyclic Strikes\"",
                 "Cyclic Strikes",
                 "Launch, recover and relaunch strikes continuously against the best visible target.",
                 true,
-                PreferredSpace.BACK),
-        CARRIER_DIVISION_COORDINATED_STRIKE(
+                LineStation.REAR),
+        DECKLOAD_STRIKE(
                 "e. \"Deckload Strike\"",
                 "Deckload Strike",
                 "Every carrier in the division launches together onto one focus target.",
                 true,
-                PreferredSpace.BACK),
-        CARRIER_MULTI_DIVISION_STRIKE(
+                LineStation.REAR),
+        ALPHA_STRIKE(
                 "f. \"Alpha Strike\"",
                 "Alpha Strike",
                 "Full coordinated strike with the Main Effort and missile divisions on the primary threat (joins time-on-target strikes).",
                 true,
-                PreferredSpace.BACK),
+                LineStation.REAR),
 
         // Universal Reserve Mission
-        BATTLEGROUP_RESERVE(
+        RESERVE(
                 "g. \"Reserve\"",
                 "Reserve",
                 "Hold astern of the line in reserve until the OTC commits the division to reinforce or exploit.",
                 false,
-                PreferredSpace.BACK);
+                LineStation.REAR);
 
         public final String dropdownLabel;
         public final String shortName;
         public final String summary;
         public final boolean carrierSpecific;
         public final boolean isCarrierMission;
-        public final PreferredSpace autoPreferredSpace;
+        public final LineStation autoLineStation;
 
         DivisionMissionType(
                 String dropdownLabel,
                 String shortName,
                 String summary,
                 boolean carrierSpecific,
-                PreferredSpace autoPreferredSpace) {
+                LineStation autoLineStation) {
             this.dropdownLabel = dropdownLabel;
             this.shortName = shortName;
             this.summary = summary;
             this.carrierSpecific = carrierSpecific;
             this.isCarrierMission = carrierSpecific;
-            this.autoPreferredSpace = autoPreferredSpace;
+            this.autoLineStation = autoLineStation;
         }
 
         public static List<DivisionMissionType> getOptionsForDivisionType(boolean isCarrierType) {
             List<DivisionMissionType> list = new ArrayList<>();
             for (DivisionMissionType m : values()) {
-                if (m == BATTLEGROUP_RESERVE) {
+                if (m == RESERVE) {
                     list.add(m);
                 } else if (isCarrierType && m.carrierSpecific) {
                     list.add(m);
@@ -223,10 +229,24 @@ public class PermanentDivisionManager {
             return list.toArray(new DivisionMissionType[0]);
         }
 
+        /** Pre-v0.5.2 saved mission names. */
+        private static final Map<String, String> LEGACY_NAMES = legacyNames(
+                "RECONNAISSANCE", "SCOUTING",
+                "DOMINATE_SPACE_INTO_BRAWL", "CLOSE_ACTION",
+                "STANDOFF_AT_RANGE", "STANDOFF_ENGAGEMENT",
+                "OUTFLANK_AND_DESTROY", "ENVELOPMENT",
+                "CARRIER_RECON_STRIKE_CRAFT", "ARMED_RECONNAISSANCE",
+                "CARRIER_VOID_SUPERIORITY", "SPACE_SUPERIORITY",
+                "CARRIER_PROTECT_FLEET", "COMBAT_SPACE_PATROL",
+                "CARRIER_SUCCESSIVE_STRIKES", "CYCLIC_STRIKES",
+                "CARRIER_DIVISION_COORDINATED_STRIKE", "DECKLOAD_STRIKE",
+                "CARRIER_MULTI_DIVISION_STRIKE", "ALPHA_STRIKE",
+                "BATTLEGROUP_RESERVE", "RESERVE");
+
         public static DivisionMissionType fromId(String id, DivisionMissionType fallback) {
             if (id == null) return fallback;
             try {
-                return DivisionMissionType.valueOf(id);
+                return DivisionMissionType.valueOf(LEGACY_NAMES.getOrDefault(id, id));
             } catch (IllegalArgumentException e) {
                 return fallback;
             }
@@ -234,7 +254,7 @@ public class PermanentDivisionManager {
     }
 
     /**
-     * Configurable division types in Battlegroup Settings (Fleet Doctrine), with default:
+     * Configurable division types in Battle Group Settings (Fleet Doctrine), with default:
      *  - Intra-division spacing (units)
      *  - Inter-division spacing (units)
      *  - Line Standoff distance (units)
@@ -250,9 +270,9 @@ public class PermanentDivisionManager {
                 900,
                 950,
                 1.15f,
-                DivisionMissionType.RECONNAISSANCE,
-                DivisionMissionType.OUTFLANK_AND_DESTROY,
-                PreferredSpace.FORWARD),
+                DivisionMissionType.SCOUTING,
+                DivisionMissionType.ENVELOPMENT,
+                LineStation.VAN),
         DESTROYER(
                 "Destroyer Division",
                 DivisionArchetype.DESTROYER_DIVISION,
@@ -260,9 +280,9 @@ public class PermanentDivisionManager {
                 950,
                 850,
                 1.05f,
-                DivisionMissionType.RECONNAISSANCE,
+                DivisionMissionType.SCOUTING,
                 DivisionMissionType.SCREEN,
-                PreferredSpace.MIDDLE),
+                LineStation.CENTER),
         CRUISER(
                 "Cruiser Division",
                 DivisionArchetype.CRUISER_DIVISION,
@@ -270,9 +290,9 @@ public class PermanentDivisionManager {
                 1050,
                 800,
                 1.00f,
-                DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL,
-                DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL,
-                PreferredSpace.MIDDLE),
+                DivisionMissionType.CLOSE_ACTION,
+                DivisionMissionType.CLOSE_ACTION,
+                LineStation.CENTER),
         STRIKE_CRUISER(
                 "Strike Cruiser Division",
                 DivisionArchetype.STRIKE_CRUISER_DIVISION,
@@ -280,19 +300,19 @@ public class PermanentDivisionManager {
                 1100,
                 900,
                 1.10f,
-                DivisionMissionType.RECONNAISSANCE,
-                DivisionMissionType.OUTFLANK_AND_DESTROY,
-                PreferredSpace.FORWARD),
-        BATTLE_CAPITAL(
+                DivisionMissionType.SCOUTING,
+                DivisionMissionType.ENVELOPMENT,
+                LineStation.VAN),
+        BATTLESHIP(
                 "Battleship Division (Capital)",
-                DivisionArchetype.BATTLE_DIVISION,
+                DivisionArchetype.BATTLESHIP_DIVISION,
                 675,
                 1200,
                 750,
                 0.95f,
-                DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL,
-                DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL,
-                PreferredSpace.FORWARD),
+                DivisionMissionType.CLOSE_ACTION,
+                DivisionMissionType.CLOSE_ACTION,
+                LineStation.VAN),
         FLEET_CARRIER(
                 "Fleet Carrier Division (Capital)",
                 DivisionArchetype.FLEET_CARRIER_DIVISION,
@@ -300,9 +320,9 @@ public class PermanentDivisionManager {
                 1350,
                 1600,
                 0.95f,
-                DivisionMissionType.CARRIER_RECON_STRIKE_CRAFT,
-                DivisionMissionType.CARRIER_MULTI_DIVISION_STRIKE,
-                PreferredSpace.BACK),
+                DivisionMissionType.ARMED_RECONNAISSANCE,
+                DivisionMissionType.ALPHA_STRIKE,
+                LineStation.REAR),
         LIGHT_CARRIER(
                 "Light Carrier Division (Cruiser)",
                 DivisionArchetype.LIGHT_CARRIER_DIVISION,
@@ -310,9 +330,9 @@ public class PermanentDivisionManager {
                 1250,
                 1450,
                 0.95f,
-                DivisionMissionType.CARRIER_RECON_STRIKE_CRAFT,
-                DivisionMissionType.CARRIER_DIVISION_COORDINATED_STRIKE,
-                PreferredSpace.BACK),
+                DivisionMissionType.ARMED_RECONNAISSANCE,
+                DivisionMissionType.DECKLOAD_STRIKE,
+                LineStation.REAR),
         ESCORT_CARRIER(
                 "Escort Carrier Division (Destroyer & Below)",
                 DivisionArchetype.ESCORT_CARRIER_DIVISION,
@@ -320,73 +340,89 @@ public class PermanentDivisionManager {
                 1150,
                 1350,
                 0.95f,
-                DivisionMissionType.CARRIER_PROTECT_FLEET,
-                DivisionMissionType.CARRIER_SUCCESSIVE_STRIKES,
-                PreferredSpace.BACK),
-        CARRIER_ESCORT(
+                DivisionMissionType.COMBAT_SPACE_PATROL,
+                DivisionMissionType.CYCLIC_STRIKES,
+                LineStation.REAR),
+        CARRIER_GROUP(
                 "Carrier Group (Carrier & Escorts)",
-                DivisionArchetype.CARRIER_AND_ESCORT,
+                DivisionArchetype.CARRIER_GROUP,
                 575,
                 1300,
                 1450,
                 0.95f,
-                DivisionMissionType.CARRIER_RECON_STRIKE_CRAFT,
-                DivisionMissionType.CARRIER_DIVISION_COORDINATED_STRIKE,
-                PreferredSpace.BACK),
-        PHASE_RAIDER(
+                DivisionMissionType.ARMED_RECONNAISSANCE,
+                DivisionMissionType.DECKLOAD_STRIKE,
+                LineStation.REAR),
+        PHASE(
                 "Phase Division",
                 DivisionArchetype.PHASE_DIVISION,
                 475,
                 1100,
                 1050,
                 1.25f,
-                DivisionMissionType.RECONNAISSANCE,
-                DivisionMissionType.OUTFLANK_AND_DESTROY,
-                PreferredSpace.FORWARD),
-        AUXILIARY(
+                DivisionMissionType.SCOUTING,
+                DivisionMissionType.ENVELOPMENT,
+                LineStation.VAN),
+        SERVICE_GROUP(
                 "Service Group (Auxiliaries)",
-                DivisionArchetype.AUXILIARY_CONVOY,
+                DivisionArchetype.SERVICE_GROUP,
                 450,
                 1200,
                 1500,
                 0.90f,
-                DivisionMissionType.BATTLEGROUP_RESERVE,
-                DivisionMissionType.BATTLEGROUP_RESERVE,
-                PreferredSpace.BACK);
+                DivisionMissionType.RESERVE,
+                DivisionMissionType.RESERVE,
+                LineStation.REAR);
 
         public final String displayName;
         public final DivisionArchetype primaryArchetype;
-        public final int defaultIdealSpacingUnits;
-        public final int defaultInterSpacingUnits;
-        public final int defaultLineStandoffUnits;
-        public final float defaultLeashMult;
+        public final int defaultStationSpacingUnits;
+        public final int defaultDivisionIntervalUnits;
+        public final int defaultStandoffRangeUnits;
+        public final float defaultStationKeepingMult;
         public final DivisionMissionType defaultOpeningMission;
         public final DivisionMissionType defaultMainMission;
-        public final PreferredSpace defaultPreferredSpace;
+        public final LineStation defaultLineStation;
 
         DoctrineDivisionType(
                 String displayName,
                 DivisionArchetype primaryArchetype,
-                int defaultIdealSpacingUnits,
-                int defaultInterSpacingUnits,
-                int defaultLineStandoffUnits,
-                float defaultLeashMult,
+                int defaultStationSpacingUnits,
+                int defaultDivisionIntervalUnits,
+                int defaultStandoffRangeUnits,
+                float defaultStationKeepingMult,
                 DivisionMissionType defaultOpeningMission,
                 DivisionMissionType defaultMainMission,
-                PreferredSpace defaultPreferredSpace) {
+                LineStation defaultLineStation) {
             this.displayName = displayName;
             this.primaryArchetype = primaryArchetype;
-            this.defaultIdealSpacingUnits = defaultIdealSpacingUnits;
-            this.defaultInterSpacingUnits = defaultInterSpacingUnits;
-            this.defaultLineStandoffUnits = defaultLineStandoffUnits;
-            this.defaultLeashMult = defaultLeashMult;
+            this.defaultStationSpacingUnits = defaultStationSpacingUnits;
+            this.defaultDivisionIntervalUnits = defaultDivisionIntervalUnits;
+            this.defaultStandoffRangeUnits = defaultStandoffRangeUnits;
+            this.defaultStationKeepingMult = defaultStationKeepingMult;
             this.defaultOpeningMission = defaultOpeningMission;
             this.defaultMainMission = defaultMainMission;
-            this.defaultPreferredSpace = defaultPreferredSpace;
+            this.defaultLineStation = defaultLineStation;
         }
 
         public boolean isCarrierType() {
             return primaryArchetype != null && primaryArchetype.isCarrierArchetype();
+        }
+
+        /** The pre-v0.5.2 name used in saved doctrine keys, or null if the name did not change. */
+        public String legacyName() {
+            switch (this) {
+                case BATTLESHIP:
+                    return "BATTLE_CAPITAL";
+                case CARRIER_GROUP:
+                    return "CARRIER_ESCORT";
+                case PHASE:
+                    return "PHASE_RAIDER";
+                case SERVICE_GROUP:
+                    return "AUXILIARY";
+                default:
+                    return null;
+            }
         }
 
         public static DoctrineDivisionType forArchetype(DivisionArchetype arch) {
@@ -395,24 +431,24 @@ public class PermanentDivisionManager {
                 case FRIGATE_DIVISION:
                     return FRIGATE;
                 case DESTROYER_DIVISION:
-                case TORPEDO_DESTROYER_DIVISION:
+                case MISSILE_DESTROYER_DIVISION:
                     return DESTROYER;
                 case STRIKE_CRUISER_DIVISION:
                     return STRIKE_CRUISER;
-                case BATTLE_DIVISION:
-                    return BATTLE_CAPITAL;
+                case BATTLESHIP_DIVISION:
+                    return BATTLESHIP;
                 case FLEET_CARRIER_DIVISION:
                     return FLEET_CARRIER;
                 case LIGHT_CARRIER_DIVISION:
                     return LIGHT_CARRIER;
                 case ESCORT_CARRIER_DIVISION:
                     return ESCORT_CARRIER;
-                case CARRIER_AND_ESCORT:
-                    return CARRIER_ESCORT;
+                case CARRIER_GROUP:
+                    return CARRIER_GROUP;
                 case PHASE_DIVISION:
-                    return PHASE_RAIDER;
-                case AUXILIARY_CONVOY:
-                    return AUXILIARY;
+                    return PHASE;
+                case SERVICE_GROUP:
+                    return SERVICE_GROUP;
                 case CRUISER_DIVISION:
                 default:
                     return CRUISER;
@@ -437,7 +473,7 @@ public class PermanentDivisionManager {
                 "Maximum capital hulls for division",
                 0,
                 2,
-                DivisionArchetype.BATTLE_DIVISION),
+                DivisionArchetype.BATTLESHIP_DIVISION),
         DESTROYER(
                 "Destroyer Hulls",
                 "Minimum destroyer hulls for division",
@@ -458,21 +494,21 @@ public class PermanentDivisionManager {
                 "Maximum freighter hulls for division",
                 0,
                 4,
-                DivisionArchetype.AUXILIARY_CONVOY),
+                DivisionArchetype.SERVICE_GROUP),
         TANKER(
                 "Tanker Hulls",
                 "Minimum tanker hulls for division",
                 "Maximum tanker hulls for division",
                 0,
                 4,
-                DivisionArchetype.AUXILIARY_CONVOY),
+                DivisionArchetype.SERVICE_GROUP),
         TRANSPORT(
                 "Transport Hulls",
                 "Minimum transport hulls for division",
                 "Maximum transport hulls for division",
                 0,
                 4,
-                DivisionArchetype.AUXILIARY_CONVOY);
+                DivisionArchetype.SERVICE_GROUP);
 
         public final String displayName;
         public final String minLabel;
@@ -501,23 +537,23 @@ public class PermanentDivisionManager {
      * How much authority the Battle Group Commander (Officer in Tactical Command, OTC) has over each division's
      * configured Opening/Main Mission when it orchestrates the battle (selectable in the Fleet Doctrine window).
      */
-    public enum BattlegroupAuthority {
-        HYBRID(
+    public enum OtcAuthority {
+        COMMAND_BY_DIRECTION(
                 "A. \"Command by Direction\"",
                 "Command by Direction",
                 "Missions set each division's style; the OTC directs targets, timing, stations and flank sides within it, "
                         + "and only fully re-tasks reserve, reinforcement and pursuit divisions."),
-        CENTRAL_PLANNING(
+        POSITIVE_CONTROL(
                 "B. \"Positive Control\"",
                 "Positive Control",
                 "OTC orders replace missions whenever issued (fix, engage, flank, reinforce, chase, strike); "
                         + "missions are only the default when the OTC has no orders for a division."),
-        MISSION_TACTICS(
+        COMMAND_BY_NEGATION(
                 "C. \"Command by Negation\"",
                 "Command by Negation",
                 "The OTC states intent (targets, flank sides, strike times, reinforcement requests); divisions act on their "
                         + "own initiative in their mission style and may decline or deviate unless the OTC overrides them."),
-        TARGET_COORDINATION(
+        FIRE_DISTRIBUTION_ONLY(
                 "D. \"Fire Distribution Only\"",
                 "Fire Distribution Only",
                 "The OTC only distributes enemy targets and times strikes; it never moves, re-tasks or "
@@ -527,31 +563,38 @@ public class PermanentDivisionManager {
         public final String shortName;
         public final String summary;
 
-        BattlegroupAuthority(String dropdownLabel, String shortName, String summary) {
+        OtcAuthority(String dropdownLabel, String shortName, String summary) {
             this.dropdownLabel = dropdownLabel;
             this.shortName = shortName;
             this.summary = summary;
         }
 
-        /** Whether the BG may position divisions (anchors, flank sides) rather than only pick their targets. */
+        /** Whether the OTC may position divisions (anchors, flank sides) rather than only pick their targets. */
         public boolean allowsPositioning() {
-            return this != TARGET_COORDINATION;
+            return this != FIRE_DISTRIBUTION_ONLY;
         }
 
-        /** Whether the BG may re-task divisions onto relief, reserve-commitment and pursuit tasks. */
+        /** Whether the OTC may re-task divisions onto relief, reserve-commitment and pursuit tasks. */
         public boolean allowsRetasking() {
-            return this != TARGET_COORDINATION;
+            return this != FIRE_DISTRIBUTION_ONLY;
         }
 
-        /** Whether BG taskings are binding (true) or requests a division may decline (false). */
+        /** Whether OTC taskings are binding (true) or requests a division may decline (false). */
         public boolean isBinding() {
-            return this != MISSION_TACTICS;
+            return this != COMMAND_BY_NEGATION;
         }
 
-        public static BattlegroupAuthority fromId(String id, BattlegroupAuthority fallback) {
+        /** Pre-v0.5.2 saved names (the enum was BattlegroupAuthority). */
+        private static final Map<String, String> LEGACY_NAMES = legacyNames(
+                "HYBRID", "COMMAND_BY_DIRECTION",
+                "CENTRAL_PLANNING", "POSITIVE_CONTROL",
+                "MISSION_TACTICS", "COMMAND_BY_NEGATION",
+                "TARGET_COORDINATION", "FIRE_DISTRIBUTION_ONLY");
+
+        public static OtcAuthority fromId(String id, OtcAuthority fallback) {
             if (id == null) return fallback;
             try {
-                return BattlegroupAuthority.valueOf(id);
+                return OtcAuthority.valueOf(LEGACY_NAMES.getOrDefault(id, id));
             } catch (IllegalArgumentException e) {
                 return fallback;
             }
@@ -561,32 +604,57 @@ public class PermanentDivisionManager {
     /**
      * Battle-wide plays the Battle Group Commander (OTC) may run (each toggled in the Fleet Doctrine window).
      */
-    public enum OrchestrationPlay {
-        ANCHOR_AND_FIX(
+    public enum OtcPlay {
+        LINE_AND_FIRE_DISTRIBUTION(
                 "Line & Fire Distribution",
                 "The Main Effort forms the line on the primary threat and fixes it; fire is distributed so each other division takes its own target."),
-        PINCER_FLANKS(
+        DOUBLING(
                 "Doubling",
                 "Flankers on the same target are sent down opposite sides (port and starboard) to double it."),
-        TIMED_STRIKES(
+        TIME_ON_TARGET_STRIKES(
                 "Time-on-Target Strikes",
                 "Missile and strike-craft divisions go to their marshal points, then strike together at one time on one focus ship."),
-        RESERVE_AND_EXPLOIT(
+        RESERVE_AND_GENERAL_CHASE(
                 "Reserve & General Chase",
                 "One division sent to reinforce each crisis, the reserve held until needed, and fast divisions give general chase to broken enemies on a leash.");
 
         public final String displayName;
         public final String summary;
 
-        OrchestrationPlay(String displayName, String summary) {
+        OtcPlay(String displayName, String summary) {
             this.displayName = displayName;
             this.summary = summary;
         }
+
+        /** The pre-v0.5.2 name used in saved doctrine keys (the enum was OrchestrationPlay). */
+        public String legacyName() {
+            switch (this) {
+                case LINE_AND_FIRE_DISTRIBUTION:
+                    return "ANCHOR_AND_FIX";
+                case DOUBLING:
+                    return "PINCER_FLANKS";
+                case TIME_ON_TARGET_STRIKES:
+                    return "TIMED_STRIKES";
+                case RESERVE_AND_GENERAL_CHASE:
+                    return "RESERVE_AND_EXPLOIT";
+                default:
+                    return null;
+            }
+        }
+    }
+
+    /** Builds an old-name -> new-name lookup from alternating pairs, for loading pre-rename saves. */
+    private static Map<String, String> legacyNames(String... oldNewPairs) {
+        Map<String, String> map = new HashMap<>();
+        for (int i = 0; i + 1 < oldNewPairs.length; i += 2) {
+            map.put(oldNewPairs[i], oldNewPairs[i + 1]);
+        }
+        return map;
     }
 
     /**
-     * Campaign-saved Battlegroup & Fleet Doctrine settings defining:
-     *  1. Battlegroup Settings:
+     * Campaign-saved Battle Group & Fleet Doctrine settings defining:
+     *  1. Battle Group Settings:
      *     - Opening Mission duration (30s - 60s, default 45s)
      *     - Per-division-type Intra-division spacing, Inter-division spacing, Line Standoff distance,
      *       Opening Mission, Main Mission, and cohesion leash.
@@ -595,15 +663,15 @@ public class PermanentDivisionManager {
     public static class FleetDoctrineConfig {
         private final Map<DoctrineHullCategory, Integer> minByCat = new LinkedHashMap<>();
         private final Map<DoctrineHullCategory, Integer> maxByCat = new LinkedHashMap<>();
-        private final Map<DoctrineDivisionType, Integer> spacingByType = new LinkedHashMap<>();
-        private final Map<DoctrineDivisionType, Integer> interSpacingByType = new LinkedHashMap<>();
-        private final Map<DoctrineDivisionType, Integer> standoffByType = new LinkedHashMap<>();
-        private final Map<DoctrineDivisionType, Float> leashByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Integer> stationSpacingByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Integer> divisionIntervalByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Integer> standoffRangeByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Float> stationKeepingByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> openingMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> mainMissionByType = new LinkedHashMap<>();
-        private final Map<DoctrineDivisionType, PreferredSpace> preferredSpaceByType = new LinkedHashMap<>();
-        private final Set<OrchestrationPlay> enabledPlays = EnumSet.allOf(OrchestrationPlay.class);
-        private BattlegroupAuthority bgAuthority = BattlegroupAuthority.HYBRID;
+        private final Map<DoctrineDivisionType, LineStation> lineStationByType = new LinkedHashMap<>();
+        private final Set<OtcPlay> enabledPlays = EnumSet.allOf(OtcPlay.class);
+        private OtcAuthority otcAuthority = OtcAuthority.COMMAND_BY_DIRECTION;
         private int openingDurationSeconds = 45;
 
         public FleetDoctrineConfig() {
@@ -612,31 +680,31 @@ public class PermanentDivisionManager {
                 maxByCat.put(cat, cat.defaultMax);
             }
             for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
-                spacingByType.put(dt, dt.defaultIdealSpacingUnits);
-                interSpacingByType.put(dt, dt.defaultInterSpacingUnits);
-                standoffByType.put(dt, dt.defaultLineStandoffUnits);
-                leashByType.put(dt, dt.defaultLeashMult);
+                stationSpacingByType.put(dt, dt.defaultStationSpacingUnits);
+                divisionIntervalByType.put(dt, dt.defaultDivisionIntervalUnits);
+                standoffRangeByType.put(dt, dt.defaultStandoffRangeUnits);
+                stationKeepingByType.put(dt, dt.defaultStationKeepingMult);
                 openingMissionByType.put(dt, dt.defaultOpeningMission);
                 mainMissionByType.put(dt, dt.defaultMainMission);
-                preferredSpaceByType.put(dt, dt.defaultPreferredSpace);
+                lineStationByType.put(dt, dt.defaultLineStation);
             }
         }
 
-        public BattlegroupAuthority getBgAuthority() {
-            return bgAuthority != null ? bgAuthority : BattlegroupAuthority.HYBRID;
+        public OtcAuthority getOtcAuthority() {
+            return otcAuthority != null ? otcAuthority : OtcAuthority.COMMAND_BY_DIRECTION;
         }
 
-        public void setBgAuthority(BattlegroupAuthority authority) {
+        public void setOtcAuthority(OtcAuthority authority) {
             if (authority != null) {
-                this.bgAuthority = authority;
+                this.otcAuthority = authority;
             }
         }
 
-        public boolean isPlayEnabled(OrchestrationPlay play) {
+        public boolean isPlayEnabled(OtcPlay play) {
             return play != null && enabledPlays.contains(play);
         }
 
-        public void setPlayEnabled(OrchestrationPlay play, boolean enabled) {
+        public void setPlayEnabled(OtcPlay play, boolean enabled) {
             if (play == null) return;
             if (enabled) {
                 enabledPlays.add(play);
@@ -645,19 +713,19 @@ public class PermanentDivisionManager {
             }
         }
 
-        public Set<OrchestrationPlay> getEnabledPlays() {
-            return enabledPlays.isEmpty() ? EnumSet.noneOf(OrchestrationPlay.class) : EnumSet.copyOf(enabledPlays);
+        public Set<OtcPlay> getEnabledPlays() {
+            return enabledPlays.isEmpty() ? EnumSet.noneOf(OtcPlay.class) : EnumSet.copyOf(enabledPlays);
         }
 
-        public PreferredSpace getPreferredSpace(DoctrineDivisionType dt) {
-            if (dt == null) return PreferredSpace.MIDDLE;
-            PreferredSpace ps = preferredSpaceByType.get(dt);
-            return ps != null ? ps : dt.defaultPreferredSpace;
+        public LineStation getLineStation(DoctrineDivisionType dt) {
+            if (dt == null) return LineStation.CENTER;
+            LineStation ps = lineStationByType.get(dt);
+            return ps != null ? ps : dt.defaultLineStation;
         }
 
-        public void setPreferredSpace(DoctrineDivisionType dt, PreferredSpace ps) {
+        public void setLineStation(DoctrineDivisionType dt, LineStation ps) {
             if (dt == null || ps == null) return;
-            preferredSpaceByType.put(dt, ps);
+            lineStationByType.put(dt, ps);
         }
 
         public int getOpeningDurationSeconds() {
@@ -668,60 +736,60 @@ public class PermanentDivisionManager {
             this.openingDurationSeconds = Math.max(MIN_OPENING_DURATION_SEC, Math.min(MAX_OPENING_DURATION_SEC, seconds));
         }
 
-        public int getIdealSpacing(DoctrineDivisionType dt) {
+        public int getStationSpacing(DoctrineDivisionType dt) {
             if (dt == null) return 450;
-            Integer v = spacingByType.get(dt);
-            int raw = v != null ? v : dt.defaultIdealSpacingUnits;
-            return Math.max(MIN_INTRA_SPACING_UNITS, Math.min(MAX_INTRA_SPACING_UNITS, raw));
+            Integer v = stationSpacingByType.get(dt);
+            int raw = v != null ? v : dt.defaultStationSpacingUnits;
+            return Math.max(MIN_STATION_SPACING_UNITS, Math.min(MAX_STATION_SPACING_UNITS, raw));
         }
 
-        public void setIdealSpacing(DoctrineDivisionType dt, int units) {
+        public void setStationSpacing(DoctrineDivisionType dt, int units) {
             if (dt == null) return;
-            int clamped = Math.max(MIN_INTRA_SPACING_UNITS, Math.min(MAX_INTRA_SPACING_UNITS, units));
-            spacingByType.put(dt, clamped);
+            int clamped = Math.max(MIN_STATION_SPACING_UNITS, Math.min(MAX_STATION_SPACING_UNITS, units));
+            stationSpacingByType.put(dt, clamped);
         }
 
-        public int getInterSpacing(DoctrineDivisionType dt) {
+        public int getDivisionInterval(DoctrineDivisionType dt) {
             if (dt == null) return 950;
-            Integer v = interSpacingByType.get(dt);
-            int raw = v != null ? v : dt.defaultInterSpacingUnits;
-            return Math.max(MIN_INTER_SPACING_UNITS, Math.min(MAX_INTER_SPACING_UNITS, raw));
+            Integer v = divisionIntervalByType.get(dt);
+            int raw = v != null ? v : dt.defaultDivisionIntervalUnits;
+            return Math.max(MIN_DIVISION_INTERVAL_UNITS, Math.min(MAX_DIVISION_INTERVAL_UNITS, raw));
         }
 
-        public void setInterSpacing(DoctrineDivisionType dt, int units) {
+        public void setDivisionInterval(DoctrineDivisionType dt, int units) {
             if (dt == null) return;
-            int clamped = Math.max(MIN_INTER_SPACING_UNITS, Math.min(MAX_INTER_SPACING_UNITS, units));
-            interSpacingByType.put(dt, clamped);
+            int clamped = Math.max(MIN_DIVISION_INTERVAL_UNITS, Math.min(MAX_DIVISION_INTERVAL_UNITS, units));
+            divisionIntervalByType.put(dt, clamped);
         }
 
-        public int getLineStandoff(DoctrineDivisionType dt) {
+        public int getStandoffRange(DoctrineDivisionType dt) {
             if (dt == null) return 850;
-            Integer v = standoffByType.get(dt);
-            int raw = v != null ? v : dt.defaultLineStandoffUnits;
-            return Math.max(MIN_STANDOFF_UNITS, Math.min(MAX_STANDOFF_UNITS, raw));
+            Integer v = standoffRangeByType.get(dt);
+            int raw = v != null ? v : dt.defaultStandoffRangeUnits;
+            return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(MAX_STANDOFF_RANGE_UNITS, raw));
         }
 
-        public void setLineStandoff(DoctrineDivisionType dt, int units) {
+        public void setStandoffRange(DoctrineDivisionType dt, int units) {
             if (dt == null) return;
-            int clamped = Math.max(MIN_STANDOFF_UNITS, Math.min(MAX_STANDOFF_UNITS, units));
-            standoffByType.put(dt, clamped);
+            int clamped = Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(MAX_STANDOFF_RANGE_UNITS, units));
+            standoffRangeByType.put(dt, clamped);
         }
 
-        public float getLeashMult(DoctrineDivisionType dt) {
+        public float getStationKeepingMult(DoctrineDivisionType dt) {
             if (dt == null) return 1.0f;
-            Float v = leashByType.get(dt);
-            float raw = v != null ? v : dt.defaultLeashMult;
+            Float v = stationKeepingByType.get(dt);
+            float raw = v != null ? v : dt.defaultStationKeepingMult;
             return Math.max(0.65f, Math.min(1.85f, raw));
         }
 
-        public void setLeashMult(DoctrineDivisionType dt, float mult) {
+        public void setStationKeepingMult(DoctrineDivisionType dt, float mult) {
             if (dt == null) return;
             float clamped = Math.max(0.65f, Math.min(1.85f, mult));
-            leashByType.put(dt, clamped);
+            stationKeepingByType.put(dt, clamped);
         }
 
         public DivisionMissionType getOpeningMission(DoctrineDivisionType dt) {
-            if (dt == null) return DivisionMissionType.RECONNAISSANCE;
+            if (dt == null) return DivisionMissionType.SCOUTING;
             DivisionMissionType m = openingMissionByType.get(dt);
             return m != null ? m : dt.defaultOpeningMission;
         }
@@ -732,7 +800,7 @@ public class PermanentDivisionManager {
         }
 
         public DivisionMissionType getMainMission(DoctrineDivisionType dt) {
-            if (dt == null) return DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL;
+            if (dt == null) return DivisionMissionType.CLOSE_ACTION;
             DivisionMissionType m = mainMissionByType.get(dt);
             return m != null ? m : dt.defaultMainMission;
         }
@@ -795,33 +863,33 @@ public class PermanentDivisionManager {
             }
             Object authObj = map.get("bg_authority");
             if (authObj instanceof String) {
-                cfg.setBgAuthority(BattlegroupAuthority.fromId((String) authObj, BattlegroupAuthority.HYBRID));
+                cfg.setOtcAuthority(OtcAuthority.fromId((String) authObj, OtcAuthority.COMMAND_BY_DIRECTION));
             }
-            for (OrchestrationPlay play : OrchestrationPlay.values()) {
-                Object playObj = map.get("bg_play_" + play.name());
+            for (OtcPlay play : OtcPlay.values()) {
+                Object playObj = getWithLegacyKey(map, "bg_play_", play.name(), play.legacyName());
                 if (playObj instanceof Boolean) {
                     cfg.setPlayEnabled(play, (Boolean) playObj);
                 }
             }
             for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
-                Object spObj = map.get("spacing_" + dt.name());
-                Object ispObj = map.get("inter_spacing_" + dt.name());
-                Object stObj = map.get("standoff_" + dt.name());
-                Object lsObj = map.get("leash_" + dt.name());
-                Object opMisObj = map.get("opening_mission_" + dt.name());
-                Object mnMisObj = map.get("main_mission_" + dt.name());
-                Object psObj = map.get("pref_space_" + dt.name());
+                Object spObj = getWithLegacyKey(map, "spacing_", dt.name(), dt.legacyName());
+                Object ispObj = getWithLegacyKey(map, "inter_spacing_", dt.name(), dt.legacyName());
+                Object stObj = getWithLegacyKey(map, "standoff_", dt.name(), dt.legacyName());
+                Object lsObj = getWithLegacyKey(map, "leash_", dt.name(), dt.legacyName());
+                Object opMisObj = getWithLegacyKey(map, "opening_mission_", dt.name(), dt.legacyName());
+                Object mnMisObj = getWithLegacyKey(map, "main_mission_", dt.name(), dt.legacyName());
+                Object psObj = getWithLegacyKey(map, "pref_space_", dt.name(), dt.legacyName());
                 if (spObj instanceof Number) {
-                    cfg.setIdealSpacing(dt, ((Number) spObj).intValue());
+                    cfg.setStationSpacing(dt, ((Number) spObj).intValue());
                 }
                 if (ispObj instanceof Number) {
-                    cfg.setInterSpacing(dt, ((Number) ispObj).intValue());
+                    cfg.setDivisionInterval(dt, ((Number) ispObj).intValue());
                 }
                 if (stObj instanceof Number) {
-                    cfg.setLineStandoff(dt, ((Number) stObj).intValue());
+                    cfg.setStandoffRange(dt, ((Number) stObj).intValue());
                 }
                 if (lsObj instanceof Number) {
-                    cfg.setLeashMult(dt, ((Number) lsObj).floatValue());
+                    cfg.setStationKeepingMult(dt, ((Number) lsObj).floatValue());
                 }
                 if (opMisObj instanceof String) {
                     cfg.setOpeningMission(dt, DivisionMissionType.fromId((String) opMisObj, dt.defaultOpeningMission));
@@ -830,11 +898,23 @@ public class PermanentDivisionManager {
                     cfg.setMainMission(dt, DivisionMissionType.fromId((String) mnMisObj, dt.defaultMainMission));
                 }
                 if (psObj instanceof String) {
-                    cfg.setPreferredSpace(dt, PreferredSpace.fromId((String) psObj, dt.defaultPreferredSpace));
+                    cfg.setLineStation(dt, LineStation.fromId((String) psObj, dt.defaultLineStation));
                 }
             }
         }
         return cfg;
+    }
+
+    /**
+     * Reads a doctrine value keyed by an enum name, falling back to the pre-v0.5.2 enum name so doctrine
+     * settings saved before the naval-terminology rename still load.
+     */
+    private static Object getWithLegacyKey(Map<String, Object> map, String prefix, String name, String legacyName) {
+        Object value = map.get(prefix + name);
+        if (value == null && legacyName != null) {
+            value = map.get(prefix + legacyName);
+        }
+        return value;
     }
 
     public static void saveFleetDoctrine(FleetDoctrineConfig cfg) {
@@ -842,8 +922,8 @@ public class PermanentDivisionManager {
         if (sector == null || cfg == null) return;
         Map<String, Object> serialized = new HashMap<>();
         serialized.put("opening_duration_sec", cfg.getOpeningDurationSeconds());
-        serialized.put("bg_authority", cfg.getBgAuthority().name());
-        for (OrchestrationPlay play : OrchestrationPlay.values()) {
+        serialized.put("bg_authority", cfg.getOtcAuthority().name());
+        for (OtcPlay play : OtcPlay.values()) {
             serialized.put("bg_play_" + play.name(), cfg.isPlayEnabled(play));
         }
         for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
@@ -851,13 +931,13 @@ public class PermanentDivisionManager {
             serialized.put("max_" + cat.name(), cfg.getMax(cat));
         }
         for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
-            serialized.put("spacing_" + dt.name(), cfg.getIdealSpacing(dt));
-            serialized.put("inter_spacing_" + dt.name(), cfg.getInterSpacing(dt));
-            serialized.put("standoff_" + dt.name(), cfg.getLineStandoff(dt));
-            serialized.put("leash_" + dt.name(), cfg.getLeashMult(dt));
+            serialized.put("spacing_" + dt.name(), cfg.getStationSpacing(dt));
+            serialized.put("inter_spacing_" + dt.name(), cfg.getDivisionInterval(dt));
+            serialized.put("standoff_" + dt.name(), cfg.getStandoffRange(dt));
+            serialized.put("leash_" + dt.name(), cfg.getStationKeepingMult(dt));
             serialized.put("opening_mission_" + dt.name(), cfg.getOpeningMission(dt).name());
             serialized.put("main_mission_" + dt.name(), cfg.getMainMission(dt).name());
-            serialized.put("pref_space_" + dt.name(), cfg.getPreferredSpace(dt).name());
+            serialized.put("pref_space_" + dt.name(), cfg.getLineStation(dt).name());
         }
         sector.getPersistentData().put(PERSISTENT_DOCTRINE_KEY, serialized);
     }
@@ -879,31 +959,31 @@ public class PermanentDivisionManager {
         saveFleetDoctrine(cfg);
     }
 
-    public static void updateDivisionTypeSpacing(DoctrineDivisionType dt, int newSpacingUnits) {
+    public static void updateDivisionTypeStationSpacing(DoctrineDivisionType dt, int newSpacingUnits) {
         if (dt == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
-        cfg.setIdealSpacing(dt, newSpacingUnits);
+        cfg.setStationSpacing(dt, newSpacingUnits);
         saveFleetDoctrine(cfg);
     }
 
-    public static void updateDivisionTypeInterSpacing(DoctrineDivisionType dt, int newInterSpacingUnits) {
+    public static void updateDivisionTypeDivisionInterval(DoctrineDivisionType dt, int newInterSpacingUnits) {
         if (dt == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
-        cfg.setInterSpacing(dt, newInterSpacingUnits);
+        cfg.setDivisionInterval(dt, newInterSpacingUnits);
         saveFleetDoctrine(cfg);
     }
 
-    public static void updateDivisionTypeStandoff(DoctrineDivisionType dt, int newStandoffUnits) {
+    public static void updateDivisionTypeStandoffRange(DoctrineDivisionType dt, int newStandoffUnits) {
         if (dt == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
-        cfg.setLineStandoff(dt, newStandoffUnits);
+        cfg.setStandoffRange(dt, newStandoffUnits);
         saveFleetDoctrine(cfg);
     }
 
-    public static void updateDivisionTypeLeash(DoctrineDivisionType dt, float newLeashMult) {
+    public static void updateDivisionTypeStationKeeping(DoctrineDivisionType dt, float newStationKeepingMult) {
         if (dt == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
-        cfg.setLeashMult(dt, newLeashMult);
+        cfg.setStationKeepingMult(dt, newStationKeepingMult);
         saveFleetDoctrine(cfg);
     }
 
@@ -915,27 +995,27 @@ public class PermanentDivisionManager {
         } else {
             cfg.setMainMission(dt, mission);
         }
-        if (mission.autoPreferredSpace != null) {
-            cfg.setPreferredSpace(dt, mission.autoPreferredSpace);
+        if (mission.autoLineStation != null) {
+            cfg.setLineStation(dt, mission.autoLineStation);
         }
         saveFleetDoctrine(cfg);
     }
 
-    public static void updateDivisionTypePreferredSpace(DoctrineDivisionType dt, PreferredSpace ps) {
+    public static void updateDivisionTypeLineStation(DoctrineDivisionType dt, LineStation ps) {
         if (dt == null || ps == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
-        cfg.setPreferredSpace(dt, ps);
+        cfg.setLineStation(dt, ps);
         saveFleetDoctrine(cfg);
     }
 
-    public static void updateBattlegroupAuthority(BattlegroupAuthority authority) {
+    public static void updateOtcAuthority(OtcAuthority authority) {
         if (authority == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
-        cfg.setBgAuthority(authority);
+        cfg.setOtcAuthority(authority);
         saveFleetDoctrine(cfg);
     }
 
-    public static void updateOrchestrationPlay(OrchestrationPlay play, boolean enabled) {
+    public static void updateOtcPlay(OtcPlay play, boolean enabled) {
         if (play == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setPlayEnabled(play, enabled);
@@ -949,10 +1029,10 @@ public class PermanentDivisionManager {
     public enum DoctrineOption {
         ADAPTIVE("Adaptive (Default)", "Balanced division tactics: screens, flanks, or presses home the attack as the action develops."),
         SPEARHEAD("Spearhead", "Closes the enemy early and presses home the attack wherever it has the advantage."),
-        STANDOFF("Fire Support", "Keeps to maximum gun or strike-craft range and avoids close action."),
-        SCREEN_ESCORT("Escort & Screen", "Takes screening station on friendly battleship and carrier divisions against flankers."),
-        FLANK_STRIKE("Flanking & Missile Strike", "Works around the enemy flanks and looks for missile strike opportunities."),
-        RESERVE_HOLD("Reserve", "Holds astern of the line until a friendly division needs reinforcing.");
+        FIRE_SUPPORT("Fire Support", "Keeps to maximum gun or strike-craft range and avoids close action."),
+        ESCORT_AND_SCREEN("Escort & Screen", "Takes screening station on friendly battleship and carrier divisions against flankers."),
+        FLANKING_STRIKE("Flanking & Missile Strike", "Works around the enemy flanks and looks for missile strike opportunities."),
+        RESERVE("Reserve", "Holds astern of the line until a friendly division needs reinforcing.");
 
         public final String displayName;
         public final String summary;
@@ -962,10 +1042,17 @@ public class PermanentDivisionManager {
             this.summary = summary;
         }
 
+        /** Pre-v0.5.2 saved division doctrine names. */
+        private static final Map<String, String> LEGACY_NAMES = legacyNames(
+                "STANDOFF", "FIRE_SUPPORT",
+                "SCREEN_ESCORT", "ESCORT_AND_SCREEN",
+                "FLANK_STRIKE", "FLANKING_STRIKE",
+                "RESERVE_HOLD", "RESERVE");
+
         public static DoctrineOption fromId(String id) {
             if (id == null) return ADAPTIVE;
             try {
-                return DoctrineOption.valueOf(id);
+                return DoctrineOption.valueOf(LEGACY_NAMES.getOrDefault(id, id));
             } catch (IllegalArgumentException e) {
                 return ADAPTIVE;
             }
@@ -980,14 +1067,14 @@ public class PermanentDivisionManager {
         public List<String> memberIds = new ArrayList<>();
         public DoctrineOption doctrine = DoctrineOption.ADAPTIVE;
 
-        // Per-Division Settings (null = inherit from Battlegroup Settings for this division's archetype;
-        // customLineStandoff is auto-calculated from longest-range firepower on ship add or Auto-Set button, or manually set)
-        public Integer customIntraSpacing = null;
-        public Integer customInterSpacing = null;
-        public Integer customLineStandoff = null;
+        // Per-Division Settings (null = inherit from Battle Group Settings for this division's archetype;
+        // customStandoffRange is auto-calculated from longest-range firepower on ship add or Auto-Set button, or manually set)
+        public Integer customStationSpacing = null;
+        public Integer customDivisionInterval = null;
+        public Integer customStandoffRange = null;
         public DivisionMissionType customOpeningMission = null;
         public DivisionMissionType customMainMission = null;
-        public PreferredSpace customPreferredSpace = null;
+        public LineStation customLineStation = null;
 
         public PermanentDivisionSpec(String id, String name, DivisionArchetype archetype) {
             this.id = id;
@@ -996,28 +1083,28 @@ public class PermanentDivisionManager {
         }
     }
 
-    public static int resolveEffectiveIntraSpacing(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
-        if (spec != null && spec.customIntraSpacing != null) {
-            return Math.max(MIN_INTRA_SPACING_UNITS, Math.min(MAX_INTRA_SPACING_UNITS, spec.customIntraSpacing));
+    public static int resolveEffectiveStationSpacing(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customStationSpacing != null) {
+            return Math.max(MIN_STATION_SPACING_UNITS, Math.min(MAX_STATION_SPACING_UNITS, spec.customStationSpacing));
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
-        return cfg != null ? cfg.getIdealSpacing(dt) : dt.defaultIdealSpacingUnits;
+        return cfg != null ? cfg.getStationSpacing(dt) : dt.defaultStationSpacingUnits;
     }
 
-    public static int resolveEffectiveInterSpacing(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
-        if (spec != null && spec.customInterSpacing != null) {
-            return Math.max(MIN_INTER_SPACING_UNITS, Math.min(MAX_INTER_SPACING_UNITS, spec.customInterSpacing));
+    public static int resolveEffectiveDivisionInterval(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customDivisionInterval != null) {
+            return Math.max(MIN_DIVISION_INTERVAL_UNITS, Math.min(MAX_DIVISION_INTERVAL_UNITS, spec.customDivisionInterval));
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
-        return cfg != null ? cfg.getInterSpacing(dt) : dt.defaultInterSpacingUnits;
+        return cfg != null ? cfg.getDivisionInterval(dt) : dt.defaultDivisionIntervalUnits;
     }
 
-    public static int resolveEffectiveLineStandoff(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
-        if (spec != null && spec.customLineStandoff != null) {
-            return Math.max(MIN_STANDOFF_UNITS, Math.min(MAX_STANDOFF_UNITS, spec.customLineStandoff));
+    public static int resolveEffectiveStandoffRange(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customStandoffRange != null) {
+            return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(MAX_STANDOFF_RANGE_UNITS, spec.customStandoffRange));
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
-        return cfg != null ? cfg.getLineStandoff(dt) : dt.defaultLineStandoffUnits;
+        return cfg != null ? cfg.getStandoffRange(dt) : dt.defaultStandoffRangeUnits;
     }
 
     public static DivisionMissionType resolveEffectiveOpeningMission(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
@@ -1036,12 +1123,12 @@ public class PermanentDivisionManager {
         return cfg != null ? cfg.getMainMission(dt) : dt.defaultMainMission;
     }
 
-    public static PreferredSpace resolveEffectivePreferredSpace(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
-        if (spec != null && spec.customPreferredSpace != null) {
-            return spec.customPreferredSpace;
+    public static LineStation resolveEffectiveLineStation(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customLineStation != null) {
+            return spec.customLineStation;
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
-        return cfg != null ? cfg.getPreferredSpace(dt) : dt.defaultPreferredSpace;
+        return cfg != null ? cfg.getLineStation(dt) : dt.defaultLineStation;
     }
 
     /**
@@ -1051,11 +1138,11 @@ public class PermanentDivisionManager {
      * far beyond the range its guns can actually fight at.
      * Returns 0 if the division has no ships or no non-PD weapons.
      */
-    public static int computeDivisionLongestWeaponRange(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
-        return computeDivisionLongestWeaponRange(spec, fleet, false);
+    public static int computeDivisionLongestGunRange(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+        return computeDivisionLongestGunRange(spec, fleet, false);
     }
 
-    private static int computeDivisionLongestWeaponRange(PermanentDivisionSpec spec, CampaignFleetAPI fleet, boolean includeMissiles) {
+    private static int computeDivisionLongestGunRange(PermanentDivisionSpec spec, CampaignFleetAPI fleet, boolean includeMissiles) {
         if (spec == null || fleet == null || spec.memberIds.isEmpty()) return 0;
         List<FleetMemberAPI> members = getMembersInDivision(spec, fleet);
         float maxRange = 0f;
@@ -1103,8 +1190,8 @@ public class PermanentDivisionManager {
                     if (wingId == null) continue;
                     FighterWingSpecAPI wingSpec = Global.getSettings().getFighterWingSpec(wingId);
                     if (wingSpec != null && wingSpec.getRange() > maxRange) {
-                        // Cap carrier wing standoff contribution to MAX_STANDOFF_UNITS (2400u)
-                        maxRange = Math.min(MAX_STANDOFF_UNITS, Math.max(maxRange, Math.min(1800f, wingSpec.getRange())));
+                        // Cap carrier wing standoff contribution to MAX_STANDOFF_RANGE_UNITS (2400u)
+                        maxRange = Math.min(MAX_STANDOFF_RANGE_UNITS, Math.max(maxRange, Math.min(1800f, wingSpec.getRange())));
                     }
                 }
             }
@@ -1112,14 +1199,14 @@ public class PermanentDivisionManager {
 
         if (maxRange <= 0f) return 0;
         int rounded = Math.round(maxRange / 25f) * 25;
-        return Math.max(MIN_STANDOFF_UNITS, Math.min(MAX_STANDOFF_UNITS, rounded));
+        return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(MAX_STANDOFF_RANGE_UNITS, rounded));
     }
 
-    public static void recalculateDivisionLineStandoffFromFirepower(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+    public static void recalculateDivisionStandoffRangeFromGuns(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
         if (spec == null) return;
-        int longest = computeDivisionLongestWeaponRange(spec, fleet);
+        int longest = computeDivisionLongestGunRange(spec, fleet);
         if (longest > 0) {
-            spec.customLineStandoff = longest;
+            spec.customStandoffRange = longest;
         }
     }
 
@@ -1137,12 +1224,12 @@ public class PermanentDivisionManager {
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
         int migrated = 0;
         for (PermanentDivisionSpec spec : specs) {
-            if (spec.customLineStandoff == null) continue;
-            int oldAuto = computeDivisionLongestWeaponRange(spec, fleet, true);
-            if (oldAuto > 0 && oldAuto == spec.customLineStandoff) {
-                int gunOnly = computeDivisionLongestWeaponRange(spec, fleet, false);
+            if (spec.customStandoffRange == null) continue;
+            int oldAuto = computeDivisionLongestGunRange(spec, fleet, true);
+            if (oldAuto > 0 && oldAuto == spec.customStandoffRange) {
+                int gunOnly = computeDivisionLongestGunRange(spec, fleet, false);
                 if (gunOnly > 0 && gunOnly != oldAuto) {
-                    spec.customLineStandoff = gunOnly;
+                    spec.customStandoffRange = gunOnly;
                     migrated++;
                 }
             }
@@ -1166,9 +1253,9 @@ public class PermanentDivisionManager {
         if (Boolean.TRUE.equals(pdata.get(PERSISTENT_NAVAL_NAMES_MIGRATION_KEY))) return;
 
         Map<String, String> oldToNewPrefix = new LinkedHashMap<>();
-        oldToNewPrefix.put("Battle Div", DivisionArchetype.BATTLE_DIVISION.shortPrefix);
-        oldToNewPrefix.put("Mixed Carrier Div", DivisionArchetype.CARRIER_AND_ESCORT.shortPrefix);
-        oldToNewPrefix.put("Aux Group", DivisionArchetype.AUXILIARY_CONVOY.shortPrefix);
+        oldToNewPrefix.put("Battle Div", DivisionArchetype.BATTLESHIP_DIVISION.shortPrefix);
+        oldToNewPrefix.put("Mixed Carrier Div", DivisionArchetype.CARRIER_GROUP.shortPrefix);
+        oldToNewPrefix.put("Aux Group", DivisionArchetype.SERVICE_GROUP.shortPrefix);
 
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
         Set<String> takenNames = new HashSet<>();
@@ -1199,7 +1286,7 @@ public class PermanentDivisionManager {
         }
     }
 
-    public static void autoSetDivisionLineStandoff(String divisionId) {
+    public static void autoSetDivisionStandoffRange(String divisionId) {
         SectorAPI sector = Global.getSector();
         if (sector == null || divisionId == null) return;
         CampaignFleetAPI fleet = sector.getPlayerFleet();
@@ -1207,7 +1294,7 @@ public class PermanentDivisionManager {
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
         for (PermanentDivisionSpec spec : specs) {
             if (divisionId.equals(spec.id)) {
-                recalculateDivisionLineStandoffFromFirepower(spec, fleet);
+                recalculateDivisionStandoffRangeFromGuns(spec, fleet);
                 break;
             }
         }
@@ -1233,30 +1320,30 @@ public class PermanentDivisionManager {
         for (PermanentDivisionSpec spec : specs) {
             if (divisionId.equals(spec.id)) {
                 if (updateIntra) {
-                    spec.customIntraSpacing = (intraSpacing != null)
-                            ? Math.max(MIN_INTRA_SPACING_UNITS, Math.min(MAX_INTRA_SPACING_UNITS, intraSpacing))
+                    spec.customStationSpacing = (intraSpacing != null)
+                            ? Math.max(MIN_STATION_SPACING_UNITS, Math.min(MAX_STATION_SPACING_UNITS, intraSpacing))
                             : null;
                 }
                 if (updateInter) {
-                    spec.customInterSpacing = (interSpacing != null)
-                            ? Math.max(MIN_INTER_SPACING_UNITS, Math.min(MAX_INTER_SPACING_UNITS, interSpacing))
+                    spec.customDivisionInterval = (interSpacing != null)
+                            ? Math.max(MIN_DIVISION_INTERVAL_UNITS, Math.min(MAX_DIVISION_INTERVAL_UNITS, interSpacing))
                             : null;
                 }
                 if (updateStandoff) {
-                    spec.customLineStandoff = (lineStandoff != null)
-                            ? Math.max(MIN_STANDOFF_UNITS, Math.min(MAX_STANDOFF_UNITS, lineStandoff))
+                    spec.customStandoffRange = (lineStandoff != null)
+                            ? Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(MAX_STANDOFF_RANGE_UNITS, lineStandoff))
                             : null;
                 }
                 if (updateOpeningMission) {
                     spec.customOpeningMission = openingMission;
-                    if (openingMission != null && openingMission.autoPreferredSpace != null) {
-                        spec.customPreferredSpace = openingMission.autoPreferredSpace;
+                    if (openingMission != null && openingMission.autoLineStation != null) {
+                        spec.customLineStation = openingMission.autoLineStation;
                     }
                 }
                 if (updateMainMission) {
                     spec.customMainMission = mainMission;
-                    if (mainMission != null && mainMission.autoPreferredSpace != null) {
-                        spec.customPreferredSpace = mainMission.autoPreferredSpace;
+                    if (mainMission != null && mainMission.autoLineStation != null) {
+                        spec.customLineStation = mainMission.autoLineStation;
                     }
                 }
                 break;
@@ -1265,14 +1352,14 @@ public class PermanentDivisionManager {
         saveSpecsToPersistentData(pdata, specs);
     }
 
-    public static void updateIndividualDivisionPreferredSpace(String divisionId, PreferredSpace preferredSpace) {
+    public static void updateIndividualDivisionLineStation(String divisionId, LineStation lineStation) {
         SectorAPI sector = Global.getSector();
         if (sector == null || divisionId == null) return;
         Map<String, Object> pdata = sector.getPersistentData();
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
         for (PermanentDivisionSpec spec : specs) {
             if (divisionId.equals(spec.id)) {
-                spec.customPreferredSpace = preferredSpace;
+                spec.customLineStation = lineStation;
                 break;
             }
         }
@@ -1512,8 +1599,8 @@ public class PermanentDivisionManager {
         }
 
         for (PermanentDivisionSpec s : specs) {
-            if (s.customLineStandoff == null) {
-                recalculateDivisionLineStandoffFromFirepower(s, fleet);
+            if (s.customStandoffRange == null) {
+                recalculateDivisionStandoffRangeFromGuns(s, fleet);
             }
         }
         saveSpecsToPersistentData(pdata, specs);
@@ -1607,7 +1694,7 @@ public class PermanentDivisionManager {
         if (optionalFirstMemberId != null) {
             created.memberIds.add(optionalFirstMemberId);
             created.flagshipMemberId = optionalFirstMemberId;
-            recalculateDivisionLineStandoffFromFirepower(created, sector.getPlayerFleet());
+            recalculateDivisionStandoffRangeFromGuns(created, sector.getPlayerFleet());
         }
         saveSpecsToPersistentData(pdata, specs);
         return created;
@@ -1637,7 +1724,7 @@ public class PermanentDivisionManager {
         for (PermanentDivisionSpec spec : specs) {
             if (spec.memberIds.remove(memberId)) {
                 ensureValidFlagship(spec, fleet);
-                recalculateDivisionLineStandoffFromFirepower(spec, fleet);
+                recalculateDivisionStandoffRangeFromGuns(spec, fleet);
             }
             if (targetDivisionId.equals(spec.id)) {
                 target = spec;
@@ -1646,7 +1733,7 @@ public class PermanentDivisionManager {
         if (target != null && !target.memberIds.contains(memberId) && target.memberIds.size() < MAX_DIVISION_SIZE) {
             target.memberIds.add(memberId);
             ensureValidFlagship(target, fleet);
-            recalculateDivisionLineStandoffFromFirepower(target, fleet);
+            recalculateDivisionStandoffRangeFromGuns(target, fleet);
         }
         saveSpecsToPersistentData(pdata, specs);
     }
@@ -1662,7 +1749,7 @@ public class PermanentDivisionManager {
             if (divisionId.equals(spec.id)) {
                 spec.memberIds.remove(memberId);
                 ensureValidFlagship(spec, fleet);
-                recalculateDivisionLineStandoffFromFirepower(spec, fleet);
+                recalculateDivisionStandoffRangeFromGuns(spec, fleet);
                 break;
             }
         }
@@ -1754,11 +1841,11 @@ public class PermanentDivisionManager {
      * creating or reinforcing the corresponding combat DivisionState and returning any leftover unassigned hulls.
      */
     public static List<ShipCapabilityProfile> applyPermanentDivisionsInCombat(
-            BattlegroupState bg,
+            BattleGroupState battleGroup,
             List<ShipCapabilityProfile> unassignedPlayerHulls,
             List<DivisionState> newlyCreatedOut) {
 
-        if (bg == null || bg.side != 0 || unassignedPlayerHulls.isEmpty()) {
+        if (battleGroup == null || battleGroup.side != 0 || unassignedPlayerHulls.isEmpty()) {
             return unassignedPlayerHulls;
         }
         SectorAPI sector = Global.getSector();
@@ -1790,12 +1877,12 @@ public class PermanentDivisionManager {
                 continue;
             }
 
-            // Check if this permanent division already exists in the active combat BattlegroupState (e.g. reinforcement wave)
-            DivisionState existingCombatDiv = findExistingCombatDivisionById(bg, spec.id);
+            // Check if this permanent division already exists in the active combat BattleGroupState (e.g. reinforcement wave)
+            DivisionState existingCombatDiv = findExistingCombatDivisionById(battleGroup, spec.id);
             if (existingCombatDiv != null) {
                 existingCombatDiv.members.add(prof.ship);
                 existingCombatDiv.profiles.add(prof);
-                bg.shipIdToDivision.put(prof.ship.getId(), existingCombatDiv);
+                battleGroup.shipIdToDivision.put(prof.ship.getId(), existingCombatDiv);
                 if (fmId.equals(spec.flagshipMemberId) || existingCombatDiv.flagship == null || !existingCombatDiv.flagship.isAlive()) {
                     existingCombatDiv.flagship = prof.ship;
                 }
@@ -1812,7 +1899,7 @@ public class PermanentDivisionManager {
             }
         }
 
-        int fallbackNumber = bg.divisions.size() + 1;
+        int fallbackNumber = battleGroup.divisions.size() + 1;
         for (Map.Entry<String, List<ShipCapabilityProfile>> entry : groupedByPermId.entrySet()) {
             PermanentDivisionSpec spec = specById.get(entry.getKey());
             List<ShipCapabilityProfile> members = entry.getValue();
@@ -1834,7 +1921,7 @@ public class PermanentDivisionManager {
             CommanderProfile cmdr = new CommanderProfile(captain, spec.name + " Cmdr");
             DivisionState combatDiv = new DivisionState(
                     spec.id,
-                    bg.side,
+                    battleGroup.side,
                     fallbackNumber++,
                     spec.archetype,
                     spec.name,
@@ -1843,11 +1930,11 @@ public class PermanentDivisionManager {
             for (ShipCapabilityProfile p : members) {
                 combatDiv.members.add(p.ship);
                 combatDiv.profiles.add(p);
-                bg.shipIdToDivision.put(p.ship.getId(), combatDiv);
+                battleGroup.shipIdToDivision.put(p.ship.getId(), combatDiv);
             }
             DivisionAutoFormer.recomputeDivisionCapabilities(combatDiv);
             applyDoctrineModifiersToCombatDivision(combatDiv, spec);
-            bg.divisions.add(combatDiv);
+            battleGroup.divisions.add(combatDiv);
             newlyCreatedOut.add(combatDiv);
         }
 
@@ -1857,42 +1944,42 @@ public class PermanentDivisionManager {
     private static void applyDoctrineModifiersToCombatDivision(DivisionState div, PermanentDivisionSpec spec) {
         if (div == null || spec == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
-        div.idealIntraSpacing = resolveEffectiveIntraSpacing(spec, cfg);
-        div.idealInterSpacing = resolveEffectiveInterSpacing(spec, cfg);
-        div.lineStandoffDistance = resolveEffectiveLineStandoff(spec, cfg);
+        div.stationSpacing = resolveEffectiveStationSpacing(spec, cfg);
+        div.divisionInterval = resolveEffectiveDivisionInterval(spec, cfg);
+        div.standoffRange = resolveEffectiveStandoffRange(spec, cfg);
         div.openingPhaseDurationSeconds = cfg.getOpeningDurationSeconds();
         div.openingMission = resolveEffectiveOpeningMission(spec, cfg);
         div.mainMission = resolveEffectiveMainMission(spec, cfg);
-        div.preferredSpace = resolveEffectivePreferredSpace(spec, cfg);
-        if (div.openingMission == DivisionMissionType.BATTLEGROUP_RESERVE
-                || div.mainMission == DivisionMissionType.BATTLEGROUP_RESERVE) {
+        div.lineStation = resolveEffectiveLineStation(spec, cfg);
+        if (div.openingMission == DivisionMissionType.RESERVE
+                || div.mainMission == DivisionMissionType.RESERVE) {
             div.isDesignatedReserve = true;
         }
 
         int count = Math.max(1, div.profiles.size());
-        float spacingBasedRadius = div.idealIntraSpacing * (0.95f + 0.38f * Math.min(6, Math.max(1, count - 1)));
-        div.desiredCohesionRadius = (Math.max(680f, spacingBasedRadius) * div.cohesionLeashMult)
-                / Math.max(0.75f, div.commander.cohesionStrictness);
+        float spacingBasedRadius = div.stationSpacing * (0.95f + 0.38f * Math.min(6, Math.max(1, count - 1)));
+        div.stationKeepingRadius = (Math.max(680f, spacingBasedRadius) * div.stationKeepingMult)
+                / Math.max(0.75f, div.commander.stationKeepingStrictness);
 
         DoctrineOption doctrine = spec.doctrine;
         if (doctrine == null) return;
         switch (doctrine) {
             case SPEARHEAD:
                 div.commander.aggressionBias = Math.max(div.commander.aggressionBias, 1.35f);
-                div.commander.overmatchCommitRatio = Math.min(div.commander.overmatchCommitRatio, 0.90f);
+                div.commander.commitForceRatio = Math.min(div.commander.commitForceRatio, 0.90f);
                 break;
-            case STANDOFF:
+            case FIRE_SUPPORT:
                 div.commander.aggressionBias = Math.min(div.commander.aggressionBias, 0.80f);
                 div.commander.rotationFluxThreshold = Math.min(div.commander.rotationFluxThreshold, 0.65f);
                 break;
-            case SCREEN_ESCORT:
+            case ESCORT_AND_SCREEN:
                 div.isScreenCapable = true;
                 div.isFastFlanker = false;
                 break;
-            case FLANK_STRIKE:
+            case FLANKING_STRIKE:
                 div.isFastFlanker = true;
                 break;
-            case RESERVE_HOLD:
+            case RESERVE:
                 div.isDesignatedReserve = true;
                 break;
             case ADAPTIVE:
@@ -1901,9 +1988,9 @@ public class PermanentDivisionManager {
         }
     }
 
-    private static DivisionState findExistingCombatDivisionById(BattlegroupState bg, String permDivId) {
-        if (bg == null || permDivId == null) return null;
-        for (DivisionState d : bg.divisions) {
+    private static DivisionState findExistingCombatDivisionById(BattleGroupState battleGroup, String permDivId) {
+        if (battleGroup == null || permDivId == null) return null;
+        for (DivisionState d : battleGroup.divisions) {
             if (permDivId.equals(d.id)) {
                 return d;
             }
@@ -1937,7 +2024,7 @@ public class PermanentDivisionManager {
         List<FleetMemberAPI> capitals = new ArrayList<>();
         List<FleetMemberAPI> strikeCruisers = new ArrayList<>();
         List<FleetMemberAPI> lineCruisers = new ArrayList<>();
-        List<FleetMemberAPI> torpedoDestroyers = new ArrayList<>();
+        List<FleetMemberAPI> missileDestroyers = new ArrayList<>();
         List<FleetMemberAPI> lineDestroyers = new ArrayList<>();
         List<FleetMemberAPI> frigates = new ArrayList<>();
         List<FleetMemberAPI> phaseShips = new ArrayList<>();
@@ -1946,7 +2033,7 @@ public class PermanentDivisionManager {
         for (FleetMemberAPI m : eligible) {
             DivisionArchetype arch = classifyFleetMemberArchetype(m);
             switch (arch) {
-                case AUXILIARY_CONVOY:
+                case SERVICE_GROUP:
                     auxiliaries.add(m);
                     break;
                 case PHASE_DIVISION:
@@ -1959,10 +2046,10 @@ public class PermanentDivisionManager {
                     lightCarriers.add(m);
                     break;
                 case ESCORT_CARRIER_DIVISION:
-                case CARRIER_AND_ESCORT:
+                case CARRIER_GROUP:
                     escortCarriers.add(m);
                     break;
-                case BATTLE_DIVISION:
+                case BATTLESHIP_DIVISION:
                     capitals.add(m);
                     break;
                 case STRIKE_CRUISER_DIVISION:
@@ -1971,8 +2058,8 @@ public class PermanentDivisionManager {
                 case CRUISER_DIVISION:
                     lineCruisers.add(m);
                     break;
-                case TORPEDO_DESTROYER_DIVISION:
-                    torpedoDestroyers.add(m);
+                case MISSILE_DESTROYER_DIVISION:
+                    missileDestroyers.add(m);
                     break;
                 case DESTROYER_DIVISION:
                     lineDestroyers.add(m);
@@ -1999,7 +2086,7 @@ public class PermanentDivisionManager {
             if (group.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty()) {
                 group.add(lineCruisers.remove(0));
             }
-            addBuiltDivision(specs, pdata, DivisionArchetype.BATTLE_DIVISION, group);
+            addBuiltDivision(specs, pdata, DivisionArchetype.BATTLESHIP_DIVISION, group);
         }
 
         // 3. Cruiser Divisions
@@ -2010,17 +2097,17 @@ public class PermanentDivisionManager {
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.CRUISER_DIVISION, lineCruisers, 4);
 
         // 4. Destroyer Divisions
-        if (torpedoDestroyers.size() == 1 && lineDestroyers.size() == 1) {
-            torpedoDestroyers.addAll(lineDestroyers);
+        if (missileDestroyers.size() == 1 && lineDestroyers.size() == 1) {
+            missileDestroyers.addAll(lineDestroyers);
             lineDestroyers.clear();
         }
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.TORPEDO_DESTROYER_DIVISION, torpedoDestroyers, 4);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_DESTROYER_DIVISION, missileDestroyers, 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.DESTROYER_DIVISION, lineDestroyers, 4);
 
         // 5. Frigate, Phase, and Auxiliary Divisions
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.FRIGATE_DIVISION, frigates, 5);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.PHASE_DIVISION, phaseShips, 4);
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.AUXILIARY_CONVOY, auxiliaries, 5);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.SERVICE_GROUP, auxiliaries, 5);
 
         return specs;
     }
@@ -2110,7 +2197,7 @@ public class PermanentDivisionManager {
                 || hints.contains(ShipTypeHints.TANKER)
                 || hints.contains(ShipTypeHints.LINER);
         if (isAux) {
-            return DivisionArchetype.AUXILIARY_CONVOY;
+            return DivisionArchetype.SERVICE_GROUP;
         }
 
         boolean isPhase = member.isPhaseShip() || hints.contains(ShipTypeHints.PHASE);
@@ -2157,14 +2244,14 @@ public class PermanentDivisionManager {
 
         switch (size) {
             case CAPITAL_SHIP:
-                return DivisionArchetype.BATTLE_DIVISION;
+                return DivisionArchetype.BATTLESHIP_DIVISION;
             case CRUISER:
                 return (strikeWeaponCount >= 2)
                         ? DivisionArchetype.STRIKE_CRUISER_DIVISION
                         : DivisionArchetype.CRUISER_DIVISION;
             case DESTROYER:
                 return (strikeWeaponCount >= 1)
-                        ? DivisionArchetype.TORPEDO_DESTROYER_DIVISION
+                        ? DivisionArchetype.MISSILE_DESTROYER_DIVISION
                         : DivisionArchetype.DESTROYER_DIVISION;
             case FRIGATE:
             default:
@@ -2202,7 +2289,7 @@ public class PermanentDivisionManager {
             return;
         }
         if (spec.flagshipMemberId != null && spec.memberIds.contains(spec.flagshipMemberId)) {
-            if (fleet != null && spec.archetype == DivisionArchetype.CARRIER_AND_ESCORT) {
+            if (fleet != null && spec.archetype == DivisionArchetype.CARRIER_GROUP) {
                 Map<String, FleetMemberAPI> byId = mapFleetMembersById(fleet);
                 FleetMemberAPI currFlag = byId.get(spec.flagshipMemberId);
                 boolean currIsCarrier = currFlag != null && (currFlag.isCarrier() || currFlag.getNumFlightDecks() > 0);
@@ -2281,7 +2368,7 @@ public class PermanentDivisionManager {
             DivisionArchetype arch = DivisionArchetype.CRUISER_DIVISION;
             if (archStr != null) {
                 try {
-                    arch = DivisionArchetype.valueOf(archStr);
+                    arch = DivisionArchetype.valueOf(DivisionArchetype.resolveLegacyName(archStr));
                 } catch (IllegalArgumentException ignored) {
                 }
             }
@@ -2297,12 +2384,12 @@ public class PermanentDivisionManager {
             Object cOpenMis = map.get("customOpeningMission");
             Object cMainMis = map.get("customMainMission");
             Object cPrefSpace = map.get("customPreferredSpace");
-            if (cIntra instanceof Number) spec.customIntraSpacing = ((Number) cIntra).intValue();
-            if (cInter instanceof Number) spec.customInterSpacing = ((Number) cInter).intValue();
-            if (cStandoff instanceof Number) spec.customLineStandoff = ((Number) cStandoff).intValue();
+            if (cIntra instanceof Number) spec.customStationSpacing = ((Number) cIntra).intValue();
+            if (cInter instanceof Number) spec.customDivisionInterval = ((Number) cInter).intValue();
+            if (cStandoff instanceof Number) spec.customStandoffRange = ((Number) cStandoff).intValue();
             if (cOpenMis instanceof String) spec.customOpeningMission = DivisionMissionType.fromId((String) cOpenMis, null);
             if (cMainMis instanceof String) spec.customMainMission = DivisionMissionType.fromId((String) cMainMis, null);
-            if (cPrefSpace instanceof String) spec.customPreferredSpace = PreferredSpace.fromId((String) cPrefSpace, null);
+            if (cPrefSpace instanceof String) spec.customLineStation = LineStation.fromId((String) cPrefSpace, null);
 
             Object membersObj = map.get("memberIds");
             if (membersObj instanceof List) {
@@ -2328,12 +2415,12 @@ public class PermanentDivisionManager {
             map.put("doctrine", spec.doctrine != null ? spec.doctrine.name() : DoctrineOption.ADAPTIVE.name());
             map.put("flagshipMemberId", spec.flagshipMemberId);
             map.put("memberIds", new ArrayList<>(spec.memberIds));
-            if (spec.customIntraSpacing != null) map.put("customIntraSpacing", spec.customIntraSpacing);
-            if (spec.customInterSpacing != null) map.put("customInterSpacing", spec.customInterSpacing);
-            if (spec.customLineStandoff != null) map.put("customLineStandoff", spec.customLineStandoff);
+            if (spec.customStationSpacing != null) map.put("customIntraSpacing", spec.customStationSpacing);
+            if (spec.customDivisionInterval != null) map.put("customInterSpacing", spec.customDivisionInterval);
+            if (spec.customStandoffRange != null) map.put("customLineStandoff", spec.customStandoffRange);
             if (spec.customOpeningMission != null) map.put("customOpeningMission", spec.customOpeningMission.name());
             if (spec.customMainMission != null) map.put("customMainMission", spec.customMainMission.name());
-            if (spec.customPreferredSpace != null) map.put("customPreferredSpace", spec.customPreferredSpace.name());
+            if (spec.customLineStation != null) map.put("customPreferredSpace", spec.customLineStation.name());
             serialized.add(map);
         }
         pdata.put(PERSISTENT_DIVISIONS_KEY, serialized);

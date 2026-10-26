@@ -22,7 +22,7 @@ import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
-import divisionai.PermanentDivisionManager.PreferredSpace;
+import divisionai.PermanentDivisionManager.LineStation;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
@@ -336,13 +336,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         cmdrDesc,
                         spec.doctrine.displayName);
 
-                FleetDoctrineConfig bgCfg = PermanentDivisionManager.getFleetDoctrine();
-                int effIntra = PermanentDivisionManager.resolveEffectiveIntraSpacing(spec, bgCfg);
-                int effInter = PermanentDivisionManager.resolveEffectiveInterSpacing(spec, bgCfg);
-                int effStandoff = PermanentDivisionManager.resolveEffectiveLineStandoff(spec, bgCfg);
-                PreferredSpace effSpace = PermanentDivisionManager.resolveEffectivePreferredSpace(spec, bgCfg);
-                DivisionMissionType effOpen = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, bgCfg);
-                DivisionMissionType effMain = PermanentDivisionManager.resolveEffectiveMainMission(spec, bgCfg);
+                FleetDoctrineConfig doctrineCfg = PermanentDivisionManager.getFleetDoctrine();
+                int effIntra = PermanentDivisionManager.resolveEffectiveStationSpacing(spec, doctrineCfg);
+                int effInter = PermanentDivisionManager.resolveEffectiveDivisionInterval(spec, doctrineCfg);
+                int effStandoff = PermanentDivisionManager.resolveEffectiveStandoffRange(spec, doctrineCfg);
+                LineStation effSpace = PermanentDivisionManager.resolveEffectiveLineStation(spec, doctrineCfg);
+                DivisionMissionType effOpen = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
+                DivisionMissionType effMain = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
                 leftCol.addPara(
                         "Division Settings: Station %s | Spacing %su | Interval %su | Standoff %su | %s -> %s",
                         2f,
@@ -548,18 +548,18 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         // Row C: Division Archetype Selector (2 compact rows of 6 buttons covering Combat & Carrier Divisions)
         DivisionArchetype[] archetypes = new DivisionArchetype[]{
-                DivisionArchetype.BATTLE_DIVISION,
+                DivisionArchetype.BATTLESHIP_DIVISION,
                 DivisionArchetype.CRUISER_DIVISION,
                 DivisionArchetype.STRIKE_CRUISER_DIVISION,
                 DivisionArchetype.DESTROYER_DIVISION,
-                DivisionArchetype.TORPEDO_DESTROYER_DIVISION,
+                DivisionArchetype.MISSILE_DESTROYER_DIVISION,
                 DivisionArchetype.FRIGATE_DIVISION,
                 DivisionArchetype.FLEET_CARRIER_DIVISION,
                 DivisionArchetype.LIGHT_CARRIER_DIVISION,
                 DivisionArchetype.ESCORT_CARRIER_DIVISION,
-                DivisionArchetype.CARRIER_AND_ESCORT,
+                DivisionArchetype.CARRIER_GROUP,
                 DivisionArchetype.PHASE_DIVISION,
-                DivisionArchetype.AUXILIARY_CONVOY
+                DivisionArchetype.SERVICE_GROUP
         };
         CustomPanelAPI archRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 50f, subPanelPlugin);
         TooltipMakerAPI archUi = archRow.createUIElement(DIALOG_WIDTH - 24f, 50f, false);
@@ -571,14 +571,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             float ay = 2f + rowIdx * 24f;
             boolean selected = (spec.archetype == arch);
             Color fg = selected ? highlight : baseColor;
-            Color bg = selected ? baseColor.darker() : darkColor;
+            Color battleGroup = selected ? baseColor.darker() : darkColor;
             String archAct = "SET_ARCH:" + arch.name();
             ButtonAPI bArch = registerButton(
                     archUi.addButton(
                             arch.shortPrefix,
                             archAct,
                             fg,
-                            bg,
+                            battleGroup,
                             Alignment.MID,
                             CutStyle.TL_BR,
                             154f,
@@ -600,14 +600,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         for (DoctrineOption doc : doctrines) {
             boolean selected = (spec.doctrine == doc);
             Color fg = selected ? positive : baseColor;
-            Color bg = selected ? baseColor.darker() : darkColor;
+            Color battleGroup = selected ? baseColor.darker() : darkColor;
             String docAct = "SET_DOC:" + doc.name();
             ButtonAPI bDoc = registerButton(
                     docUi.addButton(
                             doc.displayName,
                             docAct,
                             fg,
-                            bg,
+                            battleGroup,
                             Alignment.MID,
                             CutStyle.TL_BR,
                             154f,
@@ -641,14 +641,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         // Left Column: Division Settings (Inherited / Auto-Updated / Manually Set) + Assigned Ships
         TooltipMakerAPI leftCol = container.createUIElement(colWidth, bodyHeight, true);
 
-        FleetDoctrineConfig bgCfg = PermanentDivisionManager.getFleetDoctrine();
-        int effIntra = PermanentDivisionManager.resolveEffectiveIntraSpacing(spec, bgCfg);
-        int effInter = PermanentDivisionManager.resolveEffectiveInterSpacing(spec, bgCfg);
-        int effStandoff = PermanentDivisionManager.resolveEffectiveLineStandoff(spec, bgCfg);
-        int longestWeaponRange = PermanentDivisionManager.computeDivisionLongestWeaponRange(spec, fleet);
-        PreferredSpace effPrefSpace = PermanentDivisionManager.resolveEffectivePreferredSpace(spec, bgCfg);
-        DivisionMissionType effOpenMis = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, bgCfg);
-        DivisionMissionType effMainMis = PermanentDivisionManager.resolveEffectiveMainMission(spec, bgCfg);
+        FleetDoctrineConfig doctrineCfg = PermanentDivisionManager.getFleetDoctrine();
+        int effIntra = PermanentDivisionManager.resolveEffectiveStationSpacing(spec, doctrineCfg);
+        int effInter = PermanentDivisionManager.resolveEffectiveDivisionInterval(spec, doctrineCfg);
+        int effStandoff = PermanentDivisionManager.resolveEffectiveStandoffRange(spec, doctrineCfg);
+        int longestGunRange = PermanentDivisionManager.computeDivisionLongestGunRange(spec, fleet);
+        LineStation effPrefSpace = PermanentDivisionManager.resolveEffectiveLineStation(spec, doctrineCfg);
+        DivisionMissionType effOpenMis = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
+        DivisionMissionType effMainMis = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
 
         leftCol.addSectionHeading(
                 "Division Settings (Paragon Length = " + PermanentDivisionManager.PARAGON_LENGTH_UNITS + "u)",
@@ -666,13 +666,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         "Station spacing: %du (%.2fx Paragon) [%s]",
                         effIntra,
                         effIntra / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
-                        spec.customIntraSpacing != null ? "Custom" : "Inherited"),
+                        spec.customStationSpacing != null ? "Custom" : "Inherited"),
                 effIntra,
                 50,
-                PermanentDivisionManager.MIN_INTRA_SPACING_UNITS,
-                PermanentDivisionManager.MAX_INTRA_SPACING_UNITS,
-                "DIV_INTRA:",
-                spec.customIntraSpacing != null,
+                PermanentDivisionManager.MIN_STATION_SPACING_UNITS,
+                PermanentDivisionManager.MAX_STATION_SPACING_UNITS,
+                "DIV_STATION_SPACING:",
+                spec.customStationSpacing != null,
                 baseColor,
                 darkColor,
                 positive);
@@ -686,13 +686,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         "Division interval: %du (%.2fx Paragon) [%s]",
                         effInter,
                         effInter / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
-                        spec.customInterSpacing != null ? "Custom" : "Inherited"),
+                        spec.customDivisionInterval != null ? "Custom" : "Inherited"),
                 effInter,
                 100,
-                PermanentDivisionManager.MIN_INTER_SPACING_UNITS,
-                PermanentDivisionManager.MAX_INTER_SPACING_UNITS,
-                "DIV_INTER:",
-                spec.customInterSpacing != null,
+                PermanentDivisionManager.MIN_DIVISION_INTERVAL_UNITS,
+                PermanentDivisionManager.MAX_DIVISION_INTERVAL_UNITS,
+                "DIV_DIVISION_INTERVAL:",
+                spec.customDivisionInterval != null,
                 baseColor,
                 darkColor,
                 positive);
@@ -702,8 +702,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 leftCol,
                 colWidth - 16f,
                 effStandoff,
-                longestWeaponRange,
-                spec.customLineStandoff != null,
+                longestGunRange,
+                spec.customStandoffRange != null,
                 baseColor,
                 darkColor,
                 highlight,
@@ -714,7 +714,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 leftCol,
                 colWidth - 16f,
                 effPrefSpace,
-                spec.customPreferredSpace != null,
+                spec.customLineStation != null,
                 baseColor,
                 darkColor,
                 positive);
@@ -723,7 +723,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         addDivisionMissionDropdownRow(
                 leftCol,
                 colWidth - 16f,
-                "Opening Mission (0-" + bgCfg.getOpeningDurationSeconds() + "s):",
+                "Opening Mission (0-" + doctrineCfg.getOpeningDurationSeconds() + "s):",
                 "DIV_OPEN_DD",
                 effOpenMis,
                 spec.archetype,
@@ -948,7 +948,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             TooltipMakerAPI col,
             float rowWidth,
             int effStandoff,
-            int longestWeaponRange,
+            int longestGunRange,
             boolean isCustom,
             Color baseColor,
             Color darkColor,
@@ -959,7 +959,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 48f, false);
 
         String statusTag = isCustom
-                ? ((longestWeaponRange > 0 && Math.abs(effStandoff - longestWeaponRange) <= 25) ? "Auto (Guns)" : "Custom")
+                ? ((longestGunRange > 0 && Math.abs(effStandoff - longestGunRange) <= 25) ? "Auto (Guns)" : "Custom")
                 : "Inherited";
         String label = String.format(
                 Locale.ROOT,
@@ -967,33 +967,33 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 effStandoff,
                 effStandoff / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
                 statusTag,
-                longestWeaponRange);
+                longestGunRange);
         rowUi.addPara(label, 3f, highlight, label).getPosition().inTL(2f, 3f);
 
-        String decAct = "DIV_STANDOFF:" + Math.max(PermanentDivisionManager.MIN_STANDOFF_UNITS, effStandoff - 100);
+        String decAct = "DIV_STANDOFF_RANGE:" + Math.max(PermanentDivisionManager.MIN_STANDOFF_RANGE_UNITS, effStandoff - 100);
         ButtonAPI bDec = registerButton(
                 rowUi.addButton("-100u", decAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
                 decAct);
         bDec.getPosition().inTL(2f, 25f);
 
-        String incAct = "DIV_STANDOFF:" + Math.min(PermanentDivisionManager.MAX_STANDOFF_UNITS, effStandoff + 100);
+        String incAct = "DIV_STANDOFF_RANGE:" + Math.min(PermanentDivisionManager.MAX_STANDOFF_RANGE_UNITS, effStandoff + 100);
         ButtonAPI bInc = registerButton(
                 rowUi.addButton("+100u", incAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
                 incAct);
         bInc.getPosition().inTL(62f, 25f);
 
-        String autoLabel = longestWeaponRange > 0
-                ? ("Auto-Set From Max Gun Range (" + longestWeaponRange + "u)")
+        String autoLabel = longestGunRange > 0
+                ? ("Auto-Set From Max Gun Range (" + longestGunRange + "u)")
                 : "Auto-Set From Max Weapon";
         ButtonAPI bAuto = registerButton(
-                rowUi.addButton(autoLabel, "DIV_STANDOFF:AUTO", positive, darkColor, Alignment.MID, CutStyle.TL_BR, 230f, 20f, 0f),
-                "DIV_STANDOFF:AUTO");
-        bAuto.setEnabled(longestWeaponRange > 0);
+                rowUi.addButton(autoLabel, "DIV_STANDOFF_RANGE:AUTO", positive, darkColor, Alignment.MID, CutStyle.TL_BR, 230f, 20f, 0f),
+                "DIV_STANDOFF_RANGE:AUTO");
+        bAuto.setEnabled(longestGunRange > 0);
         bAuto.getPosition().inTL(122f, 25f);
 
         ButtonAPI bInh = registerButton(
-                rowUi.addButton("Inherit", "DIV_STANDOFF:INHERIT", !isCustom ? positive : baseColor, darkColor, Alignment.MID, CutStyle.ALL, 88f, 20f, 0f),
-                "DIV_STANDOFF:INHERIT");
+                rowUi.addButton("Inherit", "DIV_STANDOFF_RANGE:INHERIT", !isCustom ? positive : baseColor, darkColor, Alignment.MID, CutStyle.ALL, 88f, 20f, 0f),
+                "DIV_STANDOFF_RANGE:INHERIT");
         if (!isCustom) bInh.highlight();
         bInh.getPosition().inTL(356f, 25f);
 
@@ -1005,7 +1005,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     private void addDivisionPreferredSpaceRow(
             TooltipMakerAPI col,
             float rowWidth,
-            PreferredSpace effSpace,
+            LineStation effSpace,
             boolean isCustom,
             Color baseColor,
             Color darkColor,
@@ -1022,9 +1022,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         rowUi.addPara(labelText, 3f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(2f, 4f);
 
         float x = rowWidth - 266f;
-        for (PreferredSpace ps : PreferredSpace.values()) {
+        for (LineStation ps : LineStation.values()) {
             boolean selected = (ps == effSpace);
-            String act = "DIV_SPACE:" + ps.name();
+            String act = "DIV_LINE_STATION:" + ps.name();
             ButtonAPI bPs = registerButton(
                     rowUi.addButton(
                             ps.displayName,
@@ -1042,7 +1042,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             x += 61f;
         }
 
-        String inhAct = "DIV_SPACE:INHERIT";
+        String inhAct = "DIV_LINE_STATION:INHERIT";
         ButtonAPI bInh = registerButton(
                 rowUi.addButton(
                         "Inherit",
@@ -1098,7 +1098,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         col.addCustom(rowPanel, 2f);
 
         if (expanded) {
-            // Option 0: Inherit Battlegroup Default
+            // Option 0: Inherit Battle Group Default
             CustomPanelAPI inhPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
             TooltipMakerAPI inhUi = inhPanel.createUIElement(rowWidth, 22f, false);
             String inhAct = actionPrefix + "INHERIT";
@@ -1137,8 +1137,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
                 TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 22f, false);
                 String selAct = actionPrefix + opt.name();
-                String spaceHint = (opt.autoPreferredSpace != null)
-                        ? ("  [->" + opt.autoPreferredSpace.displayName + "]")
+                String spaceHint = (opt.autoLineStation != null)
+                        ? ("  [->" + opt.autoLineStation.displayName + "]")
                         : "";
                 ButtonAPI bOpt = registerButton(
                         optUi.addButton(
@@ -1197,29 +1197,29 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
-        if (cmd.startsWith("DIV_INTRA:") && activeDivisionId != null) {
+        if (cmd.startsWith("DIV_STATION_SPACING:") && activeDivisionId != null) {
             savePendingNameFieldIfAny();
-            String arg = cmd.substring("DIV_INTRA:".length());
+            String arg = cmd.substring("DIV_STATION_SPACING:".length());
             Integer val = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
             PermanentDivisionManager.updateIndividualDivisionSettings(
                     activeDivisionId, true, val, false, null, false, null, false, null, false, null);
             rebuildContent();
             return;
         }
-        if (cmd.startsWith("DIV_INTER:") && activeDivisionId != null) {
+        if (cmd.startsWith("DIV_DIVISION_INTERVAL:") && activeDivisionId != null) {
             savePendingNameFieldIfAny();
-            String arg = cmd.substring("DIV_INTER:".length());
+            String arg = cmd.substring("DIV_DIVISION_INTERVAL:".length());
             Integer val = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
             PermanentDivisionManager.updateIndividualDivisionSettings(
                     activeDivisionId, false, null, true, val, false, null, false, null, false, null);
             rebuildContent();
             return;
         }
-        if (cmd.startsWith("DIV_STANDOFF:") && activeDivisionId != null) {
+        if (cmd.startsWith("DIV_STANDOFF_RANGE:") && activeDivisionId != null) {
             savePendingNameFieldIfAny();
-            String arg = cmd.substring("DIV_STANDOFF:".length());
+            String arg = cmd.substring("DIV_STANDOFF_RANGE:".length());
             if ("AUTO".equals(arg)) {
-                PermanentDivisionManager.autoSetDivisionLineStandoff(activeDivisionId);
+                PermanentDivisionManager.autoSetDivisionStandoffRange(activeDivisionId);
             } else {
                 Integer val = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
                 PermanentDivisionManager.updateIndividualDivisionSettings(
@@ -1228,11 +1228,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
-        if (cmd.startsWith("DIV_SPACE:") && activeDivisionId != null) {
+        if (cmd.startsWith("DIV_LINE_STATION:") && activeDivisionId != null) {
             savePendingNameFieldIfAny();
-            String arg = cmd.substring("DIV_SPACE:".length());
-            PreferredSpace ps = "INHERIT".equals(arg) ? null : PreferredSpace.valueOf(arg);
-            PermanentDivisionManager.updateIndividualDivisionPreferredSpace(activeDivisionId, ps);
+            String arg = cmd.substring("DIV_LINE_STATION:".length());
+            LineStation ps = "INHERIT".equals(arg) ? null : LineStation.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionLineStation(activeDivisionId, ps);
             rebuildContent();
             return;
         }
@@ -1376,7 +1376,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         Color borderCol = Misc.getBasePlayerColor();
         float br = borderCol.getRed() / 255f;
-        float bg = borderCol.getGreen() / 255f;
+        float battleGroup = borderCol.getGreen() / 255f;
         float bb = borderCol.getBlue() / 255f;
 
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
@@ -1404,7 +1404,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         // 3. Crisp outer faction border
         GL11.glLineWidth(2.0f);
-        GL11.glColor4f(br, bg, bb, 0.90f * alphaMult);
+        GL11.glColor4f(br, battleGroup, bb, 0.90f * alphaMult);
         GL11.glBegin(GL11.GL_LINE_LOOP);
         GL11.glVertex2f(x, y);
         GL11.glVertex2f(x + w, y);

@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Core data structures for Battlegroup Commander and Division Commander AI.
+ * Core data structures for OTC and Division Commander AI.
  */
 public class DivisionModel {
 
@@ -25,18 +25,18 @@ public class DivisionModel {
      * How a division was formed and what kind of ship composition it represents.
      */
     public enum DivisionArchetype {
-        BATTLE_DIVISION("Battleship Div", true),
+        BATTLESHIP_DIVISION("Battleship Div", true),
         FLEET_CARRIER_DIVISION("Fleet Carrier Div", false),
         LIGHT_CARRIER_DIVISION("Light Carrier Div", false),
         ESCORT_CARRIER_DIVISION("Escort Carrier Div", false),
-        CARRIER_AND_ESCORT("Carrier Group", true),
+        CARRIER_GROUP("Carrier Group", true),
         CRUISER_DIVISION("Cruiser Div", false),
         STRIKE_CRUISER_DIVISION("Strike Cruiser Div", false),
         DESTROYER_DIVISION("Destroyer Div", false),
-        TORPEDO_DESTROYER_DIVISION("Destroyer Div", false),
+        MISSILE_DESTROYER_DIVISION("Destroyer Div", false),
         FRIGATE_DIVISION("Frigate Div", false),
         PHASE_DIVISION("Phase Div", false),
-        AUXILIARY_CONVOY("Service Group", true);
+        SERVICE_GROUP("Service Group", true);
 
         public final String shortPrefix;
         public final boolean isComposite;
@@ -46,11 +46,28 @@ public class DivisionModel {
             this.isComposite = isComposite;
         }
 
+        /** Maps a pre-v0.5.2 saved archetype name to its current name (unchanged names pass through). */
+        public static String resolveLegacyName(String name) {
+            if (name == null) return null;
+            switch (name) {
+                case "BATTLE_DIVISION":
+                    return BATTLESHIP_DIVISION.name();
+                case "CARRIER_AND_ESCORT":
+                    return CARRIER_GROUP.name();
+                case "TORPEDO_DESTROYER_DIVISION":
+                    return MISSILE_DESTROYER_DIVISION.name();
+                case "AUXILIARY_CONVOY":
+                    return SERVICE_GROUP.name();
+                default:
+                    return name;
+            }
+        }
+
         public boolean isCarrierArchetype() {
             return this == FLEET_CARRIER_DIVISION
                     || this == LIGHT_CARRIER_DIVISION
                     || this == ESCORT_CARRIER_DIVISION
-                    || this == CARRIER_AND_ESCORT;
+                    || this == CARRIER_GROUP;
         }
     }
 
@@ -58,11 +75,11 @@ public class DivisionModel {
      * Mission-level context derived from BattleCreationContext, FleetGoal, and objectives.
      */
     public enum MissionContextType {
-        OBJECTIVE_CONTEST("Contested Objectives"),
-        FULL_PITCHED_BATTLE("Fleet Action"),
+        CONTESTED_OBJECTIVES("Contested Objectives"),
+        FLEET_ACTION("Fleet Action"),
         FIGHT_TO_THE_LAST("Fight to the Last"),
-        FLEET_ESCAPE_REARGUARD("Rearguard Action"),
-        PURSUIT_INTERCEPTION("Interception");
+        REARGUARD_ACTION("Rearguard Action"),
+        INTERCEPTION("Interception");
 
         public final String displayName;
 
@@ -75,12 +92,12 @@ public class DivisionModel {
      * High-level operational phase chosen by the Battle Group Commander (OTC).
      */
     public enum BattlePhase {
-        OPENING_PROBE("Approach & Scouting"),
-        LINE_CONTACT("General Engagement"),
+        APPROACH("Approach & Scouting"),
+        GENERAL_ENGAGEMENT("General Engagement"),
         COORDINATED_STRIKE("Coordinated Strike"),
-        STABILIZE_AND_RELIEVE("Reinforce the Line"),
-        EXPLOIT_BREAKTHROUGH("General Chase"),
-        ORDERED_WITHDRAWAL("Fighting Retirement");
+        REINFORCE_THE_LINE("Reinforce the Line"),
+        GENERAL_CHASE("General Chase"),
+        FIGHTING_RETIREMENT("Fighting Retirement");
 
         public final String displayName;
 
@@ -90,30 +107,30 @@ public class DivisionModel {
     }
 
     /**
-     * Concrete tactical intent chosen by a Division Commander (or directed by BG Commander).
+     * Concrete tactical intent chosen by a Division Commander (or directed by OTC).
      */
     public enum DivisionIntentType {
-        HOLD_AND_COHERE("close up and re-form"),
-        ADVANCE_ENGAGE_LINE("close and engage"),
-        HARASS_TORPEDO_ATTACK("make a harassing missile attack on"),
-        COORDINATED_TORPEDO_STRIKE("deliver a time-on-target missile strike on"),
-        PRESS_OVERMATCH("press home the attack on"),
-        SCREEN_FRIENDLY_DIVISION("take screening station on"),
-        RELIEVE_FRIENDLY_DIVISION("move to reinforce"),
-        FLANK_ENEMY_DIVISION("work around the flank of"),
-        STRIKE_AND_WITHDRAW("break off and retire from"),
-        ROTATE_TO_RESERVE("haul out of the line to vent behind"),
+        CLOSE_UP("close up and re-form"),
+        CLOSE_AND_ENGAGE("close and engage"),
+        HARASSING_MISSILE_ATTACK("make a harassing missile attack on"),
+        TOT_MISSILE_STRIKE("deliver a time-on-target missile strike on"),
+        PRESS_HOME("press home the attack on"),
+        TAKE_SCREENING_STATION("take screening station on"),
+        REINFORCE_DIVISION("move to reinforce"),
+        WORK_FLANK("work around the flank of"),
+        BREAK_OFF_AND_RETIRE("break off and retire from"),
+        HAUL_OUT_TO_VENT("haul out of the line to vent behind"),
         HOLD_IN_RESERVE("hold in reserve, awaiting orders"),
-        SEIZE_OBJECTIVE("take and hold"),
-        CARRIER_STRIKE_CRAFT_RECON("fly armed reconnaissance toward"),
-        CARRIER_VOID_SUPERIORITY_CAP("fly fighter sweeps for space superiority against"),
-        CARRIER_PROTECT_FLEET_CAP("fly combat space patrol over"),
-        CARRIER_STRIKE_AT_WILL("fly cyclic strikes against"),
-        CARRIER_DIVISION_STRIKE("launch a deckload strike on"),
-        CARRIER_MULTI_DIV_STRIKE("launch an alpha strike on"),
-        FIX_ENEMY_DIVISION("form the line and fix"),
-        STAGE_FOR_STRIKE("proceed to the marshal point to strike"),
-        PURSUE_BROKEN_ENEMY("give general chase to");
+        TAKE_AND_HOLD("take and hold"),
+        FLY_ARMED_RECONNAISSANCE("fly armed reconnaissance toward"),
+        FLY_FIGHTER_SWEEP("fly fighter sweeps for space superiority against"),
+        FLY_COMBAT_SPACE_PATROL("fly combat space patrol over"),
+        FLY_CYCLIC_STRIKES("fly cyclic strikes against"),
+        LAUNCH_DECKLOAD_STRIKE("launch a deckload strike on"),
+        LAUNCH_ALPHA_STRIKE("launch an alpha strike on"),
+        FORM_LINE_AND_FIX("form the line and fix"),
+        MARSHAL_FOR_STRIKE("proceed to the marshal point to strike"),
+        GIVE_GENERAL_CHASE("give general chase to");
 
         public final String verbPhrase;
 
@@ -123,30 +140,30 @@ public class DivisionModel {
     }
 
     /**
-     * Kind of task the Battlegroup Commander hands a division while orchestrating the battle.
+     * Kind of task the OTC hands a division while orchestrating the battle.
      */
-    public enum BgTaskType {
+    public enum OtcOrderType {
         NONE,
-        FIX_PRIMARY,      // Main Effort: hold a fixing position on the BG primary threat
-        SUPPORT_ATTACK,   // engage a specific allocated enemy division
+        FORM_LINE,      // Main Effort: hold a fixing position on the OTC primary threat
+        ENGAGE_ASSIGNED,   // engage a specific allocated enemy division
         FLANK,            // envelop the target enemy division from an assigned flank side
-        STRIKE_STAGE,     // move to a staging point and wait for the strike time
-        STRIKE_COMMIT,    // strike time reached: everyone commits onto the shared focus target
-        RELIEVE,          // the one division sent to relieve the current crisis
+        MARSHAL,     // move to a staging point and wait for the strike time
+        EXECUTE_STRIKE,    // strike time reached: everyone commits onto the shared focus target
+        REINFORCE,          // the one division sent to relieve the current crisis
         HOLD_RESERVE,     // stay in battlegroup reserve until committed
-        PURSUE            // exploit: pursue a broken enemy division within the pursuit leash
+        GENERAL_CHASE            // exploit: pursue a broken enemy division within the pursuit leash
     }
 
     /**
-     * A Battlegroup Commander tasking for one division. Re-issued every BG evaluation; it lapses at
-     * {@link #expiresTime} if the BG stops issuing it.
+     * A OTC tasking for one division. Re-issued every OTC evaluation; it lapses at
+     * {@link #expiresTime} if the OTC stops issuing it.
      */
-    public static class BgTasking {
-        public BgTaskType type = BgTaskType.NONE;
+    public static class OtcOrder {
+        public OtcOrderType type = OtcOrderType.NONE;
         public DivisionState targetEnemy;
         public DivisionState targetFriendly;
-        public final Vector2f anchor = new Vector2f();
-        public boolean hasAnchor;
+        public final Vector2f station = new Vector2f();
+        public boolean hasStation;
         public float flankSide; // +1 / -1 relative to the enemy's facing axis, 0 = unassigned
         public float expiresTime = -100f;
         public String reason = "";
@@ -154,23 +171,23 @@ public class DivisionModel {
         public int version;
 
         public boolean isActive(float now) {
-            return type != BgTaskType.NONE && now <= expiresTime;
+            return type != OtcOrderType.NONE && now <= expiresTime;
         }
 
         public void clear() {
-            if (type != BgTaskType.NONE) {
+            if (type != OtcOrderType.NONE) {
                 version++;
             }
-            type = BgTaskType.NONE;
+            type = OtcOrderType.NONE;
             targetEnemy = null;
             targetFriendly = null;
-            hasAnchor = false;
+            hasStation = false;
             flankSide = 0f;
             reason = "";
         }
 
         /** Sets the tasking and bumps {@link #version} only if it actually changed. */
-        public void set(BgTaskType newType, DivisionState enemy, DivisionState friendly, float side, float expires, String why) {
+        public void set(OtcOrderType newType, DivisionState enemy, DivisionState friendly, float side, float expires, String why) {
             if (newType != type || enemy != targetEnemy || friendly != targetFriendly || Math.signum(side) != Math.signum(flankSide)) {
                 version++;
             }
@@ -178,7 +195,7 @@ public class DivisionModel {
             targetEnemy = enemy;
             targetFriendly = friendly;
             flankSide = side;
-            hasAnchor = false;
+            hasStation = false;
             expiresTime = expires;
             reason = why != null ? why : "";
         }
@@ -191,7 +208,7 @@ public class DivisionModel {
     public static class StrikePlan {
         public DivisionState target;
         public final List<DivisionState> participants = new ArrayList<>();
-        public final Map<String, Vector2f> stagingAnchors = new HashMap<>();
+        public final Map<String, Vector2f> marshalOffsets = new HashMap<>();
         public float createdTime;
         public float strikeTime;
         public boolean committed;
@@ -209,9 +226,9 @@ public class DivisionModel {
         public final int level;
 
         public float aggressionBias;      // 0.3 (timid) .. 1.6 (reckless)
-        public float cohesionStrictness;  // higher = tighter spacing & stricter pursuit leash
+        public float stationKeepingStrictness;  // higher = tighter spacing & stricter pursuit leash
         public float rotationFluxThreshold; // avg flux/hull pressure at which division rotates out
-        public float overmatchCommitRatio;  // friendly/enemy ratio needed to press or strike
+        public float commitForceRatio;  // friendly/enemy ratio needed to press or strike
         public float decisionCadenceSeconds;
         public float intentCommitSeconds;   // how long a non-urgent intent is held before it may change
 
@@ -239,42 +256,42 @@ public class DivisionModel {
             switch (pId) {
                 case Personalities.RECKLESS:
                     this.aggressionBias = 1.55f;
-                    this.cohesionStrictness = 0.78f + skillBonus * 0.5f;
+                    this.stationKeepingStrictness = 0.78f + skillBonus * 0.5f;
                     this.rotationFluxThreshold = 0.80f;
-                    this.overmatchCommitRatio = 0.72f;
+                    this.commitForceRatio = 0.72f;
                     this.decisionCadenceSeconds = Math.max(2.2f, 3.2f - skillBonus * 2f);
                     this.intentCommitSeconds = 5.0f;
                     break;
                 case Personalities.AGGRESSIVE:
                     this.aggressionBias = 1.28f;
-                    this.cohesionStrictness = 0.95f + skillBonus * 0.5f;
+                    this.stationKeepingStrictness = 0.95f + skillBonus * 0.5f;
                     this.rotationFluxThreshold = 0.72f;
-                    this.overmatchCommitRatio = 0.88f;
+                    this.commitForceRatio = 0.88f;
                     this.decisionCadenceSeconds = Math.max(2.0f, 3.0f - skillBonus * 2f);
                     this.intentCommitSeconds = 6.5f;
                     break;
                 case Personalities.CAUTIOUS:
                     this.aggressionBias = 0.78f;
-                    this.cohesionStrictness = 1.25f + skillBonus * 0.5f;
+                    this.stationKeepingStrictness = 1.25f + skillBonus * 0.5f;
                     this.rotationFluxThreshold = 0.56f;
-                    this.overmatchCommitRatio = 1.22f;
+                    this.commitForceRatio = 1.22f;
                     this.decisionCadenceSeconds = Math.max(2.2f, 3.2f - skillBonus * 2f);
                     this.intentCommitSeconds = 9.5f;
                     break;
                 case Personalities.TIMID:
                     this.aggressionBias = 0.55f;
-                    this.cohesionStrictness = 1.38f + skillBonus * 0.5f;
+                    this.stationKeepingStrictness = 1.38f + skillBonus * 0.5f;
                     this.rotationFluxThreshold = 0.48f;
-                    this.overmatchCommitRatio = 1.45f;
+                    this.commitForceRatio = 1.45f;
                     this.decisionCadenceSeconds = Math.max(2.5f, 3.5f - skillBonus * 2f);
                     this.intentCommitSeconds = 10.0f;
                     break;
                 case Personalities.STEADY:
                 default:
                     this.aggressionBias = 1.00f;
-                    this.cohesionStrictness = 1.10f + skillBonus * 0.5f;
+                    this.stationKeepingStrictness = 1.10f + skillBonus * 0.5f;
                     this.rotationFluxThreshold = 0.65f;
-                    this.overmatchCommitRatio = 1.02f;
+                    this.commitForceRatio = 1.02f;
                     this.decisionCadenceSeconds = Math.max(2.0f, 3.0f - skillBonus * 2f);
                     this.intentCommitSeconds = 8.0f;
                     break;
@@ -298,7 +315,7 @@ public class DivisionModel {
         public ShipAPI flagship;
 
         // Capabilities aggregated from member profiles
-        public boolean hasTorpedoStrikeCapability;
+        public boolean hasMissileStrikeCapability;
         public boolean hasCarrierCapability;
         public boolean isScreenCapable;
         public boolean isFastFlanker;
@@ -307,40 +324,40 @@ public class DivisionModel {
         public float avgEngageRange;
 
         // Customizable Fleet Doctrine & Division-specific settings (in-game units; Paragon length = 364u)
-        public float idealIntraSpacing = 450f;
-        public float idealInterSpacing = 950f;
-        public float lineStandoffDistance = 850f;
-        public float cohesionLeashMult = 1.0f;
+        public float stationSpacing = 450f;
+        public float divisionInterval = 950f;
+        public float standoffRange = 850f;
+        public float stationKeepingMult = 1.0f;
         public float openingPhaseDurationSeconds = 45f;
         public PermanentDivisionManager.DivisionMissionType openingMission =
-                PermanentDivisionManager.DivisionMissionType.RECONNAISSANCE;
+                PermanentDivisionManager.DivisionMissionType.SCOUTING;
         public PermanentDivisionManager.DivisionMissionType mainMission =
-                PermanentDivisionManager.DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL;
-        public PermanentDivisionManager.PreferredSpace preferredSpace =
-                PermanentDivisionManager.PreferredSpace.MIDDLE;
+                PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION;
+        public PermanentDivisionManager.LineStation lineStation =
+                PermanentDivisionManager.LineStation.CENTER;
 
         // Dynamic telemetry updated every evaluation tick
         public final Vector2f centroid = new Vector2f();
         public final Vector2f velocity = new Vector2f();
         public float spreadRadius;
-        public float desiredCohesionRadius;
-        public float cohesionRatio; // spreadRadius / desiredCohesionRadius
+        public float stationKeepingRadius;
+        public float stationKeepingRatio; // spreadRadius / stationKeepingRadius
         public float avgFluxLevel;
         public float maxMemberFluxLevel;
         public float avgHullLevel;
         public float localFriendlyStrength;
         public float localEnemyStrength;
-        public float localOvermatchRatio; // localFriendlyStrength / max(1, localEnemyStrength)
+        public float localForceRatio; // localFriendlyStrength / max(1, localEnemyStrength)
         public boolean hasShipNeedingHelp;
         public ShipAPI shipNeedingHelp;
         public int usableStrikeAmmoCount;
 
         // Current C2 orders and intent
-        public DivisionIntentType currentIntent = DivisionIntentType.HOLD_AND_COHERE;
+        public DivisionIntentType currentIntent = DivisionIntentType.CLOSE_UP;
         public DivisionState targetEnemyDivision;
         public DivisionState targetFriendlyDivision;
         public BattleObjectiveAPI targetObjective;
-        public final Vector2f maneuverAnchor = new Vector2f();
+        public final Vector2f stationPoint = new Vector2f();
 
         public AssignmentTargetAPI activeWaypoint;
         public AssignmentInfo activeAssignment;
@@ -348,13 +365,13 @@ public class DivisionModel {
         public float lastLogAnnouncementTime = -100f;
         public String lastLoggedSignature = "";
         public float strikeCommittedTimestamp = -100f;
-        public float lastStrikeWithdrawTimestamp = -100f;
+        public float lastBreakOffTimestamp = -100f;
         public boolean isDesignatedReserve = false;
         public boolean isDesignatedMainEffort = false;
 
-        // Battlegroup orchestration & intent commitment
-        public final BgTasking bgTask = new BgTasking();
-        public int appliedBgTaskVersion = -1;
+        // Battle Group orchestration & intent commitment
+        public final OtcOrder otcOrder = new OtcOrder();
+        public int appliedOtcOrderVersion = -1;
         public float intentCommitUntil = -100f;
         public final Set<String> fighterPullbackShipIds = new HashSet<>();
 
@@ -389,21 +406,21 @@ public class DivisionModel {
     }
 
     /**
-     * Runtime state of a side's Battlegroup Commander and all of its divisions.
+     * Runtime state of a side's OTC and all of its divisions.
      */
-    public static class BattlegroupState {
+    public static class BattleGroupState {
         public final int side;
         public boolean isAlliedAi = false;
-        public CommanderProfile bgCommander;
-        public MissionContextType missionContext = MissionContextType.FULL_PITCHED_BATTLE;
-        public BattlePhase currentPhase = BattlePhase.OPENING_PROBE;
+        public CommanderProfile otc;
+        public MissionContextType missionContext = MissionContextType.FLEET_ACTION;
+        public BattlePhase currentPhase = BattlePhase.APPROACH;
         public BattlePhase previousPhase = null;
 
         public final List<DivisionState> divisions = new ArrayList<>();
         public final Map<String, DivisionState> shipIdToDivision = new HashMap<>();
 
         public final Vector2f fleetCentroid = new Vector2f();
-        public final Vector2f reserveAnchor = new Vector2f();
+        public final Vector2f reserveStation = new Vector2f();
         public float totalFriendlyStrength;
         public float totalEnemyStrength;
         public float forceRatio = 1.0f;
@@ -412,30 +429,30 @@ public class DivisionModel {
         public DivisionState reserveDivision;
         public DivisionState primaryThreatEnemyDivision;
 
-        public float lastBgEvaluationTime = -100f;
-        public float lastBgOrderLogTime = -100f;
-        public String lastBgOrderSignature = "";
+        public float lastOtcEvaluationTime = -100f;
+        public float lastOtcSignalLogTime = -100f;
+        public String lastOtcSignalSignature = "";
 
-        // Battlegroup orchestration (configured in Fleet Doctrine for the player; defaults for AI battlegroups)
-        public PermanentDivisionManager.BattlegroupAuthority authority =
-                PermanentDivisionManager.BattlegroupAuthority.HYBRID;
-        public final Set<PermanentDivisionManager.OrchestrationPlay> plays =
-                EnumSet.allOf(PermanentDivisionManager.OrchestrationPlay.class);
+        // Battle Group orchestration (configured in Fleet Doctrine for the player; defaults for AI battlegroups)
+        public PermanentDivisionManager.OtcAuthority authority =
+                PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION;
+        public final Set<PermanentDivisionManager.OtcPlay> plays =
+                EnumSet.allOf(PermanentDivisionManager.OtcPlay.class);
         public float phaseEnteredTime = 0f;
         public DivisionState crisisDivision;
-        public DivisionState reliefDivision;
+        public DivisionState reinforcingDivision;
         public boolean reserveCommitted = false;
         public StrikePlan strikePlan;
         public float lastStrikePlanEndTime = -100f;
         public final Map<String, Float> orderLogTimes = new HashMap<>();
 
-        public boolean isPlayEnabled(PermanentDivisionManager.OrchestrationPlay play) {
+        public boolean isPlayEnabled(PermanentDivisionManager.OtcPlay play) {
             return plays.contains(play);
         }
 
-        public BattlegroupState(int side, CommanderProfile bgCommander) {
+        public BattleGroupState(int side, CommanderProfile otc) {
             this.side = side;
-            this.bgCommander = bgCommander;
+            this.otc = otc;
         }
     }
 }

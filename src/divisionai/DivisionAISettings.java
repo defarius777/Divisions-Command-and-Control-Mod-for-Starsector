@@ -6,7 +6,7 @@ import lunalib.lunaSettings.LunaSettings;
 
 /**
  * Reads Mod Settings (via LunaLib's Mod Settings menu) to control on-screen HUD chatter
- * by side (Friendly vs Enemy) and level (Battlegroup Commander, Single-Division, Multi-Division),
+ * by side (Friendly vs Enemy) and level (OTC, Single-Division, Multi-Division),
  * as well as Tactical Map (Tab) division visualization.
  *
  * Note: starsector.log always records 100% of C2 telemetry regardless of HUD mute settings.
@@ -39,19 +39,19 @@ public class DivisionAISettings {
         }
     }
 
-    public static boolean isBgChatterEnabled(int side) {
+    public static boolean isOtcSignalsEnabled(int side) {
         return (side == 0)
                 ? getBool("divai_friendly_bg_chatter", true)
                 : getBool("divai_enemy_bg_chatter", true);
     }
 
-    public static boolean isDivisionChatterEnabled(int side) {
+    public static boolean isDivisionSignalsEnabled(int side) {
         return (side == 0)
                 ? getBool("divai_friendly_div_chatter", true)
                 : getBool("divai_enemy_div_chatter", true);
     }
 
-    public static boolean isMultiDivisionChatterEnabled(int side) {
+    public static boolean isMultiDivisionSignalsEnabled(int side) {
         return (side == 0)
                 ? getBool("divai_friendly_multidiv_chatter", true)
                 : getBool("divai_enemy_multidiv_chatter", true);
@@ -60,9 +60,9 @@ public class DivisionAISettings {
     public static boolean shouldShowIntentOnHud(int side, DivisionIntentType intent) {
         if (intent == null) return false;
         if (isMultiDivisionIntent(intent)) {
-            return isMultiDivisionChatterEnabled(side);
+            return isMultiDivisionSignalsEnabled(side);
         }
-        return isDivisionChatterEnabled(side);
+        return isDivisionSignalsEnabled(side);
     }
 
     /**
@@ -73,28 +73,28 @@ public class DivisionAISettings {
      */
     public static boolean isMultiDivisionIntent(DivisionIntentType intent) {
         switch (intent) {
-            case SCREEN_FRIENDLY_DIVISION:
-            case RELIEVE_FRIENDLY_DIVISION:
-            case ROTATE_TO_RESERVE:
-            case STRIKE_AND_WITHDRAW:
-            case COORDINATED_TORPEDO_STRIKE:
-            case HARASS_TORPEDO_ATTACK:
-            case FLANK_ENEMY_DIVISION:
-            case CARRIER_PROTECT_FLEET_CAP:
-            case CARRIER_DIVISION_STRIKE:
-            case CARRIER_MULTI_DIV_STRIKE:
-            case FIX_ENEMY_DIVISION:
-            case STAGE_FOR_STRIKE:
+            case TAKE_SCREENING_STATION:
+            case REINFORCE_DIVISION:
+            case HAUL_OUT_TO_VENT:
+            case BREAK_OFF_AND_RETIRE:
+            case TOT_MISSILE_STRIKE:
+            case HARASSING_MISSILE_ATTACK:
+            case WORK_FLANK:
+            case FLY_COMBAT_SPACE_PATROL:
+            case LAUNCH_DECKLOAD_STRIKE:
+            case LAUNCH_ALPHA_STRIKE:
+            case FORM_LINE_AND_FIX:
+            case MARSHAL_FOR_STRIKE:
                 return true;
-            case HOLD_AND_COHERE:
-            case ADVANCE_ENGAGE_LINE:
-            case PRESS_OVERMATCH:
+            case CLOSE_UP:
+            case CLOSE_AND_ENGAGE:
+            case PRESS_HOME:
             case HOLD_IN_RESERVE:
-            case SEIZE_OBJECTIVE:
-            case CARRIER_STRIKE_CRAFT_RECON:
-            case CARRIER_VOID_SUPERIORITY_CAP:
-            case CARRIER_STRIKE_AT_WILL:
-            case PURSUE_BROKEN_ENEMY:
+            case TAKE_AND_HOLD:
+            case FLY_ARMED_RECONNAISSANCE:
+            case FLY_FIGHTER_SWEEP:
+            case FLY_CYCLIC_STRIKES:
+            case GIVE_GENERAL_CHASE:
             default:
                 return false;
         }

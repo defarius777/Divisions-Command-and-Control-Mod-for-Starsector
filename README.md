@@ -74,6 +74,7 @@ v0.2.0 implemented & compiled (`mod/jars/DivisionAI.jar`, synced to `${STARSECTO
 Includes:
 - `ShipCapabilityProfile`: inspects hull class, weapon mounts, strike/torpedo loadouts, PD weight, speed, and fighter bays.
 - `DivisionAutoFormer`: auto-forms composite (`Carrier & Escort N`, `Battle Div N`) and monotype (`Cruiser Div N`, `Strike Cruiser Div N`, `Destroyer Div N`, `Frigate Div N`, `Phase Div N`) divisions by hull class, weapons, capabilities, and mission context.
-- `BattlegroupCommanderAI`: 1.5s operational phase loop (`OPENING_PROBE`, `LINE_CONTACT`, `COORDINATED_STRIKE`, `STABILIZE_AND_RELIEVE`, `EXPLOIT_BREAKTHROUGH`, `ORDERED_WITHDRAWAL`), spatial-grid local overmatch evaluation, Main Effort & Reserve designation.
+- `OtcAI` (Officer in Tactical Command, formerly `BattlegroupCommanderAI`): 1.5s battle-phase loop (`APPROACH`, `GENERAL_ENGAGEMENT`, `COORDINATED_STRIKE`, `REINFORCE_THE_LINE`, `GENERAL_CHASE`, `FIGHTING_RETIREMENT`), spatial-grid local force-ratio evaluation, Main Effort & Reserve designation.
+- `OtcBattlePlanner` (v0.5.0+): turns the OTC's plan into per-division `OtcOrder`s (Line & Fire Distribution, Doubling, Time-on-Target Strikes, Reserve & General Chase). Code identifiers follow the naval glossary in `docs/naval_glossary.md`.
 - `DivisionCommanderAI`: 0.5s tactical evaluator & `ShipwideAIFlags` execution (harassing torpedo attacks, time-on-target strikes, strike-then-withdraw to reserve, monotype cross-division screening, relief of endangered divisions, flux rotation, bounded pursuit).
 - `DivisionCombatLog`: live HUD combat log announcements (`CombatUIAPI.addMessage`) + `starsector.log` output.

@@ -9,7 +9,7 @@ public class DivisionAIModPlugin extends BaseModPlugin {
 
     @Override
     public void onApplicationLoad() throws Exception {
-        Global.getLogger(DivisionAIModPlugin.class).info("DivisionAI v0.5.1 loaded: Campaign Permanent Divisions, Fleet Doctrine, Battle Group (OTC) Command & Division C2 AI active.");
+        Global.getLogger(DivisionAIModPlugin.class).info("DivisionAI v0.5.2 loaded: Campaign Permanent Divisions, Fleet Doctrine, Battle Group (OTC) Command & Division C2 AI active.");
     }
 
     @Override

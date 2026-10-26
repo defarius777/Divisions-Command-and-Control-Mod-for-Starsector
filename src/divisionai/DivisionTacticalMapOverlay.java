@@ -11,7 +11,7 @@ import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.Fonts;
 import com.fs.starfarer.api.ui.LabelAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
-import divisionai.DivisionModel.BattlegroupState;
+import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.DivisionState;
 import org.apache.log4j.Logger;
 import org.lwjgl.opengl.GL11;
@@ -53,9 +53,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private static final Color ENEMY_LABEL_COLOR = new Color(255, 125, 120, 225);
 
     private CombatEngineAPI engine;
-    private BattlegroupState playerBg;
-    private BattlegroupState alliedAiBg;
-    private BattlegroupState enemyBg;
+    private BattleGroupState playerGroup;
+    private BattleGroupState alliedAiGroup;
+    private BattleGroupState enemyGroup;
     private final Map<String, LabelAPI> labelCache = new HashMap<>();
 
     private boolean attachedToWarroom = false;
@@ -73,10 +73,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         this.engine = engine;
     }
 
-    public void setBattlegroups(BattlegroupState playerBg, BattlegroupState alliedAiBg, BattlegroupState enemyBg) {
-        this.playerBg = playerBg;
-        this.alliedAiBg = alliedAiBg;
-        this.enemyBg = enemyBg;
+    public void setBattleGroups(BattleGroupState playerGroup, BattleGroupState alliedAiGroup, BattleGroupState enemyGroup) {
+        this.playerGroup = playerGroup;
+        this.alliedAiGroup = alliedAiGroup;
+        this.enemyGroup = enemyGroup;
     }
 
     /**
@@ -200,9 +200,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glEnable(GL11.GL_LINE_SMOOTH);
 
         // 1. Render Player Divisions (Green) and Allied AI Divisions (Yellow)
-        if (playerBg != null && !playerBg.divisions.isEmpty()) {
-            renderBattlegroupCirclesAndLines(
-                    playerBg,
+        if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
+            renderBattleGroupCirclesAndLines(
+                    playerGroup,
                     false,
                     null,
                     scale,
@@ -212,9 +212,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     ringAlpha,
                     friendlyLineAlpha);
         }
-        if (alliedAiBg != null && !alliedAiBg.divisions.isEmpty()) {
-            renderBattlegroupCirclesAndLines(
-                    alliedAiBg,
+        if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
+            renderBattleGroupCirclesAndLines(
+                    alliedAiGroup,
                     false,
                     null,
                     scale,
@@ -226,9 +226,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
 
         // 2. Render Enemy Divisions (ONLY ships visible to the player, with sparing OpSec-safe lines)
-        if (enemyBg != null && !enemyBg.divisions.isEmpty()) {
-            renderBattlegroupCirclesAndLines(
-                    enemyBg,
+        if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
+            renderBattleGroupCirclesAndLines(
+                    enemyGroup,
                     true,
                     playerFog,
                     scale,
@@ -243,19 +243,19 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glPopAttrib();
 
         // 3. Render Flagship Division Labels (Player + Allied AI + OpSec-safe visible Enemy flagships)
-        if (playerBg != null && !playerBg.divisions.isEmpty()) {
-            renderBattlegroupLabels(playerBg, false, null, scale, offsetX, offsetY, fade);
+        if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
+            renderBattleGroupLabels(playerGroup, false, null, scale, offsetX, offsetY, fade);
         }
-        if (alliedAiBg != null && !alliedAiBg.divisions.isEmpty()) {
-            renderBattlegroupLabels(alliedAiBg, false, null, scale, offsetX, offsetY, fade);
+        if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
+            renderBattleGroupLabels(alliedAiGroup, false, null, scale, offsetX, offsetY, fade);
         }
-        if (enemyBg != null && !enemyBg.divisions.isEmpty()) {
-            renderBattlegroupLabels(enemyBg, true, playerFog, scale, offsetX, offsetY, fade);
+        if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
+            renderBattleGroupLabels(enemyGroup, true, playerFog, scale, offsetX, offsetY, fade);
         }
     }
 
-    private void renderBattlegroupCirclesAndLines(
-            BattlegroupState bg,
+    private void renderBattleGroupCirclesAndLines(
+            BattleGroupState battleGroup,
             boolean isEnemy,
             FogOfWarAPI playerFog,
             float scale,
@@ -265,7 +265,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float ringAlpha,
             float lineAlpha) {
 
-        for (DivisionState div : bg.divisions) {
+        for (DivisionState div : battleGroup.divisions) {
             List<ShipAPI> alive = div.getAliveMembers();
             if (alive.isEmpty()) continue;
 
@@ -369,8 +369,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private void renderBattlegroupLabels(
-            BattlegroupState bg,
+    private void renderBattleGroupLabels(
+            BattleGroupState battleGroup,
             boolean isEnemy,
             FogOfWarAPI playerFog,
             float scale,
@@ -378,7 +378,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetY,
             float fade) {
 
-        for (DivisionState div : bg.divisions) {
+        for (DivisionState div : battleGroup.divisions) {
             List<ShipAPI> alive = div.getAliveMembers();
             if (alive.isEmpty()) continue;
 

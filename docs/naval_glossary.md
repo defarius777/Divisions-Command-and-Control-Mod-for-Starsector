@@ -1,10 +1,10 @@
-# Naval Terminology Glossary (v0.5.1)
+# Naval Terminology Glossary (v0.5.1 UI, v0.5.2 code)
 
 Player-facing terms follow real naval usage, mostly US Navy doctrine and line-of-battle tradition.
 Starsector's own terms (flux, strike craft, DP, phase, Command Window) are kept.
 
-Only display text changed. Enum names, save keys and code identifiers keep their old names
-(`BattlegroupAuthority.HYBRID`, `PreferredSpace.FORWARD`, ...), so saves and doctrine settings carry over.
+v0.5.1 changed only display text. v0.5.2 also renamed the code identifiers (see the end of this file).
+Save keys are unchanged and old saved enum names still load, so saves and doctrine settings carry over.
 
 ## Command & organization
 
@@ -113,3 +113,34 @@ Rearguard Escape → **Rearguard Action**, Pursuit Interception → **Intercepti
 On first load in v0.5.1, auto-named divisions are renamed: `Battle Div N` → `Battleship Div N`,
 `Mixed Carrier Div N` → `Carrier Group N`, `Aux Group N` → `Service Group N`.
 Names you typed yourself are untouched.
+
+## Code identifiers (v0.5.2)
+
+From v0.5.2 the code uses the same terms as the UI. Old name → new name:
+
+| Old | New |
+|---|---|
+| `BattlegroupCommanderAI` | `OtcAI` |
+| `BattlegroupOrchestrator` (`orchestrate`) | `OtcBattlePlanner` (`planBattle`) |
+| `BattlegroupState` (`myBg`, `bg`, `bgCommander`) | `BattleGroupState` (`myGroup`, `battleGroup`, `otc`) |
+| `BattlegroupAuthority`, `OrchestrationPlay` | `OtcAuthority`, `OtcPlay` |
+| `BgTasking`, `BgTaskType`, `div.bgTask` | `OtcOrder`, `OtcOrderType`, `div.otcOrder` |
+| `PreferredSpace` (`FORWARD/MIDDLE/BACK`) | `LineStation` (`VAN/CENTER/REAR`) |
+| `idealIntraSpacing`, `idealInterSpacing`, `lineStandoffDistance` | `stationSpacing`, `divisionInterval`, `standoffRange` |
+| `desiredCohesionRadius`, `cohesionRatio`, `cohesionLeashMult` | `stationKeepingRadius`, `stationKeepingRatio`, `stationKeepingMult` |
+| `localOvermatchRatio`, `overmatchCommitRatio` | `localForceRatio`, `commitForceRatio` |
+| `maneuverAnchor`, `reserveAnchor`, `compute*Anchor` | `stationPoint`, `reserveStation`, `compute*Station` |
+| `reliefDivision`, `PURSUIT_LEASH` | `reinforcingDivision`, `CHASE_LEASH` |
+| `*Torpedo*` (strike capability, targets) | `*Missile*` |
+
+Enum constants were renamed to match their display names, for example:
+- `BATTLE_DIVISION` → `BATTLESHIP_DIVISION`, `TORPEDO_DESTROYER_DIVISION` → `MISSILE_DESTROYER_DIVISION`
+- `OPENING_PROBE` → `APPROACH`, `EXPLOIT_BREAKTHROUGH` → `GENERAL_CHASE`
+- `PRESS_OVERMATCH` → `PRESS_HOME`, `SEIZE_OBJECTIVE` → `TAKE_AND_HOLD`
+- `RECONNAISSANCE` → `SCOUTING`, `CARRIER_MULTI_DIVISION_STRIKE` → `ALPHA_STRIKE`
+- `HYBRID` → `COMMAND_BY_DIRECTION`
+
+**Save compatibility:** persistent-data keys are unchanged (`divisionai_*`, `bg_authority`, `bg_play_*`,
+`pref_space_*`, `customPreferredSpace`, ...). Every enum that is saved accepts its pre-v0.5.2 name when
+loading (`fromId` / `legacyName()` / `DivisionArchetype.resolveLegacyName`), and new saves write the new names.
+LunaLib setting IDs (`divai_*_bg_chatter`, ...) are also unchanged, so players keep their Mod Settings.

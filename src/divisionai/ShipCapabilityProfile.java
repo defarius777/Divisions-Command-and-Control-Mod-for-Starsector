@@ -27,12 +27,12 @@ public class ShipCapabilityProfile {
         STRIKE_CAPITAL,
         LINE_CRUISER,
         STRIKE_CRUISER,
-        TORPEDO_DESTROYER,
+        MISSILE_DESTROYER,
         ESCORT_DESTROYER,
         LINE_DESTROYER,
-        TORPEDO_FRIGATE,
+        MISSILE_FRIGATE,
         SCREEN_FRIGATE,
-        PHASE_RAIDER,
+        PHASE,
         CIVILIAN_AUX
     }
 
@@ -54,7 +54,7 @@ public class ShipCapabilityProfile {
     public final int bomberWings;
     public final int interceptorSupportWings;
 
-    public final boolean hasHeavyTorpedoLoadout;
+    public final boolean hasHeavyMissileLoadout;
     public final boolean isPdScreenCapable;
     public final boolean isLongRangeStandoff;
     public final TacticalTag primaryTag;
@@ -154,7 +154,7 @@ public class ShipCapabilityProfile {
         this.avgWeaponRange = opSum > 0f ? (weightedRangeSum / opSum) : 700f;
 
         // Torpedo / strike loadout detection: strong strike missiles on non-carrier hulls
-        this.hasHeavyTorpedoLoadout = !this.isDedicatedCarrier
+        this.hasHeavyMissileLoadout = !this.isDedicatedCarrier
                 && ((strikeSum >= 4.0f && (strikeSum / this.totalWeaponOP) >= 0.28f)
                 || (strikeSum >= 3.0f && (hullSize == HullSize.FRIGATE || hullSize == HullSize.DESTROYER)));
 
@@ -167,23 +167,23 @@ public class ShipCapabilityProfile {
 
     private TacticalTag classifyPrimaryTag() {
         if (isCivilian) return TacticalTag.CIVILIAN_AUX;
-        if (isPhase) return TacticalTag.PHASE_RAIDER;
+        if (isPhase) return TacticalTag.PHASE;
         if (isDedicatedCarrier) return TacticalTag.CARRIER;
 
         switch (hullSize) {
             case CAPITAL_SHIP:
-                if (baseMaxSpeed >= 75f || (hasHeavyTorpedoLoadout && !isLongRangeStandoff)) {
+                if (baseMaxSpeed >= 75f || (hasHeavyMissileLoadout && !isLongRangeStandoff)) {
                     return TacticalTag.STRIKE_CAPITAL;
                 }
                 return TacticalTag.BATTLE_LINE_CAPITAL;
             case CRUISER:
-                if (hasHeavyTorpedoLoadout || (baseMaxSpeed >= 90f && closeBrawlWeight >= longRangeWeight)) {
+                if (hasHeavyMissileLoadout || (baseMaxSpeed >= 90f && closeBrawlWeight >= longRangeWeight)) {
                     return TacticalTag.STRIKE_CRUISER;
                 }
                 return TacticalTag.LINE_CRUISER;
             case DESTROYER:
-                if (hasHeavyTorpedoLoadout) {
-                    return TacticalTag.TORPEDO_DESTROYER;
+                if (hasHeavyMissileLoadout) {
+                    return TacticalTag.MISSILE_DESTROYER;
                 }
                 if (isPdScreenCapable) {
                     return TacticalTag.ESCORT_DESTROYER;
@@ -191,8 +191,8 @@ public class ShipCapabilityProfile {
                 return TacticalTag.LINE_DESTROYER;
             case FRIGATE:
             default:
-                if (hasHeavyTorpedoLoadout) {
-                    return TacticalTag.TORPEDO_FRIGATE;
+                if (hasHeavyMissileLoadout) {
+                    return TacticalTag.MISSILE_FRIGATE;
                 }
                 return TacticalTag.SCREEN_FRIGATE;
         }

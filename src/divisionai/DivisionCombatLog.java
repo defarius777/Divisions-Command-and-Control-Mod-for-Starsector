@@ -5,7 +5,7 @@ import com.fs.starfarer.api.combat.CombatEngineAPI;
 import com.fs.starfarer.api.combat.CombatUIAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.util.Misc;
-import divisionai.DivisionModel.BattlegroupState;
+import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
 import org.apache.log4j.Logger;
@@ -24,7 +24,7 @@ public class DivisionCombatLog {
 
     private static final Logger LOG = Global.getLogger(DivisionCombatLog.class);
     private static final float MIN_DIVISION_LOG_INTERVAL = 7.5f;
-    private static final float MIN_BG_LOG_INTERVAL = 10.0f;
+    private static final float MIN_OTC_LOG_INTERVAL = 10.0f;
 
     public static void logDivisionFormed(CombatEngineAPI engine, DivisionState div, float now) {
         if (div == null) return;
@@ -56,7 +56,7 @@ public class DivisionCombatLog {
 
         // Show friendly division formations in the HUD log if friendly division chatter is enabled
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
-        if (ui != null && div.side == 0 && DivisionAISettings.isDivisionChatterEnabled(div.side)) {
+        if (ui != null && div.side == 0 && DivisionAISettings.isDivisionSignalsEnabled(div.side)) {
             Color divColor = Misc.getBrightPlayerColor();
             Color textColor = Misc.getTextColor();
             Color hlColor = Misc.getHighlightColor();
@@ -69,58 +69,58 @@ public class DivisionCombatLog {
         }
     }
 
-    public static void logBattlegroupDirective(
+    public static void logOtcSignal(
             CombatEngineAPI engine,
-            BattlegroupState bg,
+            BattleGroupState battleGroup,
             String directiveSummary,
             float now) {
-        if (bg == null || directiveSummary == null) return;
+        if (battleGroup == null || directiveSummary == null) return;
 
-        String sig = bg.currentPhase.name() + "|" + directiveSummary;
-        if (sig.equals(bg.lastBgOrderSignature) && (now - bg.lastBgOrderLogTime) < 25f) {
+        String sig = battleGroup.currentPhase.name() + "|" + directiveSummary;
+        if (sig.equals(battleGroup.lastOtcSignalSignature) && (now - battleGroup.lastOtcSignalLogTime) < 25f) {
             return;
         }
-        if ((now - bg.lastBgOrderLogTime) < MIN_BG_LOG_INTERVAL && bg.previousPhase == bg.currentPhase) {
+        if ((now - battleGroup.lastOtcSignalLogTime) < MIN_OTC_LOG_INTERVAL && battleGroup.previousPhase == battleGroup.currentPhase) {
             return;
         }
 
-        bg.lastBgOrderSignature = sig;
-        bg.lastBgOrderLogTime = now;
+        battleGroup.lastOtcSignalSignature = sig;
+        battleGroup.lastOtcSignalLogTime = now;
 
-        String sideTag = (bg.side == 0)
-                ? (bg.isAlliedAi ? "[Allied OTC]" : "[Player OTC]")
+        String sideTag = (battleGroup.side == 0)
+                ? (battleGroup.isAlliedAi ? "[Allied OTC]" : "[Player OTC]")
                 : "[Enemy OTC]";
         LOG.info(String.format("%s (%s) Phase=%s -> %s",
-                sideTag, bg.bgCommander.personalityId, bg.currentPhase.displayName, directiveSummary));
+                sideTag, battleGroup.otc.personalityId, battleGroup.currentPhase.displayName, directiveSummary));
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
-        if (ui != null && DivisionAISettings.isBgChatterEnabled(bg.side)) {
-            Color prefixColor = (bg.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
+        if (ui != null && DivisionAISettings.isOtcSignalsEnabled(battleGroup.side)) {
+            Color prefixColor = (battleGroup.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
             Color textColor = Misc.getTextColor();
             Color hlColor = Misc.getHighlightColor();
             ui.addMessage(
                     1,
                     prefixColor, sideTag + " ",
-                    hlColor, bg.currentPhase.displayName,
+                    hlColor, battleGroup.currentPhase.displayName,
                     textColor, " — " + directiveSummary);
         }
     }
 
     /**
-     * Logs a Battlegroup Commander orchestration order (strike plans, relief, pursuit, pincer sides).
+     * Logs a OTC orchestration order (strike plans, relief, pursuit, pincer sides).
      * Throttling is done by the caller per order key.
      */
-    public static void logBattlegroupOrder(CombatEngineAPI engine, BattlegroupState bg, String orderText) {
-        if (bg == null || orderText == null) return;
-        String sideTag = (bg.side == 0)
-                ? (bg.isAlliedAi ? "[Allied OTC]" : "[Player OTC]")
+    public static void logOtcOrder(CombatEngineAPI engine, BattleGroupState battleGroup, String orderText) {
+        if (battleGroup == null || orderText == null) return;
+        String sideTag = (battleGroup.side == 0)
+                ? (battleGroup.isAlliedAi ? "[Allied OTC]" : "[Player OTC]")
                 : "[Enemy OTC]";
         LOG.info(String.format("%s (%s) Order [%s]: %s",
-                sideTag, bg.bgCommander.personalityId, bg.authority.shortName, orderText));
+                sideTag, battleGroup.otc.personalityId, battleGroup.authority.shortName, orderText));
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
-        if (ui != null && DivisionAISettings.isBgChatterEnabled(bg.side)) {
-            Color prefixColor = (bg.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
+        if (ui != null && DivisionAISettings.isOtcSignalsEnabled(battleGroup.side)) {
+            Color prefixColor = (battleGroup.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
             ui.addMessage(
                     1,
                     prefixColor, sideTag + " ",
@@ -145,7 +145,7 @@ public class DivisionCombatLog {
         }
         // Throttle rapid re-evaluations so the battle log remains crisp and readable
         if ((now - div.lastLogAnnouncementTime) < MIN_DIVISION_LOG_INTERVAL
-                && div.currentIntent == DivisionIntentType.HOLD_AND_COHERE) {
+                && div.currentIntent == DivisionIntentType.CLOSE_UP) {
             return;
         }
 
@@ -211,12 +211,12 @@ public class DivisionCombatLog {
         if (targetLabel.startsWith("Enemy ")) {
             return Misc.getNegativeHighlightColor();
         }
-        if (actor.currentIntent == DivisionIntentType.SCREEN_FRIENDLY_DIVISION
-                || actor.currentIntent == DivisionIntentType.RELIEVE_FRIENDLY_DIVISION
-                || actor.currentIntent == DivisionIntentType.ROTATE_TO_RESERVE) {
+        if (actor.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION
+                || actor.currentIntent == DivisionIntentType.REINFORCE_DIVISION
+                || actor.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT) {
             return (actor.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
         }
-        if (actor.currentIntent == DivisionIntentType.SEIZE_OBJECTIVE) {
+        if (actor.currentIntent == DivisionIntentType.TAKE_AND_HOLD) {
             return Misc.getHighlightColor();
         }
         return (actor.side == 0) ? Misc.getNegativeHighlightColor() : Misc.getBrightPlayerColor();

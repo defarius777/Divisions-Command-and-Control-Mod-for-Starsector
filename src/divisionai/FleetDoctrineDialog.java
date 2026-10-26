@@ -12,13 +12,13 @@ import com.fs.starfarer.api.ui.PositionAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
-import divisionai.PermanentDivisionManager.BattlegroupAuthority;
+import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
-import divisionai.PermanentDivisionManager.OrchestrationPlay;
-import divisionai.PermanentDivisionManager.PreferredSpace;
+import divisionai.PermanentDivisionManager.OtcPlay;
+import divisionai.PermanentDivisionManager.LineStation;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
@@ -29,13 +29,13 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Campaign-layer Fleet Doctrine & Battlegroup Settings modal screen accessible from the
+ * Campaign-layer Fleet Doctrine & Battle Group Settings modal screen accessible from the
  * "Fleet Doctrine" button on the left sidebar of the Fleet screen.
  *
  * Configures:
- *  0. Battlegroup Command: the BG Commander's orchestration authority (A. Hybrid, B. Central Planning,
+ *  0. Battle Group Command: the OTC's orchestration authority (A. Hybrid, B. Central Planning,
  *     C. Mission-Type Tactics, D. Target Coordination Only) and On/Off toggles for each orchestration play.
- *  1. Battlegroup Settings (inherited by divisions of each type unless overridden in Division Settings):
+ *  1. Battle Group Settings (inherited by divisions of each type unless overridden in Division Settings):
  *     - Intra-division spacing (in units, with Paragon length = 364 units reference subtitle)
  *     - Inter-division spacing (in units)
  *     - Line Standoff distance (in units)
@@ -50,20 +50,20 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private static final float DIALOG_WIDTH = 1020f;
     private static final float DIALOG_HEIGHT = 680f;
 
-    private static final int[] SPACING_PRESETS = {200, 300, 400, 500, 600, 750, 900, 1100};
-    private static final int[] INTER_SPACING_PRESETS = {500, 700, 900, 1100, 1300, 1500, 1800, 2100};
-    private static final int[] STANDOFF_PRESETS = {450, 650, 800, 950, 1150, 1400, 1700, 2000};
+    private static final int[] STATION_SPACING_PRESETS = {200, 300, 400, 500, 600, 750, 900, 1100};
+    private static final int[] DIVISION_INTERVAL_PRESETS = {500, 700, 900, 1100, 1300, 1500, 1800, 2100};
+    private static final int[] STANDOFF_RANGE_PRESETS = {450, 650, 800, 950, 1150, 1400, 1700, 2000};
     private static final int[] OPENING_DURATION_PRESETS = {30, 35, 40, 45, 50, 55, 60};
-    private static final float[] LEASH_PRESETS = {0.75f, 0.90f, 1.00f, 1.15f, 1.30f, 1.50f};
+    private static final float[] STATION_KEEPING_PRESETS = {0.75f, 0.90f, 1.00f, 1.15f, 1.30f, 1.50f};
 
     private enum ActiveTab {
         ALL_DOCTRINE,
-        BATTLEGROUP_COMMAND,
+        BATTLE_GROUP_COMMAND,
         DIVISION_MODIFIERS,
         HULL_LIMITS
     }
 
-    private static final String BG_AUTHORITY_DROPDOWN_KEY = "BG_AUTHORITY";
+    private static final String OTC_AUTHORITY_DROPDOWN_KEY = "OTC_AUTHORITY";
 
     private final UIPanelAPI parentCoreUI;
     private CustomPanelAPI rootOverlayPanel;
@@ -195,20 +195,20 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         if (activeTab == ActiveTab.ALL_DOCTRINE) bTabAll.highlight();
         bTabAll.getPosition().inTL(0f, 2f);
 
-        ButtonAPI bTabBg = registerButton(
+        ButtonAPI bTabOtc = registerButton(
                 tb.addButton(
                         "Battle Group Command",
-                        "TAB:BG_COMMAND",
-                        activeTab == ActiveTab.BATTLEGROUP_COMMAND ? highlight : baseColor,
+                        "TAB:OTC_COMMAND",
+                        activeTab == ActiveTab.BATTLE_GROUP_COMMAND ? highlight : baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
                         170f,
                         24f,
                         0f),
-                "TAB:BG_COMMAND");
-        if (activeTab == ActiveTab.BATTLEGROUP_COMMAND) bTabBg.highlight();
-        bTabBg.getPosition().inTL(156f, 2f);
+                "TAB:OTC_COMMAND");
+        if (activeTab == ActiveTab.BATTLE_GROUP_COMMAND) bTabOtc.highlight();
+        bTabOtc.getPosition().inTL(156f, 2f);
 
         ButtonAPI bTabMod = registerButton(
                 tb.addButton(
@@ -279,7 +279,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         TooltipMakerAPI body = contentContainer.createUIElement(bodyWidth, bodyHeight, true);
 
-        if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.BATTLEGROUP_COMMAND) {
+        if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.BATTLE_GROUP_COMMAND) {
             body.addSectionHeading(
                     "BATTLE GROUP COMMAND — OTC AUTHORITY & PLAYS",
                     highlight,
@@ -295,13 +295,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             addAuthorityDropdownRow(
                     body,
                     bodyWidth - 16f,
-                    doctrine.getBgAuthority(),
+                    doctrine.getOtcAuthority(),
                     baseColor,
                     darkColor,
                     positive,
                     gray);
 
-            for (OrchestrationPlay play : OrchestrationPlay.values()) {
+            for (OtcPlay play : OtcPlay.values()) {
                 addPlayToggleRow(
                         body,
                         bodyWidth - 16f,
@@ -340,12 +340,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     positive);
 
             for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
-                int currSpacing = doctrine.getIdealSpacing(dt);
-                int currInter = doctrine.getInterSpacing(dt);
-                int currStandoff = doctrine.getLineStandoff(dt);
+                int currSpacing = doctrine.getStationSpacing(dt);
+                int currInter = doctrine.getDivisionInterval(dt);
+                int currStandoff = doctrine.getStandoffRange(dt);
                 DivisionMissionType currOpenMis = doctrine.getOpeningMission(dt);
                 DivisionMissionType currMainMis = doctrine.getMainMission(dt);
-                PreferredSpace currPrefSpace = doctrine.getPreferredSpace(dt);
+                LineStation currLineStation = doctrine.getLineStation(dt);
 
                 float spacingParagons = currSpacing / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
                 float interParagons = currInter / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
@@ -355,7 +355,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         Locale.ROOT,
                         "%s  —  Station: %s  |  Spacing: %du  |  Interval: %du  |  Standoff: %du  |  %s -> %s",
                         dt.displayName.toUpperCase(Locale.ROOT),
-                        currPrefSpace.displayName,
+                        currLineStation.displayName,
                         currSpacing,
                         currInter,
                         currStandoff,
@@ -374,10 +374,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                                 spacingParagons),
                         currSpacing,
                         50,
-                        PermanentDivisionManager.MIN_INTRA_SPACING_UNITS,
-                        PermanentDivisionManager.MAX_INTRA_SPACING_UNITS,
-                        SPACING_PRESETS,
-                        "SET_SPACING:" + dt.name() + ":",
+                        PermanentDivisionManager.MIN_STATION_SPACING_UNITS,
+                        PermanentDivisionManager.MAX_STATION_SPACING_UNITS,
+                        STATION_SPACING_PRESETS,
+                        "SET_STATION_SPACING:" + dt.name() + ":",
                         baseColor,
                         darkColor,
                         positive);
@@ -393,10 +393,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                                 interParagons),
                         currInter,
                         100,
-                        PermanentDivisionManager.MIN_INTER_SPACING_UNITS,
-                        PermanentDivisionManager.MAX_INTER_SPACING_UNITS,
-                        INTER_SPACING_PRESETS,
-                        "SET_INTER:" + dt.name() + ":",
+                        PermanentDivisionManager.MIN_DIVISION_INTERVAL_UNITS,
+                        PermanentDivisionManager.MAX_DIVISION_INTERVAL_UNITS,
+                        DIVISION_INTERVAL_PRESETS,
+                        "SET_DIVISION_INTERVAL:" + dt.name() + ":",
                         baseColor,
                         darkColor,
                         positive);
@@ -412,10 +412,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                                 standoffParagons),
                         currStandoff,
                         100,
-                        PermanentDivisionManager.MIN_STANDOFF_UNITS,
-                        PermanentDivisionManager.MAX_STANDOFF_UNITS,
-                        STANDOFF_PRESETS,
-                        "SET_STANDOFF:" + dt.name() + ":",
+                        PermanentDivisionManager.MIN_STANDOFF_RANGE_UNITS,
+                        PermanentDivisionManager.MAX_STANDOFF_RANGE_UNITS,
+                        STANDOFF_RANGE_PRESETS,
+                        "SET_STANDOFF_RANGE:" + dt.name() + ":",
                         baseColor,
                         darkColor,
                         highlight);
@@ -424,9 +424,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addPreferredSpaceRow(
                         body,
                         bodyWidth - 16f,
-                        dt.displayName + " Station in Line: " + currPrefSpace.displayName,
-                        currPrefSpace,
-                        "SET_PREF_SPACE:" + dt.name() + ":",
+                        dt.displayName + " Station in Line: " + currLineStation.displayName,
+                        currLineStation,
+                        "SET_LINE_STATION:" + dt.name() + ":",
                         baseColor,
                         darkColor,
                         positive);
@@ -556,19 +556,19 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private void addAuthorityDropdownRow(
             TooltipMakerAPI body,
             float rowWidth,
-            BattlegroupAuthority current,
+            OtcAuthority current,
             Color baseColor,
             Color darkColor,
             Color activeValueColor,
             Color gray) {
 
-        boolean expanded = BG_AUTHORITY_DROPDOWN_KEY.equals(expandedDropdownKey);
+        boolean expanded = OTC_AUTHORITY_DROPDOWN_KEY.equals(expandedDropdownKey);
 
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
         rowUi.addPara("OTC authority:", 4f, baseColor).getPosition().inTL(4f, 4f);
 
-        String toggleAct = "TOGGLE_DD:" + BG_AUTHORITY_DROPDOWN_KEY;
+        String toggleAct = "TOGGLE_DD:" + OTC_AUTHORITY_DROPDOWN_KEY;
         String btnText = (expanded ? "[^] " : "[v] ") + current.dropdownLabel + "  (Click to change)";
         ButtonAPI bToggle = registerButton(
                 rowUi.addButton(
@@ -591,11 +591,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 2f);
 
         if (expanded) {
-            for (BattlegroupAuthority option : BattlegroupAuthority.values()) {
+            for (OtcAuthority option : OtcAuthority.values()) {
                 boolean isCurrent = (option == current);
                 CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 42f, subPanelPlugin);
                 TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 22f, false);
-                String selAct = "SET_BG_AUTH:" + option.name();
+                String selAct = "SET_OTC_AUTH:" + option.name();
                 ButtonAPI bOpt = registerButton(
                         optUi.addButton(
                                 (isCurrent ? "* " : "   ") + option.dropdownLabel,
@@ -632,7 +632,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private void addPlayToggleRow(
             TooltipMakerAPI body,
             float rowWidth,
-            OrchestrationPlay play,
+            OtcPlay play,
             boolean enabled,
             Color baseColor,
             Color darkColor,
@@ -645,7 +645,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         String label = "Play: " + play.displayName;
         rowUi.addPara(label, 4f, enabled ? activeValueColor : gray, label).getPosition().inTL(4f, 4f);
 
-        String onAct = "SET_BG_PLAY:" + play.name() + ":ON";
+        String onAct = "SET_OTC_PLAY:" + play.name() + ":ON";
         ButtonAPI bOn = registerButton(
                 rowUi.addButton(
                         "On",
@@ -661,7 +661,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         if (enabled) bOn.highlight();
         bOn.getPosition().inTL(355f, 2f);
 
-        String offAct = "SET_BG_PLAY:" + play.name() + ":OFF";
+        String offAct = "SET_OTC_PLAY:" + play.name() + ":OFF";
         ButtonAPI bOff = registerButton(
                 rowUi.addButton(
                         "Off",
@@ -691,7 +691,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             TooltipMakerAPI body,
             float rowWidth,
             String labelText,
-            PreferredSpace currentSpace,
+            LineStation currentSpace,
             String actionPrefix,
             Color baseColor,
             Color darkColor,
@@ -703,7 +703,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         rowUi.addPara(labelText, 4f, activeValueColor, labelText).getPosition().inTL(4f, 4f);
 
         float xCursor = 355f;
-        for (PreferredSpace ps : PreferredSpace.values()) {
+        for (LineStation ps : LineStation.values()) {
             boolean selected = (ps == currentSpace);
             String act = actionPrefix + ps.name();
             ButtonAPI bPs = registerButton(
@@ -892,7 +892,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 2f);
     }
 
-    private void addLeashModifierRow(
+    private void addStationKeepingRow(
             TooltipMakerAPI body,
             float rowWidth,
             String labelText,
@@ -909,7 +909,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         float xCursor = 355f;
 
-        for (float p : LEASH_PRESETS) {
+        for (float p : STATION_KEEPING_PRESETS) {
             boolean selected = Math.abs(p - currentValue) < 0.04f;
             String formatted = String.format(Locale.ROOT, "%.2fx", p);
             String valAct = actionPrefix + formatted;
@@ -1059,26 +1059,26 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
-        if ("TAB:BG_COMMAND".equals(cmd)) {
-            activeTab = ActiveTab.BATTLEGROUP_COMMAND;
+        if ("TAB:OTC_COMMAND".equals(cmd)) {
+            activeTab = ActiveTab.BATTLE_GROUP_COMMAND;
             rebuildContent();
             return;
         }
-        if (cmd.startsWith("SET_BG_AUTH:")) {
-            BattlegroupAuthority auth = BattlegroupAuthority.fromId(cmd.substring("SET_BG_AUTH:".length()), null);
+        if (cmd.startsWith("SET_OTC_AUTH:")) {
+            OtcAuthority auth = OtcAuthority.fromId(cmd.substring("SET_OTC_AUTH:".length()), null);
             if (auth != null) {
-                PermanentDivisionManager.updateBattlegroupAuthority(auth);
+                PermanentDivisionManager.updateOtcAuthority(auth);
             }
             expandedDropdownKey = null;
             rebuildContent();
             return;
         }
-        if (cmd.startsWith("SET_BG_PLAY:")) {
-            String rest = cmd.substring("SET_BG_PLAY:".length());
+        if (cmd.startsWith("SET_OTC_PLAY:")) {
+            String rest = cmd.substring("SET_OTC_PLAY:".length());
             int sep = rest.indexOf(':');
             if (sep > 0) {
-                OrchestrationPlay play = OrchestrationPlay.valueOf(rest.substring(0, sep));
-                PermanentDivisionManager.updateOrchestrationPlay(play, "ON".equals(rest.substring(sep + 1)));
+                OtcPlay play = OtcPlay.valueOf(rest.substring(0, sep));
+                PermanentDivisionManager.updateOtcPlay(play, "ON".equals(rest.substring(sep + 1)));
                 rebuildContent();
             }
             return;
@@ -1111,51 +1111,51 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
-        if (cmd.startsWith("SET_SPACING:")) {
-            String rest = cmd.substring("SET_SPACING:".length());
+        if (cmd.startsWith("SET_STATION_SPACING:")) {
+            String rest = cmd.substring("SET_STATION_SPACING:".length());
             int sep = rest.indexOf(':');
             if (sep > 0) {
                 String dtStr = rest.substring(0, sep);
                 int val = Integer.parseInt(rest.substring(sep + 1));
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
-                PermanentDivisionManager.updateDivisionTypeSpacing(dt, val);
+                PermanentDivisionManager.updateDivisionTypeStationSpacing(dt, val);
                 rebuildContent();
             }
             return;
         }
-        if (cmd.startsWith("SET_INTER:")) {
-            String rest = cmd.substring("SET_INTER:".length());
+        if (cmd.startsWith("SET_DIVISION_INTERVAL:")) {
+            String rest = cmd.substring("SET_DIVISION_INTERVAL:".length());
             int sep = rest.indexOf(':');
             if (sep > 0) {
                 String dtStr = rest.substring(0, sep);
                 int val = Integer.parseInt(rest.substring(sep + 1));
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
-                PermanentDivisionManager.updateDivisionTypeInterSpacing(dt, val);
+                PermanentDivisionManager.updateDivisionTypeDivisionInterval(dt, val);
                 rebuildContent();
             }
             return;
         }
-        if (cmd.startsWith("SET_STANDOFF:")) {
-            String rest = cmd.substring("SET_STANDOFF:".length());
+        if (cmd.startsWith("SET_STANDOFF_RANGE:")) {
+            String rest = cmd.substring("SET_STANDOFF_RANGE:".length());
             int sep = rest.indexOf(':');
             if (sep > 0) {
                 String dtStr = rest.substring(0, sep);
                 int val = Integer.parseInt(rest.substring(sep + 1));
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
-                PermanentDivisionManager.updateDivisionTypeStandoff(dt, val);
+                PermanentDivisionManager.updateDivisionTypeStandoffRange(dt, val);
                 rebuildContent();
             }
             return;
         }
-        if (cmd.startsWith("SET_PREF_SPACE:")) {
-            String rest = cmd.substring("SET_PREF_SPACE:".length());
+        if (cmd.startsWith("SET_LINE_STATION:")) {
+            String rest = cmd.substring("SET_LINE_STATION:".length());
             int sep = rest.indexOf(':');
             if (sep > 0) {
                 String dtStr = rest.substring(0, sep);
                 String psStr = rest.substring(sep + 1);
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
-                PreferredSpace ps = PreferredSpace.valueOf(psStr);
-                PermanentDivisionManager.updateDivisionTypePreferredSpace(dt, ps);
+                LineStation ps = LineStation.valueOf(psStr);
+                PermanentDivisionManager.updateDivisionTypeLineStation(dt, ps);
                 rebuildContent();
             }
             return;
@@ -1188,14 +1188,14 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             return;
         }
-        if (cmd.startsWith("SET_LEASH:")) {
-            String rest = cmd.substring("SET_LEASH:".length());
+        if (cmd.startsWith("SET_STATION_KEEPING:")) {
+            String rest = cmd.substring("SET_STATION_KEEPING:".length());
             int sep = rest.indexOf(':');
             if (sep > 0) {
                 String dtStr = rest.substring(0, sep);
                 float val = Float.parseFloat(rest.substring(sep + 1));
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
-                PermanentDivisionManager.updateDivisionTypeLeash(dt, val);
+                PermanentDivisionManager.updateDivisionTypeStationKeeping(dt, val);
                 rebuildContent();
             }
             return;
