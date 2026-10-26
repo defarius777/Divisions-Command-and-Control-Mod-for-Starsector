@@ -18,7 +18,9 @@ import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.DivisionArchetype;
+import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineOption;
+import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
@@ -28,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -53,6 +56,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
     // When null -> Screen 1 (Fleet Divisions Overview); when non-null -> Screen 2 (Dedicated Division Screen)
     private String activeDivisionId = null;
+    private String expandedDropdownKey = null;
     private boolean closed = false;
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
@@ -331,6 +335,22 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         cmdrDesc,
                         spec.doctrine.displayName);
 
+                FleetDoctrineConfig bgCfg = PermanentDivisionManager.getFleetDoctrine();
+                int effIntra = PermanentDivisionManager.resolveEffectiveIntraSpacing(spec, bgCfg);
+                int effInter = PermanentDivisionManager.resolveEffectiveInterSpacing(spec, bgCfg);
+                int effStandoff = PermanentDivisionManager.resolveEffectiveLineStandoff(spec, bgCfg);
+                DivisionMissionType effOpen = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, bgCfg);
+                DivisionMissionType effMain = PermanentDivisionManager.resolveEffectiveMainMission(spec, bgCfg);
+                leftCol.addPara(
+                        "Division Settings: Intra %su | Inter %su | Standoff %su  |  Opening: %s -> Main: %s",
+                        2f,
+                        Misc.getPositiveHighlightColor(),
+                        String.valueOf(effIntra),
+                        String.valueOf(effInter),
+                        String.valueOf(effStandoff),
+                        effOpen.shortName,
+                        effMain.shortName);
+
                 if (!shipNames.isEmpty()) {
                     leftCol.addPara("Constituent Hulls: " + joinStrings(shipNames, ", "), gray, 2f);
                 } else {
@@ -608,12 +628,108 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         boolean divisionAtCap = divMembers.size() >= PermanentDivisionManager.MAX_DIVISION_SIZE;
 
-        // Left Column: Ships Currently Assigned to This Division
+        // Left Column: Division Settings (Inherited / Auto-Updated / Manually Set) + Assigned Ships
         TooltipMakerAPI leftCol = container.createUIElement(colWidth, bodyHeight, true);
+
+        FleetDoctrineConfig bgCfg = PermanentDivisionManager.getFleetDoctrine();
+        int effIntra = PermanentDivisionManager.resolveEffectiveIntraSpacing(spec, bgCfg);
+        int effInter = PermanentDivisionManager.resolveEffectiveInterSpacing(spec, bgCfg);
+        int effStandoff = PermanentDivisionManager.resolveEffectiveLineStandoff(spec, bgCfg);
+        int longestWeaponRange = PermanentDivisionManager.computeDivisionLongestWeaponRange(spec, fleet);
+        DivisionMissionType effOpenMis = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, bgCfg);
+        DivisionMissionType effMainMis = PermanentDivisionManager.resolveEffectiveMainMission(spec, bgCfg);
+
+        leftCol.addSectionHeading(
+                "Division Settings (Paragon Length = " + PermanentDivisionManager.PARAGON_LENGTH_UNITS + "u)",
+                highlight,
+                darkColor,
+                Alignment.LMID,
+                2f);
+
+        // 1. Intra-division spacing row
+        addDivisionSpacingRow(
+                leftCol,
+                colWidth - 16f,
+                String.format(
+                        Locale.ROOT,
+                        "Intra-div spacing: %du (%.2fx Paragon) [%s]",
+                        effIntra,
+                        effIntra / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
+                        spec.customIntraSpacing != null ? "Custom" : "Inherited"),
+                effIntra,
+                50,
+                PermanentDivisionManager.MIN_INTRA_SPACING_UNITS,
+                PermanentDivisionManager.MAX_INTRA_SPACING_UNITS,
+                "DIV_INTRA:",
+                spec.customIntraSpacing != null,
+                baseColor,
+                darkColor,
+                positive);
+
+        // 2. Inter-division spacing row
+        addDivisionSpacingRow(
+                leftCol,
+                colWidth - 16f,
+                String.format(
+                        Locale.ROOT,
+                        "Inter-div spacing: %du (%.2fx Paragon) [%s]",
+                        effInter,
+                        effInter / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
+                        spec.customInterSpacing != null ? "Custom" : "Inherited"),
+                effInter,
+                100,
+                PermanentDivisionManager.MIN_INTER_SPACING_UNITS,
+                PermanentDivisionManager.MAX_INTER_SPACING_UNITS,
+                "DIV_INTER:",
+                spec.customInterSpacing != null,
+                baseColor,
+                darkColor,
+                positive);
+
+        // 3. Line Standoff distance row (with Auto-Set from Longest Firepower button)
+        addDivisionStandoffRow(
+                leftCol,
+                colWidth - 16f,
+                effStandoff,
+                longestWeaponRange,
+                spec.customLineStandoff != null,
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        // 4. Opening Mission Drop-Down (0 - openingDurationSeconds)
+        addDivisionMissionDropdownRow(
+                leftCol,
+                colWidth - 16f,
+                "Opening Mission (0-" + bgCfg.getOpeningDurationSeconds() + "s):",
+                "DIV_OPEN_DD",
+                effOpenMis,
+                spec.customOpeningMission != null,
+                "DIV_OPEN_MIS:",
+                baseColor,
+                darkColor,
+                positive,
+                gray);
+
+        // 5. Main Mission Drop-Down (rest of battle)
+        addDivisionMissionDropdownRow(
+                leftCol,
+                colWidth - 16f,
+                "Main Mission (rest of battle):",
+                "DIV_MAIN_DD",
+                effMainMis,
+                spec.customMainMission != null,
+                "DIV_MAIN_MIS:",
+                baseColor,
+                darkColor,
+                highlight,
+                gray);
+
         leftCol.addSectionHeading(
                 "Ships in " + spec.name + " (" + divMembers.size() + "/" + PermanentDivisionManager.MAX_DIVISION_SIZE + " Max)",
                 Alignment.MID,
-                4f);
+                8f);
 
         if (!divMembers.isEmpty()) {
             leftCol.addShipList(Math.min(7, divMembers.size()), 1, 48f, baseColor, divMembers, 4f);
@@ -759,6 +875,192 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         container.addUIElement(rightCol).inTL(colWidth + 24f, bodyTop);
     }
 
+    private void addDivisionSpacingRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            String labelText,
+            int currentVal,
+            int step,
+            int minVal,
+            int maxVal,
+            String actionPrefix,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color activeColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 25f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 25f, false);
+
+        rowUi.addPara(labelText, 3f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(2f, 4f);
+
+        float x = rowWidth - 196f;
+        String decAct = actionPrefix + Math.max(minVal, currentVal - step);
+        ButtonAPI bDec = registerButton(
+                rowUi.addButton("-" + step + "u", decAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 52f, 20f, 0f),
+                decAct);
+        bDec.setEnabled(currentVal > minVal);
+        bDec.getPosition().inTL(x, 2f);
+
+        String incAct = actionPrefix + Math.min(maxVal, currentVal + step);
+        ButtonAPI bInc = registerButton(
+                rowUi.addButton("+" + step + "u", incAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 52f, 20f, 0f),
+                incAct);
+        bInc.setEnabled(currentVal < maxVal);
+        bInc.getPosition().inTL(x + 56f, 2f);
+
+        String inhAct = actionPrefix + "INHERIT";
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton("Inherit BG", inhAct, isCustom ? baseColor : activeColor, darkColor, Alignment.MID, CutStyle.ALL, 82f, 20f, 0f),
+                inhAct);
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(x + 112f, 2f);
+
+        rowUi.setHeightSoFar(25f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
+    private void addDivisionStandoffRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            int effStandoff,
+            int longestWeaponRange,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 48f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 48f, false);
+
+        String statusTag = isCustom
+                ? ((longestWeaponRange > 0 && Math.abs(effStandoff - longestWeaponRange) <= 25) ? "Auto-Weapon" : "Custom")
+                : "Inherited";
+        String label = String.format(
+                Locale.ROOT,
+                "Line Standoff: %du (%.2fx Paragon) [%s | Max Range: %du]",
+                effStandoff,
+                effStandoff / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
+                statusTag,
+                longestWeaponRange);
+        rowUi.addPara(label, 3f, highlight, label).getPosition().inTL(2f, 3f);
+
+        String decAct = "DIV_STANDOFF:" + Math.max(PermanentDivisionManager.MIN_STANDOFF_UNITS, effStandoff - 100);
+        ButtonAPI bDec = registerButton(
+                rowUi.addButton("-100u", decAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
+                decAct);
+        bDec.getPosition().inTL(2f, 25f);
+
+        String incAct = "DIV_STANDOFF:" + Math.min(PermanentDivisionManager.MAX_STANDOFF_UNITS, effStandoff + 100);
+        ButtonAPI bInc = registerButton(
+                rowUi.addButton("+100u", incAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
+                incAct);
+        bInc.getPosition().inTL(62f, 25f);
+
+        String autoLabel = longestWeaponRange > 0
+                ? ("Auto-Set From Max Weapon (" + longestWeaponRange + "u)")
+                : "Auto-Set From Max Weapon";
+        ButtonAPI bAuto = registerButton(
+                rowUi.addButton(autoLabel, "DIV_STANDOFF:AUTO", positive, darkColor, Alignment.MID, CutStyle.TL_BR, 230f, 20f, 0f),
+                "DIV_STANDOFF:AUTO");
+        bAuto.setEnabled(longestWeaponRange > 0);
+        bAuto.getPosition().inTL(122f, 25f);
+
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton("Inherit BG", "DIV_STANDOFF:INHERIT", !isCustom ? positive : baseColor, darkColor, Alignment.MID, CutStyle.ALL, 88f, 20f, 0f),
+                "DIV_STANDOFF:INHERIT");
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(356f, 25f);
+
+        rowUi.setHeightSoFar(48f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
+    private void addDivisionMissionDropdownRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            String labelText,
+            String dropdownKey,
+            DivisionMissionType effMission,
+            boolean isCustom,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeColor,
+            Color gray) {
+
+        boolean expanded = dropdownKey.equals(expandedDropdownKey);
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 25f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 25f, false);
+
+        rowUi.addPara(labelText, 3f, baseColor).getPosition().inTL(2f, 4f);
+
+        String toggleAct = "TOGGLE_DD:" + dropdownKey;
+        String prefix = isCustom ? "" : "[BG] ";
+        String btnText = (expanded ? "[^] " : "[v] ") + prefix + effMission.dropdownLabel;
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(btnText, toggleAct, activeColor, darkColor, Alignment.LMID, CutStyle.TL_BR, 265f, 21f, 0f),
+                toggleAct);
+        if (expanded) bToggle.highlight();
+        bToggle.getPosition().inTL(rowWidth - 268f, 2f);
+
+        rowUi.setHeightSoFar(25f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+
+        if (expanded) {
+            // Option 0: Inherit Battlegroup Default
+            CustomPanelAPI inhPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
+            TooltipMakerAPI inhUi = inhPanel.createUIElement(rowWidth, 22f, false);
+            String inhAct = actionPrefix + "INHERIT";
+            ButtonAPI bInh = registerButton(
+                    inhUi.addButton(
+                            (!isCustom ? "* " : "   ") + "Inherit Battlegroup Default",
+                            inhAct,
+                            !isCustom ? activeColor : baseColor,
+                            darkColor,
+                            Alignment.LMID,
+                            CutStyle.ALL,
+                            rowWidth - 24f,
+                            19f,
+                            0f),
+                    inhAct);
+            if (!isCustom) bInh.highlight();
+            bInh.getPosition().inTL(16f, 1f);
+            inhUi.setHeightSoFar(22f);
+            inhPanel.addUIElement(inhUi).inTL(0f, 0f);
+            col.addCustom(inhPanel, 1f);
+
+            for (DivisionMissionType opt : DivisionMissionType.values()) {
+                boolean selected = isCustom && (opt == effMission);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 22f, false);
+                String selAct = actionPrefix + opt.name();
+                ButtonAPI bOpt = registerButton(
+                        optUi.addButton(
+                                (selected ? "* " : "   ") + opt.dropdownLabel,
+                                selAct,
+                                selected ? activeColor : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                rowWidth - 24f,
+                                19f,
+                                0f),
+                        selAct);
+                if (selected) bOpt.highlight();
+                bOpt.getPosition().inTL(16f, 1f);
+                optUi.setHeightSoFar(22f);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                col.addCustom(optPanel, 1f);
+            }
+        }
+    }
+
     private void savePendingNameFieldIfAny() {
         if (activeDivisionId != null && activeNameField != null) {
             String text = activeNameField.getText();
@@ -784,6 +1086,65 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         if ("BACK_TO_LIST".equals(cmd)) {
             savePendingNameFieldIfAny();
             activeDivisionId = null;
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("TOGGLE_DD:")) {
+            savePendingNameFieldIfAny();
+            String key = cmd.substring("TOGGLE_DD:".length());
+            expandedDropdownKey = key.equals(expandedDropdownKey) ? null : key;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_INTRA:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_INTRA:".length());
+            Integer val = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
+            PermanentDivisionManager.updateIndividualDivisionSettings(
+                    activeDivisionId, true, val, false, null, false, null, false, null, false, null);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_INTER:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_INTER:".length());
+            Integer val = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
+            PermanentDivisionManager.updateIndividualDivisionSettings(
+                    activeDivisionId, false, null, true, val, false, null, false, null, false, null);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_STANDOFF:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_STANDOFF:".length());
+            if ("AUTO".equals(arg)) {
+                PermanentDivisionManager.autoSetDivisionLineStandoff(activeDivisionId);
+            } else {
+                Integer val = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
+                PermanentDivisionManager.updateIndividualDivisionSettings(
+                        activeDivisionId, false, null, false, null, true, val, false, null, false, null);
+            }
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_OPEN_MIS:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_OPEN_MIS:".length());
+            DivisionMissionType mis = "INHERIT".equals(arg) ? null : DivisionMissionType.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionSettings(
+                    activeDivisionId, false, null, false, null, false, null, true, mis, false, null);
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_MAIN_MIS:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_MAIN_MIS:".length());
+            DivisionMissionType mis = "INHERIT".equals(arg) ? null : DivisionMissionType.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionSettings(
+                    activeDivisionId, false, null, false, null, false, null, false, null, true, mis);
+            expandedDropdownKey = null;
             rebuildContent();
             return;
         }

@@ -201,10 +201,16 @@ public class DivisionModel {
         public float avgMaxSpeed;
         public float avgEngageRange;
 
-        // Customizable Fleet Doctrine division-type modifiers (in-game units; Paragon length = 364u)
+        // Customizable Fleet Doctrine & Division-specific settings (in-game units; Paragon length = 364u)
         public float idealIntraSpacing = 450f;
+        public float idealInterSpacing = 950f;
         public float lineStandoffDistance = 850f;
         public float cohesionLeashMult = 1.0f;
+        public float openingPhaseDurationSeconds = 45f;
+        public PermanentDivisionManager.DivisionMissionType openingMission =
+                PermanentDivisionManager.DivisionMissionType.RECONNAISSANCE;
+        public PermanentDivisionManager.DivisionMissionType mainMission =
+                PermanentDivisionManager.DivisionMissionType.DOMINATE_SPACE_INTO_BRAWL;
 
         // Dynamic telemetry updated every evaluation tick
         public final Vector2f centroid = new Vector2f();

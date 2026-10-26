@@ -434,19 +434,27 @@ public class DivisionAutoFormer {
                 || div.archetype == DivisionArchetype.PHASE_DIVISION
                 || div.archetype == DivisionArchetype.TORPEDO_DESTROYER_DIVISION);
 
-        // Customizable Fleet Doctrine division-type modifiers (ideal intra-division spacing, standoff, leash)
+        // Customizable Fleet Doctrine division-type modifiers (intra-spacing, inter-spacing, standoff, leash, opening & main missions)
         PermanentDivisionManager.DoctrineDivisionType docType =
                 PermanentDivisionManager.DoctrineDivisionType.forArchetype(div.archetype);
         boolean isPlayerOwnedDiv = (div.side == 0) && (div.flagship == null || !div.flagship.isAlly());
         if (isPlayerOwnedDiv) {
             PermanentDivisionManager.FleetDoctrineConfig docCfg = PermanentDivisionManager.getFleetDoctrine();
             div.idealIntraSpacing = docCfg.getIdealSpacing(docType);
+            div.idealInterSpacing = docCfg.getInterSpacing(docType);
             div.lineStandoffDistance = docCfg.getLineStandoff(docType);
             div.cohesionLeashMult = docCfg.getLeashMult(docType);
+            div.openingPhaseDurationSeconds = docCfg.getOpeningDurationSeconds();
+            div.openingMission = docCfg.getOpeningMission(docType);
+            div.mainMission = docCfg.getMainMission(docType);
         } else {
             div.idealIntraSpacing = docType.defaultIdealSpacingUnits;
+            div.idealInterSpacing = docType.defaultInterSpacingUnits;
             div.lineStandoffDistance = docType.defaultLineStandoffUnits;
             div.cohesionLeashMult = docType.defaultLeashMult;
+            div.openingPhaseDurationSeconds = 45f;
+            div.openingMission = docType.defaultOpeningMission;
+            div.mainMission = docType.defaultMainMission;
         }
 
         // Desired cohesion radius scales by archetype, ideal intra-division spacing, and commander strictness

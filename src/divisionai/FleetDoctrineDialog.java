@@ -12,6 +12,7 @@ import com.fs.starfarer.api.ui.PositionAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
+import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
@@ -25,14 +26,17 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Campaign-layer Fleet Doctrine modal screen accessible from the "Fleet Doctrine" button on the
- * left sidebar of the Fleet screen.
+ * Campaign-layer Fleet Doctrine & Battlegroup Settings modal screen accessible from the
+ * "Fleet Doctrine" button on the left sidebar of the Fleet screen.
  *
  * Configures:
- *  1. Variable tactical modifiers for each Division Type:
- *     - Ideal intra-division spacing (in units, with Paragon length = 364 units reference subtitle)
- *     - Battle-line standoff / screen distance (in units)
- *     - Cohesion & pursuit leash multiplier
+ *  1. Battlegroup Settings (inherited by divisions of each type unless overridden in Division Settings):
+ *     - Intra-division spacing (in units, with Paragon length = 364 units reference subtitle)
+ *     - Inter-division spacing (in units)
+ *     - Line Standoff distance (in units)
+ *     - Opening Mission (drop-down menu: a. Reconnaissance, b. Dominate Space into Brawl,
+ *       c. Standoff at Range, d. Outflank and Destroy, e. Screen; 30s - 60s window)
+ *     - Main Mission (drop-down menu: a..e; rest of battle)
  *  2. The 14 hull-count rules (minimum & maximum hulls per division across all 7 hull categories,
  *     subject to the hard cap: Maximum division size no matter what is 10).
  */
@@ -42,7 +46,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private static final float DIALOG_HEIGHT = 680f;
 
     private static final int[] SPACING_PRESETS = {200, 300, 400, 500, 600, 750, 900, 1100};
-    private static final int[] STANDOFF_PRESETS = {500, 650, 800, 950, 1100, 1300, 1500, 1700};
+    private static final int[] INTER_SPACING_PRESETS = {500, 700, 900, 1100, 1300, 1500, 1800, 2100};
+    private static final int[] STANDOFF_PRESETS = {450, 650, 800, 950, 1150, 1400, 1700, 2000};
+    private static final int[] OPENING_DURATION_PRESETS = {30, 35, 40, 45, 50, 55, 60};
     private static final float[] LEASH_PRESETS = {0.75f, 0.90f, 1.00f, 1.15f, 1.30f, 1.50f};
 
     private enum ActiveTab {
@@ -56,6 +62,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private CustomPanelAPI contentContainer;
     private boolean closed = false;
     private ActiveTab activeTab = ActiveTab.ALL_DOCTRINE;
+    private String expandedDropdownKey = null;
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
     private String pendingAction = null;
@@ -251,47 +258,58 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.DIVISION_MODIFIERS) {
             body.addSectionHeading(
-                    "DIVISION TYPE MODIFIERS  (Reference: Paragon Length = "
-                            + PermanentDivisionManager.PARAGON_LENGTH_UNITS + " units)",
+                    "BATTLEGROUP SETTINGS — SPACING, LINE STANDOFF & MISSIONS  (Paragon Length = "
+                            + PermanentDivisionManager.PARAGON_LENGTH_UNITS + "u)",
                     highlight,
                     darkColor,
                     Alignment.LMID,
                     4f);
             body.addPara(
-                    "Adjust ideal intra-division spacing (ship-to-ship distance inside a division), battle-line standoff/screen "
-                            + "distance (clearance from the main battle line), and cohesion leash per division type. "
-                            + "(1.00x Paragon length = %s in-game units)",
+                    "Battlegroup Settings are inherited by all divisions of each type unless overridden on an individual division in the Division Editor. "
+                            + "Opening Mission runs for the first 30-60s (%ss); Main Mission runs for the rest of the battle.",
                     4f,
                     gray,
                     highlight,
-                    String.valueOf(PermanentDivisionManager.PARAGON_LENGTH_UNITS));
+                    String.valueOf(doctrine.getOpeningDurationSeconds()));
+
+            // Opening Mission Duration (30s - 60s)
+            addOpeningDurationRow(
+                    body,
+                    bodyWidth - 16f,
+                    doctrine.getOpeningDurationSeconds(),
+                    baseColor,
+                    darkColor,
+                    positive);
 
             for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
                 int currSpacing = doctrine.getIdealSpacing(dt);
+                int currInter = doctrine.getInterSpacing(dt);
                 int currStandoff = doctrine.getLineStandoff(dt);
-                float currLeash = doctrine.getLeashMult(dt);
+                DivisionMissionType currOpenMis = doctrine.getOpeningMission(dt);
+                DivisionMissionType currMainMis = doctrine.getMainMission(dt);
 
                 float spacingParagons = currSpacing / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
+                float interParagons = currInter / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
                 float standoffParagons = currStandoff / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
 
                 String dtTitle = String.format(
                         Locale.ROOT,
-                        "%s  —  Ideal Spacing: %du (%.2fx Paragon)  |  Line Standoff: %du (%.2fx Paragon)  |  Leash: %.2fx",
+                        "%s  —  Intra: %du  |  Inter: %du  |  Standoff: %du  |  %s -> %s",
                         dt.displayName.toUpperCase(Locale.ROOT),
                         currSpacing,
-                        spacingParagons,
+                        currInter,
                         currStandoff,
-                        standoffParagons,
-                        currLeash);
+                        currOpenMis.shortName,
+                        currMainMis.shortName);
                 body.addSectionHeading(dtTitle, baseColor, darkColor, Alignment.LMID, 6f);
 
-                // Row 1: Ideal intra-division spacing (in units)
+                // Row 1: Intra-division spacing (in units)
                 addUnitModifierRow(
                         body,
                         bodyWidth - 16f,
                         String.format(
                                 Locale.ROOT,
-                                "Ideal intra-division spacing: %du (%.2fx Paragon)",
+                                "Intra-division spacing: %du (%.2fx Paragon)",
                                 currSpacing,
                                 spacingParagons),
                         currSpacing,
@@ -304,13 +322,32 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         positive);
 
-                // Row 2: Battle-line standoff / screen distance (in units)
+                // Row 2: Inter-division spacing (in units)
                 addUnitModifierRow(
                         body,
                         bodyWidth - 16f,
                         String.format(
                                 Locale.ROOT,
-                                "Battle-line standoff / screen: %du (%.2fx Paragon)",
+                                "Inter-division spacing: %du (%.2fx Paragon)",
+                                currInter,
+                                interParagons),
+                        currInter,
+                        100,
+                        PermanentDivisionManager.MIN_INTER_SPACING_UNITS,
+                        PermanentDivisionManager.MAX_INTER_SPACING_UNITS,
+                        INTER_SPACING_PRESETS,
+                        "SET_INTER:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        positive);
+
+                // Row 3: Line Standoff distance (in units)
+                addUnitModifierRow(
+                        body,
+                        bodyWidth - 16f,
+                        String.format(
+                                Locale.ROOT,
+                                "Line Standoff distance: %du (%.2fx Paragon)",
                                 currStandoff,
                                 standoffParagons),
                         currStandoff,
@@ -323,16 +360,31 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         highlight);
 
-                // Row 3: Cohesion leash multiplier
-                addLeashModifierRow(
+                // Row 4: Opening Mission Drop-Down Menu (30s - 60s)
+                addMissionDropdownRow(
                         body,
                         bodyWidth - 16f,
-                        String.format(Locale.ROOT, "Cohesion & pursuit leash multiplier: %.2fx", currLeash),
-                        currLeash,
-                        "SET_LEASH:" + dt.name() + ":",
+                        dt.displayName + " Opening Mission (0-" + doctrine.getOpeningDurationSeconds() + "s):",
+                        "OPEN_MIS_" + dt.name(),
+                        currOpenMis,
+                        "SET_OPEN_MIS:" + dt.name() + ":",
                         baseColor,
                         darkColor,
-                        positive);
+                        positive,
+                        gray);
+
+                // Row 5: Main Mission Drop-Down Menu (rest of battle)
+                addMissionDropdownRow(
+                        body,
+                        bodyWidth - 16f,
+                        dt.displayName + " Main Mission (rest of battle):",
+                        "MAIN_MIS_" + dt.name(),
+                        currMainMis,
+                        "SET_MAIN_MIS:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        highlight,
+                        gray);
             }
         }
 
@@ -384,6 +436,123 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
 
         contentContainer.addUIElement(body).inTL(12f, bodyTop);
+    }
+
+    private void addOpeningDurationRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            int currentSeconds,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        String label = String.format(Locale.ROOT, "Opening Mission Window (30s-60s): %ds", currentSeconds);
+        rowUi.addPara(label, 4f, activeValueColor, label).getPosition().inTL(4f, 4f);
+
+        float xCursor = 355f;
+        for (int sec : OPENING_DURATION_PRESETS) {
+            boolean selected = (sec == currentSeconds);
+            String act = "SET_OPEN_DUR:" + sec;
+            ButtonAPI bSec = registerButton(
+                    rowUi.addButton(
+                            sec + "s",
+                            act,
+                            selected ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            62f,
+                            21f,
+                            0f),
+                    act);
+            if (selected) {
+                bSec.highlight();
+            }
+            bSec.getPosition().inTL(xCursor, 2f);
+            xCursor += 68f;
+        }
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 3f);
+    }
+
+    private void addMissionDropdownRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            String dropdownKey,
+            DivisionMissionType currentMission,
+            String selectActionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+
+        boolean expanded = dropdownKey.equals(expandedDropdownKey);
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        rowUi.addPara(labelText, 4f, baseColor).getPosition().inTL(4f, 4f);
+
+        String toggleAct = "TOGGLE_DD:" + dropdownKey;
+        String btnText = (expanded ? "[^] " : "[v] ") + currentMission.dropdownLabel + "  (Click to change)";
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        activeValueColor,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        420f,
+                        22f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(355f, 2f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+
+        if (expanded) {
+            for (DivisionMissionType option : DivisionMissionType.values()) {
+                boolean isCurrent = (option == currentMission);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 24f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
+
+                String selAct = selectActionPrefix + option.name();
+                ButtonAPI bOpt = registerButton(
+                        optUi.addButton(
+                                (isCurrent ? "* " : "   ") + option.dropdownLabel,
+                                selAct,
+                                isCurrent ? activeValueColor : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                285f,
+                                20f,
+                                0f),
+                        selAct);
+                if (isCurrent) {
+                    bOpt.highlight();
+                }
+                bOpt.getPosition().inTL(370f, 2f);
+
+                optUi.addPara(option.summary, 3f, gray).getPosition().inTL(665f, 3f);
+
+                optUi.setHeightSoFar(24f);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                body.addCustom(optPanel, 1f);
+            }
+        }
     }
 
     private void addUnitModifierRow(
@@ -648,6 +817,19 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
         if ("RESET_DEFAULTS".equals(cmd)) {
             PermanentDivisionManager.resetFleetDoctrineToDefaults();
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("TOGGLE_DD:")) {
+            String key = cmd.substring("TOGGLE_DD:".length());
+            expandedDropdownKey = key.equals(expandedDropdownKey) ? null : key;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_OPEN_DUR:")) {
+            int sec = Integer.parseInt(cmd.substring("SET_OPEN_DUR:".length()));
+            PermanentDivisionManager.updateOpeningDurationSeconds(sec);
             rebuildContent();
             return;
         }
@@ -663,6 +845,18 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             return;
         }
+        if (cmd.startsWith("SET_INTER:")) {
+            String rest = cmd.substring("SET_INTER:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                String dtStr = rest.substring(0, sep);
+                int val = Integer.parseInt(rest.substring(sep + 1));
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
+                PermanentDivisionManager.updateDivisionTypeInterSpacing(dt, val);
+                rebuildContent();
+            }
+            return;
+        }
         if (cmd.startsWith("SET_STANDOFF:")) {
             String rest = cmd.substring("SET_STANDOFF:".length());
             int sep = rest.indexOf(':');
@@ -671,6 +865,34 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 int val = Integer.parseInt(rest.substring(sep + 1));
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
                 PermanentDivisionManager.updateDivisionTypeStandoff(dt, val);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_OPEN_MIS:")) {
+            String rest = cmd.substring("SET_OPEN_MIS:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                String dtStr = rest.substring(0, sep);
+                String misStr = rest.substring(sep + 1);
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
+                DivisionMissionType mis = DivisionMissionType.valueOf(misStr);
+                PermanentDivisionManager.updateDivisionTypeMission(dt, true, mis);
+                expandedDropdownKey = null;
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_MAIN_MIS:")) {
+            String rest = cmd.substring("SET_MAIN_MIS:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                String dtStr = rest.substring(0, sep);
+                String misStr = rest.substring(sep + 1);
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
+                DivisionMissionType mis = DivisionMissionType.valueOf(misStr);
+                PermanentDivisionManager.updateDivisionTypeMission(dt, false, mis);
+                expandedDropdownKey = null;
                 rebuildContent();
             }
             return;
