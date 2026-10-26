@@ -165,7 +165,7 @@ public class DivisionCommanderAI {
         boolean inFlankManeuver = (div.currentIntent == DivisionIntentType.WORK_FLANK);
 
         boolean windowElapsedAndPressured = ((now - div.strikeCommittedTimestamp) >= STRIKE_WINDOW_DURATION)
-                && (div.avgFluxLevel >= 0.30f || div.localEnemyStrength >= 10f);
+                && (div.avgFluxLevel >= 0.25f || (div.avgFluxLevel >= 0.12f && div.localEnemyStrength >= 14f && div.localForceRatio < 0.85f));
         boolean missileRunComplete = inMissileStrike && (windowElapsedAndPressured
                 || div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.90f
                 || (div.hasMissileStrikeCapability && div.usableStrikeAmmoCount <= 0 && div.avgFluxLevel >= 0.25f));

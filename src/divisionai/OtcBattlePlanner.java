@@ -458,7 +458,12 @@ public class OtcBattlePlanner {
             float nearestDist = Float.MAX_VALUE;
             for (DivisionState e : broken) {
                 float dist = distance(d.centroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e));
-                if (d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e) dist -= 600f;
+                if (d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e) {
+                    dist -= 1000f;
+                }
+                if (e.archetype == DivisionArchetype.PHASE_DIVISION && d.archetype != DivisionArchetype.PHASE_DIVISION) {
+                    dist += 1100f;
+                }
                 if (dist < nearestDist) {
                     nearestDist = dist;
                     nearest = e;

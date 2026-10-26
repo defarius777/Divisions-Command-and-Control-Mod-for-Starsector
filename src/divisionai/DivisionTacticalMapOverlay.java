@@ -191,10 +191,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         float fade = Math.min(1f, cmdOpacity * alphaMult);
         float baseCircleAlpha = DivisionAISettings.getDivisionCircleBaseAlpha() * fade;
-        float ringAlpha = Math.min(0.48f, baseCircleAlpha * 1.65f);
-        float friendlyLineAlpha = Math.min(0.42f, baseCircleAlpha * 1.55f);
-        // Sparing, fainter line alpha on visible enemy ships
-        float enemyLineAlpha = Math.min(0.26f, baseCircleAlpha * 0.95f);
+        float friendlyLineAlpha = Math.min(0.84f, Math.max(0.56f, baseCircleAlpha * 2.85f)) * fade;
+        float enemyLineAlpha = Math.min(0.56f, Math.max(0.36f, baseCircleAlpha * 1.85f)) * fade;
 
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
@@ -215,7 +213,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     offsetX,
                     offsetY,
                     baseCircleAlpha,
-                    ringAlpha,
                     friendlyLineAlpha);
         }
         if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
@@ -227,7 +224,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     offsetX,
                     offsetY,
                     baseCircleAlpha,
-                    ringAlpha,
                     friendlyLineAlpha);
         }
 
@@ -241,7 +237,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     offsetX,
                     offsetY,
                     baseCircleAlpha,
-                    ringAlpha,
                     enemyLineAlpha);
         }
 
@@ -268,7 +263,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetX,
             float offsetY,
             float baseCircleAlpha,
-            float ringAlpha,
             float lineAlpha) {
 
         for (DivisionState div : battleGroup.divisions) {
@@ -291,48 +285,46 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             boolean scatteredCohesion = !isEnemy
                     && (div.currentIntent == DivisionIntentType.CLOSE_UP || div.stationKeepingRatio > 1.30f);
 
-            // 1a. Project a small translucent circle around each constituent member ship:
+            // 1a. Project a borderless, soft-feathered translucent circle around each constituent member ship
+            //     so overlapping circles flow together naturally into a unified maneuver footprint:
             //     - Player's directly controlled forces (!isEnemy && !member.isAlly()) = Green (Amber if CLOSE_UP)
             //     - Non-player-controlled friendly/allied forces (!isEnemy && member.isAlly()) = Yellow
             //     - Visible enemy forces (isEnemy) = Red
+            float centerAlpha = Math.min(0.45f, baseCircleAlpha * 1.25f);
+            float edgeAlpha = baseCircleAlpha * 0.42f;
             for (ShipAPI member : visibleMembers) {
                 float mx = member.getLocation().x * scale + offsetX;
                 float my = member.getLocation().y * scale + offsetY;
                 float worldRadius = getMemberFootprintRadiusWorld(member);
-                float radiusPx = clamp(worldRadius * scale, 13f, 48f);
+                float radiusPx = clamp(worldRadius * scale, 14f, 52f);
                 boolean isAlliedAi = !isEnemy && member.isAlly();
 
+                float cr;
+                float cg;
+                float cb;
                 if (isEnemy) {
-                    GL11.glColor4f(0.96f, 0.20f, 0.20f, baseCircleAlpha);
+                    cr = 0.96f;
+                    cg = 0.20f;
+                    cb = 0.20f;
                 } else if (isAlliedAi) {
-                    GL11.glColor4f(1.00f, 0.86f, 0.16f, baseCircleAlpha);
+                    cr = 1.00f;
+                    cg = 0.86f;
+                    cb = 0.16f;
                 } else if (scatteredCohesion) {
-                    GL11.glColor4f(1.00f, 0.64f, 0.18f, baseCircleAlpha);
+                    cr = 1.00f;
+                    cg = 0.64f;
+                    cb = 0.18f;
                 } else {
-                    GL11.glColor4f(0.18f, 0.92f, 0.38f, baseCircleAlpha);
+                    cr = 0.18f;
+                    cg = 0.92f;
+                    cb = 0.38f;
                 }
-                GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-                GL11.glVertex2f(mx, my);
-                for (int i = 0; i <= CIRCLE_SEGMENTS; i++) {
-                    double angle = (2.0 * Math.PI * i) / CIRCLE_SEGMENTS;
-                    float px = mx + (float) Math.cos(angle) * radiusPx;
-                    float py = my + (float) Math.sin(angle) * radiusPx;
-                    GL11.glVertex2f(px, py);
-                }
-                GL11.glEnd();
 
-                GL11.glLineWidth(1.15f);
-                if (isEnemy) {
-                    GL11.glColor4f(1.00f, 0.34f, 0.32f, ringAlpha);
-                } else if (isAlliedAi) {
-                    GL11.glColor4f(1.00f, 0.92f, 0.32f, ringAlpha);
-                } else if (scatteredCohesion) {
-                    GL11.glColor4f(1.00f, 0.75f, 0.25f, ringAlpha);
-                } else {
-                    GL11.glColor4f(0.32f, 0.98f, 0.50f, ringAlpha);
-                }
-                GL11.glBegin(GL11.GL_LINE_LOOP);
-                for (int i = 0; i < CIRCLE_SEGMENTS; i++) {
+                GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+                GL11.glColor4f(cr, cg, cb, centerAlpha);
+                GL11.glVertex2f(mx, my);
+                GL11.glColor4f(cr, cg, cb, edgeAlpha);
+                for (int i = 0; i <= CIRCLE_SEGMENTS; i++) {
                     double angle = (2.0 * Math.PI * i) / CIRCLE_SEGMENTS;
                     float px = mx + (float) Math.cos(angle) * radiusPx;
                     float py = my + (float) Math.sin(angle) * radiusPx;
@@ -341,7 +333,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 GL11.glEnd();
             }
 
-            // 1b. Faint lines from the division flagship toward constituent members.
+            // 1b. High-visibility lines from the division flagship toward constituent members.
             //     For enemy divisions, lines are drawn sparingly to prevent OpSec breaches:
             //     ONLY if the actual division flagship is visible to the player AND the visible
             //     member is within close visual cohesion range (<= 1150u) of that flagship.
@@ -358,15 +350,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float fy = flagship.getLocation().y * scale + offsetY;
                 boolean isAlliedAiFlagship = !isEnemy && flagship.isAlly();
 
-                GL11.glLineWidth(isEnemy ? 1.0f : 1.2f);
+                GL11.glLineWidth(isEnemy ? 1.75f : 2.35f);
                 if (isEnemy) {
-                    GL11.glColor4f(1.00f, 0.32f, 0.30f, lineAlpha);
+                    GL11.glColor4f(1.00f, 0.42f, 0.38f, lineAlpha);
                 } else if (isAlliedAiFlagship) {
-                    GL11.glColor4f(1.00f, 0.90f, 0.30f, lineAlpha);
+                    GL11.glColor4f(1.00f, 0.94f, 0.40f, lineAlpha);
                 } else if (scatteredCohesion) {
-                    GL11.glColor4f(1.00f, 0.72f, 0.24f, lineAlpha);
+                    GL11.glColor4f(1.00f, 0.78f, 0.30f, lineAlpha);
                 } else {
-                    GL11.glColor4f(0.42f, 1.00f, 0.58f, lineAlpha);
+                    GL11.glColor4f(0.52f, 1.00f, 0.68f, lineAlpha);
                 }
                 GL11.glBegin(GL11.GL_LINES);
                 for (ShipAPI member : visibleMembers) {
@@ -444,13 +436,13 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float rx = bx + latX * halfW;
             float ry = by + latY * halfW;
 
-            GL11.glLineWidth(1.8f);
+            GL11.glLineWidth(2.4f);
             if (isAllied) {
-                GL11.glColor4f(1.00f, 0.90f, 0.32f, Math.min(0.68f, lineAlpha * 1.3f));
+                GL11.glColor4f(1.00f, 0.92f, 0.36f, Math.min(0.88f, lineAlpha * 1.15f));
             } else if (div.currentIntent == DivisionIntentType.CLOSE_UP) {
-                GL11.glColor4f(1.00f, 0.72f, 0.22f, Math.min(0.72f, lineAlpha * 1.4f));
+                GL11.glColor4f(1.00f, 0.76f, 0.26f, Math.min(0.90f, lineAlpha * 1.20f));
             } else {
-                GL11.glColor4f(0.35f, 0.96f, 0.68f, Math.min(0.68f, lineAlpha * 1.3f));
+                GL11.glColor4f(0.42f, 1.00f, 0.72f, Math.min(0.88f, lineAlpha * 1.15f));
             }
 
             GL11.glBegin(GL11.GL_LINE_STRIP);
@@ -498,35 +490,35 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float px = -uy;
         float py = ux;
 
-        float vecAlpha = Math.min(0.70f, lineAlpha * 1.35f);
+        float vecAlpha = Math.min(0.88f, lineAlpha * 1.15f);
         if (targetIsEnemy) {
-            GL11.glColor4f(1.00f, 0.58f, 0.22f, vecAlpha);
+            GL11.glColor4f(1.00f, 0.62f, 0.24f, vecAlpha);
         } else if (intent == DivisionIntentType.HAUL_OUT_TO_VENT || intent == DivisionIntentType.BREAK_OFF_AND_RETIRE) {
-            GL11.glColor4f(0.45f, 0.85f, 1.00f, vecAlpha);
+            GL11.glColor4f(0.50f, 0.88f, 1.00f, vecAlpha);
         } else if (intent == DivisionIntentType.TAKE_SCREENING_STATION || intent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL) {
-            GL11.glColor4f(0.35f, 0.95f, 0.85f, vecAlpha);
+            GL11.glColor4f(0.40f, 0.98f, 0.88f, vecAlpha);
         } else {
-            GL11.glColor4f(0.40f, 0.95f, 0.65f, vecAlpha);
+            GL11.glColor4f(0.48f, 1.00f, 0.70f, vecAlpha);
         }
 
         float startOffset = 16f;
         float endOffset = targetIsEnemy ? 14f : 6f;
         float shaftLen = distPx - startOffset - endOffset;
         if (shaftLen > 8f) {
-            GL11.glLineWidth(1.5f);
+            GL11.glLineWidth(2.15f);
             int dashes = Math.max(3, Math.min(18, (int) (shaftLen / 14f)));
             float step = shaftLen / dashes;
             GL11.glBegin(GL11.GL_LINES);
             for (int i = 0; i < dashes; i++) {
                 float s0 = startOffset + i * step;
-                float s1 = startOffset + (i + 0.62f) * step;
+                float s1 = startOffset + (i + 0.65f) * step;
                 GL11.glVertex2f(fx + ux * s0, fy + uy * s0);
                 GL11.glVertex2f(fx + ux * s1, fy + uy * s1);
             }
             GL11.glEnd();
         }
 
-        GL11.glLineWidth(1.8f);
+        GL11.glLineWidth(2.4f);
         if (targetIsEnemy) {
             float r = 9f;
             GL11.glBegin(GL11.GL_LINE_LOOP);
@@ -717,7 +709,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         String key = prefix + text;
         LabelAPI label = labelCache.get(key);
         if (label == null) {
-            label = Global.getSettings().createLabel(text, Fonts.DEFAULT_SMALL);
+            // Use Starsector's blocky, geometric Orbitron display typeface:
+            //  - ORBITRON_20AA for primary division callsigns
+            //  - GROUP_NUM_FONT (orbitron12) for the compact tactical intent & flux readout
+            String font = isIntentBadge ? Fonts.GROUP_NUM_FONT : Fonts.ORBITRON_20AA;
+            label = Global.getSettings().createLabel(text, font);
             if (isEnemy) {
                 label.setColor(ENEMY_LABEL_COLOR);
             } else if (isAlliedAi) {
