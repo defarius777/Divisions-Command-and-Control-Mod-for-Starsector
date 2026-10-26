@@ -11,6 +11,7 @@ import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
 import divisionai.DivisionNomenclature;
 import divisionai.DivisionNomenclature.NomenclatureCategory;
+import divisionai.DivisionTacticalMapOverlay;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.sim.SimArena.ScenarioRecording;
@@ -66,6 +67,7 @@ public class DivisionAITestSuite {
         testHighFluxLineRotationAndRelief();
         testTimeOnTargetCoordinatedStrike();
         testCulturalNomenclatureAndPrefixBuckets();
+        testFluidDivisionPolygonsAndOverlapStriping();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -404,6 +406,56 @@ public class DivisionAITestSuite {
         check("Battle Div. I".equals(hegBattle1) && sharedCarrierBucket,
                 "Standard Battleship Division formats as 'Battle Div. I' and Carrier sub-archetypes share numbering bucket",
                 "hegBattle1='" + hegBattle1 + "', sharedCarrierBucket=" + sharedCarrierBucket);
+    }
+
+    /**
+     * Scenario 6: Fluid Division Polygon, Chaikin Smoothing, and Sutherland-Hodgman Overlap Striping.
+     */
+    private static void testFluidDivisionPolygonsAndOverlapStriping() {
+        System.out.println("\n--- Scenario 6: Fluid Division Polygons & Overlap Striping Geometry ---");
+        List<Vector2f> divACloud = new ArrayList<>();
+        List<Vector2f> divBCloud = new ArrayList<>();
+        float[][] shipsA = {{100f, 100f}, {160f, 105f}, {130f, 145f}};
+        float[][] shipsB = {{140f, 110f}, {200f, 115f}, {170f, 155f}};
+        for (float[] s : shipsA) {
+            for (int i = 0; i < 16; i++) {
+                double ang = (2.0 * Math.PI * i) / 16;
+                divACloud.add(new Vector2f(s[0] + (float) Math.cos(ang) * 28f, s[1] + (float) Math.sin(ang) * 28f));
+            }
+        }
+        for (float[] s : shipsB) {
+            for (int i = 0; i < 16; i++) {
+                double ang = (2.0 * Math.PI * i) / 16;
+                divBCloud.add(new Vector2f(s[0] + (float) Math.cos(ang) * 28f, s[1] + (float) Math.sin(ang) * 28f));
+            }
+        }
+
+        List<Vector2f> polyA = DivisionTacticalMapOverlay.chaikinSmoothClosed(
+                DivisionTacticalMapOverlay.chaikinSmoothClosed(
+                        DivisionTacticalMapOverlay.computeConvexHullCCW(divACloud)));
+        List<Vector2f> polyB = DivisionTacticalMapOverlay.chaikinSmoothClosed(
+                DivisionTacticalMapOverlay.chaikinSmoothClosed(
+                        DivisionTacticalMapOverlay.computeConvexHullCCW(divBCloud)));
+
+        float areaA = DivisionTacticalMapOverlay.computePolygonArea(polyA);
+        float areaB = DivisionTacticalMapOverlay.computePolygonArea(polyB);
+        List<Vector2f> overlap = DivisionTacticalMapOverlay.clipConvexPolygon(polyA, polyB);
+        float overlapArea = DivisionTacticalMapOverlay.computePolygonArea(overlap);
+
+        int stripeSlices = 0;
+        for (int k = -20; k <= 40; k++) {
+            List<Vector2f> slab = DivisionTacticalMapOverlay.clipPolygonToDiagonalSlab(overlap, k * 19f, k * 19f + 9.5f);
+            if (slab.size() >= 3 && DivisionTacticalMapOverlay.computePolygonArea(slab) > 1f) {
+                stripeSlices++;
+            }
+        }
+
+        check(polyA.size() >= 24 && areaA > 2000f && overlapArea > 500f && overlapArea < Math.min(areaA, areaB),
+                "Fluid division polygons compute valid CCW Chaikin hulls and non-empty Sutherland-Hodgman overlap",
+                String.format(Locale.ROOT, "vertsA=%d, areaA=%.0f, overlapArea=%.0f", polyA.size(), areaA, overlapArea));
+        check(stripeSlices >= 2,
+                "Overlapping division intersection slices cleanly into thick diagonal stripe bands",
+                "stripeSlices=" + stripeSlices);
     }
 
     /**

@@ -23,6 +23,8 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -35,28 +37,92 @@ import java.util.Map;
  *    or warroom.isShowingVideoFeed() is true; never renders on the full sprite battle view).
  *  - Uses java.lang.invoke.MethodHandles (never java.lang.reflect.*, which Starsector's
  *    script classloader blocks with SecurityException).
- *  - Communicates both Division Footprint and Tactical Intentions:
- *    1. Footprint: Translucent per-hull discs + an oriented Naval Battle-Line Frontage Bar
- *       (with swept wingtips perpendicular to the division's facing axis) + cohesion health
- *       coloring (green when coherent, amber when scattered/reforming).
- *    2. Intentions (Friendly Divisions): Tactical C2 symbology vectors from the division flagship
- *       to its maneuver anchor or target enemy division:
- *       - Attack / Strike: Target vector + crosshair reticle on the enemy division.
- *       - Standoff / Firing Line: Maneuver vector terminating in a perpendicular T-bar firing line.
- *       - Flank / Doubling: Angled flanking arrow with double chevron.
- *       - Screen / Escort: Protective curved shield arc oriented toward the threat.
- *       - Haul Out / Reserve / Close Up: Withdrawal vector or inward rally brackets.
- *    3. Two-Line HUD Readout above Flagship: Division Callsign + compact [INTENT | FLUX] sub-badge.
+ *  - Division-Entity-Centric Visualization:
+ *    1. Fluid Transparent Division Polygon: A smooth, Chaikin-subdivided convex hull enveloping
+ *       the division's ships as a single tactical entity rather than individual ship circles.
+ *    2. Cohesion-Driven Variable Translucency: Tightly formed divisions render with rich translucency;
+ *       divisions in poor cohesion fade smoothly down to nearly fully transparent.
+ *    3. Thickly Striped Overlap Zones: When any two division polygons overlap, their exact geometric
+ *       intersection (Sutherland-Hodgman convex clip) is filled with thick alternating diagonal stripes.
+ *    4. Leading-Edge Effective-Frontage Orientation Bracket: Positioned at the leading edge of the
+ *       division polygon toward the division's main objective or survival goal, spanning the full
+ *       effective lateral frontage of the division, with the intent vector originating from the
+ *       leading-edge bracket center and division labels anchored to the division entity center.
  */
 public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
     private static final Logger LOG = Global.getLogger(DivisionTacticalMapOverlay.class);
-    private static final int CIRCLE_SEGMENTS = 36;
-    private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1150f;
+    private static final int HULL_SAMPLE_POINTS_PER_SHIP = 16;
+    private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1350f;
+    private static final float STRIPE_WIDTH_PX = 9.5f;
+    private static final float STRIPE_PERIOD_PX = STRIPE_WIDTH_PX * 2.0f;
+    private static final float INV_SQRT2 = 0.70710678f;
+
     private static final Color PLAYER_LABEL_COLOR = new Color(165, 255, 185, 235);
     private static final Color PLAYER_INTENT_COLOR = new Color(130, 235, 255, 225);
     private static final Color ALLY_LABEL_COLOR = new Color(255, 235, 110, 240);
     private static final Color ENEMY_LABEL_COLOR = new Color(255, 125, 120, 225);
+
+    private static class RenderedDivisionPolygon {
+        final DivisionState div;
+        final BattleGroupState battleGroup;
+        final boolean isEnemy;
+        final boolean isAlliedAi;
+        final List<ShipAPI> hullMembers;
+        final List<ShipAPI> stragglerMembers;
+        final List<Vector2f> polyScreen; // CCW smooth convex polygon in screen pixels
+        final Vector2f centerScreen;     // Division entity center in screen pixels
+        final float minX;
+        final float maxX;
+        final float minY;
+        final float maxY;
+        final float cr;
+        final float cg;
+        final float cb;
+        final float cohesionAlphaMult;   // 1.0 = tight cohesion, ~0.08 = very poor cohesion
+
+        RenderedDivisionPolygon(
+                DivisionState div,
+                BattleGroupState battleGroup,
+                boolean isEnemy,
+                boolean isAlliedAi,
+                List<ShipAPI> hullMembers,
+                List<ShipAPI> stragglerMembers,
+                List<Vector2f> polyScreen,
+                Vector2f centerScreen,
+                float cr,
+                float cg,
+                float cb,
+                float cohesionAlphaMult) {
+            this.div = div;
+            this.battleGroup = battleGroup;
+            this.isEnemy = isEnemy;
+            this.isAlliedAi = isAlliedAi;
+            this.hullMembers = hullMembers;
+            this.stragglerMembers = stragglerMembers;
+            this.polyScreen = polyScreen;
+            this.centerScreen = centerScreen;
+            this.cr = cr;
+            this.cg = cg;
+            this.cb = cb;
+            this.cohesionAlphaMult = cohesionAlphaMult;
+
+            float x0 = Float.MAX_VALUE;
+            float x1 = -Float.MAX_VALUE;
+            float y0 = Float.MAX_VALUE;
+            float y1 = -Float.MAX_VALUE;
+            for (Vector2f v : polyScreen) {
+                if (v.x < x0) x0 = v.x;
+                if (v.x > x1) x1 = v.x;
+                if (v.y < y0) y0 = v.y;
+                if (v.y > y1) y1 = v.y;
+            }
+            this.minX = x0;
+            this.maxX = x1;
+            this.minY = y0;
+            this.maxY = y1;
+        }
+    }
 
     private CombatEngineAPI engine;
     private BattleGroupState playerGroup;
@@ -190,11 +256,21 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
 
         float fade = Math.min(1f, cmdOpacity * alphaMult);
-        float baseCircleAlpha = DivisionAISettings.getDivisionCircleBaseAlpha() * fade;
-        float friendlyLineAlpha = Math.min(0.84f, Math.max(0.56f, baseCircleAlpha * 2.85f)) * fade;
-        float enemyLineAlpha = Math.min(0.56f, Math.max(0.36f, baseCircleAlpha * 1.85f)) * fade;
+        float basePolyAlpha = DivisionAISettings.getDivisionCircleBaseAlpha() * fade;
+        float friendlyLineAlpha = Math.min(0.88f, Math.max(0.58f, basePolyAlpha * 2.85f)) * fade;
 
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
+
+        List<RenderedDivisionPolygon> renderedPolys = new ArrayList<>();
+        if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
+            collectDivisionPolygons(playerGroup, false, null, scale, offsetX, offsetY, renderedPolys);
+        }
+        if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
+            collectDivisionPolygons(alliedAiGroup, false, null, scale, offsetX, offsetY, renderedPolys);
+        }
+        if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
+            collectDivisionPolygons(enemyGroup, true, playerFog, scale, offsetX, offsetY, renderedPolys);
+        }
 
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glPushMatrix();
@@ -203,288 +279,434 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glEnable(GL11.GL_LINE_SMOOTH);
 
-        // 1. Render Player Divisions (Green) and Allied AI Divisions (Yellow)
-        if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
-            renderBattleGroupCirclesAndLines(
-                    playerGroup,
-                    false,
-                    null,
-                    scale,
-                    offsetX,
-                    offsetY,
-                    baseCircleAlpha,
-                    friendlyLineAlpha);
-        }
-        if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
-            renderBattleGroupCirclesAndLines(
-                    alliedAiGroup,
-                    false,
-                    null,
-                    scale,
-                    offsetX,
-                    offsetY,
-                    baseCircleAlpha,
-                    friendlyLineAlpha);
+        // 1. Render fluid division polygons with variable cohesion translucency
+        for (RenderedDivisionPolygon rp : renderedPolys) {
+            renderSingleDivisionPolygon(rp, basePolyAlpha, scale, offsetX, offsetY);
         }
 
-        // 2. Render Enemy Divisions (ONLY ships visible to the player, with sparing OpSec-safe lines)
-        if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
-            renderBattleGroupCirclesAndLines(
-                    enemyGroup,
-                    true,
-                    playerFog,
-                    scale,
-                    offsetX,
-                    offsetY,
-                    baseCircleAlpha,
-                    enemyLineAlpha);
+        // 2. Render thickly striped overlap zones wherever two division polygons intersect
+        if (renderedPolys.size() >= 2) {
+            renderOverlappingPolygonStripes(renderedPolys, basePolyAlpha);
+        }
+
+        // 3. Render leading-edge effective-frontage orientation brackets & intention vectors for friendly divisions
+        for (RenderedDivisionPolygon rp : renderedPolys) {
+            if (!rp.isEnemy) {
+                renderDivisionLeadingEdgeBracketAndIntent(rp, scale, offsetX, offsetY, friendlyLineAlpha, playerFog);
+            }
         }
 
         GL11.glPopMatrix();
         GL11.glPopAttrib();
 
-        // 3. Render Flagship Division Labels (Player + Allied AI + OpSec-safe visible Enemy flagships)
-        if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
-            renderBattleGroupLabels(playerGroup, false, null, scale, offsetX, offsetY, fade);
-        }
-        if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
-            renderBattleGroupLabels(alliedAiGroup, false, null, scale, offsetX, offsetY, fade);
-        }
-        if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
-            renderBattleGroupLabels(enemyGroup, true, playerFog, scale, offsetX, offsetY, fade);
+        // 4. Render division labels anchored to the division entity itself
+        for (RenderedDivisionPolygon rp : renderedPolys) {
+            renderDivisionEntityLabel(rp, fade);
         }
     }
 
-    private void renderBattleGroupCirclesAndLines(
+    private void collectDivisionPolygons(
             BattleGroupState battleGroup,
             boolean isEnemy,
             FogOfWarAPI playerFog,
             float scale,
             float offsetX,
             float offsetY,
-            float baseCircleAlpha,
-            float lineAlpha) {
+            List<RenderedDivisionPolygon> outList) {
 
         for (DivisionState div : battleGroup.divisions) {
             List<ShipAPI> alive = div.getAliveMembers();
             if (alive.isEmpty()) continue;
 
-            List<ShipAPI> visibleMembers;
+            List<ShipAPI> hullMembers = new ArrayList<>(alive.size());
+            List<ShipAPI> stragglerMembers = new ArrayList<>();
+
             if (!isEnemy) {
-                visibleMembers = alive;
-            } else {
-                visibleMembers = new ArrayList<>(alive.size());
                 for (ShipAPI s : alive) {
-                    if (isEnemyShipVisibleOnCommandMap(s, playerFog)) {
-                        visibleMembers.add(s);
+                    if (div.detachedStragglerIds.contains(s.getId())) {
+                        stragglerMembers.add(s);
+                    } else {
+                        hullMembers.add(s);
                     }
                 }
-                if (visibleMembers.isEmpty()) continue;
-            }
-
-            boolean scatteredCohesion = !isEnemy
-                    && (div.currentIntent == DivisionIntentType.CLOSE_UP || div.stationKeepingRatio > 1.30f);
-
-            // 1a. Project a borderless, soft-feathered translucent circle around each constituent member ship
-            //     so overlapping circles flow together naturally into a unified maneuver footprint:
-            //     - Player's directly controlled forces (!isEnemy && !member.isAlly()) = Green (Amber if CLOSE_UP)
-            //     - Non-player-controlled friendly/allied forces (!isEnemy && member.isAlly()) = Yellow
-            //     - Visible enemy forces (isEnemy) = Red
-            float centerAlpha = Math.min(0.45f, baseCircleAlpha * 1.25f);
-            float edgeAlpha = baseCircleAlpha * 0.42f;
-            for (ShipAPI member : visibleMembers) {
-                float mx = member.getLocation().x * scale + offsetX;
-                float my = member.getLocation().y * scale + offsetY;
-                float worldRadius = getMemberFootprintRadiusWorld(member);
-                float radiusPx = clamp(worldRadius * scale, 14f, 52f);
-                boolean isAlliedAi = !isEnemy && member.isAlly();
-                boolean isMemberStraggler = !isEnemy && div.detachedStragglerIds.contains(member.getId());
-
-                float cr;
-                float cg;
-                float cb;
-                if (isEnemy) {
-                    cr = 0.96f;
-                    cg = 0.20f;
-                    cb = 0.20f;
-                } else if (isAlliedAi) {
-                    cr = 1.00f;
-                    cg = 0.86f;
-                    cb = 0.16f;
-                } else if (scatteredCohesion || isMemberStraggler) {
-                    cr = 1.00f;
-                    cg = 0.64f;
-                    cb = 0.18f;
-                } else {
-                    cr = 0.18f;
-                    cg = 0.92f;
-                    cb = 0.38f;
+                if (hullMembers.isEmpty()) {
+                    hullMembers.addAll(alive);
+                    stragglerMembers.clear();
                 }
-
-                GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-                GL11.glColor4f(cr, cg, cb, centerAlpha);
-                GL11.glVertex2f(mx, my);
-                GL11.glColor4f(cr, cg, cb, edgeAlpha);
-                for (int i = 0; i <= CIRCLE_SEGMENTS; i++) {
-                    double angle = (2.0 * Math.PI * i) / CIRCLE_SEGMENTS;
-                    float px = mx + (float) Math.cos(angle) * radiusPx;
-                    float py = my + (float) Math.sin(angle) * radiusPx;
-                    GL11.glVertex2f(px, py);
+            } else {
+                ShipAPI flag = resolveActiveFlagship(div, alive);
+                if (flag == null || !isEnemyShipVisibleOnCommandMap(flag, playerFog)) {
+                    continue;
                 }
-                GL11.glEnd();
-            }
-
-            // 1b. High-visibility lines from the division flagship toward constituent members.
-            //     For enemy divisions, lines are drawn sparingly to prevent OpSec breaches:
-            //     ONLY if the actual division flagship is visible to the player AND the visible
-            //     member is within close visual cohesion range (<= 1150u) of that flagship.
-            ShipAPI flagship = resolveActiveFlagship(div, alive);
-            if (flagship == null) continue;
-
-            if (isEnemy && !isEnemyShipVisibleOnCommandMap(flagship, playerFog)) {
-                // Never draw lines if the enemy flagship is hidden in fog of war
-                continue;
-            }
-
-            if (visibleMembers.size() > 1) {
-                float fx = flagship.getLocation().x * scale + offsetX;
-                float fy = flagship.getLocation().y * scale + offsetY;
-                boolean isAlliedAiFlagship = !isEnemy && flagship.isAlly();
-
-                GL11.glLineWidth(isEnemy ? 1.75f : 2.35f);
-                if (isEnemy) {
-                    GL11.glColor4f(1.00f, 0.42f, 0.38f, lineAlpha);
-                } else if (isAlliedAiFlagship) {
-                    GL11.glColor4f(1.00f, 0.94f, 0.40f, lineAlpha);
-                } else if (scatteredCohesion) {
-                    GL11.glColor4f(1.00f, 0.78f, 0.30f, lineAlpha);
-                } else {
-                    GL11.glColor4f(0.52f, 1.00f, 0.68f, lineAlpha);
-                }
-                GL11.glBegin(GL11.GL_LINES);
-                for (ShipAPI member : visibleMembers) {
-                    if (member == flagship) continue;
-                    if (isEnemy && distance(flagship.getLocation(), member.getLocation()) > ENEMY_OPSEC_MAX_LINE_DIST) {
-                        continue;
+                for (ShipAPI s : alive) {
+                    if (isEnemyShipVisibleOnCommandMap(s, playerFog)
+                            && distance(flag.getLocation(), s.getLocation()) <= ENEMY_OPSEC_MAX_LINE_DIST) {
+                        hullMembers.add(s);
                     }
-                    float mx = member.getLocation().x * scale + offsetX;
-                    float my = member.getLocation().y * scale + offsetY;
-                    GL11.glVertex2f(fx, fy);
-                    GL11.glVertex2f(mx, my);
                 }
-                GL11.glEnd();
+                if (hullMembers.isEmpty()) continue;
             }
 
-            // 1c. Friendly Division Frontage Bar & Tactical Intent Vector Symbology
-            if (!isEnemy) {
-                renderFriendlyDivisionFrontageAndIntent(div, flagship, visibleMembers, scale, offsetX, offsetY, lineAlpha, playerFog);
+            boolean isAlliedAi = !isEnemy && (battleGroup.isAlliedAi || hullMembers.get(0).isAlly());
+
+            // Cohesion-driven variable translucency:
+            // Measure overall dispersion (including rawAllMemberSpreadRadius so stragglers or wide scatter
+            // reduce polygon opacity). At ratio <= 0.85 -> 1.0x opacity; at ratio >= 2.15 -> 0.08x (nearly transparent).
+            float overallSpread = Math.max(div.spreadRadius, div.rawAllMemberSpreadRadius);
+            float overallRatio = overallSpread / Math.max(300f, div.stationKeepingRadius);
+            float scatterPenalty = clamp((overallRatio - 0.85f) / 1.30f, 0f, 1f);
+            float cohesionAlphaMult = 1.0f - scatterPenalty * 0.92f;
+            if (!isEnemy && div.currentIntent == DivisionIntentType.CLOSE_UP) {
+                cohesionAlphaMult = Math.min(cohesionAlphaMult, 0.22f);
+            }
+
+            float cr;
+            float cg;
+            float cb;
+            if (isEnemy) {
+                cr = 0.96f;
+                cg = 0.22f;
+                cb = 0.22f;
+            } else if (isAlliedAi) {
+                cr = 1.00f;
+                cg = 0.86f;
+                cb = 0.18f;
+            } else {
+                cr = 0.20f;
+                cg = 0.94f;
+                cb = 0.44f;
+            }
+
+            List<Vector2f> polyScreen = buildFluidDivisionPolygonScreen(hullMembers, scale, offsetX, offsetY);
+            if (polyScreen.size() < 3) continue;
+
+            Vector2f centerScreen = computePolygonCentroid(polyScreen);
+            outList.add(new RenderedDivisionPolygon(
+                    div,
+                    battleGroup,
+                    isEnemy,
+                    isAlliedAi,
+                    hullMembers,
+                    stragglerMembers,
+                    polyScreen,
+                    centerScreen,
+                    cr,
+                    cg,
+                    cb,
+                    cohesionAlphaMult));
+        }
+    }
+
+    /**
+     * Builds a smooth, fluid CCW polygon in screen space around the division's member hulls:
+     *  1. Samples HULL_SAMPLE_POINTS_PER_SHIP perimeter points around each member's padded hull radius.
+     *  2. Computes the 2D Monotone Chain convex hull of all perimeter points.
+     *  3. Applies 2 passes of Chaikin corner-cutting subdivision so the polygon flows smoothly
+     *     around the division's formation footprint.
+     */
+    private List<Vector2f> buildFluidDivisionPolygonScreen(
+            List<ShipAPI> members,
+            float scale,
+            float offsetX,
+            float offsetY) {
+
+        List<Vector2f> cloud = new ArrayList<>(members.size() * HULL_SAMPLE_POINTS_PER_SHIP);
+        for (ShipAPI m : members) {
+            float mx = m.getLocation().x * scale + offsetX;
+            float my = m.getLocation().y * scale + offsetY;
+            float worldR = getMemberFootprintRadiusWorld(m);
+            float rPx = clamp(worldR * scale, 15f, 54f);
+            for (int i = 0; i < HULL_SAMPLE_POINTS_PER_SHIP; i++) {
+                double ang = (2.0 * Math.PI * i) / HULL_SAMPLE_POINTS_PER_SHIP;
+                cloud.add(new Vector2f(
+                        mx + (float) Math.cos(ang) * rPx,
+                        my + (float) Math.sin(ang) * rPx));
+            }
+        }
+
+        List<Vector2f> hull = computeConvexHullCCW(cloud);
+        if (hull.size() < 3) return hull;
+
+        List<Vector2f> smoothed = chaikinSmoothClosed(hull);
+        smoothed = chaikinSmoothClosed(smoothed);
+        return smoothed;
+    }
+
+    private void renderSingleDivisionPolygon(
+            RenderedDivisionPolygon rp,
+            float basePolyAlpha,
+            float scale,
+            float offsetX,
+            float offsetY) {
+
+        List<Vector2f> poly = rp.polyScreen;
+        if (poly.size() < 3) return;
+
+        float effectiveAlpha = basePolyAlpha * rp.cohesionAlphaMult;
+        float centerAlpha = Math.min(0.46f, effectiveAlpha * 1.25f);
+        float edgeAlpha = Math.min(0.36f, effectiveAlpha * 0.82f);
+        float borderAlpha = Math.min(0.75f, effectiveAlpha * 2.10f);
+
+        // 1. Fluid translucent polygon fill
+        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+        GL11.glColor4f(rp.cr, rp.cg, rp.cb, centerAlpha);
+        GL11.glVertex2f(rp.centerScreen.x, rp.centerScreen.y);
+        GL11.glColor4f(rp.cr, rp.cg, rp.cb, edgeAlpha);
+        for (int i = 0; i < poly.size(); i++) {
+            Vector2f v = poly.get(i);
+            GL11.glVertex2f(v.x, v.y);
+        }
+        Vector2f first = poly.get(0);
+        GL11.glVertex2f(first.x, first.y);
+        GL11.glEnd();
+
+        // 2. Soft fluid perimeter contour (fades with cohesionAlphaMult)
+        GL11.glLineWidth(rp.isEnemy ? 1.5f : 1.9f);
+        GL11.glColor4f(
+                Math.min(1f, rp.cr + 0.15f),
+                Math.min(1f, rp.cg + 0.15f),
+                Math.min(1f, rp.cb + 0.15f),
+                borderAlpha);
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        for (Vector2f v : poly) {
+            GL11.glVertex2f(v.x, v.y);
+        }
+        GL11.glEnd();
+
+        // 3. If a friendly division has detached stragglers, draw a subtle amber marker and dashed tether to the division
+        if (!rp.isEnemy && !rp.stragglerMembers.isEmpty()) {
+            for (ShipAPI stray : rp.stragglerMembers) {
+                float sx = stray.getLocation().x * scale + offsetX;
+                float sy = stray.getLocation().y * scale + offsetY;
+                float sr = clamp(getMemberFootprintRadiusWorld(stray) * scale * 0.65f, 10f, 28f);
+
+                GL11.glLineWidth(1.5f);
+                GL11.glColor4f(1.00f, 0.68f, 0.22f, Math.min(0.65f, basePolyAlpha * 2.2f));
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                for (int i = 0; i < 12; i++) {
+                    double ang = (2.0 * Math.PI * i) / 12;
+                    GL11.glVertex2f(sx + (float) Math.cos(ang) * sr, sy + (float) Math.sin(ang) * sr);
+                }
+                GL11.glEnd();
+
+                drawDashedSegment(sx, sy, rp.centerScreen.x, rp.centerScreen.y, sr + 4f, 8f, 12f);
             }
         }
     }
 
     /**
-     * Renders an oriented Naval Battle-Line Frontage Bracket across the division's lateral axis
-     * plus a tactical C2 maneuver / target vector symbol indicating the division's active intent.
+     * Finds every pair of overlapping division polygons, computes their exact convex intersection
+     * via Sutherland-Hodgman clipping, and fills the overlap region with thick alternating diagonal stripes.
      */
-    private void renderFriendlyDivisionFrontageAndIntent(
-            DivisionState div,
-            ShipAPI flagship,
-            List<ShipAPI> members,
+    private void renderOverlappingPolygonStripes(
+            List<RenderedDivisionPolygon> renderedPolys,
+            float basePolyAlpha) {
+
+        int n = renderedPolys.size();
+        for (int i = 0; i < n; i++) {
+            RenderedDivisionPolygon a = renderedPolys.get(i);
+            for (int j = i + 1; j < n; j++) {
+                RenderedDivisionPolygon b = renderedPolys.get(j);
+
+                // Fast AABB reject
+                if (a.maxX < b.minX || b.maxX < a.minX || a.maxY < b.minY || b.maxY < a.minY) {
+                    continue;
+                }
+
+                List<Vector2f> intersection = clipConvexPolygon(a.polyScreen, b.polyScreen);
+                if (intersection.size() < 3 || computePolygonArea(intersection) < 30f) {
+                    continue;
+                }
+
+                // Project intersection vertices onto 45-degree diagonal normal u = (1/sqrt(2), 1/sqrt(2))
+                float minU = Float.MAX_VALUE;
+                float maxU = -Float.MAX_VALUE;
+                for (Vector2f v : intersection) {
+                    float u = (v.x + v.y) * INV_SQRT2;
+                    if (u < minU) minU = u;
+                    if (u > maxU) maxU = u;
+                }
+
+                float pairCohesion = Math.max(0.22f, Math.min(a.cohesionAlphaMult, b.cohesionAlphaMult));
+                float stripeAlphaA = Math.min(0.62f, Math.max(0.22f, basePolyAlpha * 2.15f * pairCohesion));
+                float stripeAlphaB = Math.min(0.58f, Math.max(0.20f, basePolyAlpha * 1.95f * pairCohesion));
+
+                // When two same-side divisions overlap, alternate between bright primary and a distinct dark/contrasting band
+                boolean sameColorFamily = (a.isEnemy == b.isEnemy) && (a.isAlliedAi == b.isAlliedAi);
+                float bCr = sameColorFamily ? (a.cr * 0.25f) : b.cr;
+                float bCg = sameColorFamily ? Math.min(1f, a.cg * 0.45f + 0.15f) : b.cg;
+                float bCb = sameColorFamily ? Math.min(1f, a.cb + 0.35f) : b.cb;
+
+                int firstBand = (int) Math.floor(minU / STRIPE_PERIOD_PX);
+                int lastBand = (int) Math.ceil(maxU / STRIPE_PERIOD_PX);
+
+                for (int k = firstBand; k <= lastBand; k++) {
+                    float s0 = k * STRIPE_PERIOD_PX;
+                    float sMid = s0 + STRIPE_WIDTH_PX;
+                    float s1 = s0 + STRIPE_PERIOD_PX;
+
+                    // Band A: [s0, sMid]
+                    List<Vector2f> bandA = clipPolygonToDiagonalSlab(intersection, s0, sMid);
+                    if (bandA.size() >= 3) {
+                        GL11.glColor4f(
+                                Math.min(1f, a.cr + 0.12f),
+                                Math.min(1f, a.cg + 0.12f),
+                                Math.min(1f, a.cb + 0.12f),
+                                stripeAlphaA);
+                        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+                        for (Vector2f v : bandA) {
+                            GL11.glVertex2f(v.x, v.y);
+                        }
+                        GL11.glEnd();
+                    }
+
+                    // Band B: [sMid, s1]
+                    List<Vector2f> bandB = clipPolygonToDiagonalSlab(intersection, sMid, s1);
+                    if (bandB.size() >= 3) {
+                        GL11.glColor4f(bCr, bCg, bCb, stripeAlphaB);
+                        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+                        for (Vector2f v : bandB) {
+                            GL11.glVertex2f(v.x, v.y);
+                        }
+                        GL11.glEnd();
+                    }
+                }
+
+                // Crisp border around the overlapping zone
+                GL11.glLineWidth(2.0f);
+                GL11.glColor4f(1.0f, 1.0f, 1.0f, stripeAlphaA * 0.85f);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                for (Vector2f v : intersection) {
+                    GL11.glVertex2f(v.x, v.y);
+                }
+                GL11.glEnd();
+            }
+        }
+    }
+
+    /**
+     * Renders the orientation bracket at the LEADING EDGE of the division polygon toward what the
+     * division considers its main objective or survival goal, wide enough to encompass the division's
+     * effective frontage, and draws the tactical intent vector from that leading-edge bracket.
+     */
+    private void renderDivisionLeadingEdgeBracketAndIntent(
+            RenderedDivisionPolygon rp,
             float scale,
             float offsetX,
             float offsetY,
             float lineAlpha,
             FogOfWarAPI playerFog) {
 
-        float fx = flagship.getLocation().x * scale + offsetX;
-        float fy = flagship.getLocation().y * scale + offsetY;
-        boolean isAllied = flagship.isAlly();
+        DivisionState div = rp.div;
+        DivisionIntentType intent = div.currentIntent;
 
-        // Compute forward facing unit vector toward target enemy division, assigned anchor, or flagship facing
-        float dirX;
-        float dirY;
-        if (div.targetEnemyDivision != null && !div.targetEnemyDivision.centroid.equals(new Vector2f(0f, 0f))) {
-            float dx = div.targetEnemyDivision.centroid.x - flagship.getLocation().x;
-            float dy = div.targetEnemyDivision.centroid.y - flagship.getLocation().y;
+        float cx = rp.centerScreen.x;
+        float cy = rp.centerScreen.y;
+
+        // 1. Resolve the division's final objective/survival goal (destWorld) and immediate heading goal (headingWorld)
+        Vector2f destWorld = resolveDivisionFinalGoalWorld(div, intent, playerFog);
+        boolean targetIsEnemy = isDirectEnemyTargetIntent(div, intent, playerFog);
+
+        Vector2f headingWorld = destWorld;
+        if (!targetIsEnemy && div.hasRouteWaypoint && div.routeWaypoint != null
+                && (div.routeWaypoint.x != 0f || div.routeWaypoint.y != 0f)) {
+            headingWorld = div.routeWaypoint;
+        }
+
+        // Compute unit forward direction (dirX, dirY) from the division entity center toward its heading goal
+        float dirX = 0f;
+        float dirY = 1f;
+        if (headingWorld != null) {
+            float hx = headingWorld.x * scale + offsetX;
+            float hy = headingWorld.y * scale + offsetY;
+            float dx = hx - cx;
+            float dy = hy - cy;
             float len = (float) Math.sqrt(dx * dx + dy * dy);
-            if (len > 1f) {
+            if (len > 8f) {
                 dirX = dx / len;
                 dirY = dy / len;
-            } else {
-                double rad = Math.toRadians(flagship.getFacing());
+            } else if (div.targetEnemyDivision != null && isDivisionVisibleOnCommandMap(div.targetEnemyDivision, playerFog)) {
+                Vector2f visE = OtcAI.getVisibleCentroidForSide(engine, 0, div.targetEnemyDivision);
+                float ex = (visE.x * scale + offsetX) - cx;
+                float ey = (visE.y * scale + offsetY) - cy;
+                float eLen = (float) Math.sqrt(ex * ex + ey * ey);
+                if (eLen > 1f) {
+                    dirX = ex / eLen;
+                    dirY = ey / eLen;
+                }
+            } else if (div.flagship != null) {
+                double rad = Math.toRadians(div.flagship.getFacing());
                 dirX = (float) Math.cos(rad);
                 dirY = (float) Math.sin(rad);
             }
-        } else {
-            double rad = Math.toRadians(flagship.getFacing());
-            dirX = (float) Math.cos(rad);
-            dirY = (float) Math.sin(rad);
         }
         float latX = -dirY;
         float latY = dirX;
 
-        // 1. Oriented Formation Frontage Bracket (shows line-abreast width & facing orientation)
-        if (members.size() >= 2) {
-            float halfWidthWorld = Math.min(1100f, Math.max(260f, (members.size() - 1) * div.stationSpacing * 0.48f));
-            float halfW = clamp(halfWidthWorld * scale, 18f, 95f);
-            float fwdOffset = 14f;
-            float wingSweep = 7f;
+        // 2. Measure the division's leading edge along (dirX, dirY) and effective lateral frontage along (latX, latY)
+        float maxFwdPx = 14f;
+        float minLatPx = -18f;
+        float maxLatPx = 18f;
+        boolean firstProj = true;
 
-            float bx = fx + dirX * fwdOffset;
-            float by = fy + dirY * fwdOffset;
-            float lx = bx - latX * halfW;
-            float ly = by - latY * halfW;
-            float rx = bx + latX * halfW;
-            float ry = by + latY * halfW;
-
-            GL11.glLineWidth(2.4f);
-            if (isAllied) {
-                GL11.glColor4f(1.00f, 0.92f, 0.36f, Math.min(0.88f, lineAlpha * 1.15f));
-            } else if (div.currentIntent == DivisionIntentType.CLOSE_UP) {
-                GL11.glColor4f(1.00f, 0.76f, 0.26f, Math.min(0.90f, lineAlpha * 1.20f));
+        for (Vector2f v : rp.polyScreen) {
+            float rx = v.x - cx;
+            float ry = v.y - cy;
+            float fwd = rx * dirX + ry * dirY;
+            float lat = rx * latX + ry * latY;
+            if (firstProj) {
+                maxFwdPx = fwd;
+                minLatPx = lat;
+                maxLatPx = lat;
+                firstProj = false;
             } else {
-                GL11.glColor4f(0.42f, 1.00f, 0.72f, Math.min(0.88f, lineAlpha * 1.15f));
+                if (fwd > maxFwdPx) maxFwdPx = fwd;
+                if (lat < minLatPx) minLatPx = lat;
+                if (lat > maxLatPx) maxLatPx = lat;
             }
-
-            GL11.glBegin(GL11.GL_LINE_STRIP);
-            GL11.glVertex2f(lx - dirX * wingSweep, ly - dirY * wingSweep);
-            GL11.glVertex2f(lx, ly);
-            GL11.glVertex2f(rx, ry);
-            GL11.glVertex2f(rx - dirX * wingSweep, ry - dirY * wingSweep);
-            GL11.glEnd();
         }
 
-        // 2. Tactical Intent Vector & Destination Symbol
-        DivisionIntentType intent = div.currentIntent;
-        Vector2f destWorld = null;
-        boolean targetIsEnemy = false;
+        float leadAdvancePx = maxFwdPx + 4f;
+        float midLatPx = 0.5f * (minLatPx + maxLatPx);
+        float halfFrontagePx = clamp(0.5f * (maxLatPx - minLatPx), 18f, 185f);
+        float wingSweepPx = clamp(halfFrontagePx * 0.22f, 6f, 16f);
 
-        if (div.targetEnemyDivision != null
-                && (intent == DivisionIntentType.PRESS_HOME
-                || intent == DivisionIntentType.FORM_LINE_AND_FIX
-                || intent == DivisionIntentType.TOT_MISSILE_STRIKE
-                || intent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
-                || intent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
-                || intent == DivisionIntentType.HARASSING_MISSILE_ATTACK
-                || intent == DivisionIntentType.GIVE_GENERAL_CHASE)) {
-            ShipAPI enemyFlag = div.targetEnemyDivision.flagship;
-            if (enemyFlag != null && isEnemyShipVisibleOnCommandMap(enemyFlag, playerFog)) {
-                destWorld = enemyFlag.getLocation();
-                targetIsEnemy = true;
-            } else if (div.stationPoint != null && (div.stationPoint.x != 0f || div.stationPoint.y != 0f)) {
-                destWorld = div.stationPoint;
-            }
-        } else if (div.stationPoint != null && (div.stationPoint.x != 0f || div.stationPoint.y != 0f)) {
-            destWorld = div.stationPoint;
+        // Leading-edge anchor point of the division entity
+        float leadCenterX = cx + dirX * leadAdvancePx + latX * midLatPx;
+        float leadCenterY = cy + dirY * leadAdvancePx + latY * midLatPx;
+
+        float leftX = leadCenterX - latX * halfFrontagePx;
+        float leftY = leadCenterY - latY * halfFrontagePx;
+        float rightX = leadCenterX + latX * halfFrontagePx;
+        float rightY = leadCenterY + latY * halfFrontagePx;
+
+        // Render Leading-Edge Effective-Frontage Orientation Bracket
+        GL11.glLineWidth(2.6f);
+        if (rp.isAlliedAi) {
+            GL11.glColor4f(1.00f, 0.92f, 0.36f, Math.min(0.92f, lineAlpha * 1.15f));
+        } else if (intent == DivisionIntentType.HAUL_OUT_TO_VENT || intent == DivisionIntentType.BREAK_OFF_AND_RETIRE) {
+            GL11.glColor4f(0.50f, 0.88f, 1.00f, Math.min(0.92f, lineAlpha * 1.15f));
+        } else if (intent == DivisionIntentType.CLOSE_UP) {
+            GL11.glColor4f(1.00f, 0.76f, 0.26f, Math.min(0.92f, lineAlpha * 1.15f));
+        } else {
+            GL11.glColor4f(0.42f, 1.00f, 0.72f, Math.min(0.92f, lineAlpha * 1.15f));
         }
 
+        GL11.glBegin(GL11.GL_LINE_STRIP);
+        GL11.glVertex2f(leftX - dirX * wingSweepPx, leftY - dirY * wingSweepPx);
+        GL11.glVertex2f(leftX, leftY);
+        GL11.glVertex2f(rightX, rightY);
+        GL11.glVertex2f(rightX - dirX * wingSweepPx, rightY - dirY * wingSweepPx);
+        GL11.glEnd();
+
+        // 3. Tactical Intent Vector & Destination Symbol originating from the Leading-Edge Bracket Center
         if (destWorld == null) return;
         float tx = destWorld.x * scale + offsetX;
         float ty = destWorld.y * scale + offsetY;
-        float dx = tx - fx;
-        float dy = ty - fy;
+        float dx = tx - leadCenterX;
+        float dy = ty - leadCenterY;
         float distPx = (float) Math.sqrt(dx * dx + dy * dy);
-        if (distPx < 16f) return;
+        if (distPx < 12f) return;
 
         float ux = dx / distPx;
         float uy = dy / distPx;
@@ -502,7 +724,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             GL11.glColor4f(0.48f, 1.00f, 0.70f, vecAlpha);
         }
 
-        float startOffset = 16f;
+        float startOffset = 3f;
         float endOffset = targetIsEnemy ? 14f : 6f;
 
         boolean drawWideArcDogleg = !targetIsEnemy
@@ -513,44 +735,21 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         if (drawWideArcDogleg) {
             float wx = div.routeWaypoint.x * scale + offsetX;
             float wy = div.routeWaypoint.y * scale + offsetY;
-            float leg1Dx = wx - fx;
-            float leg1Dy = wy - fy;
+            float leg1Dx = wx - leadCenterX;
+            float leg1Dy = wy - leadCenterY;
             float leg1Len = (float) Math.sqrt(leg1Dx * leg1Dx + leg1Dy * leg1Dy);
             float leg2Dx = tx - wx;
             float leg2Dy = ty - wy;
             float leg2Len = (float) Math.sqrt(leg2Dx * leg2Dx + leg2Dy * leg2Dy);
 
-            if (leg1Len > 18f && leg2Len > 14f) {
-                float u1x = leg1Dx / leg1Len;
-                float u1y = leg1Dy / leg1Len;
+            if (leg1Len > 12f && leg2Len > 12f) {
                 float u2x = leg2Dx / leg2Len;
                 float u2y = leg2Dy / leg2Len;
 
                 GL11.glLineWidth(2.15f);
-                // Leg 1: flagship -> out-of-contact routeWaypoint
-                float s1Len = leg1Len - startOffset;
-                int d1 = Math.max(2, Math.min(14, (int) (s1Len / 14f)));
-                float step1 = s1Len / d1;
-                GL11.glBegin(GL11.GL_LINES);
-                for (int i = 0; i < d1; i++) {
-                    float s0 = startOffset + i * step1;
-                    float s1 = startOffset + (i + 0.65f) * step1;
-                    GL11.glVertex2f(fx + u1x * s0, fy + u1y * s0);
-                    GL11.glVertex2f(fx + u1x * s1, fy + u1y * s1);
-                }
-                // Leg 2: routeWaypoint -> final stationPoint
-                float s2Len = Math.max(0f, leg2Len - endOffset);
-                int d2 = Math.max(2, Math.min(14, (int) (s2Len / 14f)));
-                float step2 = s2Len / d2;
-                for (int i = 0; i < d2; i++) {
-                    float s0 = i * step2;
-                    float s1 = (i + 0.65f) * step2;
-                    GL11.glVertex2f(wx + u2x * s0, wy + u2y * s0);
-                    GL11.glVertex2f(wx + u2x * s1, wy + u2y * s1);
-                }
-                GL11.glEnd();
+                drawDashedSegment(leadCenterX, leadCenterY, wx, wy, startOffset, 0f, 14f);
+                drawDashedSegment(wx, wy, tx, ty, 0f, endOffset, 14f);
 
-                // Small waypoint diamond at routeWaypoint
                 float wr = 4.5f;
                 GL11.glBegin(GL11.GL_LINE_LOOP);
                 GL11.glVertex2f(wx, wy + wr);
@@ -569,20 +768,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
 
         if (!drawWideArcDogleg) {
-            float shaftLen = distPx - startOffset - endOffset;
-            if (shaftLen > 8f) {
-                GL11.glLineWidth(2.15f);
-                int dashes = Math.max(3, Math.min(18, (int) (shaftLen / 14f)));
-                float step = shaftLen / dashes;
-                GL11.glBegin(GL11.GL_LINES);
-                for (int i = 0; i < dashes; i++) {
-                    float s0 = startOffset + i * step;
-                    float s1 = startOffset + (i + 0.65f) * step;
-                    GL11.glVertex2f(fx + ux * s0, fy + uy * s0);
-                    GL11.glVertex2f(fx + ux * s1, fy + uy * s1);
-                }
-                GL11.glEnd();
-            }
+            GL11.glLineWidth(2.15f);
+            drawDashedSegment(leadCenterX, leadCenterY, tx, ty, startOffset, endOffset, 14f);
         }
 
         GL11.glLineWidth(2.4f);
@@ -624,70 +811,305 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private void renderBattleGroupLabels(
-            BattleGroupState battleGroup,
-            boolean isEnemy,
-            FogOfWarAPI playerFog,
-            float scale,
-            float offsetX,
-            float offsetY,
-            float fade) {
-
-        for (DivisionState div : battleGroup.divisions) {
-            List<ShipAPI> alive = div.getAliveMembers();
-            if (alive.isEmpty()) continue;
-
-            ShipAPI flagship = resolveActiveFlagship(div, alive);
-            if (flagship == null) continue;
-
-            if (isEnemy) {
-                // OpSec protection: only show enemy division name if its flagship is visible
-                if (!isEnemyShipVisibleOnCommandMap(flagship, playerFog)) {
-                    continue;
-                }
+    private Vector2f resolveDivisionFinalGoalWorld(
+            DivisionState div,
+            DivisionIntentType intent,
+            FogOfWarAPI playerFog) {
+        if (isDirectEnemyTargetIntent(div, intent, playerFog)) {
+            ShipAPI enemyFlag = div.targetEnemyDivision.flagship;
+            if (enemyFlag != null && isEnemyShipVisibleOnCommandMap(enemyFlag, playerFog)) {
+                return enemyFlag.getLocation();
             }
+            return OtcAI.getVisibleCentroidForSide(engine, 0, div.targetEnemyDivision);
+        }
+        if (div.stationPoint != null && (div.stationPoint.x != 0f || div.stationPoint.y != 0f)) {
+            return div.stationPoint;
+        }
+        if (div.targetEnemyDivision != null && isDivisionVisibleOnCommandMap(div.targetEnemyDivision, playerFog)) {
+            return OtcAI.getVisibleCentroidForSide(engine, 0, div.targetEnemyDivision);
+        }
+        return null;
+    }
 
-            float fx = flagship.getLocation().x * scale + offsetX;
-            float fy = flagship.getLocation().y * scale + offsetY;
-            float offsetPx = clamp(getMemberFootprintRadiusWorld(flagship) * scale, 13f, 48f) + 4f;
-            boolean isAlliedAiFlagship = !isEnemy && flagship.isAlly();
+    private static boolean isDirectEnemyTargetIntent(
+            DivisionState div,
+            DivisionIntentType intent,
+            FogOfWarAPI playerFog) {
+        if (div.targetEnemyDivision == null) return false;
+        if (intent != DivisionIntentType.PRESS_HOME
+                && intent != DivisionIntentType.FORM_LINE_AND_FIX
+                && intent != DivisionIntentType.TOT_MISSILE_STRIKE
+                && intent != DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
+                && intent != DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                && intent != DivisionIntentType.HARASSING_MISSILE_ATTACK
+                && intent != DivisionIntentType.GIVE_GENERAL_CHASE) {
+            return false;
+        }
+        return isDivisionVisibleOnCommandMap(div.targetEnemyDivision, playerFog);
+    }
 
-            DivisionNomenclature.NomenclatureCategory nomCat =
-                    div.nomenclatureCategory != null
-                            ? div.nomenclatureCategory
-                            : battleGroup.nomenclatureCategory;
-            String liveCallsign = DivisionNomenclature.resolveDynamicDivisionDisplayName(
-                    nomCat,
-                    div.archetype,
-                    div.divisionNumber,
-                    div.displayName);
-
-            String cacheKeyOverride = (nomCat == DivisionNomenclature.NomenclatureCategory.THREAT_SWARM)
-                    ? ("THREAT_DIV:" + div.id)
-                    : null;
-            LabelAPI label = getOrCreateLabel(liveCallsign, cacheKeyOverride, isEnemy, isAlliedAiFlagship, false);
-            if (label != null) {
-                float textW = label.computeTextWidth(liveCallsign);
-                float textH = label.computeTextHeight(liveCallsign);
-                label.getPosition().setSize(textW + 10f, textH + 4f);
-                label.getPosition().setLocation(fx - (textW * 0.5f), fy + offsetPx + textH + (isEnemy ? 0f : 13f));
-                label.render(fade * (isEnemy ? 0.82f : 0.94f));
+    private static boolean isDivisionVisibleOnCommandMap(DivisionState enemyDiv, FogOfWarAPI playerFog) {
+        if (enemyDiv == null) return false;
+        for (ShipAPI s : enemyDiv.getAliveMembers()) {
+            if (isEnemyShipVisibleOnCommandMap(s, playerFog)) {
+                return true;
             }
+        }
+        return false;
+    }
 
-            if (!isEnemy) {
-                String intentTag = (nomCat == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR)
-                        ? "ERROR"
-                        : buildCompactIntentTag(div);
-                LabelAPI subLabel = getOrCreateLabel(intentTag, null, false, isAlliedAiFlagship, true);
-                if (subLabel != null) {
-                    float subW = subLabel.computeTextWidth(intentTag);
-                    float subH = subLabel.computeTextHeight(intentTag);
-                    subLabel.getPosition().setSize(subW + 10f, subH + 4f);
-                    subLabel.getPosition().setLocation(fx - (subW * 0.5f), fy + offsetPx + subH);
-                    subLabel.render(fade * 0.86f);
+    /**
+     * Renders the division callsign and [INTENT | FLUX] sub-badge centered on the division entity itself.
+     */
+    private void renderDivisionEntityLabel(RenderedDivisionPolygon rp, float fade) {
+        DivisionState div = rp.div;
+        float cx = rp.centerScreen.x;
+        float cy = rp.centerScreen.y;
+
+        DivisionNomenclature.NomenclatureCategory nomCat =
+                div.nomenclatureCategory != null
+                        ? div.nomenclatureCategory
+                        : rp.battleGroup.nomenclatureCategory;
+        String liveCallsign = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                nomCat,
+                div.archetype,
+                div.divisionNumber,
+                div.displayName);
+
+        String cacheKeyOverride = (nomCat == DivisionNomenclature.NomenclatureCategory.THREAT_SWARM)
+                ? ("THREAT_DIV:" + div.id)
+                : null;
+        LabelAPI label = getOrCreateLabel(liveCallsign, cacheKeyOverride, rp.isEnemy, rp.isAlliedAi, false);
+        if (label != null) {
+            float textW = label.computeTextWidth(liveCallsign);
+            float textH = label.computeTextHeight(liveCallsign);
+            label.getPosition().setSize(textW + 10f, textH + 4f);
+            label.getPosition().setLocation(cx - (textW * 0.5f), cy + (rp.isEnemy ? (textH * 0.5f) : (textH + 4f)));
+            label.render(fade * (rp.isEnemy ? 0.84f : 0.95f));
+        }
+
+        if (!rp.isEnemy) {
+            String intentTag = (nomCat == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR)
+                    ? "ERROR"
+                    : buildCompactIntentTag(div);
+            LabelAPI subLabel = getOrCreateLabel(intentTag, null, false, rp.isAlliedAi, true);
+            if (subLabel != null) {
+                float subW = subLabel.computeTextWidth(intentTag);
+                float subH = subLabel.computeTextHeight(intentTag);
+                subLabel.getPosition().setSize(subW + 10f, subH + 4f);
+                subLabel.getPosition().setLocation(cx - (subW * 0.5f), cy - 2f);
+                subLabel.render(fade * 0.88f);
+            }
+        }
+    }
+
+    // =========================================================================
+    // 2D Convex Hull, Chaikin Smoothing & Sutherland-Hodgman Clipping Helpers
+    // =========================================================================
+
+    public static List<Vector2f> computeConvexHullCCW(List<Vector2f> pts) {
+        if (pts == null || pts.size() <= 3) {
+            return pts != null ? new ArrayList<>(pts) : Collections.emptyList();
+        }
+        List<Vector2f> sorted = new ArrayList<>(pts);
+        Collections.sort(sorted, new Comparator<Vector2f>() {
+            @Override
+            public int compare(Vector2f a, Vector2f b) {
+                int cmp = Float.compare(a.x, b.x);
+                return (cmp != 0) ? cmp : Float.compare(a.y, b.y);
+            }
+        });
+
+        List<Vector2f> lower = new ArrayList<>(sorted.size());
+        for (Vector2f p : sorted) {
+            while (lower.size() >= 2 && cross(lower.get(lower.size() - 2), lower.get(lower.size() - 1), p) <= 0f) {
+                lower.remove(lower.size() - 1);
+            }
+            lower.add(p);
+        }
+
+        List<Vector2f> upper = new ArrayList<>(sorted.size());
+        for (int i = sorted.size() - 1; i >= 0; i--) {
+            Vector2f p = sorted.get(i);
+            while (upper.size() >= 2 && cross(upper.get(upper.size() - 2), upper.get(upper.size() - 1), p) <= 0f) {
+                upper.remove(upper.size() - 1);
+            }
+            upper.add(p);
+        }
+
+        lower.remove(lower.size() - 1);
+        upper.remove(upper.size() - 1);
+        lower.addAll(upper);
+        return lower;
+    }
+
+    private static float cross(Vector2f o, Vector2f a, Vector2f b) {
+        return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    }
+
+    public static List<Vector2f> chaikinSmoothClosed(List<Vector2f> poly) {
+        int n = poly.size();
+        if (n < 3) return poly;
+        List<Vector2f> out = new ArrayList<>(n * 2);
+        for (int i = 0; i < n; i++) {
+            Vector2f p0 = poly.get(i);
+            Vector2f p1 = poly.get((i + 1) % n);
+            float dx = p1.x - p0.x;
+            float dy = p1.y - p0.y;
+            if ((dx * dx + dy * dy) < 9f) {
+                out.add(new Vector2f(p0));
+                continue;
+            }
+            out.add(new Vector2f(0.75f * p0.x + 0.25f * p1.x, 0.75f * p0.y + 0.25f * p1.y));
+            out.add(new Vector2f(0.25f * p0.x + 0.75f * p1.x, 0.25f * p0.y + 0.75f * p1.y));
+        }
+        return out;
+    }
+
+    public static Vector2f computePolygonCentroid(List<Vector2f> poly) {
+        if (poly == null || poly.isEmpty()) return new Vector2f(0f, 0f);
+        float cx = 0f;
+        float cy = 0f;
+        float signedArea = 0f;
+        int n = poly.size();
+        for (int i = 0; i < n; i++) {
+            Vector2f p0 = poly.get(i);
+            Vector2f p1 = poly.get((i + 1) % n);
+            float a = p0.x * p1.y - p1.x * p0.y;
+            signedArea += a;
+            cx += (p0.x + p1.x) * a;
+            cy += (p0.y + p1.y) * a;
+        }
+        if (Math.abs(signedArea) < 1e-3f) {
+            float sx = 0f;
+            float sy = 0f;
+            for (Vector2f p : poly) {
+                sx += p.x;
+                sy += p.y;
+            }
+            return new Vector2f(sx / n, sy / n);
+        }
+        signedArea *= 0.5f;
+        return new Vector2f(cx / (6f * signedArea), cy / (6f * signedArea));
+    }
+
+    public static float computePolygonArea(List<Vector2f> poly) {
+        if (poly == null || poly.size() < 3) return 0f;
+        float sum = 0f;
+        int n = poly.size();
+        for (int i = 0; i < n; i++) {
+            Vector2f a = poly.get(i);
+            Vector2f b = poly.get((i + 1) % n);
+            sum += (a.x * b.y - b.x * a.y);
+        }
+        return Math.abs(sum) * 0.5f;
+    }
+
+    /**
+     * Sutherland-Hodgman clipping of convex subjectPoly against convex clipPoly (both CCW).
+     */
+    public static List<Vector2f> clipConvexPolygon(List<Vector2f> subjectPoly, List<Vector2f> clipPoly) {
+        List<Vector2f> output = new ArrayList<>(subjectPoly);
+        int clipLen = clipPoly.size();
+        for (int i = 0; i < clipLen; i++) {
+            if (output.isEmpty()) break;
+            Vector2f c1 = clipPoly.get(i);
+            Vector2f c2 = clipPoly.get((i + 1) % clipLen);
+            float edgeDx = c2.x - c1.x;
+            float edgeDy = c2.y - c1.y;
+
+            List<Vector2f> input = output;
+            output = new ArrayList<>(input.size() + 2);
+            int inLen = input.size();
+            for (int j = 0; j < inLen; j++) {
+                Vector2f s = input.get(j);
+                Vector2f e = input.get((j + 1) % inLen);
+                float sCross = edgeDx * (s.y - c1.y) - edgeDy * (s.x - c1.x);
+                float eCross = edgeDx * (e.y - c1.y) - edgeDy * (e.x - c1.x);
+                boolean sInside = sCross >= -1e-3f;
+                boolean eInside = eCross >= -1e-3f;
+
+                if (eInside) {
+                    if (!sInside) {
+                        output.add(intersectEdge(s, e, sCross, eCross));
+                    }
+                    output.add(e);
+                } else if (sInside) {
+                    output.add(intersectEdge(s, e, sCross, eCross));
                 }
             }
         }
+        return output;
+    }
+
+    private static Vector2f intersectEdge(Vector2f s, Vector2f e, float sVal, float eVal) {
+        float denom = sVal - eVal;
+        float t = (Math.abs(denom) > 1e-6f) ? (sVal / denom) : 0.5f;
+        t = clamp(t, 0f, 1f);
+        return new Vector2f(s.x + (e.x - s.x) * t, s.y + (e.y - s.y) * t);
+    }
+
+    /**
+     * Clips a convex polygon against the 45-degree diagonal slab minU <= (x + y)/sqrt(2) <= maxU.
+     */
+    public static List<Vector2f> clipPolygonToDiagonalSlab(List<Vector2f> poly, float minU, float maxU) {
+        List<Vector2f> step1 = clipPolygonHalfPlaneDiag(poly, minU, true);
+        if (step1.size() < 3) return Collections.emptyList();
+        return clipPolygonHalfPlaneDiag(step1, maxU, false);
+    }
+
+    private static List<Vector2f> clipPolygonHalfPlaneDiag(List<Vector2f> poly, float boundaryU, boolean keepGreater) {
+        int n = poly.size();
+        if (n == 0) return Collections.emptyList();
+        List<Vector2f> out = new ArrayList<>(n + 2);
+        for (int i = 0; i < n; i++) {
+            Vector2f s = poly.get(i);
+            Vector2f e = poly.get((i + 1) % n);
+            float sU = (s.x + s.y) * INV_SQRT2 - boundaryU;
+            float eU = (e.x + e.y) * INV_SQRT2 - boundaryU;
+            if (!keepGreater) {
+                sU = -sU;
+                eU = -eU;
+            }
+            boolean sIn = sU >= -1e-4f;
+            boolean eIn = eU >= -1e-4f;
+            if (eIn) {
+                if (!sIn) {
+                    out.add(intersectEdge(s, e, sU, eU));
+                }
+                out.add(e);
+            } else if (sIn) {
+                out.add(intersectEdge(s, e, sU, eU));
+            }
+        }
+        return out;
+    }
+
+    private static void drawDashedSegment(
+            float x0,
+            float y0,
+            float x1,
+            float y1,
+            float startOffset,
+            float endOffset,
+            float dashPitch) {
+        float dx = x1 - x0;
+        float dy = y1 - y0;
+        float len = (float) Math.sqrt(dx * dx + dy * dy);
+        float usable = len - startOffset - endOffset;
+        if (usable <= 6f) return;
+        float ux = dx / len;
+        float uy = dy / len;
+        int dashes = Math.max(2, Math.min(20, (int) (usable / dashPitch)));
+        float step = usable / dashes;
+        GL11.glBegin(GL11.GL_LINES);
+        for (int i = 0; i < dashes; i++) {
+            float s0 = startOffset + i * step;
+            float s1 = startOffset + (i + 0.65f) * step;
+            GL11.glVertex2f(x0 + ux * s0, y0 + uy * s0);
+            GL11.glVertex2f(x0 + ux * s1, y0 + uy * s1);
+        }
+        GL11.glEnd();
     }
 
     private static String buildCompactIntentTag(DivisionState div) {
