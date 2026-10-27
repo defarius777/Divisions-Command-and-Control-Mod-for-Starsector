@@ -239,11 +239,13 @@ public class DivisionCommanderAI {
         return missileRunComplete || flankBreakOffNeeded;
     }
 
-    /** Requires actual flux buildup (or critical damage under heavy local overmatch) so fresh divisions never retreat. */
+    /** Requires actual flux buildup (or critical damage under heavy local overmatch / L-U crossfire cordon) so fresh divisions never retreat. */
     private static boolean isUnderHighFluxPressure(DivisionState div, BattleGroupState myGroup) {
+        boolean inCrossfireCordon = div.crossfireCordonIndex >= 0.36f && div.localEnemyStrength >= 10f;
         boolean highFluxPressure = div.avgFluxLevel >= div.commander.rotationFluxThreshold
-                || (div.maxMemberFluxLevel >= 0.78f && div.localEnemyStrength > 12f && div.localForceRatio < 0.65f)
-                || (div.avgFluxLevel >= 0.45f && div.localEnemyStrength > 14f && div.localForceRatio < 0.50f && div.commander.aggressionBias < 1.35f);
+                || (div.maxMemberFluxLevel >= 0.78f && div.localEnemyStrength > 10f && (div.localForceRatio < 0.72f || inCrossfireCordon))
+                || (div.avgFluxLevel >= 0.45f && div.localEnemyStrength > 14f && div.localForceRatio < 0.50f && div.commander.aggressionBias < 1.35f)
+                || (inCrossfireCordon && (div.maxMemberFluxLevel >= 0.64f || (div.avgFluxLevel >= 0.38f && div.localForceRatio < 0.68f)));
         boolean canRotateOut = (div != myGroup.mainEffortDivision || div.avgFluxLevel >= 0.72f || myGroup.divisions.size() >= 3);
         return highFluxPressure && canRotateOut;
     }
@@ -405,7 +407,7 @@ public class DivisionCommanderAI {
                 || div.isFastFlanker
                 || div.localEnemyStrength < 15f)) {
             div.targetFriendlyDivision = endangeredFriendlyDiv;
-            div.stationPoint.set(endangeredFriendlyDiv.centroid);
+            computeReinforceStation(engine, div, endangeredFriendlyDiv, div.stationPoint, myGroup);
             String reason = (activeMission == DivisionMissionType.RESERVE || div.isDesignatedReserve)
                     ? String.format("reserve called forward to reinforce (local ratio %.2f)", endangeredFriendlyDiv.localForceRatio)
                     : String.format("hard pressed, local ratio %.2f", endangeredFriendlyDiv.localForceRatio);
@@ -473,8 +475,12 @@ public class DivisionCommanderAI {
         }
 
         // 2. High flux / damaged division -> Rotate to reserve behind a friendly division
+        // Hold HAUL_OUT_TO_VENT until BOTH average flux and the most fluxed ship (e.g. a second Hammerhead)
+        // have vented down to safe levels, preventing premature re-entry into L/U crossfire pockets at 50-75% flux!
         boolean stillRotating = prevIntent == DivisionIntentType.HAUL_OUT_TO_VENT
-                && div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.55f;
+                && (div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.55f
+                || (div.maxMemberFluxLevel >= 0.45f && (div.localEnemyStrength >= 10f || div.crossfireCordonIndex >= 0.30f))
+                || (div.crossfireCordonIndex >= 0.38f && div.avgFluxLevel >= 0.28f));
         boolean fightingRetirementVent = (myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT && div.avgFluxLevel >= 0.32f);
         if (isUnderHighFluxPressure(div, myGroup) || stillRotating || fightingRetirementVent) {
             DivisionState candidateFriend = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
@@ -877,7 +883,7 @@ public class DivisionCommanderAI {
                     return false;
                 }
                 div.targetFriendlyDivision = friend;
-                div.stationPoint.set(friend.centroid);
+                computeReinforceStation(engine, div, friend, div.stationPoint, myGroup);
                 return commitIntent(engine, div, DivisionIntentType.REINFORCE_DIVISION, friend.displayName, reason, now);
             }
             case HOLD_RESERVE: {
@@ -1009,7 +1015,7 @@ public class DivisionCommanderAI {
                 break;
             case REINFORCE_DIVISION:
                 if (friend != null && friend.isCombatEffective()) {
-                    div.stationPoint.set(friend.centroid);
+                    computeReinforceStation(engine, div, friend, div.stationPoint, myGroup);
                 }
                 break;
             case PRESS_HOME:
@@ -1990,6 +1996,46 @@ public class DivisionCommanderAI {
             float backY = (div.side == 0) ? -standoff : standoff;
             outStation.set(visEnemyPos.x, visEnemyPos.y + backY);
         }
+        // Slide standoff station out of L/U crossfire overlaps and toward enemy blind spots / disunified arcs
+        BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
+                engine, div, enemyDiv, visEnemyPos, outStation, 36f, 5, outStation);
+    }
+
+    /**
+     * Places a reinforcing division on the friendly / low-cordon shoulder of the beleaguered division
+     * rather than diving straight onto its centroid inside an L- or U-shaped enemy crossfire pocket.
+     */
+    private static void computeReinforceStation(
+            CombatEngineAPI engine,
+            DivisionState reinforcer,
+            DivisionState friend,
+            Vector2f outStation,
+            BattleGroupState myGroup) {
+        if (friend == null) return;
+        if (reinforcer == null) {
+            outStation.set(friend.centroid);
+            return;
+        }
+        // Default support offset: 480u toward the reinforcer / friendly reserve side of friend.centroid
+        float dx = reinforcer.centroid.x - friend.centroid.x;
+        float dy = reinforcer.centroid.y - friend.centroid.y;
+        if (myGroup != null) {
+            dx = dx * 0.65f + (myGroup.reserveStation.x - friend.centroid.x) * 0.35f;
+            dy = dy * 0.65f + (myGroup.reserveStation.y - friend.centroid.y) * 0.35f;
+        }
+        float len = (float) Math.sqrt(dx * dx + dy * dy);
+        float supportDist = Math.max(420f, Math.min(680f, reinforcer.stationSpacing * 1.15f));
+        if (len > 1f) {
+            outStation.set(
+                    friend.centroid.x + (dx / len) * supportDist,
+                    friend.centroid.y + (dy / len) * supportDist);
+        } else {
+            float backY = (reinforcer.side == 0) ? -supportDist : supportDist;
+            outStation.set(friend.centroid.x, friend.centroid.y + backY);
+        }
+        BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
+                engine, reinforcer, friend.targetEnemyDivision, friend.centroid, outStation, 50f, 5, outStation);
+        clampToMapBounds(engine, outStation, 650f);
     }
 
     private static void computeScreeningStation(
@@ -2058,6 +2104,8 @@ public class DivisionCommanderAI {
                 outStation.set(
                         visEnemyPos.x + perpX * flankRadius * lateralMult * assignedSide + fwdX * flankRadius * depthMult,
                         visEnemyPos.y + perpY * flankRadius * lateralMult * assignedSide + fwdY * flankRadius * depthMult);
+                BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
+                        engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 48f, 7, outStation);
                 clampToMapBounds(engine, outStation, 650f);
                 return;
             }
@@ -2077,6 +2125,8 @@ public class DivisionCommanderAI {
         outStation.set(
                 visEnemyPos.x + perpX * flankRadius * sideSign,
                 visEnemyPos.y + perpY * flankRadius * sideSign);
+        BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
+                engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 55f, 7, outStation);
         clampToMapBounds(engine, outStation, 650f);
     }
 
@@ -2282,6 +2332,14 @@ public class DivisionCommanderAI {
                     score -= (1900f - dToCand) * 0.65f;
                 }
             }
+            // 2b. Penalize candidate apex by actual overlapping weapon-arc firepower & L/U crossfire cordon
+            BattlefieldFirepowerEvaluator.PointFirepowerEval fpEval =
+                    BattlefieldFirepowerEvaluator.evaluatePoint(engine, side, candApex, 180f);
+            score -= fpEval.effectiveDanger * 0.42f + fpEval.cordonIndex * 380f;
+            if (blockingDiv != null) {
+                score += BattlefieldFirepowerEvaluator.evaluateBlindSpotAdvantage(engine, side, blockingDiv, candApex) * 0.85f;
+            }
+
             // 3. Shorter tangent geometry from startPos around obsCenter
             float crossStart = (startPos.x - obsCenter.x) * normX * candidateSide
                     + (startPos.y - obsCenter.y) * normY * candidateSide;

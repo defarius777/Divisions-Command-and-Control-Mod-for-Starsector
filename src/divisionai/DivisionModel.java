@@ -367,6 +367,12 @@ public class DivisionModel {
         public float localFriendlyStrength;
         public float localEnemyStrength;
         public float localForceRatio; // localFriendlyStrength / max(1, localEnemyStrength)
+        public float incomingAlphaThreat;
+        public float incomingShortDotThreat;
+        public float incomingSustainedDotThreat;
+        public float incomingPdThreat;
+        public float crossfireCordonIndex; // 0.0 = unidirectional, >= 0.35 = L-cordon, >= 0.60 = U-cordon
+        public float smoothedDangerScore;
         public boolean hasShipNeedingHelp;
         public ShipAPI shipNeedingHelp;
         public int usableStrikeAmmoCount;

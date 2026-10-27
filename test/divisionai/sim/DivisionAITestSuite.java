@@ -4,6 +4,9 @@ import com.fs.starfarer.api.characters.FullName;
 import com.fs.starfarer.api.characters.FullName.Gender;
 import com.fs.starfarer.api.characters.PersonAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
+import divisionai.BattlefieldFirepowerEvaluator;
+import divisionai.BattlefieldFirepowerEvaluator.PointFirepowerEval;
+import divisionai.BattlefieldFirepowerEvaluator.ShipFirepowerRose;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
@@ -68,6 +71,7 @@ public class DivisionAITestSuite {
         testTimeOnTargetCoordinatedStrike();
         testCulturalNomenclatureAndPrefixBuckets();
         testFluidDivisionPolygonsAndOverlapStriping();
+        testWeaponArcFirepowerSpaceAndCordonAvoidance();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -512,6 +516,119 @@ public class DivisionAITestSuite {
         check(stripeSlices >= 2,
                 "Overlapping division intersection slices cleanly into thick diagonal stripe bands",
                 "stripeSlices=" + stripeSlices);
+    }
+
+    /**
+     * Scenario 6b: Weapon-Arc Firepower Space (3-Horizon Alpha / Short DoT / Sustained DoT, General vs PD),
+     * L/U-Cordon Crossfire Detection, Blind-Spot Exploitation, Hammerhead Asymmetric-Flux Vent Retention,
+     * and Right-Side Battle Screen Firepower Toggle Button (Off by Default).
+     */
+    private static void testWeaponArcFirepowerSpaceAndCordonAvoidance() {
+        System.out.println("\n--- Scenario 6b: Weapon-Arc Firepower Space, L/U-Cordon Avoidance & Hammerhead Vent Retention ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "aggressive");
+        CommanderProfile eCmdr = new CommanderProfile(null, "reckless");
+
+        BattleGroupState playerGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState enemyGroup = new BattleGroupState(1, eCmdr);
+
+        DivisionState anchorDiv = new DivisionState("p_anc", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battleship Div 1", pCmdr);
+        DivisionState hhDiv = new DivisionState("p_hh2", 0, 2, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 2", pCmdr);
+        playerGroup.divisions.add(anchorDiv);
+        playerGroup.divisions.add(hhDiv);
+
+        DivisionState eFront = new DivisionState("e_front", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Fleet II", eCmdr);
+        DivisionState ePort = new DivisionState("e_port", 1, 2, DivisionArchetype.CRUISER_DIVISION, "Rania's I Division", eCmdr);
+        DivisionState eStbd = new DivisionState("e_stbd", 1, 3, DivisionArchetype.CRUISER_DIVISION, "Gal's Gang", eCmdr);
+        enemyGroup.divisions.add(eFront);
+        enemyGroup.divisions.add(ePort);
+        enemyGroup.divisions.add(eStbd);
+
+        SimArena arena = new SimArena(
+                "6b. Weapon-Arc Firepower Space & L/U Crossfire Cordon Avoidance",
+                "Destroyer Div 2 (2x Hammerhead) in a 3-sided U-shaped enemy pocket detects high Cordon Index, holds HAUL_OUT_TO_VENT until both ships vent, and slides into blind spots.",
+                playerGroup,
+                enemyGroup);
+
+        // Verify right-side toggle button is OFF by default on battle init
+        boolean defaultOff = !BattlefieldFirepowerEvaluator.isOverlayVisible();
+        BattlefieldFirepowerEvaluator.toggleOverlayVisible();
+        boolean toggledOn = BattlefieldFirepowerEvaluator.isOverlayVisible();
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+        boolean resetBackToOff = !BattlefieldFirepowerEvaluator.isOverlayVisible();
+
+        arena.addShip(anchorDiv, "b_anc", "RDS Onslaught", "Onslaught", HullSize.CAPITAL_SHIP, 0f, -1500f, 55f, 1400f, 0, 0);
+        SimShipState hh1 = arena.addShip(hhDiv, "hh1", "RDS Solstice", "Hammerhead", HullSize.DESTROYER, 0f, 0f, 130f, 950f, 0, 0);
+        SimShipState hh2 = arena.addShip(hhDiv, "hh2", "RDS Comet", "Hammerhead", HullSize.DESTROYER, 140f, -40f, 130f, 950f, 0, 0);
+
+        // Asymmetric flux: hh1 is at 76% flux, hh2 is at 18% flux (avg = 47%, which previously exited HAUL_OUT_TO_VENT immediately!)
+        hh1.fluxLevel = 0.76f;
+        hh2.fluxLevel = 0.18f;
+
+        // 3 enemy divisions forming a U-shaped crossfire cordon around (0, 0):
+        //  - eFront at (0, 850) facing 270 deg (south, narrow 90-deg front guns + 360 PD)
+        //  - ePort at (-850, 50) facing 0 deg (east, into the pocket)
+        //  - eStbd at (850, 50) facing 180 deg (west, into the pocket)
+        SimShipState ef = arena.addShip(eFront, "ef1", "Shinoria", "Eradicator", HullSize.CRUISER, 0f, 850f, 60f, 1300f, 0, 0);
+        ef.facing = 270f;
+        ef.weapons.clear();
+        ef.addDirectionalWeapon(1350f, 90f, 0f, false, true);  // Heavy forward strike/general arc
+        ef.addDirectionalWeapon(550f, 360f, 0f, true, false);  // All-around PD arc
+
+        SimShipState ep = arena.addShip(ePort, "ep1", "Mulligan", "Falcon", HullSize.CRUISER, -850f, 50f, 75f, 1250f, 0, 0);
+        ep.facing = 0f;
+        ep.weapons.clear();
+        ep.addDirectionalWeapon(1250f, 110f, 0f, false, false);
+
+        SimShipState es = arena.addShip(eStbd, "es1", "Olkzan", "Enforcer", HullSize.CRUISER, 850f, 50f, 65f, 1250f, 0, 0);
+        es.facing = 180f;
+        es.weapons.clear();
+        es.addDirectionalWeapon(1250f, 110f, 0f, false, false);
+
+        BattlefieldFirepowerEvaluator.updateBattlefieldRoses(arena.engineProxy, 0.5f);
+        ShipFirepowerRose efRose = BattlefieldFirepowerEvaluator.getRoseForShip(ef.proxy);
+
+        // Check efRose directional firepower (bow at 270 deg world vs stern blind spot at 90 deg world)
+        float bowShortDot = efRose != null ? efRose.sampleShortDotAtWorldAngle(270f) : 0f;
+        float bowAlpha = efRose != null ? efRose.sampleAlphaAtWorldAngle(270f) : 0f;
+        float sternShortDot = efRose != null ? efRose.sampleShortDotAtWorldAngle(90f) : 999f;
+        float sternPd = efRose != null ? efRose.samplePdAtWorldAngle(90f) : 0f;
+
+        // Evaluate U-cordon pocket center (0, 0) vs unidirectional point (0, 1550) in ef's stern blind spot
+        PointFirepowerEval pocketEval = BattlefieldFirepowerEvaluator.evaluatePoint(
+                arena.engineProxy, 0, new Vector2f(0f, 0f), 90f);
+        PointFirepowerEval blindSpotEval = BattlefieldFirepowerEvaluator.evaluatePoint(
+                arena.engineProxy, 0, new Vector2f(0f, 1550f), 90f);
+        float blindSpotBonus = BattlefieldFirepowerEvaluator.evaluateBlindSpotAdvantage(
+                arena.engineProxy, 0, eFront, new Vector2f(0f, 1550f));
+
+        // Step simulation and verify Destroyer Div 2 enters HAUL_OUT_TO_VENT and holds it while hh1 is still > 45% flux
+        arena.runSimulation(1.0f);
+        boolean enteredHaulOutInPocket = (hhDiv.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT);
+
+        // Even if hh2 is at 10% flux and hh1 is at 56% flux (avgFlux = 33%, below 0.55 * 0.72 = 39.6%),
+        // Destroyer Div 2 must STAY in HAUL_OUT_TO_VENT because hh1 (maxMemberFluxLevel = 56% >= 45%) is not yet vented!
+        hh1.fluxLevel = 0.56f;
+        hh2.fluxLevel = 0.10f;
+        arena.runSimulation(3.0f);
+        boolean heldHaulOutWhileWingmanHighFlux = (hhDiv.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT);
+
+        check(defaultOff && toggledOn && resetBackToOff,
+                "Battle screen right-side Firepower Rose toggle button defaults to OFF and toggles cleanly",
+                String.format(Locale.ROOT, "defaultOff=%b, toggledOn=%b, resetBackToOff=%b", defaultOff, toggledOn, resetBackToOff));
+        check(bowShortDot > 150f && bowAlpha > 250f && sternShortDot < bowShortDot * 0.25f && sternPd > 20f,
+                "ShipFirepowerRose distinguishes 3-horizon General arcs from PD arcs and stern blind spots",
+                String.format(Locale.ROOT, "bowShort=%.0f, bowAlpha=%.0f, sternShort=%.0f (blind spot), sternPd=%.0f",
+                        bowShortDot, bowAlpha, sternShortDot, sternPd));
+        check(pocketEval.cordonIndex >= 0.55f && pocketEval.activeThreatOctants >= 3 && blindSpotBonus > 50f
+                        && pocketEval.effectiveDanger > blindSpotEval.effectiveDanger * 3.0f,
+                "PointFirepowerEval detects 3-sided U-cordon crossfire pocket vs stern blind-spot advantage",
+                String.format(Locale.ROOT, "pocketCordon=%.2f (octants=%d, danger=%.0f) vs blindSpotDanger=%.0f, blindSpotBonus=%.0f",
+                        pocketEval.cordonIndex, pocketEval.activeThreatOctants, pocketEval.effectiveDanger,
+                        blindSpotEval.effectiveDanger, blindSpotBonus));
+        check(enteredHaulOutInPocket && heldHaulOutWhileWingmanHighFlux,
+                "Hammerhead division in U-cordon enters HAUL_OUT_TO_VENT and waits until both ships vent below 45% flux",
+                String.format(Locale.ROOT, "enteredHaulOut=%b, heldAtWingman56Pct=%b (intent=%s)",
+                        enteredHaulOutInPocket, heldHaulOutWhileWingmanHighFlux, hhDiv.currentIntent));
     }
 
     /**

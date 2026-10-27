@@ -8,6 +8,7 @@ import com.fs.starfarer.api.combat.FogOfWarAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import com.fs.starfarer.api.graphics.SpriteAPI;
+import com.fs.starfarer.api.input.InputEventAPI;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.Fonts;
 import com.fs.starfarer.api.ui.LabelAPI;
@@ -248,6 +249,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     @Override
+    public void processInput(List<InputEventAPI> events) {
+        BattlefieldFirepowerEvaluator.processInputEvents(events);
+    }
+
+    @Override
     public void render(float alphaMult) {
         if (!attachedToWarroom || engine == null) return;
         if (!DivisionAISettings.isTacticalMapOverlayEnabled()) return;
@@ -342,6 +348,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         // 4b. Render Fleet Flagship (gold star, upper-right) and Division Leader (silver star, bottom-right) badges
         renderFlagshipStarsOnTopLayer(playerFog, scale, offsetX, offsetY, fade);
+
+        // 4c. Render stabilized Weapon-Arc Firepower Roses / Planes (when toggled ON) + right-side Toggle Button
+        BattlefieldFirepowerEvaluator.renderFirepowerRosesScreenSpace(
+                engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
+        BattlefieldFirepowerEvaluator.renderToggleButtonAndLegendUI(fade);
 
         // 5. De-conflict and render division labels anchored to the primary division droplet entity
         deconflictPrimaryDivisionLabels(renderedPolys);

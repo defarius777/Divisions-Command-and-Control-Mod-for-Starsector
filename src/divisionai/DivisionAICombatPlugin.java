@@ -4,6 +4,7 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.combat.BaseEveryFrameCombatPlugin;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
+import com.fs.starfarer.api.combat.ViewportAPI;
 import com.fs.starfarer.api.input.InputEventAPI;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
@@ -61,13 +62,26 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.passiveContactGroup = null;
         this.tacticalOverlay = new DivisionTacticalMapOverlay(engine);
         this.deploymentOrganizer = new DivisionDeploymentDialogOrganizer();
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
         if (engine != null) {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
         }
     }
 
     @Override
+    public void processInputPreCoreControls(float amount, List<InputEventAPI> events) {
+        BattlefieldFirepowerEvaluator.processInputEvents(events);
+    }
+
+    @Override
+    public void renderInUICoords(ViewportAPI viewport) {
+        BattlefieldFirepowerEvaluator.renderOnLiveBattleScreen(
+                engine, viewport, playerGroup, alliedAiGroup, enemyGroup);
+    }
+
+    @Override
     public void advance(float amount, List<InputEventAPI> events) {
+        BattlefieldFirepowerEvaluator.processInputEvents(events);
         DivisionAISettings.advanceLunaSettingsReinitButton();
         if (engine == null) {
             engine = Global.getCombatEngine();

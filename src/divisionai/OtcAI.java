@@ -37,6 +37,9 @@ public class OtcAI {
     private static final float MIN_PHASE_DWELL = 10f;
 
     public static void updateTelemetry(CombatEngineAPI engine, BattleGroupState battleGroup) {
+        if (engine != null) {
+            BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, engine.getTotalElapsedTime(false));
+        }
         float fleetWeightedX = 0f;
         float fleetWeightedY = 0f;
         float totalFriendlyFp = 0f;
@@ -50,6 +53,12 @@ public class OtcAI {
                 div.localFriendlyStrength = 0f;
                 div.localEnemyStrength = 0f;
                 div.localForceRatio = 1f;
+                div.incomingAlphaThreat = 0f;
+                div.incomingShortDotThreat = 0f;
+                div.incomingSustainedDotThreat = 0f;
+                div.incomingPdThreat = 0f;
+                div.crossfireCordonIndex = 0f;
+                div.smoothedDangerScore = 0f;
                 continue;
             }
 
@@ -263,6 +272,15 @@ public class OtcAI {
 
             // Spatial-grid local overmatch scan around division centroid (never O(N^2))
             evaluateLocalForceRatioViaGrid(engine, div);
+
+            // Weapon-arc firepower-space & L/U crossfire cordon evaluation at division centroid
+            BattlefieldFirepowerEvaluator.updateDivisionFirepowerTelemetry(engine, div);
+            if (div.crossfireCordonIndex >= 0.32f && div.localEnemyStrength > 1f) {
+                // Weight effective local enemy pressure by L/U crossfire cordon amplification
+                float cordonMult = 1.0f + (div.crossfireCordonIndex - 0.20f) * 0.55f;
+                div.localEnemyStrength *= cordonMult;
+                div.localForceRatio = div.localFriendlyStrength / Math.max(1f, div.localEnemyStrength);
+            }
 
             fleetWeightedX += div.centroid.x * weightSum;
             fleetWeightedY += div.centroid.y * weightSum;

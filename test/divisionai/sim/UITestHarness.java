@@ -2,6 +2,7 @@ package divisionai.sim;
 
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
+import divisionai.BattlefieldFirepowerEvaluator;
 import divisionai.DivisionAISettings;
 import divisionai.DivisionCombatLog;
 import divisionai.DivisionDeploymentDialogOrganizer;
@@ -92,6 +93,23 @@ public class UITestHarness {
         auditV069StarsAutoAssignSchemesPolygonsAndRename(res);
         auditV070PlayerFactionSyncLowerRightStarsForceAndNomenclatures(res);
         auditChatterVerbosityModes(res);
+
+        // Audit Battle Screen right-side Firepower Rose toggle button (off by default & width budget)
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+        boolean fpDefaultOff = !BattlefieldFirepowerEvaluator.isOverlayVisible();
+        int fpOffPx = Math.round("FIREPOWER: OFF".length() * 6.8f + 12f);
+        int fpOnPx = Math.round("FIREPOWER: ON".length() * 6.8f + 12f);
+        int fpMaxBtnPx = Math.max(fpOffPx, fpOnPx) + 10;
+        boolean fpFitsBtn = fpMaxBtnPx <= (int) BattlefieldFirepowerEvaluator.BTN_WIDTH
+                && BattlefieldFirepowerEvaluator.BTN_RIGHT_MARGIN <= 24f;
+        res.record(
+                fpDefaultOff && fpFitsBtn,
+                "Battle screen right-side Firepower Rose/Plane toggle button (OFF by default, fits compact button)",
+                String.format(
+                        Locale.ROOT,
+                        "defaultOff=%b, textWidthPx=%dpx <= btnWidth=%.0fpx, rightMargin=%.0fpx",
+                        fpDefaultOff, fpMaxBtnPx, BattlefieldFirepowerEvaluator.BTN_WIDTH, BattlefieldFirepowerEvaluator.BTN_RIGHT_MARGIN));
+
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);
 

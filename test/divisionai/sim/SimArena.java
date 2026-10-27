@@ -94,6 +94,43 @@ public class SimArena {
             this.proxy = createProxy();
         }
 
+        public void addDirectionalWeapon(
+                final float range,
+                final float arcDeg,
+                final float arcFacingRelDeg,
+                final boolean isPd,
+                final boolean isStrike) {
+            final EnumSet<AIHints> hints = EnumSet.noneOf(AIHints.class);
+            if (isPd) {
+                hints.add(AIHints.PD);
+                hints.add(AIHints.PD_ONLY);
+            }
+            if (isStrike) {
+                hints.add(AIHints.STRIKE);
+            }
+            this.weapons.add((WeaponAPI) Proxy.newProxyInstance(
+                    WeaponAPI.class.getClassLoader(),
+                    new Class<?>[]{WeaponAPI.class},
+                    (p, m, a) -> {
+                        String n = m.getName();
+                        if ("getRange".equals(n)) return range;
+                        if ("getArc".equals(n)) return arcDeg;
+                        if ("getArcFacing".equals(n)) return arcFacingRelDeg;
+                        if ("getType".equals(n)) return isStrike ? WeaponType.MISSILE : WeaponType.BALLISTIC;
+                        if ("getAIHints".equals(n)) return hints;
+                        if ("hasAIHint".equals(n)) return a != null && a.length > 0 && hints.contains(a[0]);
+                        if ("isDecorative".equals(n) || "isDisabled".equals(n) || "isPermanentlyDisabled".equals(n)
+                                || "usesAmmo".equals(n)) {
+                            return Boolean.FALSE;
+                        }
+                        Class<?> rt = m.getReturnType();
+                        if (rt == boolean.class) return false;
+                        if (rt == int.class) return 0;
+                        if (rt == float.class) return 0f;
+                        return null;
+                    }));
+        }
+
         private static WeaponAPI createMockGun(final float range) {
             final EnumSet<AIHints> hints = EnumSet.noneOf(AIHints.class);
             return (WeaponAPI) Proxy.newProxyInstance(
@@ -301,6 +338,13 @@ public class SimArena {
                     if ("getTotalElapsedTime".equals(n)) return elapsedTime;
                     if ("getMapWidth".equals(n)) return mapWidth;
                     if ("getMapHeight".equals(n)) return mapHeight;
+                    if ("getShips".equals(n)) {
+                        List<ShipAPI> list = new ArrayList<>(ships.size());
+                        for (SimShipState s : ships) {
+                            if (s.alive) list.add(s.proxy);
+                        }
+                        return list;
+                    }
                     if ("getAiGridShips".equals(n) || "getShipGrid".equals(n)) return gridProxy;
                     if ("getFogOfWar".equals(n)) return fogProxy;
                     if ("getObjectives".equals(n)) return objectives;

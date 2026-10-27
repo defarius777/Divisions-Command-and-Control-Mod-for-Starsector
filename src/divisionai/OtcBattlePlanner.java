@@ -384,6 +384,20 @@ public class OtcBattlePlanner {
             float dist = distance(d.centroid, crisis.centroid);
             if (dist > maxDist) continue;
 
+            // Do not send a small Destroyer/Frigate division to commit suicide inside a deep multi-division
+            // U-shaped crossfire pocket where combined friendly strength would still be heavily overmatched (< 0.55x).
+            boolean isLightReinforcer = d.totalFpStrength <= 26f
+                    && (d.archetype == DivisionArchetype.DESTROYER_DIVISION
+                    || d.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                    || d.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || d.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION);
+            if (isLightReinforcer && crisis.localEnemyStrength > 32f) {
+                float combinedRatio = (crisis.localFriendlyStrength + d.totalFpStrength) / Math.max(1f, crisis.localEnemyStrength);
+                if (combinedRatio < 0.52f || (crisis.crossfireCordonIndex >= 0.45f && combinedRatio < 0.68f)) {
+                    continue;
+                }
+            }
+
             boolean isReserve = (d == myGroup.reserveDivision)
                     || DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.RESERVE;
             // The reserve is kept for real crises, not for a lone frigate in trouble
