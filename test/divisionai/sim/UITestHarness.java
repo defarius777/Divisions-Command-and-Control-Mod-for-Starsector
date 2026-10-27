@@ -72,6 +72,7 @@ public class UITestHarness {
         auditV067FeaturesAndQAPass(res);
         auditV068IconsReinitAndFlagshipStars(res);
         auditV069StarsAutoAssignSchemesPolygonsAndRename(res);
+        auditV070PlayerFactionSyncLowerRightStarsForceAndNomenclatures(res);
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);
 
@@ -358,16 +359,16 @@ public class UITestHarness {
     }
 
     private static void auditV069StarsAutoAssignSchemesPolygonsAndRename(UIAuditResult res) throws Exception {
-        // Item A: Division Leader stars on bottom-right corner & larger star size
+        // Item A: Division Leader & Fleet Flagship stars on lower-right corner & larger star size
         String overlayJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()), StandardCharsets.UTF_8);
         boolean itemAOk = overlayJava.contains("renderShipCornerStar(ship, silverStar, false, scale, offsetX, offsetY, fade)")
-                && overlayJava.contains("renderShipCornerStar(ship, goldStar, true, scale, offsetX, offsetY, fade)")
+                && overlayJava.contains("renderShipCornerStar(ship, goldStar, false, scale, offsetX, offsetY, fade)")
                 && overlayJava.contains("upperRightCorner ? (sy + cornerOffset) : (sy - cornerOffset)")
                 && overlayJava.contains("clamp(18.5f * zoom, 14.0f, 26.0f)");
         res.record(
                 itemAOk,
-                "v0.6.9 Item A: Division Leader silver stars on bottom-right corner & enlarged flagship star size (14-26px)",
-                "silverStar->bottomRight (sy - cornerOffset), goldStar->topRight (sy + cornerOffset), size=14..26px");
+                "v0.6.9 Item A: Division Leader & Fleet Flagship stars on lower-right corner & enlarged flagship star size (14-26px)",
+                "silverStar->bottomRight, goldStar->bottomRight, size=14..26px");
 
         // Item B: Auto-Assigner Division Schemes by Capability & Hull Type in Fleet Doctrine
         FleetDoctrineConfig cfg = new FleetDoctrineConfig();
@@ -416,6 +417,123 @@ public class UITestHarness {
                 itemEOk,
                 "v0.6.9 Item E: Mod renamed to 'Divisions: Command and Control' by 'Defarius'",
                 "mod_info.json name='Divisions: Command and Control', author='Defarius'");
+    }
+
+    private static void auditV070PlayerFactionSyncLowerRightStarsForceAndNomenclatures(UIAuditResult res) throws Exception {
+        String docDialogJava = new String(Files.readAllBytes(new File("src/divisionai/FleetDoctrineDialog.java").toPath()), StandardCharsets.UTF_8);
+        String ffdJava = new String(Files.readAllBytes(new File("src/divisionai/FactionFleetDoctrines.java").toPath()), StandardCharsets.UTF_8);
+        String overlayJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()), StandardCharsets.UTF_8);
+        String editorJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionEditorDialog.java").toPath()), StandardCharsets.UTF_8);
+
+        // Item A: Buttons in Fleet Doctrine & Nomenclature screens to apply changes to player's personal faction fleets
+        boolean itemAButtonsOk = docDialogJava.contains("\"Apply Doctrine to Faction Fleets\"")
+                && docDialogJava.contains("\"APPLY_DOCTRINE_TO_FACTION_FLEETS\"")
+                && docDialogJava.contains("\"Apply Nomenclature to Faction\"")
+                && docDialogJava.contains("\"APPLY_NAMING_TO_FACTION_FLEETS\"")
+                && docDialogJava.contains("applyPlayerDoctrineToPersonalFactionFleets")
+                && docDialogJava.contains("applyPlayerNomenclatureToPersonalFactionFleets")
+                && ffdJava.contains("isPlayerPersonalFactionFleet")
+                && ffdJava.contains("!Factions.PLAYER.equals(sourceMarket.getFactionId())");
+
+        // Verify runtime behavior of applying Nomenclature to personal faction ("player") without affecting commissioned preset factions
+        DivisionNomenclature.clearAppliedPlayerFactionNamingConfigForTests();
+        DivisionNomenclature.PlayerNamingConfig playerNaming = DivisionNomenclature.getPlayerNamingConfig();
+        playerNaming.setPreset(PlayerNamingPreset.SINDRIAN_GUARD);
+        playerNaming.setNumberingStyle(NumberingStyle.ROMAN);
+        String beforeSyncPlayerFactionName = DivisionNomenclature.formatFactionDivisionName(
+                "player",
+                DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL,
+                DivisionArchetype.BATTLESHIP_DIVISION,
+                1);
+        FactionFleetDoctrines.applyPlayerNomenclatureToPersonalFactionFleets(null);
+        String afterSyncPlayerFactionName = DivisionNomenclature.formatFactionDivisionName(
+                "player",
+                DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL,
+                DivisionArchetype.BATTLESHIP_DIVISION,
+                1);
+        String hegemonyFactionName = DivisionNomenclature.formatFactionDivisionName(
+                "hegemony",
+                DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL,
+                DivisionArchetype.BATTLESHIP_DIVISION,
+                1);
+        playerNaming.setPreset(PlayerNamingPreset.NAVAL_STANDARD);
+        playerNaming.setNumberingStyle(NumberingStyle.ARABIC);
+        DivisionNomenclature.clearAppliedPlayerFactionNamingConfigForTests();
+
+        boolean itemARuntimeOk = "Battle Div. I".equals(beforeSyncPlayerFactionName)
+                && "Executor Line I".equals(afterSyncPlayerFactionName)
+                && "Battle Div. I".equals(hegemonyFactionName);
+
+        res.record(
+                itemAButtonsOk && itemARuntimeOk,
+                "v0.7.0 Item A: Fleet Doctrine & Nomenclature buttons apply changes strictly to player's personal faction fleets with 'Are you sure?' prompt",
+                String.format(Locale.ROOT, "beforeSync='%s', afterSync='%s', commissionedPresetFaction='%s'",
+                        beforeSyncPlayerFactionName, afterSyncPlayerFactionName, hegemonyFactionName));
+
+        // Item B: Division & Fleet Flagship stars on lower-right corner vertically aligned with commander portrait
+        boolean itemBOk = overlayJava.contains("float boxHalf = iconRadiusPx * (16.8f / 18.0f);")
+                && overlayJava.contains("float cornerOffset = Math.max(boxHalf - 2.0f, 10.5f * zoom);")
+                && overlayJava.contains("renderShipCornerStar(ship, goldStar, false, scale, offsetX, offsetY, fade)")
+                && overlayJava.contains("renderShipCornerStar(ship, silverStar, false, scale, offsetX, offsetY, fade)")
+                && editorJava.contains("float starY = y + 2f + portraitBoxSize * 0.5f;");
+
+        res.record(
+                itemBOk,
+                "v0.7.0 Item B: Division/Flagship stars on lower-right corner vertically aligned with commander portrait",
+                "warroom starY=sy-(boxHalf-2f) aligned with portraitCenterY; editor starY=y+2f+portraitBoxSize*0.5f");
+
+        // Item C: Generic "Force" division default
+        boolean itemCOk = "Force".equals(DivisionArchetype.FORCE_DIVISION.shortPrefix)
+                && DoctrineDivisionType.forArchetype(DivisionArchetype.FORCE_DIVISION) == DoctrineDivisionType.FORCE
+                && DoctrineDivisionType.forArchetype(null) == DoctrineDivisionType.FORCE
+                && "FORCE".equals(DivisionNomenclature.resolvePrefixBucketKey(DivisionArchetype.FORCE_DIVISION))
+                && "Force 1".equals(DivisionNomenclature.formatPlayerDivisionName(DivisionArchetype.FORCE_DIVISION, 1))
+                && DivisionArchetype.values().length == 16
+                && DoctrineDivisionType.values().length == 16;
+
+        res.record(
+                itemCOk,
+                "v0.7.0 Item C: Generic 'Force' division added as default fallback across DivisionArchetype & DoctrineDivisionType",
+                "archetypes=16, doctrineTypes=16, defaultPlayerForceName='Force 1'");
+
+        // Item D: All existing nomenclatures have explicit entries for all capability & hull divisions (including Missile & Force)
+        PlayerNamingPreset[] presetsToVerify = {
+                PlayerNamingPreset.NAVAL_STANDARD,
+                PlayerNamingPreset.DOMAIN_ARMADA,
+                PlayerNamingPreset.TRITACHYON_CORPORATE,
+                PlayerNamingPreset.PERSEAN_NAVARCHY,
+                PlayerNamingPreset.SINDRIAN_GUARD,
+                PlayerNamingPreset.LUDDIC_ARMADA,
+                PlayerNamingPreset.PIRATE_WOLFPACK,
+                PlayerNamingPreset.REMNANT_ORDO
+        };
+        DivisionArchetype[] capHullArchetypes = {
+                DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
+                DivisionArchetype.MISSILE_CRUISER_DIVISION,
+                DivisionArchetype.MISSILE_DESTROYER_DIVISION,
+                DivisionArchetype.MISSILE_FRIGATE_DIVISION,
+                DivisionArchetype.FORCE_DIVISION
+        };
+        boolean itemDOk = true;
+        List<String> missingPresetEntries = new ArrayList<>();
+        for (PlayerNamingPreset p : presetsToVerify) {
+            for (DivisionArchetype arch : capHullArchetypes) {
+                String prefix = DivisionNomenclature.getDefaultPrefixForPreset(p, arch);
+                if (prefix == null || prefix.trim().isEmpty()) {
+                    itemDOk = false;
+                    missingPresetEntries.add(p.name() + ":" + arch.name());
+                } else if (p != PlayerNamingPreset.NAVAL_STANDARD && prefix.equals(arch.shortPrefix)) {
+                    // Non-standard cultural presets should have culturally themed entries rather than falling through to shortPrefix
+                    itemDOk = false;
+                    missingPresetEntries.add(p.name() + ":" + arch.name() + " fell through to " + prefix);
+                }
+            }
+        }
+
+        res.record(
+                itemDOk,
+                "v0.7.0 Item D: All cultural & faction nomenclatures have dedicated entries for all capability & hull divisions",
+                "presetsVerified=" + presetsToVerify.length + "x" + DivisionArchetype.values().length + ", missing=" + missingPresetEntries);
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {

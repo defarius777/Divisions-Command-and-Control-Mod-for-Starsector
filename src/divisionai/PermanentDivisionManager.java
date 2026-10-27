@@ -420,7 +420,17 @@ public class PermanentDivisionManager {
                 0.90f,
                 DivisionMissionType.RESERVE,
                 DivisionMissionType.RESERVE,
-                LineStation.REAR);
+                LineStation.REAR),
+        FORCE(
+                "Force (General / Mixed)",
+                DivisionArchetype.FORCE_DIVISION,
+                500,
+                1050,
+                850,
+                1.00f,
+                DivisionMissionType.SCOUTING,
+                DivisionMissionType.CLOSE_ACTION,
+                LineStation.CENTER);
 
         public final String displayName;
         public final DivisionArchetype primaryArchetype;
@@ -474,7 +484,7 @@ public class PermanentDivisionManager {
         }
 
         public static DoctrineDivisionType forArchetype(DivisionArchetype arch) {
-            if (arch == null) return CRUISER;
+            if (arch == null) return FORCE;
             switch (arch) {
                 case FRIGATE_DIVISION:
                     return FRIGATE;
@@ -504,6 +514,8 @@ public class PermanentDivisionManager {
                     return PHASE;
                 case SERVICE_GROUP:
                     return SERVICE_GROUP;
+                case FORCE_DIVISION:
+                    return FORCE;
                 case CRUISER_DIVISION:
                 default:
                     return CRUISER;
@@ -1016,6 +1028,10 @@ public class PermanentDivisionManager {
                 minByCat.put(cat, clamped);
             }
         }
+
+        public FleetDoctrineConfig copy() {
+            return deserializeDoctrineConfig(serializeDoctrineConfig(this));
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -1026,7 +1042,14 @@ public class PermanentDivisionManager {
         Map<String, Object> pdata = sector.getPersistentData();
         Object raw = pdata.get(PERSISTENT_DOCTRINE_KEY);
         if (raw instanceof Map) {
-            Map<String, Object> map = (Map<String, Object>) raw;
+            return deserializeDoctrineConfig((Map<String, Object>) raw);
+        }
+        return cfg;
+    }
+
+    public static FleetDoctrineConfig deserializeDoctrineConfig(Map<String, Object> map) {
+        FleetDoctrineConfig cfg = new FleetDoctrineConfig();
+        if (map != null) {
             for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
                 Object minObj = map.get("min_" + cat.name());
                 Object maxObj = map.get("max_" + cat.name());
@@ -1116,10 +1139,9 @@ public class PermanentDivisionManager {
         return value;
     }
 
-    public static void saveFleetDoctrine(FleetDoctrineConfig cfg) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || cfg == null) return;
+    public static Map<String, Object> serializeDoctrineConfig(FleetDoctrineConfig cfg) {
         Map<String, Object> serialized = new HashMap<>();
+        if (cfg == null) return serialized;
         serialized.put("opening_duration_sec", cfg.getOpeningDurationSeconds());
         serialized.put("bg_authority", cfg.getOtcAuthority().name());
         for (OtcPlay play : OtcPlay.values()) {
@@ -1148,7 +1170,13 @@ public class PermanentDivisionManager {
             serialized.put("main_mission_" + dt.name(), cfg.getMainMission(dt).name());
             serialized.put("pref_space_" + dt.name(), cfg.getLineStation(dt).name());
         }
-        sector.getPersistentData().put(PERSISTENT_DOCTRINE_KEY, serialized);
+        return serialized;
+    }
+
+    public static void saveFleetDoctrine(FleetDoctrineConfig cfg) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || cfg == null) return;
+        sector.getPersistentData().put(PERSISTENT_DOCTRINE_KEY, serializeDoctrineConfig(cfg));
     }
 
     public static void updateFleetDoctrineLimit(DoctrineHullCategory cat, boolean isMin, int newValue) {
@@ -2518,7 +2546,7 @@ public class PermanentDivisionManager {
             List<PermanentDivisionSpec> specs,
             Map<String, Object> pdata,
             DivisionArchetype archetype) {
-        DivisionArchetype arch = (archetype != null) ? archetype : DivisionArchetype.CRUISER_DIVISION;
+        DivisionArchetype arch = (archetype != null) ? archetype : DivisionArchetype.FORCE_DIVISION;
         int nextSeq = 1;
         Object rawSeq = pdata.get(PERSISTENT_SEQ_KEY);
         if (rawSeq instanceof Integer) {
@@ -2582,7 +2610,7 @@ public class PermanentDivisionManager {
      * Returns {@code null} if all applicable division schemes for this member's hull are disabled.
      */
     public static DivisionArchetype classifyFleetMemberArchetype(FleetMemberAPI member, FleetDoctrineConfig doctrine) {
-        if (member == null) return DivisionArchetype.FRIGATE_DIVISION;
+        if (member == null) return DivisionArchetype.FORCE_DIVISION;
         ShipHullSpecAPI hullSpec = member.getHullSpec();
         ShipVariantAPI variant = member.getVariant();
         HullSize size = member.getHullSpec() != null ? member.getHullSpec().getHullSize() : HullSize.FRIGATE;
@@ -2603,7 +2631,7 @@ public class PermanentDivisionManager {
             if (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.SERVICE, aaHull)) {
                 return DivisionArchetype.SERVICE_GROUP;
             }
-            return null;
+            return DivisionArchetype.FORCE_DIVISION;
         }
 
         boolean isPhase = member.isPhaseShip() || hints.contains(ShipTypeHints.PHASE);
@@ -2673,7 +2701,7 @@ public class PermanentDivisionManager {
                 if (missileAllowed && (missileWeight >= 10 || strikeWeaponCount >= 3 || hullId.contains("pegasus"))) {
                     return DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
                 }
-                return lineAllowed ? DivisionArchetype.BATTLESHIP_DIVISION : null;
+                return lineAllowed ? DivisionArchetype.BATTLESHIP_DIVISION : DivisionArchetype.FORCE_DIVISION;
             case CRUISER:
                 if (missileAllowed && (missileWeight >= 6 || strikeWeaponCount >= 2 || hullId.contains("gryphon"))) {
                     return DivisionArchetype.MISSILE_CRUISER_DIVISION;
@@ -2683,18 +2711,18 @@ public class PermanentDivisionManager {
                         && member.getStats().getMaxSpeed().getModifiedValue() >= 90f) {
                     return DivisionArchetype.STRIKE_CRUISER_DIVISION;
                 }
-                return lineAllowed ? DivisionArchetype.CRUISER_DIVISION : null;
+                return lineAllowed ? DivisionArchetype.CRUISER_DIVISION : DivisionArchetype.FORCE_DIVISION;
             case DESTROYER:
                 if (missileAllowed && (strikeWeaponCount >= 1 || missileWeight >= 3)) {
                     return DivisionArchetype.MISSILE_DESTROYER_DIVISION;
                 }
-                return lineAllowed ? DivisionArchetype.DESTROYER_DIVISION : null;
+                return lineAllowed ? DivisionArchetype.DESTROYER_DIVISION : DivisionArchetype.FORCE_DIVISION;
             case FRIGATE:
             default:
                 if (missileAllowed && (strikeWeaponCount >= 1 || missileWeight >= 2)) {
                     return DivisionArchetype.MISSILE_FRIGATE_DIVISION;
                 }
-                return lineAllowed ? DivisionArchetype.FRIGATE_DIVISION : null;
+                return lineAllowed ? DivisionArchetype.FRIGATE_DIVISION : DivisionArchetype.FORCE_DIVISION;
         }
     }
 

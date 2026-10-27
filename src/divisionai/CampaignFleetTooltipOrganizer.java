@@ -716,6 +716,7 @@ public final class CampaignFleetTooltipOrganizer {
         }
         switch (archetype) {
             case BATTLESHIP_DIVISION:
+            case MISSILE_BATTLESHIP_DIVISION:
                 return new Color(255, 195, 75, 255);
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
@@ -723,15 +724,19 @@ public final class CampaignFleetTooltipOrganizer {
             case CARRIER_GROUP:
                 return new Color(135, 215, 255, 255);
             case CRUISER_DIVISION:
+            case MISSILE_CRUISER_DIVISION:
             case STRIKE_CRUISER_DIVISION:
                 return new Color(110, 235, 190, 255);
             case DESTROYER_DIVISION:
             case MISSILE_DESTROYER_DIVISION:
                 return new Color(155, 225, 120, 255);
             case FRIGATE_DIVISION:
+            case MISSILE_FRIGATE_DIVISION:
                 return new Color(120, 200, 255, 255);
             case PHASE_DIVISION:
                 return new Color(205, 140, 255, 255);
+            case FORCE_DIVISION:
+                return new Color(150, 225, 215, 255);
             case SERVICE_GROUP:
             default:
                 return new Color(185, 195, 205, 255);

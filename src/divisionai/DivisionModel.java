@@ -39,7 +39,8 @@ public class DivisionModel {
         FRIGATE_DIVISION("Frigate Div", false),
         MISSILE_FRIGATE_DIVISION("Missile Frigate Div", false),
         PHASE_DIVISION("Phase Div", false),
-        SERVICE_GROUP("Service Group", true);
+        SERVICE_GROUP("Service Group", true),
+        FORCE_DIVISION("Force", true);
 
         public final String shortPrefix;
         public final boolean isComposite;

@@ -554,6 +554,7 @@ public class DivisionAutoFormer {
         float baseRadius;
         switch (div.archetype) {
             case BATTLESHIP_DIVISION:
+            case MISSILE_BATTLESHIP_DIVISION:
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
             case ESCORT_CARRIER_DIVISION:
@@ -561,7 +562,9 @@ public class DivisionAutoFormer {
                 baseRadius = 900f;
                 break;
             case CRUISER_DIVISION:
+            case MISSILE_CRUISER_DIVISION:
             case STRIKE_CRUISER_DIVISION:
+            case FORCE_DIVISION:
                 baseRadius = 850f;
                 break;
             case DESTROYER_DIVISION:
@@ -569,6 +572,7 @@ public class DivisionAutoFormer {
                 baseRadius = 750f;
                 break;
             case FRIGATE_DIVISION:
+            case MISSILE_FRIGATE_DIVISION:
             case PHASE_DIVISION:
             default:
                 baseRadius = 680f;
@@ -599,6 +603,7 @@ public class DivisionAutoFormer {
         } else {
             switch (archetype) {
                 case BATTLESHIP_DIVISION:
+                case MISSILE_BATTLESHIP_DIVISION:
                 case FLEET_CARRIER_DIVISION:
                 case LIGHT_CARRIER_DIVISION:
                 case ESCORT_CARRIER_DIVISION:
@@ -606,7 +611,9 @@ public class DivisionAutoFormer {
                     baseRadius = 900f;
                     break;
                 case CRUISER_DIVISION:
+                case MISSILE_CRUISER_DIVISION:
                 case STRIKE_CRUISER_DIVISION:
+                case FORCE_DIVISION:
                     baseRadius = 850f;
                     break;
                 case DESTROYER_DIVISION:
@@ -614,6 +621,7 @@ public class DivisionAutoFormer {
                     baseRadius = 780f;
                     break;
                 case FRIGATE_DIVISION:
+                case MISSILE_FRIGATE_DIVISION:
                 case PHASE_DIVISION:
                 default:
                     baseRadius = 720f;

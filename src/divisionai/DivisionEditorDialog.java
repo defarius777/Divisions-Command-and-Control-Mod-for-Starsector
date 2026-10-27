@@ -918,7 +918,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         nameRow.addUIElement(nameUi).inTL(0f, 0f);
         top.addCustom(nameRow, 4f);
 
-        // Row C: Division Archetype Selector (2 clean rows of 8 columns covering all 15 Division Types)
+        // Row C: Division Archetype Selector (2 clean rows of 8 columns covering all 16 Division Types)
         DivisionArchetype[] archetypes = new DivisionArchetype[]{
                 DivisionArchetype.BATTLESHIP_DIVISION,
                 DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
@@ -934,7 +934,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 DivisionArchetype.ESCORT_CARRIER_DIVISION,
                 DivisionArchetype.CARRIER_GROUP,
                 DivisionArchetype.PHASE_DIVISION,
-                DivisionArchetype.SERVICE_GROUP
+                DivisionArchetype.SERVICE_GROUP,
+                DivisionArchetype.FORCE_DIVISION
         };
         CustomPanelAPI archRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 50f, subPanelPlugin);
         TooltipMakerAPI archUi = archRow.createUIElement(DIALOG_WIDTH - 24f, 50f, false);
@@ -1403,6 +1404,28 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     }
 
                     GL11.glPopAttrib();
+                }
+
+                // Render Fleet Flagship (gold star) or Division Leader (silver star) in the lower-right corner,
+                // vertically aligned with the commander portrait on the lower-left (py + portraitBoxSize * 0.5f)
+                boolean isFleetFlag = member.isFlagship();
+                if (isFleetFlag || isFlagship) {
+                    try {
+                        SpriteAPI starSprite = Global.getSettings().getSprite(
+                                "division_ai",
+                                isFleetFlag ? "star_gold" : "star_silver");
+                        if (starSprite != null) {
+                            float starSize = 16f;
+                            float starX = x + w - starSize * 0.5f - 2f;
+                            float starY = y + 2f + portraitBoxSize * 0.5f;
+                            starSprite.setSize(starSize, starSize);
+                            starSprite.setColor(Color.WHITE);
+                            starSprite.setAlphaMult(Math.min(1f, effAlpha * 0.96f));
+                            starSprite.setAngle(0f);
+                            starSprite.renderAtCenter(starX, starY);
+                        }
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         });
@@ -1900,7 +1923,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         if ("CREATE_DIV_OVERVIEW".equals(cmd)) {
             PermanentDivisionSpec created = PermanentDivisionManager.createNewDivision(
-                    DivisionArchetype.CRUISER_DIVISION,
+                    DivisionArchetype.FORCE_DIVISION,
                     null);
             if (created != null) {
                 selectedOverviewDivisionId = created.id;
@@ -1910,7 +1933,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         if ("CREATE_DIV".equals(cmd)) {
             PermanentDivisionSpec created = PermanentDivisionManager.createNewDivision(
-                    DivisionArchetype.CRUISER_DIVISION,
+                    DivisionArchetype.FORCE_DIVISION,
                     null);
             if (created != null) {
                 activeDivisionId = created.id;
@@ -2013,12 +2036,15 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         if (cmd.startsWith("NEW_DIV_WITH:")) {
             String mId = cmd.substring("NEW_DIV_WITH:".length());
-            DivisionArchetype arch = DivisionArchetype.CRUISER_DIVISION;
+            DivisionArchetype arch = DivisionArchetype.FORCE_DIVISION;
             CampaignFleetAPI fleet = Global.getSector() != null ? Global.getSector().getPlayerFleet() : null;
             if (fleet != null && fleet.getFleetData() != null) {
                 for (FleetMemberAPI m : fleet.getFleetData().getMembersListCopy()) {
                     if (mId.equals(m.getId())) {
-                        arch = PermanentDivisionManager.classifyFleetMemberArchetype(m);
+                        DivisionArchetype classified = PermanentDivisionManager.classifyFleetMemberArchetype(
+                                m,
+                                PermanentDivisionManager.getFleetDoctrine());
+                        arch = (classified != null) ? classified : DivisionArchetype.FORCE_DIVISION;
                         break;
                     }
                 }

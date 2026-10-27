@@ -843,7 +843,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
             if (goldStar != null) {
                 for (ShipAPI ship : fleetFlagships) {
-                    renderShipCornerStar(ship, goldStar, true, scale, offsetX, offsetY, fade);
+                    renderShipCornerStar(ship, goldStar, false, scale, offsetX, offsetY, fade);
                 }
             }
         } catch (Throwable ignored) {
@@ -882,9 +882,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float sx = ship.getLocation().x * scale + (float) ((int) offsetX);
         float sy = ship.getLocation().y * scale + (float) ((int) offsetY);
 
-        // Fleet Flagship (gold star): upper-right corner (sy + cornerOffset).
-        // Division Leader (silver star): bottom-right corner (sy - cornerOffset).
-        float cornerOffset = Math.max(iconRadiusPx * 0.64f, 10.5f * zoom);
+        // Both Fleet Flagship (gold star) and Division Leader (silver star) render on the lower-right corner,
+        // vertically aligned with the commander portrait on the lower-left of the warroom ship icon
+        // (in com.fs.starfarer.ui.B.new, boxHalf = iconRadiusPx * (16.8f / 18.0f), portraitCenter = (sx - boxHalf + 2f, sy - boxHalf + 2f)).
+        float boxHalf = iconRadiusPx * (16.8f / 18.0f);
+        float cornerOffset = Math.max(boxHalf - 2.0f, 10.5f * zoom);
         float starX = (float) Math.round(sx + cornerOffset);
         float starY = (float) Math.round(upperRightCorner ? (sy + cornerOffset) : (sy - cornerOffset));
         float starSize = (float) (Math.round(clamp(18.5f * zoom, 14.0f, 26.0f) * 0.5f) * 2);

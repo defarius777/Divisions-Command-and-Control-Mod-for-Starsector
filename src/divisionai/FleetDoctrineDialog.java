@@ -91,7 +91,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             DivisionArchetype.FRIGATE_DIVISION,
             DivisionArchetype.MISSILE_FRIGATE_DIVISION,
             DivisionArchetype.PHASE_DIVISION,
-            DivisionArchetype.SERVICE_GROUP
+            DivisionArchetype.SERVICE_GROUP,
+            DivisionArchetype.FORCE_DIVISION
     };
 
     private final UIPanelAPI parentCoreUI;
@@ -104,6 +105,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private String expandedDropdownKey = null;
     private String pendingConfirmationCmd = null;
     private int lastReinitFleetCount = -1;
+    private int lastAppliedDoctrineFleetCount = -1;
+    private int lastAppliedNamingFleetCount = -1;
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
     private final Map<DivisionArchetype, TextFieldAPI> prefixTextFields = new LinkedHashMap<>();
@@ -390,6 +393,32 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         float bodyWidth = DIALOG_WIDTH - 24f;
 
         TooltipMakerAPI body = contentContainer.createUIElement(bodyWidth, bodyHeight, true);
+
+        if (activeTab != ActiveTab.NAMING_SCHEME) {
+            float factionBarW = bodyWidth - 16f;
+            CustomPanelAPI factionBar = Global.getSettings().createCustom(factionBarW, 30f, subPanelPlugin);
+            TooltipMakerAPI fbUi = factionBar.createUIElement(factionBarW, 30f, false);
+            String statusNote = lastAppliedDoctrineFleetCount >= 0
+                    ? ("Applied to personal faction (" + lastAppliedDoctrineFleetCount + " colony fleet(s) reinitialized).")
+                    : "Also apply this Fleet Doctrine to your personal faction's colony fleets (excludes commissioned preset faction worlds).";
+            fbUi.addPara(statusNote, 0f, lastAppliedDoctrineFleetCount >= 0 ? positive : gray).getPosition().inTL(6f, 6f);
+            ButtonAPI bApplyDocFaction = registerButton(
+                    fbUi.addButton(
+                            "Apply Doctrine to Faction Fleets",
+                            "APPLY_DOCTRINE_TO_FACTION_FLEETS",
+                            highlight,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.TL_BR,
+                            248f,
+                            24f,
+                            0f),
+                    "APPLY_DOCTRINE_TO_FACTION_FLEETS");
+            bApplyDocFaction.getPosition().inTL(factionBarW - 254f, 3f);
+            fbUi.setHeightSoFar(30f);
+            factionBar.addUIElement(fbUi).inTL(0f, 0f);
+            body.addCustom(factionBar, 2f);
+        }
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.BATTLE_GROUP_COMMAND) {
             body.addSectionHeading(
@@ -843,6 +872,20 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 toggleAct);
         if (expanded) bToggle.highlight();
         bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        ButtonAPI bApplyNamingFaction = registerButton(
+                presetUi.addButton(
+                        "Apply Nomenclature to Faction",
+                        "APPLY_NAMING_TO_FACTION_FLEETS",
+                        lastAppliedNamingFleetCount >= 0 ? positive : highlight,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        224f,
+                        24f,
+                        0f),
+                "APPLY_NAMING_TO_FACTION_FLEETS");
+        bApplyNamingFaction.getPosition().inTL(rowWidth - 210f - 8f - 224f, 3f);
 
         ButtonAPI bApplyExisting = registerButton(
                 presetUi.addButton(
@@ -1555,22 +1598,35 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         ui.setTitleOrbitronLarge();
         ui.addTitle("ARE YOU SURE?", highlight);
-        ui.addPara(
-                "Reinitialize sector-wide division lists for all AI fleets across the sector? "
-                        + "Story and special fleets will be prioritized first for low-numbered permanent divisions, "
-                        + "and faction division record tables will be rebuilt.",
-                10f,
-                Misc.getTextColor());
+        String promptText;
+        String yesBtnLabel;
+        if ("APPLY_DOCTRINE_TO_FACTION_FLEETS".equals(pendingConfirmationCmd)) {
+            promptText = "Apply your current Fleet Doctrine to your personal faction's fleets (such as patrols and task forces "
+                    + "spawning out of colonies you own)? Does not affect the planetary holdings of a commissioned player "
+                    + "with mandate over a preset faction's world(s). Your personal faction will reinitialize division assignments and division names.";
+            yesBtnLabel = "Yes, Apply to Faction Fleets";
+        } else if ("APPLY_NAMING_TO_FACTION_FLEETS".equals(pendingConfirmationCmd)) {
+            promptText = "Apply your current Fleet Nomenclature to your personal faction's fleets (such as patrols and task forces "
+                    + "spawning out of colonies you own)? Does not affect the planetary holdings of a commissioned player "
+                    + "with mandate over a preset faction's world(s). Your personal faction will reinitialize division names.";
+            yesBtnLabel = "Yes, Apply Nomenclature";
+        } else {
+            promptText = "Reinitialize sector-wide division lists for all AI fleets across the sector? "
+                    + "Story and special fleets will be prioritized first for low-numbered permanent divisions, "
+                    + "and faction division record tables will be rebuilt.";
+            yesBtnLabel = "Yes, Reinitialize Sector Lists";
+        }
+        ui.addPara(promptText, 10f, Misc.getTextColor());
 
         ButtonAPI bYes = registerButton(
                 ui.addButton(
-                        "Yes, Reinitialize Sector Lists",
+                        yesBtnLabel,
                         "CONFIRM_YES",
                         Misc.getPositiveHighlightColor(),
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        230f,
+                        236f,
                         30f,
                         0f),
                 "CONFIRM_YES");
@@ -1612,12 +1668,19 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 if (Global.getSector() != null) {
                     lastReinitFleetCount = FactionFleetDoctrines.reinitializeSectorWideDivisionLists(Global.getSector());
                 }
+            } else if ("APPLY_DOCTRINE_TO_FACTION_FLEETS".equals(confirmed)) {
+                lastAppliedDoctrineFleetCount = FactionFleetDoctrines.applyPlayerDoctrineToPersonalFactionFleets(Global.getSector());
+            } else if ("APPLY_NAMING_TO_FACTION_FLEETS".equals(confirmed)) {
+                lastAppliedNamingFleetCount = FactionFleetDoctrines.applyPlayerNomenclatureToPersonalFactionFleets(Global.getSector());
             }
             rebuildContent();
             return;
         }
-        if ("REINIT_SECTOR_DIVISIONS".equals(cmd)) {
-            pendingConfirmationCmd = "REINIT_SECTOR_DIVISIONS";
+        if ("REINIT_SECTOR_DIVISIONS".equals(cmd)
+                || "APPLY_DOCTRINE_TO_FACTION_FLEETS".equals(cmd)
+                || "APPLY_NAMING_TO_FACTION_FLEETS".equals(cmd)) {
+            commitCustomPrefixTextFields();
+            pendingConfirmationCmd = cmd;
             rebuildContent();
             return;
         }
