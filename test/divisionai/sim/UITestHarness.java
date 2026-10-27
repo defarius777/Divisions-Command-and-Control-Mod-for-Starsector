@@ -418,11 +418,11 @@ public class UITestHarness {
         // Item C: Sticky water-droplet intra-division polygons + anti-stripe-spam
         boolean itemCOk = overlayJava.contains("clusterDivisionMembersSticky")
                 && overlayJava.contains("stickyConnectedPairsByDivId")
-                && overlayJava.contains("splitDist = mergeDist * 1.15f")
+                && overlayJava.contains("splitDist = mergeDist * 1.24f")
                 && overlayJava.contains("applyMetaballNeckPinchScreen")
                 && overlayJava.contains("buildFluidDropletPolygonScreen")
                 && overlayJava.contains("a.cohesionAlphaMult < 0.35f")
-                && overlayJava.contains("a.hullMembers.size() < 2 || b.hullMembers.size() < 2");
+                && overlayJava.contains("boolean sameSide = (a.isEnemy == b.isEnemy) && (a.isAlliedAi == b.isAlliedAi);");
         res.record(
                 itemCOk,
                 "v0.6.9 Item C: Sticky hysteresis water-droplet division polygons & anti-stripe-spam filtering",
@@ -558,7 +558,8 @@ public class UITestHarness {
         boolean dropletKissOk = overlayJava.contains("smoothedBondOpennessByPairKey")
                 && overlayJava.contains("resolvePairBondOpenness")
                 && overlayJava.contains("distToKissPx")
-                && overlayJava.contains("pinchAtSaddle = minPinch + (0.96f - minPinch) * (1.0f - openness)")
+                && overlayJava.contains("isRedundantShortcutChordWorld")
+                && overlayJava.contains("minWaistPx")
                 && overlayJava.contains("extractMetaballDropletPolygonScreen")
                 && overlayJava.contains("traceMetaballContoursMarchingSquares")
                 && overlayJava.contains("subdivideLongEdgesScreen")
@@ -603,9 +604,9 @@ public class UITestHarness {
         String[] titles = {
                 "1. 3-Cruiser Triangle (Frame 1 Tab Opened!)",
                 "2. 3-Cruiser Triangle (After 30 frames)",
-                "3. 4-Frigate Curve (Frame 1 Tab Opened!)",
-                "4. 3 Ships L-Shape (Frame 1!)",
-                "5. 3 Ships Line + Detached Straggler",
+                "3. 4-Frigate Curve (After 25 frames)",
+                "4. 3 Ships L-Shape (After 25 frames)",
+                "5. 4-Ship Div Splitting (3+1 Pop & Pull)",
                 "6. 2 Ships Just Joined (Tiniest Contact!)",
                 "7. 2 Ships Stretching (Narrow Waist)",
                 "8. 2 Ships Coalesced (Full Formation)",
@@ -620,7 +621,7 @@ public class UITestHarness {
                 {{-260, -150}, {260, -150}, {0, 260}},
                 {{-300, 400}, {150, 380}, {-80, -120}, {-120, -520}},
                 {{-400, -200}, {200, -200}, {200, 450}},
-                {{-450, 0}, {0, 0}, {1320, 40}},
+                {{-520, -120}, {-40, -140}, {380, -120}, {380, 1410}},
                 {{-595, 0}, {595, 0}},
                 {{-675, 0}, {675, 0}},
                 {{-320, 0}, {320, 0}},
@@ -653,7 +654,17 @@ public class UITestHarness {
             DivisionState div = new DivisionState("qa_div_" + idx, 0, 1, DivisionArchetype.CRUISER_DIVISION, "Div " + idx, cmdr);
             div.stationSpacing = 450f;
 
-            if (idx == 5) {
+            if (idx == 4) {
+                // Panel 5: Start 4-ship division coalesced in formation, then Ship 3 peels off and snaps!
+                List<ShipAPI> united = Arrays.asList(
+                        createMockDropletShip("s_" + idx + "_0", HullSize.CRUISER, -520f, -120f),
+                        createMockDropletShip("s_" + idx + "_1", HullSize.CRUISER, -40f, -140f),
+                        createMockDropletShip("s_" + idx + "_2", HullSize.CRUISER, 380f, -120f),
+                        createMockDropletShip("s_" + idx + "_3", HullSize.CRUISER, 380f, 520f));
+                for (int s = 0; s < 5; s++) {
+                    ov.clusterDivisionMembersSticky(div, united);
+                }
+            } else if (idx == 5) {
                 // Simulate two previously separated droplets approaching from outside mergeDist and joining this frame!
                 List<ShipAPI> separated = Arrays.asList(
                         createMockDropletShip("s_" + idx + "_0", HullSize.CRUISER, -800f, 0f),
@@ -682,13 +693,13 @@ public class UITestHarness {
             }
 
             int frames;
-            if (idx == 1 || idx == 6 || idx == 7) {
+            if (idx == 1 || idx == 2 || idx == 3 || idx == 6 || idx == 7) {
                 frames = 25;
             } else if (idx == 8) {
                 frames = 4;
             } else if (idx == 9) {
                 frames = 8;
-            } else if (idx == 10) {
+            } else if (idx == 4 || idx == 10) {
                 frames = 1; // Frame 1 of snap/pop!
             } else if (idx == 11) {
                 frames = 5; // Mid-recoil after snap!
@@ -773,6 +784,51 @@ public class UITestHarness {
         File qaOut = new File("build/droplet_qa_sheet.png");
         if (qaOut.getParentFile() != null) qaOut.getParentFile().mkdirs();
         ImageIO.write(img, "PNG", qaOut);
+
+        // Dynamic 60-frame multi-zoom stress test: simulate 4-ship and 3-ship divisions maneuvering,
+        // stretching, splitting, and re-coalescing across 3 zoom levels (0.045f, 0.075f, 0.11f).
+        float[] stressScales = { 0.045f, 0.075f, 0.11f };
+        for (int sIdx = 0; sIdx < stressScales.length; sIdx++) {
+            float testScale = stressScales[sIdx];
+            DivisionState stressDiv = new DivisionState("stress_div_" + sIdx, 0, 1, DivisionArchetype.CRUISER_DIVISION, "Stress Div", cmdr);
+            stressDiv.stationSpacing = 450f;
+            for (int frame = 0; frame < 40; frame++) {
+                float t = frame / 39.0f;
+                float splitOffset = (frame < 20) ? (t * 2.0f * 1650f) : ((1.0f - (t - 0.5f) * 2.0f) * 1650f);
+                List<ShipAPI> dynMembers = Arrays.asList(
+                        createMockDropletShip("sd_" + sIdx + "_0", HullSize.CRUISER, -480f, -150f + 60f * (float) Math.sin(frame * 0.25)),
+                        createMockDropletShip("sd_" + sIdx + "_1", HullSize.CRUISER, 0f, -80f + 50f * (float) Math.cos(frame * 0.25)),
+                        createMockDropletShip("sd_" + sIdx + "_2", HullSize.CRUISER, 460f, 120f),
+                        createMockDropletShip("sd_" + sIdx + "_3", HullSize.CRUISER, 460f + splitOffset * 0.45f, 480f + splitOffset * 0.85f));
+                List<List<ShipAPI>> dynDroplets = ov.clusterDivisionMembersSticky(stressDiv, dynMembers);
+                for (List<ShipAPI> dDrop : dynDroplets) {
+                    totalDropletsAudited++;
+                    List<Vector2f> hull = ov.buildFluidDropletPolygonScreen(stressDiv, dDrop, dynMembers, testScale, 500f, 500f);
+                    Vector2f cent = DivisionTacticalMapOverlay.computePolygonCentroid(hull);
+                    List<Vector2f> disp = ov.applyMetaballNeckPinchScreen(stressDiv, hull, cent, dDrop, dynMembers, testScale, 500f, 500f);
+                    List<int[]> tris = DivisionTacticalMapOverlay.triangulatePolygonCCW(disp);
+                    totalSelfIntersections += DivisionTacticalMapOverlay.countPolygonSelfIntersections(disp);
+                    float polyArea = DivisionTacticalMapOverlay.computePolygonArea(disp);
+                    float triAreaSum = 0f;
+                    for (int[] tri : tris) {
+                        Vector2f a = disp.get(tri[0]);
+                        Vector2f b = disp.get(tri[1]);
+                        Vector2f c = disp.get(tri[2]);
+                        triAreaSum += Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) * 0.5f;
+                    }
+                    if (tris.size() != disp.size() - 2 || Math.abs(triAreaSum - polyArea) > polyArea * 0.02f) {
+                        badTriangulations++;
+                    }
+                    for (ShipAPI s : dDrop) {
+                        float sx = s.getLocation().x * testScale + 500f;
+                        float sy = s.getLocation().y * testScale + 500f;
+                        if (!DivisionTacticalMapOverlay.isPointInsidePolygon(disp, sx, sy)) {
+                            uncontainedShips++;
+                        }
+                    }
+                }
+            }
+        }
 
         boolean popAndPullAnimated = stage3TailReachPx >= 10.0f
                 && stage4TailReachPx >= 2.0f

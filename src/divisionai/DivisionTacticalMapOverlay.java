@@ -493,6 +493,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
 
         boolean[][] adj = new boolean[n][n];
+        Set<String> nextPairs = new HashSet<>();
         for (int i = 0; i < n; i++) {
             adj[i][i] = true;
             ShipAPI a = members.get(i);
@@ -507,12 +508,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 String bondKey = divId + ":" + key;
                 boolean wasConnected = prevPairs.contains(key);
                 Float prevOpen = smoothedBondOpennessByPairKey.get(bondKey);
+
+                // Suppress redundant shortcut chords across an intermediate stepping-stone ship k (Gabriel / RNG condition)
+                boolean shortcutChord = isRedundantShortcutChordWorld(members, i, j, dist);
                 boolean connectedNow;
-                if (!wasConnected) {
+                if (shortcutChord) {
+                    connectedNow = false;
+                } else if (!wasConnected) {
                     connectedNow = (dist <= mergeDist);
                 } else if (dist <= splitDist) {
                     connectedNow = true;
-                } else if (dist <= splitDist * 1.22f && prevOpen != null && prevOpen > 0.07f) {
+                } else if (dist <= splitDist * 1.16f && prevOpen != null && prevOpen > 0.08f) {
                     // Hold the liquid thread for a brief neck-down transition if it was still thick when crossing splitDist
                     connectedNow = true;
                 } else {
@@ -522,13 +528,16 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (connectedNow) {
                     adj[i][j] = true;
                     adj[j][i] = true;
-                    float fullOpenDist = (ra + rb) * 0.72f;
+                    nextPairs.add(key);
+                    float fullOpenDist = (ra + rb) * 0.88f;
                     float geomOpenness;
                     if (dist > splitDist) {
                         geomOpenness = 0.02f;
+                    } else if (dist <= fullOpenDist) {
+                        geomOpenness = 1.0f;
                     } else {
                         float tOpen = clamp(1.0f - (dist - fullOpenDist) / Math.max(1f, splitDist - fullOpenDist), 0.02f, 1.0f);
-                        geomOpenness = Math.max(0.02f, tOpen * tOpen);
+                        geomOpenness = Math.max(0.02f, tOpen * (0.35f + 0.65f * tOpen));
                     }
                     float nextOpen;
                     if (firstSeenDiv) {
@@ -539,18 +548,22 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         nextOpen = 0.02f;
                     } else if (dist > splitDist) {
                         // Rapidly neck down the stretched capillary thread right before snapping
-                        nextOpen = prevOpen * 0.45f - 0.025f;
+                        nextOpen = prevOpen * 0.42f - 0.03f;
                     } else if (geomOpenness < prevOpen) {
                         // Smooth elastic liquid pull as ships stretch apart toward splitDist
-                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.30f - 0.012f;
+                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.32f - 0.01f;
                     } else {
                         // Smooth liquid relaxation as ships settle into formation
-                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.16f;
+                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.22f;
                     }
                     smoothedBondOpennessByPairKey.put(bondKey, clamp(nextOpen, 0.02f, 1.0f));
                     smoothedMeniscusReachByPairKey.remove(bondKey);
                 } else {
                     smoothedBondOpennessByPairKey.remove(bondKey);
+                    if (shortcutChord) {
+                        smoothedMeniscusReachByPairKey.remove(bondKey);
+                        continue;
+                    }
                     float attractMaxDist = mergeDist * 1.24f;
                     float geomReach = 0f;
                     if (!wasConnected && dist < attractMaxDist) {
@@ -566,13 +579,13 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         float prevReach = (prevReachObj != null) ? prevReachObj : (firstSeenDiv ? geomReach : 0f);
                         if (prevReach > geomReach) {
                             // Smooth surface-tension recoil pulling the snapped tail back into the droplet circle
-                            nextReach = geomReach + (prevReach - geomReach) * 0.76f - 0.022f;
+                            nextReach = geomReach + (prevReach - geomReach) * 0.72f - 0.03f;
                         } else {
                             // Smooth surface-tension extension as two droplets approach to kiss
                             nextReach = prevReach + (geomReach - prevReach) * 0.28f;
                         }
                     }
-                    if (nextReach > 0.02f && dist < splitDist * 1.65f) {
+                    if (nextReach > 0.02f && dist < splitDist * 1.45f) {
                         smoothedMeniscusReachByPairKey.put(bondKey, clamp(nextReach, 0f, 0.92f));
                     } else {
                         smoothedMeniscusReachByPairKey.remove(bondKey);
@@ -583,7 +596,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         boolean[] visited = new boolean[n];
         List<List<ShipAPI>> clusters = new ArrayList<>();
-        Set<String> nextPairs = new HashSet<>();
 
         for (int i = 0; i < n; i++) {
             if (visited[i]) continue;
@@ -604,16 +616,35 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             for (int idx : compIndices) {
                 cluster.add(members.get(idx));
             }
-            for (int aIdx = 0; aIdx < cluster.size(); aIdx++) {
-                for (int bIdx = aIdx + 1; bIdx < cluster.size(); bIdx++) {
-                    nextPairs.add(canonicalPairKey(cluster.get(aIdx).getId(), cluster.get(bIdx).getId()));
-                }
-            }
             clusters.add(cluster);
         }
 
         stickyConnectedPairsByDivId.put(divId, nextPairs);
         return clusters;
+    }
+
+    /**
+     * Returns true if ship pair (i, j) is bypassed by an intermediate stepping-stone ship k in the same division
+     * (Gabriel Graph / Relative Neighborhood Graph condition: d(i,k)^2 + d(j,k)^2 < d(i,j)^2 * 1.12).
+     * Suppressing shortcut chords prevents L-shaped, curved, or linear formations from stringing thin bow-string
+     * bridges across their concave side or trapping interior holes.
+     */
+    private static boolean isRedundantShortcutChordWorld(List<ShipAPI> members, int i, int j, float distIJ) {
+        int n = members.size();
+        if (n <= 2 || distIJ <= 1e-3f) return false;
+        Vector2f pi = members.get(i).getLocation();
+        Vector2f pj = members.get(j).getLocation();
+        float distSqIJ = distIJ * distIJ;
+        for (int k = 0; k < n; k++) {
+            if (k == i || k == j) continue;
+            Vector2f pk = members.get(k).getLocation();
+            float dik = distance(pi, pk);
+            float djk = distance(pj, pk);
+            if (dik < distIJ && djk < distIJ && (dik * dik + djk * djk) < distSqIJ * 1.12f) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String canonicalPairKey(String idA, String idB) {
@@ -883,22 +914,39 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetY) {
         int mCount = dropletMembers.size();
 
-        // Collect the droplet's ships plus any nearby sibling ships with active meniscus reach (approaching or recoiling)
-        List<ShipAPI> evalShips = new ArrayList<>(mCount + 2);
+        // Collect the droplet's ships plus at most ONE closest sibling ship with active meniscus reach
+        // (approaching or recoiling) so a droplet never sprouts multiple meniscus tails at once.
+        List<ShipAPI> evalShips = new ArrayList<>(mCount + 1);
         evalShips.addAll(dropletMembers);
+        int bestMeniscusMemberIdx = -1;
+        ShipAPI bestMeniscusOther = null;
+        float bestMeniscusScore = 0f;
+        float bestMeniscusReach = 0f;
         if (allDivisionMembers != null && allDivisionMembers.size() > mCount) {
-            for (ShipAPI other : allDivisionMembers) {
-                if (dropletMembers.contains(other)) continue;
-                boolean nearAny = false;
-                for (ShipAPI m : dropletMembers) {
-                    if (resolvePairMeniscusReach(div, m, other) > 0.02f) {
-                        nearAny = true;
-                        break;
+            for (int i = 0; i < mCount; i++) {
+                ShipAPI m = dropletMembers.get(i);
+                int mAllIdx = allDivisionMembers.indexOf(m);
+                for (int oIdx = 0; oIdx < allDivisionMembers.size(); oIdx++) {
+                    ShipAPI other = allDivisionMembers.get(oIdx);
+                    if (dropletMembers.contains(other)) continue;
+                    float distW = distance(m.getLocation(), other.getLocation());
+                    if (mAllIdx >= 0 && isRedundantShortcutChordWorld(allDivisionMembers, mAllIdx, oIdx, distW)) {
+                        continue;
+                    }
+                    float reach = resolvePairMeniscusReach(div, m, other);
+                    if (reach > 0.02f) {
+                        float score = reach * 1000f - distW * 0.1f;
+                        if (score > bestMeniscusScore) {
+                            bestMeniscusScore = score;
+                            bestMeniscusReach = reach;
+                            bestMeniscusMemberIdx = i;
+                            bestMeniscusOther = other;
+                        }
                     }
                 }
-                if (nearAny) {
-                    evalShips.add(other);
-                }
+            }
+            if (bestMeniscusOther != null && bestMeniscusMemberIdx >= 0) {
+                evalShips.add(bestMeniscusOther);
             }
         }
 
@@ -911,42 +959,36 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float worldR = getMemberFootprintRadiusWorld(s);
             sx[i] = s.getLocation().x * scale + offsetX;
             sy[i] = s.getLocation().y * scale + offsetY;
-            sr[i] = clamp(worldR * scale, 14f, 54f);
+            sr[i] = clamp(worldR * scale, 12f, 68f);
         }
 
         // Build pairwise hourglass bridge openness matrix kPair[i][j]
-        //   > 0: connected intra-droplet neighbor pair with openness in [0.02, 1.0]
-        //   < 0: approaching or recoiling inter-droplet sibling pair with meniscus reach factor in [-0.92, -0.02]
+        //   > 0: connected intra-droplet direct-neighbor pair with openness in [0.02, 1.0]
+        //   < 0: single active approaching/recoiling inter-droplet meniscus pair with reach in [-0.92, -0.02]
         float[][] kPair = new float[total][total];
         for (int i = 0; i < mCount; i++) {
             ShipAPI shipI = evalShips.get(i);
             float rWi = getMemberFootprintRadiusWorld(shipI);
-            // Intra-droplet pairs
+            // Intra-droplet direct-neighbor pairs
             for (int j = i + 1; j < mCount; j++) {
                 ShipAPI shipJ = evalShips.get(j);
                 float rWj = getMemberFootprintRadiusWorld(shipJ);
                 float distW = distance(shipI.getLocation(), shipJ.getLocation());
+                if (isRedundantShortcutChordWorld(dropletMembers, i, j, distW)) {
+                    continue;
+                }
                 float mergeDist = (rWi + rWj) * 1.18f;
                 float splitDist = mergeDist * 1.24f;
-                // Apply direct pairwise bridge to neighbor ships within split range (including brief neck-down hold)
-                if (distW <= splitDist * 1.24f) {
+                if (distW <= splitDist * 1.18f) {
                     float openness = resolvePairBondOpenness(div, shipI, shipJ);
-                    float minPinch = 0.04f;
-                    float pinchAtSaddle = minPinch + (0.96f - minPinch) * (1.0f - openness);
-                    float effOpenness = clamp(1.0f - pinchAtSaddle, 0.02f, 1.0f);
-                    kPair[i][j] = effOpenness;
-                    kPair[j][i] = effOpenness;
+                    kPair[i][j] = clamp(openness, 0.02f, 1.0f);
+                    kPair[j][i] = kPair[i][j];
                 }
             }
-            // Inter-droplet meniscus attraction & post-split recoil ("pop and pull") toward sibling ships
-            for (int j = mCount; j < total; j++) {
-                ShipAPI other = evalShips.get(j);
-                float reach = resolvePairMeniscusReach(div, shipI, other);
-                if (reach > 0.02f) {
-                    kPair[i][j] = -reach;
-                    kPair[j][i] = -reach;
-                }
-            }
+        }
+        if (bestMeniscusOther != null && bestMeniscusMemberIdx >= 0 && total > mCount) {
+            kPair[bestMeniscusMemberIdx][mCount] = -bestMeniscusReach;
+            kPair[mCount][bestMeniscusMemberIdx] = -bestMeniscusReach;
         }
 
         // Compute bounding box around the droplet's member ships and any active meniscus tails
@@ -974,33 +1016,56 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         }
         float maxSpan = Math.max(maxX - minX, maxY - minY);
-        float stepPx = clamp(maxSpan / 48f, 3.2f, 7.0f);
+        float stepPx = clamp(maxSpan / 52f, 2.8f, 5.5f);
 
+        float minWaistPx = Math.max(3.0f, stepPx * 0.84f);
         List<List<Vector2f>> loops = traceMetaballContoursMarchingSquares(
-                sx, sy, sr, mCount, total, kPair, minX, maxX, minY, maxY, stepPx);
+                sx, sy, sr, mCount, total, kPair, minX, maxX, minY, maxY, stepPx, minWaistPx);
         if (loops.isEmpty()) {
             return Collections.emptyList();
         }
 
-        // Select the outer CCW loop that encloses the droplet's first ship (or has largest positive area)
+        List<Vector2f> bestLoop = selectBestContainingLoop(loops, sx, sy, mCount);
+        if (bestLoop != null && mCount > 1 && countContainedShips(bestLoop, sx, sy, mCount) < mCount) {
+            // Guarantee that a thin bridge never pinches between Marching Squares grid vertices and drops a ship
+            loops = traceMetaballContoursMarchingSquares(
+                    sx, sy, sr, mCount, total, kPair, minX, maxX, minY, maxY, stepPx, stepPx * 1.35f);
+            List<Vector2f> retryLoop = selectBestContainingLoop(loops, sx, sy, mCount);
+            if (retryLoop != null) {
+                bestLoop = retryLoop;
+            }
+        }
+        return bestLoop != null ? bestLoop : loops.get(0);
+    }
+
+    private static List<Vector2f> selectBestContainingLoop(
+            List<List<Vector2f>> loops,
+            float[] sx,
+            float[] sy,
+            int mCount) {
         List<Vector2f> bestLoop = null;
         float bestScore = -Float.MAX_VALUE;
         for (List<Vector2f> loop : loops) {
             float signedArea = computeSignedPolygonArea(loop);
             if (signedArea <= 60f) continue; // Reject CW interior holes and tiny noise specks
-            int containedMembers = 0;
-            for (int i = 0; i < mCount; i++) {
-                if (isPointInsidePolygon(loop, sx[i], sy[i])) {
-                    containedMembers++;
-                }
-            }
+            int containedMembers = countContainedShips(loop, sx, sy, mCount);
             float score = containedMembers * 100000f + signedArea;
             if (score > bestScore) {
                 bestScore = score;
                 bestLoop = loop;
             }
         }
-        return bestLoop != null ? bestLoop : loops.get(0);
+        return bestLoop;
+    }
+
+    private static int countContainedShips(List<Vector2f> loop, float[] sx, float[] sy, int mCount) {
+        int contained = 0;
+        for (int i = 0; i < mCount; i++) {
+            if (isPointInsidePolygon(loop, sx[i], sy[i])) {
+                contained++;
+            }
+        }
+        return contained;
     }
 
     private static float sminPoly(float a, float b, float k) {
@@ -1017,7 +1082,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float[] sr,
             int mCount,
             int total,
-            float[][] kPair) {
+            float[][] kPair,
+            float minWaistPx) {
         float bestCircle = Float.MAX_VALUE;
         for (int i = 0; i < mCount; i++) {
             float dx = x - sx[i];
@@ -1033,7 +1099,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float ax = sx[i];
             float ay = sy[i];
             float ra = sr[i];
-            // Connected intra-droplet hourglass bridges
+            // Connected intra-droplet shoulder-anchored concave hourglass bridges
             for (int j = i + 1; j < mCount; j++) {
                 float openness = kPair[i][j];
                 if (openness <= 0f) continue;
@@ -1045,26 +1111,44 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float lenSq = abx * abx + aby * aby;
                 if (lenSq < 1e-3f) continue;
                 float len = (float) Math.sqrt(lenSq);
-                float t = clamp(((x - ax) * abx + (y - ay) * aby) / lenSq, 0f, 1f);
-                float qx = ax + abx * t;
-                float qy = ay + aby * t;
-                float hPerp = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
+                float ux = abx / len;
+                float uy = aby / len;
 
-                float tKiss = ra / Math.max(1f, ra + rb);
-                float tau = (t <= tKiss)
-                        ? (0.5f * (t / Math.max(0.05f, tKiss)))
-                        : (0.5f + 0.5f * ((t - tKiss) / Math.max(0.05f, 1.0f - tKiss)));
-                float bell = (float) Math.sin(Math.PI * clamp(tau, 0f, 1f));
-                float psi = bell * bell;
+                float sKiss = len * (ra / Math.max(1f, ra + rb));
+                // Anchor the bridge on the wide shoulders of Circle A and Circle B (so the concave taper
+                // happens OUTSIDE the circles rather than being buried inside [0, ra]!)
+                float sa = Math.min(ra * 0.45f, sKiss * 0.55f);
+                float sb = len - Math.min(rb * 0.45f, (len - sKiss) * 0.55f);
+                if (sb <= sa + 1.0f) continue;
 
-                float rLinear = (1.0f - t) * ra + t * rb;
+                float ya = (float) Math.sqrt(Math.max(1f, ra * ra - sa * sa)) * 0.94f;
+                float lb = len - sb;
+                float yb = (float) Math.sqrt(Math.max(1f, rb * rb - lb * lb)) * 0.94f;
+
+                float proj = (x - ax) * ux + (y - ay) * uy;
+                float sClamped = clamp(proj, sa, sb);
+                float qx = ax + ux * sClamped;
+                float qy = ay + uy * sClamped;
+                float distToAxis = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
+
                 float minR = Math.min(ra, rb);
-                // At openness=0.02f (just joined or right before split), waist radius is ~1.5px (tiniest point of contact!)
-                // At openness=1.0f (snug in formation), waist radius is 0.88 * minR
-                float rWaist = 1.1f + openness * (minR * 0.88f - 1.1f);
-                float rBridge = rLinear * (1.0f - psi) + rWaist * psi;
-                float dBridge = hPerp - rBridge;
-                bestBridge = sminPoly(bestBridge, dBridge, 3.0f);
+                // At openness=0.02f (just joined or right before split), waist radius is minWaistPx (Nyquist-safe
+                // tiniest point of contact so Marching Squares never drops half a droplet!)
+                // At openness=1.0f (snug in formation), waist radius is 0.84 * minR
+                float maxWaist = Math.max(minWaistPx + 1.0f, minR * 0.84f);
+                float rWaist = minWaistPx + openness * (maxWaist - minWaistPx);
+                float rBridge;
+                if (sClamped <= sKiss) {
+                    float u = clamp((sClamped - sa) / Math.max(1f, sKiss - sa), 0f, 1f);
+                    float oneMinusU = 1.0f - u;
+                    rBridge = rWaist + (ya - rWaist) * oneMinusU * oneMinusU;
+                } else {
+                    float v = clamp((sb - sClamped) / Math.max(1f, sb - sKiss), 0f, 1f);
+                    float oneMinusV = 1.0f - v;
+                    rBridge = rWaist + (yb - rWaist) * oneMinusV * oneMinusV;
+                }
+                float dBridge = distToAxis - rBridge;
+                bestBridge = Math.min(bestBridge, dBridge);
             }
             // Approaching or post-split recoiling inter-droplet liquid meniscus tail toward P_kiss
             for (int j = mCount; j < total; j++) {
@@ -1081,21 +1165,25 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float ux = abx / len;
                 float uy = aby / len;
                 float distToKissPx = len * (ra / Math.max(1f, ra + rb));
-                float s0 = ra * 0.35f;
-                float s1 = Math.max(s0 + 1.0f, ra * 0.84f + reach * (distToKissPx - ra * 0.84f));
+                // Cap maximum tail extension outside Circle A's front edge to 0.48 * ra so it always forms
+                // a proportional liquid teardrop meniscus and never shoots a long spear across the map.
+                float maxExtPx = Math.min(ra * 0.48f, Math.max(2.0f, distToKissPx - ra * 0.94f));
+                float s0 = ra * 0.52f;
+                float s1 = ra + reach * maxExtPx;
+                if (s1 <= s0 + 1.0f) continue;
+
+                float yShoulder = (float) Math.sqrt(Math.max(1f, ra * ra - s0 * s0)) * (0.74f + 0.20f * reach);
                 float proj = (x - ax) * ux + (y - ay) * uy;
-                float s = clamp(proj, s0, s1);
-                float qx = ax + ux * s;
-                float qy = ay + uy * s;
-                float hPerp = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
-                float frac = clamp((s - s0) / Math.max(1f, s1 - s0), 0f, 1f);
-                float bell = (float) Math.sin(0.5 * Math.PI * frac);
-                float psi = bell * bell;
-                float rBase = ra * 0.84f;
-                float rTip = 1.25f + (1.0f - reach) * Math.min(4.2f, ra * 0.14f);
-                float rCone = rBase * (1.0f - psi) + rTip * psi;
-                float dCone = hPerp - rCone;
-                bestBridge = sminPoly(bestBridge, dCone, 3.2f);
+                float sClamped = clamp(proj, s0, s1);
+                float qx = ax + ux * sClamped;
+                float qy = ay + uy * sClamped;
+                float distToAxis = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
+                float u = clamp((sClamped - s0) / Math.max(1f, s1 - s0), 0f, 1f);
+                float oneMinusU = 1.0f - u;
+                float rTip = 2.4f + (1.0f - reach) * Math.min(4.8f, ra * 0.14f);
+                float rCone = rTip + (yShoulder - rTip) * oneMinusU * oneMinusU;
+                float dCone = distToAxis - rCone;
+                bestBridge = Math.min(bestBridge, dCone);
             }
         }
 
@@ -1130,15 +1218,16 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float maxX,
             float minY,
             float maxY,
-            float stepPx) {
-        int cols = Math.max(8, Math.min(96, (int) Math.ceil((maxX - minX) / stepPx)));
-        int rows = Math.max(8, Math.min(96, (int) Math.ceil((maxY - minY) / stepPx)));
+            float stepPx,
+            float minWaistPx) {
+        int cols = Math.max(8, Math.min(104, (int) Math.ceil((maxX - minX) / stepPx)));
+        int rows = Math.max(8, Math.min(104, (int) Math.ceil((maxY - minY) / stepPx)));
         float[][] grid = new float[rows + 1][cols + 1];
         for (int r = 0; r <= rows; r++) {
             float y = minY + r * stepPx;
             for (int c = 0; c <= cols; c++) {
                 float x = minX + c * stepPx;
-                grid[r][c] = evalMetaballSdf(x, y, sx, sy, sr, mCount, total, kPair);
+                grid[r][c] = evalMetaballSdf(x, y, sx, sy, sr, mCount, total, kPair, minWaistPx);
             }
         }
 
@@ -1600,13 +1689,37 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (a.div == b.div) continue;
                 if (b.cohesionAlphaMult < 0.35f) continue;
 
-                // Avoid stripe spam from lone 1-ship reinforcement droplets passing through friendly divisions
-                if (a.isEnemy == b.isEnemy && (a.hullMembers.size() < 2 || b.hullMembers.size() < 2)) {
+                // Only render contested diagonal stripes when OPPOSING or distinct battle groups overlap
+                // (never spam purple/blue or cyan stripes across friendly-on-friendly or enemy-on-enemy droplets)
+                boolean sameSide = (a.isEnemy == b.isEnemy) && (a.isAlliedAi == b.isAlliedAi);
+                if (sameSide) {
                     continue;
                 }
 
                 // Fast AABB reject
                 if (a.maxX < b.minX || b.maxX < a.minX || a.maxY < b.minY || b.maxY < a.minY) {
+                    continue;
+                }
+
+                // Verify that at least one pair of actual ship footprints from A and B overlap in screen space
+                // (prevents phantom stripes in empty concave bays of L-shaped or curved divisions)
+                boolean shipFootprintsOverlap = false;
+                for (ShipAPI sa : a.hullMembers) {
+                    float sax = sa.getLocation().x;
+                    float say = sa.getLocation().y;
+                    float raW = getMemberFootprintRadiusWorld(sa);
+                    for (ShipAPI sb : b.hullMembers) {
+                        float dx = sax - sb.getLocation().x;
+                        float dy = say - sb.getLocation().y;
+                        float maxOverlapW = (raW + getMemberFootprintRadiusWorld(sb)) * 1.05f;
+                        if (dx * dx + dy * dy <= maxOverlapW * maxOverlapW) {
+                            shipFootprintsOverlap = true;
+                            break;
+                        }
+                    }
+                    if (shipFootprintsOverlap) break;
+                }
+                if (!shipFootprintsOverlap) {
                     continue;
                 }
 
@@ -1943,7 +2056,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     // =========================================================================
 
     /**
-     * Ear-clipping triangulation of a simple 2D polygon (handles narrow-waisted hourglass and curved metaball contours).
+     * Ear-clipping triangulation of a simple 2D polygon (handles narrow-waisted hourglass and curved metaball contours)
+     * with multi-stage ear relaxation so collinear Marching Squares edges never abort triangulation early.
      */
     public static List<int[]> triangulatePolygonCCW(List<Vector2f> poly) {
         int n = poly != null ? poly.size() : 0;
@@ -1963,46 +2077,86 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
 
         int nv = n;
-        int guard = 2 * nv + 8;
         int v = nv - 1;
-        while (nv > 2 && guard-- > 0) {
+        int failStreak = 0;
+        while (nv > 2) {
             if (v >= nv) v = 0;
             int u = (v == 0) ? (nv - 1) : (v - 1);
             int w = (v + 1 >= nv) ? 0 : (v + 1);
 
-            if (isEarVertex(poly, u, v, w, nv, indices)) {
+            boolean clipNow = false;
+            if (failStreak < nv) {
+                clipNow = isEarVertex(poly, u, v, w, nv, indices, 1e-4f, -1e-4f);
+            } else if (failStreak < 2 * nv) {
+                // Stage 2: relax interior point test so vertices on/near ear diagonals don't block clipping
+                clipNow = isEarVertex(poly, u, v, w, nv, indices, 1e-5f, 0.75f);
+            } else {
+                // Stage 3: pick the most convex remaining vertex so triangulation always completes (nv -> 2)
+                int bestV = v;
+                float bestCross = -Float.MAX_VALUE;
+                for (int cand = 0; cand < nv; cand++) {
+                    int cu = (cand == 0) ? (nv - 1) : (cand - 1);
+                    int cw = (cand + 1 >= nv) ? 0 : (cand + 1);
+                    Vector2f a = poly.get(indices[cu]);
+                    Vector2f b = poly.get(indices[cand]);
+                    Vector2f c = poly.get(indices[cw]);
+                    float cr = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+                    if (cr > bestCross) {
+                        bestCross = cr;
+                        bestV = cand;
+                    }
+                }
+                v = bestV;
+                u = (v == 0) ? (nv - 1) : (v - 1);
+                w = (v + 1 >= nv) ? 0 : (v + 1);
+                clipNow = true;
+            }
+
+            if (clipNow) {
                 tris.add(new int[] { indices[u], indices[v], indices[w] });
                 for (int s = v, t = v + 1; t < nv; s++, t++) {
                     indices[s] = indices[t];
                 }
                 nv--;
-                guard = 2 * nv + 8;
+                failStreak = 0;
             } else {
                 v++;
+                failStreak++;
             }
         }
         return tris;
     }
 
-    private static boolean isEarVertex(List<Vector2f> poly, int u, int v, int w, int nv, int[] indices) {
+    private static boolean isEarVertex(
+            List<Vector2f> poly,
+            int u,
+            int v,
+            int w,
+            int nv,
+            int[] indices,
+            float minCross,
+            float insideMargin) {
         Vector2f a = poly.get(indices[u]);
         Vector2f b = poly.get(indices[v]);
         Vector2f c = poly.get(indices[w]);
         float crossVal = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-        if (crossVal <= 1e-4f) return false;
+        if (crossVal <= minCross) return false;
         for (int p = 0; p < nv; p++) {
             if (p == u || p == v || p == w) continue;
             Vector2f pt = poly.get(indices[p]);
-            if (pointInTriangleCCW(a, b, c, pt)) return false;
+            if (pointInTriangleCCW(a, b, c, pt, insideMargin)) return false;
         }
         return true;
     }
 
-    private static boolean pointInTriangleCCW(Vector2f a, Vector2f b, Vector2f c, Vector2f p) {
+    private static boolean pointInTriangleCCW(Vector2f a, Vector2f b, Vector2f c, Vector2f p, float margin) {
+        if ((p.x == a.x && p.y == a.y) || (p.x == b.x && p.y == b.y) || (p.x == c.x && p.y == c.y)) {
+            return false;
+        }
         float c1 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
         float c2 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
         float c3 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
-        return c1 >= -1e-4f && c2 >= -1e-4f && c3 >= -1e-4f;
+        return c1 >= margin && c2 >= margin && c3 >= margin;
     }
 
     public static float computeSignedPolygonArea(List<Vector2f> poly) {
