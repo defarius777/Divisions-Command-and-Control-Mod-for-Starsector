@@ -969,7 +969,8 @@ public class UITestHarness {
 
     private static void auditChatterVerbosityModes(UIAuditResult res) throws Exception {
         String lunaCsv = new String(Files.readAllBytes(new File("mod/data/config/LunaSettings.csv").toPath()), StandardCharsets.UTF_8);
-        boolean csvHasRadio = lunaCsv.contains("divai_chatter_verbosity,Chatter Verbosity,Radio,Verbose,\"Verbose, Standard, Minimal, OTC Only, Off\"");
+        boolean csvHasRadio = lunaCsv.contains("divai_chatter_verbosity,Chatter Verbosity,Radio,Verbose,\"Verbose, Standard, Minimal, OTC Only, Off\"")
+                && !lunaCsv.contains("%");
 
         int[] hudCounts = new int[DivisionAISettings.ChatterVerbosity.values().length];
         int[] logCounts = new int[DivisionAISettings.ChatterVerbosity.values().length];
