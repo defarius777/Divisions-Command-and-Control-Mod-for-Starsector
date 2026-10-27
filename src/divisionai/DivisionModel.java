@@ -418,7 +418,7 @@ public class DivisionModel {
         public List<ShipAPI> getAliveMembers() {
             List<ShipAPI> alive = new ArrayList<>(members.size());
             for (ShipAPI s : members) {
-                if (s != null && s.isAlive() && !s.isHulk() && !s.isExpired() && !s.isRetreating()) {
+                if (s != null && s.isAlive() && !s.isHulk() && !s.isExpired()) {
                     alive.add(s);
                 }
             }

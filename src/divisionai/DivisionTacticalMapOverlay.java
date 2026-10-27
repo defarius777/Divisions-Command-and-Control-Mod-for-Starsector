@@ -141,6 +141,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private final Map<String, Float> smoothedCohesionByDivId = new HashMap<>();
     private final Map<String, Set<String>> stickyConnectedPairsByDivId = new HashMap<>();
     private final Map<String, Float> smoothedBondOpennessByPairKey = new HashMap<>();
+    private final Map<String, Float> smoothedMeniscusReachByPairKey = new HashMap<>();
 
     private boolean attachedToWarroom = false;
     private boolean loggedHookFailure = false;
@@ -411,13 +412,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float liveRmsSpread = computeInstantaneousRmsSpreadWorld(dropletMembers);
                 float overallRatio = liveRmsSpread / Math.max(300f, div.stationKeepingRadius);
                 float scatterPenalty = clamp((overallRatio - 0.85f) / 1.25f, 0f, 1f);
-                float targetCohesionAlpha = 1.0f - scatterPenalty * 0.88f;
+                // Keep division droplets clearly visible even when reinforcements arrive from the map edge
+                // or while a division is closing up (each droplet is already a tight sub-cluster).
+                float targetCohesionAlpha = 1.0f - scatterPenalty * 0.18f;
                 if (dropletMembers.size() == 1 && hullMembers.size() > 1) {
-                    // Detached single-ship droplet (e.g. reinforcement in transit) has softer droplet alpha
-                    targetCohesionAlpha *= 0.72f;
-                }
-                if (!isEnemy && div.currentIntent == DivisionIntentType.CLOSE_UP) {
-                    targetCohesionAlpha = Math.min(targetCohesionAlpha, 0.22f);
+                    targetCohesionAlpha *= 0.90f;
                 }
 
                 String cohKey = isPrimary ? div.id : (div.id + "#" + dIdx);
@@ -503,18 +502,34 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float rb = getMemberFootprintRadiusWorld(b);
                 float dist = distance(a.getLocation(), b.getLocation());
                 float mergeDist = (ra + rb) * 1.18f;
-                float splitDist = mergeDist * 1.15f;
+                float splitDist = mergeDist * 1.24f;
                 String key = canonicalPairKey(a.getId(), b.getId());
                 String bondKey = divId + ":" + key;
                 boolean wasConnected = prevPairs.contains(key);
-                boolean connectedNow = wasConnected ? (dist <= splitDist) : (dist <= mergeDist);
+                Float prevOpen = smoothedBondOpennessByPairKey.get(bondKey);
+                boolean connectedNow;
+                if (!wasConnected) {
+                    connectedNow = (dist <= mergeDist);
+                } else if (dist <= splitDist) {
+                    connectedNow = true;
+                } else if (dist <= splitDist * 1.22f && prevOpen != null && prevOpen > 0.07f) {
+                    // Hold the liquid thread for a brief neck-down transition if it was still thick when crossing splitDist
+                    connectedNow = true;
+                } else {
+                    connectedNow = false;
+                }
+
                 if (connectedNow) {
                     adj[i][j] = true;
                     adj[j][i] = true;
                     float fullOpenDist = (ra + rb) * 0.72f;
-                    float tOpen = clamp(1.0f - (dist - fullOpenDist) / Math.max(1f, splitDist - fullOpenDist), 0.02f, 1.0f);
-                    float geomOpenness = Math.max(0.02f, tOpen * tOpen);
-                    Float prevOpen = smoothedBondOpennessByPairKey.get(bondKey);
+                    float geomOpenness;
+                    if (dist > splitDist) {
+                        geomOpenness = 0.02f;
+                    } else {
+                        float tOpen = clamp(1.0f - (dist - fullOpenDist) / Math.max(1f, splitDist - fullOpenDist), 0.02f, 1.0f);
+                        geomOpenness = Math.max(0.02f, tOpen * tOpen);
+                    }
                     float nextOpen;
                     if (firstSeenDiv) {
                         // On the very first frame a formed division is seen on the Tab map, use its natural geometric openness
@@ -522,15 +537,46 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     } else if (!wasConnected || prevOpen == null) {
                         // When two previously separated droplets newly coalesce in battle, start at the tiniest point of contact (0.02f)
                         nextOpen = 0.02f;
+                    } else if (dist > splitDist) {
+                        // Rapidly neck down the stretched capillary thread right before snapping
+                        nextOpen = prevOpen * 0.45f - 0.025f;
                     } else if (geomOpenness < prevOpen) {
-                        // When stretching apart toward splitDist, track geometric pinching immediately so it pinches to 0.02f before split
-                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.45f;
+                        // Smooth elastic liquid pull as ships stretch apart toward splitDist
+                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.30f - 0.012f;
                     } else {
-                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.18f;
+                        // Smooth liquid relaxation as ships settle into formation
+                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.16f;
                     }
                     smoothedBondOpennessByPairKey.put(bondKey, clamp(nextOpen, 0.02f, 1.0f));
+                    smoothedMeniscusReachByPairKey.remove(bondKey);
                 } else {
                     smoothedBondOpennessByPairKey.remove(bondKey);
+                    float attractMaxDist = mergeDist * 1.24f;
+                    float geomReach = 0f;
+                    if (!wasConnected && dist < attractMaxDist) {
+                        float tReach = clamp(1.0f - (dist - mergeDist) / Math.max(1f, attractMaxDist - mergeDist), 0f, 1f);
+                        geomReach = tReach * tReach * (3f - 2f * tReach) * 0.92f;
+                    }
+                    float nextReach;
+                    if (wasConnected) {
+                        // Just snapped apart! Initialize the recoiling meniscus tails at 0.92f of P_kiss ("The Pop")
+                        nextReach = 0.92f;
+                    } else {
+                        Float prevReachObj = smoothedMeniscusReachByPairKey.get(bondKey);
+                        float prevReach = (prevReachObj != null) ? prevReachObj : (firstSeenDiv ? geomReach : 0f);
+                        if (prevReach > geomReach) {
+                            // Smooth surface-tension recoil pulling the snapped tail back into the droplet circle
+                            nextReach = geomReach + (prevReach - geomReach) * 0.76f - 0.022f;
+                        } else {
+                            // Smooth surface-tension extension as two droplets approach to kiss
+                            nextReach = prevReach + (geomReach - prevReach) * 0.28f;
+                        }
+                    }
+                    if (nextReach > 0.02f && dist < splitDist * 1.65f) {
+                        smoothedMeniscusReachByPairKey.put(bondKey, clamp(nextReach, 0f, 0.92f));
+                    } else {
+                        smoothedMeniscusReachByPairKey.remove(bondKey);
+                    }
                 }
             }
         }
@@ -629,10 +675,30 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float rb = getMemberFootprintRadiusWorld(b);
         float dist = distance(a.getLocation(), b.getLocation());
         float mergeDist = (ra + rb) * 1.18f;
-        float splitDist = mergeDist * 1.15f;
+        float splitDist = mergeDist * 1.24f;
         float fullOpenDist = (ra + rb) * 0.72f;
         float tOpen = clamp(1.0f - (dist - fullOpenDist) / Math.max(1f, splitDist - fullOpenDist), 0.02f, 1.0f);
         return Math.max(0.02f, tOpen * tOpen);
+    }
+
+    public float resolvePairMeniscusReach(DivisionState div, ShipAPI a, ShipAPI b) {
+        if (a == null || b == null) return 0f;
+        String divId = (div != null && div.id != null) ? div.id : "default_div";
+        String bondKey = divId + ":" + canonicalPairKey(a.getId(), b.getId());
+        Float smoothed = smoothedMeniscusReachByPairKey.get(bondKey);
+        if (smoothed != null) {
+            return clamp(smoothed, 0f, 0.92f);
+        }
+        float ra = getMemberFootprintRadiusWorld(a);
+        float rb = getMemberFootprintRadiusWorld(b);
+        float dist = distance(a.getLocation(), b.getLocation());
+        float mergeDist = (ra + rb) * 1.18f;
+        float attractMaxDist = mergeDist * 1.24f;
+        if (dist > mergeDist && dist < attractMaxDist) {
+            float t = clamp(1.0f - (dist - mergeDist) / Math.max(1f, attractMaxDist - mergeDist), 0f, 1f);
+            return t * t * (3f - 2f * t) * 0.92f;
+        }
+        return 0f;
     }
 
     /**
@@ -775,10 +841,25 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         if (dropletMembers == null || dropletMembers.isEmpty()) {
             return convexPolyScreen;
         }
-            //Single-ship droplets (including detached stragglers) use the smooth 96-vertex circle/meniscus hull directly
-            if (dropletMembers.size() == 1) {
+        if (dropletMembers.size() == 1) {
+            // If this 1-ship droplet has an active approaching or recoiling liquid meniscus tail toward a sibling
+            // ship (e.g. during the "pop and pull" split animation), trace its concave SDF contour via Marching Squares;
+            // otherwise use the fast 96-vertex circle hull directly.
+            boolean hasActiveMeniscus = false;
+            if (allDivisionMembers != null && allDivisionMembers.size() > 1) {
+                ShipAPI sole = dropletMembers.get(0);
+                for (ShipAPI other : allDivisionMembers) {
+                    if (other == sole) continue;
+                    if (resolvePairMeniscusReach(div, sole, other) > 0.02f) {
+                        hasActiveMeniscus = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasActiveMeniscus) {
                 return convexPolyScreen;
             }
+        }
 
         List<Vector2f> sdfContour = extractMetaballDropletPolygonScreen(
                 div,
@@ -802,7 +883,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetY) {
         int mCount = dropletMembers.size();
 
-        // Collect the droplet's ships plus any nearby sibling ships within meniscus attraction range
+        // Collect the droplet's ships plus any nearby sibling ships with active meniscus reach (approaching or recoiling)
         List<ShipAPI> evalShips = new ArrayList<>(mCount + 2);
         evalShips.addAll(dropletMembers);
         if (allDivisionMembers != null && allDivisionMembers.size() > mCount) {
@@ -810,10 +891,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (dropletMembers.contains(other)) continue;
                 boolean nearAny = false;
                 for (ShipAPI m : dropletMembers) {
-                    float distW = distance(m.getLocation(), other.getLocation());
-                    float mergeDist = (getMemberFootprintRadiusWorld(m) + getMemberFootprintRadiusWorld(other)) * 1.18f;
-                    float attractMaxDist = mergeDist * 1.15f * 1.12f;
-                    if (distW < attractMaxDist) {
+                    if (resolvePairMeniscusReach(div, m, other) > 0.02f) {
                         nearAny = true;
                         break;
                     }
@@ -836,9 +914,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             sr[i] = clamp(worldR * scale, 14f, 54f);
         }
 
-        // Build pairwise hourglass bridge openness matrix opennessPair[i][j]
+        // Build pairwise hourglass bridge openness matrix kPair[i][j]
         //   > 0: connected intra-droplet neighbor pair with openness in [0.02, 1.0]
-        //   < 0: approaching inter-droplet sibling pair with meniscus reach factor in [-1.0, -0.02]
+        //   < 0: approaching or recoiling inter-droplet sibling pair with meniscus reach factor in [-0.92, -0.02]
         float[][] kPair = new float[total][total];
         for (int i = 0; i < mCount; i++) {
             ShipAPI shipI = evalShips.get(i);
@@ -849,9 +927,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float rWj = getMemberFootprintRadiusWorld(shipJ);
                 float distW = distance(shipI.getLocation(), shipJ.getLocation());
                 float mergeDist = (rWi + rWj) * 1.18f;
-                float splitDist = mergeDist * 1.15f;
-                // Only apply direct pairwise bridge to neighbor ships within splitDist
-                if (distW <= splitDist * 1.02f) {
+                float splitDist = mergeDist * 1.24f;
+                // Apply direct pairwise bridge to neighbor ships within split range (including brief neck-down hold)
+                if (distW <= splitDist * 1.24f) {
                     float openness = resolvePairBondOpenness(div, shipI, shipJ);
                     float minPinch = 0.04f;
                     float pinchAtSaddle = minPinch + (0.96f - minPinch) * (1.0f - openness);
@@ -860,26 +938,18 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     kPair[j][i] = effOpenness;
                 }
             }
-            // Inter-droplet meniscus attraction to sibling ships (negative value encodes meniscus tip reach)
+            // Inter-droplet meniscus attraction & post-split recoil ("pop and pull") toward sibling ships
             for (int j = mCount; j < total; j++) {
                 ShipAPI other = evalShips.get(j);
-                float rWj = getMemberFootprintRadiusWorld(other);
-                float distW = distance(shipI.getLocation(), other.getLocation());
-                float mergeDist = (rWi + rWj) * 1.18f;
-                float splitDist = mergeDist * 1.15f;
-                float attractMaxDist = splitDist * 1.12f;
-                if (distW < attractMaxDist) {
-                    float t = clamp(1.0f - (distW - mergeDist) / Math.max(1f, attractMaxDist - mergeDist), 0f, 1f);
-                    float smooth = t * t * (3f - 2f * t);
-                    if (smooth > 0.02f) {
-                        kPair[i][j] = -smooth;
-                        kPair[j][i] = -smooth;
-                    }
+                float reach = resolvePairMeniscusReach(div, shipI, other);
+                if (reach > 0.02f) {
+                    kPair[i][j] = -reach;
+                    kPair[j][i] = -reach;
                 }
             }
         }
 
-        // Compute bounding box around the droplet's member ships
+        // Compute bounding box around the droplet's member ships and any active meniscus tails
         float minX = Float.MAX_VALUE;
         float maxX = -Float.MAX_VALUE;
         float minY = Float.MAX_VALUE;
@@ -890,6 +960,18 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             if (sx[i] + pad > maxX) maxX = sx[i] + pad;
             if (sy[i] - pad < minY) minY = sy[i] - pad;
             if (sy[i] + pad > maxY) maxY = sy[i] + pad;
+            for (int j = mCount; j < total; j++) {
+                float reach = -kPair[i][j];
+                if (reach > 0.02f) {
+                    float tKiss = sr[i] / Math.max(1f, sr[i] + sr[j]);
+                    float tipX = sx[i] + (sx[j] - sx[i]) * tKiss * reach;
+                    float tipY = sy[i] + (sy[j] - sy[i]) * tKiss * reach;
+                    if (tipX - 16f < minX) minX = tipX - 16f;
+                    if (tipX + 16f > maxX) maxX = tipX + 16f;
+                    if (tipY - 16f < minY) minY = tipY - 16f;
+                    if (tipY + 16f > maxY) maxY = tipY + 16f;
+                }
+            }
         }
         float maxSpan = Math.max(maxX - minX, maxY - minY);
         float stepPx = clamp(maxSpan / 48f, 3.2f, 7.0f);
@@ -984,7 +1066,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float dBridge = hPerp - rBridge;
                 bestBridge = sminPoly(bestBridge, dBridge, 3.0f);
             }
-            // Approaching inter-droplet teardrop meniscus cone toward P_kiss
+            // Approaching or post-split recoiling inter-droplet liquid meniscus tail toward P_kiss
             for (int j = mCount; j < total; j++) {
                 float reach = -kPair[i][j];
                 if (reach <= 0.02f) continue;
@@ -995,16 +1077,25 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float aby = by - ay;
                 float lenSq = abx * abx + aby * aby;
                 if (lenSq < 1e-3f) continue;
-                float tKiss = ra / Math.max(1f, ra + rb);
-                float tMax = tKiss * (0.35f + 0.62f * reach);
-                float t = clamp(((x - ax) * abx + (y - ay) * aby) / lenSq, 0f, tMax);
-                float qx = ax + abx * t;
-                float qy = ay + aby * t;
+                float len = (float) Math.sqrt(lenSq);
+                float ux = abx / len;
+                float uy = aby / len;
+                float distToKissPx = len * (ra / Math.max(1f, ra + rb));
+                float s0 = ra * 0.35f;
+                float s1 = Math.max(s0 + 1.0f, ra * 0.84f + reach * (distToKissPx - ra * 0.84f));
+                float proj = (x - ax) * ux + (y - ay) * uy;
+                float s = clamp(proj, s0, s1);
+                float qx = ax + ux * s;
+                float qy = ay + uy * s;
                 float hPerp = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
-                float frac = t / Math.max(0.02f, tMax);
-                float rCone = ra * (1.0f - frac) * (1.0f - frac) + 1.8f * frac;
+                float frac = clamp((s - s0) / Math.max(1f, s1 - s0), 0f, 1f);
+                float bell = (float) Math.sin(0.5 * Math.PI * frac);
+                float psi = bell * bell;
+                float rBase = ra * 0.84f;
+                float rTip = 1.25f + (1.0f - reach) * Math.min(4.2f, ra * 0.14f);
+                float rCone = rBase * (1.0f - psi) + rTip * psi;
                 float dCone = hPerp - rCone;
-                bestBridge = sminPoly(bestBridge, dCone, 4.0f);
+                bestBridge = sminPoly(bestBridge, dCone, 3.2f);
             }
         }
 
@@ -1485,7 +1576,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     private static boolean isEligibleCommandMapShip(ShipAPI s, FogOfWarAPI playerFog) {
-        if (s == null || !s.isAlive() || s.isHulk() || s.isExpired() || s.isRetreating()) return false;
+        if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) return false;
         if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) return false;
         if (s.getOwner() == 1 && !isEnemyShipVisibleOnCommandMap(s, playerFog)) return false;
         return true;

@@ -1421,6 +1421,7 @@ public class DivisionCommanderAI {
      * In vanilla Starsector, ships without an explicit task have assignment == null or SEARCH_AND_DESTROY.
      */
     private static boolean hasExplicitCommandOrder(ShipAPI ship, DivisionState div, CombatTaskManagerAPI tm) {
+        if (ship != null && (ship.isRetreating() || ship.isDirectRetreat())) return true;
         if (tm == null) return false;
         AssignmentInfo info = tm.getAssignmentFor(ship);
         if (info == null || info.getType() == null) return false;

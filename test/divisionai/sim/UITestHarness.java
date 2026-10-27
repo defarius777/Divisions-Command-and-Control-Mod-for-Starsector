@@ -606,9 +606,13 @@ public class UITestHarness {
                 "3. 4-Frigate Curve (Frame 1 Tab Opened!)",
                 "4. 3 Ships L-Shape (Frame 1!)",
                 "5. 3 Ships Line + Detached Straggler",
-                "6. 2 Destroyers Just Joined (Tiniest Contact!)",
-                "7. 2 Destroyers Stretching (Narrow Waist)",
-                "8. 2 Destroyers Coalesced (Full Formation)"
+                "6. 2 Ships Just Joined (Tiniest Contact!)",
+                "7. 2 Ships Stretching (Narrow Waist)",
+                "8. 2 Ships Coalesced (Full Formation)",
+                "9. Pop & Pull 1: Elastic Stretch",
+                "10. Pop & Pull 2: Capillary Thread",
+                "11. Pop & Pull 3: Just Snapped (Pop!)",
+                "12. Pop & Pull 4: Liquid Recoil"
         };
 
         float[][][] coords = {
@@ -619,26 +623,32 @@ public class UITestHarness {
                 {{-450, 0}, {0, 0}, {1320, 40}},
                 {{-595, 0}, {595, 0}},
                 {{-675, 0}, {675, 0}},
-                {{-320, 0}, {320, 0}}
+                {{-320, 0}, {320, 0}},
+                {{-620, 0}, {620, 0}},
+                {{-735, 0}, {735, 0}},
+                {{-765, 0}, {765, 0}},
+                {{-780, 0}, {780, 0}}
         };
 
-        BufferedImage img = new BufferedImage(1400, 900, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage img = new BufferedImage(1400, 1320, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setColor(new Color(6, 10, 16));
-        g.fillRect(0, 0, 1400, 900);
+        g.fillRect(0, 0, 1400, 1320);
 
         int totalSelfIntersections = 0;
         int uncontainedShips = 0;
         int inwardGashViolations = 0;
         int badTriangulations = 0;
         int totalDropletsAudited = 0;
+        float stage3TailReachPx = 0f;
+        float stage4TailReachPx = 0f;
 
         for (int idx = 0; idx < coords.length; idx++) {
             int col = idx % 4;
             int row = idx / 4;
             float cx = col * 350f + 175f;
-            float cy = row * 440f + 230f;
+            float cy = row * 435f + 225f;
 
             DivisionState div = new DivisionState("qa_div_" + idx, 0, 1, DivisionArchetype.CRUISER_DIVISION, "Div " + idx, cmdr);
             div.stationSpacing = 450f;
@@ -649,12 +659,21 @@ public class UITestHarness {
                         createMockDropletShip("s_" + idx + "_0", HullSize.CRUISER, -800f, 0f),
                         createMockDropletShip("s_" + idx + "_1", HullSize.CRUISER, 800f, 0f));
                 ov.clusterDivisionMembersSticky(div, separated);
-            } else if (idx == 6) {
-                // Simulate two connected ships stretching out toward splitDist
+            } else if (idx == 6 || idx >= 8) {
+                // Start coalesced in close formation before pulling apart
                 List<ShipAPI> close = Arrays.asList(
                         createMockDropletShip("s_" + idx + "_0", HullSize.CRUISER, -250f, 0f),
                         createMockDropletShip("s_" + idx + "_1", HullSize.CRUISER, 250f, 0f));
                 ov.clusterDivisionMembersSticky(div, close);
+                if (idx >= 9) {
+                    // Step through intermediate stretch so openness necks down smoothly before snapping
+                    List<ShipAPI> stretch = Arrays.asList(
+                            createMockDropletShip("s_" + idx + "_0", HullSize.CRUISER, -720f, 0f),
+                            createMockDropletShip("s_" + idx + "_1", HullSize.CRUISER, 720f, 0f));
+                    for (int s = 0; s < 12; s++) {
+                        ov.clusterDivisionMembersSticky(div, stretch);
+                    }
+                }
             }
 
             List<ShipAPI> members = new ArrayList<>();
@@ -662,17 +681,30 @@ public class UITestHarness {
                 members.add(createMockDropletShip("s_" + idx + "_" + k, HullSize.CRUISER, coords[idx][k][0], coords[idx][k][1]));
             }
 
-            int frames = (idx == 1 || idx == 6 || idx == 7) ? 25 : 1;
+            int frames;
+            if (idx == 1 || idx == 6 || idx == 7) {
+                frames = 25;
+            } else if (idx == 8) {
+                frames = 4;
+            } else if (idx == 9) {
+                frames = 8;
+            } else if (idx == 10) {
+                frames = 1; // Frame 1 of snap/pop!
+            } else if (idx == 11) {
+                frames = 5; // Mid-recoil after snap!
+            } else {
+                frames = 1;
+            }
             List<List<ShipAPI>> droplets = null;
             for (int f = 0; f < frames; f++) {
                 droplets = ov.clusterDivisionMembersSticky(div, members);
             }
 
             g.setColor(new Color(40, 70, 95));
-            g.drawRect(col * 350 + 8, row * 440 + 8, 334, 424);
+            g.drawRect(col * 350 + 8, row * 435 + 8, 334, 419);
             g.setColor(Color.WHITE);
             g.setFont(new Font("SansSerif", Font.BOLD, 13));
-            g.drawString(titles[idx], col * 350 + 16, row * 440 + 28);
+            g.drawString(titles[idx], col * 350 + 16, row * 435 + 28);
 
             for (List<ShipAPI> drop : droplets) {
                 totalDropletsAudited++;
@@ -718,6 +750,15 @@ public class UITestHarness {
                     if (minVertexDist < 38.25f * 0.78f) {
                         inwardGashViolations++;
                     }
+                    if ((idx == 10 || idx == 11) && s.getLocation().x < 0f) {
+                        float maxX = -Float.MAX_VALUE;
+                        for (Vector2f v : disp) {
+                            if (v.x > maxX) maxX = v.x;
+                        }
+                        float tailReach = (maxX - sx) - 38.25f;
+                        if (idx == 10) stage3TailReachPx = tailReach;
+                        if (idx == 11) stage4TailReachPx = tailReach;
+                    }
                 }
             }
 
@@ -733,18 +774,22 @@ public class UITestHarness {
         if (qaOut.getParentFile() != null) qaOut.getParentFile().mkdirs();
         ImageIO.write(img, "PNG", qaOut);
 
-        boolean simQaOk = totalDropletsAudited >= 9
+        boolean popAndPullAnimated = stage3TailReachPx >= 10.0f
+                && stage4TailReachPx >= 2.0f
+                && stage4TailReachPx < stage3TailReachPx - 3.0f;
+        boolean simQaOk = totalDropletsAudited >= 14
                 && totalSelfIntersections == 0
                 && uncontainedShips == 0
                 && inwardGashViolations == 0
                 && badTriangulations == 0
+                && popAndPullAnimated
                 && qaOut.exists();
         res.record(
                 simQaOk,
-                "v0.7.0 Water-Droplet UI Simulation QA Suite (8 formations: Frame-1 Triangle/Curve, L-Shape, Straggler, Tiniest-Contact Join/Stretch)",
+                "v0.7.0 Water-Droplet UI Simulation QA Suite (12 formations incl. 4-Stage Liquid Pop & Pull Split Animation)",
                 String.format(Locale.ROOT,
-                        "droplets=%d, selfIntersections=%d, uncontainedShips=%d, inwardGashes=%d, badTriangulations=%d, sheet=%s",
-                        totalDropletsAudited, totalSelfIntersections, uncontainedShips, inwardGashViolations, badTriangulations, qaOut.getPath()));
+                        "droplets=%d, selfIntersections=%d, uncontainedShips=%d, inwardGashes=%d, badTriangulations=%d, popTailPx=%.1f->%.1f, sheet=%s",
+                        totalDropletsAudited, totalSelfIntersections, uncontainedShips, inwardGashViolations, badTriangulations, stage3TailReachPx, stage4TailReachPx, qaOut.getPath()));
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {

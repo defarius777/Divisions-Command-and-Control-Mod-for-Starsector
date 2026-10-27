@@ -751,7 +751,7 @@ public class DivisionAutoFormer {
 
     public static boolean isEligibleCombatHull(ShipAPI ship) {
         if (ship == null) return false;
-        if (!ship.isAlive() || ship.isHulk() || ship.isExpired() || ship.isRetreating()) return false;
+        if (!ship.isAlive() || ship.isHulk() || ship.isExpired()) return false;
         if (ship.isFighter() || ship.isDrone() || ship.isStation() || ship.isStationModule()) return false;
         if (ship.getParentStation() != null) return false;
         HullSize size = ship.getHullSize();

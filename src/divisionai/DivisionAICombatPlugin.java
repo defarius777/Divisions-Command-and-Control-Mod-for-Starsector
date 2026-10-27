@@ -221,10 +221,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             boolean anyNewDivs = !newPlayerDivs.isEmpty() || !newAlliedAiDivs.isEmpty() || !newEnemyDivs.isEmpty();
             if (otcTimer >= OTC_EVAL_INTERVAL || anyNewDivs) {
                 otcTimer = 0f;
-                if (playerHasDivisions && enemyHasDivisions) {
+                if (playerHasDivisions) {
                     OtcAI.evaluateOtcStrategy(engine, playerGroup, enemyGroup, now);
                 }
-                if (alliedAiHasDivisions && enemyHasDivisions) {
+                if (alliedAiHasDivisions) {
                     OtcAI.evaluateOtcStrategy(engine, alliedAiGroup, enemyGroup, now);
                 }
                 if (enemyHasDivisions && !side0OpposingView.divisions.isEmpty()) {
@@ -233,10 +233,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
 
             // 4. Run Division Commander tactical evaluation ONLY for battlegroups that have at least 1 division
-            if (playerHasDivisions && enemyHasDivisions) {
+            if (playerHasDivisions) {
                 DivisionCommanderAI.evaluateAndExecuteDivisions(engine, playerGroup, enemyGroup, now);
             }
-            if (alliedAiHasDivisions && enemyHasDivisions) {
+            if (alliedAiHasDivisions) {
                 DivisionCommanderAI.evaluateAndExecuteDivisions(engine, alliedAiGroup, enemyGroup, now);
             }
             if (enemyHasDivisions && !side0OpposingView.divisions.isEmpty()) {
