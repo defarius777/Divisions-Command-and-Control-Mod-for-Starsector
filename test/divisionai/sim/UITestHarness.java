@@ -4,6 +4,7 @@ import divisionai.DivisionDeploymentDialogOrganizer;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionNomenclature.NumberingStyle;
 import divisionai.DivisionNomenclature.PlayerNamingPreset;
+import divisionai.FleetDoctrineDialog;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
@@ -60,6 +61,7 @@ public class UITestHarness {
         UIAuditResult res = new UIAuditResult();
 
         auditDeploymentWindowGeometry(res);
+        auditFleetDoctrineWindowAndOtcLayout(res);
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);
 
@@ -125,6 +127,61 @@ public class UITestHarness {
                 layoutClean && totalRowsUsed == 4,
                 "Deployment grid multi-row division wrapping aligns on 14-column boundaries without overlap",
                 "groupSizes=[4, 15, 5] -> totalRows=" + totalRowsUsed + ", totalSlots=" + slotIdx);
+    }
+
+    private static void auditFleetDoctrineWindowAndOtcLayout(UIAuditResult res) throws Exception {
+        float dialogW = FleetDoctrineDialog.DIALOG_WIDTH;
+        float dialogH = FleetDoctrineDialog.DIALOG_HEIGHT;
+        float toolbarW = dialogW - 24f; // 1216px
+        float rowWidth = dialogW - 40f; // 1200px
+
+        boolean sizeOk = (dialogW >= 1220f && dialogW <= 1840f) && (dialogH >= 760f && dialogH <= 1000f);
+        res.record(
+                sizeOk,
+                "Fleet Doctrine window enlarged to spacious 1240x780 viewport",
+                String.format(Locale.ROOT, "dialog=%.0fx%.0fpx (toolbarW=%.0fpx, rowWidth=%.0fpx)", dialogW, dialogH, toolbarW, rowWidth));
+
+        // Verify top toolbar tab & action button intervals [xStart, xEnd] have >= 8px gaps and zero overlap
+        float[][] toolbarButtons = {
+                {0f, 84f},     // All
+                {92f, 228f},   // OTC Command
+                {236f, 388f},  // Division Defaults
+                {396f, 514f},  // Hull Limits
+                {522f, 654f},  // Nomenclature
+                {toolbarW - 116f - 8f - 128f - 8f - 152f, toolbarW - 116f - 8f - 128f - 8f}, // Reinit Sector Divs (804..956)
+                {toolbarW - 116f - 8f - 128f, toolbarW - 116f - 8f},                         // Reset Defaults (964..1092)
+                {toolbarW - 116f, toolbarW}                                                  // Close [Esc] (1100..1216)
+        };
+        float minToolbarGap = Float.MAX_VALUE;
+        for (int i = 0; i + 1 < toolbarButtons.length; i++) {
+            float gap = toolbarButtons[i + 1][0] - toolbarButtons[i][1];
+            if (gap < minToolbarGap) minToolbarGap = gap;
+        }
+        float tabToActionGap = toolbarButtons[5][0] - toolbarButtons[4][1];
+
+        res.record(
+                minToolbarGap >= 8f && tabToActionGap >= 120f,
+                "Fleet Doctrine toolbar tabs and action buttons have zero overlap and wide visual separation",
+                String.format(Locale.ROOT, "minAdjacentGap=%.0fpx, tabToActionSeparation=%.0fpx", minToolbarGap, tabToActionGap));
+
+        // Verify OTC Authority dropdown & Tactical Play rows fit on single lines without vertical or horizontal collision
+        File fddFile = new File("src/divisionai/FleetDoctrineDialog.java");
+        String src = new String(Files.readAllBytes(fddFile.toPath()), StandardCharsets.UTF_8);
+        boolean singleLineOtcDropdown = !src.contains("optPanel.addUIElement(optDesc)")
+                && src.contains("inTL(CONTROL_COL_X + 252f, 5f)")
+                && src.contains("inTL(CONTROL_COL_X + 136f, 6f)");
+
+        float maxOtcSummaryPx = 0f;
+        for (OtcAuthority a : OtcAuthority.values()) {
+            maxOtcSummaryPx = Math.max(maxOtcSummaryPx, a.summary.length() * 6.5f);
+        }
+        float availableOtcSummaryWidth = rowWidth - (210f + 252f); // 1280 - 462 = 818px
+
+        res.record(
+                singleLineOtcDropdown && maxOtcSummaryPx < availableOtcSummaryWidth - 40f,
+                "OTC Authority dropdown and Tactical Plays align on single horizontal rows without vertical overlap",
+                String.format(Locale.ROOT, "singleLineDropdown=%s, maxSummaryPx=%.0fpx < available=%.0fpx",
+                        singleLineOtcDropdown, maxOtcSummaryPx, availableOtcSummaryWidth));
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {

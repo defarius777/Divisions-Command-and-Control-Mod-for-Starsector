@@ -541,19 +541,19 @@ public class PermanentDivisionManager {
         COMMAND_BY_DIRECTION(
                 "Command by Direction",
                 "Command by Direction",
-                "OTC directs targets, stations, and flank sides within each division's mission; re-tasks only reserves and pursuit."),
+                "Directs targets, stations, and flanks within each mission; re-tasks reserves and pursuit."),
         POSITIVE_CONTROL(
                 "Positive Control",
                 "Positive Control",
-                "OTC orders directly override division missions whenever issued (fix, engage, flank, reinforce, strike)."),
+                "OTC orders directly override division missions whenever issued."),
         COMMAND_BY_NEGATION(
                 "Command by Negation",
                 "Command by Negation",
-                "OTC states intent and focus targets; divisions act autonomously on local initiative unless overridden."),
+                "States intent and focus targets; divisions act on local initiative unless overridden."),
         FIRE_DISTRIBUTION_ONLY(
                 "Fire Distribution Only",
                 "Fire Distribution Only",
-                "OTC assigns enemy targets and synchronizes strikes without moving or re-tasking divisions.");
+                "Assigns targets and synchronizes strikes without moving or re-tasking divisions.");
 
         public final String dropdownLabel;
         public final String shortName;
@@ -603,16 +603,16 @@ public class PermanentDivisionManager {
     public enum OtcPlay {
         LINE_AND_FIRE_DISTRIBUTION(
                 "Line & Fire Distribution",
-                "Main Effort anchors the line on the primary threat while other divisions distribute fire across the enemy line."),
+                "Main Effort fixes the primary threat while other divisions distribute fire across the line."),
         DOUBLING(
                 "Doubling",
-                "Flanking divisions attack the same target from opposite sides (port and starboard) to double it."),
+                "Flanking divisions attack the same target from opposite sides (port and starboard)."),
         TIME_ON_TARGET_STRIKES(
                 "Time-on-Target Strikes",
-                "Missile and carrier divisions marshal and launch synchronized salvos on the OTC focus target."),
+                "Missile and carrier divisions marshal and launch synchronized salvos on the focus target."),
         RESERVE_AND_GENERAL_CHASE(
                 "Reserve & General Chase",
-                "Holds reserves to relieve high-flux divisions, then orders fast divisions into a general chase.");
+                "Holds reserves to relieve high-flux divisions, then orders fast divisions into pursuit.");
 
         public final String displayName;
         public final String summary;

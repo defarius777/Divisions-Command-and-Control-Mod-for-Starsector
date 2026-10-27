@@ -52,8 +52,9 @@ import java.util.Map;
  */
 public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
-    private static final float DIALOG_WIDTH = 1020f;
-    private static final float DIALOG_HEIGHT = 680f;
+    public static final float DIALOG_WIDTH = 1320f;
+    public static final float DIALOG_HEIGHT = 800f;
+    private static final float CONTROL_COL_X = 210f;
 
     private static final int[] STATION_SPACING_PRESETS = {200, 300, 400, 500, 600, 750, 900, 1100};
     private static final int[] DIVISION_INTERVAL_PRESETS = {500, 700, 900, 1100, 1300, 1500, 1800, 2100};
@@ -220,9 +221,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         header.setHeightSoFar(48f);
         contentContainer.addUIElement(header).inTL(12f, 8f);
 
-        // 2. Top Toolbar (Filter Tabs + Reset Defaults + Close)
-        CustomPanelAPI toolbarRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, subPanelPlugin);
-        TooltipMakerAPI tb = toolbarRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
+        // 2. Top Toolbar (Left: 5 Filter Tabs with 8px gaps | Right: 3 Action Buttons with 150px separation)
+        float toolbarW = DIALOG_WIDTH - 24f;
+        CustomPanelAPI toolbarRow = Global.getSettings().createCustom(toolbarW, 30f, subPanelPlugin);
+        TooltipMakerAPI tb = toolbarRow.createUIElement(toolbarW, 30f, false);
 
         ButtonAPI bTabAll = registerButton(
                 tb.addButton(
@@ -232,12 +234,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        90f,
+                        84f,
                         24f,
                         0f),
                 "TAB:ALL");
         if (activeTab == ActiveTab.ALL_DOCTRINE) bTabAll.highlight();
-        bTabAll.getPosition().inTL(0f, 2f);
+        bTabAll.getPosition().inTL(0f, 3f);
 
         ButtonAPI bTabOtc = registerButton(
                 tb.addButton(
@@ -252,7 +254,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         0f),
                 "TAB:OTC_COMMAND");
         if (activeTab == ActiveTab.BATTLE_GROUP_COMMAND) bTabOtc.highlight();
-        bTabOtc.getPosition().inTL(96f, 2f);
+        bTabOtc.getPosition().inTL(92f, 3f);
 
         ButtonAPI bTabMod = registerButton(
                 tb.addButton(
@@ -262,12 +264,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        148f,
+                        152f,
                         24f,
                         0f),
                 "TAB:MODIFIERS");
         if (activeTab == ActiveTab.DIVISION_MODIFIERS) bTabMod.highlight();
-        bTabMod.getPosition().inTL(238f, 2f);
+        bTabMod.getPosition().inTL(236f, 3f);
 
         ButtonAPI bTabHull = registerButton(
                 tb.addButton(
@@ -277,12 +279,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        120f,
+                        118f,
                         24f,
                         0f),
                 "TAB:HULLS");
         if (activeTab == ActiveTab.HULL_LIMITS) bTabHull.highlight();
-        bTabHull.getPosition().inTL(392f, 2f);
+        bTabHull.getPosition().inTL(396f, 3f);
 
         ButtonAPI bTabNaming = registerButton(
                 tb.addButton(
@@ -297,7 +299,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         0f),
                 "TAB:NAMING");
         if (activeTab == ActiveTab.NAMING_SCHEME) bTabNaming.highlight();
-        bTabNaming.getPosition().inTL(518f, 2f);
+        bTabNaming.getPosition().inTL(522f, 3f);
 
         String reinitLabel = lastReinitFleetCount >= 0
                 ? ("Reinitialized (" + lastReinitFleetCount + ")!")
@@ -310,11 +312,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        148f,
+                        152f,
                         24f,
                         0f),
                 "REINIT_SECTOR_DIVISIONS");
-        bReinitSector.getPosition().inTL(DIALOG_WIDTH - 24f - 120f - 136f - 154f, 2f);
+        bReinitSector.getPosition().inTL(toolbarW - 116f - 8f - 128f - 8f - 152f, 3f);
 
         ButtonAPI bReset = registerButton(
                 tb.addButton(
@@ -324,11 +326,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        130f,
+                        128f,
                         24f,
                         0f),
                 "RESET_DEFAULTS");
-        bReset.getPosition().inTL(DIALOG_WIDTH - 24f - 120f - 136f, 2f);
+        bReset.getPosition().inTL(toolbarW - 116f - 8f - 128f, 3f);
 
         ButtonAPI bClose = registerButton(
                 tb.addButton(
@@ -338,15 +340,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        120f,
+                        116f,
                         24f,
                         0f),
                 "CLOSE");
-        bClose.getPosition().inTL(DIALOG_WIDTH - 24f - 120f, 2f);
+        bClose.getPosition().inTL(toolbarW - 116f, 3f);
 
-        tb.setHeightSoFar(28f);
+        tb.setHeightSoFar(30f);
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
-        contentContainer.addComponent(toolbarRow).inTL(12f, 60f);
+        contentContainer.addComponent(toolbarRow).inTL(12f, 58f);
 
         if (pendingConfirmationCmd != null) {
             buildConfirmationScreen(contentContainer, baseColor, darkColor, highlight);
@@ -598,9 +600,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         // 1. Naming Preset Dropdown
         boolean expanded = NAMING_PRESET_DROPDOWN_KEY.equals(expandedDropdownKey);
-        CustomPanelAPI presetRow = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI presetUi = presetRow.createUIElement(rowWidth, 28f, false);
-        presetUi.addPara("Naming Preset:", 4f, baseColor).getPosition().inTL(4f, 4f);
+        CustomPanelAPI presetRow = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
+        TooltipMakerAPI presetUi = presetRow.createUIElement(rowWidth, 30f, false);
+        presetUi.addPara("Naming Preset:", 0f, baseColor).getPosition().inTL(6f, 6f);
 
         String toggleAct = "TOGGLE_DD:" + NAMING_PRESET_DROPDOWN_KEY;
         String btnText = (expanded ? "[^] " : "[v] ") + currentPreset.displayName;
@@ -612,12 +614,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.LMID,
                         CutStyle.TL_BR,
-                        560f,
-                        22f,
+                        510f,
+                        24f,
                         0f),
                 toggleAct);
         if (expanded) bToggle.highlight();
-        bToggle.getPosition().inTL(220f, 3f);
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
 
         ButtonAPI bApplyExisting = registerButton(
                 presetUi.addButton(
@@ -627,21 +629,21 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        196f,
-                        22f,
+                        204f,
+                        24f,
                         0f),
                 "APPLY_NAMING_TO_EXISTING");
-        bApplyExisting.getPosition().inTL(rowWidth - 200f, 3f);
+        bApplyExisting.getPosition().inTL(rowWidth - 210f, 3f);
 
-        presetUi.setHeightSoFar(28f);
+        presetUi.setHeightSoFar(30f);
         presetRow.addUIElement(presetUi).inTL(0f, 0f);
         body.addCustom(presetRow, 3f);
 
         if (expanded) {
             for (PlayerNamingPreset opt : PlayerNamingPreset.values()) {
                 boolean isCurrent = (opt == currentPreset);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 38f, subPanelPlugin);
-                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 22f, false);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 28f, false);
                 String selAct = "SET_NAMING_PRESET:" + opt.name();
                 ButtonAPI bOpt = registerButton(
                         optUi.addButton(
@@ -652,33 +654,32 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                                 Alignment.LMID,
                                 CutStyle.ALL,
                                 460f,
-                                20f,
+                                22f,
                                 0f),
                         selAct);
                 if (isCurrent) bOpt.highlight();
-                bOpt.getPosition().inTL(235f, 1f);
-                optUi.setHeightSoFar(22f);
-                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
 
-                TooltipMakerAPI optDesc = optPanel.createUIElement(rowWidth - 245f, 18f, false);
-                optDesc.addPara(opt.summary, 0f, gray);
-                optPanel.addUIElement(optDesc).inTL(235f, 21f);
-                body.addCustom(optPanel, 1f);
+                optUi.addPara(opt.summary, 0f, gray).getPosition().inTL(CONTROL_COL_X + 484f, 5f);
+                optUi.setHeightSoFar(28f);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                body.addCustom(optPanel, 2f);
             }
         } else {
             CustomPanelAPI descPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
-            TooltipMakerAPI descUi = descPanel.createUIElement(rowWidth - 230f, 22f, false);
+            TooltipMakerAPI descUi = descPanel.createUIElement(rowWidth - CONTROL_COL_X - 10f, 22f, false);
             descUi.addPara(currentPreset.summary, 0f, gray);
-            descPanel.addUIElement(descUi).inTL(220f, 0f);
+            descUi.setHeightSoFar(22f);
+            descPanel.addUIElement(descUi).inTL(CONTROL_COL_X, 0f);
             body.addCustom(descPanel, 2f);
         }
 
         // 2. Numbering Style Row
-        CustomPanelAPI numRow = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI numUi = numRow.createUIElement(rowWidth, 28f, false);
-        numUi.addPara("Numbering Style:", 4f, baseColor).getPosition().inTL(4f, 4f);
+        CustomPanelAPI numRow = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
+        TooltipMakerAPI numUi = numRow.createUIElement(rowWidth, 30f, false);
+        numUi.addPara("Numbering Style:", 0f, baseColor).getPosition().inTL(6f, 6f);
 
-        float xCursor = 220f;
+        float xCursor = CONTROL_COL_X;
         for (NumberingStyle style : NumberingStyle.values()) {
             boolean selected = (style == currentNumbering);
             String act = "SET_NUMBERING_STYLE:" + style.name();
@@ -690,25 +691,25 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             darkColor,
                             Alignment.MID,
                             CutStyle.ALL,
-                            146f,
-                            21f,
+                            164f,
+                            22f,
                             0f),
                     act);
             if (selected) bStyle.highlight();
-            bStyle.getPosition().inTL(xCursor, 3f);
-            xCursor += 151f;
+            bStyle.getPosition().inTL(xCursor, 4f);
+            xCursor += 172f;
         }
-        numUi.setHeightSoFar(28f);
+        numUi.setHeightSoFar(30f);
         numRow.addUIElement(numUi).inTL(0f, 0f);
         body.addCustom(numRow, 4f);
 
         // 3. Custom OTC Commander Title Row
-        CustomPanelAPI otcTitleRow = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI otcTitleUi = otcTitleRow.createUIElement(rowWidth, 28f, false);
-        otcTitleUi.addPara("Custom OTC Title (optional):", 4f, baseColor).getPosition().inTL(4f, 4f);
+        CustomPanelAPI otcTitleRow = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
+        TooltipMakerAPI otcTitleUi = otcTitleRow.createUIElement(rowWidth, 30f, false);
+        otcTitleUi.addPara("Custom OTC Title:", 0f, baseColor).getPosition().inTL(6f, 6f);
         customOtcTitleField = otcTitleUi.addTextField(240f, 22f, "graphics/fonts/insignia15LTaa.fnt", 0f);
         customOtcTitleField.setText(namingCfg.getCustomOtcTitle());
-        customOtcTitleField.getPosition().inTL(220f, 3f);
+        customOtcTitleField.getPosition().inTL(CONTROL_COL_X, 4f);
 
         String resolvedOtcPreview = DivisionNomenclature.resolveOtcCommanderTitle(
                 currentPreset.category,
@@ -717,10 +718,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 "Player OTC");
         otcTitleUi.addPara(
                 "Active OTC Tag: [%s]",
-                4f,
+                0f,
                 gray,
                 positive,
-                resolvedOtcPreview).getPosition().inTL(475f, 4f);
+                resolvedOtcPreview).getPosition().inTL(CONTROL_COL_X + 256f, 6f);
 
         ButtonAPI bSavePrefixes = registerButton(
                 otcTitleUi.addButton(
@@ -730,13 +731,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        165f,
-                        22f,
+                        176f,
+                        24f,
                         0f),
                 "SAVE_CUSTOM_PREFIXES");
-        bSavePrefixes.getPosition().inTL(rowWidth - 170f, 3f);
+        bSavePrefixes.getPosition().inTL(rowWidth - 182f, 3f);
 
-        otcTitleUi.setHeightSoFar(28f);
+        otcTitleUi.setHeightSoFar(30f);
         otcTitleRow.addUIElement(otcTitleUi).inTL(0f, 0f);
         body.addCustom(otcTitleRow, 4f);
 
@@ -749,27 +750,27 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 6f);
 
         for (DivisionArchetype arch : CUSTOMIZABLE_ARCHETYPES) {
-            CustomPanelAPI archRow = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
-            TooltipMakerAPI archUi = archRow.createUIElement(rowWidth, 26f, false);
+            CustomPanelAPI archRow = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+            TooltipMakerAPI archUi = archRow.createUIElement(rowWidth, 28f, false);
 
-            archUi.addPara(arch.shortPrefix + ":", 4f, baseColor).getPosition().inTL(4f, 3f);
+            archUi.addPara(arch.shortPrefix + ":", 0f, baseColor).getPosition().inTL(6f, 5f);
 
-            TextFieldAPI tf = archUi.addTextField(230f, 21f, "graphics/fonts/insignia15LTaa.fnt", 0f);
+            TextFieldAPI tf = archUi.addTextField(240f, 22f, "graphics/fonts/insignia15LTaa.fnt", 0f);
             tf.setText(namingCfg.getPrefixForArchetype(arch));
-            tf.getPosition().inTL(220f, 2f);
+            tf.getPosition().inTL(CONTROL_COL_X, 3f);
             prefixTextFields.put(arch, tf);
 
             String sample1 = DivisionNomenclature.formatPlayerDivisionName(arch, 1);
             String sample2 = DivisionNomenclature.formatPlayerDivisionName(arch, 2);
             archUi.addPara(
                     "Preview:  \"%s\",  \"%s\"",
-                    4f,
+                    0f,
                     gray,
                     highlight,
                     sample1,
-                    sample2).getPosition().inTL(465f, 3f);
+                    sample2).getPosition().inTL(CONTROL_COL_X + 256f, 5f);
 
-            archUi.setHeightSoFar(26f);
+            archUi.setHeightSoFar(28f);
             archRow.addUIElement(archUi).inTL(0f, 0f);
             body.addCustom(archRow, 2f);
         }
@@ -783,13 +784,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color darkColor,
             Color activeValueColor) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        String label = String.format(Locale.ROOT, "Opening Mission Window (30s-60s): %ds", currentSeconds);
-        rowUi.addPara(label, 4f, activeValueColor, label).getPosition().inTL(4f, 4f);
+        String label = String.format(Locale.ROOT, "Opening Window (30s-60s): %ds", currentSeconds);
+        rowUi.addPara(label, 0f, activeValueColor, label).getPosition().inTL(6f, 5f);
 
-        float xCursor = 355f;
+        float xCursor = CONTROL_COL_X;
         for (int sec : OPENING_DURATION_PRESETS) {
             boolean selected = (sec == currentSeconds);
             String act = "SET_OPEN_DUR:" + sec;
@@ -801,20 +802,20 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             darkColor,
                             Alignment.MID,
                             CutStyle.ALL,
-                            62f,
-                            21f,
+                            68f,
+                            22f,
                             0f),
                     act);
             if (selected) {
                 bSec.highlight();
             }
-            bSec.getPosition().inTL(xCursor, 2f);
-            xCursor += 68f;
+            bSec.getPosition().inTL(xCursor, 3f);
+            xCursor += 76f;
         }
 
-        rowUi.setHeightSoFar(26f);
+        rowUi.setHeightSoFar(28f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 3f);
+        body.addCustom(rowPanel, 4f);
     }
 
     private void addAuthorityDropdownRow(
@@ -828,9 +829,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         boolean expanded = OTC_AUTHORITY_DROPDOWN_KEY.equals(expandedDropdownKey);
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
-        rowUi.addPara("OTC Authority:", 4f, baseColor).getPosition().inTL(4f, 4f);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
+        rowUi.addPara("OTC Authority:", 0f, baseColor).getPosition().inTL(6f, 6f);
 
         String toggleAct = "TOGGLE_DD:" + OTC_AUTHORITY_DROPDOWN_KEY;
         String btnText = (expanded ? "[^] " : "[v] ") + current.dropdownLabel;
@@ -842,23 +843,28 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.LMID,
                         CutStyle.TL_BR,
-                        360f,
-                        22f,
+                        236f,
+                        24f,
                         0f),
                 toggleAct);
         if (expanded) {
             bToggle.highlight();
         }
-        bToggle.getPosition().inTL(355f, 2f);
-        rowUi.setHeightSoFar(26f);
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        rowUi.addPara(current.summary, 0f, expanded ? activeValueColor : gray)
+                .getPosition()
+                .inTL(CONTROL_COL_X + 252f, 6f);
+
+        rowUi.setHeightSoFar(30f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
+        body.addCustom(rowPanel, 3f);
 
         if (expanded) {
             for (OtcAuthority option : OtcAuthority.values()) {
                 boolean isCurrent = (option == current);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 42f, subPanelPlugin);
-                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 22f, false);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 28f, false);
                 String selAct = "SET_OTC_AUTH:" + option.name();
                 ButtonAPI bOpt = registerButton(
                         optUi.addButton(
@@ -868,28 +874,23 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                                 darkColor,
                                 Alignment.LMID,
                                 CutStyle.ALL,
-                                285f,
-                                20f,
+                                224f,
+                                22f,
                                 0f),
                         selAct);
                 if (isCurrent) {
                     bOpt.highlight();
                 }
-                bOpt.getPosition().inTL(370f, 1f);
-                optUi.setHeightSoFar(22f);
-                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
 
-                TooltipMakerAPI optDesc = optPanel.createUIElement(rowWidth - 380f, 20f, false);
-                optDesc.addPara(option.summary, 0f, gray);
-                optPanel.addUIElement(optDesc).inTL(370f, 22f);
-                body.addCustom(optPanel, 1f);
+                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
+                        .getPosition()
+                        .inTL(CONTROL_COL_X + 252f, 5f);
+
+                optUi.setHeightSoFar(28f);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                body.addCustom(optPanel, 2f);
             }
-        } else {
-            CustomPanelAPI descPanel = Global.getSettings().createCustom(rowWidth, 34f, subPanelPlugin);
-            TooltipMakerAPI descUi = descPanel.createUIElement(rowWidth - 365f, 34f, false);
-            descUi.addPara(current.summary, 0f, gray);
-            descPanel.addUIElement(descUi).inTL(355f, 0f);
-            body.addCustom(descPanel, 1f);
         }
     }
 
@@ -903,11 +904,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color activeValueColor,
             Color gray) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 36f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
 
         String label = play.displayName;
-        rowUi.addPara(label, 4f, enabled ? activeValueColor : gray, label).getPosition().inTL(4f, 4f);
+        rowUi.addPara(label, 0f, enabled ? activeValueColor : gray, label).getPosition().inTL(6f, 6f);
 
         String onAct = "SET_OTC_PLAY:" + play.name() + ":ON";
         ButtonAPI bOn = registerButton(
@@ -918,12 +919,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        52f,
-                        21f,
+                        56f,
+                        22f,
                         0f),
                 onAct);
         if (enabled) bOn.highlight();
-        bOn.getPosition().inTL(355f, 2f);
+        bOn.getPosition().inTL(CONTROL_COL_X, 4f);
 
         String offAct = "SET_OTC_PLAY:" + play.name() + ":OFF";
         ButtonAPI bOff = registerButton(
@@ -934,21 +935,19 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        52f,
-                        21f,
+                        56f,
+                        22f,
                         0f),
                 offAct);
         if (!enabled) bOff.highlight();
-        bOff.getPosition().inTL(413f, 2f);
+        bOff.getPosition().inTL(CONTROL_COL_X + 64f, 4f);
 
-        rowUi.setHeightSoFar(26f);
+        rowUi.addPara(play.summary, 0f, gray).getPosition().inTL(CONTROL_COL_X + 136f, 6f);
+
+        rowUi.setHeightSoFar(30f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
 
-        TooltipMakerAPI descUi = rowPanel.createUIElement(rowWidth - 490f, 34f, false);
-        descUi.addPara(play.summary, 0f, gray);
-        rowPanel.addUIElement(descUi).inTL(480f, 2f);
-
-        body.addCustom(rowPanel, 2f);
+        body.addCustom(rowPanel, 3f);
     }
 
     private void addPreferredSpaceRow(
@@ -961,12 +960,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color darkColor,
             Color activeValueColor) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara(labelText, 4f, activeValueColor, labelText).getPosition().inTL(4f, 4f);
+        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
 
-        float xCursor = 355f;
+        float xCursor = CONTROL_COL_X;
         for (LineStation ps : LineStation.values()) {
             boolean selected = (ps == currentSpace);
             String act = actionPrefix + ps.name();
@@ -979,17 +978,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             Alignment.MID,
                             CutStyle.ALL,
                             110f,
-                            21f,
+                            22f,
                             0f),
                     act);
             if (selected) {
                 bPs.highlight();
             }
-            bPs.getPosition().inTL(xCursor, 2f);
+            bPs.getPosition().inTL(xCursor, 3f);
             xCursor += 118f;
         }
 
-        rowUi.setHeightSoFar(26f);
+        rowUi.setHeightSoFar(28f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }
@@ -1009,10 +1008,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         boolean expanded = dropdownKey.equals(expandedDropdownKey);
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara(labelText, 4f, baseColor).getPosition().inTL(4f, 4f);
+        rowUi.addPara(labelText, 0f, baseColor).getPosition().inTL(6f, 5f);
 
         String toggleAct = "TOGGLE_DD:" + dropdownKey;
         String btnText = (expanded ? "[^] " : "[v] ") + currentMission.dropdownLabel;
@@ -1024,16 +1023,18 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.LMID,
                         CutStyle.TL_BR,
-                        360f,
+                        236f,
                         22f,
                         0f),
                 toggleAct);
         if (expanded) {
             bToggle.highlight();
         }
-        bToggle.getPosition().inTL(355f, 2f);
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
 
-        rowUi.setHeightSoFar(26f);
+        rowUi.addPara(currentMission.summary, 0f, gray).getPosition().inTL(CONTROL_COL_X + 252f, 5f);
+
+        rowUi.setHeightSoFar(28f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
 
@@ -1043,8 +1044,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     : DivisionMissionType.values();
             for (DivisionMissionType option : optionsToShow) {
                 boolean isCurrent = (option == currentMission);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 24f, subPanelPlugin);
-                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 26f, false);
 
                 String selAct = selectActionPrefix + option.name();
                 ButtonAPI bOpt = registerButton(
@@ -1055,20 +1056,22 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                                 darkColor,
                                 Alignment.LMID,
                                 CutStyle.ALL,
-                                285f,
+                                224f,
                                 20f,
                                 0f),
                         selAct);
                 if (isCurrent) {
                     bOpt.highlight();
                 }
-                bOpt.getPosition().inTL(370f, 2f);
+                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
 
-                optUi.addPara(option.summary, 3f, gray).getPosition().inTL(665f, 3f);
+                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
+                        .getPosition()
+                        .inTL(CONTROL_COL_X + 252f, 4f);
 
-                optUi.setHeightSoFar(24f);
+                optUi.setHeightSoFar(26f);
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
-                body.addCustom(optPanel, 1f);
+                body.addCustom(optPanel, 2f);
             }
         }
     }
@@ -1087,12 +1090,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color darkColor,
             Color activeValueColor) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara(labelText, 4f, activeValueColor, labelText).getPosition().inTL(4f, 4f);
+        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
 
-        float xCursor = 355f;
+        float xCursor = CONTROL_COL_X;
 
         // [-step] button
         String decAct = actionPrefix + Math.max(minVal, currentValue - step);
@@ -1104,13 +1107,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        48f,
-                        21f,
+                        54f,
+                        22f,
                         0f),
                 decAct);
         bDec.setEnabled(currentValue > minVal);
-        bDec.getPosition().inTL(xCursor, 2f);
-        xCursor += 52f;
+        bDec.getPosition().inTL(xCursor, 3f);
+        xCursor += 60f;
 
         for (int p : presets) {
             boolean selected = Math.abs(p - currentValue) < 10;
@@ -1123,15 +1126,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             darkColor,
                             Alignment.MID,
                             CutStyle.ALL,
-                            56f,
-                            21f,
+                            62f,
+                            22f,
                             0f),
                     valAct);
             if (selected) {
                 bVal.highlight();
             }
-            bVal.getPosition().inTL(xCursor, 2f);
-            xCursor += 60f;
+            bVal.getPosition().inTL(xCursor, 3f);
+            xCursor += 68f;
         }
 
         // [+step] button
@@ -1144,14 +1147,14 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        48f,
-                        21f,
+                        54f,
+                        22f,
                         0f),
                 incAct);
         bInc.setEnabled(currentValue < maxVal);
-        bInc.getPosition().inTL(xCursor + 2f, 2f);
+        bInc.getPosition().inTL(xCursor, 3f);
 
-        rowUi.setHeightSoFar(26f);
+        rowUi.setHeightSoFar(28f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }
@@ -1166,12 +1169,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color darkColor,
             Color activeValueColor) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara(labelText, 4f, activeValueColor, labelText).getPosition().inTL(4f, 4f);
+        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
 
-        float xCursor = 355f;
+        float xCursor = CONTROL_COL_X;
 
         for (float p : STATION_KEEPING_PRESETS) {
             boolean selected = Math.abs(p - currentValue) < 0.04f;
@@ -1186,17 +1189,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             Alignment.MID,
                             CutStyle.ALL,
                             68f,
-                            21f,
+                            22f,
                             0f),
                     valAct);
             if (selected) {
                 bVal.highlight();
             }
-            bVal.getPosition().inTL(xCursor, 2f);
-            xCursor += 74f;
+            bVal.getPosition().inTL(xCursor, 3f);
+            xCursor += 76f;
         }
 
-        rowUi.setHeightSoFar(26f);
+        rowUi.setHeightSoFar(28f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }
@@ -1212,17 +1215,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color activeValueColor,
             Color gray) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
         rowUi.addPara(
                 "%s:  %s",
-                4f,
+                0f,
                 activeValueColor,
                 labelText,
-                String.valueOf(currentValue)).getPosition().inTL(4f, 4f);
+                String.valueOf(currentValue)).getPosition().inTL(6f, 5f);
 
-        float xCursor = 340f;
+        float xCursor = CONTROL_COL_X;
 
         // [-] button
         String decAct = actionPrefix + Math.max(0, currentValue - 1);
@@ -1234,13 +1237,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        28f,
-                        21f,
+                        32f,
+                        22f,
                         0f),
                 decAct);
         bDec.setEnabled(currentValue > 0);
-        bDec.getPosition().inTL(xCursor, 2f);
-        xCursor += 34f;
+        bDec.getPosition().inTL(xCursor, 3f);
+        xCursor += 38f;
 
         // Direct 0..10 selector buttons
         for (int v = 0; v <= PermanentDivisionManager.MAX_DIVISION_SIZE; v++) {
@@ -1254,15 +1257,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             darkColor,
                             Alignment.MID,
                             CutStyle.ALL,
-                            38f,
-                            21f,
+                            42f,
+                            22f,
                             0f),
                     valAct);
             if (selected) {
                 bVal.highlight();
             }
-            bVal.getPosition().inTL(xCursor, 2f);
-            xCursor += 42f;
+            bVal.getPosition().inTL(xCursor, 3f);
+            xCursor += 48f;
         }
 
         // [+] button
@@ -1275,14 +1278,14 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        28f,
-                        21f,
+                        32f,
+                        22f,
                         0f),
                 incAct);
         bInc.setEnabled(currentValue < PermanentDivisionManager.MAX_DIVISION_SIZE);
-        bInc.getPosition().inTL(xCursor + 4f, 2f);
+        bInc.getPosition().inTL(xCursor, 3f);
 
-        rowUi.setHeightSoFar(26f);
+        rowUi.setHeightSoFar(28f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }
