@@ -444,9 +444,13 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         polyScreen,
                         centerScreen,
                         dropletMembers,
+                        hullMembers,
                         scale,
                         offsetX,
                         offsetY);
+                if (displayPolyScreen.size() >= 3) {
+                    centerScreen = computePolygonCentroid(displayPolyScreen);
+                }
 
                 outList.add(new RenderedDivisionPolygon(
                         div,
@@ -485,6 +489,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         String divId = (div != null && div.id != null) ? div.id : "default_div";
         float baseSpacing = (div != null && div.stationSpacing > 0f) ? div.stationSpacing : 450f;
+        boolean firstSeenDiv = !stickyConnectedPairsByDivId.containsKey(divId);
         Set<String> prevPairs = stickyConnectedPairsByDivId.get(divId);
         if (prevPairs == null) {
             prevPairs = Collections.emptySet();
@@ -499,8 +504,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 ShipAPI b = members.get(j);
                 float rb = getMemberFootprintRadiusWorld(b);
                 float dist = distance(a.getLocation(), b.getLocation());
-                float mergeDist = Math.max(baseSpacing * 1.95f, ra + rb + 280f);
-                float splitDist = mergeDist * 1.50f;
+                float mergeDist = (ra + rb) * 1.18f;
+                float splitDist = mergeDist * 1.15f;
                 String key = canonicalPairKey(a.getId(), b.getId());
                 String bondKey = divId + ":" + key;
                 boolean wasConnected = prevPairs.contains(key);
@@ -508,16 +513,22 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (connectedNow) {
                     adj[i][j] = true;
                     adj[j][i] = true;
-                    float fullOpenDist = ra + rb + 80f;
+                    float fullOpenDist = (ra + rb) * 0.72f;
                     float tOpen = clamp(1.0f - (dist - fullOpenDist) / Math.max(1f, splitDist - fullOpenDist), 0.02f, 1.0f);
                     float geomOpenness = Math.max(0.02f, tOpen * tOpen);
                     Float prevOpen = smoothedBondOpennessByPairKey.get(bondKey);
                     float nextOpen;
-                    if (!wasConnected || prevOpen == null) {
-                        // Start newly joined droplets at the tiniest point of contact (2% openness) so there is zero popping
+                    if (firstSeenDiv) {
+                        // On the very first frame a formed division is seen on the Tab map, use its natural geometric openness
+                        nextOpen = geomOpenness;
+                    } else if (!wasConnected || prevOpen == null) {
+                        // When two previously separated droplets newly coalesce in battle, start at the tiniest point of contact (0.02f)
                         nextOpen = 0.02f;
+                    } else if (geomOpenness < prevOpen) {
+                        // When stretching apart toward splitDist, track geometric pinching immediately so it pinches to 0.02f before split
+                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.45f;
                     } else {
-                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.16f;
+                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.18f;
                     }
                     smoothedBondOpennessByPairKey.put(bondKey, clamp(nextOpen, 0.02f, 1.0f));
                 } else {
@@ -616,13 +627,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         if (smoothed != null) {
             return clamp(smoothed, 0.02f, 1.0f);
         }
-        float baseSpacing = (div != null && div.stationSpacing > 0f) ? div.stationSpacing : 450f;
         float ra = getMemberFootprintRadiusWorld(a);
         float rb = getMemberFootprintRadiusWorld(b);
         float dist = distance(a.getLocation(), b.getLocation());
-        float mergeDist = Math.max(baseSpacing * 1.95f, ra + rb + 280f);
-        float splitDist = mergeDist * 1.50f;
-        float fullOpenDist = ra + rb + 80f;
+        float mergeDist = (ra + rb) * 1.18f;
+        float splitDist = mergeDist * 1.15f;
+        float fullOpenDist = (ra + rb) * 0.72f;
         float tOpen = clamp(1.0f - (dist - fullOpenDist) / Math.max(1f, splitDist - fullOpenDist), 0.02f, 1.0f);
         return Math.max(0.02f, tOpen * tOpen);
     }
@@ -633,7 +643,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
      * when approaching/splitting so droplets kiss at the tiniest point of contact (P_kiss) and
      * combine/separate without any popping.
      */
-    private List<Vector2f> buildFluidDropletPolygonScreen(
+    public List<Vector2f> buildFluidDropletPolygonScreen(
             DivisionState div,
             List<ShipAPI> dropletMembers,
             List<ShipAPI> allDivisionMembers,
@@ -648,7 +658,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         for (ShipAPI m : dropletMembers) {
             float mx = m.getLocation().x * scale + offsetX;
             float my = m.getLocation().y * scale + offsetY;
-            float worldR = getMemberFootprintRadiusWorld(m) * (isLoneDetachedShip ? 0.82f : 1.0f);
+            float worldR = getMemberFootprintRadiusWorld(m);
             float rPx = clamp(worldR * scale, 14f, 54f);
 
             // Check if a sibling ship in another droplet of the same division is near the coalescence/split threshold
@@ -666,9 +676,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     if (distW < 1e-3f) continue;
                     float otherWorldR = getMemberFootprintRadiusWorld(other);
                     float otherRPx = clamp(otherWorldR * scale, 14f, 54f);
-                    float mergeDist = Math.max(baseSpacing * 1.95f, getMemberFootprintRadiusWorld(m) + otherWorldR + 280f);
-                    float splitDist = mergeDist * 1.50f;
-                    float attractMaxDist = splitDist * 1.25f;
+                    float mergeDist = (getMemberFootprintRadiusWorld(m) + otherWorldR) * 1.18f;
+                    float splitDist = mergeDist * 1.15f;
+                    float attractMaxDist = splitDist * 1.12f;
                     if (distW < attractMaxDist) {
                         float t = clamp(1.0f - (distW - mergeDist) / Math.max(1f, attractMaxDist - mergeDist), 0f, 1f);
                         float smooth = t * t * (3f - 2f * t);
@@ -678,7 +688,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                             pullDirY = dyW / distW;
                             float distPx = distW * scale;
                             float distToKissPx = distPx * (rPx / Math.max(1f, rPx + otherRPx));
-                            float maxTipReachPx = Math.max(0f, distToKissPx - rPx + 0.5f);
+                            float maxTipReachPx = Math.min(rPx * 0.28f, Math.max(0f, distToKissPx - rPx + 0.5f));
                             pullMagPx = maxTipReachPx * smooth;
                         }
                     }
@@ -693,7 +703,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (pullMagPx > 0.25f) {
                     float dot = ux * pullDirX + uy * pullDirY;
                     if (dot > 0f) {
-                        // Sharp teardrop meniscus tip peaking along pullDir toward the contact point P_kiss
                         extraPull = pullMagPx * dot * dot * dot;
                     }
                 }
@@ -723,20 +732,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 convexPolyScreen,
                 centerScreen,
                 dropletMembers,
+                dropletMembers,
                 scale,
                 offsetX,
                 offsetY);
     }
 
-    /**
-     * Applies a spine-guided metaball waist-pinch to bridge edges of a multi-ship droplet:
-     *  1. Subdivides long bridge edges so the contour has dense vertices across every inter-ship bridge.
-     *  2. Builds the Minimum Spanning Tree (MST) spine connecting the droplet's ships.
-     *  3. Along each spine bone (a, b), pinches bridge vertices directly toward the spine axis with a
-     *     bell-curve waist centered at the radius-weighted contact point P_kiss = pA + u * sKiss.
-     *  4. At the moment of joining or right before splitting (bondOpenness -> 0.02f), the waist pinches
-     *     to a tiny ~1.5px point of contact at P_kiss so droplets coalesce and split with zero popping.
-     */
     public List<Vector2f> applyMetaballNeckPinchScreen(
             DivisionState div,
             List<Vector2f> convexPolyScreen,
@@ -745,159 +746,527 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float scale,
             float offsetX,
             float offsetY) {
-        if (dropletMembers == null || dropletMembers.size() <= 1 || convexPolyScreen.size() < 3) {
+        return applyMetaballNeckPinchScreen(
+                div,
+                convexPolyScreen,
+                centerScreen,
+                dropletMembers,
+                dropletMembers,
+                scale,
+                offsetX,
+                offsetY);
+    }
+
+    /**
+     * Generates a 100% smooth, gash-free, spike-free 2D metaball water-droplet contour around
+     * dropletMembers via a Polynomial Smooth-Minimum Signed Distance Field (smin) + Marching Squares:
+     *  - Because smin(d_a, d_b, k) <= min(d_a, d_b), the contour is mathematically guaranteed to
+     *    enclose 100% of every ship's circle without ever cutting inward into a V-gash or spike.
+     *  - For each connected neighbor pair (a, b) with bond openness in [0.02, 1.0], setting
+     *    k_ab = 2 * gapPx + 4 * deltaNeck makes the SDF value at the kissing point P_kiss equal
+     *    to -deltaNeck (pinching to a tiny ~1.5px point of contact at openness=0.02f when joining/splitting,
+     *    and widening smoothly as openness -> 1.0f).
+     *  - Only positive-signed-area outer CCW loops are retained (automatically suppressing interior pinholes).
+     */
+    public List<Vector2f> applyMetaballNeckPinchScreen(
+            DivisionState div,
+            List<Vector2f> convexPolyScreen,
+            Vector2f centerScreen,
+            List<ShipAPI> dropletMembers,
+            List<ShipAPI> allDivisionMembers,
+            float scale,
+            float offsetX,
+            float offsetY) {
+        if (dropletMembers == null || dropletMembers.isEmpty()) {
             return convexPolyScreen;
         }
+            //Single-ship droplets (including detached stragglers) use the smooth 96-vertex circle/meniscus hull directly
+            if (dropletMembers.size() == 1) {
+                return convexPolyScreen;
+            }
+
+        List<Vector2f> sdfContour = extractMetaballDropletPolygonScreen(
+                div,
+                dropletMembers,
+                allDivisionMembers,
+                scale,
+                offsetX,
+                offsetY);
+        if (sdfContour != null && sdfContour.size() >= 6) {
+            return sdfContour;
+        }
+        return convexPolyScreen;
+    }
+
+    public List<Vector2f> extractMetaballDropletPolygonScreen(
+            DivisionState div,
+            List<ShipAPI> dropletMembers,
+            List<ShipAPI> allDivisionMembers,
+            float scale,
+            float offsetX,
+            float offsetY) {
         int mCount = dropletMembers.size();
-        float[] sx = new float[mCount];
-        float[] sy = new float[mCount];
-        float[] sr = new float[mCount];
-        for (int i = 0; i < mCount; i++) {
-            ShipAPI s = dropletMembers.get(i);
-            sx[i] = s.getLocation().x * scale + offsetX;
-            sy[i] = s.getLocation().y * scale + offsetY;
-            sr[i] = clamp(getMemberFootprintRadiusWorld(s) * scale, 14f, 54f);
-        }
+        boolean isLoneDetachedShip = (mCount == 1 && allDivisionMembers != null && allDivisionMembers.size() > 1);
+        float baseSpacing = (div != null && div.stationSpacing > 0f) ? div.stationSpacing : 450f;
 
-        // Build the Minimum Spanning Tree (MST) spine of mCount - 1 bones
-        int boneCount = mCount - 1;
-        int[] boneA = new int[boneCount];
-        int[] boneB = new int[boneCount];
-        float[] boneOpenness = new float[boneCount];
-        boolean[] inTree = new boolean[mCount];
-        inTree[0] = true;
-        for (int bIdx = 0; bIdx < boneCount; bIdx++) {
-            int bestFrom = 0;
-            int bestTo = 1;
-            float bestDistSq = Float.MAX_VALUE;
-            for (int i = 0; i < mCount; i++) {
-                if (!inTree[i]) continue;
-                for (int j = 0; j < mCount; j++) {
-                    if (inTree[j]) continue;
-                    float dx = sx[j] - sx[i];
-                    float dy = sy[j] - sy[i];
-                    float dSq = dx * dx + dy * dy;
-                    if (dSq < bestDistSq) {
-                        bestDistSq = dSq;
-                        bestFrom = i;
-                        bestTo = j;
-                    }
-                }
-            }
-            inTree[bestTo] = true;
-            boneA[bIdx] = bestFrom;
-            boneB[bIdx] = bestTo;
-            boneOpenness[bIdx] = resolvePairBondOpenness(
-                    div,
-                    dropletMembers.get(bestFrom),
-                    dropletMembers.get(bestTo));
-        }
-
-        List<Vector2f> denseHull = subdivideLongEdgesScreen(convexPolyScreen, 7.0f);
-        int n = denseHull.size();
-        List<Vector2f> pinched = new ArrayList<>(n);
-
-        for (int i = 0; i < n; i++) {
-            Vector2f v = denseHull.get(i);
-
-            // Check clearance to all member ship disks
-            float minClearance = Float.MAX_VALUE;
-            for (int j = 0; j < mCount; j++) {
-                float dx = v.x - sx[j];
-                float dy = v.y - sy[j];
-                float d = (float) Math.sqrt(dx * dx + dy * dy) - sr[j];
-                if (d < minClearance) {
-                    minClearance = d;
-                }
-            }
-
-            // Find the spine bone whose bridge interval best governs this vertex
-            int bestBone = -1;
-            float bestPerpDist = Float.MAX_VALUE;
-            float bestSpineX = centerScreen.x;
-            float bestSpineY = centerScreen.y;
-            float bestPinchFrac = 0f;
-
-            for (int bIdx = 0; bIdx < boneCount; bIdx++) {
-                int ia = boneA[bIdx];
-                int ib = boneB[bIdx];
-                float ax = sx[ia];
-                float ay = sy[ia];
-                float bx = sx[ib];
-                float by = sy[ib];
-                float ra = sr[ia];
-                float rb = sr[ib];
-
-                float abx = bx - ax;
-                float aby = by - ay;
-                float boneLen = (float) Math.sqrt(abx * abx + aby * aby);
-                if (boneLen < 6f) continue;
-
-                float ux = abx / boneLen;
-                float uy = aby / boneLen;
-                float vx = v.x - ax;
-                float vy = v.y - ay;
-                float s = vx * ux + vy * uy;
-                float perpDist = Math.abs(vx * uy - vy * ux);
-
-                float sKiss = boneLen * (ra / Math.max(1f, ra + rb));
-                float sStart = Math.min(ra * 0.58f, sKiss - 3f);
-                float sEnd = Math.max(boneLen - rb * 0.58f, sKiss + 3f);
-                if (s <= sStart || s >= sEnd) continue;
-
-                // Ensure vertex is not buried inside some third ship disk on a multi-ship droplet
-                boolean insideThirdDisk = false;
-                for (int k = 0; k < mCount; k++) {
-                    if (k == ia || k == ib) continue;
-                    float dkx = v.x - sx[k];
-                    float dky = v.y - sy[k];
-                    if ((dkx * dkx + dky * dky) < (sr[k] * sr[k] * 0.85f)) {
-                        insideThirdDisk = true;
+        // Collect the droplet's ships plus any nearby sibling ships within meniscus attraction range
+        List<ShipAPI> evalShips = new ArrayList<>(mCount + 2);
+        evalShips.addAll(dropletMembers);
+        if (allDivisionMembers != null && allDivisionMembers.size() > mCount) {
+            for (ShipAPI other : allDivisionMembers) {
+                if (dropletMembers.contains(other)) continue;
+                boolean nearAny = false;
+                for (ShipAPI m : dropletMembers) {
+                    float distW = distance(m.getLocation(), other.getLocation());
+                    float mergeDist = (getMemberFootprintRadiusWorld(m) + getMemberFootprintRadiusWorld(other)) * 1.18f;
+                    float attractMaxDist = mergeDist * 1.15f * 1.12f;
+                    if (distW < attractMaxDist) {
+                        nearAny = true;
                         break;
                     }
                 }
-                if (insideThirdDisk) continue;
-
-                float tau;
-                if (s <= sKiss) {
-                    tau = 0.5f * ((s - sStart) / Math.max(1f, sKiss - sStart));
-                } else {
-                    tau = 0.5f + 0.5f * ((s - sKiss) / Math.max(1f, sEnd - sKiss));
+                if (nearAny) {
+                    evalShips.add(other);
                 }
-                tau = clamp(tau, 0f, 1f);
-                float bell = (float) Math.sin(Math.PI * tau);
-                float psi = bell * bell;
-
-                float openness = boneOpenness[bIdx];
-                float naturalGapRatio = clamp((boneLen - (ra + rb)) / Math.max(1f, ra + rb), 0f, 1.5f);
-                float minPinch = clamp(naturalGapRatio * 0.22f, 0f, 0.24f);
-                // When openness -> 0.02f (moment of joining or splitting), pinchAtSaddle reaches 0.96f (~1.5px contact point)
-                float pinchAtSaddle = minPinch + (0.96f - minPinch) * (1.0f - openness);
-                float candidatePinch = pinchAtSaddle * (float) Math.pow(psi, 1.35);
-
-                if (perpDist < bestPerpDist) {
-                    bestPerpDist = perpDist;
-                    bestBone = bIdx;
-                    bestSpineX = ax + ux * s;
-                    bestSpineY = ay + uy * s;
-                    bestPinchFrac = candidatePinch;
-                }
-            }
-
-            if (bestBone >= 0 && bestPinchFrac > 0.005f) {
-                pinched.add(new Vector2f(
-                        v.x + (bestSpineX - v.x) * bestPinchFrac,
-                        v.y + (bestSpineY - v.y) * bestPinchFrac));
-            } else if (minClearance > 6f) {
-                float pinchFrac = clamp((minClearance - 6f) / 140f, 0f, 0.34f);
-                pinched.add(new Vector2f(
-                        v.x + (centerScreen.x - v.x) * pinchFrac,
-                        v.y + (centerScreen.y - v.y) * pinchFrac));
-            } else {
-                pinched.add(v);
             }
         }
-        return chaikinSmoothClosed(pinched);
+
+        int total = evalShips.size();
+        float[] sx = new float[total];
+        float[] sy = new float[total];
+        float[] sr = new float[total];
+        for (int i = 0; i < total; i++) {
+            ShipAPI s = evalShips.get(i);
+            float worldR = getMemberFootprintRadiusWorld(s);
+            sx[i] = s.getLocation().x * scale + offsetX;
+            sy[i] = s.getLocation().y * scale + offsetY;
+            sr[i] = clamp(worldR * scale, 14f, 54f);
+        }
+
+        // Build pairwise hourglass bridge openness matrix opennessPair[i][j]
+        //   > 0: connected intra-droplet neighbor pair with openness in [0.02, 1.0]
+        //   < 0: approaching inter-droplet sibling pair with meniscus reach factor in [-1.0, -0.02]
+        float[][] kPair = new float[total][total];
+        for (int i = 0; i < mCount; i++) {
+            ShipAPI shipI = evalShips.get(i);
+            float rWi = getMemberFootprintRadiusWorld(shipI);
+            // Intra-droplet pairs
+            for (int j = i + 1; j < mCount; j++) {
+                ShipAPI shipJ = evalShips.get(j);
+                float rWj = getMemberFootprintRadiusWorld(shipJ);
+                float distW = distance(shipI.getLocation(), shipJ.getLocation());
+                float mergeDist = (rWi + rWj) * 1.18f;
+                float splitDist = mergeDist * 1.15f;
+                // Only apply direct pairwise bridge to neighbor ships within splitDist
+                if (distW <= splitDist * 1.02f) {
+                    float openness = resolvePairBondOpenness(div, shipI, shipJ);
+                    float minPinch = 0.04f;
+                    float pinchAtSaddle = minPinch + (0.96f - minPinch) * (1.0f - openness);
+                    float effOpenness = clamp(1.0f - pinchAtSaddle, 0.02f, 1.0f);
+                    kPair[i][j] = effOpenness;
+                    kPair[j][i] = effOpenness;
+                }
+            }
+            // Inter-droplet meniscus attraction to sibling ships (negative value encodes meniscus tip reach)
+            for (int j = mCount; j < total; j++) {
+                ShipAPI other = evalShips.get(j);
+                float rWj = getMemberFootprintRadiusWorld(other);
+                float distW = distance(shipI.getLocation(), other.getLocation());
+                float mergeDist = (rWi + rWj) * 1.18f;
+                float splitDist = mergeDist * 1.15f;
+                float attractMaxDist = splitDist * 1.12f;
+                if (distW < attractMaxDist) {
+                    float t = clamp(1.0f - (distW - mergeDist) / Math.max(1f, attractMaxDist - mergeDist), 0f, 1f);
+                    float smooth = t * t * (3f - 2f * t);
+                    if (smooth > 0.02f) {
+                        kPair[i][j] = -smooth;
+                        kPair[j][i] = -smooth;
+                    }
+                }
+            }
+        }
+
+        // Compute bounding box around the droplet's member ships
+        float minX = Float.MAX_VALUE;
+        float maxX = -Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE;
+        float maxY = -Float.MAX_VALUE;
+        for (int i = 0; i < mCount; i++) {
+            float pad = sr[i] * 1.45f + 18f;
+            if (sx[i] - pad < minX) minX = sx[i] - pad;
+            if (sx[i] + pad > maxX) maxX = sx[i] + pad;
+            if (sy[i] - pad < minY) minY = sy[i] - pad;
+            if (sy[i] + pad > maxY) maxY = sy[i] + pad;
+        }
+        float maxSpan = Math.max(maxX - minX, maxY - minY);
+        float stepPx = clamp(maxSpan / 48f, 3.2f, 7.0f);
+
+        List<List<Vector2f>> loops = traceMetaballContoursMarchingSquares(
+                sx, sy, sr, mCount, total, kPair, minX, maxX, minY, maxY, stepPx);
+        if (loops.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // Select the outer CCW loop that encloses the droplet's first ship (or has largest positive area)
+        List<Vector2f> bestLoop = null;
+        float bestScore = -Float.MAX_VALUE;
+        for (List<Vector2f> loop : loops) {
+            float signedArea = computeSignedPolygonArea(loop);
+            if (signedArea <= 60f) continue; // Reject CW interior holes and tiny noise specks
+            int containedMembers = 0;
+            for (int i = 0; i < mCount; i++) {
+                if (isPointInsidePolygon(loop, sx[i], sy[i])) {
+                    containedMembers++;
+                }
+            }
+            float score = containedMembers * 100000f + signedArea;
+            if (score > bestScore) {
+                bestScore = score;
+                bestLoop = loop;
+            }
+        }
+        return bestLoop != null ? bestLoop : loops.get(0);
+    }
+
+    private static float sminPoly(float a, float b, float k) {
+        if (k <= 1e-4f) return Math.min(a, b);
+        float h = Math.max(k - Math.abs(a - b), 0f) / k;
+        return Math.min(a, b) - h * h * k * 0.25f;
+    }
+
+    private static float evalMetaballSdf(
+            float x,
+            float y,
+            float[] sx,
+            float[] sy,
+            float[] sr,
+            int mCount,
+            int total,
+            float[][] kPair) {
+        float bestCircle = Float.MAX_VALUE;
+        for (int i = 0; i < mCount; i++) {
+            float dx = x - sx[i];
+            float dy = y - sy[i];
+            float di = (float) Math.sqrt(dx * dx + dy * dy) - sr[i];
+            if (di < bestCircle) {
+                bestCircle = di;
+            }
+        }
+
+        float bestBridge = Float.MAX_VALUE;
+        for (int i = 0; i < mCount; i++) {
+            float ax = sx[i];
+            float ay = sy[i];
+            float ra = sr[i];
+            // Connected intra-droplet hourglass bridges
+            for (int j = i + 1; j < mCount; j++) {
+                float openness = kPair[i][j];
+                if (openness <= 0f) continue;
+                float bx = sx[j];
+                float by = sy[j];
+                float rb = sr[j];
+                float abx = bx - ax;
+                float aby = by - ay;
+                float lenSq = abx * abx + aby * aby;
+                if (lenSq < 1e-3f) continue;
+                float len = (float) Math.sqrt(lenSq);
+                float t = clamp(((x - ax) * abx + (y - ay) * aby) / lenSq, 0f, 1f);
+                float qx = ax + abx * t;
+                float qy = ay + aby * t;
+                float hPerp = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
+
+                float tKiss = ra / Math.max(1f, ra + rb);
+                float tau = (t <= tKiss)
+                        ? (0.5f * (t / Math.max(0.05f, tKiss)))
+                        : (0.5f + 0.5f * ((t - tKiss) / Math.max(0.05f, 1.0f - tKiss)));
+                float bell = (float) Math.sin(Math.PI * clamp(tau, 0f, 1f));
+                float psi = bell * bell;
+
+                float rLinear = (1.0f - t) * ra + t * rb;
+                float minR = Math.min(ra, rb);
+                // At openness=0.02f (just joined or right before split), waist radius is ~1.5px (tiniest point of contact!)
+                // At openness=1.0f (snug in formation), waist radius is 0.88 * minR
+                float rWaist = 1.1f + openness * (minR * 0.88f - 1.1f);
+                float rBridge = rLinear * (1.0f - psi) + rWaist * psi;
+                float dBridge = hPerp - rBridge;
+                bestBridge = sminPoly(bestBridge, dBridge, 3.0f);
+            }
+            // Approaching inter-droplet teardrop meniscus cone toward P_kiss
+            for (int j = mCount; j < total; j++) {
+                float reach = -kPair[i][j];
+                if (reach <= 0.02f) continue;
+                float bx = sx[j];
+                float by = sy[j];
+                float rb = sr[j];
+                float abx = bx - ax;
+                float aby = by - ay;
+                float lenSq = abx * abx + aby * aby;
+                if (lenSq < 1e-3f) continue;
+                float tKiss = ra / Math.max(1f, ra + rb);
+                float tMax = tKiss * (0.35f + 0.62f * reach);
+                float t = clamp(((x - ax) * abx + (y - ay) * aby) / lenSq, 0f, tMax);
+                float qx = ax + abx * t;
+                float qy = ay + aby * t;
+                float hPerp = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
+                float frac = t / Math.max(0.02f, tMax);
+                float rCone = ra * (1.0f - frac) * (1.0f - frac) + 1.8f * frac;
+                float dCone = hPerp - rCone;
+                bestBridge = sminPoly(bestBridge, dCone, 4.0f);
+            }
+        }
+
+        // Fill interior of compact 3-ship triangles so the center of a triangular formation never has a hollow
+        if (mCount >= 3) {
+            for (int i = 0; i < mCount; i++) {
+                for (int j = i + 1; j < mCount; j++) {
+                    if (kPair[i][j] <= 0.25f) continue;
+                    for (int l = j + 1; l < mCount; l++) {
+                        if (kPair[j][l] <= 0.25f || kPair[i][l] <= 0.25f) continue;
+                        float cx = (sx[i] + sx[j] + sx[l]) / 3.0f;
+                        float cy = (sy[i] + sy[j] + sy[l]) / 3.0f;
+                        float rFill = (sr[i] + sr[j] + sr[l]) * 0.28f;
+                        float dCenter = (float) Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) - rFill;
+                        bestBridge = sminPoly(bestBridge, dCenter, 8.0f);
+                    }
+                }
+            }
+        }
+
+        return sminPoly(bestCircle, bestBridge, 2.5f);
+    }
+
+    private static List<List<Vector2f>> traceMetaballContoursMarchingSquares(
+            float[] sx,
+            float[] sy,
+            float[] sr,
+            int mCount,
+            int total,
+            float[][] kPair,
+            float minX,
+            float maxX,
+            float minY,
+            float maxY,
+            float stepPx) {
+        int cols = Math.max(8, Math.min(96, (int) Math.ceil((maxX - minX) / stepPx)));
+        int rows = Math.max(8, Math.min(96, (int) Math.ceil((maxY - minY) / stepPx)));
+        float[][] grid = new float[rows + 1][cols + 1];
+        for (int r = 0; r <= rows; r++) {
+            float y = minY + r * stepPx;
+            for (int c = 0; c <= cols; c++) {
+                float x = minX + c * stepPx;
+                grid[r][c] = evalMetaballSdf(x, y, sx, sy, sr, mCount, total, kPair);
+            }
+        }
+
+        Map<Long, Vector2f> nodePos = new HashMap<>();
+        Map<Long, List<Long>> adj = new HashMap<>();
+
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                float v0 = grid[r][c];
+                float v1 = grid[r][c + 1];
+                float v2 = grid[r + 1][c + 1];
+                float v3 = grid[r + 1][c];
+                int mask = (v0 <= 0f ? 1 : 0)
+                        | (v1 <= 0f ? 2 : 0)
+                        | (v2 <= 0f ? 4 : 0)
+                        | (v3 <= 0f ? 8 : 0);
+                if (mask == 0 || mask == 15) continue;
+
+                long eBottom = msEdgeId(r, c, 0);
+                long eRight = msEdgeId(r, c + 1, 1);
+                long eTop = msEdgeId(r + 1, c, 0);
+                long eLeft = msEdgeId(r, c, 1);
+
+                float x0 = minX + c * stepPx;
+                float y0 = minY + r * stepPx;
+                if ((mask & 1) != ((mask >> 1) & 1) && !nodePos.containsKey(eBottom)) {
+                    nodePos.put(eBottom, new Vector2f(x0 + msInterp(v0, v1) * stepPx, y0));
+                }
+                if (((mask >> 1) & 1) != ((mask >> 2) & 1) && !nodePos.containsKey(eRight)) {
+                    nodePos.put(eRight, new Vector2f(x0 + stepPx, y0 + msInterp(v1, v2) * stepPx));
+                }
+                if (((mask >> 3) & 1) != ((mask >> 2) & 1) && !nodePos.containsKey(eTop)) {
+                    nodePos.put(eTop, new Vector2f(x0 + msInterp(v3, v2) * stepPx, y0 + stepPx));
+                }
+                if ((mask & 1) != ((mask >> 3) & 1) && !nodePos.containsKey(eLeft)) {
+                    nodePos.put(eLeft, new Vector2f(x0, y0 + msInterp(v0, v3) * stepPx));
+                }
+
+                float centerVal = 0.25f * (v0 + v1 + v2 + v3);
+                switch (mask) {
+                    case 1:
+                        msAddDirEdge(adj, eLeft, eBottom);
+                        break;
+                    case 2:
+                        msAddDirEdge(adj, eBottom, eRight);
+                        break;
+                    case 3:
+                        msAddDirEdge(adj, eLeft, eRight);
+                        break;
+                    case 4:
+                        msAddDirEdge(adj, eRight, eTop);
+                        break;
+                    case 5:
+                        if (centerVal <= 0f) {
+                            msAddDirEdge(adj, eLeft, eTop);
+                            msAddDirEdge(adj, eRight, eBottom);
+                        } else {
+                            msAddDirEdge(adj, eLeft, eBottom);
+                            msAddDirEdge(adj, eRight, eTop);
+                        }
+                        break;
+                    case 6:
+                        msAddDirEdge(adj, eBottom, eTop);
+                        break;
+                    case 7:
+                        msAddDirEdge(adj, eLeft, eTop);
+                        break;
+                    case 8:
+                        msAddDirEdge(adj, eTop, eLeft);
+                        break;
+                    case 9:
+                        msAddDirEdge(adj, eTop, eBottom);
+                        break;
+                    case 10:
+                        if (centerVal <= 0f) {
+                            msAddDirEdge(adj, eBottom, eLeft);
+                            msAddDirEdge(adj, eTop, eRight);
+                        } else {
+                            msAddDirEdge(adj, eBottom, eRight);
+                            msAddDirEdge(adj, eTop, eLeft);
+                        }
+                        break;
+                    case 11:
+                        msAddDirEdge(adj, eTop, eRight);
+                        break;
+                    case 12:
+                        msAddDirEdge(adj, eRight, eLeft);
+                        break;
+                    case 13:
+                        msAddDirEdge(adj, eRight, eBottom);
+                        break;
+                    case 14:
+                        msAddDirEdge(adj, eBottom, eLeft);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        List<List<Vector2f>> loops = new ArrayList<>();
+        Set<Long> usedEdges = new HashSet<>();
+        for (Map.Entry<Long, List<Long>> entry : adj.entrySet()) {
+            long start = entry.getKey();
+            for (long firstNext : entry.getValue()) {
+                long dirKey = (start << 32) ^ (firstNext & 0xFFFFFFFFL);
+                if (usedEdges.contains(dirKey)) continue;
+                List<Vector2f> poly = new ArrayList<>();
+                long curr = start;
+                long next = firstNext;
+                int guard = 2000;
+                while (guard-- > 0) {
+                    usedEdges.add((curr << 32) ^ (next & 0xFFFFFFFFL));
+                    Vector2f pt = nodePos.get(curr);
+                    if (pt != null) poly.add(pt);
+                    if (next == start) break;
+                    curr = next;
+                    List<Long> outs = adj.get(curr);
+                    if (outs == null || outs.isEmpty()) break;
+                    long chosen = outs.get(0);
+                    for (long cand : outs) {
+                        if (!usedEdges.contains((curr << 32) ^ (cand & 0xFFFFFFFFL))) {
+                            chosen = cand;
+                            break;
+                        }
+                    }
+                    next = chosen;
+                }
+                if (poly.size() >= 4) {
+                    List<Vector2f> sm = chaikinSmoothClosed(poly);
+                    sm = chaikinSmoothClosed(sm);
+                    if (computePolygonArea(sm) > 60f) {
+                        loops.add(sm);
+                    }
+                }
+            }
+        }
+        return loops;
+    }
+
+    private static long msEdgeId(int r, int c, int type) {
+        return ((long) type << 28) | ((long) r << 14) | (long) c;
+    }
+
+    private static float msInterp(float a, float b) {
+        float denom = a - b;
+        if (Math.abs(denom) < 1e-6f) return 0.5f;
+        return clamp(a / denom, 0.02f, 0.98f);
+    }
+
+    private static void msAddDirEdge(Map<Long, List<Long>> adj, long from, long to) {
+        List<Long> list = adj.get(from);
+        if (list == null) {
+            list = new ArrayList<>(2);
+            adj.put(from, list);
+        }
+        list.add(to);
+    }
+
+    public static float computeSignedPolygonArea(List<Vector2f> poly) {
+        if (poly == null || poly.size() < 3) return 0f;
+        float sum = 0f;
+        int n = poly.size();
+        for (int i = 0; i < n; i++) {
+            Vector2f a = poly.get(i);
+            Vector2f b = poly.get((i + 1) % n);
+            sum += (a.x * b.y - b.x * a.y);
+        }
+        return sum * 0.5f;
+    }
+
+    public static boolean isPointInsidePolygon(List<Vector2f> poly, float x, float y) {
+        if (poly == null || poly.size() < 3) return false;
+        boolean inside = false;
+        int n = poly.size();
+        for (int i = 0, j = n - 1; i < n; j = i++) {
+            Vector2f pi = poly.get(i);
+            Vector2f pj = poly.get(j);
+            if (((pi.y > y) != (pj.y > y))
+                    && (x < (pj.x - pi.x) * (y - pi.y) / (pj.y - pi.y + 1e-7f) + pi.x)) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    public static int countPolygonSelfIntersections(List<Vector2f> poly) {
+        if (poly == null || poly.size() < 4) return 0;
+        int n = poly.size();
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            Vector2f a1 = poly.get(i);
+            Vector2f a2 = poly.get((i + 1) % n);
+            for (int j = i + 2; j < n; j++) {
+                if (i == 0 && j == n - 1) continue;
+                Vector2f b1 = poly.get(j);
+                Vector2f b2 = poly.get((j + 1) % n);
+                if (segmentsProperlyIntersect(a1, a2, b1, b2)) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static boolean segmentsProperlyIntersect(Vector2f a, Vector2f b, Vector2f c, Vector2f d) {
+        float d1 = cross(c, d, a);
+        float d2 = cross(c, d, b);
+        float d3 = cross(a, b, c);
+        float d4 = cross(a, b, d);
+        return ((d1 > 1e-3f && d2 < -1e-3f) || (d1 < -1e-3f && d2 > 1e-3f))
+                && ((d3 > 1e-3f && d4 < -1e-3f) || (d3 < -1e-3f && d4 > 1e-3f));
     }
 
     public static List<Vector2f> subdivideLongEdgesScreen(List<Vector2f> poly, float maxEdgeLenPx) {

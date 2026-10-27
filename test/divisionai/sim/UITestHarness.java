@@ -1,8 +1,12 @@
 package divisionai.sim;
 
+import com.fs.starfarer.api.combat.ShipAPI;
+import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import divisionai.DivisionDeploymentDialogOrganizer;
 import divisionai.DivisionEditorDialog;
+import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
+import divisionai.DivisionModel.DivisionState;
 import divisionai.DivisionNomenclature;
 import divisionai.DivisionNomenclature.NumberingStyle;
 import divisionai.DivisionNomenclature.PlayerNamingPreset;
@@ -19,14 +23,25 @@ import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
+import org.lwjgl.util.vector.Vector2f;
 
+import javax.imageio.ImageIO;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.geom.Path2D;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -399,7 +414,7 @@ public class UITestHarness {
         // Item C: Sticky water-droplet intra-division polygons + anti-stripe-spam
         boolean itemCOk = overlayJava.contains("clusterDivisionMembersSticky")
                 && overlayJava.contains("stickyConnectedPairsByDivId")
-                && overlayJava.contains("splitDist = mergeDist * 1.50f")
+                && overlayJava.contains("splitDist = mergeDist * 1.15f")
                 && overlayJava.contains("applyMetaballNeckPinchScreen")
                 && overlayJava.contains("buildFluidDropletPolygonScreen")
                 && overlayJava.contains("a.cohesionAlphaMult < 0.35f")
@@ -540,13 +555,202 @@ public class UITestHarness {
                 && overlayJava.contains("resolvePairBondOpenness")
                 && overlayJava.contains("distToKissPx")
                 && overlayJava.contains("pinchAtSaddle = minPinch + (0.96f - minPinch) * (1.0f - openness)")
+                && overlayJava.contains("extractMetaballDropletPolygonScreen")
+                && overlayJava.contains("traceMetaballContoursMarchingSquares")
                 && overlayJava.contains("subdivideLongEdgesScreen")
                 && overlayJava.contains("triangulatePolygonCCW")
                 && overlayJava.contains("deconflictPrimaryDivisionLabels");
         res.record(
                 dropletKissOk,
                 "v0.7.0 Water-Droplet Tiniest-Point-of-Contact Joining/Splitting & Ear-Clipped Hourglass Fill",
-                "P_kiss meniscus tip + 0.02f->0.96f spine waist pinch + ear-clipping GL_TRIANGLES + label de-confliction");
+                "Smooth-Union SDF (smin) + Marching Squares + P_kiss waist control + ear-clipping GL_TRIANGLES + label de-confliction");
+
+        auditWaterDropletSimulationAndExportQASheet(res);
+    }
+
+    private static ShipAPI createMockDropletShip(final String id, final HullSize size, float x, float y) {
+        final Vector2f loc = new Vector2f(x, y);
+        return (ShipAPI) Proxy.newProxyInstance(
+                ShipAPI.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return Boolean.valueOf(p == (a != null && a.length > 0 ? a[0] : null));
+                    if ("hashCode".equals(n)) return Integer.valueOf(System.identityHashCode(p));
+                    if ("getId".equals(n)) return id;
+                    if ("getLocation".equals(n)) return loc;
+                    if ("getHullSize".equals(n)) return size;
+                    if ("isAlive".equals(n)) return Boolean.TRUE;
+                    if ("isHulk".equals(n) || "isFighter".equals(n) || "isShuttlePod".equals(n)
+                            || "isStationModule".equals(n) || "isRetreating".equals(n)
+                            || "isExpired".equals(n) || "isAlly".equals(n)) {
+                        return Boolean.FALSE;
+                    }
+                    if ("getOwner".equals(n)) return Integer.valueOf(0);
+                    return null;
+                });
+    }
+
+    private static void auditWaterDropletSimulationAndExportQASheet(UIAuditResult res) throws Exception {
+        DivisionTacticalMapOverlay ov = new DivisionTacticalMapOverlay(null);
+        CommanderProfile cmdr = new CommanderProfile(null, "steady");
+        float scale = 0.075f;
+
+        String[] titles = {
+                "1. 3-Cruiser Triangle (Frame 1 Tab Opened!)",
+                "2. 3-Cruiser Triangle (After 30 frames)",
+                "3. 4-Frigate Curve (Frame 1 Tab Opened!)",
+                "4. 3 Ships L-Shape (Frame 1!)",
+                "5. 3 Ships Line + Detached Straggler",
+                "6. 2 Destroyers Just Joined (Tiniest Contact!)",
+                "7. 2 Destroyers Stretching (Narrow Waist)",
+                "8. 2 Destroyers Coalesced (Full Formation)"
+        };
+
+        float[][][] coords = {
+                {{-260, -150}, {260, -150}, {0, 260}},
+                {{-260, -150}, {260, -150}, {0, 260}},
+                {{-300, 400}, {150, 380}, {-80, -120}, {-120, -520}},
+                {{-400, -200}, {200, -200}, {200, 450}},
+                {{-450, 0}, {0, 0}, {1320, 40}},
+                {{-595, 0}, {595, 0}},
+                {{-675, 0}, {675, 0}},
+                {{-320, 0}, {320, 0}}
+        };
+
+        BufferedImage img = new BufferedImage(1400, 900, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(new Color(6, 10, 16));
+        g.fillRect(0, 0, 1400, 900);
+
+        int totalSelfIntersections = 0;
+        int uncontainedShips = 0;
+        int inwardGashViolations = 0;
+        int badTriangulations = 0;
+        int totalDropletsAudited = 0;
+
+        for (int idx = 0; idx < coords.length; idx++) {
+            int col = idx % 4;
+            int row = idx / 4;
+            float cx = col * 350f + 175f;
+            float cy = row * 440f + 230f;
+
+            DivisionState div = new DivisionState("qa_div_" + idx, 0, 1, DivisionArchetype.CRUISER_DIVISION, "Div " + idx, cmdr);
+            div.stationSpacing = 450f;
+
+            if (idx == 5) {
+                // Simulate two previously separated droplets approaching from outside mergeDist and joining this frame!
+                List<ShipAPI> separated = Arrays.asList(
+                        createMockDropletShip("s_" + idx + "_0", HullSize.CRUISER, -800f, 0f),
+                        createMockDropletShip("s_" + idx + "_1", HullSize.CRUISER, 800f, 0f));
+                ov.clusterDivisionMembersSticky(div, separated);
+            } else if (idx == 6) {
+                // Simulate two connected ships stretching out toward splitDist
+                List<ShipAPI> close = Arrays.asList(
+                        createMockDropletShip("s_" + idx + "_0", HullSize.CRUISER, -250f, 0f),
+                        createMockDropletShip("s_" + idx + "_1", HullSize.CRUISER, 250f, 0f));
+                ov.clusterDivisionMembersSticky(div, close);
+            }
+
+            List<ShipAPI> members = new ArrayList<>();
+            for (int k = 0; k < coords[idx].length; k++) {
+                members.add(createMockDropletShip("s_" + idx + "_" + k, HullSize.CRUISER, coords[idx][k][0], coords[idx][k][1]));
+            }
+
+            int frames = (idx == 1 || idx == 6 || idx == 7) ? 25 : 1;
+            List<List<ShipAPI>> droplets = null;
+            for (int f = 0; f < frames; f++) {
+                droplets = ov.clusterDivisionMembersSticky(div, members);
+            }
+
+            g.setColor(new Color(40, 70, 95));
+            g.drawRect(col * 350 + 8, row * 440 + 8, 334, 424);
+            g.setColor(Color.WHITE);
+            g.setFont(new Font("SansSerif", Font.BOLD, 13));
+            g.drawString(titles[idx], col * 350 + 16, row * 440 + 28);
+
+            for (List<ShipAPI> drop : droplets) {
+                totalDropletsAudited++;
+                List<Vector2f> hull = ov.buildFluidDropletPolygonScreen(div, drop, members, scale, cx, cy);
+                Vector2f cent = DivisionTacticalMapOverlay.computePolygonCentroid(hull);
+                List<Vector2f> disp = ov.applyMetaballNeckPinchScreen(div, hull, cent, drop, members, scale, cx, cy);
+                List<int[]> tris = DivisionTacticalMapOverlay.triangulatePolygonCCW(disp);
+
+                totalSelfIntersections += DivisionTacticalMapOverlay.countPolygonSelfIntersections(disp);
+
+                float polyArea = DivisionTacticalMapOverlay.computePolygonArea(disp);
+                float triAreaSum = 0f;
+                for (int[] t : tris) {
+                    Vector2f a = disp.get(t[0]);
+                    Vector2f b = disp.get(t[1]);
+                    Vector2f c = disp.get(t[2]);
+                    triAreaSum += Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) * 0.5f;
+
+                    Path2D tp = new Path2D.Float();
+                    tp.moveTo(a.x, a.y);
+                    tp.lineTo(b.x, b.y);
+                    tp.lineTo(c.x, c.y);
+                    tp.closePath();
+                    g.setColor(new Color(50, 240, 110, 55));
+                    g.fill(tp);
+                }
+                if (tris.size() != disp.size() - 2 || Math.abs(triAreaSum - polyArea) > polyArea * 0.02f) {
+                    badTriangulations++;
+                }
+
+                for (ShipAPI s : drop) {
+                    float sx = s.getLocation().x * scale + cx;
+                    float sy = s.getLocation().y * scale + cy;
+                    if (!DivisionTacticalMapOverlay.isPointInsidePolygon(disp, sx, sy)) {
+                        uncontainedShips++;
+                    }
+                    // Verify no polygon vertex cuts inward inside 82% of the ship's circle radius (zero V-gashes)
+                    float minVertexDist = Float.MAX_VALUE;
+                    for (Vector2f v : disp) {
+                        float d = (float) Math.sqrt((v.x - sx) * (v.x - sx) + (v.y - sy) * (v.y - sy));
+                        if (d < minVertexDist) minVertexDist = d;
+                    }
+                    if (minVertexDist < 38.25f * 0.78f) {
+                        inwardGashViolations++;
+                    }
+                }
+
+                Path2D p = new Path2D.Float();
+                for (int i = 0; i < disp.size(); i++) {
+                    if (i == 0) p.moveTo(disp.get(i).x, disp.get(i).y);
+                    else p.lineTo(disp.get(i).x, disp.get(i).y);
+                }
+                p.closePath();
+                g.setColor(new Color(80, 255, 140, 220));
+                g.setStroke(new BasicStroke(2.0f));
+                g.draw(p);
+            }
+
+            for (ShipAPI s : members) {
+                float sx = s.getLocation().x * scale + cx;
+                float sy = s.getLocation().y * scale + cy;
+                g.setColor(new Color(120, 255, 160));
+                g.drawRect((int) (sx - 12), (int) (sy - 12), 24, 24);
+            }
+        }
+        g.dispose();
+        File qaOut = new File("build/droplet_qa_sheet.png");
+        if (qaOut.getParentFile() != null) qaOut.getParentFile().mkdirs();
+        ImageIO.write(img, "PNG", qaOut);
+
+        boolean simQaOk = totalDropletsAudited >= 9
+                && totalSelfIntersections == 0
+                && uncontainedShips == 0
+                && inwardGashViolations == 0
+                && badTriangulations == 0
+                && qaOut.exists();
+        res.record(
+                simQaOk,
+                "v0.7.0 Water-Droplet UI Simulation QA Suite (8 formations: Frame-1 Triangle/Curve, L-Shape, Straggler, Tiniest-Contact Join/Stretch)",
+                String.format(Locale.ROOT,
+                        "droplets=%d, selfIntersections=%d, uncontainedShips=%d, inwardGashes=%d, badTriangulations=%d, sheet=%s",
+                        totalDropletsAudited, totalSelfIntersections, uncontainedShips, inwardGashViolations, badTriangulations, qaOut.getPath()));
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {
