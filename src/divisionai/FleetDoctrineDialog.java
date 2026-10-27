@@ -63,7 +63,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private static final int[] DIVISION_INTERVAL_PRESETS = {500, 700, 900, 1100, 1300, 1500, 1800, 2100};
     private static final int[] STANDOFF_RANGE_PRESETS = {450, 650, 800, 950, 1150, 1400, 1700, 2000};
     private static final int[] OPENING_DURATION_PRESETS = {30, 35, 40, 45, 50, 55, 60};
-    private static final float[] STATION_KEEPING_PRESETS = {0.75f, 0.90f, 1.00f, 1.15f, 1.30f, 1.50f};
 
     private enum ActiveTab {
         ALL_DOCTRINE,
@@ -1425,51 +1424,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 2f);
     }
 
-    private void addStationKeepingRow(
-            TooltipMakerAPI body,
-            float rowWidth,
-            String labelText,
-            float currentValue,
-            String actionPrefix,
-            Color baseColor,
-            Color darkColor,
-            Color activeValueColor) {
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
-
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
-
-        float xCursor = CONTROL_COL_X;
-
-        for (float p : STATION_KEEPING_PRESETS) {
-            boolean selected = Math.abs(p - currentValue) < 0.04f;
-            String formatted = String.format(Locale.ROOT, "%.2fx", p);
-            String valAct = actionPrefix + formatted;
-            ButtonAPI bVal = registerButton(
-                    rowUi.addButton(
-                            formatted,
-                            valAct,
-                            selected ? activeValueColor : baseColor,
-                            darkColor,
-                            Alignment.MID,
-                            CutStyle.ALL,
-                            68f,
-                            22f,
-                            0f),
-                    valAct);
-            if (selected) {
-                bVal.highlight();
-            }
-            bVal.getPosition().inTL(xCursor, 3f);
-            xCursor += 76f;
-        }
-
-        rowUi.setHeightSoFar(28f);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
-    }
-
     private void addLimitRow(
             TooltipMakerAPI body,
             float rowWidth,
@@ -1901,18 +1855,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 DivisionMissionType mis = DivisionMissionType.valueOf(misStr);
                 PermanentDivisionManager.updateDivisionTypeMission(dt, false, mis);
                 expandedDropdownKey = null;
-                rebuildContent();
-            }
-            return;
-        }
-        if (cmd.startsWith("SET_STATION_KEEPING:")) {
-            String rest = cmd.substring("SET_STATION_KEEPING:".length());
-            int sep = rest.indexOf(':');
-            if (sep > 0) {
-                String dtStr = rest.substring(0, sep);
-                float val = Float.parseFloat(rest.substring(sep + 1));
-                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
-                PermanentDivisionManager.updateDivisionTypeStationKeeping(dt, val);
                 rebuildContent();
             }
             return;

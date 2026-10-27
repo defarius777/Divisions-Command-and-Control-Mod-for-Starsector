@@ -56,7 +56,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
     private static final Logger LOG = Global.getLogger(DivisionTacticalMapOverlay.class);
     private static final int HULL_SAMPLE_POINTS_PER_SHIP = 24;
-    private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1350f;
     private static final float STRIPE_WIDTH_PX = 12.0f;
     private static final float STRIPE_PERIOD_PX = STRIPE_WIDTH_PX * 2.0f;
     private static final float INV_SQRT2 = 0.70710678f;
@@ -140,7 +139,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private BattleGroupState enemyGroup;
     private final Map<String, LabelAPI> labelCache = new HashMap<>();
     private final Map<String, Float> smoothedCohesionByDivId = new HashMap<>();
-    private final Map<String, Vector2f> smoothedBracketDirByDivId = new HashMap<>();
     private final Map<String, Set<String>> stickyConnectedPairsByDivId = new HashMap<>();
     private final Map<String, Float> smoothedBondOpennessByPairKey = new HashMap<>();
 
@@ -651,9 +649,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetX,
             float offsetY) {
 
-        float baseSpacing = (div != null && div.stationSpacing > 0f) ? div.stationSpacing : 450f;
-        boolean isLoneDetachedShip = (dropletMembers.size() == 1 && allDivisionMembers != null && allDivisionMembers.size() > 1);
-
         List<Vector2f> cloud = new ArrayList<>(dropletMembers.size() * HULL_SAMPLE_POINTS_PER_SHIP);
         for (ShipAPI m : dropletMembers) {
             float mx = m.getLocation().x * scale + offsetX;
@@ -806,8 +801,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetX,
             float offsetY) {
         int mCount = dropletMembers.size();
-        boolean isLoneDetachedShip = (mCount == 1 && allDivisionMembers != null && allDivisionMembers.size() > 1);
-        float baseSpacing = (div != null && div.stationSpacing > 0f) ? div.stationSpacing : 450f;
 
         // Collect the droplet's ships plus any nearby sibling ships within meniscus attraction range
         List<ShipAPI> evalShips = new ArrayList<>(mCount + 2);
@@ -1214,81 +1207,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         list.add(to);
     }
 
-    public static float computeSignedPolygonArea(List<Vector2f> poly) {
-        if (poly == null || poly.size() < 3) return 0f;
-        float sum = 0f;
-        int n = poly.size();
-        for (int i = 0; i < n; i++) {
-            Vector2f a = poly.get(i);
-            Vector2f b = poly.get((i + 1) % n);
-            sum += (a.x * b.y - b.x * a.y);
-        }
-        return sum * 0.5f;
-    }
-
-    public static boolean isPointInsidePolygon(List<Vector2f> poly, float x, float y) {
-        if (poly == null || poly.size() < 3) return false;
-        boolean inside = false;
-        int n = poly.size();
-        for (int i = 0, j = n - 1; i < n; j = i++) {
-            Vector2f pi = poly.get(i);
-            Vector2f pj = poly.get(j);
-            if (((pi.y > y) != (pj.y > y))
-                    && (x < (pj.x - pi.x) * (y - pi.y) / (pj.y - pi.y + 1e-7f) + pi.x)) {
-                inside = !inside;
-            }
-        }
-        return inside;
-    }
-
-    public static int countPolygonSelfIntersections(List<Vector2f> poly) {
-        if (poly == null || poly.size() < 4) return 0;
-        int n = poly.size();
-        int count = 0;
-        for (int i = 0; i < n; i++) {
-            Vector2f a1 = poly.get(i);
-            Vector2f a2 = poly.get((i + 1) % n);
-            for (int j = i + 2; j < n; j++) {
-                if (i == 0 && j == n - 1) continue;
-                Vector2f b1 = poly.get(j);
-                Vector2f b2 = poly.get((j + 1) % n);
-                if (segmentsProperlyIntersect(a1, a2, b1, b2)) {
-                    count++;
-                }
-            }
-        }
-        return count;
-    }
-
-    private static boolean segmentsProperlyIntersect(Vector2f a, Vector2f b, Vector2f c, Vector2f d) {
-        float d1 = cross(c, d, a);
-        float d2 = cross(c, d, b);
-        float d3 = cross(a, b, c);
-        float d4 = cross(a, b, d);
-        return ((d1 > 1e-3f && d2 < -1e-3f) || (d1 < -1e-3f && d2 > 1e-3f))
-                && ((d3 > 1e-3f && d4 < -1e-3f) || (d3 < -1e-3f && d4 > 1e-3f));
-    }
-
-    public static List<Vector2f> subdivideLongEdgesScreen(List<Vector2f> poly, float maxEdgeLenPx) {
-        if (poly == null || poly.size() < 3 || maxEdgeLenPx <= 1f) {
-            return poly;
-        }
-        int n = poly.size();
-        List<Vector2f> out = new ArrayList<>(n * 2);
-        for (int i = 0; i < n; i++) {
-            Vector2f p0 = poly.get(i);
-            Vector2f p1 = poly.get((i + 1) % n);
-            float dx = p1.x - p0.x;
-            float dy = p1.y - p0.y;
-            float len = (float) Math.sqrt(dx * dx + dy * dy);
-            int steps = Math.max(1, Math.min(32, (int) Math.ceil(len / maxEdgeLenPx)));
-            for (int s = 0; s < steps; s++) {
-                float t = (float) s / (float) steps;
-                out.add(new Vector2f(p0.x + dx * t, p0.y + dy * t));
-            }
-        }
-        return out;
-    }
+    // =========================================================================
+    // Section 4: Layer Renderers (Polygons, Top-Layer Ship Sprites, Flagship Stars, Overlap Stripes, Waypoints & Labels)
+    // =========================================================================
 
     private void renderSingleDivisionPolygon(
             RenderedDivisionPolygon rp,
@@ -1330,69 +1251,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             GL11.glVertex2f(first.x, first.y);
             GL11.glEnd();
         }
-    }
-
-    /**
-     * Ear-clipping triangulation of a simple 2D polygon (handles narrow-waisted hourglass and curved metaball contours).
-     */
-    public static List<int[]> triangulatePolygonCCW(List<Vector2f> poly) {
-        int n = poly != null ? poly.size() : 0;
-        if (n < 3) return Collections.emptyList();
-        List<int[]> tris = new ArrayList<>(n - 2);
-        int[] indices = new int[n];
-        float area = 0f;
-        for (int i = 0; i < n; i++) {
-            Vector2f p = poly.get(i);
-            Vector2f q = poly.get((i + 1) % n);
-            area += (p.x * q.y - q.x * p.y);
-        }
-        if (area >= 0f) {
-            for (int i = 0; i < n; i++) indices[i] = i;
-        } else {
-            for (int i = 0; i < n; i++) indices[i] = (n - 1) - i;
-        }
-
-        int nv = n;
-        int guard = 2 * nv + 8;
-        int v = nv - 1;
-        while (nv > 2 && guard-- > 0) {
-            if (v >= nv) v = 0;
-            int u = (v == 0) ? (nv - 1) : (v - 1);
-            int w = (v + 1 >= nv) ? 0 : (v + 1);
-
-            if (isEarVertex(poly, u, v, w, nv, indices)) {
-                tris.add(new int[] { indices[u], indices[v], indices[w] });
-                for (int s = v, t = v + 1; t < nv; s++, t++) {
-                    indices[s] = indices[t];
-                }
-                nv--;
-                guard = 2 * nv + 8;
-            } else {
-                v++;
-            }
-        }
-        return tris;
-    }
-
-    private static boolean isEarVertex(List<Vector2f> poly, int u, int v, int w, int nv, int[] indices) {
-        Vector2f a = poly.get(indices[u]);
-        Vector2f b = poly.get(indices[v]);
-        Vector2f c = poly.get(indices[w]);
-        float crossVal = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-        if (crossVal <= 1e-4f) return false;
-        for (int p = 0; p < nv; p++) {
-            if (p == u || p == v || p == w) continue;
-            Vector2f pt = poly.get(indices[p]);
-            if (pointInTriangleCCW(a, b, c, pt)) return false;
-        }
-        return true;
-    }
-
-    private static boolean pointInTriangleCCW(Vector2f a, Vector2f b, Vector2f c, Vector2f p) {
-        float c1 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-        float c2 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
-        float c3 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
-        return c1 >= -1e-4f && c2 >= -1e-4f && c3 >= -1e-4f;
     }
 
     /**
@@ -1990,8 +1848,147 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     // =========================================================================
-    // 2D Convex Hull, Chaikin Smoothing & Sutherland-Hodgman Clipping Helpers
+    // Section 5: 2D Computational Geometry, Ear-Clipping Triangulation & Sutherland-Hodgman Clipping
     // =========================================================================
+
+    /**
+     * Ear-clipping triangulation of a simple 2D polygon (handles narrow-waisted hourglass and curved metaball contours).
+     */
+    public static List<int[]> triangulatePolygonCCW(List<Vector2f> poly) {
+        int n = poly != null ? poly.size() : 0;
+        if (n < 3) return Collections.emptyList();
+        List<int[]> tris = new ArrayList<>(n - 2);
+        int[] indices = new int[n];
+        float area = 0f;
+        for (int i = 0; i < n; i++) {
+            Vector2f p = poly.get(i);
+            Vector2f q = poly.get((i + 1) % n);
+            area += (p.x * q.y - q.x * p.y);
+        }
+        if (area >= 0f) {
+            for (int i = 0; i < n; i++) indices[i] = i;
+        } else {
+            for (int i = 0; i < n; i++) indices[i] = (n - 1) - i;
+        }
+
+        int nv = n;
+        int guard = 2 * nv + 8;
+        int v = nv - 1;
+        while (nv > 2 && guard-- > 0) {
+            if (v >= nv) v = 0;
+            int u = (v == 0) ? (nv - 1) : (v - 1);
+            int w = (v + 1 >= nv) ? 0 : (v + 1);
+
+            if (isEarVertex(poly, u, v, w, nv, indices)) {
+                tris.add(new int[] { indices[u], indices[v], indices[w] });
+                for (int s = v, t = v + 1; t < nv; s++, t++) {
+                    indices[s] = indices[t];
+                }
+                nv--;
+                guard = 2 * nv + 8;
+            } else {
+                v++;
+            }
+        }
+        return tris;
+    }
+
+    private static boolean isEarVertex(List<Vector2f> poly, int u, int v, int w, int nv, int[] indices) {
+        Vector2f a = poly.get(indices[u]);
+        Vector2f b = poly.get(indices[v]);
+        Vector2f c = poly.get(indices[w]);
+        float crossVal = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        if (crossVal <= 1e-4f) return false;
+        for (int p = 0; p < nv; p++) {
+            if (p == u || p == v || p == w) continue;
+            Vector2f pt = poly.get(indices[p]);
+            if (pointInTriangleCCW(a, b, c, pt)) return false;
+        }
+        return true;
+    }
+
+    private static boolean pointInTriangleCCW(Vector2f a, Vector2f b, Vector2f c, Vector2f p) {
+        float c1 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        float c2 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
+        float c3 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
+        return c1 >= -1e-4f && c2 >= -1e-4f && c3 >= -1e-4f;
+    }
+
+    public static float computeSignedPolygonArea(List<Vector2f> poly) {
+        if (poly == null || poly.size() < 3) return 0f;
+        float sum = 0f;
+        int n = poly.size();
+        for (int i = 0; i < n; i++) {
+            Vector2f a = poly.get(i);
+            Vector2f b = poly.get((i + 1) % n);
+            sum += (a.x * b.y - b.x * a.y);
+        }
+        return sum * 0.5f;
+    }
+
+    public static boolean isPointInsidePolygon(List<Vector2f> poly, float x, float y) {
+        if (poly == null || poly.size() < 3) return false;
+        boolean inside = false;
+        int n = poly.size();
+        for (int i = 0, j = n - 1; i < n; j = i++) {
+            Vector2f pi = poly.get(i);
+            Vector2f pj = poly.get(j);
+            if (((pi.y > y) != (pj.y > y))
+                    && (x < (pj.x - pi.x) * (y - pi.y) / (pj.y - pi.y + 1e-7f) + pi.x)) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    public static int countPolygonSelfIntersections(List<Vector2f> poly) {
+        if (poly == null || poly.size() < 4) return 0;
+        int n = poly.size();
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            Vector2f a1 = poly.get(i);
+            Vector2f a2 = poly.get((i + 1) % n);
+            for (int j = i + 2; j < n; j++) {
+                if (i == 0 && j == n - 1) continue;
+                Vector2f b1 = poly.get(j);
+                Vector2f b2 = poly.get((j + 1) % n);
+                if (segmentsProperlyIntersect(a1, a2, b1, b2)) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static boolean segmentsProperlyIntersect(Vector2f a, Vector2f b, Vector2f c, Vector2f d) {
+        float d1 = cross(c, d, a);
+        float d2 = cross(c, d, b);
+        float d3 = cross(a, b, c);
+        float d4 = cross(a, b, d);
+        return ((d1 > 1e-3f && d2 < -1e-3f) || (d1 < -1e-3f && d2 > 1e-3f))
+                && ((d3 > 1e-3f && d4 < -1e-3f) || (d3 < -1e-3f && d4 > 1e-3f));
+    }
+
+    public static List<Vector2f> subdivideLongEdgesScreen(List<Vector2f> poly, float maxEdgeLenPx) {
+        if (poly == null || poly.size() < 3 || maxEdgeLenPx <= 1f) {
+            return poly;
+        }
+        int n = poly.size();
+        List<Vector2f> out = new ArrayList<>(n * 2);
+        for (int i = 0; i < n; i++) {
+            Vector2f p0 = poly.get(i);
+            Vector2f p1 = poly.get((i + 1) % n);
+            float dx = p1.x - p0.x;
+            float dy = p1.y - p0.y;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            int steps = Math.max(1, Math.min(32, (int) Math.ceil(len / maxEdgeLenPx)));
+            for (int s = 0; s < steps; s++) {
+                float t = (float) s / (float) steps;
+                out.add(new Vector2f(p0.x + dx * t, p0.y + dy * t));
+            }
+        }
+        return out;
+    }
 
     public static List<Vector2f> computeConvexHullCCW(List<Vector2f> pts) {
         if (pts == null || pts.size() <= 3) {
@@ -2080,15 +2077,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     public static float computePolygonArea(List<Vector2f> poly) {
-        if (poly == null || poly.size() < 3) return 0f;
-        float sum = 0f;
-        int n = poly.size();
-        for (int i = 0; i < n; i++) {
-            Vector2f a = poly.get(i);
-            Vector2f b = poly.get((i + 1) % n);
-            sum += (a.x * b.y - b.x * a.y);
-        }
-        return Math.abs(sum) * 0.5f;
+        return Math.abs(computeSignedPolygonArea(poly));
     }
 
     /**

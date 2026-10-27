@@ -1372,74 +1372,31 @@ public final class FactionFleetDoctrines {
             }
         });
 
-        List<FleetMemberAPI> fleetCarriers = new ArrayList<>();
-        List<FleetMemberAPI> lightCarriers = new ArrayList<>();
-        List<FleetMemberAPI> escortCarriers = new ArrayList<>();
-        List<FleetMemberAPI> capitals = new ArrayList<>();
-        List<FleetMemberAPI> missileCapitals = new ArrayList<>();
-        List<FleetMemberAPI> strikeCruisers = new ArrayList<>();
-        List<FleetMemberAPI> missileCruisers = new ArrayList<>();
-        List<FleetMemberAPI> lineCruisers = new ArrayList<>();
-        List<FleetMemberAPI> missileDestroyers = new ArrayList<>();
-        List<FleetMemberAPI> destroyers = new ArrayList<>();
-        List<FleetMemberAPI> missileFrigates = new ArrayList<>();
-        List<FleetMemberAPI> frigates = new ArrayList<>();
-        List<FleetMemberAPI> phaseShips = new ArrayList<>();
-        List<FleetMemberAPI> auxiliaries = new ArrayList<>();
-        List<FleetMemberAPI> forceShips = new ArrayList<>();
-
+        Map<DivisionArchetype, List<FleetMemberAPI>> buckets = PermanentDivisionManager.newArchetypeBuckets();
         for (FleetMemberAPI m : sortedEligible) {
             DivisionArchetype arch = classifyNpcFleetMemberArchetype(m, factionId, nomCat, doctrine);
-            switch (arch) {
-                case SERVICE_GROUP:
-                    auxiliaries.add(m);
-                    break;
-                case FORCE_DIVISION:
-                    forceShips.add(m);
-                    break;
-                case PHASE_DIVISION:
-                    phaseShips.add(m);
-                    break;
-                case FLEET_CARRIER_DIVISION:
-                    fleetCarriers.add(m);
-                    break;
-                case LIGHT_CARRIER_DIVISION:
-                    lightCarriers.add(m);
-                    break;
-                case ESCORT_CARRIER_DIVISION:
-                case CARRIER_GROUP:
-                    escortCarriers.add(m);
-                    break;
-                case MISSILE_BATTLESHIP_DIVISION:
-                    missileCapitals.add(m);
-                    break;
-                case BATTLESHIP_DIVISION:
-                    capitals.add(m);
-                    break;
-                case MISSILE_CRUISER_DIVISION:
-                    missileCruisers.add(m);
-                    break;
-                case STRIKE_CRUISER_DIVISION:
-                    strikeCruisers.add(m);
-                    break;
-                case CRUISER_DIVISION:
-                    lineCruisers.add(m);
-                    break;
-                case MISSILE_DESTROYER_DIVISION:
-                    missileDestroyers.add(m);
-                    break;
-                case DESTROYER_DIVISION:
-                    destroyers.add(m);
-                    break;
-                case MISSILE_FRIGATE_DIVISION:
-                    missileFrigates.add(m);
-                    break;
-                case FRIGATE_DIVISION:
-                default:
-                    frigates.add(m);
-                    break;
+            if (arch == null) arch = DivisionArchetype.FORCE_DIVISION;
+            if (arch == DivisionArchetype.CARRIER_GROUP) {
+                arch = DivisionArchetype.ESCORT_CARRIER_DIVISION;
             }
+            buckets.get(arch).add(m);
         }
+
+        List<FleetMemberAPI> fleetCarriers = buckets.get(DivisionArchetype.FLEET_CARRIER_DIVISION);
+        List<FleetMemberAPI> lightCarriers = buckets.get(DivisionArchetype.LIGHT_CARRIER_DIVISION);
+        List<FleetMemberAPI> escortCarriers = buckets.get(DivisionArchetype.ESCORT_CARRIER_DIVISION);
+        List<FleetMemberAPI> capitals = buckets.get(DivisionArchetype.BATTLESHIP_DIVISION);
+        List<FleetMemberAPI> missileCapitals = buckets.get(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION);
+        List<FleetMemberAPI> strikeCruisers = buckets.get(DivisionArchetype.STRIKE_CRUISER_DIVISION);
+        List<FleetMemberAPI> missileCruisers = buckets.get(DivisionArchetype.MISSILE_CRUISER_DIVISION);
+        List<FleetMemberAPI> lineCruisers = buckets.get(DivisionArchetype.CRUISER_DIVISION);
+        List<FleetMemberAPI> missileDestroyers = buckets.get(DivisionArchetype.MISSILE_DESTROYER_DIVISION);
+        List<FleetMemberAPI> destroyers = buckets.get(DivisionArchetype.DESTROYER_DIVISION);
+        List<FleetMemberAPI> missileFrigates = buckets.get(DivisionArchetype.MISSILE_FRIGATE_DIVISION);
+        List<FleetMemberAPI> frigates = buckets.get(DivisionArchetype.FRIGATE_DIVISION);
+        List<FleetMemberAPI> phaseShips = buckets.get(DivisionArchetype.PHASE_DIVISION);
+        List<FleetMemberAPI> auxiliaries = buckets.get(DivisionArchetype.SERVICE_GROUP);
+        List<FleetMemberAPI> forceShips = buckets.get(DivisionArchetype.FORCE_DIVISION);
 
         int capMax = Math.max(1, doctrine.getMax(DoctrineHullCategory.CAPITAL));
         int cruMax = Math.max(1, doctrine.getMax(DoctrineHullCategory.CRUISER));
@@ -2053,40 +2010,6 @@ public final class FactionFleetDoctrines {
             DivisionState div,
             PermanentDivisionSpec optionalSpec,
             FleetDoctrineConfig cfg) {
-        if (div == null || cfg == null) return;
-        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(div.archetype);
-        div.stationSpacing = (optionalSpec != null)
-                ? PermanentDivisionManager.resolveEffectiveStationSpacing(optionalSpec, cfg)
-                : cfg.getStationSpacing(dt);
-        div.divisionInterval = (optionalSpec != null)
-                ? PermanentDivisionManager.resolveEffectiveDivisionInterval(optionalSpec, cfg)
-                : cfg.getDivisionInterval(dt);
-        div.standoffRange = (optionalSpec != null)
-                ? PermanentDivisionManager.resolveEffectiveStandoffRange(optionalSpec, cfg)
-                : cfg.getStandoffRange(dt);
-        div.stationKeepingMult = cfg.getStationKeepingMult(dt);
-        div.openingPhaseDurationSeconds = cfg.getOpeningDurationSeconds();
-        div.openingMission = (optionalSpec != null)
-                ? PermanentDivisionManager.resolveEffectiveOpeningMission(optionalSpec, cfg)
-                : cfg.getOpeningMission(dt);
-        div.mainMission = (optionalSpec != null)
-                ? PermanentDivisionManager.resolveEffectiveMainMission(optionalSpec, cfg)
-                : cfg.getMainMission(dt);
-        div.lineStation = (optionalSpec != null)
-                ? PermanentDivisionManager.resolveEffectiveLineStation(optionalSpec, cfg)
-                : cfg.getLineStation(dt);
-
-        if (div.openingMission == DivisionMissionType.RESERVE
-                || div.mainMission == DivisionMissionType.RESERVE) {
-            div.isDesignatedReserve = true;
-        }
-
-        int count = Math.max(1, div.profiles.size());
-        div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(
-                div.archetype,
-                count,
-                div.stationSpacing,
-                div.stationKeepingMult,
-                div.commander.stationKeepingStrictness);
+        PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(div, optionalSpec, cfg);
     }
 }

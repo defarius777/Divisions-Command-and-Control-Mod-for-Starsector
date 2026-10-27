@@ -264,6 +264,23 @@ public class DivisionCommanderAI {
         return (dOwn < 1400f && dOtc > 2600f) ? ownPick : otcTarget;
     }
 
+    // =========================================================================
+    // Section 2: Division Intent Priority Ladder & Tactical Sub-Evaluators
+    // =========================================================================
+
+    private static boolean commitIntent(
+            CombatEngineAPI engine,
+            DivisionState div,
+            DivisionIntentType intent,
+            String targetLabel,
+            String reason,
+            float now) {
+        div.currentIntent = intent;
+        div.lastIntentChangeTime = now;
+        DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+        return true;
+    }
+
     private static void selectDivisionIntent(
             CombatEngineAPI engine,
             DivisionState div,
@@ -278,8 +295,6 @@ public class DivisionCommanderAI {
         div.targetEnemyDivision = null;
         div.targetFriendlyDivision = null;
         div.targetObjective = null;
-        String targetLabel = "";
-        String reason = "";
 
         OtcAuthority auth = myGroup.authority;
         OtcOrder task = div.otcOrder;
@@ -304,59 +319,11 @@ public class DivisionCommanderAI {
                 ? distance(div.centroid, OtcAI.getVisibleCentroidForSide(engine, div.side, missileTargetEnemyDiv))
                 : Float.MAX_VALUE;
 
-        boolean inMissileStrike = (prevIntent == DivisionIntentType.HARASSING_MISSILE_ATTACK
-                || prevIntent == DivisionIntentType.TOT_MISSILE_STRIKE);
-        boolean inFlankManeuver = (prevIntent == DivisionIntentType.WORK_FLANK);
-
         boolean martyrdom = isMartyrdomActive(div, myGroup, now);
 
-        // 1. Torpedo strike window finished / torpedoes expended / flux built up -> Strike-then-withdraw to reserve
-        if (!martyrdom && isStrikeRunOver(div, now)) {
-            div.currentIntent = DivisionIntentType.BREAK_OFF_AND_RETIRE;
-            div.targetEnemyDivision = nearestEnemyDiv;
-            div.stationPoint.set(myGroup.reserveStation);
-            div.lastBreakOffTimestamp = now;
-            targetLabel = nearestEnemyDiv != null ? nearestEnemyDiv.displayName : "contact zone";
-            reason = String.format("avg flux %.0f%%", div.avgFluxLevel * 100f);
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-            return;
-        }
-
-        // 2. High flux / damaged division -> Rotate to reserve behind a friendly division.
-        //    Once rotating, stay out until flux has genuinely bled off instead of bouncing at the threshold.
-        boolean stillRotating = !martyrdom && prevIntent == DivisionIntentType.HAUL_OUT_TO_VENT
-                && div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.55f;
-        boolean fightingRetirementVent = !martyrdom && (myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT && div.avgFluxLevel >= 0.32f);
-        if (!martyrdom && (isUnderHighFluxPressure(div, myGroup) || stillRotating || fightingRetirementVent)) {
-
-            DivisionState candidateFriend = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
-                    ? myGroup.mainEffortDivision
-                    : heavyFriendlyToScreen;
-            // Do not vent behind a division that is itself hauling out to vent (prevents mutual vent loops),
-            // and combat divisions do not vent behind fragile carrier divisions.
-            DivisionState ventBehindFriend = null;
-            if (candidateFriend != null
-                    && candidateFriend.isCombatEffective()
-                    && candidateFriend.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
-                    && candidateFriend.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
-                    && (div.archetype.isCarrierArchetype() || !candidateFriend.archetype.isCarrierArchetype())) {
-                ventBehindFriend = candidateFriend;
-            }
-
-            div.currentIntent = DivisionIntentType.HAUL_OUT_TO_VENT;
-            div.targetFriendlyDivision = ventBehindFriend;
-            if (ventBehindFriend != null) {
-                float retreatDirY = (div.side == 0) ? -1f : 1f;
-                div.stationPoint.set(ventBehindFriend.centroid.x, ventBehindFriend.centroid.y + retreatDirY * 1100f);
-                targetLabel = ventBehindFriend.displayName;
-            } else {
-                div.stationPoint.set(myGroup.reserveStation);
-                targetLabel = "the reserve station";
-            }
-            reason = String.format("flux %.0f%%, local ratio %.2f", div.avgFluxLevel * 100f, div.localForceRatio);
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+        // Steps 1 & 2: Post-strike retirement or high-flux line rotation (HAUL_OUT_TO_VENT)
+        if (!martyrdom && trySelectWithdrawalOrVentIntent(
+                engine, div, myGroup, prevIntent, nearestEnemyDiv, heavyFriendlyToScreen, now)) {
             return;
         }
 
@@ -365,22 +332,21 @@ public class DivisionCommanderAI {
         boolean isHeavyLineOrCarrier = (div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
                 || div.archetype.isCarrierArchetype());
 
-        // 3. Explicit Command Window objective order (player orders outrank the OTC)
+        // Step 3: Explicit Command Window objective order (player orders outrank the OTC)
         if (commandAssignedObj != null && !isHeavyLineOrCarrier && div.localEnemyStrength < 18f) {
-            div.currentIntent = DivisionIntentType.TAKE_AND_HOLD;
             div.targetObjective = commandAssignedObj;
             div.stationPoint.set(commandAssignedObj.getLocation());
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, commandAssignedObj.getDisplayName(), "under direct orders", now);
+            commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,
+                    commandAssignedObj.getDisplayName(), "under direct orders", now);
             return;
         }
 
-        // 4. OTC tasking
+        // Step 4: Active OTC orchestration order
         if (taskActive && applyOtcOrder(engine, div, myGroup, task, auth, activeMission, prevIntent, now)) {
             return;
         }
 
-        // 5. Mission-driven objective seizure (the Main Effort stays on its fixing task instead)
+        // Step 5: Mission-driven objective seizure (Main Effort stays on its fixing task instead)
         boolean stationedByOtc = taskActive && task.type == OtcOrderType.FORM_LINE && auth.allowsPositioning();
         if (!stationedByOtc
                 && uncapturedObj != null
@@ -391,18 +357,14 @@ public class DivisionCommanderAI {
                 || nearestEnemyDiv == null
                 || (activeMission == DivisionMissionType.CLOSE_ACTION && distToVisibleEnemy > 2400f)
                 || (div.isFastFlanker && distance(div.centroid, uncapturedObj.getLocation()) + 400f < distToVisibleEnemy))) {
-            div.currentIntent = DivisionIntentType.TAKE_AND_HOLD;
             div.targetObjective = uncapturedObj;
             div.stationPoint.set(uncapturedObj.getLocation());
-            targetLabel = uncapturedObj.getDisplayName();
-            reason = missionPhaseTag + activeMission.shortName;
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+            commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,
+                    uncapturedObj.getDisplayName(), missionPhaseTag + activeMission.shortName, now);
             return;
         }
 
-        // 6. Battle Group Reserve mission or OTC Reserve designation, when the OTC is not orchestrating the reserve itself
-        //    (with the Reserve & Exploit play the OTC holds and commits reserves through HOLD_RESERVE / RELIEVE taskings).
+        // Step 6: Battle Group Reserve hold when the OTC is not orchestrating the reserve directly
         boolean otcHoldsReserve = myGroup.isPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE) && auth.allowsRetasking();
         if (!otcHoldsReserve) {
             boolean calledUpByOtc = (endangeredFriendlyDiv != null)
@@ -410,20 +372,16 @@ public class DivisionCommanderAI {
                     || (myGroup.currentPhase == BattlePhase.GENERAL_CHASE && nearestEnemyDiv != null)
                     || (myGroup.currentPhase == BattlePhase.COORDINATED_STRIKE && nearestEnemyDiv != null && div.hasMissileStrikeCapability);
             if ((activeMission == DivisionMissionType.RESERVE || div.isDesignatedReserve) && !calledUpByOtc) {
-                div.currentIntent = DivisionIntentType.HOLD_IN_RESERVE;
                 div.stationPoint.set(myGroup.reserveStation);
-                reason = (activeMission == DivisionMissionType.RESERVE)
+                String reason = (activeMission == DivisionMissionType.RESERVE)
                         ? (missionPhaseTag + "Reserve, awaiting OTC orders")
                         : "awaiting OTC orders";
-                div.lastIntentChangeTime = now;
-                DivisionCombatLog.logDivisionIntent(engine, div, "", reason, now);
+                commitIntent(engine, div, DivisionIntentType.HOLD_IN_RESERVE, "", reason, now);
                 return;
             }
         }
 
-        // 7. Local mutual support: relieve an endangered neighbour on the division's own initiative.
-        //    Only when the OTC is not assigning relief centrally (or under Mission-Type Tactics for close neighbours),
-        //    never by carriers, and never by a division that is itself in trouble.
+        // Step 7: Local mutual support (relieve an endangered friendly division on own initiative)
         boolean closeReinforcementAllowed = !otcHoldsReserve || !auth.isBinding();
         if (closeReinforcementAllowed
                 && endangeredFriendlyDiv != null
@@ -435,177 +393,235 @@ public class DivisionCommanderAI {
                 || div.isDesignatedReserve
                 || div.isFastFlanker
                 || div.localEnemyStrength < 15f)) {
-
-            div.currentIntent = DivisionIntentType.REINFORCE_DIVISION;
             div.targetFriendlyDivision = endangeredFriendlyDiv;
             div.stationPoint.set(endangeredFriendlyDiv.centroid);
-            targetLabel = endangeredFriendlyDiv.displayName;
-            reason = (activeMission == DivisionMissionType.RESERVE || div.isDesignatedReserve)
+            String reason = (activeMission == DivisionMissionType.RESERVE || div.isDesignatedReserve)
                     ? String.format("reserve called forward to reinforce (local ratio %.2f)", endangeredFriendlyDiv.localForceRatio)
                     : String.format("hard pressed, local ratio %.2f", endangeredFriendlyDiv.localForceRatio);
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+            commitIntent(engine, div, DivisionIntentType.REINFORCE_DIVISION, endangeredFriendlyDiv.displayName, reason, now);
             return;
         }
 
-        // 8. Cohesion check: if the division's core cluster has scattered while out of contact, pause and reform.
-        //    Never freeze a division in CLOSE_UP when it is already in enemy contact or when only detached stragglers
-        //    are separated by an intervening enemy line (detached stragglers rejoin via wide out-of-contact arcs).
+        // Step 8: Cohesion check (reform core cluster ONLY when out of enemy contact)
         boolean enterCloseUp = div.stationKeepingRatio > 1.48f;
         boolean stayClosingUp = (prevIntent == DivisionIntentType.CLOSE_UP) && div.stationKeepingRatio > 1.08f;
         boolean outOfEnemyContact = div.localEnemyStrength < 8f && distToVisibleEnemy >= 2100f;
         if ((enterCloseUp || stayClosingUp) && div.coreMemberCount >= 2 && outOfEnemyContact) {
-            div.currentIntent = DivisionIntentType.CLOSE_UP;
             if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
                     && !div.detachedStragglerIds.contains(div.flagship.getId())) {
                 div.stationPoint.set(div.flagship.getLocation());
             } else {
                 div.stationPoint.set(div.centroid);
             }
-            reason = String.format("stations spread to %.0fu, limit %.0fu", div.spreadRadius, div.stationKeepingRadius);
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, "", reason, now);
+            String reason = String.format("stations spread to %.0fu, limit %.0fu", div.spreadRadius, div.stationKeepingRadius);
+            commitIntent(engine, div, DivisionIntentType.CLOSE_UP, "", reason, now);
             return;
         }
 
-        // 9. Execute configured Opening Mission / Main Mission priority (including Carrier Missions a..f)!
+        // Step 9: Configured Opening / Main Mission execution (Carrier Missions a..f and Combat Missions)
         boolean strikeCooldownElapsed = (now - div.lastBreakOffTimestamp) >= 12.0f;
         boolean soloStrikeAllowed = isSoloStrikeAllowed(myGroup, distToMissileTarget);
 
-        if (activeMission.isCarrierMission) {
-            DivisionState carrierTargetDiv = nearestEnemyDiv;
-            if (activeMission == DivisionMissionType.ALPHA_STRIKE
-                    && myGroup.primaryThreatEnemyDivision != null
-                    && OtcAI.isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)) {
-                carrierTargetDiv = myGroup.primaryThreatEnemyDivision;
-            } else if (activeMission == DivisionMissionType.COMBAT_SPACE_PATROL
-                    && endangeredFriendlyDiv != null) {
-                DivisionState threatToFriend = findBestEnemyDivisionFor(engine, endangeredFriendlyDiv, enemyGroup, false, div.targetEnemyDivision);
-                if (threatToFriend != null) {
-                    carrierTargetDiv = threatToFriend;
-                }
+        if (activeMission.isCarrierMission && trySelectCarrierMissionIntent(
+                engine, div, myGroup, enemyGroup, activeMission, missionPhaseTag,
+                nearestEnemyDiv, endangeredFriendlyDiv, heavyFriendlyToScreen, uncapturedObj, now)) {
+            return;
+        }
+
+        if (trySelectCombatMissionIntent(
+                engine, div, myGroup, activeMission, missionPhaseTag, prevIntent,
+                nearestEnemyDiv, missileTargetEnemyDiv, heavyFriendlyToScreen,
+                distToVisibleEnemy, distToMissileTarget, strikeCooldownElapsed, soloStrikeAllowed, martyrdom, now)) {
+            return;
+        }
+
+        // Steps 10-13: Fallback screening, opportunistic torpedo/flank strikes, and line advance
+        selectFallbackTacticalIntent(
+                engine, div, myGroup, prevIntent, isHeavyLineOrCarrier,
+                nearestEnemyDiv, missileTargetEnemyDiv, heavyFriendlyToScreen, uncapturedObj,
+                distToVisibleEnemy, distToMissileTarget, strikeCooldownElapsed, soloStrikeAllowed, now);
+    }
+
+    private static boolean trySelectWithdrawalOrVentIntent(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            DivisionIntentType prevIntent,
+            DivisionState nearestEnemyDiv,
+            DivisionState heavyFriendlyToScreen,
+            float now) {
+
+        // 1. Torpedo strike window finished / torpedoes expended / flux built up -> Strike-then-withdraw to reserve
+        if (isStrikeRunOver(div, now)) {
+            div.targetEnemyDivision = nearestEnemyDiv;
+            div.stationPoint.set(myGroup.reserveStation);
+            div.lastBreakOffTimestamp = now;
+            String targetLabel = nearestEnemyDiv != null ? nearestEnemyDiv.displayName : "contact zone";
+            String reason = String.format("avg flux %.0f%%", div.avgFluxLevel * 100f);
+            return commitIntent(engine, div, DivisionIntentType.BREAK_OFF_AND_RETIRE, targetLabel, reason, now);
+        }
+
+        // 2. High flux / damaged division -> Rotate to reserve behind a friendly division
+        boolean stillRotating = prevIntent == DivisionIntentType.HAUL_OUT_TO_VENT
+                && div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.55f;
+        boolean fightingRetirementVent = (myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT && div.avgFluxLevel >= 0.32f);
+        if (isUnderHighFluxPressure(div, myGroup) || stillRotating || fightingRetirementVent) {
+            DivisionState candidateFriend = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
+                    ? myGroup.mainEffortDivision
+                    : heavyFriendlyToScreen;
+            DivisionState ventBehindFriend = null;
+            if (candidateFriend != null
+                    && candidateFriend.isCombatEffective()
+                    && candidateFriend.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
+                    && candidateFriend.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
+                    && (div.archetype.isCarrierArchetype() || !candidateFriend.archetype.isCarrierArchetype())) {
+                ventBehindFriend = candidateFriend;
             }
 
-            switch (activeMission) {
-                case ARMED_RECONNAISSANCE:
-                    div.currentIntent = DivisionIntentType.FLY_ARMED_RECONNAISSANCE;
-                    div.targetEnemyDivision = carrierTargetDiv;
-                    if (carrierTargetDiv != null) {
-                        computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
-                        targetLabel = carrierTargetDiv.displayName;
-                    } else if (uncapturedObj != null) {
-                        div.targetObjective = uncapturedObj;
-                        div.stationPoint.set(div.centroid.x * 0.7f, div.centroid.y + (div.side == 0 ? 700f : -700f));
-                        targetLabel = uncapturedObj.getDisplayName();
-                    } else {
-                        div.stationPoint.set(myGroup.reserveStation);
-                        targetLabel = "the contact zone";
-                    }
-                    reason = missionPhaseTag + activeMission.shortName;
-                    div.lastIntentChangeTime = now;
-                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-                    return;
+            div.targetFriendlyDivision = ventBehindFriend;
+            String targetLabel;
+            if (ventBehindFriend != null) {
+                float retreatDirY = (div.side == 0) ? -1f : 1f;
+                div.stationPoint.set(ventBehindFriend.centroid.x, ventBehindFriend.centroid.y + retreatDirY * 1100f);
+                targetLabel = ventBehindFriend.displayName;
+            } else {
+                div.stationPoint.set(myGroup.reserveStation);
+                targetLabel = "the reserve station";
+            }
+            String reason = String.format("flux %.0f%%, local ratio %.2f", div.avgFluxLevel * 100f, div.localForceRatio);
+            return commitIntent(engine, div, DivisionIntentType.HAUL_OUT_TO_VENT, targetLabel, reason, now);
+        }
+        return false;
+    }
 
-                case SPACE_SUPERIORITY:
-                    div.currentIntent = DivisionIntentType.FLY_FIGHTER_SWEEP;
-                    div.targetEnemyDivision = carrierTargetDiv;
-                    if (carrierTargetDiv != null) {
-                        computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
-                        targetLabel = carrierTargetDiv.displayName;
-                    } else {
-                        div.stationPoint.set(myGroup.reserveStation);
-                        targetLabel = "the contact zone";
-                    }
-                    reason = missionPhaseTag + activeMission.shortName;
-                    div.lastIntentChangeTime = now;
-                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-                    return;
+    private static String assignCarrierStandoffOrReserveStation(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            DivisionState carrierTargetDiv) {
+        div.targetEnemyDivision = carrierTargetDiv;
+        if (carrierTargetDiv != null) {
+            computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
+            return carrierTargetDiv.displayName;
+        }
+        div.stationPoint.set(myGroup.reserveStation);
+        return "the contact zone";
+    }
 
-                case COMBAT_SPACE_PATROL:
-                    div.currentIntent = DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
-                    DivisionState protectedFriendly = (endangeredFriendlyDiv != null)
-                            ? endangeredFriendlyDiv
-                            : ((heavyFriendlyToScreen != null) ? heavyFriendlyToScreen : myGroup.mainEffortDivision);
-                    div.targetFriendlyDivision = protectedFriendly;
-                    div.targetEnemyDivision = carrierTargetDiv;
-                    if (protectedFriendly != null && protectedFriendly != div) {
-                        computePatrolStation(div, protectedFriendly, div.stationPoint);
-                        targetLabel = protectedFriendly.displayName;
-                    } else if (carrierTargetDiv != null) {
-                        computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
-                        targetLabel = carrierTargetDiv.displayName;
-                    } else {
-                        div.stationPoint.set(myGroup.reserveStation);
-                        targetLabel = "the battle line";
-                    }
-                    reason = missionPhaseTag + activeMission.shortName;
-                    div.lastIntentChangeTime = now;
-                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-                    return;
+    private static boolean trySelectCarrierMissionIntent(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup,
+            DivisionMissionType activeMission,
+            String missionPhaseTag,
+            DivisionState nearestEnemyDiv,
+            DivisionState endangeredFriendlyDiv,
+            DivisionState heavyFriendlyToScreen,
+            BattleObjectiveAPI uncapturedObj,
+            float now) {
 
-                case CYCLIC_STRIKES:
-                    div.currentIntent = DivisionIntentType.FLY_CYCLIC_STRIKES;
-                    div.targetEnemyDivision = carrierTargetDiv;
-                    if (carrierTargetDiv != null) {
-                        computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
-                        targetLabel = carrierTargetDiv.displayName;
-                    } else {
-                        div.stationPoint.set(myGroup.reserveStation);
-                        targetLabel = "the contact zone";
-                    }
-                    reason = missionPhaseTag + activeMission.shortName;
-                    div.lastIntentChangeTime = now;
-                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-                    return;
-
-                case DECKLOAD_STRIKE:
-                    div.currentIntent = DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
-                    div.targetEnemyDivision = carrierTargetDiv;
-                    if (carrierTargetDiv != null) {
-                        computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
-                        targetLabel = carrierTargetDiv.displayName;
-                    } else {
-                        div.stationPoint.set(myGroup.reserveStation);
-                        targetLabel = "the contact zone";
-                    }
-                    reason = missionPhaseTag + activeMission.shortName;
-                    div.lastIntentChangeTime = now;
-                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-                    return;
-
-                case ALPHA_STRIKE:
-                    div.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
-                    div.targetEnemyDivision = carrierTargetDiv;
-                    if (carrierTargetDiv != null) {
-                        computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
-                        targetLabel = carrierTargetDiv.displayName;
-                    } else {
-                        div.stationPoint.set(myGroup.reserveStation);
-                        targetLabel = "the contact zone";
-                    }
-                    String syncPartner = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
-                            ? (" with \"" + myGroup.mainEffortDivision.displayName + "\"")
-                            : "";
-                    reason = missionPhaseTag + activeMission.shortName + syncPartner;
-                    div.lastIntentChangeTime = now;
-                    DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-                    return;
-
-                default:
-                    break;
+        DivisionState carrierTargetDiv = nearestEnemyDiv;
+        if (activeMission == DivisionMissionType.ALPHA_STRIKE
+                && myGroup.primaryThreatEnemyDivision != null
+                && OtcAI.isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)) {
+            carrierTargetDiv = myGroup.primaryThreatEnemyDivision;
+        } else if (activeMission == DivisionMissionType.COMBAT_SPACE_PATROL
+                && endangeredFriendlyDiv != null) {
+            DivisionState threatToFriend = findBestEnemyDivisionFor(engine, endangeredFriendlyDiv, enemyGroup, false, div.targetEnemyDivision);
+            if (threatToFriend != null) {
+                carrierTargetDiv = threatToFriend;
             }
         }
 
+        String baseReason = missionPhaseTag + activeMission.shortName;
+        switch (activeMission) {
+            case ARMED_RECONNAISSANCE: {
+                div.targetEnemyDivision = carrierTargetDiv;
+                String targetLabel;
+                if (carrierTargetDiv != null) {
+                    computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
+                    targetLabel = carrierTargetDiv.displayName;
+                } else if (uncapturedObj != null) {
+                    div.targetObjective = uncapturedObj;
+                    div.stationPoint.set(div.centroid.x * 0.7f, div.centroid.y + (div.side == 0 ? 700f : -700f));
+                    targetLabel = uncapturedObj.getDisplayName();
+                } else {
+                    div.stationPoint.set(myGroup.reserveStation);
+                    targetLabel = "the contact zone";
+                }
+                return commitIntent(engine, div, DivisionIntentType.FLY_ARMED_RECONNAISSANCE, targetLabel, baseReason, now);
+            }
+            case SPACE_SUPERIORITY: {
+                String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
+                return commitIntent(engine, div, DivisionIntentType.FLY_FIGHTER_SWEEP, targetLabel, baseReason, now);
+            }
+            case COMBAT_SPACE_PATROL: {
+                DivisionState protectedFriendly = (endangeredFriendlyDiv != null)
+                        ? endangeredFriendlyDiv
+                        : ((heavyFriendlyToScreen != null) ? heavyFriendlyToScreen : myGroup.mainEffortDivision);
+                div.targetFriendlyDivision = protectedFriendly;
+                div.targetEnemyDivision = carrierTargetDiv;
+                String targetLabel;
+                if (protectedFriendly != null && protectedFriendly != div) {
+                    computePatrolStation(div, protectedFriendly, div.stationPoint);
+                    targetLabel = protectedFriendly.displayName;
+                } else if (carrierTargetDiv != null) {
+                    computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
+                    targetLabel = carrierTargetDiv.displayName;
+                } else {
+                    div.stationPoint.set(myGroup.reserveStation);
+                    targetLabel = "the battle line";
+                }
+                return commitIntent(engine, div, DivisionIntentType.FLY_COMBAT_SPACE_PATROL, targetLabel, baseReason, now);
+            }
+            case CYCLIC_STRIKES: {
+                String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
+                return commitIntent(engine, div, DivisionIntentType.FLY_CYCLIC_STRIKES, targetLabel, baseReason, now);
+            }
+            case DECKLOAD_STRIKE: {
+                String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
+                return commitIntent(engine, div, DivisionIntentType.LAUNCH_DECKLOAD_STRIKE, targetLabel, baseReason, now);
+            }
+            case ALPHA_STRIKE: {
+                String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
+                String syncPartner = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
+                        ? (" with \"" + myGroup.mainEffortDivision.displayName + "\"")
+                        : "";
+                return commitIntent(engine, div, DivisionIntentType.LAUNCH_ALPHA_STRIKE, targetLabel, baseReason + syncPartner, now);
+            }
+            default:
+                return false;
+        }
+    }
+
+    private static boolean trySelectCombatMissionIntent(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            DivisionMissionType activeMission,
+            String missionPhaseTag,
+            DivisionIntentType prevIntent,
+            DivisionState nearestEnemyDiv,
+            DivisionState missileTargetEnemyDiv,
+            DivisionState heavyFriendlyToScreen,
+            float distToVisibleEnemy,
+            float distToMissileTarget,
+            boolean strikeCooldownElapsed,
+            boolean soloStrikeAllowed,
+            boolean martyrdom,
+            float now) {
+
+        boolean inMissileStrike = (prevIntent == DivisionIntentType.HARASSING_MISSILE_ATTACK
+                || prevIntent == DivisionIntentType.TOT_MISSILE_STRIKE);
+        boolean inFlankManeuver = (prevIntent == DivisionIntentType.WORK_FLANK);
+
         if (activeMission == DivisionMissionType.SCREEN && heavyFriendlyToScreen != null) {
-            div.currentIntent = DivisionIntentType.TAKE_SCREENING_STATION;
             div.targetFriendlyDivision = heavyFriendlyToScreen;
             div.targetEnemyDivision = nearestEnemyDiv;
             computeScreeningStation(engine, div, heavyFriendlyToScreen, nearestEnemyDiv, div.stationPoint, div.side);
-            targetLabel = heavyFriendlyToScreen.displayName;
-            reason = missionPhaseTag + activeMission.shortName;
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-            return;
+            return commitIntent(engine, div, DivisionIntentType.TAKE_SCREENING_STATION,
+                    heavyFriendlyToScreen.displayName, missionPhaseTag + activeMission.shortName, now);
         }
 
         if (activeMission == DivisionMissionType.ENVELOPMENT && nearestEnemyDiv != null) {
@@ -616,81 +632,85 @@ public class DivisionCommanderAI {
                     && div.avgFluxLevel < 0.55f
                     && missileTargetEnemyDiv != null
                     && distToMissileTarget <= 4600f) {
-                div.currentIntent = DivisionIntentType.HARASSING_MISSILE_ATTACK;
                 Vector2f visTargetPos = OtcAI.getVisibleCentroidForSide(engine, div.side, missileTargetEnemyDiv);
                 div.targetEnemyDivision = missileTargetEnemyDiv;
                 div.stationPoint.set(visTargetPos);
                 if (!inMissileStrike) {
                     div.strikeCommittedTimestamp = now;
                 }
-                targetLabel = missileTargetEnemyDiv.displayName;
-                reason = String.format("%s%s (%d salvos)", missionPhaseTag, activeMission.shortName, div.usableStrikeAmmoCount);
-                div.lastIntentChangeTime = now;
-                DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-                return;
+                String reason = String.format("%s%s (%d salvos)", missionPhaseTag, activeMission.shortName, div.usableStrikeAmmoCount);
+                return commitIntent(engine, div, DivisionIntentType.HARASSING_MISSILE_ATTACK,
+                        missileTargetEnemyDiv.displayName, reason, now);
             }
             if (strikeCooldownElapsed && div.avgFluxLevel < 0.58f) {
-                div.currentIntent = DivisionIntentType.WORK_FLANK;
                 div.targetEnemyDivision = nearestEnemyDiv;
                 computeFlankStation(engine, div, nearestEnemyDiv, div.stationPoint, myGroup);
                 if (!inFlankManeuver) {
                     div.strikeCommittedTimestamp = now;
                 }
-                targetLabel = nearestEnemyDiv.displayName;
-                reason = missionPhaseTag + activeMission.shortName + flankSideTag(div, nearestEnemyDiv, myGroup);
-                div.lastIntentChangeTime = now;
-                DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-                return;
+                String reason = missionPhaseTag + activeMission.shortName + flankSideTag(div, nearestEnemyDiv, myGroup);
+                return commitIntent(engine, div, DivisionIntentType.WORK_FLANK,
+                        nearestEnemyDiv.displayName, reason, now);
             }
         }
 
         if ((activeMission == DivisionMissionType.STANDOFF_ENGAGEMENT
                 || activeMission == DivisionMissionType.SCOUTING)
                 && nearestEnemyDiv != null) {
-            div.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
             div.targetEnemyDivision = nearestEnemyDiv;
             computeStandoffStation(engine, div, nearestEnemyDiv, div.stationPoint);
-            targetLabel = nearestEnemyDiv.displayName;
-            reason = String.format("%s%s (standoff range %.0fu)", missionPhaseTag, activeMission.shortName, div.standoffRange);
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-            return;
+            String reason = String.format("%s%s (standoff range %.0fu)", missionPhaseTag, activeMission.shortName, div.standoffRange);
+            return commitIntent(engine, div, DivisionIntentType.CLOSE_AND_ENGAGE,
+                    nearestEnemyDiv.displayName, reason, now);
         }
 
         if (martyrdom && nearestEnemyDiv != null) {
             Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
             div.targetEnemyDivision = nearestEnemyDiv;
             div.stationPoint.set(visEnemyPos);
-            div.currentIntent = DivisionIntentType.PRESS_HOME;
-            targetLabel = nearestEnemyDiv.displayName;
-            reason = missionPhaseTag + "Martyrdom";
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-            return;
+            return commitIntent(engine, div, DivisionIntentType.PRESS_HOME,
+                    nearestEnemyDiv.displayName, missionPhaseTag + "Martyrdom", now);
         }
 
         if (activeMission == DivisionMissionType.CLOSE_ACTION && nearestEnemyDiv != null) {
             Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
             div.targetEnemyDivision = nearestEnemyDiv;
             div.stationPoint.set(visEnemyPos);
-            targetLabel = nearestEnemyDiv.displayName;
-            if (div.localForceRatio >= 0.88f && distToVisibleEnemy < 3400f) {
-                div.currentIntent = DivisionIntentType.PRESS_HOME;
-            } else {
-                div.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
-            }
-            reason = missionPhaseTag + activeMission.shortName;
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-            return;
+            DivisionIntentType intent = (div.localForceRatio >= 0.88f && distToVisibleEnemy < 3400f)
+                    ? DivisionIntentType.PRESS_HOME
+                    : DivisionIntentType.CLOSE_AND_ENGAGE;
+            return commitIntent(engine, div, intent,
+                    nearestEnemyDiv.displayName, missionPhaseTag + activeMission.shortName, now);
         }
+
+        return false;
+    }
+
+    private static void selectFallbackTacticalIntent(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            DivisionIntentType prevIntent,
+            boolean isHeavyLineOrCarrier,
+            DivisionState nearestEnemyDiv,
+            DivisionState missileTargetEnemyDiv,
+            DivisionState heavyFriendlyToScreen,
+            BattleObjectiveAPI uncapturedObj,
+            float distToVisibleEnemy,
+            float distToMissileTarget,
+            boolean strikeCooldownElapsed,
+            boolean soloStrikeAllowed,
+            float now) {
+
+        boolean inMissileStrike = (prevIntent == DivisionIntentType.HARASSING_MISSILE_ATTACK
+                || prevIntent == DivisionIntentType.TOT_MISSILE_STRIKE);
+        boolean inFlankManeuver = (prevIntent == DivisionIntentType.WORK_FLANK);
 
         // 10. Fallback Monotype Screening when Capital/Carrier needs screen
         if (!div.archetype.isComposite
                 && div.isScreenCapable
                 && !div.hasMissileStrikeCapability
                 && heavyFriendlyToScreen != null) {
-
             float distToHeavy = distance(div.centroid, heavyFriendlyToScreen.centroid);
             boolean isCapitalOrCarrier = heavyFriendlyToScreen.archetype.isCarrierArchetype()
                     || heavyFriendlyToScreen.archetype == DivisionArchetype.BATTLESHIP_DIVISION;
@@ -701,19 +721,16 @@ public class DivisionCommanderAI {
                     || (cruiserNeedsScreen && (heavyFriendlyToScreen.localEnemyStrength > 10f || distToHeavy < 2400f));
 
             if (heavyNeedsScreen) {
-                div.currentIntent = DivisionIntentType.TAKE_SCREENING_STATION;
                 div.targetFriendlyDivision = heavyFriendlyToScreen;
                 div.targetEnemyDivision = nearestEnemyDiv;
                 computeScreeningStation(engine, div, heavyFriendlyToScreen, nearestEnemyDiv, div.stationPoint, div.side);
-                targetLabel = heavyFriendlyToScreen.displayName;
-                reason = "forward PD and anti-flank screen";
-                div.lastIntentChangeTime = now;
-                DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+                commitIntent(engine, div, DivisionIntentType.TAKE_SCREENING_STATION,
+                        heavyFriendlyToScreen.displayName, "forward PD and anti-flank screen", now);
                 return;
             }
         }
 
-        // 11. Torpedo / Strike Division: Harassing torpedo attack or Time-on-Target strike (ONLY against visible enemies within strike range <= 4600u)
+        // 11. Torpedo / Strike Division: Harassing torpedo attack or Time-on-Target strike (<= 4600u)
         if (strikeCooldownElapsed
                 && soloStrikeAllowed
                 && div.hasMissileStrikeCapability
@@ -726,13 +743,12 @@ public class DivisionCommanderAI {
                     && (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
                     && (missileTargetEnemyDiv == myGroup.primaryThreatEnemyDivision);
 
-            if (timeOnTargetCue) {
-                div.currentIntent = DivisionIntentType.TOT_MISSILE_STRIKE;
-                reason = "time-on-target with \"" + myGroup.mainEffortDivision.displayName + "\"";
-            } else {
-                div.currentIntent = DivisionIntentType.HARASSING_MISSILE_ATTACK;
-                reason = String.format("%d missile salvos ready", div.usableStrikeAmmoCount);
-            }
+            DivisionIntentType strikeIntent = timeOnTargetCue
+                    ? DivisionIntentType.TOT_MISSILE_STRIKE
+                    : DivisionIntentType.HARASSING_MISSILE_ATTACK;
+            String reason = timeOnTargetCue
+                    ? ("time-on-target with \"" + myGroup.mainEffortDivision.displayName + "\"")
+                    : String.format("%d missile salvos ready", div.usableStrikeAmmoCount);
 
             Vector2f visTargetPos = OtcAI.getVisibleCentroidForSide(engine, div.side, missileTargetEnemyDiv);
             div.targetEnemyDivision = missileTargetEnemyDiv;
@@ -740,13 +756,11 @@ public class DivisionCommanderAI {
             if (!inMissileStrike) {
                 div.strikeCommittedTimestamp = now;
             }
-            targetLabel = missileTargetEnemyDiv.displayName;
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+            commitIntent(engine, div, strikeIntent, missileTargetEnemyDiv.displayName, reason, now);
             return;
         }
 
-        // 12. Fast flankers swing wide to flank visible enemy division when within operational contact range (<= 4500u)
+        // 12. Fast flankers swing wide to flank visible enemy division within operational contact range (<= 4500u)
         if (strikeCooldownElapsed
                 && div.isFastFlanker
                 && nearestEnemyDiv != null
@@ -754,17 +768,13 @@ public class DivisionCommanderAI {
                 && myGroup.mainEffortDivision != null
                 && myGroup.mainEffortDivision != div
                 && div.avgFluxLevel < 0.52f) {
-
-            div.currentIntent = DivisionIntentType.WORK_FLANK;
             div.targetEnemyDivision = nearestEnemyDiv;
             computeFlankStation(engine, div, nearestEnemyDiv, div.stationPoint, myGroup);
             if (!inFlankManeuver) {
                 div.strikeCommittedTimestamp = now;
             }
-            targetLabel = nearestEnemyDiv.displayName;
-            reason = "envelopment" + flankSideTag(div, nearestEnemyDiv, myGroup);
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+            String reason = "envelopment" + flankSideTag(div, nearestEnemyDiv, myGroup);
+            commitIntent(engine, div, DivisionIntentType.WORK_FLANK, nearestEnemyDiv.displayName, reason, now);
             return;
         }
 
@@ -773,33 +783,27 @@ public class DivisionCommanderAI {
             Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
             div.targetEnemyDivision = nearestEnemyDiv;
             div.stationPoint.set(visEnemyPos);
-            targetLabel = nearestEnemyDiv.displayName;
 
+            DivisionIntentType intent;
+            String reason;
             if (div.localForceRatio >= Math.max(1.22f, div.commander.commitForceRatio) && distToVisibleEnemy < 3200f) {
-                div.currentIntent = DivisionIntentType.PRESS_HOME;
+                intent = DivisionIntentType.PRESS_HOME;
                 reason = String.format("local advantage %.2fx", div.localForceRatio);
             } else {
-                div.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
+                intent = DivisionIntentType.CLOSE_AND_ENGAGE;
                 reason = "keeping the line";
             }
-            div.lastIntentChangeTime = now;
-            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+            commitIntent(engine, div, intent, nearestEnemyDiv.displayName, reason, now);
+        } else if (uncapturedObj != null && !isHeavyLineOrCarrier) {
+            div.targetObjective = uncapturedObj;
+            div.stationPoint.set(uncapturedObj.getLocation());
+            commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,
+                    uncapturedObj.getDisplayName(), "advancing without contact", now);
         } else {
-            // No enemy visible in Fog of War yet: advance on reconnaissance / objective posture without map-hacking
-            if (uncapturedObj != null && !isHeavyLineOrCarrier) {
-                div.currentIntent = DivisionIntentType.TAKE_AND_HOLD;
-                div.targetObjective = uncapturedObj;
-                div.stationPoint.set(uncapturedObj.getLocation());
-                targetLabel = uncapturedObj.getDisplayName();
-                reason = "advancing without contact";
-                div.lastIntentChangeTime = now;
-                DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
-            } else {
-                float scoutDirY = (div.side == 0) ? 1400f : -1400f;
-                div.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
-                div.stationPoint.set(div.centroid.x * 0.6f, div.centroid.y + scoutDirY);
-                div.lastIntentChangeTime = now;
-            }
+            float scoutDirY = (div.side == 0) ? 1400f : -1400f;
+            div.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
+            div.stationPoint.set(div.centroid.x * 0.6f, div.centroid.y + scoutDirY);
+            div.lastIntentChangeTime = now;
         }
     }
 
@@ -861,17 +865,13 @@ public class DivisionCommanderAI {
                 if (!binding && !(div.avgFluxLevel < 0.58f && (div.localEnemyStrength < 15f || div.localForceRatio >= 1.0f))) {
                     return false;
                 }
-                div.currentIntent = DivisionIntentType.REINFORCE_DIVISION;
                 div.targetFriendlyDivision = friend;
                 div.stationPoint.set(friend.centroid);
-                DivisionCombatLog.logDivisionIntent(engine, div, friend.displayName, reason, now);
-                return true;
+                return commitIntent(engine, div, DivisionIntentType.REINFORCE_DIVISION, friend.displayName, reason, now);
             }
             case HOLD_RESERVE: {
-                div.currentIntent = DivisionIntentType.HOLD_IN_RESERVE;
                 div.stationPoint.set(myGroup.reserveStation);
-                DivisionCombatLog.logDivisionIntent(engine, div, "", reason, now);
-                return true;
+                return commitIntent(engine, div, DivisionIntentType.HOLD_IN_RESERVE, "", reason, now);
             }
             case GENERAL_CHASE: {
                 if (!targetValid || (!binding && div.avgFluxLevel >= 0.50f)) return false;
@@ -935,6 +935,7 @@ public class DivisionCommanderAI {
                 return false;
         }
 
+        div.lastIntentChangeTime = now;
         DivisionCombatLog.logDivisionIntent(engine, div, target != null ? target.displayName : "", reason, now);
         return true;
     }
@@ -1188,7 +1189,22 @@ public class DivisionCommanderAI {
                 continue;
             }
 
-            switch (div.currentIntent) {
+            applyIntentFlagsToShip(ship, shipIdx, flags, slotPos, crowdedByPeer, focusEnemyShip, div, myGroup, now);
+        }
+    }
+
+    private static void applyIntentFlagsToShip(
+            ShipAPI ship,
+            int shipIdx,
+            ShipwideAIFlags flags,
+            Vector2f slotPos,
+            boolean crowdedByPeer,
+            ShipAPI focusEnemyShip,
+            DivisionState div,
+            BattleGroupState myGroup,
+            float now) {
+
+        switch (div.currentIntent) {
                 case FORM_LINE_AND_FIX:
                     // Hold the fixing position and fight from it; no chasing, but no backing off either
                     flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
@@ -1397,7 +1413,6 @@ public class DivisionCommanderAI {
                     }
                     break;
             }
-        }
     }
 
     /**

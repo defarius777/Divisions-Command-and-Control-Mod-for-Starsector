@@ -618,7 +618,7 @@ public class OtcAI {
             if (!isDivisionVisibleToSide(engine, myGroup.side, eDiv)) continue;
             Vector2f visCentroid = getVisibleCentroidForSide(engine, myGroup.side, eDiv);
             float visFp = getVisibleFpForSide(engine, myGroup.side, eDiv);
-            float dist = MiscDistance(myGroup.fleetCentroid, visCentroid);
+            float dist = distance(myGroup.fleetCentroid, visCentroid);
             // Prefer enemy divisions that are close, isolated, or high-value
             float isolationBonus = (eDiv.stationKeepingRatio > 1.3f) ? 350f : 0f;
             float auxPenalty = (eDiv.archetype == DivisionArchetype.SERVICE_GROUP) ? -500f : 0f;
@@ -669,7 +669,7 @@ public class OtcAI {
             if (!eDiv.isCombatEffective()) continue;
             if (!isDivisionVisibleToSide(engine, myDiv.side, eDiv)) continue;
             Vector2f visCentroid = getVisibleCentroidForSide(engine, myDiv.side, eDiv);
-            float d = MiscDistance(myDiv.centroid, visCentroid);
+            float d = distance(myDiv.centroid, visCentroid);
             if (d < minDist) minDist = d;
         }
         return minDist;
@@ -689,7 +689,7 @@ public class OtcAI {
         return total;
     }
 
-    private static float MiscDistance(Vector2f a, Vector2f b) {
+    private static float distance(Vector2f a, Vector2f b) {
         float dx = a.x - b.x;
         float dy = a.y - b.y;
         return (float) Math.sqrt(dx * dx + dy * dy);
