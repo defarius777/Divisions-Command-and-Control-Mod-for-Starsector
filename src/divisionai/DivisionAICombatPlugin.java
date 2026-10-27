@@ -68,6 +68,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     @Override
     public void advance(float amount, List<InputEventAPI> events) {
+        DivisionAISettings.advanceLunaSettingsReinitButton();
         if (engine == null) {
             engine = Global.getCombatEngine();
             if (engine == null) return;

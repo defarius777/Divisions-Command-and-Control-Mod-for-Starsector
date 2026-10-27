@@ -1,5 +1,16 @@
 {
 	"plugins": {
 		"divisionai_combat_plugin": "divisionai.DivisionAICombatPlugin"
+	},
+	"graphics": {
+		"division_ai": {
+			"icon_regular": "graphics/icons/icon_regular.png",
+			"icon_regular_wide": "graphics/icons/icon_regular_wide.png",
+			"icon_gold-star": "graphics/icons/icon_gold-star.png",
+			"icon_gold-wing": "graphics/icons/icon_gold-wing.png",
+			"icon_gold": "graphics/icons/icon_gold.png",
+			"star_silver": "graphics/icons/star_silver.png",
+			"star_gold": "graphics/icons/star_gold.png"
+		}
 	}
 }

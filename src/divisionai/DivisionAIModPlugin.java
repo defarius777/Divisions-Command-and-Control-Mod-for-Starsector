@@ -28,6 +28,7 @@ public class DivisionAIModPlugin extends BaseModPlugin {
             PermanentDivisionManager.migrateAutoStandoffToGunRange();
             PermanentDivisionManager.migrateDivisionNamesToNavalTerms();
             FactionFleetDoctrines.onGameLoad(sector);
+            DivisionAISettings.consumePendingReinitOnGameLoad();
             sector.removeTransientScriptsOfClass(DivisionFleetTabInjector.class);
             sector.addTransientScript(new DivisionFleetTabInjector());
         }

@@ -29,9 +29,20 @@ public class DivisionAISettings {
 
     private static Object trackedReinitButton = null;
     private static boolean lastObservedButtonValue = false;
-    private static int reinitPromptState = 0; // 0 = idle, 1 = "Are you sure?", 2 = completed
+    private static int reinitPromptState = 0; // 0 = idle, 1 = "Are you sure?", 2 = completed, 3 = queued for campaign load
     private static long promptStateTimestampMs = 0L;
     private static int lastReinitializedFleetCount = 0;
+    private static boolean pendingReinitOnGameLoad = false;
+
+    public static void consumePendingReinitOnGameLoad() {
+        if (pendingReinitOnGameLoad) {
+            pendingReinitOnGameLoad = false;
+            SectorAPI sector = Global.getSector();
+            if (sector != null) {
+                FactionFleetDoctrines.reinitializeSectorWideDivisionLists(sector);
+            }
+        }
+    }
 
     private static boolean isLunaLibEnabled() {
         return Global.getSettings().getModManager().isModEnabled("lunalib");
@@ -165,30 +176,42 @@ public class DivisionAISettings {
             long nowMs = System.currentTimeMillis();
             if (foundBtn != trackedReinitButton) {
                 trackedReinitButton = foundBtn;
+                foundBtn.unselect();
                 lastObservedButtonValue = foundBtn.getValue();
                 reinitPromptState = 0;
                 promptStateTimestampMs = nowMs;
             }
 
             boolean curVal = foundBtn.getValue();
-            if (curVal != lastObservedButtonValue) {
+            boolean clicked = (curVal != lastObservedButtonValue) || foundBtn.isSelected();
+            if (clicked) {
+                foundBtn.unselect();
                 lastObservedButtonValue = curVal;
-                if (reinitPromptState == 0 || reinitPromptState == 2) {
+                try {
+                    if (Global.getSoundPlayer() != null) {
+                        Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
+                    }
+                } catch (Throwable ignored) {}
+
+                if (reinitPromptState != 1) {
                     reinitPromptState = 1;
                     promptStateTimestampMs = nowMs;
-                } else if (reinitPromptState == 1) {
-                    SectorAPI sector = Global.getSector();
-                    if (sector != null) {
-                        lastReinitializedFleetCount = FactionFleetDoctrines.reinitializeSectorWideDivisionLists(sector);
+                } else {
+                    if (Global.getCurrentState() == com.fs.starfarer.api.GameState.CAMPAIGN
+                            && Global.getSector() != null) {
+                        lastReinitializedFleetCount = FactionFleetDoctrines.reinitializeSectorWideDivisionLists(Global.getSector());
+                        reinitPromptState = 2;
                     } else {
+                        pendingReinitOnGameLoad = true;
                         lastReinitializedFleetCount = 0;
+                        reinitPromptState = 3;
                     }
-                    reinitPromptState = 2;
                     promptStateTimestampMs = nowMs;
                 }
             }
 
-            if ((reinitPromptState == 1 || reinitPromptState == 2) && (nowMs - promptStateTimestampMs) > 6000L) {
+            if ((reinitPromptState == 1 || reinitPromptState == 2 || reinitPromptState == 3)
+                    && (nowMs - promptStateTimestampMs) > 6000L) {
                 reinitPromptState = 0;
             }
 
@@ -202,9 +225,11 @@ public class DivisionAISettings {
                     textColor = Misc.getHighlightColor();
                     borderColor = Misc.getHighlightColor();
                 } else if (reinitPromptState == 2) {
-                    labelStr = (Global.getSector() != null)
-                            ? ("Reinitialized (" + lastReinitializedFleetCount + " fleets)!")
-                            : "Load a campaign save first";
+                    labelStr = "Reinitialized (" + lastReinitializedFleetCount + " fleets)!";
+                    textColor = Misc.getPositiveHighlightColor();
+                    borderColor = Misc.getPositiveHighlightColor();
+                } else if (reinitPromptState == 3) {
+                    labelStr = "Queued for Campaign Load!";
                     textColor = Misc.getPositiveHighlightColor();
                     borderColor = Misc.getPositiveHighlightColor();
                 } else {

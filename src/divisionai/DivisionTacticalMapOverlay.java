@@ -7,6 +7,7 @@ import com.fs.starfarer.api.combat.CombatUIAPI;
 import com.fs.starfarer.api.combat.FogOfWarAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
+import com.fs.starfarer.api.graphics.SpriteAPI;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.Fonts;
 import com.fs.starfarer.api.ui.LabelAPI;
@@ -26,9 +27,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Renders the Command Window (Tab) Tactical Map Division Overlay:
@@ -138,6 +141,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private MethodHandle mapGetIconHandle = null;
     private MethodHandle iconRenderSpriteHandle = null;
     private MethodHandle iconRenderBarsHandle = null;
+    private MethodHandle iconGetRadiusHandle = null;
 
     public DivisionTacticalMapOverlay(CombatEngineAPI engine) {
         this.engine = engine;
@@ -210,6 +214,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     iconClass,
                     "\u00d200000",
                     MethodType.methodType(void.class, boolean.class, float.class, float.class));
+            try {
+                this.iconGetRadiusHandle = lookup.findVirtual(
+                        iconClass,
+                        "super",
+                        MethodType.methodType(float.class, float.class));
+            } catch (Throwable ignored) {
+                this.iconGetRadiusHandle = null;
+            }
 
             UIPanelAPI warroomPanel = (UIPanelAPI) wr;
             CustomPanelAPI custom = Global.getSettings().createCustom(0f, 0f, this);
@@ -316,6 +328,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         // 4. Re-render Warroom Ship Sprites & Status Bars on the TOP LAYER above division polygons
         renderShipSpritesOnTopLayer(renderedPolys, scale, offsetX, offsetY, fade);
+
+        // 4b. Render Fleet Flagship (gold star) and Division Flagship (silver star) badges on the upper-right corner of their ship icons
+        renderFlagshipStarsOnTopLayer(playerFog, scale, offsetX, offsetY, fade);
 
         // 5. Render division labels anchored to the division entity itself
         for (RenderedDivisionPolygon rp : renderedPolys) {
@@ -552,6 +567,191 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             GL11.glPopMatrix();
             GL11.glPopAttrib();
         }
+    }
+
+    /**
+     * Renders a gold star on the upper-right corner of the Fleet flagship(s) (player fleet flagship,
+     * allied fleet flagship(s), enemy fleet flagship(s)) and a silver star on the upper-right corner
+     * of every Division flagship in the Tab Command Window.
+     */
+    private void renderFlagshipStarsOnTopLayer(
+            FogOfWarAPI playerFog,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade) {
+        if (engine == null) return;
+
+        SpriteAPI goldStar = null;
+        SpriteAPI silverStar = null;
+        try {
+            goldStar = Global.getSettings().getSprite("division_ai", "star_gold");
+            silverStar = Global.getSettings().getSprite("division_ai", "star_silver");
+        } catch (Throwable ignored) {
+            return;
+        }
+        if (goldStar == null && silverStar == null) return;
+
+        Set<ShipAPI> fleetFlagships = resolveFleetFlagships(playerFog);
+        Set<ShipAPI> divisionFlagships = resolveDivisionFlagships(playerFog, fleetFlagships);
+        if (fleetFlagships.isEmpty() && divisionFlagships.isEmpty()) return;
+
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glPushMatrix();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+        try {
+            if (silverStar != null) {
+                for (ShipAPI ship : divisionFlagships) {
+                    renderShipCornerStar(ship, silverStar, scale, offsetX, offsetY, fade);
+                }
+            }
+            if (goldStar != null) {
+                for (ShipAPI ship : fleetFlagships) {
+                    renderShipCornerStar(ship, goldStar, scale, offsetX, offsetY, fade);
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            GL11.glPopMatrix();
+            GL11.glPopAttrib();
+        }
+    }
+
+    private void renderShipCornerStar(
+            ShipAPI ship,
+            SpriteAPI starSprite,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade) {
+        if (ship == null || !ship.isAlive() || ship.getLocation() == null) return;
+
+        float iconRadiusPx = 0f;
+        if (mapDisplayInstance != null && mapGetIconHandle != null && iconGetRadiusHandle != null) {
+            try {
+                Object icon = mapGetIconHandle.invoke(mapDisplayInstance, (Object) ship);
+                if (icon != null) {
+                    iconRadiusPx = (float) iconGetRadiusHandle.invoke(icon, scale);
+                }
+            } catch (Throwable ignored) {
+                iconRadiusPx = 0f;
+            }
+        }
+        float zoom = clamp(scale * 1000f / 75f, 0.65f, 1.65f);
+        if (iconRadiusPx <= 2f) {
+            iconRadiusPx = Math.max(12f * zoom, ship.getCollisionRadius() * 1.1f * scale + 75f * scale);
+        }
+
+        float sx = ship.getLocation().x * scale + (float) ((int) offsetX);
+        float sy = ship.getLocation().y * scale + (float) ((int) offsetY);
+
+        // Place star on the upper-right corner of the warroom ship icon box
+        float cornerOffset = Math.max(iconRadiusPx * 0.60f, 9.0f * zoom);
+        float starX = (float) Math.round(sx + cornerOffset);
+        float starY = (float) Math.round(sy + cornerOffset);
+        float starSize = (float) (Math.round(clamp(13.0f * zoom, 10.0f, 18.0f) * 0.5f) * 2);
+
+        starSprite.setSize(starSize, starSize);
+        starSprite.setColor(Color.WHITE);
+        starSprite.setAlphaMult(Math.min(1f, fade * 0.96f));
+        starSprite.setAngle(0f);
+        starSprite.renderAtCenter(starX, starY);
+    }
+
+    public Set<ShipAPI> resolveFleetFlagships(FogOfWarAPI playerFog) {
+        Set<ShipAPI> result = new HashSet<>();
+        if (engine == null) return result;
+
+        boolean hasPlayerFleetFlag = false;
+        boolean hasAlliedFleetFlag = false;
+        boolean hasEnemyFleetFlag = false;
+
+        ShipAPI playerPiloted = engine.getPlayerShip();
+        for (ShipAPI s : engine.getShips()) {
+            if (!isEligibleCommandMapShip(s, playerFog)) continue;
+            boolean isDesignatedFlag = (s == playerPiloted)
+                    || (s.getFleetMember() != null && s.getFleetMember().isFlagship());
+            if (isDesignatedFlag) {
+                result.add(s);
+                if (s.getOwner() == 0 && !s.isAlly()) hasPlayerFleetFlag = true;
+                else if (s.getOwner() == 0 && s.isAlly()) hasAlliedFleetFlag = true;
+                else if (s.getOwner() == 1) hasEnemyFleetFlag = true;
+            }
+        }
+
+        // Fallback for custom/skirmish/simulator battles or when a fleet's campaign flagship isn't marked via FleetMemberAPI.isFlagship()
+        if (!hasPlayerFleetFlag) {
+            ShipAPI fallback = resolveFallbackBattleGroupFlagship(playerGroup, 0, false, playerFog);
+            if (fallback != null) result.add(fallback);
+        }
+        if (!hasAlliedFleetFlag) {
+            ShipAPI fallback = resolveFallbackBattleGroupFlagship(alliedAiGroup, 0, true, playerFog);
+            if (fallback != null) result.add(fallback);
+        }
+        if (!hasEnemyFleetFlag) {
+            ShipAPI fallback = resolveFallbackBattleGroupFlagship(enemyGroup, 1, false, playerFog);
+            if (fallback != null) result.add(fallback);
+        }
+        return result;
+    }
+
+    private ShipAPI resolveFallbackBattleGroupFlagship(
+            BattleGroupState group,
+            int owner,
+            boolean isAlly,
+            FogOfWarAPI playerFog) {
+        if (group == null) return null;
+        if (group.otc != null && group.otc.person != null && !group.otc.person.isDefault()) {
+            for (ShipAPI s : engine.getShips()) {
+                if (!isEligibleCommandMapShip(s, playerFog)) continue;
+                if (s.getOwner() != owner || s.isAlly() != isAlly) continue;
+                if (s.getCaptain() == group.otc.person) {
+                    return s;
+                }
+            }
+        }
+        ShipAPI bestFlag = null;
+        float bestFp = -1f;
+        for (DivisionState div : group.divisions) {
+            List<ShipAPI> alive = div.getAliveMembers();
+            if (alive.isEmpty()) continue;
+            ShipAPI flag = resolveActiveFlagship(div, alive);
+            if (flag == null || !isEligibleCommandMapShip(flag, playerFog)) continue;
+            float fp = ShipCapabilityProfile.resolveShipFpStrength(flag);
+            if (fp > bestFp) {
+                bestFp = fp;
+                bestFlag = flag;
+            }
+        }
+        return bestFlag;
+    }
+
+    public Set<ShipAPI> resolveDivisionFlagships(FogOfWarAPI playerFog, Set<ShipAPI> fleetFlagships) {
+        Set<ShipAPI> result = new HashSet<>();
+        BattleGroupState[] groups = new BattleGroupState[] { playerGroup, alliedAiGroup, enemyGroup };
+        for (BattleGroupState group : groups) {
+            if (group == null || group.divisions.isEmpty()) continue;
+            for (DivisionState div : group.divisions) {
+                List<ShipAPI> alive = div.getAliveMembers();
+                if (alive.isEmpty()) continue;
+                ShipAPI flag = resolveActiveFlagship(div, alive);
+                if (flag == null || !isEligibleCommandMapShip(flag, playerFog)) continue;
+                if (fleetFlagships == null || !fleetFlagships.contains(flag)) {
+                    result.add(flag);
+                }
+            }
+        }
+        return result;
+    }
+
+    private static boolean isEligibleCommandMapShip(ShipAPI s, FogOfWarAPI playerFog) {
+        if (s == null || !s.isAlive() || s.isHulk() || s.isExpired() || s.isRetreating()) return false;
+        if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) return false;
+        if (s.getOwner() == 1 && !isEnemyShipVisibleOnCommandMap(s, playerFog)) return false;
+        return true;
     }
 
     /**

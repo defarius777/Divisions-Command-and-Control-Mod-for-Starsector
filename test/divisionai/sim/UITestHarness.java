@@ -67,6 +67,7 @@ public class UITestHarness {
         auditDeploymentWindowGeometry(res);
         auditFleetDoctrineWindowAndOtcLayout(res);
         auditV067FeaturesAndQAPass(res);
+        auditV068IconsReinitAndFlagshipStars(res);
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);
 
@@ -278,6 +279,78 @@ public class UITestHarness {
                         luddicPathCfg.isPlayEnabled(OtcPlay.MARTYRDOM),
                         luddicChurchCfg.isPlayEnabled(OtcPlay.MARTYRDOM),
                         hegemonyCfg.isPlayEnabled(OtcPlay.MARTYRDOM)));
+    }
+
+    private static void auditV068IconsReinitAndFlagshipStars(UIAuditResult res) throws Exception {
+        File modIcon = new File("mod/icon.png");
+        File regIcon = new File("mod/graphics/icons/icon_regular.png");
+        File goldStarIcon = new File("mod/graphics/icons/icon_gold-star.png");
+        File goldWingIcon = new File("mod/graphics/icons/icon_gold-wing.png");
+        File silverStar = new File("mod/graphics/icons/star_silver.png");
+        File goldStar = new File("mod/graphics/icons/star_gold.png");
+        File lunaCfg = new File("mod/data/config/LunaSettingsConfig.json");
+        File settingsJson = new File("mod/data/config/settings.json");
+
+        String lunaCfgStr = lunaCfg.exists() ? new String(Files.readAllBytes(lunaCfg.toPath()), StandardCharsets.UTF_8) : "";
+        String settingsStr = settingsJson.exists() ? new String(Files.readAllBytes(settingsJson.toPath()), StandardCharsets.UTF_8) : "";
+
+        boolean iconsRegistered = modIcon.exists() && modIcon.length() > 100
+                && regIcon.exists() && regIcon.length() > 100
+                && goldStarIcon.exists() && goldStarIcon.length() > 100
+                && goldWingIcon.exists() && goldWingIcon.length() > 100
+                && silverStar.exists() && silverStar.length() > 100
+                && goldStar.exists() && goldStar.length() > 100
+                && lunaCfgStr.contains("\"iconPath\": \"graphics/icons/icon_regular.png\"")
+                && settingsStr.contains("\"icon_regular\": \"graphics/icons/icon_regular.png\"")
+                && settingsStr.contains("\"icon_gold-star\": \"graphics/icons/icon_gold-star.png\"")
+                && settingsStr.contains("\"icon_gold-wing\": \"graphics/icons/icon_gold-wing.png\"")
+                && settingsStr.contains("\"star_silver\": \"graphics/icons/star_silver.png\"")
+                && settingsStr.contains("\"star_gold\": \"graphics/icons/star_gold.png\"");
+
+        res.record(
+                iconsRegistered,
+                "v0.6.8 Mod Icon & Sprite Registration: icon_regular in mod/icon.png + LunaSettingsConfig.json + settings.json",
+                "all 6 PNG sprites present and registered in settings.json + LunaSettingsConfig.json");
+
+        String settingsJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionAISettings.java").toPath()), StandardCharsets.UTF_8);
+        String combatPluginJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionAICombatPlugin.java").toPath()), StandardCharsets.UTF_8);
+        boolean reinitFixed = settingsJava.contains("foundBtn.isSelected()")
+                && settingsJava.contains("foundBtn.unselect()")
+                && settingsJava.contains("consumePendingReinitOnGameLoad")
+                && combatPluginJava.contains("DivisionAISettings.advanceLunaSettingsReinitButton()");
+
+        res.record(
+                reinitFixed,
+                "v0.6.8 LunaSettings Reinitialize Button: handles non-regular button selection clicks in Campaign & Title Screen",
+                "foundBtn.isSelected() + foundBtn.unselect() + Title Screen queue verified");
+
+        String injJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionFleetTabInjector.java").toPath()), StandardCharsets.UTF_8);
+        int starImgPos = injJava.indexOf("tt.addImage(starIconPath");
+        int docBtnPos = injJava.lastIndexOf("\"Fleet Doctrine\"");
+        int wingImgPos = injJava.indexOf("tt.addImage(wingIconPath");
+        int orgBtnPos = injJava.lastIndexOf("\"Fleet Organization\"");
+        boolean fleetIconsOk = injJava.contains("\"icon_gold-star\"")
+                && injJava.contains("\"icon_gold-wing\"")
+                && starImgPos > 0 && starImgPos < docBtnPos
+                && wingImgPos > docBtnPos && wingImgPos < orgBtnPos;
+
+        res.record(
+                fleetIconsOk,
+                "v0.6.8 Fleet Screen Button Icons: icon_gold-star next to 'Fleet Doctrine' and icon_gold-wing next to 'Fleet Organization'",
+                "starImg->Fleet Doctrine and wingImg->Fleet Organization layout verified");
+
+        String overlayJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()), StandardCharsets.UTF_8);
+        boolean tabStarsOk = overlayJava.contains("renderFlagshipStarsOnTopLayer")
+                && overlayJava.contains("resolveFleetFlagships")
+                && overlayJava.contains("resolveDivisionFlagships")
+                && overlayJava.contains("\"star_gold\"")
+                && overlayJava.contains("\"star_silver\"")
+                && overlayJava.contains("!fleetFlagships.contains(flag)");
+
+        res.record(
+                tabStarsOk,
+                "v0.6.8 Tab Command Screen Flagship Stars: silver star on Division flagships & gold star on Fleet flagship(s) upper-right corner",
+                "renderFlagshipStarsOnTopLayer + gold-over-silver precedence verified");
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {

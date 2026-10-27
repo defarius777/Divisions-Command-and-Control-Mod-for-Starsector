@@ -200,10 +200,25 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
 
         float btnW = autoAssignButton.getPosition().getWidth();
         float btnH = autoAssignButton.getPosition().getHeight();
-        float panelH = btnH * 2f + 8f;
+        float rowGap = 6f;
+        float panelH = btnH * 2f + rowGap + 2f;
+        float iconW = 38f;
+        float iconH = btnH;
+        float iconGap = 6f;
+        float actionBtnW = Math.max(140f, btnW - iconW - iconGap);
+
+        String starIconPath = Global.getSettings().getSpriteName("division_ai", "icon_gold-star");
+        String wingIconPath = Global.getSettings().getSpriteName("division_ai", "icon_gold-wing");
 
         injectedButtonPanel = Global.getSettings().createCustom(btnW, panelH, new BaseCustomUIPanelPlugin());
         TooltipMakerAPI tt = injectedButtonPanel.createUIElement(btnW, panelH, false);
+
+        tt.addImage(starIconPath, iconW, iconH, 0f);
+        UIComponentAPI starIconComp = tt.getPrev();
+        if (starIconComp != null) {
+            starIconComp.getPosition().inTL(5f, 0f);
+        }
+
         fleetDoctrineButton = tt.addButton(
                 "Fleet Doctrine",
                 "OPEN_FLEET_DOCTRINE",
@@ -211,9 +226,18 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 Misc.getDarkPlayerColor(),
                 Alignment.MID,
                 CutStyle.TL_BR,
-                btnW,
+                actionBtnW,
                 btnH,
                 0f);
+        fleetDoctrineButton.getPosition().inTL(5f + iconW + iconGap, 0f);
+
+        float row2Y = btnH + rowGap;
+        tt.addImage(wingIconPath, iconW, iconH, 0f);
+        UIComponentAPI wingIconComp = tt.getPrev();
+        if (wingIconComp != null) {
+            wingIconComp.getPosition().inTL(5f, row2Y);
+        }
+
         divisionEditorButton = tt.addButton(
                 "Fleet Organization",
                 "OPEN_DIVISION_EDITOR",
@@ -221,9 +245,11 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 Misc.getDarkPlayerColor(),
                 Alignment.MID,
                 CutStyle.TL_BR,
-                btnW,
+                actionBtnW,
                 btnH,
-                6f);
+                0f);
+        divisionEditorButton.getPosition().inTL(5f + iconW + iconGap, row2Y);
+
         injectedButtonPanel.addUIElement(tt).inTL(-5f, 0f);
 
         // Compute top-left Y offset below "Auto-assign idle officers" (and below AoTD's "Talk to your officers" if present)
