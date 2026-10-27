@@ -1,4 +1,12 @@
 fieldID,fieldName,fieldType,defaultValue,secondaryValue,fieldDescription,minValue,maxValue,tab
+divai_chatterModeHeader,Combat Log Chatter Mode,Header,Combat Log Chatter Verbosity,,,,,
+divai_chatter_verbosity,Chatter Verbosity,Radio,Verbose,"Verbose, Standard, Minimal, OTC Only, Off","Controls how much C2 chatter is shown on the in-game HUD combat feed (starsector.log always records 100% of verbose telemetry):
+- Verbose: All enabled signals with full tactical reason suffixes and opening division formation lines.
+- Standard: Concise 1-line messages (no parenthetical reason clutter), skips opening formation spam and routine re-targeting, and uses longer HUD cooldowns.
+- Minimal: Only OTC phase/order signals and critical friendly division plays (Time-on-Target strikes, crisis relief, hauling out to vent).
+- OTC Only: Only Battle Group Commander (OTC) phase and order signals; mutes individual division chatter on screen.
+- Off: Mutes all on-screen C2 HUD chatter.",,,
+,,,,,,,,
 divai_friendlyHeader,Friendly Command Signals,Header,Friendly Command Signals in the Combat Log,,,,,
 divai_friendly_bg_chatter,Friendly OTC Signals,Boolean,true,,"Show the friendly Battle Group Commander's (Officer in Tactical Command) phase and order signals in the on-screen combat log. All events are still written to starsector.log.",,,
 divai_friendly_div_chatter,Friendly Division Signals,Boolean,true,,"Show friendly single-division intents in the on-screen combat log.",,,

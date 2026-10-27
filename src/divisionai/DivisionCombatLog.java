@@ -36,6 +36,54 @@ public class DivisionCombatLog {
         }
     }
 
+    private static Color safeBrightPlayerColor() {
+        try {
+            if (Global.getSettings() != null) return Misc.getBrightPlayerColor();
+        } catch (Throwable ignored) {
+        }
+        return new Color(110, 230, 145);
+    }
+
+    private static Color safePositiveHighlightColor() {
+        try {
+            if (Global.getSettings() != null) return Misc.getPositiveHighlightColor();
+        } catch (Throwable ignored) {
+        }
+        return new Color(110, 230, 145);
+    }
+
+    private static Color safeNegativeHighlightColor() {
+        try {
+            if (Global.getSettings() != null) return Misc.getNegativeHighlightColor();
+        } catch (Throwable ignored) {
+        }
+        return new Color(255, 100, 100);
+    }
+
+    private static Color safeHighlightColor() {
+        try {
+            if (Global.getSettings() != null) return Misc.getHighlightColor();
+        } catch (Throwable ignored) {
+        }
+        return new Color(255, 215, 90);
+    }
+
+    private static Color safeTextColor() {
+        try {
+            if (Global.getSettings() != null) return Misc.getTextColor();
+        } catch (Throwable ignored) {
+        }
+        return new Color(225, 235, 245);
+    }
+
+    private static Color safeGrayColor() {
+        try {
+            if (Global.getSettings() != null) return Misc.getGrayColor();
+        } catch (Throwable ignored) {
+        }
+        return new Color(155, 165, 175);
+    }
+
     public static void logDivisionFormed(CombatEngineAPI engine, DivisionState div, float now) {
         if (div == null) return;
         List<ShipAPI> alive = div.getAliveMembers();
@@ -69,14 +117,18 @@ public class DivisionCombatLog {
                 div.commander.personalityId);
         emitLogLine(now, text);
 
-        // Show friendly division formations in the HUD log if friendly division chatter is enabled
+        // Show friendly division formations in the HUD log only in Verbose mode when friendly division chatter is enabled
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
-        if (ui != null && div.side == 0 && DivisionAISettings.isDivisionSignalsEnabled(div.side)) {
-            Color divColor = Misc.getBrightPlayerColor();
-            Color textColor = Misc.getTextColor();
-            Color hlColor = Misc.getHighlightColor();
+        DivisionAISettings.ChatterVerbosity verbosity = DivisionAISettings.getChatterVerbosity();
+        if (ui != null
+                && verbosity == DivisionAISettings.ChatterVerbosity.VERBOSE
+                && div.side == 0
+                && DivisionAISettings.isDivisionSignalsEnabled(div.side)) {
+            Color divColor = safeBrightPlayerColor();
+            Color textColor = safeTextColor();
+            Color hlColor = safeHighlightColor();
             if (div.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
-                ui.addMessage(1, Misc.getNegativeHighlightColor(), "ERROR");
+                ui.addMessage(1, safeNegativeHighlightColor(), "ERROR");
             } else {
                 ui.addMessage(
                         1,
@@ -146,18 +198,35 @@ public class DivisionCombatLog {
                 sideTag, battleGroup.otc.personalityId, battleGroup.currentPhase.displayName, directiveSummary));
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
-        if (ui != null && DivisionAISettings.isOtcSignalsEnabled(battleGroup.side)) {
-            Color prefixColor = (battleGroup.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
-            Color textColor = Misc.getTextColor();
-            Color hlColor = Misc.getHighlightColor();
-            if (battleGroup.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
-                ui.addMessage(1, Misc.getNegativeHighlightColor(), sideTag + " ERROR");
-            } else {
-                ui.addMessage(
-                        1,
-                        prefixColor, sideTag + " ",
-                        hlColor, battleGroup.currentPhase.displayName,
-                        textColor, " — " + directiveSummary);
+        DivisionAISettings.ChatterVerbosity verbosity = DivisionAISettings.getChatterVerbosity();
+        if (ui != null
+                && verbosity != DivisionAISettings.ChatterVerbosity.OFF
+                && DivisionAISettings.isOtcSignalsEnabled(battleGroup.side)) {
+            boolean phaseChanged = (battleGroup.lastOtcHudPhase != battleGroup.currentPhase);
+            float hudCooldown = (verbosity == DivisionAISettings.ChatterVerbosity.VERBOSE)
+                    ? MIN_OTC_LOG_INTERVAL
+                    : (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL ? 30f : 20f);
+            boolean allowHud = true;
+            if (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL && battleGroup.side != 0 && !phaseChanged) {
+                allowHud = false;
+            } else if (!phaseChanged && (now - battleGroup.lastOtcHudLogTime) < hudCooldown) {
+                allowHud = false;
+            }
+            if (allowHud) {
+                battleGroup.lastOtcHudLogTime = now;
+                battleGroup.lastOtcHudPhase = battleGroup.currentPhase;
+                Color prefixColor = (battleGroup.side == 0) ? safePositiveHighlightColor() : safeNegativeHighlightColor();
+                Color textColor = safeTextColor();
+                Color hlColor = safeHighlightColor();
+                if (battleGroup.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
+                    ui.addMessage(1, safeNegativeHighlightColor(), sideTag + " ERROR");
+                } else {
+                    ui.addMessage(
+                            1,
+                            prefixColor, sideTag + " ",
+                            hlColor, battleGroup.currentPhase.displayName,
+                            textColor, " - " + directiveSummary);
+                }
             }
         }
     }
@@ -174,15 +243,25 @@ public class DivisionCombatLog {
                 sideTag, battleGroup.otc.personalityId, battleGroup.authority.shortName, orderText));
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
-        if (ui != null && DivisionAISettings.isOtcSignalsEnabled(battleGroup.side)) {
-            Color prefixColor = (battleGroup.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
+        DivisionAISettings.ChatterVerbosity verbosity = DivisionAISettings.getChatterVerbosity();
+        if (ui != null
+                && verbosity != DivisionAISettings.ChatterVerbosity.OFF
+                && DivisionAISettings.isOtcSignalsEnabled(battleGroup.side)) {
+            if (verbosity != DivisionAISettings.ChatterVerbosity.VERBOSE
+                    && orderText.startsWith("No division free to reinforce")) {
+                return;
+            }
+            if (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL && battleGroup.side != 0) {
+                return;
+            }
+            Color prefixColor = (battleGroup.side == 0) ? safePositiveHighlightColor() : safeNegativeHighlightColor();
             if (battleGroup.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
-                ui.addMessage(1, Misc.getNegativeHighlightColor(), sideTag + " ERROR");
+                ui.addMessage(1, safeNegativeHighlightColor(), sideTag + " ERROR");
             } else {
                 ui.addMessage(
                         1,
                         prefixColor, sideTag + " ",
-                        Misc.getTextColor(), orderText);
+                        safeTextColor(), orderText);
             }
         }
     }
@@ -247,17 +326,32 @@ public class DivisionCombatLog {
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
         if (ui != null && DivisionAISettings.shouldShowIntentOnHud(div.side, div.currentIntent)) {
+            DivisionAISettings.ChatterVerbosity verbosity = DivisionAISettings.getChatterVerbosity();
+            if (verbosity != DivisionAISettings.ChatterVerbosity.VERBOSE) {
+                float minHudGap = (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL) ? 18.0f : 14.0f;
+                boolean sameIntentAsLastHud = (div.lastHudIntent == div.currentIntent);
+                if (div.lastHudAnnouncementTime > 0f && (now - div.lastHudAnnouncementTime) < minHudGap) {
+                    return;
+                }
+                if (sameIntentAsLastHud && (now - div.lastHudAnnouncementTime) < 32.0f) {
+                    return;
+                }
+            }
+            div.lastHudAnnouncementTime = now;
+            div.lastHudIntent = div.currentIntent;
+
             if (div.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
-                ui.addMessage(1, Misc.getNegativeHighlightColor(), "ERROR");
+                ui.addMessage(1, safeNegativeHighlightColor(), "ERROR");
                 return;
             }
-            Color actorColor = (div.side == 0) ? Misc.getBrightPlayerColor() : Misc.getNegativeHighlightColor();
+            Color actorColor = (div.side == 0) ? safeBrightPlayerColor() : safeNegativeHighlightColor();
             Color targetColor = resolveTargetColor(div, cleanTarget);
-            Color textColor = Misc.getTextColor();
-            Color grayColor = Misc.getGrayColor();
+            Color textColor = safeTextColor();
+            Color grayColor = safeGrayColor();
+            boolean showReasonOnHud = (verbosity == DivisionAISettings.ChatterVerbosity.VERBOSE) && !reasonSuffix.isEmpty();
 
             if (!cleanTarget.isEmpty()) {
-                if (!reasonSuffix.isEmpty()) {
+                if (showReasonOnHud) {
                     ui.addMessage(
                             1,
                             actorColor, "\"" + actorName + "\"",
@@ -273,27 +367,34 @@ public class DivisionCombatLog {
                             textColor, ".");
                 }
             } else {
-                ui.addMessage(
-                        1,
-                        actorColor, "\"" + actorName + "\"",
-                        textColor, " intends to " + div.currentIntent.verbPhrase,
-                        grayColor, reasonSuffix + ".");
+                if (showReasonOnHud) {
+                    ui.addMessage(
+                            1,
+                            actorColor, "\"" + actorName + "\"",
+                            textColor, " intends to " + div.currentIntent.verbPhrase,
+                            grayColor, reasonSuffix + ".");
+                } else {
+                    ui.addMessage(
+                            1,
+                            actorColor, "\"" + actorName + "\"",
+                            textColor, " intends to " + div.currentIntent.verbPhrase + ".");
+                }
             }
         }
     }
 
     private static Color resolveTargetColor(DivisionState actor, String targetLabel) {
         if (targetLabel.startsWith("Enemy ")) {
-            return Misc.getNegativeHighlightColor();
+            return safeNegativeHighlightColor();
         }
         if (actor.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION
                 || actor.currentIntent == DivisionIntentType.REINFORCE_DIVISION
                 || actor.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT) {
-            return (actor.side == 0) ? Misc.getPositiveHighlightColor() : Misc.getNegativeHighlightColor();
+            return (actor.side == 0) ? safePositiveHighlightColor() : safeNegativeHighlightColor();
         }
         if (actor.currentIntent == DivisionIntentType.TAKE_AND_HOLD) {
-            return Misc.getHighlightColor();
+            return safeHighlightColor();
         }
-        return (actor.side == 0) ? Misc.getNegativeHighlightColor() : Misc.getBrightPlayerColor();
+        return (actor.side == 0) ? safeNegativeHighlightColor() : safeBrightPlayerColor();
     }
 }

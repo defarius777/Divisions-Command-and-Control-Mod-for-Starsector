@@ -2,8 +2,11 @@ package divisionai.sim;
 
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
+import divisionai.DivisionAISettings;
+import divisionai.DivisionCombatLog;
 import divisionai.DivisionDeploymentDialogOrganizer;
 import divisionai.DivisionEditorDialog;
+import divisionai.DivisionModel;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionState;
@@ -88,6 +91,7 @@ public class UITestHarness {
         auditV068IconsReinitAndFlagshipStars(res);
         auditV069StarsAutoAssignSchemesPolygonsAndRename(res);
         auditV070PlayerFactionSyncLowerRightStarsForceAndNomenclatures(res);
+        auditChatterVerbosityModes(res);
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);
 
@@ -961,5 +965,130 @@ public class UITestHarness {
                 out.println("<div class='ship-cell empty'></div>");
             }
         }
+    }
+
+    private static void auditChatterVerbosityModes(UIAuditResult res) throws Exception {
+        String lunaCsv = new String(Files.readAllBytes(new File("mod/data/config/LunaSettings.csv").toPath()), StandardCharsets.UTF_8);
+        boolean csvHasRadio = lunaCsv.contains("divai_chatter_verbosity,Chatter Verbosity,Radio,Verbose,\"Verbose, Standard, Minimal, OTC Only, Off\"");
+
+        int[] hudCounts = new int[DivisionAISettings.ChatterVerbosity.values().length];
+        int[] logCounts = new int[DivisionAISettings.ChatterVerbosity.values().length];
+        boolean[] hasParentheticalReasonOnHud = new boolean[DivisionAISettings.ChatterVerbosity.values().length];
+
+        try {
+            DivisionAISettings.ChatterVerbosity[] modes = DivisionAISettings.ChatterVerbosity.values();
+            for (int mIdx = 0; mIdx < modes.length; mIdx++) {
+                DivisionAISettings.testVerbosityOverride = modes[mIdx];
+                final List<String> hudLines = new ArrayList<>();
+                final List<String> logLines = new ArrayList<>();
+                DivisionCombatLog.simLogSink = logLines;
+
+                final com.fs.starfarer.api.combat.CombatUIAPI mockUi = (com.fs.starfarer.api.combat.CombatUIAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatUIAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatUIAPI.class},
+                        (p, method, args) -> {
+                            if ("addMessage".equals(method.getName()) && args != null) {
+                                StringBuilder sb = new StringBuilder();
+                                for (Object a : args) {
+                                    if (a instanceof String) {
+                                        sb.append((String) a);
+                                    } else if (a instanceof Object[]) {
+                                        for (Object sub : (Object[]) a) {
+                                            if (sub instanceof String) sb.append((String) sub);
+                                        }
+                                    }
+                                }
+                                hudLines.add(sb.toString());
+                                return null;
+                            }
+                            Class<?> rt = method.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+
+                final float[] simTime = new float[]{1.0f};
+                com.fs.starfarer.api.combat.CombatEngineAPI mockEngine = (com.fs.starfarer.api.combat.CombatEngineAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatEngineAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatEngineAPI.class},
+                        (p, method, args) -> {
+                            if ("getCombatUI".equals(method.getName())) return mockUi;
+                            if ("getTotalElapsedTime".equals(method.getName())) return simTime[0];
+                            Class<?> rt = method.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+
+                DivisionModel.CommanderProfile cmdr = new DivisionModel.CommanderProfile(null, "steady");
+                DivisionModel.BattleGroupState friendlyBg = new DivisionModel.BattleGroupState(0, cmdr);
+                friendlyBg.currentPhase = DivisionModel.BattlePhase.GENERAL_ENGAGEMENT;
+
+                DivisionModel.DivisionState friendlyDiv = new DivisionModel.DivisionState(
+                        "f_div_1", 0, 1, DivisionModel.DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", cmdr);
+                friendlyDiv.members.add(createMockDropletShip("s1", HullSize.CRUISER, 0f, 0f));
+
+                DivisionModel.DivisionState enemyDiv = new DivisionModel.DivisionState(
+                        "e_div_1", 1, 1, DivisionModel.DivisionArchetype.CRUISER_DIVISION, "Enemy Div 1", cmdr);
+                enemyDiv.members.add(createMockDropletShip("e1", HullSize.CRUISER, 1000f, 0f));
+
+                // 1) Opening division formation at t=1.0s
+                DivisionCombatLog.logDivisionFormed(mockEngine, friendlyDiv, 1.0f);
+                // 2) OTC Phase signal at t=2.0s
+                DivisionCombatLog.logOtcSignal(mockEngine, friendlyBg, "Line of battle formed", 2.0f);
+                // 3) OTC no-op notice at t=3.0s
+                simTime[0] = 3.0f;
+                DivisionCombatLog.logOtcOrder(mockEngine, friendlyBg, "No division free to reinforce \"Cruiser Div 1\"");
+                // 4) OTC active strike order at t=4.0s
+                simTime[0] = 4.0f;
+                DivisionCombatLog.logOtcOrder(mockEngine, friendlyBg, "Time-on-target strike: 1 division to marshal");
+                // 5) Routine CLOSE_UP intent at t=6.0s
+                friendlyDiv.currentIntent = DivisionModel.DivisionIntentType.CLOSE_UP;
+                DivisionCombatLog.logDivisionIntent(mockEngine, friendlyDiv, "", "station keeping", 6.0f);
+                // 6) Friendly CLOSE_AND_ENGAGE at t=15.0s
+                friendlyDiv.currentIntent = DivisionModel.DivisionIntentType.CLOSE_AND_ENGAGE;
+                DivisionCombatLog.logDivisionIntent(mockEngine, friendlyDiv, "Enemy Div 1", "Opening: Standoff Engagement", 15.0f);
+                // 7) Rapid target swap on same CLOSE_AND_ENGAGE intent at t=20.0s
+                DivisionCombatLog.logDivisionIntent(mockEngine, friendlyDiv, "Enemy Div 2", "Opening: Standoff Engagement", 20.0f);
+                // 8) Enemy single-division CLOSE_AND_ENGAGE at t=22.0s
+                enemyDiv.currentIntent = DivisionModel.DivisionIntentType.CLOSE_AND_ENGAGE;
+                DivisionCombatLog.logDivisionIntent(mockEngine, enemyDiv, "Cruiser Div 1", "aggressiveness 0.65", 22.0f);
+                // 9) Critical friendly TOT_MISSILE_STRIKE at t=40.0s
+                friendlyDiv.currentIntent = DivisionModel.DivisionIntentType.TOT_MISSILE_STRIKE;
+                DivisionCombatLog.logDivisionIntent(mockEngine, friendlyDiv, "Enemy Div 1", "synchronized salvo", 40.0f);
+
+                hudCounts[mIdx] = hudLines.size();
+                logCounts[mIdx] = logLines.size();
+                for (String h : hudLines) {
+                    if (h.contains("(Opening:") || h.contains("(synchronized salvo)")) {
+                        hasParentheticalReasonOnHud[mIdx] = true;
+                    }
+                }
+            }
+        } finally {
+            DivisionAISettings.testVerbosityOverride = null;
+            DivisionCombatLog.simLogSink = null;
+        }
+
+        // Order: 0=VERBOSE, 1=STANDARD, 2=MINIMAL, 3=OTC_ONLY, 4=OFF
+        boolean allLogsPreserved = (logCounts[0] == 9 && logCounts[1] == 9 && logCounts[2] == 9 && logCounts[3] == 9 && logCounts[4] == 9);
+        boolean monotonicReduction = (hudCounts[0] == 9)
+                && (hudCounts[1] == 4) // OTC signal + OTC active order + 1st CLOSE_AND_ENGAGE + TOT_MISSILE_STRIKE
+                && (hudCounts[2] == 3) // OTC signal + OTC active order + TOT_MISSILE_STRIKE
+                && (hudCounts[3] == 2) // OTC signal + OTC active order only
+                && (hudCounts[4] == 0); // Off = 0 HUD lines
+        boolean reasonsStrippedInNonVerbose = hasParentheticalReasonOnHud[0]
+                && !hasParentheticalReasonOnHud[1]
+                && !hasParentheticalReasonOnHud[2];
+
+        res.record(
+                csvHasRadio && allLogsPreserved && monotonicReduction && reasonsStrippedInNonVerbose,
+                "Combat Chatter Verbosity modes (Verbose, Standard, Minimal, OTC Only, Off) in Mod Settings",
+                String.format(
+                        Locale.ROOT,
+                        "csvHasRadio=%b, starsectorLogLines=%d across all modes, hudLines=[Verbose=%d, Standard=%d, Minimal=%d, OTC Only=%d, Off=%d], conciseNoReasonInStandard=%b",
+                        csvHasRadio, logCounts[0], hudCounts[0], hudCounts[1], hudCounts[2], hudCounts[3], hudCounts[4], reasonsStrippedInNonVerbose));
     }
 }

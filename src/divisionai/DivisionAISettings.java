@@ -26,6 +26,35 @@ public class DivisionAISettings {
 
     public static final String MOD_ID = "division_ai";
     public static final String REINIT_FIELD_ID = "divai_reinit_sector_divisions";
+    public static final String CHATTER_VERBOSITY_FIELD_ID = "divai_chatter_verbosity";
+
+    public enum ChatterVerbosity {
+        VERBOSE("Verbose"),
+        STANDARD("Standard"),
+        MINIMAL("Minimal"),
+        OTC_ONLY("OTC Only"),
+        OFF("Off");
+
+        public final String displayName;
+
+        ChatterVerbosity(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public static ChatterVerbosity fromSettingString(String raw) {
+            if (raw == null) return VERBOSE;
+            String trimmed = raw.trim();
+            for (ChatterVerbosity v : values()) {
+                if (v.displayName.equalsIgnoreCase(trimmed) || v.name().equalsIgnoreCase(trimmed)) {
+                    return v;
+                }
+            }
+            return VERBOSE;
+        }
+    }
+
+    /** Optional override used by headless unit tests (null in normal gameplay). */
+    public static ChatterVerbosity testVerbosityOverride = null;
 
     private static Object trackedReinitButton = null;
     private static boolean lastObservedButtonValue = false;
@@ -45,7 +74,13 @@ public class DivisionAISettings {
     }
 
     private static boolean isLunaLibEnabled() {
-        return Global.getSettings().getModManager().isModEnabled("lunalib");
+        try {
+            return Global.getSettings() != null
+                    && Global.getSettings().getModManager() != null
+                    && Global.getSettings().getModManager().isModEnabled("lunalib");
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private static boolean getBool(String key, boolean defaultVal) {
@@ -65,6 +100,50 @@ public class DivisionAISettings {
             return val != null ? val : defaultVal;
         } catch (Throwable t) {
             return defaultVal;
+        }
+    }
+
+    private static String getString(String key, String defaultVal) {
+        if (!isLunaLibEnabled()) return defaultVal;
+        try {
+            String val = LunaSettings.getString(MOD_ID, key);
+            return val != null ? val : defaultVal;
+        } catch (Throwable t) {
+            return defaultVal;
+        }
+    }
+
+    public static ChatterVerbosity getChatterVerbosity() {
+        if (testVerbosityOverride != null) {
+            return testVerbosityOverride;
+        }
+        return ChatterVerbosity.fromSettingString(getString(CHATTER_VERBOSITY_FIELD_ID, ChatterVerbosity.VERBOSE.displayName));
+    }
+
+    public static boolean isCriticalDivisionIntent(DivisionIntentType intent) {
+        if (intent == null) return false;
+        switch (intent) {
+            case TOT_MISSILE_STRIKE:
+            case LAUNCH_ALPHA_STRIKE:
+            case LAUNCH_DECKLOAD_STRIKE:
+            case REINFORCE_DIVISION:
+            case HAUL_OUT_TO_VENT:
+            case BREAK_OFF_AND_RETIRE:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public static boolean isRoutineNoisyIntent(DivisionIntentType intent) {
+        if (intent == null) return true;
+        switch (intent) {
+            case CLOSE_UP:
+            case HOLD_IN_RESERVE:
+            case FLY_ARMED_RECONNAISSANCE:
+                return true;
+            default:
+                return false;
         }
     }
 
@@ -88,10 +167,25 @@ public class DivisionAISettings {
 
     public static boolean shouldShowIntentOnHud(int side, DivisionIntentType intent) {
         if (intent == null) return false;
-        if (isMultiDivisionIntent(intent)) {
-            return isMultiDivisionSignalsEnabled(side);
+        ChatterVerbosity verbosity = getChatterVerbosity();
+        if (verbosity == ChatterVerbosity.OFF || verbosity == ChatterVerbosity.OTC_ONLY) {
+            return false;
         }
-        return isDivisionSignalsEnabled(side);
+        if (isMultiDivisionIntent(intent)) {
+            if (!isMultiDivisionSignalsEnabled(side)) return false;
+        } else {
+            if (!isDivisionSignalsEnabled(side)) return false;
+        }
+        if (verbosity == ChatterVerbosity.MINIMAL) {
+            // In Minimal mode, only show critical friendly division plays on the HUD
+            return side == 0 && isCriticalDivisionIntent(intent);
+        }
+        if (verbosity == ChatterVerbosity.STANDARD) {
+            // In Standard mode, suppress routine cohesion/station-keeping spam and routine enemy single-division chatter
+            if (isRoutineNoisyIntent(intent)) return false;
+            if (side != 0 && !isMultiDivisionIntent(intent)) return false;
+        }
+        return true;
     }
 
     /**

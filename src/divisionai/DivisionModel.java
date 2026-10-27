@@ -387,6 +387,8 @@ public class DivisionModel {
         public float lastIntentChangeTime = -100f;
         public float lastLogAnnouncementTime = -100f;
         public String lastLoggedSignature = "";
+        public float lastHudAnnouncementTime = -100f;
+        public DivisionIntentType lastHudIntent = null;
         public float strikeCommittedTimestamp = -100f;
         public float lastBreakOffTimestamp = -100f;
         public boolean isDesignatedReserve = false;
@@ -458,6 +460,8 @@ public class DivisionModel {
         public float lastOtcEvaluationTime = -100f;
         public float lastOtcSignalLogTime = -100f;
         public String lastOtcSignalSignature = "";
+        public float lastOtcHudLogTime = -100f;
+        public BattlePhase lastOtcHudPhase = null;
 
         // Battle Group orchestration (configured in Fleet Doctrine for the player; defaults for AI battlegroups)
         public PermanentDivisionManager.OtcAuthority authority =
