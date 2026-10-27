@@ -7,6 +7,7 @@ import com.fs.starfarer.api.combat.CombatFleetManagerAPI;
 import com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo;
 import com.fs.starfarer.api.combat.CombatTaskManagerAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
+import com.fs.starfarer.api.combat.ShipAIPlugin;
 import com.fs.starfarer.api.combat.ShipwideAIFlags;
 import com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags;
 import divisionai.DivisionModel.BattlePhase;
@@ -23,6 +24,9 @@ import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.LineStation;
 import org.lwjgl.util.vector.Vector2f;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.List;
 
 /**
@@ -49,6 +53,13 @@ public class DivisionCommanderAI {
 
     private static final float STRIKE_WINDOW_DURATION = 14.0f;
     private static final float FLAG_TTL = 0.85f;
+
+    private static boolean resolvedBasicAiHandles = false;
+    private static Class<?> basicShipAiClass = null;
+    private static Class<?> shipAiWrapperClass = null;
+    private static Class<?> obfShipClass = null;
+    private static MethodHandle unwrapAiHandle = null;
+    private static MethodHandle setTargetOverrideHandle = null;
 
     public static void evaluateAndExecuteDivisions(
             CombatEngineAPI engine,
@@ -1205,16 +1216,24 @@ public class DivisionCommanderAI {
             float now) {
 
         switch (div.currentIntent) {
-                case FORM_LINE_AND_FIX:
-                    // Hold the fixing position and fight from it; no chasing, but no backing off either
+                case FORM_LINE_AND_FIX: {
+                    // Hold the fixing position and fight from it; once in gun range, let StrafeTargetManeuverV2
+                    // fight unimpeded unless the ship has drifted far from its line station.
                     flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+                    float distToEnemy = (focusEnemyShip != null)
+                            ? distance(ship.getLocation(), focusEnemyShip.getLocation())
+                            : Float.MAX_VALUE;
+                    float distToSlot = distance(ship.getLocation(), slotPos);
+                    boolean inActiveGunRange = distToEnemy <= Math.max(1550f, div.standoffRange * 1.30f);
                     if (focusEnemyShip != null) {
                         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
                     }
-                    if (distance(ship.getLocation(), slotPos) > Math.max(450f, div.stationSpacing * 0.8f) || crowdedByPeer) {
+                    if ((!inActiveGunRange && (distToSlot > Math.max(450f, div.stationSpacing * 0.8f) || crowdedByPeer))
+                            || distToSlot > Math.max(920f, div.stationSpacing * 1.65f)) {
                         flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
                     }
                     break;
+                }
 
                 case MARSHAL_FOR_STRIKE:
                     // Move to the staging point and wait for strike time; carriers hold their strike craft back
@@ -1273,14 +1292,19 @@ public class DivisionCommanderAI {
                         if (focusEnemyShip != null) {
                             directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
                             flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, focusEnemyShip.getLocation());
+                            if (distance(ship.getLocation(), focusEnemyShip.getLocation()) > 420f) {
+                                flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, focusEnemyShip.getLocation());
+                            }
                         } else if (div.targetEnemyDivision != null) {
                             flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, div.stationPoint);
+                            flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, div.stationPoint);
                         }
                         break;
                     }
                     if (focusEnemyShip != null) {
                         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
-                        if (distance(ship.getLocation(), focusEnemyShip.getLocation()) > 2100f || crowdedByPeer) {
+                        // Do not set CAMP_LOCATION on crowdedByPeer once in gun range, so StrafeTargetManeuverV2 stays active
+                        if (distance(ship.getLocation(), focusEnemyShip.getLocation()) > 2100f) {
                             flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
                         }
                     } else if (div.targetEnemyDivision != null) {
@@ -1299,14 +1323,19 @@ public class DivisionCommanderAI {
                     flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                     // Use spaced picket formation slots ahead/flank of the screened division instead of
                     // ESCORT_OTHER_SHIP on the flagship (which caused frigates to ball up on the battle line)
-                    if (distance(ship.getLocation(), slotPos) > Math.max(260f, div.stationSpacing * 0.55f) || crowdedByPeer) {
-                        flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
-                    } else if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 1650f) {
+                    if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 1650f) {
                         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
+                    }
+                    if (distance(ship.getLocation(), slotPos) > Math.max(260f, div.stationSpacing * 0.55f)
+                            || (crowdedByPeer && (focusEnemyShip == null || distance(ship.getLocation(), focusEnemyShip.getLocation()) > 1400f))) {
+                        flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
                     }
                     break;
 
                 case REINFORCE_DIVISION:
+                    if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 1750f) {
+                        directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
+                    }
                     if (div.targetFriendlyDivision != null && div.targetFriendlyDivision.shipNeedingHelp != null
                             && div.targetFriendlyDivision.shipNeedingHelp.isAlive()
                             && shipIdx == 0) {
@@ -1316,13 +1345,26 @@ public class DivisionCommanderAI {
                     }
                     break;
 
-                case WORK_FLANK:
+                case WORK_FLANK: {
+                    float distToEnemy = (focusEnemyShip != null)
+                            ? distance(ship.getLocation(), focusEnemyShip.getLocation())
+                            : Float.MAX_VALUE;
+                    float distToSlot = distance(ship.getLocation(), slotPos);
+                    if (focusEnemyShip != null && !div.hasRouteWaypoint && distToEnemy < 1850f) {
+                        directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
+                    }
+                    if (div.hasRouteWaypoint
+                            || distToSlot > Math.max(320f, div.stationSpacing * 0.65f)
+                            || (crowdedByPeer && distToEnemy > 1450f)) {
+                        flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
+                    }
+                    break;
+                }
+
                 case TAKE_AND_HOLD:
                 case HOLD_IN_RESERVE:
                     if (distance(ship.getLocation(), slotPos) > Math.max(320f, div.stationSpacing * 0.65f) || crowdedByPeer) {
                         flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
-                    } else if (focusEnemyShip != null && div.currentIntent == DivisionIntentType.WORK_FLANK) {
-                        directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
                     }
                     break;
 
@@ -1388,27 +1430,24 @@ public class DivisionCommanderAI {
                         flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                         flags.setFlag(AIFlags.ESCORT_OTHER_SHIP, FLAG_TTL, div.flagship);
                     } else if (standoffPosture && focusEnemyShip != null) {
+                        flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
                         float distToEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
                         if (distToEnemy < div.standoffRange * 0.85f) {
                             flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
-                            flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                             flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
-                        } else if (distToEnemy > div.standoffRange * 1.18f || crowdedByPeer) {
-                            flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+                        } else if (distToEnemy > div.standoffRange * 1.18f) {
                             flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
-                        }
-                    } else if (crowdedByPeer) {
-                        flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
-                        if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 2600f) {
-                            directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
                         }
                     } else if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 2600f) {
                         if (activeMission == DivisionMissionType.CLOSE_ACTION) {
                             flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
                         }
                         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
-                    } else if (div.targetEnemyDivision != null && distance(ship.getLocation(), slotPos) > 950f) {
+                        if (crowdedByPeer && distance(ship.getLocation(), focusEnemyShip.getLocation()) > 1650f) {
+                            flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
+                        }
+                    } else if (div.targetEnemyDivision != null && (distance(ship.getLocation(), slotPos) > 950f || crowdedByPeer)) {
                         flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
                     }
                     break;
@@ -1503,9 +1542,62 @@ public class DivisionCommanderAI {
             flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 1.5f, focusEnemyShip);
         }
         ShipAPI currTarget = ship.getShipTarget();
-        if (currTarget == null || !currTarget.isAlive() || currTarget.isHulk()
-                || distance(ship.getLocation(), focusEnemyShip.getLocation()) + 250f < distance(ship.getLocation(), currTarget.getLocation())) {
+        float distFocus = distance(ship.getLocation(), focusEnemyShip.getLocation());
+        boolean preferFocus = currTarget == null
+                || !currTarget.isAlive()
+                || currTarget.isHulk()
+                || distFocus + 250f < distance(ship.getLocation(), currTarget.getLocation());
+        if (preferFocus) {
             ship.setShipTarget(focusEnemyShip);
+        }
+        if (distFocus <= 2200f && (preferFocus || distFocus <= distance(ship.getLocation(), currTarget.getLocation()) + 450f)) {
+            applyBasicShipAiTargetOverride(ship, focusEnemyShip);
+        }
+    }
+
+    /**
+     * Sets BasicShipAI.setTargetOverride(Ship) via MethodHandles so BasicShipAI.pickManeuver()
+     * (lines 790, 867) directs StrafeTargetManeuverV2 onto the division's focus target instead of
+     * immediately overwriting ship.getShipTarget() with an uncoordinated local pick.
+     */
+    private static void applyBasicShipAiTargetOverride(ShipAPI ship, ShipAPI focusEnemyShip) {
+        if (ship == null || focusEnemyShip == null) return;
+        ShipAIPlugin ai = ship.getShipAI();
+        if (ai == null) return;
+
+        if (!resolvedBasicAiHandles) {
+            resolvedBasicAiHandles = true;
+            try {
+                ClassLoader cl = ai.getClass().getClassLoader();
+                basicShipAiClass = Class.forName("com.fs.starfarer.combat.ai.BasicShipAI", false, cl);
+                shipAiWrapperClass = Class.forName("com.fs.starfarer.combat.entities.Ship$ShipAIWrapper", false, cl);
+                obfShipClass = Class.forName("com.fs.starfarer.combat.entities.Ship", false, cl);
+                MethodHandles.Lookup lookup = MethodHandles.lookup();
+                unwrapAiHandle = lookup.findVirtual(
+                        shipAiWrapperClass,
+                        "getAI",
+                        MethodType.methodType(ShipAIPlugin.class));
+                setTargetOverrideHandle = lookup.findVirtual(
+                        basicShipAiClass,
+                        "setTargetOverride",
+                        MethodType.methodType(void.class, obfShipClass));
+            } catch (Throwable ignored) {
+                setTargetOverrideHandle = null;
+            }
+        }
+
+        if (setTargetOverrideHandle == null || obfShipClass == null || !obfShipClass.isInstance(focusEnemyShip)) {
+            return;
+        }
+        try {
+            Object targetAi = ai;
+            if (shipAiWrapperClass != null && shipAiWrapperClass.isInstance(targetAi) && unwrapAiHandle != null) {
+                targetAi = unwrapAiHandle.invoke(targetAi);
+            }
+            if (basicShipAiClass != null && basicShipAiClass.isInstance(targetAi)) {
+                setTargetOverrideHandle.invoke(targetAi, focusEnemyShip);
+            }
+        } catch (Throwable ignored) {
         }
     }
 

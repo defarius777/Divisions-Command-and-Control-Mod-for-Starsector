@@ -435,21 +435,33 @@ public class DivisionAITestSuite {
 
         boolean pressedHome = false;
         boolean everBackedOffOrHauledOut = false;
+        boolean sawMartyrCampClose = false;
+        boolean hegLineKeptStrafeUnimpeded = false;
         for (int s = 0; s < 10; s++) {
             v1.fluxLevel = 0.82f;
             v2.fluxLevel = 0.82f;
             lpArena.runSimulation(1.0f);
             if (lpDiv.currentIntent == DivisionIntentType.PRESS_HOME) {
                 pressedHome = true;
+                if (v1.location.length() > 450f && v1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION)) {
+                    sawMartyrCampClose = true;
+                }
+            }
+            if (hegDiv.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX
+                    || hegDiv.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE) {
+                if (v1.location.length() <= 1150f && v1.location.length() >= 750f) {
+                    hegLineKeptStrafeUnimpeded = true;
+                }
             }
             if (lpDiv.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
                     || lpDiv.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT) {
                 everBackedOffOrHauledOut = true;
             }
         }
-        check(pressedHome && !everBackedOffOrHauledOut,
+        check(pressedHome && !everBackedOffOrHauledOut && sawMartyrCampClose && hegLineKeptStrafeUnimpeded,
                 "Luddic Path Martyrdom division executes point-blank PRESS_HOME charge without backing off or hauling out at 82% flux",
-                "pressedHome=" + pressedHome + ", everBackedOffOrHauledOut=" + everBackedOffOrHauledOut + ", finalDist=" + Math.round(v1.location.length()) + "u");
+                "pressedHome=" + pressedHome + ", sawMartyrCampClose=" + sawMartyrCampClose
+                        + ", everBackedOffOrHauledOut=" + everBackedOffOrHauledOut + ", finalDist=" + Math.round(v1.location.length()) + "u");
     }
 
     /**
