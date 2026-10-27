@@ -1301,10 +1301,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float effectiveAlpha = basePolyAlpha * rp.cohesionAlphaMult;
         float centerAlpha = Math.min(0.18f, effectiveAlpha * 0.72f);
         float edgeAlpha = Math.min(0.13f, effectiveAlpha * 0.50f);
-        float borderAlpha = Math.min(0.62f, effectiveAlpha * 1.65f);
 
-        // 1. Triangulate the droplet contour via Ear-Clipping so narrow-waisted hourglass / figure-8
-        //    water droplets (pinched down to a tiny point of contact) fill cleanly without fan-ray bleed
+        // Triangulate the droplet contour via Ear-Clipping so narrow-waisted hourglass / figure-8
+        // water droplets (pinched down to a tiny point of contact) fill cleanly without fan-ray bleed
         List<int[]> triangles = triangulatePolygonCCW(poly);
         if (!triangles.isEmpty()) {
             GL11.glBegin(GL11.GL_TRIANGLES);
@@ -1331,19 +1330,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             GL11.glVertex2f(first.x, first.y);
             GL11.glEnd();
         }
-
-        // 2. Soft fluid perimeter contour (fades smoothly to transparent when cohesion is low)
-        GL11.glLineWidth(rp.isEnemy ? 1.4f : 1.8f);
-        GL11.glColor4f(
-                Math.min(1f, rp.cr + 0.15f),
-                Math.min(1f, rp.cg + 0.15f),
-                Math.min(1f, rp.cb + 0.15f),
-                borderAlpha);
-        GL11.glBegin(GL11.GL_LINE_LOOP);
-        for (Vector2f v : poly) {
-            GL11.glVertex2f(v.x, v.y);
-        }
-        GL11.glEnd();
     }
 
     /**
@@ -1733,15 +1719,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         GL11.glEnd();
                     }
                 }
-
-                // Crisp border around the overlapping zone
-                GL11.glLineWidth(2.0f);
-                GL11.glColor4f(1.0f, 1.0f, 1.0f, stripeAlphaA * 0.85f);
-                GL11.glBegin(GL11.GL_LINE_LOOP);
-                for (Vector2f v : intersection) {
-                    GL11.glVertex2f(v.x, v.y);
-                }
-                GL11.glEnd();
             }
         }
     }

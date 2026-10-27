@@ -719,16 +719,6 @@ public class UITestHarness {
                         inwardGashViolations++;
                     }
                 }
-
-                Path2D p = new Path2D.Float();
-                for (int i = 0; i < disp.size(); i++) {
-                    if (i == 0) p.moveTo(disp.get(i).x, disp.get(i).y);
-                    else p.lineTo(disp.get(i).x, disp.get(i).y);
-                }
-                p.closePath();
-                g.setColor(new Color(80, 255, 140, 220));
-                g.setStroke(new BasicStroke(2.0f));
-                g.draw(p);
             }
 
             for (ShipAPI s : members) {
