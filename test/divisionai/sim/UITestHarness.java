@@ -534,6 +534,19 @@ public class UITestHarness {
                 itemDOk,
                 "v0.7.0 Item D: All cultural & faction nomenclatures have dedicated entries for all capability & hull divisions",
                 "presetsVerified=" + presetsToVerify.length + "x" + DivisionArchetype.values().length + ", missing=" + missingPresetEntries);
+
+        // Water-droplet tiniest-point-of-contact joining & splitting + ear-clipping hourglass triangulation
+        boolean dropletKissOk = overlayJava.contains("smoothedBondOpennessByPairKey")
+                && overlayJava.contains("resolvePairBondOpenness")
+                && overlayJava.contains("distToKissPx")
+                && overlayJava.contains("pinchAtSaddle = minPinch + (0.96f - minPinch) * (1.0f - openness)")
+                && overlayJava.contains("subdivideLongEdgesScreen")
+                && overlayJava.contains("triangulatePolygonCCW")
+                && overlayJava.contains("deconflictPrimaryDivisionLabels");
+        res.record(
+                dropletKissOk,
+                "v0.7.0 Water-Droplet Tiniest-Point-of-Contact Joining/Splitting & Ear-Clipped Hourglass Fill",
+                "P_kiss meniscus tip + 0.02f->0.96f spine waist pinch + ear-clipping GL_TRIANGLES + label de-confliction");
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {

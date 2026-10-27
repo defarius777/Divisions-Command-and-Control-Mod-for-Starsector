@@ -55,7 +55,7 @@ import java.util.Set;
 public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
     private static final Logger LOG = Global.getLogger(DivisionTacticalMapOverlay.class);
-    private static final int HULL_SAMPLE_POINTS_PER_SHIP = 16;
+    private static final int HULL_SAMPLE_POINTS_PER_SHIP = 24;
     private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1350f;
     private static final float STRIPE_WIDTH_PX = 12.0f;
     private static final float STRIPE_PERIOD_PX = STRIPE_WIDTH_PX * 2.0f;
@@ -76,6 +76,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final List<Vector2f> polyScreen;        // CCW smooth convex polygon in screen pixels (for clipping)
         final List<Vector2f> displayPolyScreen; // Star-convex metaball/water-drop contour in screen pixels (for rendering)
         final Vector2f centerScreen;            // Droplet entity center in screen pixels
+        float labelX;                           // De-conflicted label X in screen pixels
+        float labelY;                           // De-conflicted label Y in screen pixels
         final float minX;
         final float maxX;
         final float minY;
@@ -108,6 +110,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             this.polyScreen = polyScreen;
             this.displayPolyScreen = displayPolyScreen != null ? displayPolyScreen : polyScreen;
             this.centerScreen = centerScreen;
+            this.labelX = centerScreen != null ? centerScreen.x : 0f;
+            this.labelY = centerScreen != null ? centerScreen.y : 0f;
             this.cr = cr;
             this.cg = cg;
             this.cb = cb;
@@ -138,6 +142,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private final Map<String, Float> smoothedCohesionByDivId = new HashMap<>();
     private final Map<String, Vector2f> smoothedBracketDirByDivId = new HashMap<>();
     private final Map<String, Set<String>> stickyConnectedPairsByDivId = new HashMap<>();
+    private final Map<String, Float> smoothedBondOpennessByPairKey = new HashMap<>();
 
     private boolean attachedToWarroom = false;
     private boolean loggedHookFailure = false;
@@ -339,7 +344,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         // 4b. Render Fleet Flagship (gold star, upper-right) and Division Leader (silver star, bottom-right) badges
         renderFlagshipStarsOnTopLayer(playerFog, scale, offsetX, offsetY, fade);
 
-        // 5. Render division labels anchored to the primary division droplet entity
+        // 5. De-conflict and render division labels anchored to the primary division droplet entity
+        deconflictPrimaryDivisionLabels(renderedPolys);
         for (RenderedDivisionPolygon rp : renderedPolys) {
             if (rp.isPrimaryDroplet) {
                 renderDivisionEntityLabel(rp, fade);
@@ -434,6 +440,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
                 Vector2f centerScreen = computePolygonCentroid(polyScreen);
                 List<Vector2f> displayPolyScreen = applyMetaballNeckPinchScreen(
+                        div,
                         polyScreen,
                         centerScreen,
                         dropletMembers,
@@ -495,11 +502,26 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float mergeDist = Math.max(baseSpacing * 1.95f, ra + rb + 280f);
                 float splitDist = mergeDist * 1.50f;
                 String key = canonicalPairKey(a.getId(), b.getId());
+                String bondKey = divId + ":" + key;
                 boolean wasConnected = prevPairs.contains(key);
                 boolean connectedNow = wasConnected ? (dist <= splitDist) : (dist <= mergeDist);
                 if (connectedNow) {
                     adj[i][j] = true;
                     adj[j][i] = true;
+                    float fullOpenDist = ra + rb + 80f;
+                    float tOpen = clamp(1.0f - (dist - fullOpenDist) / Math.max(1f, splitDist - fullOpenDist), 0.02f, 1.0f);
+                    float geomOpenness = Math.max(0.02f, tOpen * tOpen);
+                    Float prevOpen = smoothedBondOpennessByPairKey.get(bondKey);
+                    float nextOpen;
+                    if (!wasConnected || prevOpen == null) {
+                        // Start newly joined droplets at the tiniest point of contact (2% openness) so there is zero popping
+                        nextOpen = 0.02f;
+                    } else {
+                        nextOpen = prevOpen + (geomOpenness - prevOpen) * 0.16f;
+                    }
+                    smoothedBondOpennessByPairKey.put(bondKey, clamp(nextOpen, 0.02f, 1.0f));
+                } else {
+                    smoothedBondOpennessByPairKey.remove(bondKey);
                 }
             }
         }
@@ -586,10 +608,30 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         return (float) Math.sqrt(sumSq / n);
     }
 
+    public float resolvePairBondOpenness(DivisionState div, ShipAPI a, ShipAPI b) {
+        if (a == null || b == null) return 1.0f;
+        String divId = (div != null && div.id != null) ? div.id : "default_div";
+        String bondKey = divId + ":" + canonicalPairKey(a.getId(), b.getId());
+        Float smoothed = smoothedBondOpennessByPairKey.get(bondKey);
+        if (smoothed != null) {
+            return clamp(smoothed, 0.02f, 1.0f);
+        }
+        float baseSpacing = (div != null && div.stationSpacing > 0f) ? div.stationSpacing : 450f;
+        float ra = getMemberFootprintRadiusWorld(a);
+        float rb = getMemberFootprintRadiusWorld(b);
+        float dist = distance(a.getLocation(), b.getLocation());
+        float mergeDist = Math.max(baseSpacing * 1.95f, ra + rb + 280f);
+        float splitDist = mergeDist * 1.50f;
+        float fullOpenDist = ra + rb + 80f;
+        float tOpen = clamp(1.0f - (dist - fullOpenDist) / Math.max(1f, splitDist - fullOpenDist), 0.02f, 1.0f);
+        return Math.max(0.02f, tOpen * tOpen);
+    }
+
     /**
      * Builds a smooth, fluid CCW polygon in screen space around a division droplet's member hulls,
      * including surface-tension metaball attraction toward sibling droplets of the same division
-     * when approaching/splitting so droplets combine and separate like drops of water.
+     * when approaching/splitting so droplets kiss at the tiniest point of contact (P_kiss) and
+     * combine/separate without any popping.
      */
     private List<Vector2f> buildFluidDropletPolygonScreen(
             DivisionState div,
@@ -609,7 +651,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float worldR = getMemberFootprintRadiusWorld(m) * (isLoneDetachedShip ? 0.82f : 1.0f);
             float rPx = clamp(worldR * scale, 14f, 54f);
 
-            // Check if a sibling ship in another droplet of the same division is near the coalescence threshold
+            // Check if a sibling ship in another droplet of the same division is near the coalescence/split threshold
+            // and extend a pointed teardrop meniscus tip toward the exact radius-weighted kissing point P_kiss.
             float pullDirX = 0f;
             float pullDirY = 0f;
             float pullMagPx = 0f;
@@ -621,16 +664,22 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     float dyW = other.getLocation().y - m.getLocation().y;
                     float distW = (float) Math.sqrt(dxW * dxW + dyW * dyW);
                     if (distW < 1e-3f) continue;
-                    float mergeDist = Math.max(baseSpacing * 1.95f, getMemberFootprintRadiusWorld(m) + getMemberFootprintRadiusWorld(other) + 280f);
-                    float attractMaxDist = mergeDist * 1.85f;
+                    float otherWorldR = getMemberFootprintRadiusWorld(other);
+                    float otherRPx = clamp(otherWorldR * scale, 14f, 54f);
+                    float mergeDist = Math.max(baseSpacing * 1.95f, getMemberFootprintRadiusWorld(m) + otherWorldR + 280f);
+                    float splitDist = mergeDist * 1.50f;
+                    float attractMaxDist = splitDist * 1.25f;
                     if (distW < attractMaxDist) {
-                        float t = clamp(1.0f - (distW - mergeDist * 0.85f) / Math.max(1f, attractMaxDist - mergeDist * 0.85f), 0f, 1f);
+                        float t = clamp(1.0f - (distW - mergeDist) / Math.max(1f, attractMaxDist - mergeDist), 0f, 1f);
                         float smooth = t * t * (3f - 2f * t);
                         if (smooth > bestPull) {
                             bestPull = smooth;
                             pullDirX = dxW / distW;
                             pullDirY = dyW / distW;
-                            pullMagPx = Math.min(rPx * 0.85f, Math.max(0f, (distW * scale - rPx) * 0.42f)) * smooth;
+                            float distPx = distW * scale;
+                            float distToKissPx = distPx * (rPx / Math.max(1f, rPx + otherRPx));
+                            float maxTipReachPx = Math.max(0f, distToKissPx - rPx + 0.5f);
+                            pullMagPx = maxTipReachPx * smooth;
                         }
                     }
                 }
@@ -641,10 +690,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float ux = (float) Math.cos(ang);
                 float uy = (float) Math.sin(ang);
                 float extraPull = 0f;
-                if (pullMagPx > 0.5f) {
+                if (pullMagPx > 0.25f) {
                     float dot = ux * pullDirX + uy * pullDirY;
                     if (dot > 0f) {
-                        extraPull = pullMagPx * dot * dot;
+                        // Sharp teardrop meniscus tip peaking along pullDir toward the contact point P_kiss
+                        extraPull = pullMagPx * dot * dot * dot;
                     }
                 }
                 cloud.add(new Vector2f(
@@ -661,19 +711,41 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         return smoothed;
     }
 
-    /**
-     * Applies a smooth metaball waist-pinch to long bridge edges of a stretching multi-ship droplet
-     * while preserving star-convexity around centerScreen so GL_TRIANGLE_FAN renders a fluid
-     * water-droplet contour right before splitting or right after coalescing.
-     */
-    private List<Vector2f> applyMetaballNeckPinchScreen(
+    public List<Vector2f> applyMetaballNeckPinchScreen(
             List<Vector2f> convexPolyScreen,
             Vector2f centerScreen,
             List<ShipAPI> dropletMembers,
             float scale,
             float offsetX,
             float offsetY) {
-        if (dropletMembers == null || dropletMembers.size() <= 1 || convexPolyScreen.size() < 6) {
+        return applyMetaballNeckPinchScreen(
+                null,
+                convexPolyScreen,
+                centerScreen,
+                dropletMembers,
+                scale,
+                offsetX,
+                offsetY);
+    }
+
+    /**
+     * Applies a spine-guided metaball waist-pinch to bridge edges of a multi-ship droplet:
+     *  1. Subdivides long bridge edges so the contour has dense vertices across every inter-ship bridge.
+     *  2. Builds the Minimum Spanning Tree (MST) spine connecting the droplet's ships.
+     *  3. Along each spine bone (a, b), pinches bridge vertices directly toward the spine axis with a
+     *     bell-curve waist centered at the radius-weighted contact point P_kiss = pA + u * sKiss.
+     *  4. At the moment of joining or right before splitting (bondOpenness -> 0.02f), the waist pinches
+     *     to a tiny ~1.5px point of contact at P_kiss so droplets coalesce and split with zero popping.
+     */
+    public List<Vector2f> applyMetaballNeckPinchScreen(
+            DivisionState div,
+            List<Vector2f> convexPolyScreen,
+            Vector2f centerScreen,
+            List<ShipAPI> dropletMembers,
+            float scale,
+            float offsetX,
+            float offsetY) {
+        if (dropletMembers == null || dropletMembers.size() <= 1 || convexPolyScreen.size() < 3) {
             return convexPolyScreen;
         }
         int mCount = dropletMembers.size();
@@ -687,10 +759,48 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             sr[i] = clamp(getMemberFootprintRadiusWorld(s) * scale, 14f, 54f);
         }
 
-        int n = convexPolyScreen.size();
+        // Build the Minimum Spanning Tree (MST) spine of mCount - 1 bones
+        int boneCount = mCount - 1;
+        int[] boneA = new int[boneCount];
+        int[] boneB = new int[boneCount];
+        float[] boneOpenness = new float[boneCount];
+        boolean[] inTree = new boolean[mCount];
+        inTree[0] = true;
+        for (int bIdx = 0; bIdx < boneCount; bIdx++) {
+            int bestFrom = 0;
+            int bestTo = 1;
+            float bestDistSq = Float.MAX_VALUE;
+            for (int i = 0; i < mCount; i++) {
+                if (!inTree[i]) continue;
+                for (int j = 0; j < mCount; j++) {
+                    if (inTree[j]) continue;
+                    float dx = sx[j] - sx[i];
+                    float dy = sy[j] - sy[i];
+                    float dSq = dx * dx + dy * dy;
+                    if (dSq < bestDistSq) {
+                        bestDistSq = dSq;
+                        bestFrom = i;
+                        bestTo = j;
+                    }
+                }
+            }
+            inTree[bestTo] = true;
+            boneA[bIdx] = bestFrom;
+            boneB[bIdx] = bestTo;
+            boneOpenness[bIdx] = resolvePairBondOpenness(
+                    div,
+                    dropletMembers.get(bestFrom),
+                    dropletMembers.get(bestTo));
+        }
+
+        List<Vector2f> denseHull = subdivideLongEdgesScreen(convexPolyScreen, 7.0f);
+        int n = denseHull.size();
         List<Vector2f> pinched = new ArrayList<>(n);
+
         for (int i = 0; i < n; i++) {
-            Vector2f v = convexPolyScreen.get(i);
+            Vector2f v = denseHull.get(i);
+
+            // Check clearance to all member ship disks
             float minClearance = Float.MAX_VALUE;
             for (int j = 0; j < mCount; j++) {
                 float dx = v.x - sx[j];
@@ -700,8 +810,85 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     minClearance = d;
                 }
             }
-            if (minClearance > 6f) {
-                // Vertex lies along an unsupported bridge between separating ships; pinch inward toward centerScreen
+
+            // Find the spine bone whose bridge interval best governs this vertex
+            int bestBone = -1;
+            float bestPerpDist = Float.MAX_VALUE;
+            float bestSpineX = centerScreen.x;
+            float bestSpineY = centerScreen.y;
+            float bestPinchFrac = 0f;
+
+            for (int bIdx = 0; bIdx < boneCount; bIdx++) {
+                int ia = boneA[bIdx];
+                int ib = boneB[bIdx];
+                float ax = sx[ia];
+                float ay = sy[ia];
+                float bx = sx[ib];
+                float by = sy[ib];
+                float ra = sr[ia];
+                float rb = sr[ib];
+
+                float abx = bx - ax;
+                float aby = by - ay;
+                float boneLen = (float) Math.sqrt(abx * abx + aby * aby);
+                if (boneLen < 6f) continue;
+
+                float ux = abx / boneLen;
+                float uy = aby / boneLen;
+                float vx = v.x - ax;
+                float vy = v.y - ay;
+                float s = vx * ux + vy * uy;
+                float perpDist = Math.abs(vx * uy - vy * ux);
+
+                float sKiss = boneLen * (ra / Math.max(1f, ra + rb));
+                float sStart = Math.min(ra * 0.58f, sKiss - 3f);
+                float sEnd = Math.max(boneLen - rb * 0.58f, sKiss + 3f);
+                if (s <= sStart || s >= sEnd) continue;
+
+                // Ensure vertex is not buried inside some third ship disk on a multi-ship droplet
+                boolean insideThirdDisk = false;
+                for (int k = 0; k < mCount; k++) {
+                    if (k == ia || k == ib) continue;
+                    float dkx = v.x - sx[k];
+                    float dky = v.y - sy[k];
+                    if ((dkx * dkx + dky * dky) < (sr[k] * sr[k] * 0.85f)) {
+                        insideThirdDisk = true;
+                        break;
+                    }
+                }
+                if (insideThirdDisk) continue;
+
+                float tau;
+                if (s <= sKiss) {
+                    tau = 0.5f * ((s - sStart) / Math.max(1f, sKiss - sStart));
+                } else {
+                    tau = 0.5f + 0.5f * ((s - sKiss) / Math.max(1f, sEnd - sKiss));
+                }
+                tau = clamp(tau, 0f, 1f);
+                float bell = (float) Math.sin(Math.PI * tau);
+                float psi = bell * bell;
+
+                float openness = boneOpenness[bIdx];
+                float naturalGapRatio = clamp((boneLen - (ra + rb)) / Math.max(1f, ra + rb), 0f, 1.5f);
+                float minPinch = clamp(naturalGapRatio * 0.22f, 0f, 0.24f);
+                // When openness -> 0.02f (moment of joining or splitting), pinchAtSaddle reaches 0.96f (~1.5px contact point)
+                float pinchAtSaddle = minPinch + (0.96f - minPinch) * (1.0f - openness);
+                float candidatePinch = pinchAtSaddle * (float) Math.pow(psi, 1.35);
+
+                if (perpDist < bestPerpDist) {
+                    bestPerpDist = perpDist;
+                    bestBone = bIdx;
+                    bestSpineX = ax + ux * s;
+                    bestSpineY = ay + uy * s;
+                    bestPinchFrac = candidatePinch;
+                }
+            }
+
+            if (bestBone >= 0 && bestPinchFrac > 0.005f) {
+                pinched.add(new Vector2f(
+                        v.x + (bestSpineX - v.x) * bestPinchFrac,
+                        v.y + (bestSpineY - v.y) * bestPinchFrac));
+            } else if (minClearance > 6f) {
                 float pinchFrac = clamp((minClearance - 6f) / 140f, 0f, 0.34f);
                 pinched.add(new Vector2f(
                         v.x + (centerScreen.x - v.x) * pinchFrac,
@@ -711,6 +898,27 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         }
         return chaikinSmoothClosed(pinched);
+    }
+
+    public static List<Vector2f> subdivideLongEdgesScreen(List<Vector2f> poly, float maxEdgeLenPx) {
+        if (poly == null || poly.size() < 3 || maxEdgeLenPx <= 1f) {
+            return poly;
+        }
+        int n = poly.size();
+        List<Vector2f> out = new ArrayList<>(n * 2);
+        for (int i = 0; i < n; i++) {
+            Vector2f p0 = poly.get(i);
+            Vector2f p1 = poly.get((i + 1) % n);
+            float dx = p1.x - p0.x;
+            float dy = p1.y - p0.y;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            int steps = Math.max(1, Math.min(32, (int) Math.ceil(len / maxEdgeLenPx)));
+            for (int s = 0; s < steps; s++) {
+                float t = (float) s / (float) steps;
+                out.add(new Vector2f(p0.x + dx * t, p0.y + dy * t));
+            }
+        }
+        return out;
     }
 
     private void renderSingleDivisionPolygon(
@@ -726,18 +934,34 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float edgeAlpha = Math.min(0.13f, effectiveAlpha * 0.50f);
         float borderAlpha = Math.min(0.62f, effectiveAlpha * 1.65f);
 
-        // 1. Mildly shaded fluid translucent polygon fill
-        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(rp.cr, rp.cg, rp.cb, centerAlpha);
-        GL11.glVertex2f(rp.centerScreen.x, rp.centerScreen.y);
-        GL11.glColor4f(rp.cr, rp.cg, rp.cb, edgeAlpha);
-        for (int i = 0; i < poly.size(); i++) {
-            Vector2f v = poly.get(i);
-            GL11.glVertex2f(v.x, v.y);
+        // 1. Triangulate the droplet contour via Ear-Clipping so narrow-waisted hourglass / figure-8
+        //    water droplets (pinched down to a tiny point of contact) fill cleanly without fan-ray bleed
+        List<int[]> triangles = triangulatePolygonCCW(poly);
+        if (!triangles.isEmpty()) {
+            GL11.glBegin(GL11.GL_TRIANGLES);
+            GL11.glColor4f(rp.cr, rp.cg, rp.cb, (centerAlpha + edgeAlpha) * 0.5f);
+            for (int[] tri : triangles) {
+                Vector2f v0 = poly.get(tri[0]);
+                Vector2f v1 = poly.get(tri[1]);
+                Vector2f v2 = poly.get(tri[2]);
+                GL11.glVertex2f(v0.x, v0.y);
+                GL11.glVertex2f(v1.x, v1.y);
+                GL11.glVertex2f(v2.x, v2.y);
+            }
+            GL11.glEnd();
+        } else {
+            GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+            GL11.glColor4f(rp.cr, rp.cg, rp.cb, centerAlpha);
+            GL11.glVertex2f(rp.centerScreen.x, rp.centerScreen.y);
+            GL11.glColor4f(rp.cr, rp.cg, rp.cb, edgeAlpha);
+            for (int i = 0; i < poly.size(); i++) {
+                Vector2f v = poly.get(i);
+                GL11.glVertex2f(v.x, v.y);
+            }
+            Vector2f first = poly.get(0);
+            GL11.glVertex2f(first.x, first.y);
+            GL11.glEnd();
         }
-        Vector2f first = poly.get(0);
-        GL11.glVertex2f(first.x, first.y);
-        GL11.glEnd();
 
         // 2. Soft fluid perimeter contour (fades smoothly to transparent when cohesion is low)
         GL11.glLineWidth(rp.isEnemy ? 1.4f : 1.8f);
@@ -751,6 +975,69 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             GL11.glVertex2f(v.x, v.y);
         }
         GL11.glEnd();
+    }
+
+    /**
+     * Ear-clipping triangulation of a simple 2D polygon (handles narrow-waisted hourglass and curved metaball contours).
+     */
+    public static List<int[]> triangulatePolygonCCW(List<Vector2f> poly) {
+        int n = poly != null ? poly.size() : 0;
+        if (n < 3) return Collections.emptyList();
+        List<int[]> tris = new ArrayList<>(n - 2);
+        int[] indices = new int[n];
+        float area = 0f;
+        for (int i = 0; i < n; i++) {
+            Vector2f p = poly.get(i);
+            Vector2f q = poly.get((i + 1) % n);
+            area += (p.x * q.y - q.x * p.y);
+        }
+        if (area >= 0f) {
+            for (int i = 0; i < n; i++) indices[i] = i;
+        } else {
+            for (int i = 0; i < n; i++) indices[i] = (n - 1) - i;
+        }
+
+        int nv = n;
+        int guard = 2 * nv + 8;
+        int v = nv - 1;
+        while (nv > 2 && guard-- > 0) {
+            if (v >= nv) v = 0;
+            int u = (v == 0) ? (nv - 1) : (v - 1);
+            int w = (v + 1 >= nv) ? 0 : (v + 1);
+
+            if (isEarVertex(poly, u, v, w, nv, indices)) {
+                tris.add(new int[] { indices[u], indices[v], indices[w] });
+                for (int s = v, t = v + 1; t < nv; s++, t++) {
+                    indices[s] = indices[t];
+                }
+                nv--;
+                guard = 2 * nv + 8;
+            } else {
+                v++;
+            }
+        }
+        return tris;
+    }
+
+    private static boolean isEarVertex(List<Vector2f> poly, int u, int v, int w, int nv, int[] indices) {
+        Vector2f a = poly.get(indices[u]);
+        Vector2f b = poly.get(indices[v]);
+        Vector2f c = poly.get(indices[w]);
+        float crossVal = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        if (crossVal <= 1e-4f) return false;
+        for (int p = 0; p < nv; p++) {
+            if (p == u || p == v || p == w) continue;
+            Vector2f pt = poly.get(indices[p]);
+            if (pointInTriangleCCW(a, b, c, pt)) return false;
+        }
+        return true;
+    }
+
+    private static boolean pointInTriangleCCW(Vector2f a, Vector2f b, Vector2f c, Vector2f p) {
+        float c1 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        float c2 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
+        float c3 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
+        return c1 >= -1e-4f && c2 >= -1e-4f && c3 >= -1e-4f;
     }
 
     /**
@@ -1280,13 +1567,44 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         return false;
     }
 
+    private void deconflictPrimaryDivisionLabels(List<RenderedDivisionPolygon> renderedPolys) {
+        List<RenderedDivisionPolygon> primaries = new ArrayList<>();
+        for (RenderedDivisionPolygon rp : renderedPolys) {
+            if (rp.isPrimaryDroplet) {
+                rp.labelX = rp.centerScreen.x;
+                rp.labelY = rp.centerScreen.y;
+                primaries.add(rp);
+            }
+        }
+        int m = primaries.size();
+        if (m < 2) return;
+        float minDx = 128f;
+        float minDy = 36f;
+        for (int pass = 0; pass < 3; pass++) {
+            for (int i = 0; i < m; i++) {
+                RenderedDivisionPolygon a = primaries.get(i);
+                for (int j = i + 1; j < m; j++) {
+                    RenderedDivisionPolygon b = primaries.get(j);
+                    float dx = b.labelX - a.labelX;
+                    float dy = b.labelY - a.labelY;
+                    if (Math.abs(dx) < minDx && Math.abs(dy) < minDy) {
+                        float overlapY = (minDy - Math.abs(dy)) * 0.52f;
+                        float signY = (dy >= 0f) ? 1f : -1f;
+                        a.labelY -= signY * overlapY;
+                        b.labelY += signY * overlapY;
+                    }
+                }
+            }
+        }
+    }
+
     /**
-     * Renders the division callsign and [INTENT | FLUX] sub-badge centered on the division entity itself.
+     * Renders the division callsign and intent/flux sub-badge centered on the division entity itself.
      */
     private void renderDivisionEntityLabel(RenderedDivisionPolygon rp, float fade) {
         DivisionState div = rp.div;
-        float cx = rp.centerScreen.x;
-        float cy = rp.centerScreen.y;
+        float cx = rp.labelX;
+        float cy = rp.labelY;
 
         DivisionNomenclature.NomenclatureCategory nomCat =
                 div.nomenclatureCategory != null
@@ -1605,7 +1923,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 break;
         }
         int fluxPct = Math.round(div.avgFluxLevel * 100f);
-        return String.format(Locale.ROOT, "%s · %d%%", intentShort, fluxPct);
+        return String.format(Locale.ROOT, "%s - %d%%", intentShort, fluxPct);
     }
 
     private static boolean isEnemyShipVisibleOnCommandMap(ShipAPI ship, FogOfWarAPI playerFog) {
