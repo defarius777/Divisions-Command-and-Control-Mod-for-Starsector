@@ -180,7 +180,15 @@ public class PermanentDivisionManager {
                 "Reserve",
                 "Hold astern until committed by the OTC to reinforce or exploit.",
                 false,
-                LineStation.REAR);
+                LineStation.REAR),
+
+        // Fanatical Martyrdom Mission (Luddic Path & VBIEDs)
+        MARTYRDOM(
+                "Martyrdom",
+                "Martyrdom",
+                "Fanatical point-blank charge: rams or detonates into the enemy without backing off.",
+                false,
+                LineStation.VAN);
 
         public final String dropdownLabel;
         public final String shortName;
@@ -273,6 +281,16 @@ public class PermanentDivisionManager {
                 DivisionMissionType.SCOUTING,
                 DivisionMissionType.ENVELOPMENT,
                 LineStation.VAN),
+        MISSILE_FRIGATE(
+                "Missile Frigate Division",
+                DivisionArchetype.MISSILE_FRIGATE_DIVISION,
+                425,
+                925,
+                1100,
+                1.15f,
+                DivisionMissionType.SCOUTING,
+                DivisionMissionType.STANDOFF_ENGAGEMENT,
+                LineStation.VAN),
         DESTROYER(
                 "Destroyer Division",
                 DivisionArchetype.DESTROYER_DIVISION,
@@ -283,8 +301,18 @@ public class PermanentDivisionManager {
                 DivisionMissionType.SCOUTING,
                 DivisionMissionType.SCREEN,
                 LineStation.CENTER),
+        MISSILE_DESTROYER(
+                "Missile Destroyer Division",
+                DivisionArchetype.MISSILE_DESTROYER_DIVISION,
+                475,
+                1000,
+                1150,
+                1.10f,
+                DivisionMissionType.SCOUTING,
+                DivisionMissionType.STANDOFF_ENGAGEMENT,
+                LineStation.CENTER),
         CRUISER(
-                "Cruiser Division",
+                "Line Cruiser Division",
                 DivisionArchetype.CRUISER_DIVISION,
                 525,
                 1050,
@@ -292,6 +320,16 @@ public class PermanentDivisionManager {
                 1.00f,
                 DivisionMissionType.CLOSE_ACTION,
                 DivisionMissionType.CLOSE_ACTION,
+                LineStation.CENTER),
+        MISSILE_CRUISER(
+                "Missile Cruiser Division",
+                DivisionArchetype.MISSILE_CRUISER_DIVISION,
+                550,
+                1100,
+                1250,
+                1.05f,
+                DivisionMissionType.STANDOFF_ENGAGEMENT,
+                DivisionMissionType.STANDOFF_ENGAGEMENT,
                 LineStation.CENTER),
         STRIKE_CRUISER(
                 "Strike Cruiser Division",
@@ -313,6 +351,16 @@ public class PermanentDivisionManager {
                 DivisionMissionType.CLOSE_ACTION,
                 DivisionMissionType.CLOSE_ACTION,
                 LineStation.VAN),
+        MISSILE_BATTLESHIP(
+                "Missile Battleship Division (Capital)",
+                DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
+                700,
+                1250,
+                1350,
+                1.00f,
+                DivisionMissionType.STANDOFF_ENGAGEMENT,
+                DivisionMissionType.STANDOFF_ENGAGEMENT,
+                LineStation.CENTER),
         FLEET_CARRIER(
                 "Fleet Carrier Division (Capital)",
                 DivisionArchetype.FLEET_CARRIER_DIVISION,
@@ -430,13 +478,20 @@ public class PermanentDivisionManager {
             switch (arch) {
                 case FRIGATE_DIVISION:
                     return FRIGATE;
+                case MISSILE_FRIGATE_DIVISION:
+                    return MISSILE_FRIGATE;
                 case DESTROYER_DIVISION:
-                case MISSILE_DESTROYER_DIVISION:
                     return DESTROYER;
+                case MISSILE_DESTROYER_DIVISION:
+                    return MISSILE_DESTROYER;
+                case MISSILE_CRUISER_DIVISION:
+                    return MISSILE_CRUISER;
                 case STRIKE_CRUISER_DIVISION:
                     return STRIKE_CRUISER;
                 case BATTLESHIP_DIVISION:
                     return BATTLESHIP;
+                case MISSILE_BATTLESHIP_DIVISION:
+                    return MISSILE_BATTLESHIP;
                 case FLEET_CARRIER_DIVISION:
                     return FLEET_CARRIER;
                 case LIGHT_CARRIER_DIVISION:
@@ -612,7 +667,10 @@ public class PermanentDivisionManager {
                 "Missile and carrier divisions marshal and launch synchronized salvos on the focus target."),
         RESERVE_AND_GENERAL_CHASE(
                 "Reserve & General Chase",
-                "Holds reserves to relieve high-flux divisions, then orders fast divisions into pursuit.");
+                "Holds reserves to relieve high-flux divisions, then orders fast divisions into pursuit."),
+        MARTYRDOM(
+                "Martyrdom",
+                "Commits fanatical divisions and VBIED hulls to point-blank ramming and detonation runs.");
 
         public final String displayName;
         public final String summary;
@@ -666,7 +724,11 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, DivisionMissionType> openingMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> mainMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, LineStation> lineStationByType = new LinkedHashMap<>();
-        private final Set<OtcPlay> enabledPlays = EnumSet.allOf(OtcPlay.class);
+        private final Set<OtcPlay> enabledPlays = EnumSet.of(
+                OtcPlay.LINE_AND_FIRE_DISTRIBUTION,
+                OtcPlay.DOUBLING,
+                OtcPlay.TIME_ON_TARGET_STRIKES,
+                OtcPlay.RESERVE_AND_GENERAL_CHASE);
         private OtcAuthority otcAuthority = OtcAuthority.COMMAND_BY_DIRECTION;
         private int openingDurationSeconds = 45;
 
@@ -2046,10 +2108,13 @@ public class PermanentDivisionManager {
         List<FleetMemberAPI> lightCarriers = new ArrayList<>();
         List<FleetMemberAPI> escortCarriers = new ArrayList<>();
         List<FleetMemberAPI> capitals = new ArrayList<>();
+        List<FleetMemberAPI> missileCapitals = new ArrayList<>();
         List<FleetMemberAPI> strikeCruisers = new ArrayList<>();
+        List<FleetMemberAPI> missileCruisers = new ArrayList<>();
         List<FleetMemberAPI> lineCruisers = new ArrayList<>();
         List<FleetMemberAPI> missileDestroyers = new ArrayList<>();
         List<FleetMemberAPI> lineDestroyers = new ArrayList<>();
+        List<FleetMemberAPI> missileFrigates = new ArrayList<>();
         List<FleetMemberAPI> frigates = new ArrayList<>();
         List<FleetMemberAPI> phaseShips = new ArrayList<>();
         List<FleetMemberAPI> auxiliaries = new ArrayList<>();
@@ -2073,8 +2138,14 @@ public class PermanentDivisionManager {
                 case CARRIER_GROUP:
                     escortCarriers.add(m);
                     break;
+                case MISSILE_BATTLESHIP_DIVISION:
+                    missileCapitals.add(m);
+                    break;
                 case BATTLESHIP_DIVISION:
                     capitals.add(m);
+                    break;
+                case MISSILE_CRUISER_DIVISION:
+                    missileCruisers.add(m);
                     break;
                 case STRIKE_CRUISER_DIVISION:
                     strikeCruisers.add(m);
@@ -2088,6 +2159,9 @@ public class PermanentDivisionManager {
                 case DESTROYER_DIVISION:
                     lineDestroyers.add(m);
                     break;
+                case MISSILE_FRIGATE_DIVISION:
+                    missileFrigates.add(m);
+                    break;
                 case FRIGATE_DIVISION:
                 default:
                     frigates.add(m);
@@ -2100,35 +2174,34 @@ public class PermanentDivisionManager {
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.LIGHT_CARRIER_DIVISION, lightCarriers, 3);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.ESCORT_CARRIER_DIVISION, escortCarriers, 4);
 
-        // 2. Battle Divisions
+        // 2. Battle & Missile Battleship Divisions
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, missileCapitals, 2);
         for (int i = 0; i < capitals.size(); i += 2) {
             List<FleetMemberAPI> group = new ArrayList<>();
             group.add(capitals.get(i));
             if (i + 1 < capitals.size()) {
                 group.add(capitals.get(i + 1));
             }
-            if (group.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty()) {
+            if (group.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty() && missileCruisers.isEmpty()) {
                 group.add(lineCruisers.remove(0));
             }
             addBuiltDivision(specs, pdata, DivisionArchetype.BATTLESHIP_DIVISION, group);
         }
 
-        // 3. Cruiser Divisions
+        // 3. Line Cruiser, Missile Cruiser & Strike Cruiser Divisions
         if (strikeCruisers.size() == 1 && !lineCruisers.isEmpty()) {
             lineCruisers.add(strikeCruisers.remove(0));
         }
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_CRUISER_DIVISION, missileCruisers, 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.STRIKE_CRUISER_DIVISION, strikeCruisers, 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.CRUISER_DIVISION, lineCruisers, 4);
 
-        // 4. Destroyer Divisions
-        if (missileDestroyers.size() == 1 && lineDestroyers.size() == 1) {
-            missileDestroyers.addAll(lineDestroyers);
-            lineDestroyers.clear();
-        }
+        // 4. Destroyer & Missile Destroyer Divisions
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_DESTROYER_DIVISION, missileDestroyers, 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.DESTROYER_DIVISION, lineDestroyers, 4);
 
-        // 5. Frigate, Phase, and Auxiliary Divisions
+        // 5. Frigate, Missile Frigate, Phase, and Auxiliary Divisions
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_FRIGATE_DIVISION, missileFrigates, 5);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.FRIGATE_DIVISION, frigates, 5);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.PHASE_DIVISION, phaseShips, 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.SERVICE_GROUP, auxiliaries, 5);
@@ -2357,35 +2430,60 @@ public class PermanentDivisionManager {
         }
 
         int strikeWeaponCount = 0;
+        int missileWeight = 0;
         if (variant != null) {
             for (String slotId : variant.getNonBuiltInWeaponSlots()) {
                 String wId = variant.getWeaponId(slotId);
                 if (wId == null) continue;
                 WeaponSpecAPI wSpec = Global.getSettings().getWeaponSpec(wId);
                 if (wSpec == null) continue;
-                if (wSpec.getType() == WeaponType.MISSILE
-                        && (wSpec.getAIHints().contains(AIHints.STRIKE)
-                        || wSpec.getAIHints().contains(AIHints.DANGEROUS)
-                        || wSpec.getMaxAmmo() > 0 && wSpec.getMaxAmmo() <= 24)) {
-                    strikeWeaponCount++;
+                if (wSpec.getType() == WeaponType.MISSILE) {
+                    switch (wSpec.getSize()) {
+                        case LARGE:
+                            missileWeight += 7;
+                            break;
+                        case MEDIUM:
+                            missileWeight += 3;
+                            break;
+                        case SMALL:
+                        default:
+                            missileWeight += 1;
+                            break;
+                    }
+                    if (wSpec.getAIHints().contains(AIHints.STRIKE)
+                            || wSpec.getAIHints().contains(AIHints.DANGEROUS)
+                            || (wSpec.getMaxAmmo() > 0 && wSpec.getMaxAmmo() <= 24)) {
+                        strikeWeaponCount++;
+                    }
                 }
             }
         }
+        String hullId = (hullSpec != null && hullSpec.getHullId() != null)
+                ? hullSpec.getHullId().toLowerCase()
+                : "";
 
         switch (size) {
             case CAPITAL_SHIP:
-                return DivisionArchetype.BATTLESHIP_DIVISION;
+                return (missileWeight >= 10 || strikeWeaponCount >= 3 || hullId.contains("pegasus"))
+                        ? DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+                        : DivisionArchetype.BATTLESHIP_DIVISION;
             case CRUISER:
-                return (strikeWeaponCount >= 2)
-                        ? DivisionArchetype.STRIKE_CRUISER_DIVISION
-                        : DivisionArchetype.CRUISER_DIVISION;
+                if (missileWeight >= 6 || strikeWeaponCount >= 2 || hullId.contains("gryphon")) {
+                    return DivisionArchetype.MISSILE_CRUISER_DIVISION;
+                }
+                if (member.getStats() != null && member.getStats().getMaxSpeed().getModifiedValue() >= 90f) {
+                    return DivisionArchetype.STRIKE_CRUISER_DIVISION;
+                }
+                return DivisionArchetype.CRUISER_DIVISION;
             case DESTROYER:
-                return (strikeWeaponCount >= 1)
+                return (strikeWeaponCount >= 1 || missileWeight >= 3)
                         ? DivisionArchetype.MISSILE_DESTROYER_DIVISION
                         : DivisionArchetype.DESTROYER_DIVISION;
             case FRIGATE:
             default:
-                return DivisionArchetype.FRIGATE_DIVISION;
+                return (strikeWeaponCount >= 1 || missileWeight >= 2)
+                        ? DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                        : DivisionArchetype.FRIGATE_DIVISION;
         }
     }
 

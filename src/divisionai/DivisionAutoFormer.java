@@ -250,7 +250,9 @@ public class DivisionAutoFormer {
         List<DivisionState> newlyCreated = new ArrayList<>();
         List<ShipCapabilityProfile> carriers = new ArrayList<>();
         List<ShipCapabilityProfile> capitals = new ArrayList<>();
+        List<ShipCapabilityProfile> missileCapitals = new ArrayList<>();
         List<ShipCapabilityProfile> strikeCruisers = new ArrayList<>();
+        List<ShipCapabilityProfile> missileCruisers = new ArrayList<>();
         List<ShipCapabilityProfile> lineCruisers = new ArrayList<>();
         List<ShipCapabilityProfile> missileDestroyers = new ArrayList<>();
         List<ShipCapabilityProfile> escortDestroyers = new ArrayList<>();
@@ -267,8 +269,12 @@ public class DivisionAutoFormer {
                 phaseShips.add(p);
             } else if (p.primaryTag == TacticalTag.CARRIER) {
                 carriers.add(p);
+            } else if (p.primaryTag == TacticalTag.MISSILE_CAPITAL) {
+                missileCapitals.add(p);
             } else if (p.hullSize == HullSize.CAPITAL_SHIP) {
                 capitals.add(p);
+            } else if (p.primaryTag == TacticalTag.MISSILE_CRUISER) {
+                missileCruisers.add(p);
             } else if (p.primaryTag == TacticalTag.STRIKE_CRUISER) {
                 strikeCruisers.add(p);
             } else if (p.hullSize == HullSize.CRUISER) {
@@ -333,9 +339,8 @@ public class DivisionAutoFormer {
             newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.ESCORT_CARRIER_DIVISION, escortCarriers, 4));
         }
 
-        // 2. Form "Battle Div" from capitals.
-        // If there is a lone capital and leftover single cruiser, or in escape/rearguard missions,
-        // attach 1 close escort; otherwise keep Cruiser and Destroyer divisions monotype so they can maneuver/screen independently.
+        // 2. Form "Battle Div" & "Missile Battleship Div" from capitals.
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, missileCapitals, 2));
         for (int i = 0; i < capitals.size(); i += 2) {
             List<ShipCapabilityProfile> group = new ArrayList<>();
             ShipCapabilityProfile cap = capitals.get(i);
@@ -343,47 +348,32 @@ public class DivisionAutoFormer {
             if (i + 1 < capitals.size()) {
                 group.add(capitals.get(i + 1));
             }
-            if (group.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty()) {
+            if (group.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty() && missileCruisers.isEmpty()) {
                 group.add(lineCruisers.remove(0));
             }
             DivisionState div = createDivision(battleGroup, DivisionArchetype.BATTLESHIP_DIVISION, group);
             newlyCreated.add(div);
         }
 
-        // 3. Form Cruiser Divisions (monotype line cruisers vs strike cruisers).
-        // If only 1 strike cruiser and 1+ line cruisers exist, merge them into a Cruiser Division rather than a 1-ship fragment.
+        // 3. Form Cruiser Divisions (missile cruisers, strike cruisers, line cruisers).
         if (strikeCruisers.size() == 1 && !lineCruisers.isEmpty()) {
             lineCruisers.add(strikeCruisers.remove(0));
         }
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.MISSILE_CRUISER_DIVISION, missileCruisers, MAX_MONOTYPE_DIV_SIZE));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.STRIKE_CRUISER_DIVISION, strikeCruisers, MAX_MONOTYPE_DIV_SIZE));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.CRUISER_DIVISION, lineCruisers, MAX_MONOTYPE_DIV_SIZE));
 
-        // 4. Form Destroyer Divisions (torpedo destroyers vs line/escort destroyers).
-        // Both use the clean "Destroyer Div N" callsign so battle log messages read naturally
-        // ("Destroyer Div 1 intends to launch harassing torpedo attack at Enemy Destroyer Div 2"),
-        // while preserving their distinct torpedo-strike vs screening capabilities.
+        // 4. Form Destroyer Divisions (missile destroyers vs line/escort destroyers).
         List<ShipCapabilityProfile> gunDestroyers = new ArrayList<>();
         gunDestroyers.addAll(escortDestroyers);
         gunDestroyers.addAll(lineDestroyers);
 
-        if (missileDestroyers.size() == 1 && gunDestroyers.size() == 1) {
-            missileDestroyers.addAll(gunDestroyers);
-            gunDestroyers.clear();
-        } else if (missileDestroyers.isEmpty() && gunDestroyers.size() == 1 && missileFrigates.size() >= 1) {
-            // Pair a lone destroyer with torpedo frigates as a light destroyer flotilla
-            gunDestroyers.addAll(missileFrigates);
-            missileFrigates.clear();
-        }
-
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.MISSILE_DESTROYER_DIVISION, missileDestroyers, MAX_MONOTYPE_DIV_SIZE));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.DESTROYER_DIVISION, gunDestroyers, MAX_MONOTYPE_DIV_SIZE));
 
-        // 5. Form Frigate & Phase Divisions
-        List<ShipCapabilityProfile> allFrigates = new ArrayList<>();
-        // Keep torpedo frigates grouped first so chunking naturally forms a torpedo wolfpack before screen frigates
-        allFrigates.addAll(missileFrigates);
-        allFrigates.addAll(screenFrigates);
-        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.FRIGATE_DIVISION, allFrigates, MAX_FRIGATE_DIV_SIZE));
+        // 5. Form Frigate, Missile Frigate, & Phase Divisions
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.MISSILE_FRIGATE_DIVISION, missileFrigates, MAX_FRIGATE_DIV_SIZE));
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.FRIGATE_DIVISION, screenFrigates, MAX_FRIGATE_DIV_SIZE));
 
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.PHASE_DIVISION, phaseShips, MAX_MONOTYPE_DIV_SIZE));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.SERVICE_GROUP, auxiliaries, MAX_FRIGATE_DIV_SIZE));
@@ -511,23 +501,27 @@ public class DivisionAutoFormer {
 
         div.hasCarrierCapability = div.archetype.isCarrierArchetype() || (carrierShips > 0);
         div.hasMissileStrikeCapability = !div.hasCarrierCapability
-                && div.archetype != DivisionArchetype.BATTLESHIP_DIVISION
+                && div.archetype != DivisionArchetype.SERVICE_GROUP
+                && (div.archetype.isMissileArchetype()
+                || (div.archetype == DivisionArchetype.PHASE_DIVISION)
+                || (div.archetype != DivisionArchetype.BATTLESHIP_DIVISION
                 && div.archetype != DivisionArchetype.CRUISER_DIVISION
                 && div.archetype != DivisionArchetype.STRIKE_CRUISER_DIVISION
-                && div.archetype != DivisionArchetype.SERVICE_GROUP
-                && ((div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION)
-                || (div.archetype == DivisionArchetype.PHASE_DIVISION)
-                || (missileShips > 0 && missileShips * 2 >= count));
+                && missileShips > 0 && missileShips * 2 >= count));
         div.isScreenCapable = (div.archetype == DivisionArchetype.DESTROYER_DIVISION)
                 || (div.archetype == DivisionArchetype.FRIGATE_DIVISION)
+                || (div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION)
                 || (pdShips > 0);
         div.isFastFlanker = !div.hasCarrierCapability
                 && div.archetype != DivisionArchetype.BATTLESHIP_DIVISION
+                && div.archetype != DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
                 && div.archetype != DivisionArchetype.CRUISER_DIVISION
+                && div.archetype != DivisionArchetype.MISSILE_CRUISER_DIVISION
                 && div.archetype != DivisionArchetype.STRIKE_CRUISER_DIVISION
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
                 && (div.avgMaxSpeed >= 105f
                 || div.archetype == DivisionArchetype.FRIGATE_DIVISION
+                || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
                 || div.archetype == DivisionArchetype.PHASE_DIVISION
                 || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
 

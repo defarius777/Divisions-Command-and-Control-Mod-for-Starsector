@@ -9,6 +9,7 @@ import com.fs.starfarer.api.ui.ButtonAPI;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.CutStyle;
 import com.fs.starfarer.api.ui.PositionAPI;
+import com.fs.starfarer.api.ui.ScrollPanelAPI;
 import com.fs.starfarer.api.ui.TextFieldAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
@@ -74,14 +75,18 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private static final String NAMING_PRESET_DROPDOWN_KEY = "NAMING_PRESET";
     private static final DivisionArchetype[] CUSTOMIZABLE_ARCHETYPES = {
             DivisionArchetype.BATTLESHIP_DIVISION,
+            DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
             DivisionArchetype.FLEET_CARRIER_DIVISION,
             DivisionArchetype.LIGHT_CARRIER_DIVISION,
             DivisionArchetype.ESCORT_CARRIER_DIVISION,
             DivisionArchetype.CARRIER_GROUP,
             DivisionArchetype.CRUISER_DIVISION,
+            DivisionArchetype.MISSILE_CRUISER_DIVISION,
             DivisionArchetype.STRIKE_CRUISER_DIVISION,
             DivisionArchetype.DESTROYER_DIVISION,
+            DivisionArchetype.MISSILE_DESTROYER_DIVISION,
             DivisionArchetype.FRIGATE_DIVISION,
+            DivisionArchetype.MISSILE_FRIGATE_DIVISION,
             DivisionArchetype.PHASE_DIVISION,
             DivisionArchetype.SERVICE_GROUP
     };
@@ -89,6 +94,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private final UIPanelAPI parentCoreUI;
     private CustomPanelAPI rootOverlayPanel;
     private CustomPanelAPI contentContainer;
+    private ScrollPanelAPI activeBodyScroller = null;
+    private float savedScrollY = 0f;
     private boolean closed = false;
     private ActiveTab activeTab = ActiveTab.ALL_DOCTRINE;
     private String expandedDropdownKey = null;
@@ -167,6 +174,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
     private void rebuildContent() {
         if (rootOverlayPanel == null) return;
+        if (activeBodyScroller != null) {
+            savedScrollY = Math.max(0f, activeBodyScroller.getYOffset());
+            activeBodyScroller = null;
+        }
         activeButtons.clear();
         prefixTextFields.clear();
         customOtcTitleField = null;
@@ -400,7 +411,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     Alignment.LMID,
                     4f);
             body.addPara(
-                    "Defaults inherited by divisions of each type unless overridden in the Division Editor.",
+                    "Defaults inherited by divisions of each type unless overridden in Fleet Organization.",
                     3f,
                     gray);
 
@@ -576,6 +587,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
 
         contentContainer.addUIElement(body).inTL(12f, bodyTop);
+        activeBodyScroller = body.getExternalScroller();
+        if (activeBodyScroller != null && savedScrollY > 0f) {
+            float contentH = body.getHeightSoFar();
+            if (body.getPosition() != null && body.getPosition().getHeight() > contentH) {
+                contentH = body.getPosition().getHeight();
+            }
+            float maxScroll = Math.max(0f, contentH - bodyHeight);
+            if (maxScroll > 0f) {
+                activeBodyScroller.setYOffset(Math.max(0f, Math.min(savedScrollY, maxScroll)));
+            }
+        }
     }
 
     private void addPlayerNamingSchemeSection(

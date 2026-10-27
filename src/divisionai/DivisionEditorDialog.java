@@ -15,6 +15,7 @@ import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.Fonts;
 import com.fs.starfarer.api.ui.LabelAPI;
 import com.fs.starfarer.api.ui.PositionAPI;
+import com.fs.starfarer.api.ui.ScrollPanelAPI;
 import com.fs.starfarer.api.ui.TextFieldAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
@@ -53,8 +54,9 @@ import java.util.Map;
  */
 public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
-    private static final float DIALOG_WIDTH = 1040f;
-    private static final float DIALOG_HEIGHT = 680f;
+    public static final float DIALOG_WIDTH = 1320f;
+    public static final float DIALOG_HEIGHT = 800f;
+    private static final float CONTROL_COL_X = 250f;
     private static final float DRAG_START_THRESHOLD_PX = 6f;
 
     private static class ShipIconTile {
@@ -96,6 +98,15 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     private CustomPanelAPI rootModalPanel;
     private CustomPanelAPI contentContainer;
     private TextFieldAPI activeNameField;
+
+    private ScrollPanelAPI overviewLeftScroller = null;
+    private ScrollPanelAPI overviewRightScroller = null;
+    private ScrollPanelAPI singleLeftScroller = null;
+    private ScrollPanelAPI singleRightScroller = null;
+    private float savedOverviewLeftScrollY = 0f;
+    private float savedOverviewRightScrollY = 0f;
+    private float savedSingleLeftScrollY = 0f;
+    private float savedSingleRightScrollY = 0f;
 
     // When null -> Screen 1 (Fleet Divisions Overview); when non-null -> Screen 2 (Dedicated Division Screen)
     private String activeDivisionId = null;
@@ -204,6 +215,22 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
     private void rebuildContent() {
         if (rootModalPanel == null) return;
+        if (overviewLeftScroller != null) {
+            savedOverviewLeftScrollY = Math.max(0f, overviewLeftScroller.getYOffset());
+            overviewLeftScroller = null;
+        }
+        if (overviewRightScroller != null) {
+            savedOverviewRightScrollY = Math.max(0f, overviewRightScroller.getYOffset());
+            overviewRightScroller = null;
+        }
+        if (singleLeftScroller != null) {
+            savedSingleLeftScrollY = Math.max(0f, singleLeftScroller.getYOffset());
+            singleLeftScroller = null;
+        }
+        if (singleRightScroller != null) {
+            savedSingleRightScrollY = Math.max(0f, singleRightScroller.getYOffset());
+            singleRightScroller = null;
+        }
         activeButtons.clear();
         shipIconTiles.clear();
         dropTargetZones.clear();
@@ -391,7 +418,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         TooltipMakerAPI header = container.createUIElement(DIALOG_WIDTH - 64f, 52f, false);
         header.setTitleOrbitronLarge();
-        header.addTitle("FLEET DIVISIONS", baseColor);
+        header.addTitle("FLEET ORGANIZATION", baseColor);
         header.addPara(
                 "Selected: %s  ·  Drag or Right-Click ships to assign/unassign  ·  Left-Click division ship to set Flagship",
                 4f,
@@ -482,9 +509,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
         container.addComponent(toolbarRow).inTL(12f, 60f);
 
-        // 2. Left Column: Permanent Divisions Scrollable List (width 625f)
+        // 2. Left Column: Permanent Divisions Scrollable List (width 760f)
         float bodyHeight = DIALOG_HEIGHT - 104f;
-        float leftWidth = 625f;
+        float leftWidth = 760f;
         float rightWidth = DIALOG_WIDTH - leftWidth - 36f;
 
         TooltipMakerAPI leftCol = container.createUIElement(leftWidth, bodyHeight, true);
@@ -522,6 +549,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             }
         }
         container.addUIElement(leftCol).inTL(12f, 94f);
+        overviewLeftScroller = leftCol.getExternalScroller();
+        restoreScrollOffset(leftCol, overviewLeftScroller, bodyHeight, savedOverviewLeftScrollY);
 
         // 3. Right Column: Unassigned Combat Hulls Pool (DropTargetZone with targetDivisionId == null)
         TooltipMakerAPI rightCol = container.createUIElement(rightWidth, bodyHeight, true);
@@ -540,10 +569,12 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     unassigned,
                     null,
                     null,
-                    4,
+                    5,
                     true);
         }
         container.addUIElement(rightCol).inTL(leftWidth + 24f, 94f);
+        overviewRightScroller = rightCol.getExternalScroller();
+        restoreScrollOffset(rightCol, overviewRightScroller, bodyHeight, savedOverviewRightScrollY);
         dropTargetZones.add(new DropTargetZone(null, "Unassigned Fleet Pool", rightCol, null));
     }
 
@@ -563,7 +594,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         Color positive = Misc.getPositiveHighlightColor();
         Color gray = Misc.getGrayColor();
 
-        int cols = 6;
+        int cols = 7;
         int iconRows = members.isEmpty() ? 1 : ((members.size() + cols - 1) / cols);
         float gridHeight = members.isEmpty() ? 52f : (iconRows * 84f + 6f);
         float cardHeight = 68f + gridHeight;
@@ -723,7 +754,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             emptyUi.setHeightSoFar(44f);
             cardPanel.addUIElement(emptyUi).inTL(8f, 60f);
         } else {
-            float tileW = 94f;
+            float tileW = 98f;
             float tileH = 78f;
             float gapX = 6f;
             float gapY = 6f;
@@ -777,26 +808,47 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         topCloseUi.setHeightSoFar(24f);
         container.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
 
-        // 1. Top Control & Doctrine Header (height 212f)
-        float headerH = 212f;
+        // 1. Top Control & Doctrine Header (height 188f)
+        float headerH = 188f;
         TooltipMakerAPI top = container.createUIElement(DIALOG_WIDTH - 24f, headerH, false);
 
-        // Row A: Back button, Title, Close button
+        // Row A: Back button ("<- Fleet Organization"), Title, Disband button, Close button
         CustomPanelAPI navRow = Global.getSettings().createCustom(DIALOG_WIDTH - 72f, 28f, subPanelPlugin);
         TooltipMakerAPI navUi = navRow.createUIElement(DIALOG_WIDTH - 72f, 28f, false);
         ButtonAPI bBack = registerButton(
                 navUi.addButton(
-                        "<- All Divisions",
+                        "<- Fleet Organization",
                         "BACK_TO_LIST",
                         baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        160f,
+                        184f,
                         24f,
                         0f),
                 "BACK_TO_LIST");
         bBack.getPosition().inTL(0f, 2f);
+
+        navUi.setTitleOrbitronLarge();
+        LabelAPI titleLbl = navUi.addTitle(
+                spec.name.toUpperCase(Locale.ROOT) + " — " + spec.archetype.shortPrefix.toUpperCase(Locale.ROOT),
+                highlight);
+        titleLbl.getPosition().inTL(198f, 3f);
+
+        String delAct = "DELETE_DIV:" + spec.id;
+        ButtonAPI bDisband = registerButton(
+                navUi.addButton(
+                        "Disband Division",
+                        delAct,
+                        Misc.getNegativeHighlightColor(),
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        144f,
+                        24f,
+                        0f),
+                delAct);
+        bDisband.getPosition().inTL(DIALOG_WIDTH - 72f - 130f - 8f - 144f, 2f);
 
         ButtonAPI bClose = registerButton(
                 navUi.addButton(
@@ -815,16 +867,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         navRow.addUIElement(navUi).inTL(0f, 0f);
         top.addCustom(navRow, 2f);
 
-        top.setTitleOrbitronLarge();
-        top.addTitle(spec.name.toUpperCase() + " — " + spec.archetype.shortPrefix.toUpperCase(), highlight);
-
-        // Row B: Editable Callsign TextField + Apply Name Button
-        CustomPanelAPI nameRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 30f, subPanelPlugin);
-        TooltipMakerAPI nameUi = nameRow.createUIElement(DIALOG_WIDTH - 24f, 30f, false);
-        activeNameField = nameUi.addTextField(260f, Fonts.DEFAULT_SMALL, 0f);
+        // Row B: Editable Callsign TextField + Rename Button + Doctrine Posture Buttons on the same row
+        CustomPanelAPI nameRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, subPanelPlugin);
+        TooltipMakerAPI nameUi = nameRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
+        nameUi.addPara("Callsign:", 0f, baseColor).getPosition().inTL(2f, 5f);
+        activeNameField = nameUi.addTextField(230f, Fonts.DEFAULT_SMALL, 0f);
         activeNameField.setText(spec.name);
         activeNameField.setMaxChars(32);
-        activeNameField.getPosition().inTL(0f, 3f);
+        activeNameField.getPosition().inTL(66f, 2f);
 
         ButtonAPI bSaveName = registerButton(
                 nameUi.addButton(
@@ -834,23 +884,51 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        120f,
-                        24f,
+                        96f,
+                        22f,
                         0f),
                 "APPLY_NAME");
-        bSaveName.getPosition().inTL(270f, 3f);
-        nameUi.setHeightSoFar(30f);
+        bSaveName.getPosition().inTL(304f, 3f);
+
+        nameUi.addPara("Posture:", 0f, baseColor).getPosition().inTL(416f, 5f);
+        DoctrineOption[] doctrines = DoctrineOption.values();
+        float dx = 478f;
+        for (DoctrineOption doc : doctrines) {
+            boolean selected = (spec.doctrine == doc);
+            Color fg = selected ? positive : baseColor;
+            Color bg = selected ? baseColor.darker() : darkColor;
+            String docAct = "SET_DOC:" + doc.name();
+            ButtonAPI bDoc = registerButton(
+                    nameUi.addButton(
+                            doc.displayName,
+                            docAct,
+                            fg,
+                            bg,
+                            Alignment.MID,
+                            CutStyle.TL_BR,
+                            132f,
+                            22f,
+                            0f),
+                    docAct);
+            if (selected) bDoc.highlight();
+            bDoc.getPosition().inTL(dx, 3f);
+            dx += 136f;
+        }
+        nameUi.setHeightSoFar(28f);
         nameRow.addUIElement(nameUi).inTL(0f, 0f);
         top.addCustom(nameRow, 4f);
 
-        // Row C: Division Archetype Selector (2 compact rows of 6 buttons covering Combat & Carrier Divisions)
+        // Row C: Division Archetype Selector (2 clean rows of 8 columns covering all 15 Division Types)
         DivisionArchetype[] archetypes = new DivisionArchetype[]{
                 DivisionArchetype.BATTLESHIP_DIVISION,
+                DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
                 DivisionArchetype.CRUISER_DIVISION,
+                DivisionArchetype.MISSILE_CRUISER_DIVISION,
                 DivisionArchetype.STRIKE_CRUISER_DIVISION,
                 DivisionArchetype.DESTROYER_DIVISION,
                 DivisionArchetype.MISSILE_DESTROYER_DIVISION,
                 DivisionArchetype.FRIGATE_DIVISION,
+                DivisionArchetype.MISSILE_FRIGATE_DIVISION,
                 DivisionArchetype.FLEET_CARRIER_DIVISION,
                 DivisionArchetype.LIGHT_CARRIER_DIVISION,
                 DivisionArchetype.ESCORT_CARRIER_DIVISION,
@@ -862,9 +940,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI archUi = archRow.createUIElement(DIALOG_WIDTH - 24f, 50f, false);
         for (int i = 0; i < archetypes.length; i++) {
             DivisionArchetype arch = archetypes[i];
-            int colIdx = i % 6;
-            int rowIdx = i / 6;
-            float ax = colIdx * 159f;
+            int colIdx = i % 8;
+            int rowIdx = i / 8;
+            float ax = colIdx * 162f;
             float ay = 2f + rowIdx * 24f;
             boolean selected = (spec.archetype == arch);
             Color fg = selected ? highlight : baseColor;
@@ -878,7 +956,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                             battleGroup,
                             Alignment.MID,
                             CutStyle.TL_BR,
-                            154f,
+                            156f,
                             21f,
                             0f),
                     archAct);
@@ -887,49 +965,20 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         archUi.setHeightSoFar(50f);
         archRow.addUIElement(archUi).inTL(0f, 0f);
-        top.addCustom(archRow, 3f);
-
-        // Row D: Division Doctrine Selector (Foundation for Customizable Doctrine)
-        DoctrineOption[] doctrines = DoctrineOption.values();
-        CustomPanelAPI docRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 26f, subPanelPlugin);
-        TooltipMakerAPI docUi = docRow.createUIElement(DIALOG_WIDTH - 24f, 26f, false);
-        float dx = 0f;
-        for (DoctrineOption doc : doctrines) {
-            boolean selected = (spec.doctrine == doc);
-            Color fg = selected ? positive : baseColor;
-            Color battleGroup = selected ? baseColor.darker() : darkColor;
-            String docAct = "SET_DOC:" + doc.name();
-            ButtonAPI bDoc = registerButton(
-                    docUi.addButton(
-                            doc.displayName,
-                            docAct,
-                            fg,
-                            battleGroup,
-                            Alignment.MID,
-                            CutStyle.TL_BR,
-                            154f,
-                            22f,
-                            0f),
-                    docAct);
-            bDoc.getPosition().inTL(dx, 2f);
-            dx += 159f;
-        }
-        docUi.setHeightSoFar(26f);
-        docRow.addUIElement(docUi).inTL(0f, 0f);
-        top.addCustom(docRow, 3f);
+        top.addCustom(archRow, 4f);
 
         top.addPara(
-                "%s — %s",
+                "Posture: %s — %s",
                 3f,
                 positive,
                 spec.doctrine.displayName,
                 spec.doctrine.summary);
 
         top.setHeightSoFar(headerH);
-        container.addUIElement(top).inTL(12f, 10f);
+        container.addUIElement(top).inTL(12f, 8f);
 
-        // 2. Two-Column Ship Assignment Body (height = DIALOG_HEIGHT - 234f)
-        float bodyTop = 224f;
+        // 2. Two-Column Ship Assignment Body (height = DIALOG_HEIGHT - 196f)
+        float bodyTop = 186f;
         float bodyHeight = DIALOG_HEIGHT - bodyTop - 12f;
         float colWidth = (DIALOG_WIDTH - 36f) * 0.5f;
 
@@ -1070,11 +1119,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     divMembers,
                     spec.id,
                     flagId,
-                    5,
+                    6,
                     false);
         }
 
         container.addUIElement(leftCol).inTL(12f, bodyTop);
+        singleLeftScroller = leftCol.getExternalScroller();
+        restoreScrollOffset(leftCol, singleLeftScroller, bodyHeight, savedSingleLeftScrollY);
         dropTargetZones.add(new DropTargetZone(spec.id, spec.name, leftCol, null));
 
         // Right Column: Visual Ship Icons for Unassigned Ships + Ships in Other Divisions
@@ -1093,7 +1144,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     unassigned,
                     null,
                     null,
-                    5,
+                    6,
                     false);
         }
 
@@ -1114,7 +1165,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     otherMembers,
                     other.id,
                     other.flagshipMemberId,
-                    5,
+                    6,
                     false);
         }
         if (!anyOther) {
@@ -1122,6 +1173,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
 
         container.addUIElement(rightCol).inTL(colWidth + 24f, bodyTop);
+        singleRightScroller = rightCol.getExternalScroller();
+        restoreScrollOffset(rightCol, singleRightScroller, bodyHeight, savedSingleRightScrollY);
         dropTargetZones.add(new DropTargetZone(null, "Unassigned Fleet Pool", rightCol, null));
     }
 
@@ -1207,6 +1260,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         final Color highlight = Misc.getHighlightColor();
         final Color positive = Misc.getPositiveHighlightColor();
 
+        final PersonAPI captain = member.getCaptain();
+        final boolean hasCommander = (captain != null && !captain.isDefault());
+        final int commanderLevel = (hasCommander && captain.getStats() != null)
+                ? captain.getStats().getLevel()
+                : 0;
+        final boolean showCommanderLevel = hasCommander && commanderLevel >= 1;
+        final float portraitBoxSize = 24f;
+
         final CustomPanelAPI[] panelRef = new CustomPanelAPI[1];
         CustomPanelAPI tilePanel = Global.getSettings().createCustom(width, height, new BaseCustomUIPanelPlugin() {
             @Override
@@ -1221,9 +1282,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 float w = p.getWidth();
                 float h = p.getHeight();
 
-                boolean insideClip = clipContainer == null || isPointInside(mouseX, mouseY, clipContainer.getPosition());
+                boolean insideClip = clipContainer == null || isPointInsidePanel(mouseX, mouseY, clipContainer);
                 boolean hovered = insideClip && isPointInside(mouseX, mouseY, p);
                 boolean beingDragged = isDraggingShip && pressedTile != null && pressedTile.member == member;
+                float effAlpha = beingDragged ? 0.45f * alphaMult : alphaMult;
 
                 GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
                 GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -1267,18 +1329,6 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 GL11.glVertex2f(x, y + h);
                 GL11.glEnd();
 
-                // Officer pip (top-right corner)
-                PersonAPI cap = member.getCaptain();
-                if (cap != null && !cap.isDefault()) {
-                    GL11.glColor4f(0.30f, 0.88f, 1.00f, 0.95f * alphaMult);
-                    GL11.glBegin(GL11.GL_QUADS);
-                    GL11.glVertex2f(x + w - 9f, y + h - 9f);
-                    GL11.glVertex2f(x + w - 3f, y + h - 9f);
-                    GL11.glVertex2f(x + w - 3f, y + h - 3f);
-                    GL11.glVertex2f(x + w - 9f, y + h - 3f);
-                    GL11.glEnd();
-                }
-
                 GL11.glPopAttrib();
 
                 // Render Ship Hull Sprite centered in upper portion of tile
@@ -1288,12 +1338,77 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         y + h * 0.56f,
                         w - 14f,
                         h - 30f,
-                        beingDragged ? 0.45f * alphaMult : alphaMult);
+                        effAlpha);
+
+                // Render Commander Portrait in the lower-left corner of the ship icon box (Item F)
+                if (hasCommander) {
+                    float px = x + 2f;
+                    float py = y + 2f;
+
+                    GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+                    GL11.glDisable(GL11.GL_TEXTURE_2D);
+                    GL11.glEnable(GL11.GL_BLEND);
+                    GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+                    // Dark portrait backing box
+                    GL11.glColor4f(0.02f, 0.04f, 0.07f, 0.92f * effAlpha);
+                    GL11.glBegin(GL11.GL_QUADS);
+                    GL11.glVertex2f(px, py);
+                    GL11.glVertex2f(px + portraitBoxSize, py);
+                    GL11.glVertex2f(px + portraitBoxSize, py + portraitBoxSize);
+                    GL11.glVertex2f(px, py + portraitBoxSize);
+                    GL11.glEnd();
+                    GL11.glPopAttrib();
+
+                    renderCommanderPortraitSprite(
+                            captain,
+                            px + portraitBoxSize * 0.5f,
+                            py + portraitBoxSize * 0.5f,
+                            portraitBoxSize - 2f,
+                            portraitBoxSize - 2f,
+                            effAlpha);
+
+                    GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+                    GL11.glDisable(GL11.GL_TEXTURE_2D);
+                    GL11.glEnable(GL11.GL_BLEND);
+                    GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+                    // Crisp border around lower-left commander portrait
+                    GL11.glLineWidth(1.1f);
+                    GL11.glColor4f(
+                            baseColor.getRed() / 255f,
+                            baseColor.getGreen() / 255f,
+                            baseColor.getBlue() / 255f,
+                            0.90f * effAlpha);
+                    GL11.glBegin(GL11.GL_LINE_LOOP);
+                    GL11.glVertex2f(px, py);
+                    GL11.glVertex2f(px + portraitBoxSize, py);
+                    GL11.glVertex2f(px + portraitBoxSize, py + portraitBoxSize);
+                    GL11.glVertex2f(px, py + portraitBoxSize);
+                    GL11.glEnd();
+
+                    // Dark backing quad behind the top-right level text inside the portrait box (Fleet screen style)
+                    if (showCommanderLevel) {
+                        float badgeW = commanderLevel >= 10 ? 13f : 9f;
+                        float badgeH = 10f;
+                        float bx = px + portraitBoxSize - badgeW;
+                        float by = py + portraitBoxSize - badgeH;
+                        GL11.glColor4f(0.0f, 0.0f, 0.0f, 0.82f * effAlpha);
+                        GL11.glBegin(GL11.GL_QUADS);
+                        GL11.glVertex2f(bx, by);
+                        GL11.glVertex2f(px + portraitBoxSize, by);
+                        GL11.glVertex2f(px + portraitBoxSize, py + portraitBoxSize);
+                        GL11.glVertex2f(bx, py + portraitBoxSize);
+                        GL11.glEnd();
+                    }
+
+                    GL11.glPopAttrib();
+                }
             }
         });
         panelRef[0] = tilePanel;
 
-        // Text overlay labels inside the tile (top badge: FLAG/DP, bottom label: hull name)
+        // Text overlay labels inside the tile (top badge: FLAG/DP, lower-left portrait level, bottom label: hull name)
         TooltipMakerAPI textUi = tilePanel.createUIElement(width, height, false);
         String topBadge = (isFlagship ? "★FLAG " : "")
                 + String.format(Locale.ROOT, "%.0fDP", member.getDeploymentPointsCost());
@@ -1301,14 +1416,62 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         topLbl.getPosition().inTL(3f, 2f);
 
         String hullName = member.getHullSpec() != null ? member.getHullSpec().getHullName() : member.getShipName();
-        LabelAPI botLbl = textUi.addPara(truncateText(hullName, 11), baseColor, 0f);
-        botLbl.getPosition().inTL(3f, height - 17f);
+        int maxHullChars = hasCommander ? 9 : 12;
+        LabelAPI botLbl = textUi.addPara(truncateText(hullName, maxHullChars), baseColor, 0f);
+        botLbl.getPosition().inTL(hasCommander ? (portraitBoxSize + 5f) : 3f, height - 17f);
+
+        if (showCommanderLevel) {
+            // Match vanilla Fleet screen (com.fs.starfarer.coreui.OOoo): Victor 10 font at top-right of the lower-left portrait box
+            textUi.setParaFont(Fonts.VICTOR_10);
+            Color levelColor = (captain.getFaction() != null && captain.getFaction().getBrightUIColor() != null)
+                    ? captain.getFaction().getBrightUIColor()
+                    : Misc.getBrightPlayerColor();
+            String lvlStr = String.valueOf(commanderLevel);
+            LabelAPI lvlLbl = textUi.addPara(lvlStr, levelColor, 0f);
+            float lvlW = lvlLbl.computeTextWidth(lvlStr);
+            float lvlX = 2f + portraitBoxSize - lvlW - 1f;
+            float lvlY = height - 2f - portraitBoxSize;
+            lvlLbl.getPosition().inTL(lvlX, lvlY);
+            textUi.setParaFontDefault();
+        }
 
         textUi.setHeightSoFar(height);
         tilePanel.addUIElement(textUi).inTL(0f, 0f);
 
         shipIconTiles.add(new ShipIconTile(member, sourceDivisionId, isFlagship, tilePanel, clipContainer));
         return tilePanel;
+    }
+
+    private static void renderCommanderPortraitSprite(
+            PersonAPI captain,
+            float centerX,
+            float centerY,
+            float drawW,
+            float drawH,
+            float alpha) {
+        if (captain == null || captain.getPortraitSprite() == null || captain.getPortraitSprite().isEmpty()) {
+            return;
+        }
+        try {
+            SpriteAPI sprite = Global.getSettings().getSprite(captain.getPortraitSprite());
+            if (sprite == null) return;
+            float origW = sprite.getWidth();
+            float origH = sprite.getHeight();
+            Color oldColor = sprite.getColor();
+            float oldAngle = sprite.getAngle();
+
+            sprite.setSize(drawW, drawH);
+            sprite.setAngle(0f);
+            sprite.setColor(new Color(255, 255, 255, Math.max(0, Math.min(255, Math.round(alpha * 255f)))));
+            sprite.renderAtCenter(centerX, centerY);
+
+            sprite.setSize(origW, origH);
+            sprite.setAngle(oldAngle);
+            if (oldColor != null) {
+                sprite.setColor(oldColor);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private static void renderShipMemberSprite(
@@ -1366,34 +1529,34 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             Color darkColor,
             Color activeColor) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 25f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 25f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        rowUi.addPara(labelText, 3f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(2f, 4f);
+        rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
 
-        float x = rowWidth - 196f;
+        float x = CONTROL_COL_X;
         String decAct = actionPrefix + Math.max(minVal, currentVal - step);
         ButtonAPI bDec = registerButton(
-                rowUi.addButton("-" + step + "u", decAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 52f, 20f, 0f),
+                rowUi.addButton("-" + step + "u", decAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
                 decAct);
         bDec.setEnabled(currentVal > minVal);
-        bDec.getPosition().inTL(x, 2f);
+        bDec.getPosition().inTL(x, 3f);
 
         String incAct = actionPrefix + Math.min(maxVal, currentVal + step);
         ButtonAPI bInc = registerButton(
-                rowUi.addButton("+" + step + "u", incAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 52f, 20f, 0f),
+                rowUi.addButton("+" + step + "u", incAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
                 incAct);
         bInc.setEnabled(currentVal < maxVal);
-        bInc.getPosition().inTL(x + 56f, 2f);
+        bInc.getPosition().inTL(x + 62f, 3f);
 
         String inhAct = actionPrefix + "INHERIT";
         ButtonAPI bInh = registerButton(
-                rowUi.addButton("Inherit", inhAct, isCustom ? baseColor : activeColor, darkColor, Alignment.MID, CutStyle.ALL, 82f, 20f, 0f),
+                rowUi.addButton("Inherit", inhAct, isCustom ? baseColor : activeColor, darkColor, Alignment.MID, CutStyle.ALL, 86f, 20f, 0f),
                 inhAct);
         if (!isCustom) bInh.highlight();
-        bInh.getPosition().inTL(x + 112f, 2f);
+        bInh.getPosition().inTL(x + 124f, 3f);
 
-        rowUi.setHeightSoFar(25f);
+        rowUi.setHeightSoFar(26f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
     }
@@ -1409,48 +1572,49 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             Color highlight,
             Color positive) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 48f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 48f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
         String statusTag = isCustom
                 ? ((longestGunRange > 0 && Math.abs(effStandoff - longestGunRange) <= 25) ? "Auto" : "Custom")
                 : "Inherited";
         String label = String.format(
                 Locale.ROOT,
-                "Standoff Range: %du (%s · Max Guns: %du)",
+                "Standoff: %du (%s · Guns %du)",
                 effStandoff,
                 statusTag,
                 longestGunRange);
-        rowUi.addPara(label, 3f, highlight, label).getPosition().inTL(2f, 3f);
+        rowUi.addPara(label, 0f, isCustom ? highlight : baseColor, label).getPosition().inTL(4f, 4f);
 
+        float x = CONTROL_COL_X;
         String decAct = "DIV_STANDOFF_RANGE:" + Math.max(PermanentDivisionManager.MIN_STANDOFF_RANGE_UNITS, effStandoff - 100);
         ButtonAPI bDec = registerButton(
                 rowUi.addButton("-100u", decAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
                 decAct);
-        bDec.getPosition().inTL(2f, 25f);
+        bDec.getPosition().inTL(x, 3f);
 
         String incAct = "DIV_STANDOFF_RANGE:" + Math.min(PermanentDivisionManager.MAX_STANDOFF_RANGE_UNITS, effStandoff + 100);
         ButtonAPI bInc = registerButton(
                 rowUi.addButton("+100u", incAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
                 incAct);
-        bInc.getPosition().inTL(62f, 25f);
+        bInc.getPosition().inTL(x + 62f, 3f);
 
         String autoLabel = longestGunRange > 0
-                ? ("Match Max Guns (" + longestGunRange + "u)")
-                : "Match Max Guns";
+                ? ("Match (" + longestGunRange + "u)")
+                : "Match Guns";
         ButtonAPI bAuto = registerButton(
-                rowUi.addButton(autoLabel, "DIV_STANDOFF_RANGE:AUTO", positive, darkColor, Alignment.MID, CutStyle.TL_BR, 200f, 20f, 0f),
+                rowUi.addButton(autoLabel, "DIV_STANDOFF_RANGE:AUTO", positive, darkColor, Alignment.MID, CutStyle.TL_BR, 148f, 20f, 0f),
                 "DIV_STANDOFF_RANGE:AUTO");
         bAuto.setEnabled(longestGunRange > 0);
-        bAuto.getPosition().inTL(122f, 25f);
+        bAuto.getPosition().inTL(x + 124f, 3f);
 
         ButtonAPI bInh = registerButton(
-                rowUi.addButton("Inherit", "DIV_STANDOFF_RANGE:INHERIT", !isCustom ? positive : baseColor, darkColor, Alignment.MID, CutStyle.ALL, 88f, 20f, 0f),
+                rowUi.addButton("Inherit", "DIV_STANDOFF_RANGE:INHERIT", !isCustom ? positive : baseColor, darkColor, Alignment.MID, CutStyle.ALL, 86f, 20f, 0f),
                 "DIV_STANDOFF_RANGE:INHERIT");
         if (!isCustom) bInh.highlight();
-        bInh.getPosition().inTL(326f, 25f);
+        bInh.getPosition().inTL(x + 278f, 3f);
 
-        rowUi.setHeightSoFar(48f);
+        rowUi.setHeightSoFar(26f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
     }
@@ -1464,17 +1628,17 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             Color darkColor,
             Color activeColor) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 25f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 25f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
         String labelText = String.format(
                 Locale.ROOT,
                 "Line Station: %s (%s)",
                 effSpace.displayName,
                 isCustom ? "Custom" : "Inherited");
-        rowUi.addPara(labelText, 3f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(2f, 4f);
+        rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
 
-        float x = rowWidth - 266f;
+        float x = CONTROL_COL_X;
         for (LineStation ps : LineStation.values()) {
             boolean selected = (ps == effSpace);
             String act = "DIV_LINE_STATION:" + ps.name();
@@ -1486,13 +1650,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                             darkColor,
                             Alignment.MID,
                             CutStyle.ALL,
-                            58f,
+                            68f,
                             20f,
                             0f),
                     act);
             if (selected) bPs.highlight();
-            bPs.getPosition().inTL(x, 2f);
-            x += 61f;
+            bPs.getPosition().inTL(x, 3f);
+            x += 74f;
         }
 
         String inhAct = "DIV_LINE_STATION:INHERIT";
@@ -1504,14 +1668,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        80f,
+                        86f,
                         20f,
                         0f),
                 inhAct);
         if (!isCustom) bInh.highlight();
-        bInh.getPosition().inTL(x, 2f);
+        bInh.getPosition().inTL(x, 3f);
 
-        rowUi.setHeightSoFar(25f);
+        rowUi.setHeightSoFar(26f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
     }
@@ -1532,44 +1696,49 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         boolean expanded = dropdownKey.equals(expandedDropdownKey);
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 25f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 25f, false);
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        rowUi.addPara(labelText, 3f, baseColor).getPosition().inTL(2f, 4f);
+        rowUi.addPara(labelText, 0f, baseColor).getPosition().inTL(4f, 4f);
 
         String toggleAct = "TOGGLE_DD:" + dropdownKey;
         String prefix = isCustom ? "" : "[Doctrine] ";
         String btnText = (expanded ? "[^] " : "[v] ") + prefix + effMission.dropdownLabel;
         ButtonAPI bToggle = registerButton(
-                rowUi.addButton(btnText, toggleAct, activeColor, darkColor, Alignment.LMID, CutStyle.TL_BR, 265f, 21f, 0f),
+                rowUi.addButton(btnText, toggleAct, activeColor, darkColor, Alignment.LMID, CutStyle.TL_BR, 276f, 21f, 0f),
                 toggleAct);
         if (expanded) bToggle.highlight();
-        bToggle.getPosition().inTL(rowWidth - 268f, 2f);
+        bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
 
-        rowUi.setHeightSoFar(25f);
+        String stationTag = (effMission.autoLineStation != null)
+                ? ("Station: " + effMission.autoLineStation.displayName)
+                : "";
+        rowUi.addPara(stationTag, 0f, gray).getPosition().inTL(CONTROL_COL_X + 286f, 4f);
+
+        rowUi.setHeightSoFar(26f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
 
         if (expanded) {
             // Option 0: Inherit Battle Group Default
-            CustomPanelAPI inhPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
-            TooltipMakerAPI inhUi = inhPanel.createUIElement(rowWidth, 22f, false);
+            CustomPanelAPI inhPanel = Global.getSettings().createCustom(rowWidth, 24f, subPanelPlugin);
+            TooltipMakerAPI inhUi = inhPanel.createUIElement(rowWidth, 24f, false);
             String inhAct = actionPrefix + "INHERIT";
             ButtonAPI bInh = registerButton(
                     inhUi.addButton(
-                            (!isCustom ? "* " : "   ") + "Inherit Battle Group Default",
+                            (!isCustom ? "* " : "   ") + "Inherit Fleet Doctrine Default",
                             inhAct,
                             !isCustom ? activeColor : baseColor,
                             darkColor,
                             Alignment.LMID,
                             CutStyle.ALL,
-                            rowWidth - 24f,
-                            19f,
+                            264f,
+                            20f,
                             0f),
                     inhAct);
             if (!isCustom) bInh.highlight();
-            bInh.getPosition().inTL(16f, 1f);
-            inhUi.setHeightSoFar(22f);
+            bInh.getPosition().inTL(CONTROL_COL_X + 12f, 2f);
+            inhUi.setHeightSoFar(24f);
             inhPanel.addUIElement(inhUi).inTL(0f, 0f);
             col.addCustom(inhPanel, 1f);
 
@@ -1587,27 +1756,28 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
             for (DivisionMissionType opt : ordered) {
                 boolean selected = isCustom && (opt == effMission);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
-                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 22f, false);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 24f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
                 String selAct = actionPrefix + opt.name();
                 String spaceHint = (opt.autoLineStation != null)
-                        ? ("  [->" + opt.autoLineStation.displayName + "]")
+                        ? ("[" + opt.autoLineStation.displayName + "]")
                         : "";
                 ButtonAPI bOpt = registerButton(
                         optUi.addButton(
-                                (selected ? "* " : "   ") + opt.dropdownLabel + spaceHint,
+                                (selected ? "* " : "   ") + opt.dropdownLabel,
                                 selAct,
                                 selected ? activeColor : baseColor,
                                 darkColor,
                                 Alignment.LMID,
                                 CutStyle.ALL,
-                                rowWidth - 24f,
-                                19f,
+                                264f,
+                                20f,
                                 0f),
                         selAct);
                 if (selected) bOpt.highlight();
-                bOpt.getPosition().inTL(16f, 1f);
-                optUi.setHeightSoFar(22f);
+                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 2f);
+                optUi.addPara(spaceHint, 0f, selected ? activeColor : gray).getPosition().inTL(CONTROL_COL_X + 286f, 4f);
+                optUi.setHeightSoFar(24f);
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
                 col.addCustom(optPanel, 1f);
             }
@@ -2220,7 +2390,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         for (int i = shipIconTiles.size() - 1; i >= 0; i--) {
             ShipIconTile tile = shipIconTiles.get(i);
             if (tile.tilePanel == null) continue;
-            if (tile.clipContainer != null && !isPointInside(x, y, tile.clipContainer.getPosition())) {
+            if (tile.clipContainer != null && !isPointInsidePanel(x, y, tile.clipContainer)) {
                 continue;
             }
             if (isPointInside(x, y, tile.tilePanel.getPosition())) {
@@ -2234,14 +2404,41 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         for (int i = dropTargetZones.size() - 1; i >= 0; i--) {
             DropTargetZone zone = dropTargetZones.get(i);
             if (zone.panel == null) continue;
-            if (zone.clipContainer != null && !isPointInside(x, y, zone.clipContainer.getPosition())) {
+            if (zone.clipContainer != null && !isPointInsidePanel(x, y, zone.clipContainer)) {
                 continue;
             }
-            if (isPointInside(x, y, zone.panel.getPosition())) {
+            if (isPointInsidePanel(x, y, zone.panel)) {
                 return zone;
             }
         }
         return null;
+    }
+
+    private static void restoreScrollOffset(
+            TooltipMakerAPI col,
+            ScrollPanelAPI scroller,
+            float viewportHeight,
+            float savedYOffset) {
+        if (col == null || scroller == null || savedYOffset <= 0f) return;
+        float contentH = col.getHeightSoFar();
+        if (col.getPosition() != null && col.getPosition().getHeight() > contentH) {
+            contentH = col.getPosition().getHeight();
+        }
+        float maxScroll = Math.max(0f, contentH - viewportHeight);
+        if (maxScroll > 0f) {
+            scroller.setYOffset(Math.max(0f, Math.min(savedYOffset, maxScroll)));
+        }
+    }
+
+    private static boolean isPointInsidePanel(float x, float y, UIPanelAPI panel) {
+        if (panel == null) return false;
+        if (panel instanceof TooltipMakerAPI) {
+            ScrollPanelAPI scroller = ((TooltipMakerAPI) panel).getExternalScroller();
+            if (scroller != null && scroller.getPosition() != null) {
+                return isPointInside(x, y, scroller.getPosition());
+            }
+        }
+        return isPointInside(x, y, panel.getPosition());
     }
 
     private boolean isPointOverAnyButton(float x, float y) {

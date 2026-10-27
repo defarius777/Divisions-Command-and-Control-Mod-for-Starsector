@@ -509,13 +509,14 @@ public final class FactionFleetDoctrines {
 
             case "luddic_church":
             case "knights_of_ludd": {
-                // Massed armored wall of faith + Perdition deckload strikes
+                // Massed armored wall of faith + Perdition deckload strikes (Martyrdom OFF for Luddic Church)
                 cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
                 cfg.setOpeningDurationSeconds(40);
                 cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
                 cfg.setPlayEnabled(OtcPlay.DOUBLING, false);
                 cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
                 cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
+                cfg.setPlayEnabled(OtcPlay.MARTYRDOM, false);
 
                 configureDivisionType(cfg, DoctrineDivisionType.BATTLESHIP,
                         625, 1100, 650, 0.88f,
@@ -544,26 +545,42 @@ public final class FactionFleetDoctrines {
             }
 
             case "luddic_path": {
-                // Fanatical Safety-Overrides cells charging into point-blank brawl
+                // Fanatical Safety-Overrides & VBIED cells charging into point-blank Martyrdom
                 cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_NEGATION);
                 cfg.setOpeningDurationSeconds(30);
                 cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, false);
                 cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
                 cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, false);
                 cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
+                cfg.setPlayEnabled(OtcPlay.MARTYRDOM, true);
 
                 configureDivisionType(cfg, DoctrineDivisionType.BATTLESHIP,
-                        550, 1000, 450, 1.25f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN);
+                        550, 1000, 300, 1.25f,
+                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN);
+                configureDivisionType(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
+                        550, 1000, 300, 1.25f,
+                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN);
                 configureDivisionType(cfg, DoctrineDivisionType.CRUISER,
-                        450, 900, 450, 1.30f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN);
+                        450, 900, 300, 1.30f,
+                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN);
+                configureDivisionType(cfg, DoctrineDivisionType.MISSILE_CRUISER,
+                        450, 900, 300, 1.30f,
+                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN);
+                configureDivisionType(cfg, DoctrineDivisionType.STRIKE_CRUISER,
+                        450, 900, 300, 1.30f,
+                        DivisionMissionType.MARTYRDOM, DivisionMissionType.MARTYRDOM, LineStation.VAN);
                 configureDivisionType(cfg, DoctrineDivisionType.DESTROYER,
-                        400, 850, 450, 1.35f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN);
+                        400, 850, 300, 1.35f,
+                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN);
+                configureDivisionType(cfg, DoctrineDivisionType.MISSILE_DESTROYER,
+                        400, 850, 300, 1.35f,
+                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN);
                 configureDivisionType(cfg, DoctrineDivisionType.FRIGATE,
-                        375, 800, 450, 1.40f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN);
+                        375, 800, 300, 1.40f,
+                        DivisionMissionType.MARTYRDOM, DivisionMissionType.MARTYRDOM, LineStation.VAN);
+                configureDivisionType(cfg, DoctrineDivisionType.MISSILE_FRIGATE,
+                        375, 800, 300, 1.40f,
+                        DivisionMissionType.MARTYRDOM, DivisionMissionType.MARTYRDOM, LineStation.VAN);
 
                 cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
                 cfg.setMax(DoctrineHullCategory.CRUISER, 5);
@@ -1098,6 +1115,7 @@ public final class FactionFleetDoctrines {
         if (doctrine == null || arch == null) return 4;
         switch (arch) {
             case BATTLESHIP_DIVISION:
+            case MISSILE_BATTLESHIP_DIVISION:
             case FLEET_CARRIER_DIVISION:
                 return Math.max(1, doctrine.getMax(DoctrineHullCategory.CAPITAL));
             case LIGHT_CARRIER_DIVISION:
@@ -1107,6 +1125,7 @@ public final class FactionFleetDoctrines {
             case CARRIER_GROUP:
                 return 3;
             case CRUISER_DIVISION:
+            case MISSILE_CRUISER_DIVISION:
             case STRIKE_CRUISER_DIVISION:
                 return Math.max(1, doctrine.getMax(DoctrineHullCategory.CRUISER));
             case DESTROYER_DIVISION:
@@ -1117,6 +1136,7 @@ public final class FactionFleetDoctrines {
             case SERVICE_GROUP:
                 return Math.max(4, doctrine.getMax(DoctrineHullCategory.FREIGHTER));
             case FRIGATE_DIVISION:
+            case MISSILE_FRIGATE_DIVISION:
             default:
                 return Math.max(1, doctrine.getMax(DoctrineHullCategory.FRIGATE));
         }
@@ -1160,9 +1180,13 @@ public final class FactionFleetDoctrines {
         List<FleetMemberAPI> lightCarriers = new ArrayList<>();
         List<FleetMemberAPI> escortCarriers = new ArrayList<>();
         List<FleetMemberAPI> capitals = new ArrayList<>();
+        List<FleetMemberAPI> missileCapitals = new ArrayList<>();
         List<FleetMemberAPI> strikeCruisers = new ArrayList<>();
+        List<FleetMemberAPI> missileCruisers = new ArrayList<>();
         List<FleetMemberAPI> lineCruisers = new ArrayList<>();
+        List<FleetMemberAPI> missileDestroyers = new ArrayList<>();
         List<FleetMemberAPI> destroyers = new ArrayList<>();
+        List<FleetMemberAPI> missileFrigates = new ArrayList<>();
         List<FleetMemberAPI> frigates = new ArrayList<>();
         List<FleetMemberAPI> phaseShips = new ArrayList<>();
         List<FleetMemberAPI> auxiliaries = new ArrayList<>();
@@ -1186,8 +1210,14 @@ public final class FactionFleetDoctrines {
                 case CARRIER_GROUP:
                     escortCarriers.add(m);
                     break;
+                case MISSILE_BATTLESHIP_DIVISION:
+                    missileCapitals.add(m);
+                    break;
                 case BATTLESHIP_DIVISION:
                     capitals.add(m);
+                    break;
+                case MISSILE_CRUISER_DIVISION:
+                    missileCruisers.add(m);
                     break;
                 case STRIKE_CRUISER_DIVISION:
                     strikeCruisers.add(m);
@@ -1196,8 +1226,13 @@ public final class FactionFleetDoctrines {
                     lineCruisers.add(m);
                     break;
                 case MISSILE_DESTROYER_DIVISION:
+                    missileDestroyers.add(m);
+                    break;
                 case DESTROYER_DIVISION:
                     destroyers.add(m);
+                    break;
+                case MISSILE_FRIGATE_DIVISION:
+                    missileFrigates.add(m);
                     break;
                 case FRIGATE_DIVISION:
                 default:
@@ -1215,9 +1250,10 @@ public final class FactionFleetDoctrines {
         List<PermanentDivisionSpec> specs = new ArrayList<>();
         Map<DivisionArchetype, Integer> seqByArch = new LinkedHashMap<>();
 
-        // 1. Battle Divisions (Capitals; single capital pairs with a line cruiser if only 1 cruiser exists)
+        // 1. Battle & Missile Battleship Divisions
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, missileCapitals, capMax, factionId, nomCat);
         if (!capitals.isEmpty()) {
-            if (capitals.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty()) {
+            if (capitals.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty() && missileCruisers.isEmpty()) {
                 capitals.add(lineCruisers.remove(0));
             }
             chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.BATTLESHIP_DIVISION, capitals, capMax, factionId, nomCat);
@@ -1244,12 +1280,15 @@ public final class FactionFleetDoctrines {
             lineCruisers.add(strikeCruisers.remove(0));
         }
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.CRUISER_DIVISION, lineCruisers, cruMax, factionId, nomCat);
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_CRUISER_DIVISION, missileCruisers, cruMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.STRIKE_CRUISER_DIVISION, strikeCruisers, cruMax, factionId, nomCat);
 
         // 4. Destroyer Divisions
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_DESTROYER_DIVISION, missileDestroyers, desMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.DESTROYER_DIVISION, destroyers, desMax, factionId, nomCat);
 
         // 5. Frigate & Phase Divisions
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_FRIGATE_DIVISION, missileFrigates, friMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.FRIGATE_DIVISION, frigates, friMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.PHASE_DIVISION, phaseShips, Math.min(4, friMax), factionId, nomCat);
 

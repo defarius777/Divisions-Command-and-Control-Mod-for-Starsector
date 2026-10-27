@@ -24,8 +24,10 @@ public class ShipCapabilityProfile {
     public enum TacticalTag {
         CARRIER,
         BATTLE_LINE_CAPITAL,
+        MISSILE_CAPITAL,
         STRIKE_CAPITAL,
         LINE_CRUISER,
+        MISSILE_CRUISER,
         STRIKE_CRUISER,
         MISSILE_DESTROYER,
         ESCORT_DESTROYER,
@@ -172,12 +174,18 @@ public class ShipCapabilityProfile {
 
         switch (hullSize) {
             case CAPITAL_SHIP:
-                if (baseMaxSpeed >= 75f || (hasHeavyMissileLoadout && !isLongRangeStandoff)) {
+                if (hasHeavyMissileLoadout) {
+                    return TacticalTag.MISSILE_CAPITAL;
+                }
+                if (baseMaxSpeed >= 75f) {
                     return TacticalTag.STRIKE_CAPITAL;
                 }
                 return TacticalTag.BATTLE_LINE_CAPITAL;
             case CRUISER:
-                if (hasHeavyMissileLoadout || (baseMaxSpeed >= 90f && closeBrawlWeight >= longRangeWeight)) {
+                if (hasHeavyMissileLoadout) {
+                    return TacticalTag.MISSILE_CRUISER;
+                }
+                if (baseMaxSpeed >= 90f && closeBrawlWeight >= longRangeWeight) {
                     return TacticalTag.STRIKE_CRUISER;
                 }
                 return TacticalTag.LINE_CRUISER;

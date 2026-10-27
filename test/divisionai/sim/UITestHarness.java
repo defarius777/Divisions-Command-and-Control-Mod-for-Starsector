@@ -1,14 +1,18 @@
 package divisionai.sim;
 
 import divisionai.DivisionDeploymentDialogOrganizer;
+import divisionai.DivisionEditorDialog;
 import divisionai.DivisionModel.DivisionArchetype;
+import divisionai.DivisionNomenclature;
 import divisionai.DivisionNomenclature.NumberingStyle;
 import divisionai.DivisionNomenclature.PlayerNamingPreset;
+import divisionai.FactionFleetDoctrines;
 import divisionai.FleetDoctrineDialog;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.DoctrineOption;
+import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
@@ -62,6 +66,7 @@ public class UITestHarness {
 
         auditDeploymentWindowGeometry(res);
         auditFleetDoctrineWindowAndOtcLayout(res);
+        auditV067FeaturesAndQAPass(res);
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);
 
@@ -182,6 +187,97 @@ public class UITestHarness {
                 "OTC Authority dropdown and Tactical Plays align on single horizontal rows without vertical overlap",
                 String.format(Locale.ROOT, "singleLineDropdown=%s, maxSummaryPx=%.0fpx < available=%.0fpx",
                         singleLineOtcDropdown, maxOtcSummaryPx, availableOtcSummaryWidth));
+    }
+
+    private static void auditV067FeaturesAndQAPass(UIAuditResult res) throws Exception {
+        // A. Fleet UI button order & rename ("Fleet Doctrine" on top, "Fleet Organization" below)
+        String injSrc = new String(Files.readAllBytes(new File("src/divisionai/DivisionFleetTabInjector.java").toPath()), StandardCharsets.UTF_8);
+        String edSrc = new String(Files.readAllBytes(new File("src/divisionai/DivisionEditorDialog.java").toPath()), StandardCharsets.UTF_8);
+        String docSrc = new String(Files.readAllBytes(new File("src/divisionai/FleetDoctrineDialog.java").toPath()), StandardCharsets.UTF_8);
+
+        int docBtnIdx = injSrc.indexOf("\"Fleet Doctrine\"");
+        int orgBtnIdx = injSrc.indexOf("\"Fleet Organization\"");
+        boolean itemAOk = docBtnIdx > 0 && orgBtnIdx > docBtnIdx
+                && !injSrc.contains("\"Division Editor\"")
+                && edSrc.contains("addTitle(\"FLEET ORGANIZATION\"")
+                && edSrc.contains("\"<- Fleet Organization\"");
+        res.record(
+                itemAOk,
+                "Item A: 'Division Editor' renamed to 'Fleet Organization' and placed below 'Fleet Doctrine' in Fleet UI",
+                "doctrineBtnIdx=" + docBtnIdx + " < fleetOrgBtnIdx=" + orgBtnIdx);
+
+        // B. Configure Division screen QA pass (1320x800, 15 archetypes in 2x8 grid, single-line controls)
+        boolean itemBOk = DivisionEditorDialog.DIALOG_WIDTH == 1320f
+                && DivisionEditorDialog.DIALOG_HEIGHT == 800f
+                && edSrc.contains("colIdx * 162f")
+                && edSrc.contains("CONTROL_COL_X = 250f");
+        res.record(
+                itemBOk,
+                "Item B: Configure Division screen enlarged to 1320x800 with 2x8 archetype grid and aligned controls",
+                String.format(Locale.ROOT, "dialog=%.0fx%.0fpx", DivisionEditorDialog.DIALOG_WIDTH, DivisionEditorDialog.DIALOG_HEIGHT));
+
+        // C & D. Line Cruiser Division default + 4 new Missile division types
+        boolean itemCDOk = "Line Cruiser Div".equals(DivisionArchetype.CRUISER_DIVISION.shortPrefix)
+                && "Line Cruiser Division".equals(DoctrineDivisionType.CRUISER.displayName)
+                && "Line Cruiser Div".equals(DivisionNomenclature.getDefaultPrefixForPreset(PlayerNamingPreset.NAVAL_STANDARD, DivisionArchetype.CRUISER_DIVISION))
+                && DivisionArchetype.MISSILE_BATTLESHIP_DIVISION.isMissileArchetype()
+                && DivisionArchetype.MISSILE_CRUISER_DIVISION.isMissileArchetype()
+                && DivisionArchetype.MISSILE_DESTROYER_DIVISION.isMissileArchetype()
+                && DivisionArchetype.MISSILE_FRIGATE_DIVISION.isMissileArchetype()
+                && DoctrineDivisionType.forArchetype(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION) == DoctrineDivisionType.MISSILE_BATTLESHIP
+                && DoctrineDivisionType.forArchetype(DivisionArchetype.MISSILE_CRUISER_DIVISION) == DoctrineDivisionType.MISSILE_CRUISER
+                && DoctrineDivisionType.forArchetype(DivisionArchetype.MISSILE_DESTROYER_DIVISION) == DoctrineDivisionType.MISSILE_DESTROYER
+                && DoctrineDivisionType.forArchetype(DivisionArchetype.MISSILE_FRIGATE_DIVISION) == DoctrineDivisionType.MISSILE_FRIGATE;
+        res.record(
+                itemCDOk,
+                "Items C & D: Line Cruiser Division default and 4 Missile division types (Battleship, Cruiser, Destroyer, Frigate)",
+                "archetypes=" + DivisionArchetype.values().length + ", doctrineTypes=" + DoctrineDivisionType.values().length);
+
+        // E. Scroll bar position preservation across UI rebuilds
+        boolean itemEOk = docSrc.contains("activeBodyScroller.getYOffset()")
+                && docSrc.contains("activeBodyScroller.setYOffset(")
+                && edSrc.contains("savedOverviewLeftScrollY")
+                && edSrc.contains("savedSingleLeftScrollY")
+                && edSrc.contains("scroller.setYOffset(");
+        res.record(
+                itemEOk,
+                "Item E: Scroll bar offset preserved across UI actions in Fleet Doctrine and Fleet Organization/Configure Division",
+                "FleetDoctrineDialog + DivisionEditorDialog scroll state hooks verified");
+
+        // F. Commander portrait and level badge in lower-left corner of ship icons
+        boolean itemFOk = edSrc.contains("renderCommanderPortraitSprite")
+                && edSrc.contains("Fonts.VICTOR_10")
+                && edSrc.contains("showCommanderLevel")
+                && edSrc.contains("float px = x + 2f;")
+                && edSrc.contains("float py = y + 2f;");
+        res.record(
+                itemFOk,
+                "Item F: Ship icons render commander portrait in lower-left corner with Fleet-screen Victor-10 level badge",
+                "portraitBoxSize=24px at lower-left (x+2, y+2) with Victor-10 top-right level badge");
+
+        // G. Martyrdom tactics enabled for Luddic Path (not Church) and off by default for player and other factions
+        FleetDoctrineConfig defaultPlayerCfg = new FleetDoctrineConfig();
+        FleetDoctrineConfig luddicPathCfg = FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null);
+        FleetDoctrineConfig luddicChurchCfg = FactionFleetDoctrines.getDoctrineForFactionId("luddic_church", null);
+        FleetDoctrineConfig hegemonyCfg = FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null);
+        FleetDoctrineConfig triTachCfg = FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null);
+
+        boolean itemGOk = !defaultPlayerCfg.isPlayEnabled(OtcPlay.MARTYRDOM)
+                && luddicPathCfg.isPlayEnabled(OtcPlay.MARTYRDOM)
+                && luddicPathCfg.getMainMission(DoctrineDivisionType.FRIGATE) == DivisionMissionType.MARTYRDOM
+                && luddicPathCfg.getMainMission(DoctrineDivisionType.DESTROYER) == DivisionMissionType.MARTYRDOM
+                && luddicPathCfg.getMainMission(DoctrineDivisionType.CRUISER) == DivisionMissionType.MARTYRDOM
+                && !luddicChurchCfg.isPlayEnabled(OtcPlay.MARTYRDOM)
+                && !hegemonyCfg.isPlayEnabled(OtcPlay.MARTYRDOM)
+                && !triTachCfg.isPlayEnabled(OtcPlay.MARTYRDOM);
+        res.record(
+                itemGOk,
+                "Item G: 'Martyrdom' tactics enabled for Luddic Path (not Luddic Church) and off by default for player & other factions",
+                String.format(Locale.ROOT, "player=%s, luddic_path=%s, luddic_church=%s, hegemony=%s",
+                        defaultPlayerCfg.isPlayEnabled(OtcPlay.MARTYRDOM),
+                        luddicPathCfg.isPlayEnabled(OtcPlay.MARTYRDOM),
+                        luddicChurchCfg.isPlayEnabled(OtcPlay.MARTYRDOM),
+                        hegemonyCfg.isPlayEnabled(OtcPlay.MARTYRDOM)));
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {

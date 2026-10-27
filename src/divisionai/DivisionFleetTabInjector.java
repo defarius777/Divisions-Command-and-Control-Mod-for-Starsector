@@ -23,7 +23,7 @@ import java.util.List;
 
 /**
  * Campaign EveryFrameScript that watches the Fleet screen (CoreUITabId.FLEET) and injects
- * the "Division Editor" button on the left side of the Fleet screen.
+ * "Fleet Doctrine" (on top) and "Fleet Organization" (below) on the left side of the Fleet screen.
  * Uses java.lang.invoke.MethodHandles (never java.lang.reflect.*) so Starsector's script
  * classloader never blocks reflection.
  */
@@ -204,9 +204,9 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
 
         injectedButtonPanel = Global.getSettings().createCustom(btnW, panelH, new BaseCustomUIPanelPlugin());
         TooltipMakerAPI tt = injectedButtonPanel.createUIElement(btnW, panelH, false);
-        divisionEditorButton = tt.addButton(
-                "Division Editor",
-                "OPEN_DIVISION_EDITOR",
+        fleetDoctrineButton = tt.addButton(
+                "Fleet Doctrine",
+                "OPEN_FLEET_DOCTRINE",
                 Misc.getBasePlayerColor(),
                 Misc.getDarkPlayerColor(),
                 Alignment.MID,
@@ -214,9 +214,9 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 btnW,
                 btnH,
                 0f);
-        fleetDoctrineButton = tt.addButton(
-                "Fleet Doctrine",
-                "OPEN_FLEET_DOCTRINE",
+        divisionEditorButton = tt.addButton(
+                "Fleet Organization",
+                "OPEN_DIVISION_EDITOR",
                 Misc.getBasePlayerColor(),
                 Misc.getDarkPlayerColor(),
                 Alignment.MID,
@@ -232,6 +232,6 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
         float topY = Global.getSettings().getScreenHeight() - autoAssignButton.getPosition().getY() + extraOffset;
 
         leftControlPanel.addComponent(injectedButtonPanel).inTL(0f, topY);
-        LOG.info("[DivisionAI] Injected 'Division Editor' and 'Fleet Doctrine' buttons onto Fleet tab.");
+        LOG.info("[DivisionAI] Injected 'Fleet Doctrine' and 'Fleet Organization' buttons onto Fleet tab.");
     }
 }

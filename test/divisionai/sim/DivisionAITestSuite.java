@@ -407,6 +407,49 @@ public class DivisionAITestSuite {
         check("Battle Div. I".equals(hegBattle1) && sharedCarrierBucket,
                 "Standard Battleship Division formats as 'Battle Div. I' and Carrier sub-archetypes share numbering bucket",
                 "hegBattle1='" + hegBattle1 + "', sharedCarrierBucket=" + sharedCarrierBucket);
+
+        // Verify Luddic Path Martyrdom combat execution (charges point-blank without backing off or hauling out to vent)
+        CommanderProfile lpCmdr = new CommanderProfile(null, "reckless");
+        CommanderProfile hegCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState lpGroup = new BattleGroupState(1, lpCmdr);
+        BattleGroupState hegGroup = new BattleGroupState(0, hegCmdr);
+        DivisionState lpDiv = new DivisionState("lp_1", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Martyr Host I", lpCmdr);
+        lpDiv.openingMission = DivisionMissionType.MARTYRDOM;
+        lpDiv.mainMission = DivisionMissionType.MARTYRDOM;
+        lpDiv.standoffRange = 400f;
+        lpGroup.divisions.add(lpDiv);
+
+        DivisionState hegDiv = new DivisionState("heg_1", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. I", hegCmdr);
+        hegGroup.divisions.add(hegDiv);
+
+        SimArena lpArena = new SimArena(
+                "5b. Luddic Path Martyrdom Charge",
+                "Luddic Path Martyrdom division charges point-blank into Enemy Battle Div. I without backing off or hauling out to vent at 82% flux.",
+                hegGroup,
+                lpGroup);
+        SimShipState v1 = lpArena.addShip(lpDiv, "lp1", "Blessed Prometheus", "prometheus2", HullSize.CAPITAL_SHIP, 0f, 950f, 90f, 700f, 2, 0);
+        SimShipState v2 = lpArena.addShip(lpDiv, "lp2", "Blessed Eradicator", "eradicator", HullSize.CRUISER, 120f, 980f, 110f, 800f, 2, 0);
+        lpArena.addShip(hegDiv, "h1", "HSS Onslaught", "Onslaught", HullSize.CAPITAL_SHIP, 0f, 0f, 55f, 1300f, 0, 0);
+        v1.fluxLevel = 0.82f;
+        v2.fluxLevel = 0.82f;
+
+        boolean pressedHome = false;
+        boolean everBackedOffOrHauledOut = false;
+        for (int s = 0; s < 10; s++) {
+            v1.fluxLevel = 0.82f;
+            v2.fluxLevel = 0.82f;
+            lpArena.runSimulation(1.0f);
+            if (lpDiv.currentIntent == DivisionIntentType.PRESS_HOME) {
+                pressedHome = true;
+            }
+            if (lpDiv.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
+                    || lpDiv.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT) {
+                everBackedOffOrHauledOut = true;
+            }
+        }
+        check(pressedHome && !everBackedOffOrHauledOut,
+                "Luddic Path Martyrdom division executes point-blank PRESS_HOME charge without backing off or hauling out at 82% flux",
+                "pressedHome=" + pressedHome + ", everBackedOffOrHauledOut=" + everBackedOffOrHauledOut + ", finalDist=" + Math.round(v1.location.length()) + "u");
     }
 
     /**

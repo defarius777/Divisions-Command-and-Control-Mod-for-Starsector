@@ -128,16 +128,66 @@ public class DivisionCommanderAI {
         }
     }
 
+    /**
+     * Returns true when Martyrdom tactics are active for this division:
+     *  - The division's active mission is MARTYRDOM, OR
+     *  - The Battle Group has OtcPlay.MARTYRDOM enabled AND the division either contains VBIED/IED hulls,
+     *    has MARTYRDOM as its opening/main mission, or is on a close-action charge.
+     */
+    public static boolean isMartyrdomActive(DivisionState div, BattleGroupState myGroup, float now) {
+        if (div == null || div.archetype.isCarrierArchetype() || div.archetype == DivisionArchetype.SERVICE_GROUP) {
+            return false;
+        }
+        DivisionMissionType activeMission = resolveActiveMission(div, now);
+        if (activeMission == DivisionMissionType.MARTYRDOM) {
+            return true;
+        }
+        if (myGroup != null && myGroup.isPlayEnabled(OtcPlay.MARTYRDOM)) {
+            if (div.openingMission == DivisionMissionType.MARTYRDOM || div.mainMission == DivisionMissionType.MARTYRDOM) {
+                return true;
+            }
+            for (ShipAPI s : div.getAliveMembers()) {
+                if (isVbiedOrFanaticHull(s)) {
+                    return true;
+                }
+            }
+            if (activeMission == DivisionMissionType.CLOSE_ACTION) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean isVbiedOrFanaticHull(ShipAPI ship) {
+        if (ship == null) return false;
+        if (ship.getHullSpec() != null) {
+            String hId = ship.getHullSpec().getHullId() != null ? ship.getHullSpec().getHullId().toLowerCase() : "";
+            String hName = ship.getHullSpec().getHullName() != null ? ship.getHullSpec().getHullName().toLowerCase() : "";
+            if (hId.contains("ied") || hId.contains("vbied") || hId.contains("martyr") || hId.contains("kamikaze")
+                    || hId.contains("suicide") || hName.contains("ied") || hName.contains("martyr")) {
+                return true;
+            }
+        }
+        if (ship.getSystem() != null && ship.getSystem().getId() != null) {
+            String sysId = ship.getSystem().getId().toLowerCase();
+            if (sysId.contains("ied") || sysId.contains("detonat") || sysId.contains("martyr") || sysId.contains("selfdestruct")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Events that break intent commitment and force an immediate re-evaluation. */
     private static boolean hasUrgentTrigger(CombatEngineAPI engine, DivisionState div, BattleGroupState myGroup, float now) {
         if (div.otcOrder.version != div.appliedOtcOrderVersion) return true;
-        if (isStrikeRunOver(div, now)) return true;
-        if (isUnderHighFluxPressure(div, myGroup)
+        boolean martyrdom = isMartyrdomActive(div, myGroup, now);
+        if (!martyrdom && isStrikeRunOver(div, now)) return true;
+        if (!martyrdom && isUnderHighFluxPressure(div, myGroup)
                 && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                 && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE) {
             return true;
         }
-        if (myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT
+        if (!martyrdom && myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT
                 && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT) {
             return true;
         }
@@ -258,8 +308,10 @@ public class DivisionCommanderAI {
                 || prevIntent == DivisionIntentType.TOT_MISSILE_STRIKE);
         boolean inFlankManeuver = (prevIntent == DivisionIntentType.WORK_FLANK);
 
+        boolean martyrdom = isMartyrdomActive(div, myGroup, now);
+
         // 1. Torpedo strike window finished / torpedoes expended / flux built up -> Strike-then-withdraw to reserve
-        if (isStrikeRunOver(div, now)) {
+        if (!martyrdom && isStrikeRunOver(div, now)) {
             div.currentIntent = DivisionIntentType.BREAK_OFF_AND_RETIRE;
             div.targetEnemyDivision = nearestEnemyDiv;
             div.stationPoint.set(myGroup.reserveStation);
@@ -273,10 +325,10 @@ public class DivisionCommanderAI {
 
         // 2. High flux / damaged division -> Rotate to reserve behind a friendly division.
         //    Once rotating, stay out until flux has genuinely bled off instead of bouncing at the threshold.
-        boolean stillRotating = prevIntent == DivisionIntentType.HAUL_OUT_TO_VENT
+        boolean stillRotating = !martyrdom && prevIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                 && div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.55f;
-        boolean fightingRetirementVent = (myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT && div.avgFluxLevel >= 0.32f);
-        if (isUnderHighFluxPressure(div, myGroup) || stillRotating || fightingRetirementVent) {
+        boolean fightingRetirementVent = !martyrdom && (myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT && div.avgFluxLevel >= 0.32f);
+        if (!martyrdom && (isUnderHighFluxPressure(div, myGroup) || stillRotating || fightingRetirementVent)) {
 
             DivisionState candidateFriend = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
                     ? myGroup.mainEffortDivision
@@ -600,6 +652,18 @@ public class DivisionCommanderAI {
             computeStandoffStation(engine, div, nearestEnemyDiv, div.stationPoint);
             targetLabel = nearestEnemyDiv.displayName;
             reason = String.format("%s%s (standoff range %.0fu)", missionPhaseTag, activeMission.shortName, div.standoffRange);
+            div.lastIntentChangeTime = now;
+            DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
+            return;
+        }
+
+        if (martyrdom && nearestEnemyDiv != null) {
+            Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
+            div.targetEnemyDivision = nearestEnemyDiv;
+            div.stationPoint.set(visEnemyPos);
+            div.currentIntent = DivisionIntentType.PRESS_HOME;
+            targetLabel = nearestEnemyDiv.displayName;
+            reason = missionPhaseTag + "Martyrdom";
             div.lastIntentChangeTime = now;
             DivisionCombatLog.logDivisionIntent(engine, div, targetLabel, reason, now);
             return;
@@ -1184,6 +1248,20 @@ public class DivisionCommanderAI {
 
                 case PRESS_HOME:
                     flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
+                    if (isMartyrdomActive(div, myGroup, now) || (myGroup.isPlayEnabled(OtcPlay.MARTYRDOM) && isVbiedOrFanaticHull(ship))) {
+                        flags.setFlag(AIFlags.DO_NOT_VENT, FLAG_TTL * 2f);
+                        flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL * 2f);
+                        flags.setFlag(AIFlags.PURSUING, FLAG_TTL * 2f);
+                        flags.unsetFlag(AIFlags.BACK_OFF);
+                        flags.unsetFlag(AIFlags.RUN_QUICKLY);
+                        if (focusEnemyShip != null) {
+                            directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
+                            flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, focusEnemyShip.getLocation());
+                        } else if (div.targetEnemyDivision != null) {
+                            flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, div.stationPoint);
+                        }
+                        break;
+                    }
                     if (focusEnemyShip != null) {
                         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip);
                         if (distance(ship.getLocation(), focusEnemyShip.getLocation()) > 2100f || crowdedByPeer) {

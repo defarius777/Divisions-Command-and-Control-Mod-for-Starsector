@@ -26,15 +26,18 @@ public class DivisionModel {
      */
     public enum DivisionArchetype {
         BATTLESHIP_DIVISION("Battleship Div", true),
+        MISSILE_BATTLESHIP_DIVISION("Missile Battleship Div", false),
         FLEET_CARRIER_DIVISION("Fleet Carrier Div", false),
         LIGHT_CARRIER_DIVISION("Light Carrier Div", false),
         ESCORT_CARRIER_DIVISION("Escort Carrier Div", false),
         CARRIER_GROUP("Carrier Group", true),
-        CRUISER_DIVISION("Cruiser Div", false),
+        CRUISER_DIVISION("Line Cruiser Div", false),
+        MISSILE_CRUISER_DIVISION("Missile Cruiser Div", false),
         STRIKE_CRUISER_DIVISION("Strike Cruiser Div", false),
         DESTROYER_DIVISION("Destroyer Div", false),
-        MISSILE_DESTROYER_DIVISION("Destroyer Div", false),
+        MISSILE_DESTROYER_DIVISION("Missile Destroyer Div", false),
         FRIGATE_DIVISION("Frigate Div", false),
+        MISSILE_FRIGATE_DIVISION("Missile Frigate Div", false),
         PHASE_DIVISION("Phase Div", false),
         SERVICE_GROUP("Service Group", true);
 
@@ -56,6 +59,8 @@ public class DivisionModel {
                     return CARRIER_GROUP.name();
                 case "TORPEDO_DESTROYER_DIVISION":
                     return MISSILE_DESTROYER_DIVISION.name();
+                case "LINE_CRUISER_DIVISION":
+                    return CRUISER_DIVISION.name();
                 case "AUXILIARY_CONVOY":
                     return SERVICE_GROUP.name();
                 default:
@@ -68,6 +73,13 @@ public class DivisionModel {
                     || this == LIGHT_CARRIER_DIVISION
                     || this == ESCORT_CARRIER_DIVISION
                     || this == CARRIER_GROUP;
+        }
+
+        public boolean isMissileArchetype() {
+            return this == MISSILE_BATTLESHIP_DIVISION
+                    || this == MISSILE_CRUISER_DIVISION
+                    || this == MISSILE_DESTROYER_DIVISION
+                    || this == MISSILE_FRIGATE_DIVISION;
         }
     }
 
