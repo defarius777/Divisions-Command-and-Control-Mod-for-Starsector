@@ -1159,7 +1159,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 break;
         }
         int fluxPct = Math.round(div.avgFluxLevel * 100f);
-        return String.format(Locale.ROOT, "[%s | %d%% FLUX]", intentShort, fluxPct);
+        return String.format(Locale.ROOT, "%s · %d%%", intentShort, fluxPct);
     }
 
     private static boolean isEnemyShipVisibleOnCommandMap(ShipAPI ship, FogOfWarAPI playerFog) {

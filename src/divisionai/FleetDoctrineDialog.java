@@ -208,22 +208,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         topCloseUi.setHeightSoFar(24f);
         contentContainer.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
 
-        // 1. Header & Subtitle (including Paragon's in-game length = 364 units)
-        TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 62f, false);
+        // 1. Header & Subtitle
+        TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 48f, false);
         header.setTitleOrbitronLarge();
-        header.addTitle("FLEET DOCTRINE — BATTLE GROUP COMMAND, DIVISION MODIFIERS & HULL LIMITS", baseColor);
+        header.addTitle("FLEET DOCTRINE", baseColor);
         header.addPara(
-                "Configure OTC command doctrine, division-type station spacing and standoff range, and min/max hull limits (Hard Cap: %s ships/division).",
+                "OTC command authority, default division spacing & missions, hull limits (max %s/div), and fleet naming.",
                 3f,
                 highlight,
                 String.valueOf(PermanentDivisionManager.MAX_DIVISION_SIZE));
-        header.addPara(
-                "Reference scale: Paragon-class Battleship length = %s in-game units (hull bounds 354u, width 330u).",
-                2f,
-                positive,
-                String.valueOf(PermanentDivisionManager.PARAGON_LENGTH_UNITS));
-        header.setHeightSoFar(62f);
-        contentContainer.addUIElement(header).inTL(12f, 6f);
+        header.setHeightSoFar(48f);
+        contentContainer.addUIElement(header).inTL(12f, 8f);
 
         // 2. Top Toolbar (Filter Tabs + Reset Defaults + Close)
         CustomPanelAPI toolbarRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, subPanelPlugin);
@@ -231,13 +226,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bTabAll = registerButton(
                 tb.addButton(
-                        "All Settings",
+                        "All",
                         "TAB:ALL",
                         activeTab == ActiveTab.ALL_DOCTRINE ? highlight : baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        115f,
+                        90f,
                         24f,
                         0f),
                 "TAB:ALL");
@@ -246,22 +241,22 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bTabOtc = registerButton(
                 tb.addButton(
-                        "Battle Group Command",
+                        "OTC Command",
                         "TAB:OTC_COMMAND",
                         activeTab == ActiveTab.BATTLE_GROUP_COMMAND ? highlight : baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        162f,
+                        136f,
                         24f,
                         0f),
                 "TAB:OTC_COMMAND");
         if (activeTab == ActiveTab.BATTLE_GROUP_COMMAND) bTabOtc.highlight();
-        bTabOtc.getPosition().inTL(120f, 2f);
+        bTabOtc.getPosition().inTL(96f, 2f);
 
         ButtonAPI bTabMod = registerButton(
                 tb.addButton(
-                        "Division Modifiers",
+                        "Division Defaults",
                         "TAB:MODIFIERS",
                         activeTab == ActiveTab.DIVISION_MODIFIERS ? highlight : baseColor,
                         darkColor,
@@ -272,37 +267,37 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         0f),
                 "TAB:MODIFIERS");
         if (activeTab == ActiveTab.DIVISION_MODIFIERS) bTabMod.highlight();
-        bTabMod.getPosition().inTL(287f, 2f);
+        bTabMod.getPosition().inTL(238f, 2f);
 
         ButtonAPI bTabHull = registerButton(
                 tb.addButton(
-                        "Hull Min/Max Limits",
+                        "Hull Limits",
                         "TAB:HULLS",
                         activeTab == ActiveTab.HULL_LIMITS ? highlight : baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        145f,
+                        120f,
                         24f,
                         0f),
                 "TAB:HULLS");
         if (activeTab == ActiveTab.HULL_LIMITS) bTabHull.highlight();
-        bTabHull.getPosition().inTL(440f, 2f);
+        bTabHull.getPosition().inTL(392f, 2f);
 
         ButtonAPI bTabNaming = registerButton(
                 tb.addButton(
-                        "Division Naming",
+                        "Nomenclature",
                         "TAB:NAMING",
                         activeTab == ActiveTab.NAMING_SCHEME ? highlight : baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        136f,
+                        132f,
                         24f,
                         0f),
                 "TAB:NAMING");
         if (activeTab == ActiveTab.NAMING_SCHEME) bTabNaming.highlight();
-        bTabNaming.getPosition().inTL(590f, 2f);
+        bTabNaming.getPosition().inTL(518f, 2f);
 
         String reinitLabel = lastReinitFleetCount >= 0
                 ? ("Reinitialized (" + lastReinitFleetCount + ")!")
@@ -351,7 +346,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         tb.setHeightSoFar(28f);
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
-        contentContainer.addComponent(toolbarRow).inTL(12f, 70f);
+        contentContainer.addComponent(toolbarRow).inTL(12f, 60f);
 
         if (pendingConfirmationCmd != null) {
             buildConfirmationScreen(contentContainer, baseColor, darkColor, highlight);
@@ -359,7 +354,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
 
         // 3. Scrollable Body
-        float bodyTop = 104f;
+        float bodyTop = 94f;
         float bodyHeight = DIALOG_HEIGHT - bodyTop - 14f;
         float bodyWidth = DIALOG_WIDTH - 24f;
 
@@ -367,16 +362,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.BATTLE_GROUP_COMMAND) {
             body.addSectionHeading(
-                    "BATTLE GROUP COMMAND — OTC AUTHORITY & PLAYS",
+                    "OTC COMMAND & TACTICAL PLAYS",
                     highlight,
                     darkColor,
                     Alignment.LMID,
                     4f);
-            body.addPara(
-                    "How your Battle Group Commander, the Officer in Tactical Command (OTC), fights the battle across divisions. Authority sets how far its "
-                            + "orders may override each division's Opening/Main Mission; plays switch individual behaviours on or off.",
-                    4f,
-                    gray);
 
             addAuthorityDropdownRow(
                     body,
@@ -402,19 +392,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.DIVISION_MODIFIERS) {
             body.addSectionHeading(
-                    "BATTLE GROUP SETTINGS — STATION SPACING, STANDOFF RANGE & MISSIONS  (Paragon Length = "
-                            + PermanentDivisionManager.PARAGON_LENGTH_UNITS + "u)",
+                    "DIVISION DEFAULTS — SPACING, STANDOFF & MISSIONS",
                     highlight,
                     darkColor,
                     Alignment.LMID,
                     4f);
             body.addPara(
-                    "Battle Group Settings are inherited by all divisions of each type unless overridden on an individual division in the Division Editor. "
-                            + "Opening Mission runs for the first 30-60s (%ss); Main Mission runs for the rest of the battle.",
-                    4f,
-                    gray,
-                    highlight,
-                    String.valueOf(doctrine.getOpeningDurationSeconds()));
+                    "Defaults inherited by divisions of each type unless overridden in the Division Editor.",
+                    3f,
+                    gray);
 
             // Opening Mission Duration (30s - 60s)
             addOpeningDurationRow(
@@ -433,13 +419,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 DivisionMissionType currMainMis = doctrine.getMainMission(dt);
                 LineStation currLineStation = doctrine.getLineStation(dt);
 
-                float spacingParagons = currSpacing / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
-                float interParagons = currInter / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
-                float standoffParagons = currStandoff / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS;
-
                 String dtTitle = String.format(
                         Locale.ROOT,
-                        "%s  —  Station: %s  |  Spacing: %du  |  Interval: %du  |  Standoff: %du  |  %s -> %s",
+                        "%s  ·  %s  ·  %du / %du / %du standoff  ·  %s -> %s",
                         dt.displayName.toUpperCase(Locale.ROOT),
                         currLineStation.displayName,
                         currSpacing,
@@ -453,11 +435,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addUnitModifierRow(
                         body,
                         bodyWidth - 16f,
-                        String.format(
-                                Locale.ROOT,
-                                "Station spacing (ship to ship): %du (%.2fx Paragon)",
-                                currSpacing,
-                                spacingParagons),
+                        String.format(Locale.ROOT, "Ship Spacing: %du", currSpacing),
                         currSpacing,
                         50,
                         PermanentDivisionManager.MIN_STATION_SPACING_UNITS,
@@ -472,11 +450,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addUnitModifierRow(
                         body,
                         bodyWidth - 16f,
-                        String.format(
-                                Locale.ROOT,
-                                "Division interval (division to division): %du (%.2fx Paragon)",
-                                currInter,
-                                interParagons),
+                        String.format(Locale.ROOT, "Division Interval: %du", currInter),
                         currInter,
                         100,
                         PermanentDivisionManager.MIN_DIVISION_INTERVAL_UNITS,
@@ -491,11 +465,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addUnitModifierRow(
                         body,
                         bodyWidth - 16f,
-                        String.format(
-                                Locale.ROOT,
-                                "Standoff range: %du (%.2fx Paragon)",
-                                currStandoff,
-                                standoffParagons),
+                        String.format(Locale.ROOT, "Standoff Range: %du", currStandoff),
                         currStandoff,
                         100,
                         PermanentDivisionManager.MIN_STANDOFF_RANGE_UNITS,
@@ -510,7 +480,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addPreferredSpaceRow(
                         body,
                         bodyWidth - 16f,
-                        dt.displayName + " Station in Line: " + currLineStation.displayName,
+                        "Line Station: " + currLineStation.displayName,
                         currLineStation,
                         "SET_LINE_STATION:" + dt.name() + ":",
                         baseColor,
@@ -521,7 +491,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addMissionDropdownRow(
                         body,
                         bodyWidth - 16f,
-                        dt.displayName + " Opening Mission (0-" + doctrine.getOpeningDurationSeconds() + "s):",
+                        "Opening (0-" + doctrine.getOpeningDurationSeconds() + "s):",
                         "OPEN_MIS_" + dt.name(),
                         currOpenMis,
                         DivisionMissionType.missionsForDoctrineType(dt),
@@ -535,7 +505,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addMissionDropdownRow(
                         body,
                         bodyWidth - 16f,
-                        dt.displayName + " Main Mission (rest of battle):",
+                        "Main Mission:",
                         "MAIN_MIS_" + dt.name(),
                         currMainMis,
                         DivisionMissionType.missionsForDoctrineType(dt),
@@ -549,8 +519,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.HULL_LIMITS) {
             body.addSectionHeading(
-                    "DIVISION HULL COMPOSITION LIMITS  (Hard Cap: "
-                            + PermanentDivisionManager.MAX_DIVISION_SIZE + " Ships / Division)",
+                    "HULL LIMITS PER DIVISION  (Max " + PermanentDivisionManager.MAX_DIVISION_SIZE + " Ships)",
                     highlight,
                     darkColor,
                     Alignment.LMID,
@@ -561,11 +530,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 int currMax = doctrine.getMax(cat);
 
                 String secTitle = String.format(
-                        "%s  —  Min: %d  |  Max: %d  (Hard Cap: %d)",
+                        "%s  (%d – %d ships)",
                         cat.displayName.toUpperCase(Locale.ROOT),
                         currMin,
-                        currMax,
-                        PermanentDivisionManager.MAX_DIVISION_SIZE);
+                        currMax);
                 body.addSectionHeading(secTitle, baseColor, darkColor, Alignment.LMID, 6f);
 
                 // Row A: Minimum <cat> hulls for division
@@ -622,16 +590,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         NumberingStyle currentNumbering = namingCfg.getNumberingStyle();
 
         body.addSectionHeading(
-                "DIVISION NOMENCLATURE — PLAYER FLEET NAMING SCHEME",
+                "FLEET NOMENCLATURE",
                 highlight,
                 darkColor,
                 Alignment.LMID,
                 10f);
-        body.addPara(
-                "Customize the naming scheme for your fleet's divisions and OTC Commander. "
-                        + "Select a faction/naval preset, choose a numbering style, or enter custom prefixes for each division type.",
-                4f,
-                gray);
 
         // 1. Naming Preset Dropdown
         boolean expanded = NAMING_PRESET_DROPDOWN_KEY.equals(expandedDropdownKey);
@@ -658,7 +621,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bApplyExisting = registerButton(
                 presetUi.addButton(
-                        "Apply Scheme to Existing Divisions",
+                        "Rename Existing Divisions",
                         "APPLY_NAMING_TO_EXISTING",
                         highlight,
                         darkColor,
@@ -779,7 +742,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         // 4. Per-Archetype Custom Prefix Rows
         body.addSectionHeading(
-                "CUSTOM DIVISION PREFIXES BY TYPE  (Edit text & click 'Save Custom Prefixes' or 'Apply Scheme to Existing Divisions')",
+                "DIVISION TYPE PREFIXES",
                 baseColor,
                 darkColor,
                 Alignment.LMID,
@@ -867,10 +830,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
-        rowUi.addPara("OTC authority:", 4f, baseColor).getPosition().inTL(4f, 4f);
+        rowUi.addPara("OTC Authority:", 4f, baseColor).getPosition().inTL(4f, 4f);
 
         String toggleAct = "TOGGLE_DD:" + OTC_AUTHORITY_DROPDOWN_KEY;
-        String btnText = (expanded ? "[^] " : "[v] ") + current.dropdownLabel + "  (Click to change)";
+        String btnText = (expanded ? "[^] " : "[v] ") + current.dropdownLabel;
         ButtonAPI bToggle = registerButton(
                 rowUi.addButton(
                         btnText,
@@ -879,7 +842,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.LMID,
                         CutStyle.TL_BR,
-                        420f,
+                        360f,
                         22f,
                         0f),
                 toggleAct);
@@ -943,7 +906,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 36f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        String label = "Play: " + play.displayName;
+        String label = play.displayName;
         rowUi.addPara(label, 4f, enabled ? activeValueColor : gray, label).getPosition().inTL(4f, 4f);
 
         String onAct = "SET_OTC_PLAY:" + play.name() + ":ON";
@@ -1052,7 +1015,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         rowUi.addPara(labelText, 4f, baseColor).getPosition().inTL(4f, 4f);
 
         String toggleAct = "TOGGLE_DD:" + dropdownKey;
-        String btnText = (expanded ? "[^] " : "[v] ") + currentMission.dropdownLabel + "  (Click to change)";
+        String btnText = (expanded ? "[^] " : "[v] ") + currentMission.dropdownLabel;
         ButtonAPI bToggle = registerButton(
                 rowUi.addButton(
                         btnText,
@@ -1061,7 +1024,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.LMID,
                         CutStyle.TL_BR,
-                        420f,
+                        360f,
                         22f,
                         0f),
                 toggleAct);

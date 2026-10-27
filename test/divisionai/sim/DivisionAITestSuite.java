@@ -68,6 +68,7 @@ public class DivisionAITestSuite {
         testTimeOnTargetCoordinatedStrike();
         testCulturalNomenclatureAndPrefixBuckets();
         testFluidDivisionPolygonsAndOverlapStriping();
+        testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -459,10 +460,26 @@ public class DivisionAITestSuite {
     }
 
     /**
-     * Scenario 6: Bytecode verification that mod/jars/DivisionAI.jar contains zero java/lang/reflect references.
+     * Scenario 7: UI/UX Testing Harness (Deployment Window 14x7 Enlargement, Succinctness & Button Budgets).
+     */
+    private static void testUIHarnessAndUXSuccinctness() throws Exception {
+        System.out.println("\n--- Scenario 7: UI/UX Testing Harness (Deployment Window 14x7 & Succinctness Audit) ---");
+        File uiPreviewOut = new File("build/ui_preview.html");
+        UITestHarness.UIAuditResult uiRes = UITestHarness.runAllAuditsAndExportPreview(uiPreviewOut);
+        for (String line : uiRes.details) {
+            System.out.println(line);
+        }
+        check(uiRes.allPassed && uiPreviewOut.exists(),
+                "UI/UX Testing Harness passes all layout, succinctness, and button-width audits",
+                "checksPassed=" + uiRes.checksPassed + ", checksFailed=" + uiRes.checksFailed
+                        + ", preview=" + uiPreviewOut.getPath());
+    }
+
+    /**
+     * Scenario 8: Bytecode verification that mod/jars/DivisionAI.jar contains zero java/lang/reflect references.
      */
     private static void testZeroReflectionInCompiledJar() throws Exception {
-        System.out.println("\n--- Scenario 6: Bytecode Security Check (Zero java/lang/reflect) ---");
+        System.out.println("\n--- Scenario 8: Bytecode Security Check (Zero java/lang/reflect) ---");
         File jarFile = new File("mod/jars/DivisionAI.jar");
         int classCount = 0;
         List<String> violations = new ArrayList<>();

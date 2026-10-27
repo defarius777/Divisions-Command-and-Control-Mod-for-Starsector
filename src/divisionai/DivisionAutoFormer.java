@@ -427,21 +427,37 @@ public class DivisionAutoFormer {
         PersonAPI captain = (leaderShip != null) ? leaderShip.getCaptain() : null;
 
         DivisionNomenclature.NomenclatureCategory nomCat = battleGroup.nomenclatureCategory;
-        long seed = (leaderShip != null && leaderShip.getId() != null)
-                ? leaderShip.getId().hashCode() * 6364136223846793005L + number * 1442695040888963407L
-                : 0L;
-        String baseName = DivisionNomenclature.formatFactionDivisionName(
-                battleGroup.factionId,
-                nomCat,
-                archetype,
-                number,
-                captain,
-                seed);
+        int nameSeq = number;
         String displayName;
-        if (nomCat == DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL) {
-            displayName = sidePrefix + baseName;
-        } else {
-            displayName = baseName;
+        while (true) {
+            long seed = (leaderShip != null && leaderShip.getId() != null)
+                    ? leaderShip.getId().hashCode() * 6364136223846793005L + nameSeq * 1442695040888963407L
+                    : (nameSeq * 1442695040888963407L);
+            String baseName = DivisionNomenclature.formatFactionDivisionName(
+                    battleGroup.factionId,
+                    nomCat,
+                    archetype,
+                    nameSeq,
+                    captain,
+                    seed);
+            displayName = (nomCat == DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL)
+                    ? (sidePrefix + baseName)
+                    : baseName;
+
+            if (nomCat != DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL) {
+                break;
+            }
+            boolean duplicate = false;
+            for (DivisionState existing : battleGroup.divisions) {
+                if (existing != null && displayName.equalsIgnoreCase(existing.displayName)) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate || nameSeq > number + 32) {
+                break;
+            }
+            nameSeq++;
         }
 
         String divId = (battleGroup.side == 0 ? (isAlliedAi ? "ally_" : "player_") : "enemy_")

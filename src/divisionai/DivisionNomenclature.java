@@ -56,11 +56,11 @@ public final class DivisionNomenclature {
     }
 
     public enum NumberingStyle {
-        ARABIC("Arabic (1, 2, 3)", "Appends Arabic numerals (e.g. Battle Div 1, Battle Div 2)."),
-        ROMAN("Roman (I, II, III)", "Appends Roman numerals (e.g. Battle Div I, Battle Div II)."),
-        ORDINAL_PREFIX("Ordinal Prefix (1st, 2nd, 3rd)", "Prepends ordinal numbers (e.g. 1st Battle Div, 2nd Battle Div)."),
-        PHONETIC("Callsign (Alpha, Beta, Gamma)", "Appends phonetic callsigns (e.g. Battle Div Alpha, Battle Div Beta)."),
-        NONE("No Numbering", "Uses only the division base title without a sequence number.");
+        ARABIC("Arabic (1, 2, 3)", "Appends Arabic numerals (Battle Div 1, Battle Div 2)."),
+        ROMAN("Roman (I, II, III)", "Appends Roman numerals (Battle Div I, Battle Div II)."),
+        ORDINAL_PREFIX("Ordinal (1st, 2nd, 3rd)", "Prepends ordinal numbers (1st Battle Div, 2nd Battle Div)."),
+        PHONETIC("Callsign (Alpha, Beta)", "Appends phonetic callsigns (Battle Div Alpha, Battle Div Beta)."),
+        NONE("No Numbering", "Uses only the division base title without a number.");
 
         public final String displayName;
         public final String summary;
@@ -84,57 +84,57 @@ public final class DivisionNomenclature {
     public enum PlayerNamingPreset {
         NAVAL_STANDARD(
                 "Naval Standard (Battle, Carrier, Cruiser, Destroyer, Frigate)",
-                "Standard naval nomenclature: Battle Div, Carrier Div, Cruiser Div, Destroyer Div, Frigate Div, Phase Div.",
+                "Battle Div, Carrier Div, Cruiser Div, Destroyer Div, Frigate Div, Phase Div.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ARABIC),
         CLASSIC_NAVAL(
                 "Detailed Naval (Battleship, Fleet/Light/Escort Carrier, Strike Cruiser)",
-                "Distinguishes Battleship Div, Fleet/Light/Escort Carrier Div, Cruiser/Strike Cruiser Div, Destroyer Div, Frigate Div.",
+                "Battleship Div, Fleet/Light/Escort Carrier Div, Strike Cruiser Div, Destroyer Div.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ARABIC),
         DOMAIN_ARMADA(
                 "Domain / Hegemony Armada (Battle Line, Squadron, Flotilla, Picket)",
-                "XIV Battlegroup style: Battle Line, Carrier Wing, Cruiser Squadron, Destroyer Flotilla, Frigate Picket.",
+                "Battle Line, Carrier Wing, Cruiser Squadron, Destroyer Flotilla, Frigate Picket.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         TRITACHYON_CORPORATE(
                 "Tri-Tachyon Corporate (Asset Group, Assurance Unit, Special Affairs)",
-                "Corporate security designations: Capital Asset Group, Flight Group, Cruiser Assurance Unit, Phase Special Affairs.",
+                "Capital Asset Group, Flight Group, Cruiser Assurance Unit, Phase Special Affairs.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.PHONETIC),
         PERSEAN_NAVARCHY(
                 "Persean League Navarchy (Phalanx, Mora, Lochos, Peltast)",
-                "Kazeron Navarchy designations: Battle Phalanx, Carrier Group, Cruiser Mora, Destroyer Lochos, Frigate Peltast.",
+                "Battle Phalanx, Carrier Group, Cruiser Mora, Destroyer Lochos, Frigate Peltast.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         SINDRIAN_GUARD(
                 "Sindrian Diktat / Lion's Guard (Executor Line, Solar Squadron)",
-                "Askonia Great Plan designations: Executor Line, Solar Carrier Wing, Cruiser Phalanx, Vanguard Flotilla, Picket Guard.",
+                "Executor Line, Solar Carrier Wing, Cruiser Phalanx, Vanguard Flotilla, Picket Guard.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         LUDDIC_ARMADA(
                 "Luddic Armada (Hallowed Bastion, Righteous Hammer, Watchers Picket)",
-                "Knights of Ludd & Church designations: Hallowed Bastion, Ark Host, Righteous Hammer, Sword Flotilla, Watchers Picket.",
+                "Hallowed Bastion, Ark Host, Righteous Hammer, Sword Flotilla, Watchers Picket.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         PIRATE_WOLFPACK(
                 "Pirate / Free Captain (Dreadnought Pack, Raider Pack, Wolfpack)",
-                "Outlaw flotilla designations: Dreadnought Pack, Flattop Pack, Raider Pack, Hunter Pack, Wolfpack, Ghost Pack.",
+                "Dreadnought Pack, Flattop Pack, Raider Pack, Hunter Pack, Wolfpack, Ghost Pack.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ORDINAL_PREFIX),
         REMNANT_ORDO(
                 "Remnant AI Echelons (Sub-Ordo & Fragment)",
-                "Uses Tri-Tachyon AI echelons: Heavy Sub-Ordo, Carrier Sub-Ordo, Cruiser Sub-Ordo, Destroyer Fragment, Frigate Fragment.",
+                "Heavy Sub-Ordo, Carrier Sub-Ordo, Cruiser Sub-Ordo, Destroyer Fragment, Frigate Fragment.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         POST_AI_WAR_UNKNOWN(
-                "Post-AI War AI (ORDO COGITATOR/MASTER — All Divisions 'UNKNOWN')",
-                "OTC is 'ORDO COGITATOR/MASTER' and all divisions display 'UNKNOWN'.",
+                "Post-AI War AI (ORDO COGITATOR/MASTER — 'UNKNOWN')",
+                "OTC is 'ORDO COGITATOR/MASTER'; all divisions display 'UNKNOWN'.",
                 NomenclatureCategory.POST_AI_WAR,
                 NumberingStyle.NONE),
         THREAT_CORRUPTED(
-                "The Threat (<<UNKNOWN?? FRAGMENT COMPILER>> — Corrupted 'BAaTTLE?!? SWARM')",
-                "OTC is '<<UNKNOWN?? FRAGMENT COMPILER>>' and divisions display shifting corrupted text on the Command Window.",
+                "The Threat (<<UNKNOWN?? FRAGMENT COMPILER>> — Corrupted SWARM)",
+                "OTC is '<<UNKNOWN?? FRAGMENT COMPILER>>'; divisions display corrupted SWARM text.",
                 NomenclatureCategory.THREAT_SWARM,
                 NumberingStyle.NONE),
         ABYSSAL_ERROR(

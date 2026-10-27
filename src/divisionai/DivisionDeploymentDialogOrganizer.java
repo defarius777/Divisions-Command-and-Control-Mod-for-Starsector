@@ -10,12 +10,14 @@ import com.fs.starfarer.api.ui.ButtonAPI;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.CutStyle;
 import com.fs.starfarer.api.ui.Fonts;
+import com.fs.starfarer.api.ui.LabelAPI;
+import com.fs.starfarer.api.ui.PositionAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIComponentAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
-import com.fs.starfarer.api.util.Misc;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import org.apache.log4j.Logger;
+import org.lwjgl.opengl.GL11;
 
 import java.awt.Color;
 import java.lang.invoke.MethodHandle;
@@ -25,31 +27,32 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * Reorganizes Starsector's combat Deployment Window (com.fs.starfarer.ui.impl.oO0O) into rows
- * following the player's list of non-empty Permanent Divisions:
- *  - Only activates when the player has at least 1 non-empty Permanent Division.
- *  - Each non-empty division with ships in reserve starts on its own row:
- *      - Columns 0..1 (116x58px): Division Row Header Card displaying the division name,
- *        ship count, DP total, and a one-click "Select Div" / "Deselect" toggle button.
- *      - Columns 2..9 (8 ship slots per row): That division's reserve ships (Flagship first,
- *        followed by constituent members), padded with empty cells at the end of the row so
- *        the next non-empty division begins on a fresh row.
- *  - Any unassigned player ships in reserve are placed in their own row(s) after the player's
- *    non-empty divisions.
- *  - Uses java.lang.invoke.MethodHandles exclusively (zero java.lang.reflect.* references).
+ * Enlarges Starsector's pre-battle Deployment Window (com.fs.starfarer.ui.impl.oO0O) from 10x3
+ * to 14 columns x 7 visible reserve rows (12 ship slots per division row + 2 header columns),
+ * and organizes reserve ships into clean rows by the player's non-empty Permanent Divisions.
+ *
+ * Uses java.lang.invoke.MethodHandles exclusively (zero java.lang.reflect.* references).
  */
 public class DivisionDeploymentDialogOrganizer {
 
     private static final Logger LOG = Global.getLogger(DivisionDeploymentDialogOrganizer.class);
 
+    public static final int ENLARGED_TOTAL_COLS = 14;
+    public static final int LABEL_COLS = 2;
+    public static final int SHIPS_PER_ROW = ENLARGED_TOTAL_COLS - LABEL_COLS; // 12 ships per row
+    public static final int TARGET_RESERVE_VISIBLE_ROWS = 7;
+
     private static final Color DIV_HEADER_TEXT_COLOR = new Color(130, 255, 165, 255);
+    private static final Color DIV_ACCENT_COLOR = new Color(75, 225, 125, 255);
     private static final Color DIV_BTN_BASE_COLOR = new Color(75, 215, 120, 255);
     private static final Color DIV_BTN_DARK_COLOR = new Color(18, 52, 32, 235);
     private static final Color UNASSIGNED_TEXT_COLOR = new Color(195, 205, 215, 235);
+    private static final Color UNASSIGNED_ACCENT_COLOR = new Color(135, 150, 165, 255);
     private static final Color UNASSIGNED_BTN_BASE = new Color(135, 150, 165, 255);
     private static final Color UNASSIGNED_BTN_DARK = new Color(32, 38, 46, 235);
 
@@ -63,6 +66,7 @@ public class DivisionDeploymentDialogOrganizer {
     private MethodHandle getWidgetPanelHandle;
     private MethodHandle panelGetChildrenCopyHandle;
     private MethodHandle fddGetInnerPanelHandle;
+    private MethodHandle fddSizeToInnerHandle;
     private MethodHandle fddGetOwnerIdHandle;
     private MethodHandle fddIsMultiDeployHandle;
     private MethodHandle fddGetSelectedHandle;
@@ -76,8 +80,15 @@ public class DivisionDeploymentDialogOrganizer {
     private MethodHandle listGetColumnsHandle;
     private MethodHandle listGetItemWidthHandle;
     private MethodHandle listGetItemHeightHandle;
+    private MethodHandle listGetItemsHandle;
     private MethodHandle listClearHandle;
     private MethodHandle listAddItemHandle;
+    private MethodHandle listGetScrollerHandle;
+
+    private MethodHandle scrollerSetContentSizeHandle;
+    private MethodHandle scrollerPackHandle;
+    private MethodHandle scrollerClampOffsetHandle;
+    private MethodHandle posRecomputeHandle;
 
     private Object lastFddInstance = null;
     private String lastReservesSignature = "";
@@ -90,11 +101,13 @@ public class DivisionDeploymentDialogOrganizer {
 
             Class<?> panelClass = Class.forName("com.fs.starfarer.ui.interfacenew", false, cl);
             Class<?> uiCompBaseClass = Class.forName("com.fs.starfarer.ui.c", false, cl);
+            Class<?> posClass = Class.forName("com.fs.starfarer.ui.OO0O", false, cl);
             Class<?> buttonImplClass = Class.forName("com.fs.starfarer.ui.n", false, cl);
             Class<?> fleetMemberImplClass = Class.forName("com.fs.starfarer.campaign.fleet.FleetMember", false, cl);
             Class<?> iconClass = Class.forName("com.fs.starfarer.ui.B.new", false, cl);
             Class<?> inputEventImplClass = Class.forName("com.fs.starfarer.util.A.C", false, cl);
             Class<?> scrollingListClass = Class.forName("com.fs.starfarer.coreui.v", false, cl);
+            Class<?> scrollerClass = Class.forName("com.fs.starfarer.ui.g", false, cl);
 
             this.fddClass = Class.forName("com.fs.starfarer.ui.impl.oO0O", false, cl);
             this.shipGridClass = Class.forName("com.fs.starfarer.campaign.ui.S", false, cl);
@@ -116,6 +129,10 @@ public class DivisionDeploymentDialogOrganizer {
                     fddClass,
                     "getInnerPanel",
                     MethodType.methodType(panelClass));
+            this.fddSizeToInnerHandle = lookup.findVirtual(
+                    fddClass,
+                    "sizeToInner",
+                    MethodType.methodType(posClass, float.class, float.class));
             this.fddGetOwnerIdHandle = lookup.findVirtual(
                     fddClass,
                     "getOwnerId",
@@ -162,6 +179,10 @@ public class DivisionDeploymentDialogOrganizer {
                     scrollingListClass,
                     "getItemHeight",
                     MethodType.methodType(float.class));
+            this.listGetItemsHandle = lookup.findVirtual(
+                    scrollingListClass,
+                    "getItems",
+                    MethodType.methodType(List.class));
             this.listClearHandle = lookup.findVirtual(
                     scrollingListClass,
                     "clear",
@@ -170,6 +191,27 @@ public class DivisionDeploymentDialogOrganizer {
                     scrollingListClass,
                     "addItem",
                     MethodType.methodType(int.class, uiCompBaseClass, Object.class));
+            this.listGetScrollerHandle = lookup.findVirtual(
+                    scrollingListClass,
+                    "getScroller",
+                    MethodType.methodType(scrollerClass));
+
+            this.scrollerSetContentSizeHandle = lookup.findVirtual(
+                    scrollerClass,
+                    "setContentSize",
+                    MethodType.methodType(void.class, float.class, float.class));
+            this.scrollerPackHandle = lookup.findVirtual(
+                    scrollerClass,
+                    "pack",
+                    MethodType.methodType(void.class));
+            this.scrollerClampOffsetHandle = lookup.findVirtual(
+                    scrollerClass,
+                    "clampOffset",
+                    MethodType.methodType(void.class));
+            this.posRecomputeHandle = lookup.findVirtual(
+                    posClass,
+                    "recompute",
+                    MethodType.methodType(void.class));
 
             this.handlesResolved = true;
         } catch (Throwable t) {
@@ -182,14 +224,7 @@ public class DivisionDeploymentDialogOrganizer {
         if (engine == null) return;
         CombatUIAPI ui = engine.getCombatUI();
         if (ui == null) return;
-        // Skip TitleScreenState background battles on the Main Menu (only hook real CombatState battles)
         if (!"com.fs.starfarer.combat.CombatState".equals(ui.getClass().getName())) {
-            return;
-        }
-
-        // Only organize the Deployment Window when the player has at least 1 non-empty Permanent Division
-        List<PermanentDivisionSpec> nonEmptyDivisions = PermanentDivisionManager.getNonEmptyPermanentDivisions();
-        if (nonEmptyDivisions.isEmpty()) {
             return;
         }
 
@@ -226,8 +261,13 @@ public class DivisionDeploymentDialogOrganizer {
             UIPanelAPI innerPanel = (UIPanelAPI) fddGetInnerPanelHandle.invoke(activeFdd);
             if (innerPanel == null) return;
 
-            Object reservesGrid = findReservesShipGrid(innerPanel);
+            Object[] grids = findDeployedAndReservesGrids(innerPanel);
+            Object deployedGrid = grids[0];
+            Object reservesGrid = grids[1];
             if (reservesGrid == null) return;
+
+            // 1. Enlarge the Deployment Window (wider 14-column layout + taller 7-row reserve viewport)
+            int targetCols = enlargeDeploymentDialogIfNeeded(activeFdd, innerPanel, deployedGrid, reservesGrid);
 
             @SuppressWarnings("unchecked")
             List<FleetMemberAPI> members = (List<FleetMemberAPI>) gridGetMembersHandle.invoke(reservesGrid);
@@ -235,46 +275,165 @@ public class DivisionDeploymentDialogOrganizer {
                 return;
             }
 
-            String sig = buildMembersSignature(members, nonEmptyDivisions);
+            List<PermanentDivisionSpec> nonEmptyDivisions = PermanentDivisionManager.getNonEmptyPermanentDivisions();
+            String sig = buildMembersSignature(members, nonEmptyDivisions, targetCols);
             if (activeFdd == lastFddInstance && sig.equals(lastReservesSignature)) {
                 return;
             }
 
-            organizeReservesByDivisionRows(activeFdd, reservesGrid, members, nonEmptyDivisions);
+            if (!nonEmptyDivisions.isEmpty()) {
+                organizeReservesByDivisionRows(activeFdd, reservesGrid, members, nonEmptyDivisions, targetCols);
+            } else {
+                reflowGridItemsToColumns(reservesGrid, targetCols);
+            }
 
-            // Recompute signature after reordering members list so we don't re-run until reserves change
             lastFddInstance = activeFdd;
-            lastReservesSignature = buildMembersSignature(members, nonEmptyDivisions);
+            lastReservesSignature = buildMembersSignature(members, nonEmptyDivisions, targetCols);
         } catch (Throwable t) {
             LOG.warn("[DivisionAI] Error organizing Deployment Window division rows", t);
         }
     }
 
-    private Object findReservesShipGrid(UIPanelAPI innerPanel) throws Throwable {
+    /**
+     * Enlarges the pre-battle Deployment Window from 10 cols x 3 reserve rows to up to 14 cols x 7 reserve rows,
+     * dynamically clamped to fit the user's screen resolution with comfortable margins.
+     */
+    @SuppressWarnings("unchecked")
+    private int enlargeDeploymentDialogIfNeeded(
+            Object fdd,
+            UIPanelAPI innerPanel,
+            Object deployedGrid,
+            Object reservesGrid) throws Throwable {
+
+        Object scrollingList = gridGetListHandle.invoke(reservesGrid);
+        if (scrollingList == null) return 10;
+
+        float itemW = (float) listGetItemWidthHandle.invoke(scrollingList);
+        float itemH = (float) listGetItemHeightHandle.invoke(scrollingList);
+        if (itemW <= 0f) itemW = 58f;
+        if (itemH <= 0f) itemH = 58f;
+
+        float screenW = Global.getSettings().getScreenWidth();
+        float screenH = Global.getSettings().getScreenHeight();
+
+        int maxColsForScreen = Math.max(10, Math.min(ENLARGED_TOTAL_COLS, (int) ((screenW - 140f) / itemW)));
+        float targetInnerW = maxColsForScreen * itemW + 34f;
+        float targetGridW = targetInnerW - 22f;
+
+        PositionAPI innerPos = innerPanel.getPosition();
+        PositionAPI resPos = ((UIComponentAPI) reservesGrid).getPosition();
+        if (innerPos == null || resPos == null) return maxColsForScreen;
+
+        float oldInnerW = innerPos.getWidth();
+        float oldInnerH = innerPos.getHeight();
+        float oldResH = resPos.getHeight();
+
+        float overheadH = Math.max(260f, oldInnerH - oldResH);
+        int maxRowsForScreen = Math.max(4, Math.min(TARGET_RESERVE_VISIBLE_ROWS, (int) ((screenH - overheadH - 80f) / itemH)));
+        float targetResH = maxRowsForScreen * itemH;
+
+        if (Math.abs(oldInnerW - targetInnerW) > 4f || Math.abs(oldResH - targetResH) > 4f) {
+            float targetInnerH = oldInnerH + (targetResH - oldResH);
+
+            fddSizeToInnerHandle.invoke(fdd, targetInnerW, targetInnerH);
+            if (fdd instanceof UIComponentAPI && ((UIComponentAPI) fdd).getPosition() != null) {
+                ((UIComponentAPI) fdd).getPosition().inMid();
+            }
+
+            if (deployedGrid instanceof UIComponentAPI) {
+                PositionAPI depPos = ((UIComponentAPI) deployedGrid).getPosition();
+                if (depPos != null) {
+                    depPos.setSize(targetGridW, depPos.getHeight());
+                }
+                reflowGridItemsToColumns(deployedGrid, maxColsForScreen);
+            }
+
+            resPos.setSize(targetGridW, targetResH);
+
+            List<UIComponentAPI> children = (List<UIComponentAPI>) panelGetChildrenCopyHandle.invoke(innerPanel);
+            for (UIComponentAPI child : children) {
+                if (child == null || child == deployedGrid || child == reservesGrid) continue;
+                PositionAPI cp = child.getPosition();
+                if (cp == null) continue;
+                if (Math.abs(cp.getWidth() - oldInnerW) <= 6f) {
+                    cp.setSize(targetInnerW, cp.getHeight());
+                } else if (Math.abs(cp.getWidth() - (10f * itemW + 4f)) <= 8f) {
+                    cp.setSize(maxColsForScreen * itemW + 4f, cp.getHeight());
+                }
+            }
+
+            if (posRecomputeHandle != null) {
+                posRecomputeHandle.invoke(innerPos);
+            }
+        }
+
+        return maxColsForScreen;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void reflowGridItemsToColumns(Object shipGrid, int cols) throws Throwable {
+        if (shipGrid == null || cols <= 0) return;
+        Object scrollingList = gridGetListHandle.invoke(shipGrid);
+        if (scrollingList == null) return;
+        float itemW = (float) listGetItemWidthHandle.invoke(scrollingList);
+        float itemH = (float) listGetItemHeightHandle.invoke(scrollingList);
+        List<UIComponentAPI> items = (List<UIComponentAPI>) listGetItemsHandle.invoke(scrollingList);
+        if (items == null || items.isEmpty()) return;
+
+        for (int i = 0; i < items.size(); i++) {
+            UIComponentAPI comp = items.get(i);
+            if (comp != null && comp.getPosition() != null) {
+                int r = i / cols;
+                int c = i % cols;
+                comp.getPosition().setSize(itemW, itemH).inTL(c * itemW, r * itemH);
+            }
+        }
+        int totalRows = (items.size() + cols - 1) / cols;
+        Object scroller = listGetScrollerHandle.invoke(scrollingList);
+        if (scroller != null) {
+            scrollerSetContentSizeHandle.invoke(scroller, cols * itemW, totalRows * itemH);
+            scrollerPackHandle.invoke(scroller);
+            scrollerClampOffsetHandle.invoke(scroller);
+        }
+    }
+
+    private Object[] findDeployedAndReservesGrids(UIPanelAPI innerPanel) throws Throwable {
+        Object highestGrid = null;
         Object lowestGrid = null;
+        float highestY = -Float.MAX_VALUE;
         float lowestY = Float.MAX_VALUE;
         @SuppressWarnings("unchecked")
         List<UIComponentAPI> children = (List<UIComponentAPI>) panelGetChildrenCopyHandle.invoke(innerPanel);
         for (UIComponentAPI child : children) {
             if (child != null && shipGridClass.isInstance(child) && child.getPosition() != null) {
                 float y = child.getPosition().getY();
+                if (y > highestY) {
+                    highestY = y;
+                    highestGrid = child;
+                }
                 if (y < lowestY) {
                     lowestY = y;
                     lowestGrid = child;
                 }
             }
         }
-        return lowestGrid;
+        if (highestGrid == lowestGrid) {
+            highestGrid = null;
+        }
+        return new Object[]{highestGrid, lowestGrid};
     }
 
-    private String buildMembersSignature(List<FleetMemberAPI> members, List<PermanentDivisionSpec> nonEmptyDivs) {
-        StringBuilder sb = new StringBuilder(members.size() * 12);
+    private String buildMembersSignature(
+            List<FleetMemberAPI> members,
+            List<PermanentDivisionSpec> nonEmptyDivs,
+            int totalCols) {
+        StringBuilder sb = new StringBuilder(members.size() * 12 + 16);
         for (FleetMemberAPI m : members) {
             if (m != null) {
                 sb.append(m.getId()).append(',');
             }
         }
-        sb.append('|').append(nonEmptyDivs.size());
+        sb.append('|').append(nonEmptyDivs.size()).append('|').append(totalCols);
         return sb.toString();
     }
 
@@ -294,7 +453,8 @@ public class DivisionDeploymentDialogOrganizer {
             Object fdd,
             Object reservesGrid,
             List<FleetMemberAPI> membersList,
-            List<PermanentDivisionSpec> nonEmptyDivisions) throws Throwable {
+            List<PermanentDivisionSpec> nonEmptyDivisions,
+            int totalCols) throws Throwable {
 
         // 1. Capture existing ship buttons and icons from reservesGrid before clearing ScrollingList
         Map<String, MemberIconEntry> byMemberId = new LinkedHashMap<>();
@@ -312,8 +472,7 @@ public class DivisionDeploymentDialogOrganizer {
         Object scrollingList = gridGetListHandle.invoke(reservesGrid);
         if (scrollingList == null) return;
 
-        int totalCols = (int) listGetColumnsHandle.invoke(scrollingList);
-        if (totalCols < 4) totalCols = 10;
+        if (totalCols < 6) totalCols = ENLARGED_TOTAL_COLS;
         float itemW = (float) listGetItemWidthHandle.invoke(scrollingList);
         float itemH = (float) listGetItemHeightHandle.invoke(scrollingList);
 
@@ -325,7 +484,7 @@ public class DivisionDeploymentDialogOrganizer {
         listClearHandle.invoke(scrollingList, false);
 
         int currentSlotIndex = 0;
-        int labelCols = 2; // Columns 0..1 (116px wide) hold the Division Row Header card
+        int labelCols = LABEL_COLS; // Columns 0..1 (116px wide) hold the Division Row Header card
         int shipsPerRow = Math.max(1, totalCols - labelCols);
 
         for (PermanentDivisionSpec divSpec : nonEmptyDivisions) {
@@ -363,7 +522,6 @@ public class DivisionDeploymentDialogOrganizer {
                     fdd,
                     scrollingList,
                     divSpec.name,
-                    divSpec.archetype.shortPrefix,
                     true,
                     divEntries,
                     currentSlotIndex,
@@ -388,7 +546,6 @@ public class DivisionDeploymentDialogOrganizer {
                     fdd,
                     scrollingList,
                     "Unassigned",
-                    "Vanilla AI",
                     false,
                     unassignedEntries,
                     currentSlotIndex,
@@ -399,7 +556,16 @@ public class DivisionDeploymentDialogOrganizer {
                     itemH);
         }
 
-        // 4. Sync membersList order to match the division row order
+        // 4. Update scroller content size for the enlarged column count
+        int totalRows = (currentSlotIndex + totalCols - 1) / totalCols;
+        Object scroller = listGetScrollerHandle.invoke(scrollingList);
+        if (scroller != null) {
+            scrollerSetContentSizeHandle.invoke(scroller, totalCols * itemW, totalRows * itemH);
+            scrollerPackHandle.invoke(scroller);
+            scrollerClampOffsetHandle.invoke(scroller);
+        }
+
+        // 5. Sync membersList order to match the division row order
         membersList.clear();
         membersList.addAll(orderedMembers);
     }
@@ -408,7 +574,6 @@ public class DivisionDeploymentDialogOrganizer {
             Object fdd,
             Object scrollingList,
             String groupTitle,
-            String groupSub,
             boolean isDivisionRow,
             List<MemberIconEntry> entries,
             int currentSlotIndex,
@@ -429,38 +594,37 @@ public class DivisionDeploymentDialogOrganizer {
         int idx = 0;
         boolean firstRowOfGroup = true;
         while (idx < entries.size()) {
-            // Ensure we are at column 0 of a fresh row
             while ((currentSlotIndex % totalCols) != 0) {
-                addEmptySpacerCell(scrollingList, itemW, itemH);
+                addEmptySpacerCell(scrollingList, currentSlotIndex, totalCols, itemW, itemH);
                 currentSlotIndex++;
             }
+
+            int rowIdx = currentSlotIndex / totalCols;
 
             if (firstRowOfGroup) {
                 CustomPanelAPI headerCard = createRowHeaderCard(
                         fdd,
                         groupTitle,
-                        groupSub,
-                        entries.size(),
                         totalDp,
                         isDivisionRow,
                         entries,
                         itemW * labelCols,
-                        groupCardHeight);
+                        groupCardHeight,
+                        totalCols * itemW);
                 listAddItemHandle.invoke(scrollingList, headerCard, null);
-                headerCard.getPosition().setSize(itemW * labelCols - 3f, groupCardHeight - 2f);
+                headerCard.getPosition()
+                        .setSize(itemW * labelCols - 3f, groupCardHeight - 2f)
+                        .inTL(0f, rowIdx * itemH);
                 currentSlotIndex++;
 
                 for (int c = 1; c < labelCols; c++) {
-                    CustomPanelAPI zeroSpacer = Global.getSettings().createCustom(0f, 0f, null);
-                    listAddItemHandle.invoke(scrollingList, zeroSpacer, null);
-                    zeroSpacer.getPosition().setSize(0f, 0f);
+                    addEmptySpacerCell(scrollingList, currentSlotIndex, totalCols, itemW, itemH);
                     currentSlotIndex++;
                 }
                 firstRowOfGroup = false;
             } else {
-                // Continuation row for divisions larger than 8 ships: indent Columns 0..1
                 for (int c = 0; c < labelCols; c++) {
-                    addEmptySpacerCell(scrollingList, itemW, itemH);
+                    addEmptySpacerCell(scrollingList, currentSlotIndex, totalCols, itemW, itemH);
                     currentSlotIndex++;
                 }
             }
@@ -468,14 +632,21 @@ public class DivisionDeploymentDialogOrganizer {
             int countInRow = 0;
             while (idx < entries.size() && countInRow < shipsPerRow) {
                 MemberIconEntry entry = entries.get(idx++);
+                int slotCol = currentSlotIndex % totalCols;
+                int slotRow = currentSlotIndex / totalCols;
                 listAddItemHandle.invoke(scrollingList, entry.button, entry.icon);
+                if (entry.button instanceof UIComponentAPI) {
+                    PositionAPI bp = ((UIComponentAPI) entry.button).getPosition();
+                    if (bp != null) {
+                        bp.setSize(itemW, itemH).inTL(slotCol * itemW, slotRow * itemH);
+                    }
+                }
                 currentSlotIndex++;
                 countInRow++;
             }
 
-            // Pad the remainder of this row so the next division starts on a fresh row
             while ((currentSlotIndex % totalCols) != 0) {
-                addEmptySpacerCell(scrollingList, itemW, itemH);
+                addEmptySpacerCell(scrollingList, currentSlotIndex, totalCols, itemW, itemH);
                 currentSlotIndex++;
             }
         }
@@ -483,26 +654,86 @@ public class DivisionDeploymentDialogOrganizer {
         return currentSlotIndex;
     }
 
-    private void addEmptySpacerCell(Object scrollingList, float itemW, float itemH) throws Throwable {
+    private void addEmptySpacerCell(
+            Object scrollingList,
+            int slotIndex,
+            int totalCols,
+            float itemW,
+            float itemH) throws Throwable {
+        int col = slotIndex % totalCols;
+        int row = slotIndex / totalCols;
         CustomPanelAPI spacer = Global.getSettings().createCustom(0f, 0f, null);
         listAddItemHandle.invoke(scrollingList, spacer, null);
-        spacer.getPosition().setSize(0f, 0f);
+        spacer.getPosition().setSize(0f, 0f).inTL(col * itemW, row * itemH);
     }
 
     private CustomPanelAPI createRowHeaderCard(
             final Object fdd,
             final String title,
-            final String subtitle,
-            final int shipCount,
             final float totalDp,
             final boolean isDivisionRow,
             final List<MemberIconEntry> groupEntries,
             final float width,
-            final float height) {
+            final float height,
+            final float rowSpanWidth) {
 
         final ButtonAPI[] toggleBtnHolder = new ButtonAPI[1];
+        final CustomPanelAPI[] cardRef = new CustomPanelAPI[1];
+        final Color accentColor = isDivisionRow ? DIV_ACCENT_COLOR : UNASSIGNED_ACCENT_COLOR;
 
         BaseCustomUIPanelPlugin cardPlugin = new BaseCustomUIPanelPlugin() {
+            @Override
+            public void renderBelow(float alphaMult) {
+                CustomPanelAPI self = cardRef[0];
+                if (self == null || self.getPosition() == null) return;
+                PositionAPI pos = self.getPosition();
+                float x = pos.getX() + 1f;
+                float y = pos.getY() + 2f;
+                float w = width - 4f;
+                float h = height - 4f;
+
+                float r = accentColor.getRed() / 255f;
+                float g = accentColor.getGreen() / 255f;
+                float b = accentColor.getBlue() / 255f;
+
+                GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+                // Dark card backdrop
+                GL11.glColor4f(0.03f, 0.06f, 0.10f, 0.92f * alphaMult);
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(x, y);
+                GL11.glVertex2f(x + w, y);
+                GL11.glVertex2f(x + w, y + h);
+                GL11.glVertex2f(x, y + h);
+                GL11.glEnd();
+
+                // Left vertical accent stripe
+                GL11.glColor4f(r, g, b, 0.92f * alphaMult);
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(x, y);
+                GL11.glVertex2f(x + 3f, y);
+                GL11.glVertex2f(x + 3f, y + h);
+                GL11.glVertex2f(x, y + h);
+                GL11.glEnd();
+
+                // Subtle row frame enclosing the division's ships
+                if (rowSpanWidth > w + 4f) {
+                    GL11.glLineWidth(1.0f);
+                    GL11.glColor4f(r, g, b, 0.25f * alphaMult);
+                    GL11.glBegin(GL11.GL_LINE_LOOP);
+                    GL11.glVertex2f(x, y);
+                    GL11.glVertex2f(pos.getX() + rowSpanWidth - 2f, y);
+                    GL11.glVertex2f(pos.getX() + rowSpanWidth - 2f, y + h);
+                    GL11.glVertex2f(x, y + h);
+                    GL11.glEnd();
+                }
+
+                GL11.glPopAttrib();
+            }
+
             @Override
             public void buttonPressed(Object buttonId) {
                 if ("TOGGLE_ROW".equals(buttonId)) {
@@ -523,34 +754,33 @@ public class DivisionDeploymentDialogOrganizer {
         };
 
         CustomPanelAPI card = Global.getSettings().createCustom(width - 3f, height - 2f, cardPlugin);
+        cardRef[0] = card;
         TooltipMakerAPI tt = card.createUIElement(width - 3f, height - 2f, false);
 
         Color titleColor = isDivisionRow ? DIV_HEADER_TEXT_COLOR : UNASSIGNED_TEXT_COLOR;
         Color btnBase = isDivisionRow ? DIV_BTN_BASE_COLOR : UNASSIGNED_BTN_BASE;
         Color btnDark = isDivisionRow ? DIV_BTN_DARK_COLOR : UNASSIGNED_BTN_DARK;
 
-        tt.setParaFont(Fonts.VICTOR_10);
-        String clippedTitle = title.length() > 18 ? title.substring(0, 17) + "." : title;
-        tt.addPara("%s", 1f, titleColor, clippedTitle);
-        tt.addPara(
-                "%s sh • %s DP",
-                1f,
-                Misc.getHighlightColor(),
-                String.valueOf(shipCount),
-                String.format("%.0f", totalDp));
+        tt.setParaFont(Fonts.DEFAULT_SMALL);
+        String clippedTitle = title.length() > 16 ? title.substring(0, 15) + "." : title;
+        LabelAPI lbl = tt.addPara("%s", 0f, titleColor, clippedTitle);
+        lbl.getPosition().inTL(6f, 6f);
 
+        String btnLabel = String.format(Locale.ROOT, "Select (%.0f DP)", totalDp);
         ButtonAPI btn = tt.addButton(
-                isDivisionRow ? "Select Div" : "Select Row",
+                btnLabel,
                 "TOGGLE_ROW",
                 btnBase,
                 btnDark,
                 Alignment.MID,
                 CutStyle.ALL,
-                width - 8f,
-                16f,
-                2f);
+                width - 12f,
+                19f,
+                0f);
+        btn.getPosition().inTL(6f, 31f);
         toggleBtnHolder[0] = btn;
 
+        tt.setHeightSoFar(height - 2f);
         card.addUIElement(tt).inTL(0f, 0f);
         return card;
     }

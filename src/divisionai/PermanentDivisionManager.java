@@ -70,9 +70,9 @@ public class PermanentDivisionManager {
      * Automatically selected by certain mission types, or manually set by the player.
      */
     public enum LineStation {
-        VAN("Van", "Leads the line of battle, ahead of the main body."),
-        CENTER("Center", "Keeps station in the center of the line of battle."),
-        REAR("Rear", "Stays astern of the line of battle, in standoff or in reserve.");
+        VAN("Van", "Leads ahead of the main body."),
+        CENTER("Center", "Holds the center of the battle line."),
+        REAR("Rear", "Stands off astern or in reserve.");
 
         public final String displayName;
         public final String summary;
@@ -106,79 +106,79 @@ public class PermanentDivisionManager {
     public enum DivisionMissionType {
         // General Combat Missions
         SCOUTING(
-                "a. \"Scouting\"",
                 "Scouting",
-                "Scout ahead, take unclaimed objectives (buoys, relays, jammers) and keep contact at standoff range.",
+                "Scouting",
+                "Seize unclaimed objectives and maintain contact at standoff range.",
                 false,
                 LineStation.VAN),
         CLOSE_ACTION(
-                "b. \"Close Action\"",
                 "Close Action",
-                "Close the enemy and fight it out at close range: engage the enemy more closely.",
+                "Close Action",
+                "Close to decisive range and press the attack.",
                 false,
                 LineStation.VAN),
         STANDOFF_ENGAGEMENT(
-                "c. \"Standoff Engagement\"",
                 "Standoff Engagement",
-                "Hold the line at Standoff Range (longest gun range) and open the range if pressed.",
+                "Standoff Engagement",
+                "Trade fire at maximum gun range; give ground if pressed.",
                 false,
                 LineStation.CENTER),
         ENVELOPMENT(
-                "d. \"Envelopment\"",
                 "Envelopment",
-                "Work around the enemy flanks to envelop and destroy isolated or exposed ships.",
+                "Envelopment",
+                "Sweep around enemy flanks to isolate and roll up exposed ships.",
                 false,
                 LineStation.VAN),
         SCREEN(
-                "e. \"Screen\"",
                 "Screen",
-                "Take spaced screening stations ahead of and abeam heavier friendly divisions.",
+                "Screen",
+                "Screen ahead of and abeam heavy friendly divisions.",
                 false,
                 LineStation.CENTER),
 
-        // Carrier Missions and Tactics (a..f)
+        // Carrier Missions and Tactics
         ARMED_RECONNAISSANCE(
-                "a. \"Armed Reconnaissance\"",
                 "Armed Reconnaissance",
-                "Carriers stay back while strike craft scout forward and hit targets of opportunity.",
+                "Armed Reconnaissance",
+                "Stand off while strike craft scout ahead and hit targets of opportunity.",
                 true,
                 LineStation.REAR),
         SPACE_SUPERIORITY(
-                "b. \"Space Superiority\"",
                 "Space Superiority",
-                "Fighter sweeps to win control of space: strip enemy strike craft and light escorts.",
+                "Space Superiority",
+                "Sweep enemy fighters and light escorts to win control of space.",
                 true,
                 LineStation.CENTER),
         COMBAT_SPACE_PATROL(
-                "c. \"Combat Space Patrol\"",
                 "Combat Space Patrol",
-                "Keep fighters on patrol over heavy or threatened friendly divisions.",
+                "Combat Space Patrol",
+                "Keep fighter cover over heavy or threatened friendly divisions.",
                 true,
                 LineStation.REAR),
         CYCLIC_STRIKES(
-                "d. \"Cyclic Strikes\"",
                 "Cyclic Strikes",
-                "Launch, recover and relaunch strikes continuously against the best visible target.",
+                "Cyclic Strikes",
+                "Cycle continuous strike waves against the best visible target.",
                 true,
                 LineStation.REAR),
         DECKLOAD_STRIKE(
-                "e. \"Deckload Strike\"",
                 "Deckload Strike",
-                "Every carrier in the division launches together onto one focus target.",
+                "Deckload Strike",
+                "Mass all division wings into synchronized salvos on one target.",
                 true,
                 LineStation.REAR),
         ALPHA_STRIKE(
-                "f. \"Alpha Strike\"",
                 "Alpha Strike",
-                "Full coordinated strike with the Main Effort and missile divisions on the primary threat (joins time-on-target strikes).",
+                "Alpha Strike",
+                "Coordinate full carrier strikes with the Main Effort and missile divisions.",
                 true,
                 LineStation.REAR),
 
         // Universal Reserve Mission
         RESERVE(
-                "g. \"Reserve\"",
                 "Reserve",
-                "Hold astern of the line in reserve until the OTC commits the division to reinforce or exploit.",
+                "Reserve",
+                "Hold astern until committed by the OTC to reinforce or exploit.",
                 false,
                 LineStation.REAR);
 
@@ -462,50 +462,50 @@ public class PermanentDivisionManager {
     public enum DoctrineHullCategory {
         CRUISER(
                 "Cruiser Hulls",
-                "Minimum cruiser hulls for division",
-                "Maximum cruiser hulls for division",
+                "Min ships per division",
+                "Max ships per division",
                 0,
                 4,
                 DivisionArchetype.CRUISER_DIVISION),
         CAPITAL(
                 "Capital Hulls",
-                "Minimum capital hulls for division",
-                "Maximum capital hulls for division",
+                "Min ships per division",
+                "Max ships per division",
                 0,
                 2,
                 DivisionArchetype.BATTLESHIP_DIVISION),
         DESTROYER(
                 "Destroyer Hulls",
-                "Minimum destroyer hulls for division",
-                "Maximum destroyer hulls for division",
+                "Min ships per division",
+                "Max ships per division",
                 0,
                 4,
                 DivisionArchetype.DESTROYER_DIVISION),
         FRIGATE(
                 "Frigate Hulls",
-                "Minimum frigate hulls for division",
-                "Maximum frigate hulls for division",
+                "Min ships per division",
+                "Max ships per division",
                 0,
                 5,
                 DivisionArchetype.FRIGATE_DIVISION),
         FREIGHTER(
                 "Freighter Hulls",
-                "Minimum freighter hulls for division",
-                "Maximum freighter hulls for division",
+                "Min ships per division",
+                "Max ships per division",
                 0,
                 4,
                 DivisionArchetype.SERVICE_GROUP),
         TANKER(
                 "Tanker Hulls",
-                "Minimum tanker hulls for division",
-                "Maximum tanker hulls for division",
+                "Min ships per division",
+                "Max ships per division",
                 0,
                 4,
                 DivisionArchetype.SERVICE_GROUP),
         TRANSPORT(
                 "Transport Hulls",
-                "Minimum transport hulls for division",
-                "Maximum transport hulls for division",
+                "Min ships per division",
+                "Max ships per division",
                 0,
                 4,
                 DivisionArchetype.SERVICE_GROUP);
@@ -539,25 +539,21 @@ public class PermanentDivisionManager {
      */
     public enum OtcAuthority {
         COMMAND_BY_DIRECTION(
-                "A. \"Command by Direction\"",
                 "Command by Direction",
-                "Missions set each division's style; the OTC directs targets, timing, stations and flank sides within it, "
-                        + "and only fully re-tasks reserve, reinforcement and pursuit divisions."),
+                "Command by Direction",
+                "OTC directs targets, stations, and flank sides within each division's mission; re-tasks only reserves and pursuit."),
         POSITIVE_CONTROL(
-                "B. \"Positive Control\"",
                 "Positive Control",
-                "OTC orders replace missions whenever issued (fix, engage, flank, reinforce, chase, strike); "
-                        + "missions are only the default when the OTC has no orders for a division."),
+                "Positive Control",
+                "OTC orders directly override division missions whenever issued (fix, engage, flank, reinforce, strike)."),
         COMMAND_BY_NEGATION(
-                "C. \"Command by Negation\"",
                 "Command by Negation",
-                "The OTC states intent (targets, flank sides, strike times, reinforcement requests); divisions act on their "
-                        + "own initiative in their mission style and may decline or deviate unless the OTC overrides them."),
+                "Command by Negation",
+                "OTC states intent and focus targets; divisions act autonomously on local initiative unless overridden."),
         FIRE_DISTRIBUTION_ONLY(
-                "D. \"Fire Distribution Only\"",
                 "Fire Distribution Only",
-                "The OTC only distributes enemy targets and times strikes; it never moves, re-tasks or "
-                        + "stations divisions.");
+                "Fire Distribution Only",
+                "OTC assigns enemy targets and synchronizes strikes without moving or re-tasking divisions.");
 
         public final String dropdownLabel;
         public final String shortName;
@@ -607,16 +603,16 @@ public class PermanentDivisionManager {
     public enum OtcPlay {
         LINE_AND_FIRE_DISTRIBUTION(
                 "Line & Fire Distribution",
-                "The Main Effort forms the line on the primary threat and fixes it; fire is distributed so each other division takes its own target."),
+                "Main Effort anchors the line on the primary threat while other divisions distribute fire across the enemy line."),
         DOUBLING(
                 "Doubling",
-                "Flankers on the same target are sent down opposite sides (port and starboard) to double it."),
+                "Flanking divisions attack the same target from opposite sides (port and starboard) to double it."),
         TIME_ON_TARGET_STRIKES(
                 "Time-on-Target Strikes",
-                "Missile and strike-craft divisions go to their marshal points, then strike together at one time on one focus ship."),
+                "Missile and carrier divisions marshal and launch synchronized salvos on the OTC focus target."),
         RESERVE_AND_GENERAL_CHASE(
                 "Reserve & General Chase",
-                "One division sent to reinforce each crisis, the reserve held until needed, and fast divisions give general chase to broken enemies on a leash.");
+                "Holds reserves to relieve high-flux divisions, then orders fast divisions into a general chase.");
 
         public final String displayName;
         public final String summary;
@@ -1027,12 +1023,12 @@ public class PermanentDivisionManager {
     }
 
     public enum DoctrineOption {
-        ADAPTIVE("Adaptive (Default)", "Balanced division tactics: screens, flanks, or presses home the attack as the action develops."),
-        SPEARHEAD("Spearhead", "Closes the enemy early and presses home the attack wherever it has the advantage."),
-        FIRE_SUPPORT("Fire Support", "Keeps to maximum gun or strike-craft range and avoids close action."),
-        ESCORT_AND_SCREEN("Escort & Screen", "Takes screening station on friendly battleship and carrier divisions against flankers."),
-        FLANKING_STRIKE("Flanking & Missile Strike", "Works around the enemy flanks and looks for missile strike opportunities."),
-        RESERVE("Reserve", "Holds astern of the line until a friendly division needs reinforcing.");
+        ADAPTIVE("Adaptive", "Balanced division posture: screens, flanks, or presses the attack as needed."),
+        SPEARHEAD("Spearhead", "Closes early and presses the attack wherever it holds local superiority."),
+        FIRE_SUPPORT("Fire Support", "Stands off at maximum gun or strike range and avoids close action."),
+        ESCORT_AND_SCREEN("Escort & Screen", "Screens friendly capital and carrier divisions against flankers."),
+        FLANKING_STRIKE("Flanking Strike", "Sweeps around enemy flanks to deliver missile and torpedo salvos."),
+        RESERVE("Reserve", "Holds astern of the line until needed to reinforce a threatened sector.");
 
         public final String displayName;
         public final String summary;

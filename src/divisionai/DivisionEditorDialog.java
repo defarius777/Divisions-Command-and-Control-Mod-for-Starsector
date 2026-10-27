@@ -391,9 +391,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         TooltipMakerAPI header = container.createUIElement(DIALOG_WIDTH - 64f, 52f, false);
         header.setTitleOrbitronLarge();
-        header.addTitle("FLEET DIVISION EDITOR — PERMANENT C2 ORGANIZATION", baseColor);
+        header.addTitle("FLEET DIVISIONS", baseColor);
         header.addPara(
-                "Selected Division: %s  |  Drag & Drop ship icons between divisions and fleet  |  Right-Click ship: Assign / Unassign  |  Left-Click ship in division: Set Flagship",
+                "Selected: %s  ·  Drag or Right-Click ships to assign/unassign  ·  Left-Click division ship to set Flagship",
                 4f,
                 highlight,
                 selectedDivName);
@@ -404,13 +404,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI tb = toolbarRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
         ButtonAPI bCreate = registerButton(
                 tb.addButton(
-                        "+ Establish New Division",
+                        "+ New Division",
                         "CREATE_DIV_OVERVIEW",
                         positive,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        210f,
+                        180f,
                         24f,
                         0f),
                 "CREATE_DIV_OVERVIEW");
@@ -418,24 +418,24 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bAutoAssign = registerButton(
                 tb.addButton(
-                        "Auto-Assign Fleet Ships (" + unassigned.size() + ")",
+                        "Auto-Assign (" + unassigned.size() + ")",
                         "AUTO_ASSIGN",
                         baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        240f,
+                        180f,
                         24f,
                         0f),
                 "AUTO_ASSIGN");
         bAutoAssign.setEnabled(!unassigned.isEmpty());
-        bAutoAssign.getPosition().inTL(218f, 2f);
+        bAutoAssign.getPosition().inTL(188f, 2f);
 
         if (selectedSpec != null) {
             String openSelectedAct = "OPEN_DIV:" + selectedSpec.id;
             ButtonAPI bOpenSel = registerButton(
                     tb.addButton(
-                            "Deep Editor: " + truncateText(selectedSpec.name, 16) + " ->",
+                            "Configure: " + truncateText(selectedSpec.name, 16) + " ->",
                             openSelectedAct,
                             highlight,
                             darkColor,
@@ -445,23 +445,23 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                             24f,
                             0f),
                     openSelectedAct);
-            bOpenSel.getPosition().inTL(466f, 2f);
+            bOpenSel.getPosition().inTL(376f, 2f);
         }
 
         if (!divisions.isEmpty()) {
             ButtonAPI bClearAll = registerButton(
                     tb.addButton(
-                            "Disestablish All",
+                            "Disband All",
                             "CLEAR_ALL_DIVS",
                             Misc.getNegativeHighlightColor(),
                             darkColor,
                             Alignment.MID,
                             CutStyle.TL_BR,
-                            150f,
+                            130f,
                             24f,
                             0f),
                     "CLEAR_ALL_DIVS");
-            bClearAll.getPosition().inTL(689f, 2f);
+            bClearAll.getPosition().inTL(599f, 2f);
         }
 
         ButtonAPI bClose = registerButton(
@@ -489,13 +489,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         TooltipMakerAPI leftCol = container.createUIElement(leftWidth, bodyHeight, true);
         leftCol.addSectionHeading(
-                "Permanent Divisions (" + divisions.size() + " Active | " + assignedCount + " Ships Assigned)",
+                "Divisions (" + divisions.size() + " Active · " + assignedCount + " Ships)",
                 Alignment.MID,
                 4f);
 
         if (divisions.isEmpty()) {
             leftCol.addPara(
-                    "No permanent divisions configured. Click '+ Establish New Division' or 'Auto-Assign Fleet Ships' above, or click '+ New Div' on a ship on the right.",
+                    "No divisions formed. Click '+ New Division' or 'Auto-Assign' above.",
                     gray,
                     10f);
         } else {
@@ -525,25 +525,15 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         // 3. Right Column: Unassigned Combat Hulls Pool (DropTargetZone with targetDivisionId == null)
         TooltipMakerAPI rightCol = container.createUIElement(rightWidth, bodyHeight, true);
-        String poolHeading = selectedSpec != null
-                ? ("Unassigned Fleet Ships (" + unassigned.size() + ") — Right-Click -> " + truncateText(selectedSpec.name, 14))
-                : ("Unassigned Fleet Ships (" + unassigned.size() + ")");
+        String poolHeading = "Unassigned Ships (" + unassigned.size() + ")";
         rightCol.addSectionHeading(poolHeading, Alignment.MID, 4f);
 
         if (unassigned.isEmpty()) {
             rightCol.addPara(
-                    "All eligible combat hulls in your fleet are assigned to permanent divisions.",
+                    "All combat ships assigned. Drag or Right-Click any division ship to unassign.",
                     positive,
                     8f);
-            rightCol.addPara(
-                    "Drag any ship icon from a division on the left and drop it here (or Right-Click it) to unassign it back to the fleet pool.",
-                    gray,
-                    6f);
         } else {
-            rightCol.addPara(
-                    "Drag ship icons onto any division on the left, or Right-Click a ship icon to assign it to the selected division:",
-                    gray,
-                    3f);
             addInteractiveShipGrid(
                     rightCol,
                     rightWidth - 16f,
@@ -650,9 +640,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI topUi = cardPanel.createUIElement(cardWidth - 8f, 60f, false);
 
         String selectAct = "SELECT_DIV:" + spec.id;
-        String selectLabel = (isSelected ? "[SELECTED] " : "[Select] ")
-                + spec.name + " — " + spec.archetype.shortPrefix
-                + String.format(Locale.ROOT, " (%d/%d | %.0f DP)", members.size(), PermanentDivisionManager.MAX_DIVISION_SIZE, totalDp);
+        String selectLabel = spec.name + "  ·  " + spec.archetype.shortPrefix
+                + String.format(Locale.ROOT, "  (%d/%d · %.0f DP)", members.size(), PermanentDivisionManager.MAX_DIVISION_SIZE, totalDp);
         ButtonAPI bSelect = registerButton(
                 topUi.addButton(
                         selectLabel,
@@ -661,7 +650,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.LMID,
                         CutStyle.TL_BR,
-                        cardWidth - 268f,
+                        cardWidth - 246f,
                         22f,
                         0f),
                 selectAct);
@@ -671,32 +660,32 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         String openAct = "OPEN_DIV:" + spec.id;
         ButtonAPI bOpen = registerButton(
                 topUi.addButton(
-                        "Deep Editor ->",
+                        "Configure ->",
                         openAct,
                         positive,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        136f,
+                        126f,
                         22f,
                         0f),
                 openAct);
-        bOpen.getPosition().inTL(cardWidth - 260f, 4f);
+        bOpen.getPosition().inTL(cardWidth - 238f, 4f);
 
         String delAct = "DELETE_DIV:" + spec.id;
         ButtonAPI bDel = registerButton(
                 topUi.addButton(
-                        "Disestablish",
+                        "Disband",
                         delAct,
                         Misc.getNegativeHighlightColor(),
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        112f,
+                        100f,
                         22f,
                         0f),
                 delAct);
-        bDel.getPosition().inTL(cardWidth - 118f, 4f);
+        bDel.getPosition().inTL(cardWidth - 106f, 4f);
 
         int effIntra = PermanentDivisionManager.resolveEffectiveStationSpacing(spec, doctrineCfg);
         int effStandoff = PermanentDivisionManager.resolveEffectiveStandoffRange(spec, doctrineCfg);
@@ -707,10 +696,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         PersonAPI cap = (flagship != null) ? flagship.getCaptain() : null;
         String cmdrDesc = (cap != null && !cap.isDefault())
                 ? (cap.getNameString() + " [" + cap.getPersonalityAPI().getDisplayName() + "]")
-                : "Default Cmdr";
+                : "No Officer";
 
         LabelAPI sub1 = topUi.addPara(
-                "Cmdr: %s  |  Station: %s  |  Spacing: %su  |  Standoff: %su  |  %s -> %s",
+                "%s  ·  %s  ·  %su / %su standoff  ·  %s -> %s",
                 2f,
                 isSelected ? positive : gray,
                 cmdrDesc,
@@ -728,9 +717,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         if (members.isEmpty()) {
             TooltipMakerAPI emptyUi = cardPanel.createUIElement(cardWidth - 16f, 44f, false);
             emptyUi.addPara(
-                    isSelected
-                            ? "Empty Division — Drag ships here or Right-Click ships in the Unassigned Fleet Pool to assign."
-                            : "Empty Division — Left-click this division to select it, or drag ships here.",
+                    "Empty division — drag or right-click ships from the right panel to assign.",
                     gray,
                     10f);
             emptyUi.setHeightSoFar(44f);
@@ -799,13 +786,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI navUi = navRow.createUIElement(DIALOG_WIDTH - 72f, 28f, false);
         ButtonAPI bBack = registerButton(
                 navUi.addButton(
-                        "<- Back to All Divisions",
+                        "<- All Divisions",
                         "BACK_TO_LIST",
                         baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        195f,
+                        160f,
                         24f,
                         0f),
                 "BACK_TO_LIST");
@@ -813,23 +800,23 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bClose = registerButton(
                 navUi.addButton(
-                        "Close Editor [Esc]",
+                        "Close [Esc]",
                         "CLOSE",
                         Misc.getNegativeHighlightColor(),
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        150f,
+                        130f,
                         24f,
                         0f),
                 "CLOSE");
-        bClose.getPosition().inTL(DIALOG_WIDTH - 72f - 150f, 2f);
+        bClose.getPosition().inTL(DIALOG_WIDTH - 72f - 130f, 2f);
         navUi.setHeightSoFar(28f);
         navRow.addUIElement(navUi).inTL(0f, 0f);
         top.addCustom(navRow, 2f);
 
         top.setTitleOrbitronLarge();
-        top.addTitle("DIVISION COMMAND & DOCTRINE: " + spec.name.toUpperCase(), highlight);
+        top.addTitle(spec.name.toUpperCase() + " — " + spec.archetype.shortPrefix.toUpperCase(), highlight);
 
         // Row B: Editable Callsign TextField + Apply Name Button
         CustomPanelAPI nameRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 30f, subPanelPlugin);
@@ -841,13 +828,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bSaveName = registerButton(
                 nameUi.addButton(
-                        "Apply Division Name",
+                        "Rename",
                         "APPLY_NAME",
                         baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        165f,
+                        120f,
                         24f,
                         0f),
                 "APPLY_NAME");
@@ -932,7 +919,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         top.addCustom(docRow, 3f);
 
         top.addPara(
-                "Active Doctrine — %s: %s",
+                "%s — %s",
                 3f,
                 positive,
                 spec.doctrine.displayName,
@@ -961,7 +948,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         DivisionMissionType effMainMis = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
 
         leftCol.addSectionHeading(
-                "Division Settings (Paragon Length = " + PermanentDivisionManager.PARAGON_LENGTH_UNITS + "u)",
+                "Formation & Missions",
                 highlight,
                 darkColor,
                 Alignment.LMID,
@@ -973,9 +960,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 colWidth - 16f,
                 String.format(
                         Locale.ROOT,
-                        "Station spacing: %du (%.2fx Paragon) [%s]",
+                        "Ship Spacing: %du (%s)",
                         effIntra,
-                        effIntra / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
                         spec.customStationSpacing != null ? "Custom" : "Inherited"),
                 effIntra,
                 50,
@@ -993,9 +979,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 colWidth - 16f,
                 String.format(
                         Locale.ROOT,
-                        "Division interval: %du (%.2fx Paragon) [%s]",
+                        "Division Interval: %du (%s)",
                         effInter,
-                        effInter / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
                         spec.customDivisionInterval != null ? "Custom" : "Inherited"),
                 effInter,
                 100,
@@ -1033,7 +1018,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         addDivisionMissionDropdownRow(
                 leftCol,
                 colWidth - 16f,
-                "Opening Mission (0-" + doctrineCfg.getOpeningDurationSeconds() + "s):",
+                "Opening (0-" + doctrineCfg.getOpeningDurationSeconds() + "s):",
                 "DIV_OPEN_DD",
                 effOpenMis,
                 spec.archetype,
@@ -1048,7 +1033,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         addDivisionMissionDropdownRow(
                 leftCol,
                 colWidth - 16f,
-                "Main Mission (rest of battle):",
+                "Main Mission:",
                 "DIV_MAIN_DD",
                 effMainMis,
                 spec.archetype,
@@ -1061,17 +1046,17 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         // Visual Ship Icon Bay in Deep Division Editor
         leftCol.addSectionHeading(
-                "Ships in " + spec.name + " (" + divMembers.size() + "/" + PermanentDivisionManager.MAX_DIVISION_SIZE + " Max)",
+                "Assigned Ships (" + divMembers.size() + "/" + PermanentDivisionManager.MAX_DIVISION_SIZE + ")",
                 Alignment.MID,
                 8f);
         leftCol.addPara(
-                "Left-Click ship icon: Designate Flagship  |  Right-Click or Drag to Right Column: Unassign",
+                "Left-Click: Set Flagship  ·  Right-Click or Drag: Unassign",
                 gray,
                 3f);
 
         if (divMembers.isEmpty()) {
             leftCol.addPara(
-                    "No ships in this division. Drag ship icons from the right column and drop them here, or Right-Click any ship on the right.",
+                    "Empty division — drag or right-click ships from the right panel.",
                     gray,
                     8f);
         } else {
@@ -1095,17 +1080,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         // Right Column: Visual Ship Icons for Unassigned Ships + Ships in Other Divisions
         TooltipMakerAPI rightCol = container.createUIElement(colWidth, bodyHeight, true);
         rightCol.addSectionHeading(
-                "Unassigned Fleet Ships (" + unassigned.size() + ") — Drag or Right-Click to Assign",
+                "Unassigned Ships (" + unassigned.size() + ")",
                 Alignment.MID,
                 4f);
 
         if (unassigned.isEmpty()) {
-            rightCol.addPara("No unassigned combat ships in fleet. Drag ships here to unassign them.", gray, 4f);
+            rightCol.addPara("All combat ships assigned. Drag ships here to unassign.", gray, 4f);
         } else {
-            rightCol.addPara(
-                    "Drag any ship icon to the left panel (or Right-Click / Left-Click it) to add to " + spec.name + ":",
-                    gray,
-                    3f);
             addInteractiveShipGrid(
                     rightCol,
                     colWidth - 16f,
@@ -1116,7 +1097,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     false);
         }
 
-        rightCol.addSectionHeading("Transfer From Other Divisions (Drag or Right-Click)", Alignment.MID, 10f);
+        rightCol.addSectionHeading("Other Divisions", Alignment.MID, 10f);
         boolean anyOther = false;
         for (PermanentDivisionSpec other : allDivs) {
             if (other.id.equals(spec.id)) continue;
@@ -1124,7 +1105,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             if (otherMembers.isEmpty()) continue;
             anyOther = true;
             rightCol.addPara(
-                    other.name + " (" + other.archetype.shortPrefix + ", " + otherMembers.size() + " ships):",
+                    other.name + " · " + other.archetype.shortPrefix + " (" + otherMembers.size() + ")",
                     highlight,
                     5f);
             addInteractiveShipGrid(
@@ -1432,13 +1413,12 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 48f, false);
 
         String statusTag = isCustom
-                ? ((longestGunRange > 0 && Math.abs(effStandoff - longestGunRange) <= 25) ? "Auto (Guns)" : "Custom")
+                ? ((longestGunRange > 0 && Math.abs(effStandoff - longestGunRange) <= 25) ? "Auto" : "Custom")
                 : "Inherited";
         String label = String.format(
                 Locale.ROOT,
-                "Standoff range: %du (%.2fx Paragon) [%s | Max Gun Range: %du]",
+                "Standoff Range: %du (%s · Max Guns: %du)",
                 effStandoff,
-                effStandoff / (float) PermanentDivisionManager.PARAGON_LENGTH_UNITS,
                 statusTag,
                 longestGunRange);
         rowUi.addPara(label, 3f, highlight, label).getPosition().inTL(2f, 3f);
@@ -1456,10 +1436,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         bInc.getPosition().inTL(62f, 25f);
 
         String autoLabel = longestGunRange > 0
-                ? ("Auto-Set From Max Gun Range (" + longestGunRange + "u)")
-                : "Auto-Set From Max Weapon";
+                ? ("Match Max Guns (" + longestGunRange + "u)")
+                : "Match Max Guns";
         ButtonAPI bAuto = registerButton(
-                rowUi.addButton(autoLabel, "DIV_STANDOFF_RANGE:AUTO", positive, darkColor, Alignment.MID, CutStyle.TL_BR, 230f, 20f, 0f),
+                rowUi.addButton(autoLabel, "DIV_STANDOFF_RANGE:AUTO", positive, darkColor, Alignment.MID, CutStyle.TL_BR, 200f, 20f, 0f),
                 "DIV_STANDOFF_RANGE:AUTO");
         bAuto.setEnabled(longestGunRange > 0);
         bAuto.getPosition().inTL(122f, 25f);
@@ -1468,7 +1448,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 rowUi.addButton("Inherit", "DIV_STANDOFF_RANGE:INHERIT", !isCustom ? positive : baseColor, darkColor, Alignment.MID, CutStyle.ALL, 88f, 20f, 0f),
                 "DIV_STANDOFF_RANGE:INHERIT");
         if (!isCustom) bInh.highlight();
-        bInh.getPosition().inTL(356f, 25f);
+        bInh.getPosition().inTL(326f, 25f);
 
         rowUi.setHeightSoFar(48f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
@@ -1489,9 +1469,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         String labelText = String.format(
                 Locale.ROOT,
-                "Station in Line: %s [%s]",
+                "Line Station: %s (%s)",
                 effSpace.displayName,
-                isCustom ? "Custom/Auto" : "Inherited");
+                isCustom ? "Custom" : "Inherited");
         rowUi.addPara(labelText, 3f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(2f, 4f);
 
         float x = rowWidth - 266f;
