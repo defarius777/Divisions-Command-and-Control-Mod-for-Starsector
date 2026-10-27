@@ -1,12 +1,12 @@
 {
 	"id": "division_ai",
-	"name": "Division AI",
-	"author": "Def of Many Bones",
+	"name": "Divisions: Command and Control",
+	"author": "Defarius",
 	"utility": "false",
 	"version": {
 		"major": "0",
 		"minor": "6",
-		"patch": "8"
+		"patch": "9"
 	},
 	"description": "Force-cohesion layer for ship AI: local overmatch evaluation and coordinated repositioning across the whole battlefield.",
 	"gameVersion": "0.98a-RC8",

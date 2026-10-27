@@ -18,6 +18,8 @@ import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionNomenclature.NumberingStyle;
 import divisionai.DivisionNomenclature.PlayerNamingConfig;
 import divisionai.DivisionNomenclature.PlayerNamingPreset;
+import divisionai.PermanentDivisionManager.AutoAssignCapability;
+import divisionai.PermanentDivisionManager.AutoAssignHull;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
@@ -67,6 +69,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         ALL_DOCTRINE,
         BATTLE_GROUP_COMMAND,
         DIVISION_MODIFIERS,
+        AUTO_ASSIGN_SCHEMES,
         HULL_LIMITS,
         NAMING_SCHEME
     }
@@ -245,7 +248,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        84f,
+                        72f,
                         24f,
                         0f),
                 "TAB:ALL");
@@ -260,12 +263,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        136f,
+                        126f,
                         24f,
                         0f),
                 "TAB:OTC_COMMAND");
         if (activeTab == ActiveTab.BATTLE_GROUP_COMMAND) bTabOtc.highlight();
-        bTabOtc.getPosition().inTL(92f, 3f);
+        bTabOtc.getPosition().inTL(78f, 3f);
 
         ButtonAPI bTabMod = registerButton(
                 tb.addButton(
@@ -275,12 +278,27 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        152f,
+                        142f,
                         24f,
                         0f),
                 "TAB:MODIFIERS");
         if (activeTab == ActiveTab.DIVISION_MODIFIERS) bTabMod.highlight();
-        bTabMod.getPosition().inTL(236f, 3f);
+        bTabMod.getPosition().inTL(210f, 3f);
+
+        ButtonAPI bTabAuto = registerButton(
+                tb.addButton(
+                        "Auto-Assigner",
+                        "TAB:AUTO_ASSIGN",
+                        activeTab == ActiveTab.AUTO_ASSIGN_SCHEMES ? highlight : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        126f,
+                        24f,
+                        0f),
+                "TAB:AUTO_ASSIGN");
+        if (activeTab == ActiveTab.AUTO_ASSIGN_SCHEMES) bTabAuto.highlight();
+        bTabAuto.getPosition().inTL(358f, 3f);
 
         ButtonAPI bTabHull = registerButton(
                 tb.addButton(
@@ -290,12 +308,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        118f,
+                        108f,
                         24f,
                         0f),
                 "TAB:HULLS");
         if (activeTab == ActiveTab.HULL_LIMITS) bTabHull.highlight();
-        bTabHull.getPosition().inTL(396f, 3f);
+        bTabHull.getPosition().inTL(490f, 3f);
 
         ButtonAPI bTabNaming = registerButton(
                 tb.addButton(
@@ -305,12 +323,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        132f,
+                        122f,
                         24f,
                         0f),
                 "TAB:NAMING");
         if (activeTab == ActiveTab.NAMING_SCHEME) bTabNaming.highlight();
-        bTabNaming.getPosition().inTL(522f, 3f);
+        bTabNaming.getPosition().inTL(604f, 3f);
 
         String reinitLabel = lastReinitFleetCount >= 0
                 ? ("Reinitialized (" + lastReinitFleetCount + ")!")
@@ -530,6 +548,18 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
         }
 
+        if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.AUTO_ASSIGN_SCHEMES) {
+            addAutoAssignSchemesSection(
+                    body,
+                    bodyWidth - 16f,
+                    doctrine,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive,
+                    gray);
+        }
+
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.HULL_LIMITS) {
             body.addSectionHeading(
                     "HULL LIMITS PER DIVISION  (Max " + PermanentDivisionManager.MAX_DIVISION_SIZE + " Ships)",
@@ -598,6 +628,177 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 activeBodyScroller.setYOffset(Math.max(0f, Math.min(savedScrollY, maxScroll)));
             }
         }
+    }
+
+    private void addAutoAssignSchemesSection(
+            TooltipMakerAPI body,
+            float rowWidth,
+            FleetDoctrineConfig doctrine,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        body.addSectionHeading(
+                "AUTO-ASSIGNER DIVISION SCHEMES — BY CAPABILITY & HULL TYPE",
+                highlight,
+                darkColor,
+                Alignment.LMID,
+                8f);
+        body.addPara(
+                "Enable or disable division schemes by capability and hull type for the player fleet's auto-assigner. "
+                        + "For example, disabling Missile on Destroyer (or disabling Destroyer under Missile) prevents the auto-assigner "
+                        + "from forming Missile Destroyer Divisions while still allowing other Missile or Destroyer divisions.",
+                3f,
+                gray);
+
+        body.addSectionHeading(
+                "SCHEMES BY CAPABILITY  (Toggle Capability or Allowed Hulls per Capability)",
+                baseColor,
+                darkColor,
+                Alignment.LMID,
+                6f);
+
+        for (AutoAssignCapability cap : AutoAssignCapability.values()) {
+            addCapabilitySchemeRow(body, rowWidth, doctrine, cap, baseColor, darkColor, highlight, positive, gray);
+        }
+
+        body.addSectionHeading(
+                "SCHEMES BY HULL TYPE  (Toggle Hull Class or Allowed Capabilities per Hull Division)",
+                baseColor,
+                darkColor,
+                Alignment.LMID,
+                8f);
+
+        for (AutoAssignHull hull : AutoAssignHull.values()) {
+            addHullSchemeRow(body, rowWidth, doctrine, hull, baseColor, darkColor, highlight, positive, gray);
+        }
+    }
+
+    private void addCapabilitySchemeRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            FleetDoctrineConfig doctrine,
+            AutoAssignCapability cap,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+        float rowH = 32f;
+        CustomPanelAPI row = Global.getSettings().createCustom(rowWidth, rowH, subPanelPlugin);
+        TooltipMakerAPI ui = row.createUIElement(rowWidth, rowH, false);
+
+        boolean capOn = doctrine.isCapabilityEnabled(cap);
+        ui.addPara(cap.displayName + ":", 2f).getPosition().inTL(4f, 2f);
+        ui.addPara(cap.summary, gray, 1f).getPosition().inTL(4f, 17f);
+
+        float x = 285f;
+        ButtonAPI bMaster = registerButton(
+                ui.addButton(
+                        capOn ? "Capability: ON" : "Capability: OFF",
+                        "SET_AA_CAP:" + cap.name() + ":" + (capOn ? "OFF" : "ON"),
+                        capOn ? positive : gray,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        136f,
+                        22f,
+                        0f),
+                "SET_AA_CAP:" + cap.name() + ":" + (capOn ? "OFF" : "ON"));
+        if (capOn) bMaster.highlight();
+        bMaster.getPosition().inTL(x, 5f);
+        x += 148f;
+
+        for (AutoAssignHull hull : AutoAssignHull.values()) {
+            if (!cap.supportsHull(hull)) continue;
+            boolean effectiveOn = doctrine.isSchemeEnabled(cap, hull);
+            boolean rawCellOn = doctrine.isRawSchemeCellEnabled(cap, hull);
+            boolean nextState = !effectiveOn;
+            String cmd = "SET_AA_SCHEME:" + cap.name() + ":" + hull.name() + ":" + (nextState ? "ON" : "OFF");
+            ButtonAPI bHull = registerButton(
+                    ui.addButton(
+                            hull.shortName + ": " + (effectiveOn ? "ON" : "OFF"),
+                            cmd,
+                            effectiveOn ? highlight : (rawCellOn ? gray : Misc.getNegativeHighlightColor()),
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            132f,
+                            22f,
+                            0f),
+                    cmd);
+            if (effectiveOn) bHull.highlight();
+            bHull.getPosition().inTL(x, 5f);
+            x += 140f;
+        }
+
+        ui.setHeightSoFar(rowH);
+        row.addUIElement(ui).inTL(0f, 0f);
+        body.addCustom(row, 3f);
+    }
+
+    private void addHullSchemeRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            FleetDoctrineConfig doctrine,
+            AutoAssignHull hull,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+        float rowH = 32f;
+        CustomPanelAPI row = Global.getSettings().createCustom(rowWidth, rowH, subPanelPlugin);
+        TooltipMakerAPI ui = row.createUIElement(rowWidth, rowH, false);
+
+        boolean hullOn = doctrine.isHullEnabled(hull);
+        ui.addPara(hull.displayName + " Divisions:", 2f).getPosition().inTL(4f, 6f);
+
+        float x = 285f;
+        ButtonAPI bMaster = registerButton(
+                ui.addButton(
+                        hullOn ? "Hull: ON" : "Hull: OFF",
+                        "SET_AA_HULL:" + hull.name() + ":" + (hullOn ? "OFF" : "ON"),
+                        hullOn ? positive : gray,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        136f,
+                        22f,
+                        0f),
+                "SET_AA_HULL:" + hull.name() + ":" + (hullOn ? "OFF" : "ON"));
+        if (hullOn) bMaster.highlight();
+        bMaster.getPosition().inTL(x, 5f);
+        x += 148f;
+
+        for (AutoAssignCapability cap : AutoAssignCapability.values()) {
+            if (!cap.supportsHull(hull)) continue;
+            boolean effectiveOn = doctrine.isSchemeEnabled(cap, hull);
+            boolean rawCellOn = doctrine.isRawSchemeCellEnabled(cap, hull);
+            boolean nextState = !effectiveOn;
+            String cmd = "SET_AA_SCHEME:" + cap.name() + ":" + hull.name() + ":" + (nextState ? "ON" : "OFF");
+            ButtonAPI bCap = registerButton(
+                    ui.addButton(
+                            cap.shortName + ": " + (effectiveOn ? "ON" : "OFF"),
+                            cmd,
+                            effectiveOn ? highlight : (rawCellOn ? gray : Misc.getNegativeHighlightColor()),
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            116f,
+                            22f,
+                            0f),
+                    cmd);
+            if (effectiveOn) bCap.highlight();
+            bCap.getPosition().inTL(x, 5f);
+            x += 122f;
+        }
+
+        ui.setHeightSoFar(rowH);
+        row.addUIElement(ui).inTL(0f, 0f);
+        body.addCustom(row, 3f);
     }
 
     private void addPlayerNamingSchemeSection(
@@ -1492,9 +1693,58 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
+        if ("TAB:AUTO_ASSIGN".equals(cmd)) {
+            activeTab = ActiveTab.AUTO_ASSIGN_SCHEMES;
+            rebuildContent();
+            return;
+        }
         if ("TAB:HULLS".equals(cmd)) {
             activeTab = ActiveTab.HULL_LIMITS;
             rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_AA_CAP:")) {
+            String rest = cmd.substring("SET_AA_CAP:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                AutoAssignCapability cap = AutoAssignCapability.valueOf(rest.substring(0, sep));
+                boolean enabled = "ON".equals(rest.substring(sep + 1));
+                PermanentDivisionManager.updateAutoAssignCapability(cap, enabled);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_AA_HULL:")) {
+            String rest = cmd.substring("SET_AA_HULL:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                AutoAssignHull hull = AutoAssignHull.valueOf(rest.substring(0, sep));
+                boolean enabled = "ON".equals(rest.substring(sep + 1));
+                PermanentDivisionManager.updateAutoAssignHull(hull, enabled);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_AA_SCHEME:")) {
+            String rest = cmd.substring("SET_AA_SCHEME:".length());
+            String[] parts = rest.split(":");
+            if (parts.length == 3) {
+                AutoAssignCapability cap = AutoAssignCapability.valueOf(parts[0]);
+                AutoAssignHull hull = AutoAssignHull.valueOf(parts[1]);
+                boolean enabled = "ON".equals(parts[2]);
+                if (enabled) {
+                    // If user explicitly enables a cell while its parent capability or hull master toggle was off, enable the parent too
+                    FleetDoctrineConfig cfg = PermanentDivisionManager.getFleetDoctrine();
+                    if (!cfg.isCapabilityEnabled(cap)) {
+                        PermanentDivisionManager.updateAutoAssignCapability(cap, true);
+                    }
+                    if (!cfg.isHullEnabled(hull)) {
+                        PermanentDivisionManager.updateAutoAssignHull(hull, true);
+                    }
+                }
+                PermanentDivisionManager.updateAutoAssignScheme(cap, hull, enabled);
+                rebuildContent();
+            }
             return;
         }
         if ("RESET_DEFAULTS".equals(cmd)) {

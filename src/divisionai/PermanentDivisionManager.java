@@ -512,6 +512,71 @@ public class PermanentDivisionManager {
     }
 
     /**
+     * Division capability families that can be enabled or disabled per hull size for the player fleet's auto-assigner.
+     */
+    public enum AutoAssignCapability {
+        LINE("Line Combat", "Line", "Standard gun-line combat divisions."),
+        MISSILE("Missile", "Missile", "Missile and torpedo strike divisions."),
+        STRIKE("Strike / Fast", "Strike", "High-speed flanking cruiser divisions."),
+        CARRIER("Carrier", "Carrier", "Dedicated carrier divisions."),
+        PHASE("Phase", "Phase", "Cloaked phase-skimmer divisions."),
+        SERVICE("Service / Aux", "Service", "Civilian logistics and auxiliary groups.");
+
+        public final String displayName;
+        public final String shortName;
+        public final String summary;
+
+        AutoAssignCapability(String displayName, String shortName, String summary) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.summary = summary;
+        }
+
+        public boolean supportsHull(AutoAssignHull hull) {
+            if (hull == null) return false;
+            if (this == STRIKE) {
+                return hull == AutoAssignHull.CRUISER;
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Hull size classes that can be enabled or disabled per capability for the player fleet's auto-assigner.
+     */
+    public enum AutoAssignHull {
+        BATTLESHIP("Battleship", "Battleship", HullSize.CAPITAL_SHIP),
+        CRUISER("Cruiser", "Cruiser", HullSize.CRUISER),
+        DESTROYER("Destroyer", "Destroyer", HullSize.DESTROYER),
+        FRIGATE("Frigate", "Frigate", HullSize.FRIGATE);
+
+        public final String displayName;
+        public final String shortName;
+        public final HullSize hullSize;
+
+        AutoAssignHull(String displayName, String shortName, HullSize hullSize) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.hullSize = hullSize;
+        }
+
+        public static AutoAssignHull forHullSize(HullSize size) {
+            if (size == null) return FRIGATE;
+            switch (size) {
+                case CAPITAL_SHIP:
+                    return BATTLESHIP;
+                case CRUISER:
+                    return CRUISER;
+                case DESTROYER:
+                    return DESTROYER;
+                case FRIGATE:
+                default:
+                    return FRIGATE;
+            }
+        }
+    }
+
+    /**
      * Hull categories configurable in the Fleet Doctrine screen (minimum & maximum hulls per division).
      */
     public enum DoctrineHullCategory {
@@ -729,6 +794,9 @@ public class PermanentDivisionManager {
                 OtcPlay.DOUBLING,
                 OtcPlay.TIME_ON_TARGET_STRIKES,
                 OtcPlay.RESERVE_AND_GENERAL_CHASE);
+        private final Set<AutoAssignCapability> enabledAutoCapabilities = EnumSet.allOf(AutoAssignCapability.class);
+        private final Set<AutoAssignHull> enabledAutoHulls = EnumSet.allOf(AutoAssignHull.class);
+        private final Map<String, Boolean> enabledAutoSchemeMatrix = new LinkedHashMap<>();
         private OtcAuthority otcAuthority = OtcAuthority.COMMAND_BY_DIRECTION;
         private int openingDurationSeconds = 45;
 
@@ -746,6 +814,60 @@ public class PermanentDivisionManager {
                 mainMissionByType.put(dt, dt.defaultMainMission);
                 lineStationByType.put(dt, dt.defaultLineStation);
             }
+            for (AutoAssignCapability cap : AutoAssignCapability.values()) {
+                for (AutoAssignHull hull : AutoAssignHull.values()) {
+                    if (cap.supportsHull(hull)) {
+                        enabledAutoSchemeMatrix.put(schemeKey(cap, hull), Boolean.TRUE);
+                    }
+                }
+            }
+        }
+
+        private static String schemeKey(AutoAssignCapability cap, AutoAssignHull hull) {
+            return cap.name() + "__" + hull.name();
+        }
+
+        public boolean isCapabilityEnabled(AutoAssignCapability cap) {
+            return cap != null && enabledAutoCapabilities.contains(cap);
+        }
+
+        public void setCapabilityEnabled(AutoAssignCapability cap, boolean enabled) {
+            if (cap == null) return;
+            if (enabled) {
+                enabledAutoCapabilities.add(cap);
+            } else {
+                enabledAutoCapabilities.remove(cap);
+            }
+        }
+
+        public boolean isHullEnabled(AutoAssignHull hull) {
+            return hull != null && enabledAutoHulls.contains(hull);
+        }
+
+        public void setHullEnabled(AutoAssignHull hull, boolean enabled) {
+            if (hull == null) return;
+            if (enabled) {
+                enabledAutoHulls.add(hull);
+            } else {
+                enabledAutoHulls.remove(hull);
+            }
+        }
+
+        public boolean isRawSchemeCellEnabled(AutoAssignCapability cap, AutoAssignHull hull) {
+            if (cap == null || hull == null || !cap.supportsHull(hull)) return false;
+            Boolean val = enabledAutoSchemeMatrix.get(schemeKey(cap, hull));
+            return val == null || val;
+        }
+
+        public boolean isSchemeEnabled(AutoAssignCapability cap, AutoAssignHull hull) {
+            if (cap == null || hull == null || !cap.supportsHull(hull)) return false;
+            if (!isCapabilityEnabled(cap) || !isHullEnabled(hull)) return false;
+            return isRawSchemeCellEnabled(cap, hull);
+        }
+
+        public void setSchemeEnabled(AutoAssignCapability cap, AutoAssignHull hull, boolean enabled) {
+            if (cap == null || hull == null || !cap.supportsHull(hull)) return;
+            enabledAutoSchemeMatrix.put(schemeKey(cap, hull), enabled);
         }
 
         public OtcAuthority getOtcAuthority() {
@@ -929,6 +1051,25 @@ public class PermanentDivisionManager {
                     cfg.setPlayEnabled(play, (Boolean) playObj);
                 }
             }
+            for (AutoAssignCapability cap : AutoAssignCapability.values()) {
+                Object capObj = map.get("aa_cap_" + cap.name());
+                if (capObj instanceof Boolean) {
+                    cfg.setCapabilityEnabled(cap, (Boolean) capObj);
+                }
+                for (AutoAssignHull hull : AutoAssignHull.values()) {
+                    if (!cap.supportsHull(hull)) continue;
+                    Object cellObj = map.get("aa_scheme_" + cap.name() + "__" + hull.name());
+                    if (cellObj instanceof Boolean) {
+                        cfg.setSchemeEnabled(cap, hull, (Boolean) cellObj);
+                    }
+                }
+            }
+            for (AutoAssignHull hull : AutoAssignHull.values()) {
+                Object hullObj = map.get("aa_hull_" + hull.name());
+                if (hullObj instanceof Boolean) {
+                    cfg.setHullEnabled(hull, (Boolean) hullObj);
+                }
+            }
             for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
                 Object spObj = getWithLegacyKey(map, "spacing_", dt.name(), dt.legacyName());
                 Object ispObj = getWithLegacyKey(map, "inter_spacing_", dt.name(), dt.legacyName());
@@ -983,6 +1124,16 @@ public class PermanentDivisionManager {
         serialized.put("bg_authority", cfg.getOtcAuthority().name());
         for (OtcPlay play : OtcPlay.values()) {
             serialized.put("bg_play_" + play.name(), cfg.isPlayEnabled(play));
+        }
+        for (AutoAssignCapability cap : AutoAssignCapability.values()) {
+            serialized.put("aa_cap_" + cap.name(), cfg.isCapabilityEnabled(cap));
+            for (AutoAssignHull hull : AutoAssignHull.values()) {
+                if (!cap.supportsHull(hull)) continue;
+                serialized.put("aa_scheme_" + cap.name() + "__" + hull.name(), cfg.isRawSchemeCellEnabled(cap, hull));
+            }
+        }
+        for (AutoAssignHull hull : AutoAssignHull.values()) {
+            serialized.put("aa_hull_" + hull.name(), cfg.isHullEnabled(hull));
         }
         for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
             serialized.put("min_" + cat.name(), cfg.getMin(cat));
@@ -1077,6 +1228,27 @@ public class PermanentDivisionManager {
         if (play == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setPlayEnabled(play, enabled);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateAutoAssignCapability(AutoAssignCapability cap, boolean enabled) {
+        if (cap == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setCapabilityEnabled(cap, enabled);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateAutoAssignHull(AutoAssignHull hull, boolean enabled) {
+        if (hull == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setHullEnabled(hull, enabled);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateAutoAssignScheme(AutoAssignCapability cap, AutoAssignHull hull, boolean enabled) {
+        if (cap == null || hull == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setSchemeEnabled(cap, hull, enabled);
         saveFleetDoctrine(cfg);
     }
 
@@ -1514,7 +1686,15 @@ public class PermanentDivisionManager {
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
         FleetDoctrineConfig doctrine = getFleetDoctrine();
 
-        List<FleetMemberAPI> unassigned = getUnassignedCombatMembers(fleet, specs);
+        List<FleetMemberAPI> rawUnassigned = getUnassignedCombatMembers(fleet, specs);
+        if (rawUnassigned.isEmpty()) return;
+
+        List<FleetMemberAPI> unassigned = new ArrayList<>();
+        for (FleetMemberAPI m : rawUnassigned) {
+            if (classifyFleetMemberArchetype(m, doctrine) != null) {
+                unassigned.add(m);
+            }
+        }
         if (unassigned.isEmpty()) return;
 
         Collections.sort(unassigned, new Comparator<FleetMemberAPI>() {
@@ -1548,7 +1728,8 @@ public class PermanentDivisionManager {
         List<FleetMemberAPI> afterExistingPass = new ArrayList<>();
         for (FleetMemberAPI m : unassigned) {
             DoctrineHullCategory cat = classifyHullCategory(m);
-            DivisionArchetype desiredArch = classifyFleetMemberArchetype(m);
+            DivisionArchetype desiredArch = classifyFleetMemberArchetype(m, doctrine);
+            if (desiredArch == null) continue;
             int catMax = doctrine.getMax(cat);
 
             PermanentDivisionSpec bestMatch = null;
@@ -1609,7 +1790,8 @@ public class PermanentDivisionManager {
                 if (seedMembers.isEmpty()) break;
 
                 // Top up this new division up to max hulls (capped at 10) from remaining unassigned ships
-                DivisionArchetype arch = classifyFleetMemberArchetype(seedMembers.get(0));
+                DivisionArchetype arch = classifyFleetMemberArchetype(seedMembers.get(0), doctrine);
+                if (arch == null) break;
                 PermanentDivisionSpec newSpec = createNewDivisionInternal(specs, pdata, arch);
                 for (FleetMemberAPI sm : seedMembers) {
                     newSpec.memberIds.add(sm.getId());
@@ -1620,7 +1802,7 @@ public class PermanentDivisionManager {
                     DoctrineHullCategory cCat = classifyHullCategory(cand);
                     int cMax = doctrine.getMax(cCat);
                     if (cMax > 0 && countCategoryInDivision(newSpec, cCat, fleetById) < cMax
-                            && (classifyFleetMemberArchetype(cand) == arch || doctrine.getMin(cCat) > 0)) {
+                            && (classifyFleetMemberArchetype(cand, doctrine) == arch || doctrine.getMin(cCat) > 0)) {
                         newSpec.memberIds.add(cand.getId());
                         unassigned.remove(i);
                     } else {
@@ -1645,7 +1827,8 @@ public class PermanentDivisionManager {
         while (!unassigned.isEmpty()) {
             FleetMemberAPI lead = unassigned.remove(0);
             DoctrineHullCategory leadCat = classifyHullCategory(lead);
-            DivisionArchetype arch = classifyFleetMemberArchetype(lead);
+            DivisionArchetype arch = classifyFleetMemberArchetype(lead, doctrine);
+            if (arch == null) continue;
             int effectiveCatMax = Math.min(MAX_DIVISION_SIZE, Math.max(1, doctrine.getMax(leadCat)));
 
             PermanentDivisionSpec newSpec = createNewDivisionInternal(specs, pdata, arch);
@@ -1656,7 +1839,7 @@ public class PermanentDivisionManager {
                 for (int i = 0; i < unassigned.size() && newSpec.memberIds.size() < MAX_DIVISION_SIZE; ) {
                     FleetMemberAPI cand = unassigned.get(i);
                     DoctrineHullCategory cCat = classifyHullCategory(cand);
-                    DivisionArchetype cArch = classifyFleetMemberArchetype(cand);
+                    DivisionArchetype cArch = classifyFleetMemberArchetype(cand, doctrine);
                     boolean candHasCmd = cand.getCaptain() != null && !cand.getCaptain().isDefault();
                     if (pass == 0 && candHasCmd) {
                         i++;
@@ -2119,8 +2302,10 @@ public class PermanentDivisionManager {
         List<FleetMemberAPI> phaseShips = new ArrayList<>();
         List<FleetMemberAPI> auxiliaries = new ArrayList<>();
 
+        FleetDoctrineConfig doctrine = getFleetDoctrine();
         for (FleetMemberAPI m : eligible) {
-            DivisionArchetype arch = classifyFleetMemberArchetype(m);
+            DivisionArchetype arch = classifyFleetMemberArchetype(m, doctrine);
+            if (arch == null) continue;
             switch (arch) {
                 case SERVICE_GROUP:
                     auxiliaries.add(m);
@@ -2386,10 +2571,25 @@ public class PermanentDivisionManager {
     }
 
     public static DivisionArchetype classifyFleetMemberArchetype(FleetMemberAPI member) {
+        return classifyFleetMemberArchetype(member, null);
+    }
+
+    /**
+     * Classifies a fleet member into a {@link DivisionArchetype}, honoring any disabled capabilities
+     * or hull types in {@code doctrine} (when non-null, e.g. for the player fleet's auto-assigner).
+     * If a specialized capability (e.g. Missile, Strike, Carrier, Phase) is disabled for the member's
+     * hull type, classification falls back to the next eligible capability (such as Line Combat).
+     * Returns {@code null} if all applicable division schemes for this member's hull are disabled.
+     */
+    public static DivisionArchetype classifyFleetMemberArchetype(FleetMemberAPI member, FleetDoctrineConfig doctrine) {
         if (member == null) return DivisionArchetype.FRIGATE_DIVISION;
         ShipHullSpecAPI hullSpec = member.getHullSpec();
         ShipVariantAPI variant = member.getVariant();
         HullSize size = member.getHullSpec() != null ? member.getHullSpec().getHullSize() : HullSize.FRIGATE;
+        AutoAssignHull aaHull = AutoAssignHull.forHullSize(size);
+        if (doctrine != null && !doctrine.isHullEnabled(aaHull)) {
+            return null;
+        }
         EnumSet<ShipTypeHints> hints = (hullSpec != null && hullSpec.getHints() != null)
                 ? hullSpec.getHints()
                 : EnumSet.noneOf(ShipTypeHints.class);
@@ -2400,11 +2600,14 @@ public class PermanentDivisionManager {
                 || hints.contains(ShipTypeHints.TANKER)
                 || hints.contains(ShipTypeHints.LINER);
         if (isAux) {
-            return DivisionArchetype.SERVICE_GROUP;
+            if (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.SERVICE, aaHull)) {
+                return DivisionArchetype.SERVICE_GROUP;
+            }
+            return null;
         }
 
         boolean isPhase = member.isPhaseShip() || hints.contains(ShipTypeHints.PHASE);
-        if (isPhase) {
+        if (isPhase && (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.PHASE, aaHull))) {
             return DivisionArchetype.PHASE_DIVISION;
         }
 
@@ -2416,7 +2619,7 @@ public class PermanentDivisionManager {
         boolean isBattlecarrier = (bays > 0) && hints.contains(ShipTypeHints.COMBAT);
         boolean isDedicatedCarrier = !isBattlecarrier
                 && (member.isCarrier() || hints.contains(ShipTypeHints.CARRIER) || bays >= 2);
-        if (isDedicatedCarrier) {
+        if (isDedicatedCarrier && (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.CARRIER, aaHull))) {
             switch (size) {
                 case CAPITAL_SHIP:
                     return DivisionArchetype.FLEET_CARRIER_DIVISION;
@@ -2462,28 +2665,36 @@ public class PermanentDivisionManager {
                 ? hullSpec.getHullId().toLowerCase()
                 : "";
 
+        boolean missileAllowed = (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.MISSILE, aaHull));
+        boolean lineAllowed = (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.LINE, aaHull));
+
         switch (size) {
             case CAPITAL_SHIP:
-                return (missileWeight >= 10 || strikeWeaponCount >= 3 || hullId.contains("pegasus"))
-                        ? DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
-                        : DivisionArchetype.BATTLESHIP_DIVISION;
+                if (missileAllowed && (missileWeight >= 10 || strikeWeaponCount >= 3 || hullId.contains("pegasus"))) {
+                    return DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
+                }
+                return lineAllowed ? DivisionArchetype.BATTLESHIP_DIVISION : null;
             case CRUISER:
-                if (missileWeight >= 6 || strikeWeaponCount >= 2 || hullId.contains("gryphon")) {
+                if (missileAllowed && (missileWeight >= 6 || strikeWeaponCount >= 2 || hullId.contains("gryphon"))) {
                     return DivisionArchetype.MISSILE_CRUISER_DIVISION;
                 }
-                if (member.getStats() != null && member.getStats().getMaxSpeed().getModifiedValue() >= 90f) {
+                if ((doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.STRIKE, AutoAssignHull.CRUISER))
+                        && member.getStats() != null
+                        && member.getStats().getMaxSpeed().getModifiedValue() >= 90f) {
                     return DivisionArchetype.STRIKE_CRUISER_DIVISION;
                 }
-                return DivisionArchetype.CRUISER_DIVISION;
+                return lineAllowed ? DivisionArchetype.CRUISER_DIVISION : null;
             case DESTROYER:
-                return (strikeWeaponCount >= 1 || missileWeight >= 3)
-                        ? DivisionArchetype.MISSILE_DESTROYER_DIVISION
-                        : DivisionArchetype.DESTROYER_DIVISION;
+                if (missileAllowed && (strikeWeaponCount >= 1 || missileWeight >= 3)) {
+                    return DivisionArchetype.MISSILE_DESTROYER_DIVISION;
+                }
+                return lineAllowed ? DivisionArchetype.DESTROYER_DIVISION : null;
             case FRIGATE:
             default:
-                return (strikeWeaponCount >= 1 || missileWeight >= 2)
-                        ? DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                        : DivisionArchetype.FRIGATE_DIVISION;
+                if (missileAllowed && (strikeWeaponCount >= 1 || missileWeight >= 2)) {
+                    return DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+                }
+                return lineAllowed ? DivisionArchetype.FRIGATE_DIVISION : null;
         }
     }
 

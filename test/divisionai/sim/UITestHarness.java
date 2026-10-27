@@ -6,8 +6,11 @@ import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionNomenclature;
 import divisionai.DivisionNomenclature.NumberingStyle;
 import divisionai.DivisionNomenclature.PlayerNamingPreset;
+import divisionai.DivisionTacticalMapOverlay;
 import divisionai.FactionFleetDoctrines;
 import divisionai.FleetDoctrineDialog;
+import divisionai.PermanentDivisionManager.AutoAssignCapability;
+import divisionai.PermanentDivisionManager.AutoAssignHull;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
@@ -68,6 +71,7 @@ public class UITestHarness {
         auditFleetDoctrineWindowAndOtcLayout(res);
         auditV067FeaturesAndQAPass(res);
         auditV068IconsReinitAndFlagshipStars(res);
+        auditV069StarsAutoAssignSchemesPolygonsAndRename(res);
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);
 
@@ -351,6 +355,67 @@ public class UITestHarness {
                 tabStarsOk,
                 "v0.6.8 Tab Command Screen Flagship Stars: silver star on Division flagships & gold star on Fleet flagship(s) upper-right corner",
                 "renderFlagshipStarsOnTopLayer + gold-over-silver precedence verified");
+    }
+
+    private static void auditV069StarsAutoAssignSchemesPolygonsAndRename(UIAuditResult res) throws Exception {
+        // Item A: Division Leader stars on bottom-right corner & larger star size
+        String overlayJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()), StandardCharsets.UTF_8);
+        boolean itemAOk = overlayJava.contains("renderShipCornerStar(ship, silverStar, false, scale, offsetX, offsetY, fade)")
+                && overlayJava.contains("renderShipCornerStar(ship, goldStar, true, scale, offsetX, offsetY, fade)")
+                && overlayJava.contains("upperRightCorner ? (sy + cornerOffset) : (sy - cornerOffset)")
+                && overlayJava.contains("clamp(18.5f * zoom, 14.0f, 26.0f)");
+        res.record(
+                itemAOk,
+                "v0.6.9 Item A: Division Leader silver stars on bottom-right corner & enlarged flagship star size (14-26px)",
+                "silverStar->bottomRight (sy - cornerOffset), goldStar->topRight (sy + cornerOffset), size=14..26px");
+
+        // Item B: Auto-Assigner Division Schemes by Capability & Hull Type in Fleet Doctrine
+        FleetDoctrineConfig cfg = new FleetDoctrineConfig();
+        boolean defaultAllOn = cfg.isSchemeEnabled(AutoAssignCapability.MISSILE, AutoAssignHull.DESTROYER)
+                && cfg.isSchemeEnabled(AutoAssignCapability.MISSILE, AutoAssignHull.CRUISER)
+                && cfg.isSchemeEnabled(AutoAssignCapability.LINE, AutoAssignHull.DESTROYER);
+        cfg.setSchemeEnabled(AutoAssignCapability.MISSILE, AutoAssignHull.DESTROYER, false);
+        boolean cellDisabledOnlyForDestroyer = !cfg.isSchemeEnabled(AutoAssignCapability.MISSILE, AutoAssignHull.DESTROYER)
+                && cfg.isSchemeEnabled(AutoAssignCapability.MISSILE, AutoAssignHull.CRUISER)
+                && cfg.isSchemeEnabled(AutoAssignCapability.MISSILE, AutoAssignHull.BATTLESHIP)
+                && cfg.isSchemeEnabled(AutoAssignCapability.MISSILE, AutoAssignHull.FRIGATE)
+                && cfg.isSchemeEnabled(AutoAssignCapability.LINE, AutoAssignHull.DESTROYER);
+
+        String docDialogJava = new String(Files.readAllBytes(new File("src/divisionai/FleetDoctrineDialog.java").toPath()), StandardCharsets.UTF_8);
+        String pdmJava = new String(Files.readAllBytes(new File("src/divisionai/PermanentDivisionManager.java").toPath()), StandardCharsets.UTF_8);
+        boolean itemBOk = defaultAllOn
+                && cellDisabledOnlyForDestroyer
+                && docDialogJava.contains("AUTO-ASSIGNER DIVISION SCHEMES — BY CAPABILITY & HULL TYPE")
+                && docDialogJava.contains("SCHEMES BY CAPABILITY")
+                && docDialogJava.contains("SCHEMES BY HULL TYPE")
+                && docDialogJava.contains("SET_AA_SCHEME:")
+                && pdmJava.contains("classifyFleetMemberArchetype(FleetMemberAPI member, FleetDoctrineConfig doctrine)");
+        res.record(
+                itemBOk,
+                "v0.6.9 Item B: Fleet Doctrine Auto-Assigner Division Schemes by Capability & Hull Type",
+                "MISSILE x DESTROYER toggleable by capability or hull while preserving other Missile & Destroyer schemes");
+
+        // Item C: Sticky water-droplet intra-division polygons + anti-stripe-spam
+        boolean itemCOk = overlayJava.contains("clusterDivisionMembersSticky")
+                && overlayJava.contains("stickyConnectedPairsByDivId")
+                && overlayJava.contains("splitDist = mergeDist * 1.50f")
+                && overlayJava.contains("applyMetaballNeckPinchScreen")
+                && overlayJava.contains("buildFluidDropletPolygonScreen")
+                && overlayJava.contains("a.cohesionAlphaMult < 0.35f")
+                && overlayJava.contains("a.hullMembers.size() < 2 || b.hullMembers.size() < 2");
+        res.record(
+                itemCOk,
+                "v0.6.9 Item C: Sticky hysteresis water-droplet division polygons & anti-stripe-spam filtering",
+                "clusterDivisionMembersSticky (1.50x hysteresis) + metaball neck pinch + transit droplet stripe suppression");
+
+        // Item E: Mod renamed to "Divisions: Command and Control" and author "Defarius"
+        String modInfoStr = new String(Files.readAllBytes(new File("mod/mod_info.json").toPath()), StandardCharsets.UTF_8);
+        boolean itemEOk = modInfoStr.contains("\"name\": \"Divisions: Command and Control\"")
+                && modInfoStr.contains("\"author\": \"Defarius\"");
+        res.record(
+                itemEOk,
+                "v0.6.9 Item E: Mod renamed to 'Divisions: Command and Control' by 'Defarius'",
+                "mod_info.json name='Divisions: Command and Control', author='Defarius'");
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {

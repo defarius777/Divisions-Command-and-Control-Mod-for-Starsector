@@ -114,7 +114,7 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
         } catch (Throwable t) {
             if (!handleResolutionFailed) {
                 handleResolutionFailed = true;
-                LOG.warn("[DivisionAI] Error updating Fleet tab Division Editor button", t);
+                LOG.warn("[DivisionAI] Error updating Fleet tab Fleet Organization button", t);
             }
         }
     }
@@ -141,7 +141,7 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
             return true;
         } catch (Throwable t) {
             handleResolutionFailed = true;
-            LOG.warn("[DivisionAI] Failed to resolve CampaignUI MethodHandles for Division Editor button", t);
+            LOG.warn("[DivisionAI] Failed to resolve CampaignUI MethodHandles for Fleet Organization button", t);
             return false;
         }
     }

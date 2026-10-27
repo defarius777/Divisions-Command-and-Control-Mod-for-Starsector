@@ -57,7 +57,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private static final Logger LOG = Global.getLogger(DivisionTacticalMapOverlay.class);
     private static final int HULL_SAMPLE_POINTS_PER_SHIP = 16;
     private static final float ENEMY_OPSEC_MAX_LINE_DIST = 1350f;
-    private static final float STRIPE_WIDTH_PX = 9.5f;
+    private static final float STRIPE_WIDTH_PX = 12.0f;
     private static final float STRIPE_PERIOD_PX = STRIPE_WIDTH_PX * 2.0f;
     private static final float INV_SQRT2 = 0.70710678f;
 
@@ -71,9 +71,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final BattleGroupState battleGroup;
         final boolean isEnemy;
         final boolean isAlliedAi;
+        final boolean isPrimaryDroplet;
         final List<ShipAPI> hullMembers;
-        final List<Vector2f> polyScreen; // CCW smooth convex polygon in screen pixels
-        final Vector2f centerScreen;     // Division entity center in screen pixels
+        final List<Vector2f> polyScreen;        // CCW smooth convex polygon in screen pixels (for clipping)
+        final List<Vector2f> displayPolyScreen; // Star-convex metaball/water-drop contour in screen pixels (for rendering)
+        final Vector2f centerScreen;            // Droplet entity center in screen pixels
         final float minX;
         final float maxX;
         final float minY;
@@ -81,15 +83,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final float cr;
         final float cg;
         final float cb;
-        final float cohesionAlphaMult;   // 1.0 = tight cohesion, ~0.05 = very poor cohesion
+        final float cohesionAlphaMult;          // 1.0 = tight cohesion, ~0.05 = very poor cohesion
 
         RenderedDivisionPolygon(
                 DivisionState div,
                 BattleGroupState battleGroup,
                 boolean isEnemy,
                 boolean isAlliedAi,
+                boolean isPrimaryDroplet,
                 List<ShipAPI> hullMembers,
                 List<Vector2f> polyScreen,
+                List<Vector2f> displayPolyScreen,
                 Vector2f centerScreen,
                 float cr,
                 float cg,
@@ -99,8 +103,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             this.battleGroup = battleGroup;
             this.isEnemy = isEnemy;
             this.isAlliedAi = isAlliedAi;
+            this.isPrimaryDroplet = isPrimaryDroplet;
             this.hullMembers = hullMembers;
             this.polyScreen = polyScreen;
+            this.displayPolyScreen = displayPolyScreen != null ? displayPolyScreen : polyScreen;
             this.centerScreen = centerScreen;
             this.cr = cr;
             this.cg = cg;
@@ -131,6 +137,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private final Map<String, LabelAPI> labelCache = new HashMap<>();
     private final Map<String, Float> smoothedCohesionByDivId = new HashMap<>();
     private final Map<String, Vector2f> smoothedBracketDirByDivId = new HashMap<>();
+    private final Map<String, Set<String>> stickyConnectedPairsByDivId = new HashMap<>();
 
     private boolean attachedToWarroom = false;
     private boolean loggedHookFailure = false;
@@ -316,9 +323,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             renderOverlappingPolygonStripes(renderedPolys, basePolyAlpha);
         }
 
-        // 3. Render division waypoints & tactical intent vectors for friendly divisions
+        // 3. Render division waypoints & tactical intent vectors for friendly divisions (once per division, from primary droplet)
         for (RenderedDivisionPolygon rp : renderedPolys) {
-            if (!rp.isEnemy) {
+            if (!rp.isEnemy && rp.isPrimaryDroplet) {
                 renderDivisionWaypointsAndIntent(rp, scale, offsetX, offsetY, friendlyLineAlpha, playerFog);
             }
         }
@@ -329,12 +336,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         // 4. Re-render Warroom Ship Sprites & Status Bars on the TOP LAYER above division polygons
         renderShipSpritesOnTopLayer(renderedPolys, scale, offsetX, offsetY, fade);
 
-        // 4b. Render Fleet Flagship (gold star) and Division Flagship (silver star) badges on the upper-right corner of their ship icons
+        // 4b. Render Fleet Flagship (gold star, upper-right) and Division Leader (silver star, bottom-right) badges
         renderFlagshipStarsOnTopLayer(playerFog, scale, offsetX, offsetY, fade);
 
-        // 5. Render division labels anchored to the division entity itself
+        // 5. Render division labels anchored to the primary division droplet entity
         for (RenderedDivisionPolygon rp : renderedPolys) {
-            renderDivisionEntityLabel(rp, fade);
+            if (rp.isPrimaryDroplet) {
+                renderDivisionEntityLabel(rp, fade);
+            }
         }
     }
 
@@ -351,15 +360,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             List<ShipAPI> alive = div.getAliveMembers();
             if (alive.isEmpty()) continue;
 
-            // Requirement 1: Never break or split the division polygon under any circumstances.
-            // All alive division members (or all visible alive members for enemy divisions) are
-            // always included in a single unbroken polygon; low cohesion makes the polygon transparent.
+            ShipAPI activeFlag = resolveActiveFlagship(div, alive);
             List<ShipAPI> hullMembers;
             if (!isEnemy) {
                 hullMembers = alive;
             } else {
-                ShipAPI flag = resolveActiveFlagship(div, alive);
-                if (flag == null || !isEnemyShipVisibleOnCommandMap(flag, playerFog)) {
+                if (activeFlag == null || !isEnemyShipVisibleOnCommandMap(activeFlag, playerFog)) {
                     continue;
                 }
                 hullMembers = new ArrayList<>(alive.size());
@@ -372,22 +378,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
 
             boolean isAlliedAi = !isEnemy && (battleGroup.isAlliedAi || hullMembers.get(0).isAlly());
-
-            // Compute live continuous RMS dispersion directly from current ship positions so opacity
-            // never steps or jitters on 0.5s telemetry ticks, and smooth it across frames.
-            float liveRmsSpread = computeInstantaneousRmsSpreadWorld(hullMembers);
-            float overallRatio = liveRmsSpread / Math.max(300f, div.stationKeepingRadius);
-            float scatterPenalty = clamp((overallRatio - 0.85f) / 1.25f, 0f, 1f);
-            float targetCohesionAlpha = 1.0f - scatterPenalty * 0.94f;
-            if (!isEnemy && div.currentIntent == DivisionIntentType.CLOSE_UP) {
-                targetCohesionAlpha = Math.min(targetCohesionAlpha, 0.16f);
-            }
-
-            Float prevCoh = smoothedCohesionByDivId.get(div.id);
-            float cohesionAlphaMult = (prevCoh == null)
-                    ? targetCohesionAlpha
-                    : (prevCoh * 0.84f + targetCohesionAlpha * 0.16f);
-            smoothedCohesionByDivId.put(div.id, cohesionAlphaMult);
 
             float cr;
             float cg;
@@ -406,23 +396,174 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 cb = 0.44f;
             }
 
-            List<Vector2f> polyScreen = buildFluidDivisionPolygonScreen(hullMembers, scale, offsetX, offsetY);
-            if (polyScreen.size() < 3) continue;
+            // Cluster division members into sticky water-droplet sub-blobs (hysteresis merge vs split thresholds)
+            List<List<ShipAPI>> droplets = clusterDivisionMembersSticky(div, hullMembers);
+            int primaryIdx = resolvePrimaryDropletIndex(droplets, activeFlag);
 
-            Vector2f centerScreen = computePolygonCentroid(polyScreen);
-            outList.add(new RenderedDivisionPolygon(
-                    div,
-                    battleGroup,
-                    isEnemy,
-                    isAlliedAi,
-                    hullMembers,
-                    polyScreen,
-                    centerScreen,
-                    cr,
-                    cg,
-                    cb,
-                    cohesionAlphaMult));
+            for (int dIdx = 0; dIdx < droplets.size(); dIdx++) {
+                List<ShipAPI> dropletMembers = droplets.get(dIdx);
+                boolean isPrimary = (dIdx == primaryIdx);
+
+                float liveRmsSpread = computeInstantaneousRmsSpreadWorld(dropletMembers);
+                float overallRatio = liveRmsSpread / Math.max(300f, div.stationKeepingRadius);
+                float scatterPenalty = clamp((overallRatio - 0.85f) / 1.25f, 0f, 1f);
+                float targetCohesionAlpha = 1.0f - scatterPenalty * 0.88f;
+                if (dropletMembers.size() == 1 && hullMembers.size() > 1) {
+                    // Detached single-ship droplet (e.g. reinforcement in transit) has softer droplet alpha
+                    targetCohesionAlpha *= 0.72f;
+                }
+                if (!isEnemy && div.currentIntent == DivisionIntentType.CLOSE_UP) {
+                    targetCohesionAlpha = Math.min(targetCohesionAlpha, 0.22f);
+                }
+
+                String cohKey = isPrimary ? div.id : (div.id + "#" + dIdx);
+                Float prevCoh = smoothedCohesionByDivId.get(cohKey);
+                float cohesionAlphaMult = (prevCoh == null)
+                        ? targetCohesionAlpha
+                        : (prevCoh * 0.84f + targetCohesionAlpha * 0.16f);
+                smoothedCohesionByDivId.put(cohKey, cohesionAlphaMult);
+
+                List<Vector2f> polyScreen = buildFluidDropletPolygonScreen(
+                        div,
+                        dropletMembers,
+                        hullMembers,
+                        scale,
+                        offsetX,
+                        offsetY);
+                if (polyScreen.size() < 3) continue;
+
+                Vector2f centerScreen = computePolygonCentroid(polyScreen);
+                List<Vector2f> displayPolyScreen = applyMetaballNeckPinchScreen(
+                        polyScreen,
+                        centerScreen,
+                        dropletMembers,
+                        scale,
+                        offsetX,
+                        offsetY);
+
+                outList.add(new RenderedDivisionPolygon(
+                        div,
+                        battleGroup,
+                        isEnemy,
+                        isAlliedAi,
+                        isPrimary,
+                        dropletMembers,
+                        polyScreen,
+                        displayPolyScreen,
+                        centerScreen,
+                        cr,
+                        cg,
+                        cb,
+                        cohesionAlphaMult));
+            }
         }
+    }
+
+    /**
+     * Groups a division's visible alive ships into sticky connected sub-clusters ("water droplets"):
+     *  - Ships within mergeDist coalesce into the same droplet.
+     *  - Ships already in the same droplet stay connected up to splitDist = 1.50 * mergeDist (sticky hysteresis),
+     *    splitting apart cleanly when dispersed (e.g. reinforcements arriving from the map edge) and
+     *    re-combining like drops of water when they approach within mergeDist.
+     */
+    public List<List<ShipAPI>> clusterDivisionMembersSticky(DivisionState div, List<ShipAPI> members) {
+        int n = members.size();
+        if (n <= 1) {
+            List<List<ShipAPI>> single = new ArrayList<>(1);
+            if (n == 1) {
+                single.add(new ArrayList<>(members));
+            }
+            return single;
+        }
+
+        String divId = (div != null && div.id != null) ? div.id : "default_div";
+        float baseSpacing = (div != null && div.stationSpacing > 0f) ? div.stationSpacing : 450f;
+        Set<String> prevPairs = stickyConnectedPairsByDivId.get(divId);
+        if (prevPairs == null) {
+            prevPairs = Collections.emptySet();
+        }
+
+        boolean[][] adj = new boolean[n][n];
+        for (int i = 0; i < n; i++) {
+            adj[i][i] = true;
+            ShipAPI a = members.get(i);
+            float ra = getMemberFootprintRadiusWorld(a);
+            for (int j = i + 1; j < n; j++) {
+                ShipAPI b = members.get(j);
+                float rb = getMemberFootprintRadiusWorld(b);
+                float dist = distance(a.getLocation(), b.getLocation());
+                float mergeDist = Math.max(baseSpacing * 1.95f, ra + rb + 280f);
+                float splitDist = mergeDist * 1.50f;
+                String key = canonicalPairKey(a.getId(), b.getId());
+                boolean wasConnected = prevPairs.contains(key);
+                boolean connectedNow = wasConnected ? (dist <= splitDist) : (dist <= mergeDist);
+                if (connectedNow) {
+                    adj[i][j] = true;
+                    adj[j][i] = true;
+                }
+            }
+        }
+
+        boolean[] visited = new boolean[n];
+        List<List<ShipAPI>> clusters = new ArrayList<>();
+        Set<String> nextPairs = new HashSet<>();
+
+        for (int i = 0; i < n; i++) {
+            if (visited[i]) continue;
+            List<Integer> compIndices = new ArrayList<>();
+            compIndices.add(i);
+            visited[i] = true;
+            int head = 0;
+            while (head < compIndices.size()) {
+                int curr = compIndices.get(head++);
+                for (int nb = 0; nb < n; nb++) {
+                    if (!visited[nb] && adj[curr][nb]) {
+                        visited[nb] = true;
+                        compIndices.add(nb);
+                    }
+                }
+            }
+            List<ShipAPI> cluster = new ArrayList<>(compIndices.size());
+            for (int idx : compIndices) {
+                cluster.add(members.get(idx));
+            }
+            for (int aIdx = 0; aIdx < cluster.size(); aIdx++) {
+                for (int bIdx = aIdx + 1; bIdx < cluster.size(); bIdx++) {
+                    nextPairs.add(canonicalPairKey(cluster.get(aIdx).getId(), cluster.get(bIdx).getId()));
+                }
+            }
+            clusters.add(cluster);
+        }
+
+        stickyConnectedPairsByDivId.put(divId, nextPairs);
+        return clusters;
+    }
+
+    private static String canonicalPairKey(String idA, String idB) {
+        if (idA == null) idA = "";
+        if (idB == null) idB = "";
+        return (idA.compareTo(idB) <= 0) ? (idA + "|" + idB) : (idB + "|" + idA);
+    }
+
+    private static int resolvePrimaryDropletIndex(List<List<ShipAPI>> droplets, ShipAPI activeFlag) {
+        if (droplets.isEmpty()) return 0;
+        if (activeFlag != null) {
+            for (int i = 0; i < droplets.size(); i++) {
+                if (droplets.get(i).contains(activeFlag)) {
+                    return i;
+                }
+            }
+        }
+        int bestIdx = 0;
+        int bestSize = -1;
+        for (int i = 0; i < droplets.size(); i++) {
+            int sz = droplets.get(i).size();
+            if (sz > bestSize) {
+                bestSize = sz;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
     }
 
     private static float computeInstantaneousRmsSpreadWorld(List<ShipAPI> members) {
@@ -446,29 +587,69 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     /**
-     * Builds a smooth, fluid CCW polygon in screen space around the division's member hulls:
-     *  1. Samples HULL_SAMPLE_POINTS_PER_SHIP perimeter points around each member's padded hull radius.
-     *  2. Computes the 2D Monotone Chain convex hull of all perimeter points.
-     *  3. Applies 2 passes of Chaikin corner-cutting subdivision so the polygon flows smoothly
-     *     around the division's formation footprint.
+     * Builds a smooth, fluid CCW polygon in screen space around a division droplet's member hulls,
+     * including surface-tension metaball attraction toward sibling droplets of the same division
+     * when approaching/splitting so droplets combine and separate like drops of water.
      */
-    private List<Vector2f> buildFluidDivisionPolygonScreen(
-            List<ShipAPI> members,
+    private List<Vector2f> buildFluidDropletPolygonScreen(
+            DivisionState div,
+            List<ShipAPI> dropletMembers,
+            List<ShipAPI> allDivisionMembers,
             float scale,
             float offsetX,
             float offsetY) {
 
-        List<Vector2f> cloud = new ArrayList<>(members.size() * HULL_SAMPLE_POINTS_PER_SHIP);
-        for (ShipAPI m : members) {
+        float baseSpacing = (div != null && div.stationSpacing > 0f) ? div.stationSpacing : 450f;
+        boolean isLoneDetachedShip = (dropletMembers.size() == 1 && allDivisionMembers != null && allDivisionMembers.size() > 1);
+
+        List<Vector2f> cloud = new ArrayList<>(dropletMembers.size() * HULL_SAMPLE_POINTS_PER_SHIP);
+        for (ShipAPI m : dropletMembers) {
             float mx = m.getLocation().x * scale + offsetX;
             float my = m.getLocation().y * scale + offsetY;
-            float worldR = getMemberFootprintRadiusWorld(m);
-            float rPx = clamp(worldR * scale, 15f, 54f);
+            float worldR = getMemberFootprintRadiusWorld(m) * (isLoneDetachedShip ? 0.82f : 1.0f);
+            float rPx = clamp(worldR * scale, 14f, 54f);
+
+            // Check if a sibling ship in another droplet of the same division is near the coalescence threshold
+            float pullDirX = 0f;
+            float pullDirY = 0f;
+            float pullMagPx = 0f;
+            if (allDivisionMembers != null && allDivisionMembers.size() > dropletMembers.size()) {
+                float bestPull = 0f;
+                for (ShipAPI other : allDivisionMembers) {
+                    if (dropletMembers.contains(other)) continue;
+                    float dxW = other.getLocation().x - m.getLocation().x;
+                    float dyW = other.getLocation().y - m.getLocation().y;
+                    float distW = (float) Math.sqrt(dxW * dxW + dyW * dyW);
+                    if (distW < 1e-3f) continue;
+                    float mergeDist = Math.max(baseSpacing * 1.95f, getMemberFootprintRadiusWorld(m) + getMemberFootprintRadiusWorld(other) + 280f);
+                    float attractMaxDist = mergeDist * 1.85f;
+                    if (distW < attractMaxDist) {
+                        float t = clamp(1.0f - (distW - mergeDist * 0.85f) / Math.max(1f, attractMaxDist - mergeDist * 0.85f), 0f, 1f);
+                        float smooth = t * t * (3f - 2f * t);
+                        if (smooth > bestPull) {
+                            bestPull = smooth;
+                            pullDirX = dxW / distW;
+                            pullDirY = dyW / distW;
+                            pullMagPx = Math.min(rPx * 0.85f, Math.max(0f, (distW * scale - rPx) * 0.42f)) * smooth;
+                        }
+                    }
+                }
+            }
+
             for (int i = 0; i < HULL_SAMPLE_POINTS_PER_SHIP; i++) {
                 double ang = (2.0 * Math.PI * i) / HULL_SAMPLE_POINTS_PER_SHIP;
+                float ux = (float) Math.cos(ang);
+                float uy = (float) Math.sin(ang);
+                float extraPull = 0f;
+                if (pullMagPx > 0.5f) {
+                    float dot = ux * pullDirX + uy * pullDirY;
+                    if (dot > 0f) {
+                        extraPull = pullMagPx * dot * dot;
+                    }
+                }
                 cloud.add(new Vector2f(
-                        mx + (float) Math.cos(ang) * rPx,
-                        my + (float) Math.sin(ang) * rPx));
+                        mx + ux * (rPx + extraPull),
+                        my + uy * (rPx + extraPull)));
             }
         }
 
@@ -480,11 +661,63 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         return smoothed;
     }
 
+    /**
+     * Applies a smooth metaball waist-pinch to long bridge edges of a stretching multi-ship droplet
+     * while preserving star-convexity around centerScreen so GL_TRIANGLE_FAN renders a fluid
+     * water-droplet contour right before splitting or right after coalescing.
+     */
+    private List<Vector2f> applyMetaballNeckPinchScreen(
+            List<Vector2f> convexPolyScreen,
+            Vector2f centerScreen,
+            List<ShipAPI> dropletMembers,
+            float scale,
+            float offsetX,
+            float offsetY) {
+        if (dropletMembers == null || dropletMembers.size() <= 1 || convexPolyScreen.size() < 6) {
+            return convexPolyScreen;
+        }
+        int mCount = dropletMembers.size();
+        float[] sx = new float[mCount];
+        float[] sy = new float[mCount];
+        float[] sr = new float[mCount];
+        for (int i = 0; i < mCount; i++) {
+            ShipAPI s = dropletMembers.get(i);
+            sx[i] = s.getLocation().x * scale + offsetX;
+            sy[i] = s.getLocation().y * scale + offsetY;
+            sr[i] = clamp(getMemberFootprintRadiusWorld(s) * scale, 14f, 54f);
+        }
+
+        int n = convexPolyScreen.size();
+        List<Vector2f> pinched = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            Vector2f v = convexPolyScreen.get(i);
+            float minClearance = Float.MAX_VALUE;
+            for (int j = 0; j < mCount; j++) {
+                float dx = v.x - sx[j];
+                float dy = v.y - sy[j];
+                float d = (float) Math.sqrt(dx * dx + dy * dy) - sr[j];
+                if (d < minClearance) {
+                    minClearance = d;
+                }
+            }
+            if (minClearance > 6f) {
+                // Vertex lies along an unsupported bridge between separating ships; pinch inward toward centerScreen
+                float pinchFrac = clamp((minClearance - 6f) / 140f, 0f, 0.34f);
+                pinched.add(new Vector2f(
+                        v.x + (centerScreen.x - v.x) * pinchFrac,
+                        v.y + (centerScreen.y - v.y) * pinchFrac));
+            } else {
+                pinched.add(v);
+            }
+        }
+        return chaikinSmoothClosed(pinched);
+    }
+
     private void renderSingleDivisionPolygon(
             RenderedDivisionPolygon rp,
             float basePolyAlpha) {
 
-        List<Vector2f> poly = rp.polyScreen;
+        List<Vector2f> poly = rp.displayPolyScreen;
         if (poly.size() < 3) return;
 
         // Mild shading so ship sprites and map grid remain clear underneath and on top
@@ -605,12 +838,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         try {
             if (silverStar != null) {
                 for (ShipAPI ship : divisionFlagships) {
-                    renderShipCornerStar(ship, silverStar, scale, offsetX, offsetY, fade);
+                    renderShipCornerStar(ship, silverStar, false, scale, offsetX, offsetY, fade);
                 }
             }
             if (goldStar != null) {
                 for (ShipAPI ship : fleetFlagships) {
-                    renderShipCornerStar(ship, goldStar, scale, offsetX, offsetY, fade);
+                    renderShipCornerStar(ship, goldStar, true, scale, offsetX, offsetY, fade);
                 }
             }
         } catch (Throwable ignored) {
@@ -623,6 +856,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private void renderShipCornerStar(
             ShipAPI ship,
             SpriteAPI starSprite,
+            boolean upperRightCorner,
             float scale,
             float offsetX,
             float offsetY,
@@ -648,11 +882,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float sx = ship.getLocation().x * scale + (float) ((int) offsetX);
         float sy = ship.getLocation().y * scale + (float) ((int) offsetY);
 
-        // Place star on the upper-right corner of the warroom ship icon box
-        float cornerOffset = Math.max(iconRadiusPx * 0.60f, 9.0f * zoom);
+        // Fleet Flagship (gold star): upper-right corner (sy + cornerOffset).
+        // Division Leader (silver star): bottom-right corner (sy - cornerOffset).
+        float cornerOffset = Math.max(iconRadiusPx * 0.64f, 10.5f * zoom);
         float starX = (float) Math.round(sx + cornerOffset);
-        float starY = (float) Math.round(sy + cornerOffset);
-        float starSize = (float) (Math.round(clamp(13.0f * zoom, 10.0f, 18.0f) * 0.5f) * 2);
+        float starY = (float) Math.round(upperRightCorner ? (sy + cornerOffset) : (sy - cornerOffset));
+        float starSize = (float) (Math.round(clamp(18.5f * zoom, 14.0f, 26.0f) * 0.5f) * 2);
 
         starSprite.setSize(starSize, starSize);
         starSprite.setColor(Color.WHITE);
@@ -765,8 +1000,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         int n = renderedPolys.size();
         for (int i = 0; i < n; i++) {
             RenderedDivisionPolygon a = renderedPolys.get(i);
+            // Skip stripe generation for dispersed/low-cohesion blobs or single-ship transit droplets
+            if (a.cohesionAlphaMult < 0.35f) continue;
             for (int j = i + 1; j < n; j++) {
                 RenderedDivisionPolygon b = renderedPolys.get(j);
+                if (a.div == b.div) continue;
+                if (b.cohesionAlphaMult < 0.35f) continue;
+
+                // Avoid stripe spam from lone 1-ship reinforcement droplets passing through friendly divisions
+                if (a.isEnemy == b.isEnemy && (a.hullMembers.size() < 2 || b.hullMembers.size() < 2)) {
+                    continue;
+                }
 
                 // Fast AABB reject
                 if (a.maxX < b.minX || b.maxX < a.minX || a.maxY < b.minY || b.maxY < a.minY) {
@@ -774,7 +1018,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 }
 
                 List<Vector2f> intersection = clipConvexPolygon(a.polyScreen, b.polyScreen);
-                if (intersection.size() < 3 || computePolygonArea(intersection) < 30f) {
+                if (intersection.size() < 3 || computePolygonArea(intersection) < 380f) {
                     continue;
                 }
 
