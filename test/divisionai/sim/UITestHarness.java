@@ -1,5 +1,7 @@
 package divisionai.sim;
 
+import com.fs.starfarer.api.combat.CombatEngineAPI;
+import com.fs.starfarer.api.combat.CombatUIAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import divisionai.BattlefieldFirepowerEvaluator;
@@ -94,7 +96,7 @@ public class UITestHarness {
         auditV070PlayerFactionSyncLowerRightStarsForceAndNomenclatures(res);
         auditChatterVerbosityModes(res);
 
-        // Audit Battle Screen right-side Firepower Rose toggle button (off by default & width budget)
+        // Audit Battle Screen right-side Firepower Rose toggle button (off by default, Command View gated, & width budget)
         BattlefieldFirepowerEvaluator.resetForNewBattle();
         boolean fpDefaultOff = !BattlefieldFirepowerEvaluator.isOverlayVisible();
         int fpOffPx = Math.round("FIREPOWER: OFF".length() * 6.8f + 12f);
@@ -102,13 +104,49 @@ public class UITestHarness {
         int fpMaxBtnPx = Math.max(fpOffPx, fpOnPx) + 10;
         boolean fpFitsBtn = fpMaxBtnPx <= (int) BattlefieldFirepowerEvaluator.BTN_WIDTH
                 && BattlefieldFirepowerEvaluator.BTN_RIGHT_MARGIN <= 24f;
+
+        boolean[] cmdOpenRef = new boolean[]{false};
+        CombatUIAPI mockCmdUi = (CombatUIAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatUIAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == a[0];
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("isShowingCommandUI".equals(n)) return cmdOpenRef[0];
+                    if ("getCommandUIOpacity".equals(n)) return cmdOpenRef[0] ? 1.0f : 0.0f;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+        CombatEngineAPI mockFpEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == a[0];
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("getCombatUI".equals(n)) return mockCmdUi;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+        boolean hiddenWhenCmdViewClosed = !BattlefieldFirepowerEvaluator.isCommandViewWindowActive(null)
+                && !BattlefieldFirepowerEvaluator.isCommandViewWindowActive(mockFpEngine);
+        cmdOpenRef[0] = true;
+        boolean shownWhenCmdViewOpen = BattlefieldFirepowerEvaluator.isCommandViewWindowActive(mockFpEngine);
+
         res.record(
-                fpDefaultOff && fpFitsBtn,
-                "Battle screen right-side Firepower Rose/Plane toggle button (OFF by default, fits compact button)",
+                fpDefaultOff && fpFitsBtn && hiddenWhenCmdViewClosed && shownWhenCmdViewOpen,
+                "Command View right-side Firepower Rose/Plane toggle button (OFF by default, hidden on Main Menu / non-Command View)",
                 String.format(
                         Locale.ROOT,
-                        "defaultOff=%b, textWidthPx=%dpx <= btnWidth=%.0fpx, rightMargin=%.0fpx",
-                        fpDefaultOff, fpMaxBtnPx, BattlefieldFirepowerEvaluator.BTN_WIDTH, BattlefieldFirepowerEvaluator.BTN_RIGHT_MARGIN));
+                        "defaultOff=%b, hiddenOutsideCommandView=%b, shownInCommandView=%b, textWidthPx=%dpx <= btnWidth=%.0fpx",
+                        fpDefaultOff, hiddenWhenCmdViewClosed, shownWhenCmdViewOpen, fpMaxBtnPx, BattlefieldFirepowerEvaluator.BTN_WIDTH));
 
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);

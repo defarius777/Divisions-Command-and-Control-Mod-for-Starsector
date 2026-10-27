@@ -175,8 +175,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
      */
     public void ensureAttachedToWarroomUI() {
         if (attachedToWarroom || engine == null) return;
+        if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) return;
         CombatUIAPI ui = engine.getCombatUI();
         if (ui == null) return;
+        if (!"com.fs.starfarer.combat.CombatState".equals(ui.getClass().getName())) return;
 
         try {
             ClassLoader cl = ui.getClass().getClassLoader();
@@ -250,12 +252,24 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
     @Override
     public void processInput(List<InputEventAPI> events) {
-        BattlefieldFirepowerEvaluator.processInputEvents(events);
+        if (!attachedToWarroom || !BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) {
+            return;
+        }
+        if (warroomInstance != null && isShowingVideoFeedHandle != null) {
+            try {
+                if ((boolean) isShowingVideoFeedHandle.invoke(warroomInstance)) {
+                    return;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        BattlefieldFirepowerEvaluator.processInputEvents(engine, events);
     }
 
     @Override
     public void render(float alphaMult) {
         if (!attachedToWarroom || engine == null) return;
+        if (!BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) return;
         if (!DivisionAISettings.isTacticalMapOverlayEnabled()) return;
 
         CombatUIAPI ui = engine.getCombatUI();

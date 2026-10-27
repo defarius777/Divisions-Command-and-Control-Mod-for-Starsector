@@ -812,15 +812,69 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     // =========================================================================
-    // Battle Screen Input & Rendering (Firepower Roses / Planes + Toggle Button)
+    // Battle Screen / Command View Window State Guards & Input/Rendering
     // =========================================================================
 
     /**
-     * Processes mouse events for the right-side "FIREPOWER: OFF/ON" toggle button on the battle screen.
-     * Invoked from both DivisionAICombatPlugin (live battle screen) and DivisionTacticalMapOverlay (Tab map).
+     * Returns true ONLY when the engine belongs to an active combat battle (CombatState),
+     * and false on the Main Menu background battle (TitleScreenState / GameState.TITLE) or Campaign.
+     */
+    public static boolean isRealCombatEngine(CombatEngineAPI engine) {
+        if (engine == null) return false;
+        try {
+            com.fs.starfarer.api.GameState state = Global.getCurrentState();
+            if (state != null && state != com.fs.starfarer.api.GameState.COMBAT) {
+                return false;
+            }
+        } catch (Throwable ignored) {
+        }
+        com.fs.starfarer.api.combat.CombatUIAPI ui = engine.getCombatUI();
+        if (ui != null) {
+            String clsName = ui.getClass().getName();
+            if (clsName.contains("TitleScreenState")) {
+                return false;
+            }
+            if (!"com.fs.starfarer.combat.CombatState".equals(clsName) && !clsName.contains("$Proxy")) {
+                return false;
+            }
+            return true;
+        }
+        // In the live game (Global.getSettings() != null), a real battle always has a CombatState UI;
+        // in headless SimArena unit tests, Global.getSettings() is null and ui is null.
+        return Global.getSettings() == null;
+    }
+
+    /**
+     * Returns true ONLY when the Command View Window (Tab tactical map) is actively open
+     * inside a real battle (never on the Main Menu TitleScreenState, pre-battle deployment
+     * dialog, or live arcade piloting HUD).
+     */
+    public static boolean isCommandViewWindowActive(CombatEngineAPI engine) {
+        if (!isRealCombatEngine(engine)) return false;
+        com.fs.starfarer.api.combat.CombatUIAPI ui = engine.getCombatUI();
+        if (ui == null) return false;
+        if (!ui.isShowingCommandUI() || ui.getCommandUIOpacity() <= 0.05f) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Processes mouse events for the right-side "FIREPOWER: OFF/ON" toggle button on the Command View Window.
+     * Strictly ignores input on the Main Menu (TitleScreenState) or when the Command View Window is closed.
      */
     public static void processInputEvents(List<InputEventAPI> events) {
+        CombatEngineAPI engine = null;
+        try {
+            engine = Global.getCombatEngine();
+        } catch (Throwable ignored) {
+        }
+        processInputEvents(engine, events);
+    }
+
+    public static void processInputEvents(CombatEngineAPI engine, List<InputEventAPI> events) {
         if (events == null || Global.getSettings() == null) return;
+        if (!isCommandViewWindowActive(engine)) return;
         float screenW = Global.getSettings().getScreenWidth();
         float screenH = Global.getSettings().getScreenHeight();
         float btnX = screenW - BTN_WIDTH - BTN_RIGHT_MARGIN;
@@ -838,8 +892,8 @@ public class BattlefieldFirepowerEvaluator {
                 if (mx >= btnX && mx <= btnX + BTN_WIDTH && my >= btnY && my <= btnY + BTN_HEIGHT) {
                     event.consume();
                     // Guard against double-firing in the same frame if both hooks see the event
-                    float nowReal = (Global.getCombatEngine() != null)
-                            ? Global.getCombatEngine().getTotalElapsedTime(true)
+                    float nowReal = (engine != null)
+                            ? engine.getTotalElapsedTime(true)
                             : -1f;
                     if (nowReal < 0f || Math.abs(nowReal - lastToggleRealTime) > 0.05f) {
                         lastToggleRealTime = nowReal;
@@ -856,8 +910,9 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     /**
-     * Renders the Firepower Roses / Planes and the right-side toggle button on the live Battle Screen
-     * (when the Command Window Tab map is NOT open; when Tab IS open, DivisionTacticalMapOverlay renders both).
+     * Legacy live-screen hook retained as a no-op guard so the Firepower Overlay button and roses
+     * render exclusively inside the Command View Window (Tab tactical map via DivisionTacticalMapOverlay)
+     * and never appear on the Main Menu (TitleScreenState) or over non-Command-View dialogs.
      */
     public static void renderOnLiveBattleScreen(
             CombatEngineAPI engine,
@@ -865,30 +920,8 @@ public class BattlefieldFirepowerEvaluator {
             BattleGroupState playerGroup,
             BattleGroupState alliedAiGroup,
             BattleGroupState enemyGroup) {
-
-        if (engine == null || viewport == null || Global.getSettings() == null) return;
-        if (engine.getCombatUI() != null && engine.getCombatUI().isShowingCommandUI()) {
-            return; // Command Window (Tab) renders its own pass via DivisionTacticalMapOverlay
-        }
-        // Do not draw over the pre-battle Deployment Dialog
-        if ("com.fs.starfarer.combat.CombatState".equals(
-                engine.getCombatUI() != null ? engine.getCombatUI().getClass().getName() : "")) {
-            try {
-                // Only render once ships are deployed or player is on the battle screen
-                if (engine.getShips() == null || engine.getShips().isEmpty()) return;
-            } catch (Throwable ignored) {
-            }
-        }
-
-        float viewMult = Math.max(0.05f, viewport.getViewMult());
-        float scale = 1.0f / viewMult;
-        float offsetX = viewport.convertWorldXtoScreenX(0f);
-        float offsetY = viewport.convertWorldYtoScreenY(0f);
-
-        if (overlayVisible) {
-            renderFirepowerRosesScreenSpace(engine, scale, offsetX, offsetY, 0.90f, playerGroup, alliedAiGroup, enemyGroup);
-        }
-        renderToggleButtonAndLegendUI(0.95f);
+        // Rendered strictly inside the Command View Window (DivisionTacticalMapOverlay.render)
+        // when isCommandViewWindowActive(engine) is true.
     }
 
     /**

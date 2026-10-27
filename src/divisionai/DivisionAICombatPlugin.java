@@ -70,22 +70,29 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     @Override
     public void processInputPreCoreControls(float amount, List<InputEventAPI> events) {
-        BattlefieldFirepowerEvaluator.processInputEvents(events);
+        if (!BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) return;
+        BattlefieldFirepowerEvaluator.processInputEvents(engine, events);
     }
 
     @Override
     public void renderInUICoords(ViewportAPI viewport) {
-        BattlefieldFirepowerEvaluator.renderOnLiveBattleScreen(
-                engine, viewport, playerGroup, alliedAiGroup, enemyGroup);
+        // Tactical Map & Firepower Overlay render strictly inside the Command View Window (Tab)
+        // via DivisionTacticalMapOverlay attached to CombatState's warroom.
     }
 
     @Override
     public void advance(float amount, List<InputEventAPI> events) {
-        BattlefieldFirepowerEvaluator.processInputEvents(events);
         DivisionAISettings.advanceLunaSettingsReinitButton();
         if (engine == null) {
             engine = Global.getCombatEngine();
             if (engine == null) return;
+        }
+        // Never run combat C2 or UI overlays on the Main Menu background battle (TitleScreenState)
+        if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) {
+            return;
+        }
+        if (BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) {
+            BattlefieldFirepowerEvaluator.processInputEvents(engine, events);
         }
         if (tacticalOverlay == null) {
             tacticalOverlay = new DivisionTacticalMapOverlay(engine);
