@@ -380,7 +380,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         // 5b. Update & render "Voidstrike #" labels following the live center of strike craft groups
         // (friendly and visible enemy Voidstrikes; disappears when strike craft return)
-        BattlefieldFirepowerEvaluator.updateVoidstrikes(
+        BattlefieldFirepowerEvaluator.refreshVoidstrikesForRender(
                 engine,
                 playerGroup,
                 alliedAiGroup,

@@ -1871,20 +1871,35 @@ public class UITestHarness {
         boolean factionTooltipColorsOk = tooltipSrc.contains("return factionColor != null ? factionColor : Misc.getBasePlayerColor();")
                 && !tooltipSrc.contains("case BATTLESHIP_DIVISION:");
 
+        // 10. Verify Convergence Icon Edits (enlarged circle r="27.5" & non-touching circle/square/triangle borders)
+        //     and T-S-F-C Render-Loop Optimization (refreshVoidstrikesForRender + UNIT_COS_48 lookup tables)
+        String convSvg = new String(
+                Files.readAllBytes(new File("mod/graphics/icons/warroom/icon_overlay_convergence.svg").toPath()),
+                StandardCharsets.UTF_8);
+        String evalSrc = new String(
+                Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()),
+                StandardCharsets.UTF_8);
+        boolean convergenceIconAndTsfcOptOk = convSvg.contains("r=\"27.5\"")
+                && convSvg.contains("width=\"32\" height=\"32\"")
+                && convSvg.contains("points=\"32,21.5 21.8,41.5 42.2,41.5\"")
+                && evalSrc.contains("UNIT_COS_48")
+                && evalSrc.contains("SCRATCH_SUST_X")
+                && evalSrc.contains("refreshVoidstrikesForRender");
+
         res.record(
                 omegaCoreRecognized && allTenIconsOk && inheritedFromDoctrineOk && customOverrideOk
                         && inheritedIntoBattleOk && otcAuthorityShiftOk && surroundedCircleShiftOk
                         && breakupToNoneOk && geometryDistinctOk && configureDivFormationQaOk
                         && modalAboveDivTextOk && stickinessHierarchyOk && voidstrikeLifecycleOk
                         && carrierMissionLabelsOk && totAlphaStrikeExistsOk && separateSideCountersOk
-                        && factionTooltipColorsOk,
-                "Omega Core Convergence, 10-Formation Hierarchy, Movement Stickiness, Voidstrike Per-Side Counters, Carrier Labels & ToT Alpha Strike",
+                        && factionTooltipColorsOk && convergenceIconAndTsfcOptOk,
+                "Omega Core Convergence, 10-Formation Hierarchy, Movement Stickiness, Voidstrike Per-Side Counters, Carrier Labels, ToT Alpha Strike & T-S-F-C Optimization",
                 String.format(
                         Locale.ROOT,
-                        "omegaCore=%b, 10icons=%b, hierarchy=[doc=%b, custom=%b, battle=%b], stickiness=%b, voidstrike=[merged1=%b, returnClear=%b, next2=%b, perSide=%b], carrierLabels=%b, totAlpha=%b, factionTooltip=%b",
+                        "omegaCore=%b, 10icons=%b, hierarchy=[doc=%b, custom=%b, battle=%b], stickiness=%b, voidstrike=[merged1=%b, returnClear=%b, next2=%b, perSide=%b], carrierLabels=%b, totAlpha=%b, factionTooltip=%b, convIconAndOpt=%b",
                         omegaCoreRecognized, allTenIconsOk, inheritedFromDoctrineOk, customOverrideOk,
                         inheritedIntoBattleOk, stickinessHierarchyOk, multiDivMergedIntoOneOk,
                         disappearsOnReturnOk, incrementedToTwoOk, separateSideCountersOk,
-                        carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk));
+                        carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk, convergenceIconAndTsfcOptOk));
     }
 }

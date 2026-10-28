@@ -474,8 +474,10 @@ public class DivisionCommanderAI {
         boolean isHeavyLineOrCarrier = (div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
                 || div.archetype.isCarrierArchetype());
 
-        // Step 3: Explicit Command Window objective order (player orders outrank the OTC)
-        if (commandAssignedObj != null && !isHeavyLineOrCarrier && div.localEnemyStrength < 18f) {
+        // Step 3: Explicit Command Window objective order (player orders outrank the OTC; hysteresis prevents 18-FP boundary oscillation)
+        float maxDirectObjEnemyStrength = (prevIntent == DivisionIntentType.TAKE_AND_HOLD
+                && div.targetObjective == commandAssignedObj) ? 24f : 15f;
+        if (commandAssignedObj != null && !isHeavyLineOrCarrier && div.localEnemyStrength < maxDirectObjEnemyStrength) {
             div.targetObjective = commandAssignedObj;
             div.stationPoint.set(commandAssignedObj.getLocation());
             commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,

@@ -62,7 +62,57 @@ public class BattlefieldFirepowerEvaluator {
 
     public static final int NUM_SECTORS = 24; // 15 degrees per sector around ship hull
     public static final float SECTOR_DEG = 360f / NUM_SECTORS;
-    private static final int RENDER_CONTOUR_STEPS = 72; // 5-degree smooth contour interpolation
+    private static final int RENDER_CONTOUR_STEPS = 48; // 7.5-degree exact 2x sector supersampling (zero floor/div per vertex)
+
+    // Precomputed unit-circle trig lookup tables & zero-allocation scratch arrays for 60+ FPS T-S-F-C rendering
+    private static final float[] UNIT_COS_48 = new float[48];
+    private static final float[] UNIT_SIN_48 = new float[48];
+    private static final float[] UNIT_COS_36 = new float[36];
+    private static final float[] UNIT_SIN_36 = new float[36];
+    private static final float[] UNIT_COS_24 = new float[24];
+    private static final float[] UNIT_SIN_24 = new float[24];
+
+    private static final float[] SCRATCH_SUST_X = new float[RENDER_CONTOUR_STEPS];
+    private static final float[] SCRATCH_SUST_Y = new float[RENDER_CONTOUR_STEPS];
+    private static final float[] SCRATCH_SHORT_X = new float[RENDER_CONTOUR_STEPS];
+    private static final float[] SCRATCH_SHORT_Y = new float[RENDER_CONTOUR_STEPS];
+    private static final float[] SCRATCH_ALPHA_X = new float[RENDER_CONTOUR_STEPS];
+    private static final float[] SCRATCH_ALPHA_Y = new float[RENDER_CONTOUR_STEPS];
+    private static final float[] SCRATCH_PD_X = new float[RENDER_CONTOUR_STEPS];
+    private static final float[] SCRATCH_PD_Y = new float[RENDER_CONTOUR_STEPS];
+    private static final float[] SCRATCH_TIME_OUTER_X = new float[48];
+    private static final float[] SCRATCH_TIME_OUTER_Y = new float[48];
+    private static final float[] SCRATCH_TIME_MID_X = new float[48];
+    private static final float[] SCRATCH_TIME_MID_Y = new float[48];
+
+    static {
+        for (int i = 0; i < 48; i++) {
+            double a = (i * 2.0 * Math.PI) / 48.0;
+            UNIT_COS_48[i] = (float) Math.cos(a);
+            UNIT_SIN_48[i] = (float) Math.sin(a);
+        }
+        for (int i = 0; i < 36; i++) {
+            double a = (i * 2.0 * Math.PI) / 36.0;
+            UNIT_COS_36[i] = (float) Math.cos(a);
+            UNIT_SIN_36[i] = (float) Math.sin(a);
+        }
+        for (int i = 0; i < 24; i++) {
+            double a = (i * 2.0 * Math.PI) / 24.0;
+            UNIT_COS_24[i] = (float) Math.cos(a);
+            UNIT_SIN_24[i] = (float) Math.sin(a);
+        }
+    }
+
+    // Render-pass caches to avoid recomputing O(D^2 * 24) telemetry or copying FleetData lists every 60 FPS frame
+    private static CombatEngineAPI lastTimeSpaceConvEngine = null;
+    private static float lastTimeSpaceConvUpdateTime = -100f;
+    private static int lastTimeSpaceConvDivCountSig = -1;
+    private static CombatEngineAPI lastVoidstrikeUpdateEngine = null;
+    private static float lastVoidstrikeUpdateTime = -100f;
+    private static CombatEngineAPI lastAlphaCoreCheckEngine = null;
+    private static float lastAlphaCoreCheckTime = -100f;
+    private static int lastAlphaCoreCheckShipsSize = -1;
+    private static boolean cachedHasAlphaCoreInPlayerFleet = false;
 
     // Asymmetric temporal stabilization time constants (seconds)
     private static final float TAU_HEADING_SMOOTH = 0.42f;
@@ -323,6 +373,14 @@ public class BattlefieldFirepowerEvaluator {
         rosesByShipId.clear();
         uiLabelCache.clear();
         lastToggleRealTime = -10f;
+        lastTimeSpaceConvEngine = null;
+        lastTimeSpaceConvUpdateTime = -100f;
+        lastTimeSpaceConvDivCountSig = -1;
+        lastVoidstrikeUpdateEngine = null;
+        lastVoidstrikeUpdateTime = -100f;
+        lastAlphaCoreCheckEngine = null;
+        lastAlphaCoreCheckTime = -100f;
+        cachedHasAlphaCoreInPlayerFleet = false;
     }
 
     public static void setActiveBattleGroups(
@@ -445,6 +503,25 @@ public class BattlefieldFirepowerEvaluator {
      * Even if the Alpha Core ship is not in play, the Alpha Core feeds its analysis into the player's bridge.
      */
     public static boolean hasAlphaCoreInPlayerFleet(CombatEngineAPI engine) {
+        if (testForcePlayerHasAlphaCore) return true;
+        if (engine != null) {
+            float now = engine.getTotalElapsedTime(true);
+            int shipsSize = (engine.getShips() != null) ? engine.getShips().size() : 0;
+            if (engine == lastAlphaCoreCheckEngine
+                    && shipsSize == lastAlphaCoreCheckShipsSize
+                    && Math.abs(now - lastAlphaCoreCheckTime) < 0.5f) {
+                return cachedHasAlphaCoreInPlayerFleet;
+            }
+            lastAlphaCoreCheckEngine = engine;
+            lastAlphaCoreCheckTime = now;
+            lastAlphaCoreCheckShipsSize = shipsSize;
+        }
+        boolean found = computeHasAlphaCoreInPlayerFleetUncached(engine);
+        cachedHasAlphaCoreInPlayerFleet = found;
+        return found;
+    }
+
+    private static boolean computeHasAlphaCoreInPlayerFleetUncached(CombatEngineAPI engine) {
         if (testForcePlayerHasAlphaCore) return true;
         if (engine != null) {
             List<ShipAPI> ships = engine.getShips();
@@ -1735,6 +1812,10 @@ public class BattlefieldFirepowerEvaluator {
             BattleGroupState enemyGroup) {
 
         if (myGroup == null) return;
+        if (engine != null) {
+            lastTimeSpaceConvEngine = engine;
+            lastTimeSpaceConvUpdateTime = engine.getTotalElapsedTime(false);
+        }
         updateConvergenceCommandStates(engine, myGroup);
         if (enemyGroup != null) {
             updateConvergenceCommandStates(engine, enemyGroup);
@@ -2477,6 +2558,8 @@ public class BattlefieldFirepowerEvaluator {
             updateBattlefieldRoses(engine, engine.getTotalElapsedTime(false));
         }
 
+        float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
+        float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
@@ -2484,13 +2567,20 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL11.glEnable(GL11.GL_LINE_SMOOTH);
 
         // 1. Render per-ship Polar Firepower Roses (Sustained DoT outer plane, Short DoT mid plane, Alpha core, PD ring)
         for (ShipFirepowerRose rose : rosesByShipId.values()) {
             ShipAPI s = rose.ship;
             if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
-            if (rose.maxGeneralRange <= 80f && rose.maxPdRange <= 80f) continue;
+            float maxWorldR = Math.max(rose.maxGeneralRange, rose.maxPdRange);
+            if (maxWorldR <= 80f) continue;
+
+            float sx = offsetX + s.getLocation().x * scale;
+            float sy = offsetY + s.getLocation().y * scale;
+            float maxRadPx = maxWorldR * scale + 16f;
+            if (!isCircleVisibleOnScreen(sx, sy, maxRadPx, screenW, screenH)) {
+                continue;
+            }
 
             boolean isEnemy = (s.getOwner() == 1);
             boolean isAlly = !isEnemy && s.isAlly();
@@ -2511,6 +2601,13 @@ public class BattlefieldFirepowerEvaluator {
 
         // 3. Render compact L-CORDON / U-CORDON warning labels on divisions in crossfire
         renderDivisionCordonLabels(engine, playerGroup, false, scale, offsetX, offsetY, fade);
+    }
+
+    private static boolean isCircleVisibleOnScreen(float cx, float cy, float radPx, float screenW, float screenH) {
+        return (cx + radPx >= -16f)
+                && (cx - radPx <= screenW + 16f)
+                && (cy + radPx >= -16f)
+                && (cy - radPx <= screenH + 16f);
     }
 
     /**
@@ -2537,30 +2634,45 @@ public class BattlefieldFirepowerEvaluator {
         setActiveBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
         if (!timeOverlayVisible && !spaceOverlayVisible && !convergenceOverlayVisible) return;
 
-        // Ensure Time, Space & Convergence metrics are initialized even if toggled on while paused at t=0
-        if (playerGroup != null) {
-            for (DivisionState d : playerGroup.divisions) {
-                if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
-                    updateDivisionBaseTimeSpace(d);
+        // Throttle cross-group Time/Space/Convergence telemetry recomputation so it does NOT run 3x on every 60+ FPS render frame
+        float now = engine.getTotalElapsedTime(false);
+        int divCountSig = ((playerGroup != null ? playerGroup.divisions.size() : 0) << 16)
+                ^ ((alliedAiGroup != null ? alliedAiGroup.divisions.size() : 0) << 8)
+                ^ (enemyGroup != null ? enemyGroup.divisions.size() : 0);
+        boolean needsUninitBase = hasAnyUninitializedDivisionTimeSpace(playerGroup)
+                || hasAnyUninitializedDivisionTimeSpace(alliedAiGroup)
+                || hasAnyUninitializedDivisionTimeSpace(enemyGroup);
+        if (needsUninitBase
+                || engine != lastTimeSpaceConvEngine
+                || divCountSig != lastTimeSpaceConvDivCountSig
+                || Math.abs(now - lastTimeSpaceConvUpdateTime) >= 0.24f) {
+            if (playerGroup != null) {
+                for (DivisionState d : playerGroup.divisions) {
+                    if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
+                        updateDivisionBaseTimeSpace(d);
+                    }
                 }
+                updateCrossGroupTimeSpaceConvergence(engine, playerGroup, enemyGroup);
             }
-            updateCrossGroupTimeSpaceConvergence(engine, playerGroup, enemyGroup);
-        }
-        if (alliedAiGroup != null) {
-            for (DivisionState d : alliedAiGroup.divisions) {
-                if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
-                    updateDivisionBaseTimeSpace(d);
+            if (alliedAiGroup != null) {
+                for (DivisionState d : alliedAiGroup.divisions) {
+                    if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
+                        updateDivisionBaseTimeSpace(d);
+                    }
                 }
+                updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, enemyGroup);
             }
-            updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, enemyGroup);
-        }
-        if (enemyGroup != null) {
-            for (DivisionState e : enemyGroup.divisions) {
-                if (e.isCombatEffective() && e.freeTimeRadius <= 1f) {
-                    updateDivisionBaseTimeSpace(e);
+            if (enemyGroup != null) {
+                for (DivisionState e : enemyGroup.divisions) {
+                    if (e.isCombatEffective() && e.freeTimeRadius <= 1f) {
+                        updateDivisionBaseTimeSpace(e);
+                    }
                 }
+                updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, playerGroup);
             }
-            updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, playerGroup);
+            lastTimeSpaceConvEngine = engine;
+            lastTimeSpaceConvUpdateTime = now;
+            lastTimeSpaceConvDivCountSig = divCountSig;
         }
 
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
@@ -2568,7 +2680,6 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GL11.glEnable(GL11.GL_LINE_SMOOTH);
 
         if (spaceOverlayVisible) {
             renderGroupSpaceCircles(engine, playerGroup, false, false, scale, offsetX, offsetY, fade);
@@ -2592,6 +2703,16 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glPopAttrib();
     }
 
+    private static boolean hasAnyUninitializedDivisionTimeSpace(BattleGroupState group) {
+        if (group == null) return false;
+        for (DivisionState d : group.divisions) {
+            if (d != null && d.isCombatEffective() && (d.freeTimeRadius <= 1f || !d.directionalTimeInitialized)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static void renderGroupTimeCircles(
             CombatEngineAPI engine,
             BattleGroupState group,
@@ -2603,6 +2724,8 @@ public class BattlefieldFirepowerEvaluator {
             float fade) {
 
         if (group == null || group.divisions.isEmpty()) return;
+        float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
+        float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
         for (DivisionState div : group.divisions) {
@@ -2625,17 +2748,19 @@ public class BattlefieldFirepowerEvaluator {
                 r = 0.30f; g = 0.88f; b = 1.00f;
             }
 
-            // Increasingly transparent directional Time contour: pinched toward the enemy / Enemy Space,
-            // open laterally (sideways) and backward away from the fighting!
-            drawDirectionalTimeGradient(cx, cy, div, scale, r, g, b, 0.22f * fade, 48);
+            if (isCircleVisibleOnScreen(cx, cy, freeRadPx + 16f, screenW, screenH)) {
+                // Increasingly transparent directional Time contour: pinched toward the enemy / Enemy Space,
+                // open laterally (sideways) and backward away from the fighting!
+                drawDirectionalTimeGradient(cx, cy, div, scale, r, g, b, 0.22f * fade, 48);
 
-            // Crisp inner horizon contour at 50% directional Time horizon and outer directional Time contour
-            drawDirectionalTimeOutline(cx, cy, div, scale, 0.50f, r, g, b, 0.18f * fade, 1.1f, 40, true);
-            drawDirectionalTimeOutline(cx, cy, div, scale, 1.00f, r, g, b, 0.48f * fade, 1.55f, 48, false);
+                // Crisp inner horizon contour at 50% directional Time horizon and outer directional Time contour
+                drawDirectionalTimeOutline(cx, cy, div, scale, 0.50f, r, g, b, 0.18f * fade, 1.1f, 48, true);
+                drawDirectionalTimeOutline(cx, cy, div, scale, 1.00f, r, g, b, 0.48f * fade, 1.55f, 48, false);
 
-            // When Engagement Level pinches any sector of the Time circle, render the unencumbered freeTimeRadius as a faint dashed ring
-            if (div.engagementLevel > 0.06f && freeRadPx > 20f) {
-                drawCircleOutline(cx, cy, freeRadPx, r, g * 0.75f, b * 0.75f, 0.26f * fade, 1.15f, 48, true);
+                // When Engagement Level pinches any sector of the Time circle, render the unencumbered freeTimeRadius as a faint dashed ring
+                if (div.engagementLevel > 0.06f && freeRadPx > 20f) {
+                    drawCircleOutline(cx, cy, freeRadPx, r, g * 0.75f, b * 0.75f, 0.26f * fade, 1.15f, 36, true);
+                }
             }
 
             // Render airborne Strike Craft squadron Time horizon rings when deployed away from the carrier centroid
@@ -2650,10 +2775,38 @@ public class BattlefieldFirepowerEvaluator {
                     float wy = offsetY + wLead.getLocation().y * scale;
                     float wSpd = Math.max(180f, wLead.getMaxSpeed());
                     float wTimeRadPx = Math.max(12f, (wSpd * 3.8f) * scale);
-                    drawIncreasinglyTransparentCircle(wx, wy, wTimeRadPx, r, g, b, 0.15f * fade, 32);
-                    drawCircleOutline(wx, wy, wTimeRadPx, r, g, b, 0.36f * fade, 1.2f, 32, true);
+                    if (!isCircleVisibleOnScreen(wx, wy, wTimeRadPx + 8f, screenW, screenH)) continue;
+                    drawIncreasinglyTransparentCircle(wx, wy, wTimeRadPx, r, g, b, 0.15f * fade, 24);
+                    drawCircleOutline(wx, wy, wTimeRadPx, r, g, b, 0.36f * fade, 1.2f, 24, true);
                 }
             }
+        }
+    }
+
+    private static void populateDirectionalTimeScratchCoords(float cx, float cy, DivisionState div, float scale) {
+        boolean init = div.directionalTimeInitialized;
+        float fallbackWorldR = Math.max(100f, div.effectiveTimeRadius > 1f ? div.effectiveTimeRadius : div.freeTimeRadius);
+        for (int i = 0; i < 48; i++) {
+            float worldR;
+            if (!init) {
+                worldR = fallbackWorldR;
+            } else {
+                int s0 = i >> 1;
+                if ((i & 1) == 0) {
+                    worldR = div.directionalTimeRadii[s0];
+                } else {
+                    int s1 = (s0 + 1) % DivisionState.TIME_DIRECTIONS;
+                    worldR = 0.5f * (div.directionalTimeRadii[s0] + div.directionalTimeRadii[s1]);
+                }
+            }
+            float outerRadPx = Math.max(14f, worldR * scale);
+            float midRadPx = outerRadPx * 0.55f;
+            float cos = UNIT_COS_48[i];
+            float sin = UNIT_SIN_48[i];
+            SCRATCH_TIME_OUTER_X[i] = cx + cos * outerRadPx;
+            SCRATCH_TIME_OUTER_Y[i] = cy + sin * outerRadPx;
+            SCRATCH_TIME_MID_X[i] = cx + cos * midRadPx;
+            SCRATCH_TIME_MID_Y[i] = cy + sin * midRadPx;
         }
     }
 
@@ -2668,6 +2821,7 @@ public class BattlefieldFirepowerEvaluator {
             float centerAlpha,
             int segs) {
         if (div == null || scale <= 1e-5f || centerAlpha <= 0.002f) return;
+        populateDirectionalTimeScratchCoords(cx, cy, div, scale);
         float midAlpha = centerAlpha * 0.48f;
 
         // Inner core to 55% directional mid band
@@ -2675,27 +2829,20 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glColor4f(r, g, b, centerAlpha);
         GL11.glVertex2f(cx, cy);
         GL11.glColor4f(r, g, b, midAlpha);
-        for (int i = 0; i <= segs; i++) {
-            float deg = (i % segs) * (360f / segs);
-            double ang = Math.toRadians(deg);
-            float radPx = Math.max(14f, getDirectionalTimeRadius(div, deg) * scale) * 0.55f;
-            GL11.glVertex2f(cx + (float) Math.cos(ang) * radPx, cy + (float) Math.sin(ang) * radPx);
+        for (int i = 0; i <= 48; i++) {
+            int idx = (i == 48) ? 0 : i;
+            GL11.glVertex2f(SCRATCH_TIME_MID_X[idx], SCRATCH_TIME_MID_Y[idx]);
         }
         GL11.glEnd();
 
         // Mid band fading smoothly to 0.0 alpha at the outer directional Time contour
         GL11.glBegin(GL11.GL_QUAD_STRIP);
-        for (int i = 0; i <= segs; i++) {
-            float deg = (i % segs) * (360f / segs);
-            double ang = Math.toRadians(deg);
-            float cos = (float) Math.cos(ang);
-            float sin = (float) Math.sin(ang);
-            float outerRadPx = Math.max(14f, getDirectionalTimeRadius(div, deg) * scale);
-            float midRadPx = outerRadPx * 0.55f;
+        for (int i = 0; i <= 48; i++) {
+            int idx = (i == 48) ? 0 : i;
             GL11.glColor4f(r, g, b, midAlpha);
-            GL11.glVertex2f(cx + cos * midRadPx, cy + sin * midRadPx);
+            GL11.glVertex2f(SCRATCH_TIME_MID_X[idx], SCRATCH_TIME_MID_Y[idx]);
             GL11.glColor4f(r, g, b, 0.0f);
-            GL11.glVertex2f(cx + cos * outerRadPx, cy + sin * outerRadPx);
+            GL11.glVertex2f(SCRATCH_TIME_OUTER_X[idx], SCRATCH_TIME_OUTER_Y[idx]);
         }
         GL11.glEnd();
     }
@@ -2718,24 +2865,22 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glColor4f(r, g, b, alpha);
         if (dashed) {
             GL11.glBegin(GL11.GL_LINES);
-            for (int i = 0; i < segs; i += 2) {
-                float deg0 = i * (360f / segs);
-                float deg1 = ((i + 1) % segs) * (360f / segs);
-                double a0 = Math.toRadians(deg0);
-                double a1 = Math.toRadians(deg1);
-                float r0 = Math.max(14f, getDirectionalTimeRadius(div, deg0) * scale) * radScale;
-                float r1 = Math.max(14f, getDirectionalTimeRadius(div, deg1) * scale) * radScale;
-                GL11.glVertex2f(cx + (float) Math.cos(a0) * r0, cy + (float) Math.sin(a0) * r0);
-                GL11.glVertex2f(cx + (float) Math.cos(a1) * r1, cy + (float) Math.sin(a1) * r1);
+            for (int i = 0; i < 48; i += 2) {
+                int i1 = (i + 1) % 48;
+                float x0 = cx + (SCRATCH_TIME_OUTER_X[i] - cx) * radScale;
+                float y0 = cy + (SCRATCH_TIME_OUTER_Y[i] - cy) * radScale;
+                float x1 = cx + (SCRATCH_TIME_OUTER_X[i1] - cx) * radScale;
+                float y1 = cy + (SCRATCH_TIME_OUTER_Y[i1] - cy) * radScale;
+                GL11.glVertex2f(x0, y0);
+                GL11.glVertex2f(x1, y1);
             }
             GL11.glEnd();
         } else {
             GL11.glBegin(GL11.GL_LINE_LOOP);
-            for (int i = 0; i < segs; i++) {
-                float deg = i * (360f / segs);
-                double a0 = Math.toRadians(deg);
-                float r0 = Math.max(14f, getDirectionalTimeRadius(div, deg) * scale) * radScale;
-                GL11.glVertex2f(cx + (float) Math.cos(a0) * r0, cy + (float) Math.sin(a0) * r0);
+            for (int i = 0; i < 48; i++) {
+                float x0 = cx + (SCRATCH_TIME_OUTER_X[i] - cx) * radScale;
+                float y0 = cy + (SCRATCH_TIME_OUTER_Y[i] - cy) * radScale;
+                GL11.glVertex2f(x0, y0);
             }
             GL11.glEnd();
         }
@@ -2752,6 +2897,8 @@ public class BattlefieldFirepowerEvaluator {
             float fade) {
 
         if (group == null || group.divisions.isEmpty()) return;
+        float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
+        float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
         for (DivisionState div : group.divisions) {
@@ -2775,23 +2922,25 @@ public class BattlefieldFirepowerEvaluator {
                 r = 0.20f; g = 0.78f; b = 0.96f;
             }
 
-            // Tier 3 (Outer): Potentially Dominated Space given Time to maneuver (faintest outer halo)
-            drawIncreasinglyTransparentCircle(cx, cy, potRadPx, r, g, b, 0.11f * fade, 48);
-            drawCircleOutline(cx, cy, potRadPx, r, g, b, 0.22f * fade, 1.1f, 48, true);
+            if (isCircleVisibleOnScreen(cx, cy, potRadPx + 16f, screenW, screenH)) {
+                // Tier 3 (Outer): Potentially Dominated Space given Time to maneuver (faintest outer halo)
+                drawIncreasinglyTransparentCircle(cx, cy, potRadPx, r, g, b, 0.11f * fade, 36);
+                drawCircleOutline(cx, cy, potRadPx, r, g, b, 0.22f * fade, 1.1f, 36, true);
 
-            // Tier 2 (Middle): Dominated Nearby Space
-            drawIncreasinglyTransparentCircle(cx, cy, domRadPx, r, g, b, 0.16f * fade, 48);
-            drawCircleOutline(cx, cy, domRadPx, r, g, b, 0.38f * fade, 1.4f, 48, false);
+                // Tier 2 (Middle): Dominated Nearby Space
+                drawIncreasinglyTransparentCircle(cx, cy, domRadPx, r, g, b, 0.16f * fade, 36);
+                drawCircleOutline(cx, cy, domRadPx, r, g, b, 0.38f * fade, 1.4f, 36, false);
 
-            // Tier 1 (Inner Core): Directly Dominated Up Close Space
-            drawIncreasinglyTransparentCircle(cx, cy, inRadPx, r, g, b, 0.20f * fade, 40);
-            drawCircleOutline(cx, cy, inRadPx, r, g, b, 0.52f * fade, 1.6f, 40, false);
+                // Tier 1 (Inner Core): Directly Dominated Up Close Space
+                drawIncreasinglyTransparentCircle(cx, cy, inRadPx, r, g, b, 0.20f * fade, 36);
+                drawCircleOutline(cx, cy, inRadPx, r, g, b, 0.52f * fade, 1.6f, 36, false);
 
-            // Highlight Strongpoint (bastion) or Weak Point (seam) on the inner Space perimeter
-            if (div.isStrongpoint) {
-                drawCircleOutline(cx, cy, inRadPx * 0.75f, 0.45f, 0.98f, 0.88f, 0.55f * fade, 1.8f, 24, false);
-            } else if (div.isWeakPoint) {
-                drawCircleOutline(cx, cy, inRadPx * 0.82f, 1.00f, 0.75f, 0.22f, 0.60f * fade, 1.8f, 16, true);
+                // Highlight Strongpoint (bastion) or Weak Point (seam) on the inner Space perimeter
+                if (div.isStrongpoint) {
+                    drawCircleOutline(cx, cy, inRadPx * 0.75f, 0.45f, 0.98f, 0.88f, 0.55f * fade, 1.8f, 24, false);
+                } else if (div.isWeakPoint) {
+                    drawCircleOutline(cx, cy, inRadPx * 0.82f, 1.00f, 0.75f, 0.22f, 0.60f * fade, 1.8f, 24, true);
+                }
             }
 
             // Render airborne Strike Craft squadron Space Zones of Control when deployed away from the carrier centroid
@@ -2806,9 +2955,10 @@ public class BattlefieldFirepowerEvaluator {
                     float wy = offsetY + wLead.getLocation().y * scale;
                     float wInPx = Math.max(9f, 260f * scale);
                     float wDomPx = Math.max(wInPx + 5f, 560f * scale);
-                    drawIncreasinglyTransparentCircle(wx, wy, wDomPx, r, g, b, 0.13f * fade, 32);
-                    drawCircleOutline(wx, wy, wDomPx, r, g, b, 0.32f * fade, 1.15f, 32, true);
-                    drawCircleOutline(wx, wy, wInPx, r, g, b, 0.44f * fade, 1.25f, 28, false);
+                    if (!isCircleVisibleOnScreen(wx, wy, wDomPx + 8f, screenW, screenH)) continue;
+                    drawIncreasinglyTransparentCircle(wx, wy, wDomPx, r, g, b, 0.13f * fade, 24);
+                    drawCircleOutline(wx, wy, wDomPx, r, g, b, 0.32f * fade, 1.15f, 24, true);
+                    drawCircleOutline(wx, wy, wInPx, r, g, b, 0.44f * fade, 1.25f, 24, false);
                 }
             }
         }
@@ -2825,6 +2975,8 @@ public class BattlefieldFirepowerEvaluator {
             float fade) {
 
         if (group == null || group.divisions.isEmpty()) return;
+        float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
+        float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
         for (DivisionState div : group.divisions) {
@@ -2852,28 +3004,30 @@ public class BattlefieldFirepowerEvaluator {
             }
 
             float activeBoost = (group.useConvergence || div.useConvergence) ? 1.18f : 0.85f;
-            drawIncreasinglyTransparentCircle(cx, cy, radPx, r, g, b, 0.18f * fade * activeBoost, 48);
+            if (isCircleVisibleOnScreen(cx, cy, radPx + 16f, screenW, screenH)) {
+                drawIncreasinglyTransparentCircle(cx, cy, radPx, r, g, b, 0.18f * fade * activeBoost, 36);
 
-            // Render the iconic Convergence geometry: a triangle inside a square inside a circle
-            drawCircleOutline(cx, cy, radPx, r, g, b, 0.52f * fade * activeBoost, 1.6f, 48, false);
-            float sqHalf = radPx * 0.70710678f; // inscribed square half-side = R / sqrt(2)
-            GL11.glLineWidth(1.35f);
-            GL11.glColor4f(r, g, b, 0.42f * fade * activeBoost);
-            GL11.glBegin(GL11.GL_LINE_LOOP);
-            GL11.glVertex2f(cx - sqHalf, cy - sqHalf);
-            GL11.glVertex2f(cx + sqHalf, cy - sqHalf);
-            GL11.glVertex2f(cx + sqHalf, cy + sqHalf);
-            GL11.glVertex2f(cx - sqHalf, cy + sqHalf);
-            GL11.glEnd();
+                // Render the iconic Convergence geometry: a triangle inside a square inside a circle (none touching borders)
+                drawCircleOutline(cx, cy, radPx, r, g, b, 0.52f * fade * activeBoost, 1.6f, 36, false);
+                float sqHalf = radPx * 0.58f; // Outer corner distance = 0.58 * sqrt(2) = 0.82 * radPx (clear gap inside circle)
+                GL11.glLineWidth(1.35f);
+                GL11.glColor4f(r, g, b, 0.42f * fade * activeBoost);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(cx - sqHalf, cy - sqHalf);
+                GL11.glVertex2f(cx + sqHalf, cy - sqHalf);
+                GL11.glVertex2f(cx + sqHalf, cy + sqHalf);
+                GL11.glVertex2f(cx - sqHalf, cy + sqHalf);
+                GL11.glEnd();
 
-            // Inscribed equilateral triangle inside the square
-            GL11.glLineWidth(1.45f);
-            GL11.glColor4f(r, g, b, 0.56f * fade * activeBoost);
-            GL11.glBegin(GL11.GL_LINE_LOOP);
-            GL11.glVertex2f(cx, cy + sqHalf * 0.94f);
-            GL11.glVertex2f(cx - sqHalf * 0.88f, cy - sqHalf * 0.78f);
-            GL11.glVertex2f(cx + sqHalf * 0.88f, cy - sqHalf * 0.78f);
-            GL11.glEnd();
+                // Inner equilateral triangle floating inside the square without touching its borders
+                GL11.glLineWidth(1.45f);
+                GL11.glColor4f(r, g, b, 0.56f * fade * activeBoost);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(cx, cy + sqHalf * 0.66f);
+                GL11.glVertex2f(cx - sqHalf * 0.64f, cy - sqHalf * 0.60f);
+                GL11.glVertex2f(cx + sqHalf * 0.64f, cy - sqHalf * 0.60f);
+                GL11.glEnd();
+            }
 
             // Phase-locked Convergence vector to focal point when targeting an enemy division
             if (!isEnemy && div.convergenceScore > 1f
@@ -2899,8 +3053,9 @@ public class BattlefieldFirepowerEvaluator {
                     float wx = offsetX + wLead.getLocation().x * scale;
                     float wy = offsetY + wLead.getLocation().y * scale;
                     float wRadPx = Math.max(12f, 380f * scale);
-                    float wSq = wRadPx * 0.70710678f;
-                    drawCircleOutline(wx, wy, wRadPx, r, g, b, 0.42f * fade * activeBoost, 1.2f, 28, false);
+                    if (!isCircleVisibleOnScreen(wx, wy, wRadPx + 8f, screenW, screenH)) continue;
+                    float wSq = wRadPx * 0.58f;
+                    drawCircleOutline(wx, wy, wRadPx, r, g, b, 0.42f * fade * activeBoost, 1.2f, 24, false);
                     GL11.glLineWidth(1.1f);
                     GL11.glColor4f(r, g, b, 0.36f * fade * activeBoost);
                     GL11.glBegin(GL11.GL_LINE_LOOP);
@@ -2910,9 +3065,9 @@ public class BattlefieldFirepowerEvaluator {
                     GL11.glVertex2f(wx - wSq, wy + wSq);
                     GL11.glEnd();
                     GL11.glBegin(GL11.GL_LINE_LOOP);
-                    GL11.glVertex2f(wx, wy + wSq * 0.94f);
-                    GL11.glVertex2f(wx - wSq * 0.88f, wy - wSq * 0.78f);
-                    GL11.glVertex2f(wx + wSq * 0.88f, wy - wSq * 0.78f);
+                    GL11.glVertex2f(wx, wy + wSq * 0.66f);
+                    GL11.glVertex2f(wx - wSq * 0.64f, wy - wSq * 0.60f);
+                    GL11.glVertex2f(wx + wSq * 0.64f, wy - wSq * 0.60f);
                     GL11.glEnd();
                 }
             }
@@ -2924,24 +3079,28 @@ public class BattlefieldFirepowerEvaluator {
         if (radiusPx <= 1f || centerAlpha <= 0.002f) return;
         float midRad = radiusPx * 0.55f;
         float midAlpha = centerAlpha * 0.48f;
+        boolean use24 = (segs <= 28);
+        float[] cosTab = use24 ? UNIT_COS_24 : UNIT_COS_36;
+        float[] sinTab = use24 ? UNIT_SIN_24 : UNIT_SIN_36;
+        int n = cosTab.length;
 
         // Inner core to mid band
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
         GL11.glColor4f(r, g, b, centerAlpha);
         GL11.glVertex2f(cx, cy);
         GL11.glColor4f(r, g, b, midAlpha);
-        for (int i = 0; i <= segs; i++) {
-            double ang = (i * 2.0 * Math.PI) / segs;
-            GL11.glVertex2f(cx + (float) Math.cos(ang) * midRad, cy + (float) Math.sin(ang) * midRad);
+        for (int i = 0; i <= n; i++) {
+            int idx = (i == n) ? 0 : i;
+            GL11.glVertex2f(cx + cosTab[idx] * midRad, cy + sinTab[idx] * midRad);
         }
         GL11.glEnd();
 
         // Mid band fading smoothly to 0.0 alpha at outer perimeter
         GL11.glBegin(GL11.GL_QUAD_STRIP);
-        for (int i = 0; i <= segs; i++) {
-            double ang = (i * 2.0 * Math.PI) / segs;
-            float cos = (float) Math.cos(ang);
-            float sin = (float) Math.sin(ang);
+        for (int i = 0; i <= n; i++) {
+            int idx = (i == n) ? 0 : i;
+            float cos = cosTab[idx];
+            float sin = sinTab[idx];
             GL11.glColor4f(r, g, b, midAlpha);
             GL11.glVertex2f(cx + cos * midRad, cy + sin * midRad);
             GL11.glColor4f(r, g, b, 0.0f);
@@ -2954,22 +3113,25 @@ public class BattlefieldFirepowerEvaluator {
             float cx, float cy, float radiusPx, float r, float g, float b, float alpha,
             float lineWidth, int segs, boolean dashed) {
         if (radiusPx <= 1f || alpha <= 0.002f) return;
+        boolean use24 = (segs <= 28);
+        float[] cosTab = use24 ? UNIT_COS_24 : UNIT_COS_36;
+        float[] sinTab = use24 ? UNIT_SIN_24 : UNIT_SIN_36;
+        int n = cosTab.length;
+
         GL11.glLineWidth(lineWidth);
         GL11.glColor4f(r, g, b, alpha);
         if (dashed) {
             GL11.glBegin(GL11.GL_LINES);
-            for (int i = 0; i < segs; i += 2) {
-                double a0 = (i * 2.0 * Math.PI) / segs;
-                double a1 = ((i + 1) * 2.0 * Math.PI) / segs;
-                GL11.glVertex2f(cx + (float) Math.cos(a0) * radiusPx, cy + (float) Math.sin(a0) * radiusPx);
-                GL11.glVertex2f(cx + (float) Math.cos(a1) * radiusPx, cy + (float) Math.sin(a1) * radiusPx);
+            for (int i = 0; i < n; i += 2) {
+                int i1 = (i + 1) % n;
+                GL11.glVertex2f(cx + cosTab[i] * radiusPx, cy + sinTab[i] * radiusPx);
+                GL11.glVertex2f(cx + cosTab[i1] * radiusPx, cy + sinTab[i1] * radiusPx);
             }
             GL11.glEnd();
         } else {
             GL11.glBegin(GL11.GL_LINE_LOOP);
-            for (int i = 0; i < segs; i++) {
-                double a0 = (i * 2.0 * Math.PI) / segs;
-                GL11.glVertex2f(cx + (float) Math.cos(a0) * radiusPx, cy + (float) Math.sin(a0) * radiusPx);
+            for (int i = 0; i < n; i++) {
+                GL11.glVertex2f(cx + cosTab[i] * radiusPx, cy + sinTab[i] * radiusPx);
             }
             GL11.glEnd();
         }
@@ -3019,34 +3181,56 @@ public class BattlefieldFirepowerEvaluator {
         float normShort = Math.max(140f, rose.peakSectorShortDot * 0.65f + 460f * 0.35f);
         float normAlpha = Math.max(220f, rose.peakSectorAlpha * 0.65f + 780f * 0.35f);
 
-        float[] sustX = new float[RENDER_CONTOUR_STEPS];
-        float[] sustY = new float[RENDER_CONTOUR_STEPS];
-        float[] shortX = new float[RENDER_CONTOUR_STEPS];
-        float[] shortY = new float[RENDER_CONTOUR_STEPS];
-        float[] alphaX = new float[RENDER_CONTOUR_STEPS];
-        float[] alphaY = new float[RENDER_CONTOUR_STEPS];
-        float[] pdX = new float[RENDER_CONTOUR_STEPS];
-        float[] pdY = new float[RENDER_CONTOUR_STEPS];
+        float[] sustX = SCRATCH_SUST_X;
+        float[] sustY = SCRATCH_SUST_Y;
+        float[] shortX = SCRATCH_SHORT_X;
+        float[] shortY = SCRATCH_SHORT_Y;
+        float[] alphaX = SCRATCH_ALPHA_X;
+        float[] alphaY = SCRATCH_ALPHA_Y;
+        float[] pdX = SCRATCH_PD_X;
+        float[] pdY = SCRATCH_PD_Y;
         boolean hasPd = false;
 
-        for (int i = 0; i < RENDER_CONTOUR_STEPS; i++) {
-            float relDeg = i * (360f / RENDER_CONTOUR_STEPS);
-            float worldDeg = rose.smoothedFacingDeg + relDeg;
-            float rad = (float) Math.toRadians(worldDeg);
-            float cos = (float) Math.cos(rad);
-            float sin = (float) Math.sin(rad);
+        double facingRad = Math.toRadians(rose.smoothedFacingDeg);
+        float cosF = (float) Math.cos(facingRad);
+        float sinF = (float) Math.sin(facingRad);
 
-            float genReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relDeg) * scale;
-            float sustReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedRange, relDeg) * scale;
-            float shortReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortRange, relDeg) * scale;
-            float alphaReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alphaRange, relDeg) * scale;
+        // RENDER_CONTOUR_STEPS == 48 (2x NUM_SECTORS = 24):
+        // Even indices (2*s) read sector s directly; odd indices (2*s+1) average sector s and (s+1)%24 with zero floor/trig!
+        for (int i = 0; i < RENDER_CONTOUR_STEPS; i++) {
+            float relCos = UNIT_COS_48[i];
+            float relSin = UNIT_SIN_48[i];
+            float cos = cosF * relCos - sinF * relSin;
+            float sin = sinF * relCos + cosF * relSin;
+
+            int s0 = i >> 1;
+            float genReachPx, sustReachPx, shortReachPx, alphaReachPx;
+            float sustVal, shortVal, alphaVal, pdReachPx, pdVal;
+            if ((i & 1) == 0) {
+                genReachPx = rose.generalRange[s0] * scale;
+                sustReachPx = rose.sustainedRange[s0] * scale;
+                shortReachPx = rose.shortRange[s0] * scale;
+                alphaReachPx = rose.alphaRange[s0] * scale;
+                sustVal = rose.sustainedDot[s0];
+                shortVal = rose.shortDot[s0];
+                alphaVal = rose.alpha[s0];
+                pdReachPx = rose.pdRange[s0] * scale;
+                pdVal = rose.pdScore[s0];
+            } else {
+                int s1 = (s0 + 1) % NUM_SECTORS;
+                genReachPx = 0.5f * (rose.generalRange[s0] + rose.generalRange[s1]) * scale;
+                sustReachPx = 0.5f * (rose.sustainedRange[s0] + rose.sustainedRange[s1]) * scale;
+                shortReachPx = 0.5f * (rose.shortRange[s0] + rose.shortRange[s1]) * scale;
+                alphaReachPx = 0.5f * (rose.alphaRange[s0] + rose.alphaRange[s1]) * scale;
+                sustVal = 0.5f * (rose.sustainedDot[s0] + rose.sustainedDot[s1]);
+                shortVal = 0.5f * (rose.shortDot[s0] + rose.shortDot[s1]);
+                alphaVal = 0.5f * (rose.alpha[s0] + rose.alpha[s1]);
+                pdReachPx = 0.5f * (rose.pdRange[s0] + rose.pdRange[s1]) * scale;
+                pdVal = 0.5f * (rose.pdScore[s0] + rose.pdScore[s1]);
+            }
             if (sustReachPx <= 1f) sustReachPx = genReachPx;
             if (shortReachPx <= 1f) shortReachPx = genReachPx;
             if (alphaReachPx <= 1f) alphaReachPx = shortReachPx;
-
-            float sustVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedDot, relDeg);
-            float shortVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relDeg);
-            float alphaVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alpha, relDeg);
 
             float sustIntensity = Math.min(1.18f, sustVal / normSust);
             float shortIntensity = Math.min(1.18f, shortVal / normShort);
@@ -3073,8 +3257,6 @@ public class BattlefieldFirepowerEvaluator {
             alphaX[i] = cx + cos * rAlpha;
             alphaY[i] = cy + sin * rAlpha;
 
-            float pdReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdRange, relDeg) * scale;
-            float pdVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdScore, relDeg);
             if (pdReachPx > 3f && pdVal > 5f) {
                 hasPd = true;
                 pdX[i] = cx + cos * Math.max(baseShipRadPx * 1.05f, pdReachPx);
@@ -3850,12 +4032,63 @@ public class BattlefieldFirepowerEvaluator {
      *  - Preserves existing Voidstrike identity across temporary Fog-of-War occlusion or brief target switches
      *    so the Voidstrike counter never runs away to 120+.
      */
+    /**
+     * Lightweight 60+ FPS render-loop helper: updates live fighter positions for active Voidstrikes in O(K)
+     * every frame so "Voidstrike #" labels glide smoothly, while throttling full wing-clustering scans to ~7 Hz.
+     */
+    public static void refreshVoidstrikesForRender(
+            CombatEngineAPI engine,
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup,
+            float now) {
+        if (engine != lastVoidstrikeUpdateEngine || Math.abs(now - lastVoidstrikeUpdateTime) >= 0.14f) {
+            updateVoidstrikes(engine, playerGroup, alliedAiGroup, enemyGroup, now);
+            return;
+        }
+        if (activeVoidstrikes.isEmpty()) return;
+        FogOfWarAPI playerFog = engine != null ? engine.getFogOfWar(0) : null;
+        for (VoidstrikeRecord rec : activeVoidstrikes) {
+            if (rec == null || rec.activeFighters.isEmpty()) continue;
+            float sx = 0f, sy = 0f;
+            int cnt = 0;
+            float vsx = 0f, vsy = 0f;
+            int vcnt = 0;
+            for (ShipAPI fm : rec.activeFighters) {
+                if (fm == null || !fm.isAlive() || fm.isHulk() || fm.isExpired()) continue;
+                sx += fm.getLocation().x;
+                sy += fm.getLocation().y;
+                cnt++;
+                if (rec.side != VOIDSTRIKE_SIDE_ENEMY || playerFog == null || playerFog.isVisible(fm)) {
+                    vsx += fm.getLocation().x;
+                    vsy += fm.getLocation().y;
+                    vcnt++;
+                }
+            }
+            if (cnt > 0) {
+                rec.center.set(sx / cnt, sy / cnt);
+            }
+            if (rec.side != VOIDSTRIKE_SIDE_ENEMY) {
+                rec.visibleToPlayer = cnt > 0;
+                rec.visibleCenter.set(rec.center);
+            } else {
+                rec.visibleToPlayer = vcnt > 0;
+                if (vcnt > 0) {
+                    rec.visibleCenter.set(vsx / vcnt, vsy / vcnt);
+                }
+            }
+        }
+    }
+
     public static void updateVoidstrikes(
             CombatEngineAPI engine,
             BattleGroupState playerGroup,
             BattleGroupState alliedAiGroup,
             BattleGroupState enemyGroup,
             float now) {
+
+        lastVoidstrikeUpdateEngine = engine;
+        lastVoidstrikeUpdateTime = now;
 
         List<WingStrikeCandidate> candidatesPlayer = new ArrayList<>();
         List<WingStrikeCandidate> candidatesEnemy = new ArrayList<>();

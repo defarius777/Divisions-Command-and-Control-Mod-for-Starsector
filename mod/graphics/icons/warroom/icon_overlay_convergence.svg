@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Icon D: Convergence Overlay — Triangle inside a Square inside a Circle (AI / Tri-Tachyon geometry) -->
-  <!-- Outer Circle (Time horizon envelope) -->
-  <circle cx="32" cy="32" r="24"
-          fill="#FFFFFF" fill-opacity="0.18"
-          stroke="#FFFFFF" stroke-width="2.6" stroke-opacity="0.62" />
-  <!-- Middle Inscribed Square (Space / Zone of Control) -->
-  <rect x="15" y="15" width="34" height="34" rx="1.6"
-        fill="#FFFFFF" fill-opacity="0.34"
-        stroke="#FFFFFF" stroke-width="2.6" stroke-opacity="0.84" />
-  <!-- Inner Inscribed Triangle (Firepower / Focal Convergence Core) -->
-  <polygon points="32,19 19,43 45,43"
+  <!-- Icon D: Convergence Overlay — Triangle inside a Square inside a Circle (none touching borders) -->
+  <!-- Outer Circle (enlarged to r=27.5, inner stroke edge at r=26.25) -->
+  <circle cx="32" cy="32" r="27.5"
+          fill="#FFFFFF" fill-opacity="0.16"
+          stroke="#FFFFFF" stroke-width="2.5" stroke-opacity="0.68" />
+  <!-- Middle Square (x=16, y=16, w=32, h=32 -> outer corner distance = 16*sqrt(2) + 1.15 = 23.78 < 26.25, clear gap from circle!) -->
+  <rect x="16" y="16" width="32" height="32" rx="1.4"
+        fill="#FFFFFF" fill-opacity="0.32"
+        stroke="#FFFFFF" stroke-width="2.3" stroke-opacity="0.86" />
+  <!-- Inner Triangle (floating inside square [17.15..46.85] with clear margin on all 3 vertices) -->
+  <polygon points="32,21.5 21.8,41.5 42.2,41.5"
            fill="#FFFFFF" fill-opacity="0.95"
-           stroke="#FFFFFF" stroke-width="2.7" stroke-linejoin="round" stroke-opacity="1.00" />
+           stroke="#FFFFFF" stroke-width="2.2" stroke-linejoin="round" stroke-opacity="1.00" />
 </svg>
