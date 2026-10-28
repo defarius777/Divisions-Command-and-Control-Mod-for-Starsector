@@ -1871,8 +1871,9 @@ public class UITestHarness {
         boolean factionTooltipColorsOk = tooltipSrc.contains("return factionColor != null ? factionColor : Misc.getBasePlayerColor();")
                 && !tooltipSrc.contains("case BATTLESHIP_DIVISION:");
 
-        // 10. Verify Convergence Icon Edits (enlarged circle r="27.5" & non-touching circle/square/triangle borders)
-        //     and T-S-F-C Render-Loop Optimization (refreshVoidstrikesForRender + UNIT_COS_48 lookup tables)
+        // 10. Verify Convergence Icon Edits (enlarged circle r="27.5" & non-touching circle/square/triangle borders),
+        //     restored Convergence battle glyphs (sqHalf = radPx * 0.70710678f), High/Low T-S-F-C Graphics Fidelity
+        //     setting, and Carrier & Wing Voidstrike Doctrine (Items A-H)
         String convSvg = new String(
                 Files.readAllBytes(new File("mod/graphics/icons/warroom/icon_overlay_convergence.svg").toPath()),
                 StandardCharsets.UTF_8);
@@ -1882,9 +1883,86 @@ public class UITestHarness {
         boolean convergenceIconAndTsfcOptOk = convSvg.contains("r=\"27.5\"")
                 && convSvg.contains("width=\"32\" height=\"32\"")
                 && convSvg.contains("points=\"32,21.5 21.8,41.5 42.2,41.5\"")
+                && evalSrc.contains("sqHalf = radPx * 0.70710678f")
+                && evalSrc.contains("UNIT_COS_72")
                 && evalSrc.contains("UNIT_COS_48")
                 && evalSrc.contains("SCRATCH_SUST_X")
                 && evalSrc.contains("refreshVoidstrikesForRender");
+
+        // Item B: T-S-F-C Graphics Quality setting (default High, plus Low)
+        DivisionAISettings.testTsfcQualityOverride = null;
+        boolean defaultTsfcHighOk = DivisionAISettings.getTsfcGraphicsQuality() == DivisionAISettings.TsfcGraphicsQuality.HIGH
+                && DivisionAISettings.isTsfcHighGraphics();
+        DivisionAISettings.testTsfcQualityOverride = DivisionAISettings.TsfcGraphicsQuality.LOW;
+        boolean overrideTsfcLowOk = DivisionAISettings.getTsfcGraphicsQuality() == DivisionAISettings.TsfcGraphicsQuality.LOW
+                && !DivisionAISettings.isTsfcHighGraphics();
+        DivisionAISettings.testTsfcQualityOverride = null;
+        boolean tsfcGraphicsSettingOk = defaultTsfcHighOk && overrideTsfcLowOk;
+
+        // Items C, D, E, D2, F, G, H: Carrier & Wing Voidstrike Doctrine & Division Editor overrides + staging
+        FleetDoctrineConfig vsDocCfg = new FleetDoctrineConfig();
+        vsDocCfg.setVoidstrikeObservance(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                PermanentDivisionManager.VoidstrikeTargetObservance.HIGH);
+        vsDocCfg.setVoidstrikeCoordination(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED);
+        vsDocCfg.setFighterFormation(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                PermanentDivisionManager.SquadronFormation.WEDGE);
+        vsDocCfg.setFighterVoidstrikeFormation(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                PermanentDivisionManager.SquadronFormation.LINE_AHEAD);
+        vsDocCfg.setBomberFormation(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                PermanentDivisionManager.SquadronFormation.LINE_ABREAST);
+        vsDocCfg.setBomberVoidstrikeFormation(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                PermanentDivisionManager.SquadronFormation.REVERSE_SEMICIRCLE);
+        vsDocCfg.setVoidstrikeSquadronDepth(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                7);
+
+        PermanentDivisionSpec testCarrierSpec = new PermanentDivisionSpec(
+                "perm_div_vs_test",
+                "Fleet Carrier Div 1",
+                DivisionArchetype.FLEET_CARRIER_DIVISION);
+        PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(cDiv1, testCarrierSpec, vsDocCfg);
+        boolean vsDoctrinePropagatedOk = cDiv1.voidstrikeObservance == PermanentDivisionManager.VoidstrikeTargetObservance.HIGH
+                && cDiv1.voidstrikeCoordination == PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED
+                && cDiv1.fighterFormation == PermanentDivisionManager.SquadronFormation.WEDGE
+                && cDiv1.fighterVoidstrikeFormation == PermanentDivisionManager.SquadronFormation.LINE_AHEAD
+                && cDiv1.bomberFormation == PermanentDivisionManager.SquadronFormation.LINE_ABREAST
+                && cDiv1.bomberVoidstrikeFormation == PermanentDivisionManager.SquadronFormation.REVERSE_SEMICIRCLE
+                && cDiv1.voidstrikeSquadronDepth == 7;
+
+        // Verify per-division custom overrides for all 7 Voidstrike settings
+        testCarrierSpec.customVoidstrikeObservance = PermanentDivisionManager.VoidstrikeTargetObservance.FREE;
+        testCarrierSpec.customVoidstrikeCoordination = PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+        testCarrierSpec.customFighterFormation = PermanentDivisionManager.SquadronFormation.CIRCLE;
+        testCarrierSpec.customFighterVoidstrikeFormation = PermanentDivisionManager.SquadronFormation.REVERSE_WEDGE;
+        testCarrierSpec.customBomberFormation = PermanentDivisionManager.SquadronFormation.SEMICIRCLE;
+        testCarrierSpec.customBomberVoidstrikeFormation = PermanentDivisionManager.SquadronFormation.WEDGE;
+        testCarrierSpec.customVoidstrikeSquadronDepth = 10;
+        PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(cDiv1, testCarrierSpec, vsDocCfg);
+        boolean vsCustomOverrideOk = cDiv1.voidstrikeObservance == PermanentDivisionManager.VoidstrikeTargetObservance.FREE
+                && cDiv1.voidstrikeCoordination == PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED
+                && cDiv1.fighterFormation == PermanentDivisionManager.SquadronFormation.CIRCLE
+                && cDiv1.fighterVoidstrikeFormation == PermanentDivisionManager.SquadronFormation.REVERSE_WEDGE
+                && cDiv1.bomberFormation == PermanentDivisionManager.SquadronFormation.SEMICIRCLE
+                && cDiv1.bomberVoidstrikeFormation == PermanentDivisionManager.SquadronFormation.WEDGE
+                && cDiv1.voidstrikeSquadronDepth == 10;
+
+        // Verify Coordinated Voidstrike Staging progression: Stage 0 (Orbit Carrier) -> Stage 1 (Marshal Point) -> Stage 2 (Attack)
+        cDiv1.voidstrikeCoordination = PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED;
+        cDiv1.voidstrikeLastTargetKey = null;
+        DivisionCommanderAI.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 100f);
+        boolean stage0Ok = (cDiv1.voidstrikeStage == 0);
+        DivisionCommanderAI.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 102f);
+        boolean stage1Ok = (cDiv1.voidstrikeStage == 1) && (cDiv1.voidstrikeMarshalPoint.y > -1500f);
+        DivisionCommanderAI.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 105f);
+        boolean stage2Ok = (cDiv1.voidstrikeStage == 2);
+        boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk && stage0Ok && stage1Ok && stage2Ok;
 
         res.record(
                 omegaCoreRecognized && allTenIconsOk && inheritedFromDoctrineOk && customOverrideOk
@@ -1892,14 +1970,16 @@ public class UITestHarness {
                         && breakupToNoneOk && geometryDistinctOk && configureDivFormationQaOk
                         && modalAboveDivTextOk && stickinessHierarchyOk && voidstrikeLifecycleOk
                         && carrierMissionLabelsOk && totAlphaStrikeExistsOk && separateSideCountersOk
-                        && factionTooltipColorsOk && convergenceIconAndTsfcOptOk,
-                "Omega Core Convergence, 10-Formation Hierarchy, Movement Stickiness, Voidstrike Per-Side Counters, Carrier Labels, ToT Alpha Strike & T-S-F-C Optimization",
+                        && factionTooltipColorsOk && convergenceIconAndTsfcOptOk
+                        && tsfcGraphicsSettingOk && voidstrikeDoctrineAndStagingOk,
+                "Omega Core Convergence, 10-Formation Hierarchy, Movement Stickiness, Voidstrike Doctrine (A-H), High/Low TSFC Graphics & Optimization",
                 String.format(
                         Locale.ROOT,
-                        "omegaCore=%b, 10icons=%b, hierarchy=[doc=%b, custom=%b, battle=%b], stickiness=%b, voidstrike=[merged1=%b, returnClear=%b, next2=%b, perSide=%b], carrierLabels=%b, totAlpha=%b, factionTooltip=%b, convIconAndOpt=%b",
+                        "omegaCore=%b, 10icons=%b, hierarchy=[doc=%b, custom=%b, battle=%b], stickiness=%b, voidstrike=[merged1=%b, returnClear=%b, next2=%b, perSide=%b, doctrineAndStaging=%b], carrierLabels=%b, totAlpha=%b, factionTooltip=%b, convIconAndOpt=%b, tsfcGfx=%b",
                         omegaCoreRecognized, allTenIconsOk, inheritedFromDoctrineOk, customOverrideOk,
                         inheritedIntoBattleOk, stickinessHierarchyOk, multiDivMergedIntoOneOk,
-                        disappearsOnReturnOk, incrementedToTwoOk, separateSideCountersOk,
-                        carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk, convergenceIconAndTsfcOptOk));
+                        disappearsOnReturnOk, incrementedToTwoOk, separateSideCountersOk, voidstrikeDoctrineAndStagingOk,
+                        carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk,
+                        convergenceIconAndTsfcOptOk, tsfcGraphicsSettingOk));
     }
 }

@@ -259,6 +259,119 @@ public class PermanentDivisionManager {
         }
     }
 
+    public static final int MIN_VOIDSTRIKE_SQUADRON_DEPTH = 1;
+    public static final int MAX_VOIDSTRIKE_SQUADRON_DEPTH = 10;
+
+    /**
+     * Item C: How closely strike craft obey the order to destroy the designated target in a Voidstrike.
+     */
+    public enum VoidstrikeTargetObservance {
+        FREE(
+                "Free",
+                "Freely engage targets of opportunity and close threats along flight path."),
+        MEDIUM(
+                "Medium",
+                "Prioritize designated target; peel off to engage close threats within 700u."),
+        HIGH(
+                "High",
+                "Strictly lock onto the designated target until it is destroyed.");
+
+        public final String displayName;
+        public final String summary;
+
+        VoidstrikeTargetObservance(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+
+        public static VoidstrikeTargetObservance fromId(String id, VoidstrikeTargetObservance fallback) {
+            if (id == null) return fallback;
+            try {
+                return VoidstrikeTargetObservance.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Item D: Whether deckload strikes and multi-division strikes launch as a coordinated package
+     * (orbit carrier -> marshal point nearby -> synchronized attack) or in uncoordinated dispersed waves.
+     */
+    public enum VoidstrikeCoordinationMode {
+        COORDINATED(
+                "Coordinated",
+                "Squadrons launch, orbit carrier, form up at a nearby marshal point, then strike together."),
+        UNCOORDINATED(
+                "Uncoordinated",
+                "Strike wings attack immediately in successive dispersed waves.");
+
+        public final String displayName;
+        public final String summary;
+
+        VoidstrikeCoordinationMode(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+
+        public static VoidstrikeCoordinationMode fromId(String id, VoidstrikeCoordinationMode fallback) {
+            if (id == null) return fallback;
+            try {
+                return VoidstrikeCoordinationMode.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Items E, D2, F, G: Preferred Fighter & Bomber Squadron Formations (general patrol vs. in Voidstrike).
+     */
+    public enum SquadronFormation {
+        LINE_ABREAST("Line Abreast", "Abreast", DivisionFormation.LINE_ABREAST),
+        LINE_AHEAD("Line Ahead", "Ahead", DivisionFormation.LINE_AHEAD),
+        WEDGE("Wedge", "Wedge", DivisionFormation.FORWARD_WEDGE),
+        REVERSE_WEDGE("Reverse Wedge", "Rev Wedge", DivisionFormation.REVERSE_WEDGE),
+        CIRCLE("Circle", "Circle", DivisionFormation.CIRCLE),
+        SEMICIRCLE("Semicircle", "Semicircle", DivisionFormation.FORWARD_SEMICIRCLE),
+        REVERSE_SEMICIRCLE("Reverse Semicircle", "Rev Semi", DivisionFormation.REVERSE_SEMICIRCLE);
+
+        public final String displayName;
+        public final String shortName;
+        public final DivisionFormation iconFormation;
+
+        SquadronFormation(String displayName, String shortName, DivisionFormation iconFormation) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.iconFormation = iconFormation;
+        }
+
+        public static final SquadronFormation[] FIGHTER_GENERAL_OPTIONS = new SquadronFormation[]{
+                LINE_ABREAST, WEDGE, REVERSE_WEDGE, CIRCLE, SEMICIRCLE, REVERSE_SEMICIRCLE
+        };
+
+        public static final SquadronFormation[] FIGHTER_VOIDSTRIKE_OPTIONS = new SquadronFormation[]{
+                LINE_AHEAD, WEDGE, REVERSE_WEDGE, CIRCLE, SEMICIRCLE, REVERSE_SEMICIRCLE
+        };
+
+        public static final SquadronFormation[] BOMBER_GENERAL_OPTIONS = new SquadronFormation[]{
+                LINE_ABREAST, WEDGE, REVERSE_WEDGE, CIRCLE, SEMICIRCLE, REVERSE_SEMICIRCLE
+        };
+
+        public static final SquadronFormation[] BOMBER_VOIDSTRIKE_OPTIONS = new SquadronFormation[]{
+                LINE_ABREAST, WEDGE, REVERSE_WEDGE, CIRCLE, SEMICIRCLE, REVERSE_SEMICIRCLE
+        };
+
+        public static SquadronFormation fromId(String id, SquadronFormation fallback) {
+            if (id == null) return fallback;
+            try {
+                return SquadronFormation.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
     /**
      * Selectable Opening Mission (first 30-60s) and Main Mission (rest of battle) for Battle Group
      * division types and individual divisions, including both General Combat Missions,
@@ -988,6 +1101,13 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, DivisionMissionType> mainMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, LineStation> lineStationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionFormation> formationByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, VoidstrikeTargetObservance> voidstrikeObservanceByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, VoidstrikeCoordinationMode> voidstrikeCoordinationByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, SquadronFormation> fighterFormationByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, SquadronFormation> fighterVoidstrikeFormationByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, SquadronFormation> bomberFormationByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, SquadronFormation> bomberVoidstrikeFormationByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Integer> voidstrikeSquadronDepthByType = new LinkedHashMap<>();
         private final Set<OtcPlay> enabledPlays = EnumSet.of(
                 OtcPlay.LINE_AND_FIRE_DISTRIBUTION,
                 OtcPlay.DOUBLING,
@@ -1013,6 +1133,13 @@ public class PermanentDivisionManager {
                 mainMissionByType.put(dt, dt.defaultMainMission);
                 lineStationByType.put(dt, dt.defaultLineStation);
                 formationByType.put(dt, dt.defaultFormation);
+                voidstrikeObservanceByType.put(dt, defaultVoidstrikeObservanceFor(dt));
+                voidstrikeCoordinationByType.put(dt, defaultVoidstrikeCoordinationFor(dt));
+                fighterFormationByType.put(dt, defaultFighterFormationFor(dt));
+                fighterVoidstrikeFormationByType.put(dt, defaultFighterVoidstrikeFormationFor(dt));
+                bomberFormationByType.put(dt, defaultBomberFormationFor(dt));
+                bomberVoidstrikeFormationByType.put(dt, defaultBomberVoidstrikeFormationFor(dt));
+                voidstrikeSquadronDepthByType.put(dt, defaultVoidstrikeSquadronDepthFor(dt));
             }
             for (AutoAssignCapability cap : AutoAssignCapability.values()) {
                 for (AutoAssignHull hull : AutoAssignHull.values()) {
@@ -1127,6 +1254,136 @@ public class PermanentDivisionManager {
         public void setMovementStickiness(DoctrineDivisionType dt, DivisionMovementStickiness stickiness) {
             if (dt == null || stickiness == null) return;
             setStationKeepingMult(dt, stickiness.stationKeepingMult);
+        }
+
+        public static VoidstrikeTargetObservance defaultVoidstrikeObservanceFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.FLEET_CARRIER || dt == DoctrineDivisionType.LIGHT_CARRIER) {
+                return VoidstrikeTargetObservance.HIGH;
+            }
+            if (dt == DoctrineDivisionType.ESCORT_CARRIER) {
+                return VoidstrikeTargetObservance.MEDIUM;
+            }
+            return VoidstrikeTargetObservance.MEDIUM;
+        }
+
+        public static VoidstrikeCoordinationMode defaultVoidstrikeCoordinationFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.ESCORT_CARRIER) {
+                return VoidstrikeCoordinationMode.UNCOORDINATED;
+            }
+            return VoidstrikeCoordinationMode.COORDINATED;
+        }
+
+        public static SquadronFormation defaultFighterFormationFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.ESCORT_CARRIER || dt == DoctrineDivisionType.CARRIER_GROUP) {
+                return SquadronFormation.SEMICIRCLE;
+            }
+            return SquadronFormation.WEDGE;
+        }
+
+        public static SquadronFormation defaultFighterVoidstrikeFormationFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.FLEET_CARRIER) {
+                return SquadronFormation.WEDGE;
+            }
+            if (dt == DoctrineDivisionType.LIGHT_CARRIER) {
+                return SquadronFormation.LINE_AHEAD;
+            }
+            return SquadronFormation.WEDGE;
+        }
+
+        public static SquadronFormation defaultBomberFormationFor(DoctrineDivisionType dt) {
+            return SquadronFormation.LINE_ABREAST;
+        }
+
+        public static SquadronFormation defaultBomberVoidstrikeFormationFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.FLEET_CARRIER) {
+                return SquadronFormation.WEDGE;
+            }
+            return SquadronFormation.LINE_ABREAST;
+        }
+
+        public static int defaultVoidstrikeSquadronDepthFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.FLEET_CARRIER) return 3;
+            if (dt == DoctrineDivisionType.LIGHT_CARRIER || dt == DoctrineDivisionType.CARRIER_GROUP) return 2;
+            return 2;
+        }
+
+        public VoidstrikeTargetObservance getVoidstrikeObservance(DoctrineDivisionType dt) {
+            if (dt == null) return VoidstrikeTargetObservance.MEDIUM;
+            VoidstrikeTargetObservance v = voidstrikeObservanceByType.get(dt);
+            return v != null ? v : defaultVoidstrikeObservanceFor(dt);
+        }
+
+        public void setVoidstrikeObservance(DoctrineDivisionType dt, VoidstrikeTargetObservance obs) {
+            if (dt == null || obs == null) return;
+            voidstrikeObservanceByType.put(dt, obs);
+        }
+
+        public VoidstrikeCoordinationMode getVoidstrikeCoordination(DoctrineDivisionType dt) {
+            if (dt == null) return VoidstrikeCoordinationMode.COORDINATED;
+            VoidstrikeCoordinationMode v = voidstrikeCoordinationByType.get(dt);
+            return v != null ? v : defaultVoidstrikeCoordinationFor(dt);
+        }
+
+        public void setVoidstrikeCoordination(DoctrineDivisionType dt, VoidstrikeCoordinationMode mode) {
+            if (dt == null || mode == null) return;
+            voidstrikeCoordinationByType.put(dt, mode);
+        }
+
+        public SquadronFormation getFighterFormation(DoctrineDivisionType dt) {
+            if (dt == null) return SquadronFormation.WEDGE;
+            SquadronFormation v = fighterFormationByType.get(dt);
+            return v != null ? v : defaultFighterFormationFor(dt);
+        }
+
+        public void setFighterFormation(DoctrineDivisionType dt, SquadronFormation fm) {
+            if (dt == null || fm == null) return;
+            fighterFormationByType.put(dt, fm);
+        }
+
+        public SquadronFormation getFighterVoidstrikeFormation(DoctrineDivisionType dt) {
+            if (dt == null) return SquadronFormation.WEDGE;
+            SquadronFormation v = fighterVoidstrikeFormationByType.get(dt);
+            return v != null ? v : defaultFighterVoidstrikeFormationFor(dt);
+        }
+
+        public void setFighterVoidstrikeFormation(DoctrineDivisionType dt, SquadronFormation fm) {
+            if (dt == null || fm == null) return;
+            fighterVoidstrikeFormationByType.put(dt, fm);
+        }
+
+        public SquadronFormation getBomberFormation(DoctrineDivisionType dt) {
+            if (dt == null) return SquadronFormation.LINE_ABREAST;
+            SquadronFormation v = bomberFormationByType.get(dt);
+            return v != null ? v : defaultBomberFormationFor(dt);
+        }
+
+        public void setBomberFormation(DoctrineDivisionType dt, SquadronFormation fm) {
+            if (dt == null || fm == null) return;
+            bomberFormationByType.put(dt, fm);
+        }
+
+        public SquadronFormation getBomberVoidstrikeFormation(DoctrineDivisionType dt) {
+            if (dt == null) return SquadronFormation.LINE_ABREAST;
+            SquadronFormation v = bomberVoidstrikeFormationByType.get(dt);
+            return v != null ? v : defaultBomberVoidstrikeFormationFor(dt);
+        }
+
+        public void setBomberVoidstrikeFormation(DoctrineDivisionType dt, SquadronFormation fm) {
+            if (dt == null || fm == null) return;
+            bomberVoidstrikeFormationByType.put(dt, fm);
+        }
+
+        public int getVoidstrikeSquadronDepth(DoctrineDivisionType dt) {
+            if (dt == null) return 2;
+            Integer v = voidstrikeSquadronDepthByType.get(dt);
+            int raw = v != null ? v : defaultVoidstrikeSquadronDepthFor(dt);
+            return Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, raw));
+        }
+
+        public void setVoidstrikeSquadronDepth(DoctrineDivisionType dt, int depth) {
+            if (dt == null) return;
+            int clamped = Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, depth));
+            voidstrikeSquadronDepthByType.put(dt, clamped);
         }
 
         public int getOpeningDurationSeconds() {
@@ -1335,6 +1592,40 @@ public class PermanentDivisionManager {
                 if (fmObj instanceof String) {
                     cfg.setFormation(dt, DivisionFormation.fromId((String) fmObj, dt.defaultFormation));
                 }
+                Object vsObsObj = map.get("vs_obs_" + dt.name());
+                Object vsCoordObj = map.get("vs_coord_" + dt.name());
+                Object ftrFmObj = map.get("ftr_fm_" + dt.name());
+                Object ftrVsFmObj = map.get("ftr_vs_fm_" + dt.name());
+                Object bmbFmObj = map.get("bmb_fm_" + dt.name());
+                Object bmbVsFmObj = map.get("bmb_vs_fm_" + dt.name());
+                Object vsDepthObj = map.get("vs_depth_" + dt.name());
+                if (vsObsObj instanceof String) {
+                    cfg.setVoidstrikeObservance(dt, VoidstrikeTargetObservance.fromId(
+                            (String) vsObsObj, FleetDoctrineConfig.defaultVoidstrikeObservanceFor(dt)));
+                }
+                if (vsCoordObj instanceof String) {
+                    cfg.setVoidstrikeCoordination(dt, VoidstrikeCoordinationMode.fromId(
+                            (String) vsCoordObj, FleetDoctrineConfig.defaultVoidstrikeCoordinationFor(dt)));
+                }
+                if (ftrFmObj instanceof String) {
+                    cfg.setFighterFormation(dt, SquadronFormation.fromId(
+                            (String) ftrFmObj, FleetDoctrineConfig.defaultFighterFormationFor(dt)));
+                }
+                if (ftrVsFmObj instanceof String) {
+                    cfg.setFighterVoidstrikeFormation(dt, SquadronFormation.fromId(
+                            (String) ftrVsFmObj, FleetDoctrineConfig.defaultFighterVoidstrikeFormationFor(dt)));
+                }
+                if (bmbFmObj instanceof String) {
+                    cfg.setBomberFormation(dt, SquadronFormation.fromId(
+                            (String) bmbFmObj, FleetDoctrineConfig.defaultBomberFormationFor(dt)));
+                }
+                if (bmbVsFmObj instanceof String) {
+                    cfg.setBomberVoidstrikeFormation(dt, SquadronFormation.fromId(
+                            (String) bmbVsFmObj, FleetDoctrineConfig.defaultBomberVoidstrikeFormationFor(dt)));
+                }
+                if (vsDepthObj instanceof Number) {
+                    cfg.setVoidstrikeSquadronDepth(dt, ((Number) vsDepthObj).intValue());
+                }
             }
         }
         return cfg;
@@ -1383,6 +1674,13 @@ public class PermanentDivisionManager {
             serialized.put("main_mission_" + dt.name(), cfg.getMainMission(dt).name());
             serialized.put("pref_space_" + dt.name(), cfg.getLineStation(dt).name());
             serialized.put("formation_" + dt.name(), cfg.getFormation(dt).name());
+            serialized.put("vs_obs_" + dt.name(), cfg.getVoidstrikeObservance(dt).name());
+            serialized.put("vs_coord_" + dt.name(), cfg.getVoidstrikeCoordination(dt).name());
+            serialized.put("ftr_fm_" + dt.name(), cfg.getFighterFormation(dt).name());
+            serialized.put("ftr_vs_fm_" + dt.name(), cfg.getFighterVoidstrikeFormation(dt).name());
+            serialized.put("bmb_fm_" + dt.name(), cfg.getBomberFormation(dt).name());
+            serialized.put("bmb_vs_fm_" + dt.name(), cfg.getBomberVoidstrikeFormation(dt).name());
+            serialized.put("vs_depth_" + dt.name(), cfg.getVoidstrikeSquadronDepth(dt));
         }
         return serialized;
     }
@@ -1472,6 +1770,69 @@ public class PermanentDivisionManager {
         if (dt == null || stickiness == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setMovementStickiness(dt, stickiness);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeVoidstrikeObservance(
+            DoctrineDivisionType dt,
+            VoidstrikeTargetObservance observance) {
+        if (dt == null || observance == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setVoidstrikeObservance(dt, observance);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeVoidstrikeCoordination(
+            DoctrineDivisionType dt,
+            VoidstrikeCoordinationMode coordination) {
+        if (dt == null || coordination == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setVoidstrikeCoordination(dt, coordination);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeFighterFormation(
+            DoctrineDivisionType dt,
+            SquadronFormation formation) {
+        if (dt == null || formation == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setFighterFormation(dt, formation);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeFighterVoidstrikeFormation(
+            DoctrineDivisionType dt,
+            SquadronFormation formation) {
+        if (dt == null || formation == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setFighterVoidstrikeFormation(dt, formation);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeBomberFormation(
+            DoctrineDivisionType dt,
+            SquadronFormation formation) {
+        if (dt == null || formation == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setBomberFormation(dt, formation);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeBomberVoidstrikeFormation(
+            DoctrineDivisionType dt,
+            SquadronFormation formation) {
+        if (dt == null || formation == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setBomberVoidstrikeFormation(dt, formation);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeVoidstrikeSquadronDepth(
+            DoctrineDivisionType dt,
+            int depth) {
+        if (dt == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setVoidstrikeSquadronDepth(dt, depth);
         saveFleetDoctrine(cfg);
     }
 
@@ -1565,12 +1926,90 @@ public class PermanentDivisionManager {
         public LineStation customLineStation = null;
         public DivisionFormation customFormation = null;
         public DivisionMovementStickiness customMovementStickiness = null;
+        public VoidstrikeTargetObservance customVoidstrikeObservance = null;
+        public VoidstrikeCoordinationMode customVoidstrikeCoordination = null;
+        public SquadronFormation customFighterFormation = null;
+        public SquadronFormation customFighterVoidstrikeFormation = null;
+        public SquadronFormation customBomberFormation = null;
+        public SquadronFormation customBomberVoidstrikeFormation = null;
+        public Integer customVoidstrikeSquadronDepth = null;
 
         public PermanentDivisionSpec(String id, String name, DivisionArchetype archetype) {
             this.id = id;
             this.name = name;
             this.archetype = archetype != null ? archetype : DivisionArchetype.CRUISER_DIVISION;
         }
+    }
+
+    public static VoidstrikeTargetObservance resolveEffectiveVoidstrikeObservance(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customVoidstrikeObservance != null) {
+            return spec.customVoidstrikeObservance;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getVoidstrikeObservance(dt) : FleetDoctrineConfig.defaultVoidstrikeObservanceFor(dt);
+    }
+
+    public static VoidstrikeCoordinationMode resolveEffectiveVoidstrikeCoordination(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customVoidstrikeCoordination != null) {
+            return spec.customVoidstrikeCoordination;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getVoidstrikeCoordination(dt) : FleetDoctrineConfig.defaultVoidstrikeCoordinationFor(dt);
+    }
+
+    public static SquadronFormation resolveEffectiveFighterFormation(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customFighterFormation != null) {
+            return spec.customFighterFormation;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getFighterFormation(dt) : FleetDoctrineConfig.defaultFighterFormationFor(dt);
+    }
+
+    public static SquadronFormation resolveEffectiveFighterVoidstrikeFormation(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customFighterVoidstrikeFormation != null) {
+            return spec.customFighterVoidstrikeFormation;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getFighterVoidstrikeFormation(dt) : FleetDoctrineConfig.defaultFighterVoidstrikeFormationFor(dt);
+    }
+
+    public static SquadronFormation resolveEffectiveBomberFormation(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customBomberFormation != null) {
+            return spec.customBomberFormation;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getBomberFormation(dt) : FleetDoctrineConfig.defaultBomberFormationFor(dt);
+    }
+
+    public static SquadronFormation resolveEffectiveBomberVoidstrikeFormation(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customBomberVoidstrikeFormation != null) {
+            return spec.customBomberVoidstrikeFormation;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getBomberVoidstrikeFormation(dt) : FleetDoctrineConfig.defaultBomberVoidstrikeFormationFor(dt);
+    }
+
+    public static int resolveEffectiveVoidstrikeSquadronDepth(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customVoidstrikeSquadronDepth != null) {
+            return Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH,
+                    Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, spec.customVoidstrikeSquadronDepth));
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getVoidstrikeSquadronDepth(dt) : FleetDoctrineConfig.defaultVoidstrikeSquadronDepthFor(dt);
     }
 
     public static DivisionFormation resolveEffectiveFormation(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
@@ -1910,6 +2349,120 @@ public class PermanentDivisionManager {
         for (PermanentDivisionSpec spec : specs) {
             if (divisionId.equals(spec.id)) {
                 spec.customMovementStickiness = stickiness;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionVoidstrikeObservance(
+            String divisionId,
+            VoidstrikeTargetObservance observance) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customVoidstrikeObservance = observance;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionVoidstrikeCoordination(
+            String divisionId,
+            VoidstrikeCoordinationMode coordination) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customVoidstrikeCoordination = coordination;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionFighterFormation(
+            String divisionId,
+            SquadronFormation formation) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customFighterFormation = formation;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionFighterVoidstrikeFormation(
+            String divisionId,
+            SquadronFormation formation) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customFighterVoidstrikeFormation = formation;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionBomberFormation(
+            String divisionId,
+            SquadronFormation formation) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customBomberFormation = formation;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionBomberVoidstrikeFormation(
+            String divisionId,
+            SquadronFormation formation) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customBomberVoidstrikeFormation = formation;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionVoidstrikeSquadronDepth(
+            String divisionId,
+            Integer depth) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customVoidstrikeSquadronDepth = (depth != null)
+                        ? Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, depth))
+                        : null;
                 break;
             }
         }
@@ -2569,6 +3122,27 @@ public class PermanentDivisionManager {
         if (div.lastFormationChangeTime < -100f) {
             div.activeFormation = div.doctrinalFormation;
         }
+        div.voidstrikeObservance = (optionalSpec != null)
+                ? resolveEffectiveVoidstrikeObservance(optionalSpec, cfg)
+                : cfg.getVoidstrikeObservance(dt);
+        div.voidstrikeCoordination = (optionalSpec != null)
+                ? resolveEffectiveVoidstrikeCoordination(optionalSpec, cfg)
+                : cfg.getVoidstrikeCoordination(dt);
+        div.fighterFormation = (optionalSpec != null)
+                ? resolveEffectiveFighterFormation(optionalSpec, cfg)
+                : cfg.getFighterFormation(dt);
+        div.fighterVoidstrikeFormation = (optionalSpec != null)
+                ? resolveEffectiveFighterVoidstrikeFormation(optionalSpec, cfg)
+                : cfg.getFighterVoidstrikeFormation(dt);
+        div.bomberFormation = (optionalSpec != null)
+                ? resolveEffectiveBomberFormation(optionalSpec, cfg)
+                : cfg.getBomberFormation(dt);
+        div.bomberVoidstrikeFormation = (optionalSpec != null)
+                ? resolveEffectiveBomberVoidstrikeFormation(optionalSpec, cfg)
+                : cfg.getBomberVoidstrikeFormation(dt);
+        div.voidstrikeSquadronDepth = (optionalSpec != null)
+                ? resolveEffectiveVoidstrikeSquadronDepth(optionalSpec, cfg)
+                : cfg.getVoidstrikeSquadronDepth(dt);
 
         if (div.openingMission == DivisionMissionType.RESERVE
                 || div.mainMission == DivisionMissionType.RESERVE) {
@@ -3131,6 +3705,13 @@ public class PermanentDivisionManager {
             Object cPrefSpace = map.get("customPreferredSpace");
             Object cForm = map.get("customFormation");
             Object cSticky = map.get("customMovementStickiness");
+            Object cVsObs = map.get("customVoidstrikeObservance");
+            Object cVsCoord = map.get("customVoidstrikeCoordination");
+            Object cFtrFm = map.get("customFighterFormation");
+            Object cFtrVsFm = map.get("customFighterVoidstrikeFormation");
+            Object cBmbFm = map.get("customBomberFormation");
+            Object cBmbVsFm = map.get("customBomberVoidstrikeFormation");
+            Object cVsDepth = map.get("customVoidstrikeSquadronDepth");
             if (cIntra instanceof Number) spec.customStationSpacing = ((Number) cIntra).intValue();
             if (cInter instanceof Number) spec.customDivisionInterval = ((Number) cInter).intValue();
             if (cStandoff instanceof Number) spec.customStandoffRange = ((Number) cStandoff).intValue();
@@ -3139,6 +3720,16 @@ public class PermanentDivisionManager {
             if (cPrefSpace instanceof String) spec.customLineStation = LineStation.fromId((String) cPrefSpace, null);
             if (cForm instanceof String) spec.customFormation = DivisionFormation.fromId((String) cForm, null);
             if (cSticky instanceof String) spec.customMovementStickiness = DivisionMovementStickiness.fromId((String) cSticky, null);
+            if (cVsObs instanceof String) spec.customVoidstrikeObservance = VoidstrikeTargetObservance.fromId((String) cVsObs, null);
+            if (cVsCoord instanceof String) spec.customVoidstrikeCoordination = VoidstrikeCoordinationMode.fromId((String) cVsCoord, null);
+            if (cFtrFm instanceof String) spec.customFighterFormation = SquadronFormation.fromId((String) cFtrFm, null);
+            if (cFtrVsFm instanceof String) spec.customFighterVoidstrikeFormation = SquadronFormation.fromId((String) cFtrVsFm, null);
+            if (cBmbFm instanceof String) spec.customBomberFormation = SquadronFormation.fromId((String) cBmbFm, null);
+            if (cBmbVsFm instanceof String) spec.customBomberVoidstrikeFormation = SquadronFormation.fromId((String) cBmbVsFm, null);
+            if (cVsDepth instanceof Number) {
+                spec.customVoidstrikeSquadronDepth = Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH,
+                        Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, ((Number) cVsDepth).intValue()));
+            }
 
             Object membersObj = map.get("memberIds");
             if (membersObj instanceof List) {
@@ -3172,6 +3763,13 @@ public class PermanentDivisionManager {
             if (spec.customLineStation != null) map.put("customPreferredSpace", spec.customLineStation.name());
             if (spec.customFormation != null) map.put("customFormation", spec.customFormation.name());
             if (spec.customMovementStickiness != null) map.put("customMovementStickiness", spec.customMovementStickiness.name());
+            if (spec.customVoidstrikeObservance != null) map.put("customVoidstrikeObservance", spec.customVoidstrikeObservance.name());
+            if (spec.customVoidstrikeCoordination != null) map.put("customVoidstrikeCoordination", spec.customVoidstrikeCoordination.name());
+            if (spec.customFighterFormation != null) map.put("customFighterFormation", spec.customFighterFormation.name());
+            if (spec.customFighterVoidstrikeFormation != null) map.put("customFighterVoidstrikeFormation", spec.customFighterVoidstrikeFormation.name());
+            if (spec.customBomberFormation != null) map.put("customBomberFormation", spec.customBomberFormation.name());
+            if (spec.customBomberVoidstrikeFormation != null) map.put("customBomberVoidstrikeFormation", spec.customBomberVoidstrikeFormation.name());
+            if (spec.customVoidstrikeSquadronDepth != null) map.put("customVoidstrikeSquadronDepth", spec.customVoidstrikeSquadronDepth);
             serialized.add(map);
         }
         pdata.put(PERSISTENT_DIVISIONS_KEY, serialized);

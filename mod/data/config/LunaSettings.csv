@@ -20,6 +20,9 @@ divai_enemy_multidiv_chatter,Enemy Multi-Division Signals,Boolean,true,,"Show en
 divai_overlayHeader,Tactical Map Overlay (Tab),Header,Tactical Map (Tab) Visualization,,,,,
 divai_show_tactical_overlay,Show Division Overlay on Tactical Map,Boolean,true,,"Project fluid division polygons and tactical intent waypoints on the Tactical Map (Tab).",,,
 divai_circle_alpha_pct,Division Polygon Opacity,Int,18,,"Base translucency of each division polygon on the Tactical Map (Tab).",5,50,
+divai_tsfc_graphics_quality,T-S-F-C Overlay Graphics Fidelity,Radio,High,"High, Low","Controls rendering fidelity for the Time and Space and Firepower and Convergence overlays on the Tactical Map (Tab):
+- High: Full-fidelity 72-step smooth polar firepower contours and 48-segment anti-aliased gradients and circles.
+- Low: Fast 48-step contours and reduced circle segment counts for maximum frame rate in massive battles.",,,
 ,,,,,,,,
 divai_sectorHeader,Sector Campaign Divisions,Header,Sector-Wide Division Lists,,,,,
 divai_reinit_sector_divisions,Reinitialize Sector-Wide Division Lists,Boolean,false,,"Reinitializes all NPC faction division record tables and re-sorts all instanced non-player fleets across the sector (Story/Special fleets prioritized first). Click once to arm 'Are you sure?', then click again to confirm.",,,

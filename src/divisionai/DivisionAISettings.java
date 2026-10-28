@@ -36,6 +36,32 @@ public class DivisionAISettings {
     public static final String MOD_ID = "division_ai";
     public static final String REINIT_FIELD_ID = "divai_reinit_sector_divisions";
     public static final String CHATTER_VERBOSITY_FIELD_ID = "divai_chatter_verbosity";
+    public static final String TSFC_GRAPHICS_QUALITY_FIELD_ID = "divai_tsfc_graphics_quality";
+
+    public enum TsfcGraphicsQuality {
+        HIGH("High"),
+        LOW("Low");
+
+        public final String displayName;
+
+        TsfcGraphicsQuality(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public static TsfcGraphicsQuality fromSettingString(String raw) {
+            if (raw == null) return HIGH;
+            String trimmed = raw.trim();
+            for (TsfcGraphicsQuality q : values()) {
+                if (q.displayName.equalsIgnoreCase(trimmed) || q.name().equalsIgnoreCase(trimmed)) {
+                    return q;
+                }
+            }
+            return HIGH;
+        }
+    }
+
+    /** Optional override used by headless unit tests (null in normal gameplay). */
+    public static TsfcGraphicsQuality testTsfcQualityOverride = null;
 
     public enum ChatterVerbosity {
         VERBOSE("Verbose"),
@@ -368,6 +394,18 @@ public class DivisionAISettings {
     public static float getDivisionCircleBaseAlpha() {
         int pct = getInt("divai_circle_alpha_pct", 18);
         return Math.max(0.05f, Math.min(0.50f, pct / 100f));
+    }
+
+    public static TsfcGraphicsQuality getTsfcGraphicsQuality() {
+        if (testTsfcQualityOverride != null) {
+            return testTsfcQualityOverride;
+        }
+        String raw = getString(TSFC_GRAPHICS_QUALITY_FIELD_ID, "High");
+        return TsfcGraphicsQuality.fromSettingString(raw);
+    }
+
+    public static boolean isTsfcHighGraphics() {
+        return getTsfcGraphicsQuality() == TsfcGraphicsQuality.HIGH;
     }
 
     /**

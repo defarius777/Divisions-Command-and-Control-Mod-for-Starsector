@@ -29,6 +29,9 @@ import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
+import divisionai.PermanentDivisionManager.SquadronFormation;
+import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
+import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
@@ -1149,6 +1152,110 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 highlight,
                 gray);
 
+        // 7. Carrier & Wing Voidstrike Behavior Settings (Items C, D, E, D2, F, G, H)
+        leftCol.addSectionHeading(
+                "Carrier & Wing Voidstrike Doctrine",
+                highlight,
+                darkColor,
+                Alignment.LMID,
+                6f);
+
+        VoidstrikeTargetObservance effVsObs =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeObservance(spec, doctrineCfg);
+        VoidstrikeCoordinationMode effVsCoord =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeCoordination(spec, doctrineCfg);
+        SquadronFormation effFtrFm =
+                PermanentDivisionManager.resolveEffectiveFighterFormation(spec, doctrineCfg);
+        SquadronFormation effFtrVsFm =
+                PermanentDivisionManager.resolveEffectiveFighterVoidstrikeFormation(spec, doctrineCfg);
+        SquadronFormation effBmbFm =
+                PermanentDivisionManager.resolveEffectiveBomberFormation(spec, doctrineCfg);
+        SquadronFormation effBmbVsFm =
+                PermanentDivisionManager.resolveEffectiveBomberVoidstrikeFormation(spec, doctrineCfg);
+        int effVsDepth =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeSquadronDepth(spec, doctrineCfg);
+
+        addDivisionVoidstrikeObservanceRow(
+                leftCol,
+                colWidth - 16f,
+                effVsObs,
+                spec.customVoidstrikeObservance != null,
+                baseColor,
+                darkColor,
+                positive);
+
+        addDivisionVoidstrikeCoordinationRow(
+                leftCol,
+                colWidth - 16f,
+                effVsCoord,
+                spec.customVoidstrikeCoordination != null,
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        addDivisionSquadronFormationRow(
+                leftCol,
+                colWidth - 16f,
+                "Fighter Form.",
+                effFtrFm,
+                SquadronFormation.FIGHTER_GENERAL_OPTIONS,
+                spec.customFighterFormation != null,
+                "DIV_FTR_FM:",
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        addDivisionSquadronFormationRow(
+                leftCol,
+                colWidth - 16f,
+                "Fighter Voidstrike",
+                effFtrVsFm,
+                SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
+                spec.customFighterVoidstrikeFormation != null,
+                "DIV_FTR_VS_FM:",
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        addDivisionSquadronFormationRow(
+                leftCol,
+                colWidth - 16f,
+                "Bomber Form.",
+                effBmbFm,
+                SquadronFormation.BOMBER_GENERAL_OPTIONS,
+                spec.customBomberFormation != null,
+                "DIV_BMB_FM:",
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        addDivisionSquadronFormationRow(
+                leftCol,
+                colWidth - 16f,
+                "Bomber Voidstrike",
+                effBmbVsFm,
+                SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
+                spec.customBomberVoidstrikeFormation != null,
+                "DIV_BMB_VS_FM:",
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        addDivisionVoidstrikeDepthRow(
+                leftCol,
+                colWidth - 16f,
+                effVsDepth,
+                spec.customVoidstrikeSquadronDepth != null,
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
         // Visual Ship Icon Bay in Deep Division Editor
         leftCol.addSectionHeading(
                 "Assigned Ships (" + divMembers.size() + "/" + PermanentDivisionManager.MAX_DIVISION_SIZE + ")",
@@ -1820,6 +1927,288 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         col.addCustom(rowPanel, 2f);
     }
 
+    private void addDivisionVoidstrikeObservanceRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            VoidstrikeTargetObservance effObs,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color activeColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        String labelText = String.format(
+                Locale.ROOT,
+                "Target Observance: %s (%s)",
+                effObs.displayName,
+                isCustom ? "Custom" : "Inherited");
+        rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
+
+        float x = CONTROL_COL_X;
+        for (VoidstrikeTargetObservance obs : VoidstrikeTargetObservance.values()) {
+            boolean selected = (obs == effObs);
+            String act = "DIV_VS_OBS:" + obs.name();
+            ButtonAPI btn = registerButton(
+                    rowUi.addButton(
+                            obs.displayName,
+                            act,
+                            selected ? activeColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            72f,
+                            20f,
+                            0f),
+                    act);
+            if (selected) btn.highlight();
+            btn.getPosition().inTL(x, 3f);
+            x += 76f;
+        }
+
+        String inhAct = "DIV_VS_OBS:INHERIT";
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton(
+                        "Inherit",
+                        inhAct,
+                        !isCustom ? activeColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        72f,
+                        20f,
+                        0f),
+                inhAct);
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(x, 3f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
+    private void addDivisionVoidstrikeCoordinationRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            VoidstrikeCoordinationMode effCoord,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        String labelText = String.format(
+                Locale.ROOT,
+                "Deck/Multi Strikes: %s (%s)",
+                effCoord.displayName,
+                isCustom ? "Custom" : "Inherited");
+        rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
+
+        float x = CONTROL_COL_X;
+        for (VoidstrikeCoordinationMode mode : VoidstrikeCoordinationMode.values()) {
+            boolean selected = (mode == effCoord);
+            String act = "DIV_VS_COORD:" + mode.name();
+            ButtonAPI btn = registerButton(
+                    rowUi.addButton(
+                            mode.displayName,
+                            act,
+                            selected ? (isCustom ? highlight : activeColor) : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            110f,
+                            20f,
+                            0f),
+                    act);
+            if (selected) btn.highlight();
+            btn.getPosition().inTL(x, 3f);
+            x += 114f;
+        }
+
+        String inhAct = "DIV_VS_COORD:INHERIT";
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton(
+                        "Inherit",
+                        inhAct,
+                        !isCustom ? activeColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        72f,
+                        20f,
+                        0f),
+                inhAct);
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(x, 3f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
+    private void addDivisionSquadronFormationRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            String shortTitle,
+            final SquadronFormation effFormation,
+            final SquadronFormation[] options,
+            final boolean isCustom,
+            String actionPrefix,
+            final Color baseColor,
+            Color darkColor,
+            final Color highlight,
+            final Color activeColor) {
+
+        final float btnW = 96f;
+        final float btnGap = 5f;
+        final float rowH = 50f;
+        final ButtonAPI[] formButtons = new ButtonAPI[options.length];
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, rowH, new BaseCustomUIPanelPlugin() {
+            @Override
+            public void buttonPressed(Object buttonId) {
+                DivisionEditorDialog.this.buttonPressed(buttonId);
+            }
+
+            @Override
+            public void render(float alphaMult) {
+                for (int i = 0; i < options.length; i++) {
+                    SquadronFormation sf = options[i];
+                    ButtonAPI btn = formButtons[i];
+                    if (btn == null || btn.getPosition() == null) continue;
+                    PositionAPI bp = btn.getPosition();
+                    boolean selected = (sf == effFormation);
+                    FleetDoctrineDialog.renderFormationIcon(
+                            sf.iconFormation,
+                            bp.getX() + 11f,
+                            bp.getY() + bp.getHeight() * 0.5f,
+                            14f,
+                            selected ? (isCustom ? highlight : activeColor) : baseColor,
+                            alphaMult);
+                }
+            }
+        });
+
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
+        String labelText = String.format(
+                Locale.ROOT,
+                "%s: %s (%s)",
+                shortTitle,
+                effFormation.displayName,
+                isCustom ? "Custom" : "Inherited");
+        rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
+
+        String inhAct = actionPrefix + "INHERIT";
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton(
+                        "Inherit",
+                        inhAct,
+                        !isCustom ? activeColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        82f,
+                        20f,
+                        0f),
+                inhAct);
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(rowWidth - 86f, 2f);
+
+        for (int i = 0; i < options.length; i++) {
+            SquadronFormation sf = options[i];
+            boolean selected = (sf == effFormation);
+            float bx = 4f + i * (btnW + btnGap);
+            String act = actionPrefix + sf.name();
+            ButtonAPI bForm = registerButton(
+                    rowUi.addButton(
+                            "   " + sf.shortName,
+                            act,
+                            selected ? (isCustom ? highlight : activeColor) : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            btnW,
+                            20f,
+                            0f),
+                    act);
+            if (selected) bForm.highlight();
+            bForm.getPosition().inTL(bx, 25f);
+            formButtons[i] = bForm;
+        }
+
+        rowUi.setHeightSoFar(rowH);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
+    private void addDivisionVoidstrikeDepthRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            int effDepth,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        String labelText = String.format(
+                Locale.ROOT,
+                "Voidstrike Depth: %d (%s)",
+                effDepth,
+                isCustom ? "Custom" : "Inherited");
+        rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
+
+        float x = CONTROL_COL_X - 24f;
+        for (int v = PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH;
+             v <= PermanentDivisionManager.MAX_VOIDSTRIKE_SQUADRON_DEPTH;
+             v++) {
+            boolean selected = (v == effDepth);
+            String act = "DIV_VS_DEPTH:" + v;
+            ButtonAPI bVal = registerButton(
+                    rowUi.addButton(
+                            String.valueOf(v),
+                            act,
+                            selected ? (isCustom ? highlight : activeColor) : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            27f,
+                            20f,
+                            0f),
+                    act);
+            if (selected) bVal.highlight();
+            bVal.getPosition().inTL(x, 3f);
+            x += 30f;
+        }
+
+        String inhAct = "DIV_VS_DEPTH:INHERIT";
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton(
+                        "Inherit",
+                        inhAct,
+                        !isCustom ? activeColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        68f,
+                        20f,
+                        0f),
+                inhAct);
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(x + 4f, 3f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
     private void addDivisionFormationRow(
             TooltipMakerAPI col,
             float rowWidth,
@@ -2142,6 +2531,68 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             DivisionMovementStickiness ms =
                     "INHERIT".equals(arg) ? null : DivisionMovementStickiness.valueOf(arg);
             PermanentDivisionManager.updateIndividualDivisionMovementStickiness(activeDivisionId, ms);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_VS_OBS:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_OBS:".length());
+            VoidstrikeTargetObservance obs =
+                    "INHERIT".equals(arg) ? null : VoidstrikeTargetObservance.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionVoidstrikeObservance(activeDivisionId, obs);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_VS_COORD:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_COORD:".length());
+            VoidstrikeCoordinationMode mode =
+                    "INHERIT".equals(arg) ? null : VoidstrikeCoordinationMode.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionVoidstrikeCoordination(activeDivisionId, mode);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_FTR_FM:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_FTR_FM:".length());
+            SquadronFormation fm =
+                    "INHERIT".equals(arg) ? null : SquadronFormation.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionFighterFormation(activeDivisionId, fm);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_FTR_VS_FM:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_FTR_VS_FM:".length());
+            SquadronFormation fm =
+                    "INHERIT".equals(arg) ? null : SquadronFormation.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionFighterVoidstrikeFormation(activeDivisionId, fm);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_BMB_FM:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_BMB_FM:".length());
+            SquadronFormation fm =
+                    "INHERIT".equals(arg) ? null : SquadronFormation.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionBomberFormation(activeDivisionId, fm);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_BMB_VS_FM:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_BMB_VS_FM:".length());
+            SquadronFormation fm =
+                    "INHERIT".equals(arg) ? null : SquadronFormation.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionBomberVoidstrikeFormation(activeDivisionId, fm);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_VS_DEPTH:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_DEPTH:".length());
+            Integer depth = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
+            PermanentDivisionManager.updateIndividualDivisionVoidstrikeSquadronDepth(activeDivisionId, depth);
             rebuildContent();
             return;
         }

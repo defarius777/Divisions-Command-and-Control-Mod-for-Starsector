@@ -451,6 +451,27 @@ public class DivisionModel {
         public float intentCommitUntil = -100f;
         public final Set<String> fighterPullbackShipIds = new HashSet<>();
 
+        // Carrier & Wing Voidstrike Doctrine & Staging (Items C, D, E, D2, F, G, H)
+        public PermanentDivisionManager.VoidstrikeTargetObservance voidstrikeObservance =
+                PermanentDivisionManager.VoidstrikeTargetObservance.MEDIUM;
+        public PermanentDivisionManager.VoidstrikeCoordinationMode voidstrikeCoordination =
+                PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED;
+        public PermanentDivisionManager.SquadronFormation fighterFormation =
+                PermanentDivisionManager.SquadronFormation.WEDGE;
+        public PermanentDivisionManager.SquadronFormation fighterVoidstrikeFormation =
+                PermanentDivisionManager.SquadronFormation.WEDGE;
+        public PermanentDivisionManager.SquadronFormation bomberFormation =
+                PermanentDivisionManager.SquadronFormation.LINE_ABREAST;
+        public PermanentDivisionManager.SquadronFormation bomberVoidstrikeFormation =
+                PermanentDivisionManager.SquadronFormation.LINE_ABREAST;
+        public int voidstrikeSquadronDepth = 2;
+
+        // Coordinated Voidstrike staging (0 = Orbit Carrier, 1 = Form Up at Marshal Point, 2 = Attack Run)
+        public int voidstrikeStage = 2;
+        public float voidstrikeStageStartTime = -999f;
+        public String voidstrikeLastTargetKey = null;
+        public final Vector2f voidstrikeMarshalPoint = new Vector2f(0f, 0f);
+
         public DivisionState(
                 String id,
                 int side,

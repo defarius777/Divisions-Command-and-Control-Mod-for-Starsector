@@ -62,9 +62,13 @@ public class BattlefieldFirepowerEvaluator {
 
     public static final int NUM_SECTORS = 24; // 15 degrees per sector around ship hull
     public static final float SECTOR_DEG = 360f / NUM_SECTORS;
-    private static final int RENDER_CONTOUR_STEPS = 48; // 7.5-degree exact 2x sector supersampling (zero floor/div per vertex)
+    private static final int HIGH_CONTOUR_STEPS = 72; // High fidelity: 5-degree smooth contour interpolation
+    private static final int LOW_CONTOUR_STEPS = 48;  // Low fidelity: 7.5-degree 2x sector supersampling
+    private static final int RENDER_CONTOUR_STEPS = HIGH_CONTOUR_STEPS;
 
     // Precomputed unit-circle trig lookup tables & zero-allocation scratch arrays for 60+ FPS T-S-F-C rendering
+    private static final float[] UNIT_COS_72 = new float[72];
+    private static final float[] UNIT_SIN_72 = new float[72];
     private static final float[] UNIT_COS_48 = new float[48];
     private static final float[] UNIT_SIN_48 = new float[48];
     private static final float[] UNIT_COS_36 = new float[36];
@@ -72,20 +76,25 @@ public class BattlefieldFirepowerEvaluator {
     private static final float[] UNIT_COS_24 = new float[24];
     private static final float[] UNIT_SIN_24 = new float[24];
 
-    private static final float[] SCRATCH_SUST_X = new float[RENDER_CONTOUR_STEPS];
-    private static final float[] SCRATCH_SUST_Y = new float[RENDER_CONTOUR_STEPS];
-    private static final float[] SCRATCH_SHORT_X = new float[RENDER_CONTOUR_STEPS];
-    private static final float[] SCRATCH_SHORT_Y = new float[RENDER_CONTOUR_STEPS];
-    private static final float[] SCRATCH_ALPHA_X = new float[RENDER_CONTOUR_STEPS];
-    private static final float[] SCRATCH_ALPHA_Y = new float[RENDER_CONTOUR_STEPS];
-    private static final float[] SCRATCH_PD_X = new float[RENDER_CONTOUR_STEPS];
-    private static final float[] SCRATCH_PD_Y = new float[RENDER_CONTOUR_STEPS];
-    private static final float[] SCRATCH_TIME_OUTER_X = new float[48];
-    private static final float[] SCRATCH_TIME_OUTER_Y = new float[48];
-    private static final float[] SCRATCH_TIME_MID_X = new float[48];
-    private static final float[] SCRATCH_TIME_MID_Y = new float[48];
+    private static final float[] SCRATCH_SUST_X = new float[HIGH_CONTOUR_STEPS];
+    private static final float[] SCRATCH_SUST_Y = new float[HIGH_CONTOUR_STEPS];
+    private static final float[] SCRATCH_SHORT_X = new float[HIGH_CONTOUR_STEPS];
+    private static final float[] SCRATCH_SHORT_Y = new float[HIGH_CONTOUR_STEPS];
+    private static final float[] SCRATCH_ALPHA_X = new float[HIGH_CONTOUR_STEPS];
+    private static final float[] SCRATCH_ALPHA_Y = new float[HIGH_CONTOUR_STEPS];
+    private static final float[] SCRATCH_PD_X = new float[HIGH_CONTOUR_STEPS];
+    private static final float[] SCRATCH_PD_Y = new float[HIGH_CONTOUR_STEPS];
+    private static final float[] SCRATCH_TIME_OUTER_X = new float[72];
+    private static final float[] SCRATCH_TIME_OUTER_Y = new float[72];
+    private static final float[] SCRATCH_TIME_MID_X = new float[72];
+    private static final float[] SCRATCH_TIME_MID_Y = new float[72];
 
     static {
+        for (int i = 0; i < 72; i++) {
+            double a = (i * 2.0 * Math.PI) / 72.0;
+            UNIT_COS_72[i] = (float) Math.cos(a);
+            UNIT_SIN_72[i] = (float) Math.sin(a);
+        }
         for (int i = 0; i < 48; i++) {
             double a = (i * 2.0 * Math.PI) / 48.0;
             UNIT_COS_48[i] = (float) Math.cos(a);
@@ -2560,6 +2569,7 @@ public class BattlefieldFirepowerEvaluator {
 
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
+        boolean highGfx = DivisionAISettings.isTsfcHighGraphics();
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
@@ -2567,6 +2577,9 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        if (highGfx) {
+            GL11.glEnable(GL11.GL_LINE_SMOOTH);
+        }
 
         // 1. Render per-ship Polar Firepower Roses (Sustained DoT outer plane, Short DoT mid plane, Alpha core, PD ring)
         for (ShipFirepowerRose rose : rosesByShipId.values()) {
@@ -2680,6 +2693,9 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        if (DivisionAISettings.isTsfcHighGraphics()) {
+            GL11.glEnable(GL11.GL_LINE_SMOOTH);
+        }
 
         if (spaceOverlayVisible) {
             renderGroupSpaceCircles(engine, playerGroup, false, false, scale, offsetX, offsetY, fade);
@@ -3004,12 +3020,13 @@ public class BattlefieldFirepowerEvaluator {
             }
 
             float activeBoost = (group.useConvergence || div.useConvergence) ? 1.18f : 0.85f;
+            int divSegs = DivisionAISettings.isTsfcHighGraphics() ? 48 : 36;
             if (isCircleVisibleOnScreen(cx, cy, radPx + 16f, screenW, screenH)) {
-                drawIncreasinglyTransparentCircle(cx, cy, radPx, r, g, b, 0.18f * fade * activeBoost, 36);
+                drawIncreasinglyTransparentCircle(cx, cy, radPx, r, g, b, 0.18f * fade * activeBoost, divSegs);
 
-                // Render the iconic Convergence geometry: a triangle inside a square inside a circle (none touching borders)
-                drawCircleOutline(cx, cy, radPx, r, g, b, 0.52f * fade * activeBoost, 1.6f, 36, false);
-                float sqHalf = radPx * 0.58f; // Outer corner distance = 0.58 * sqrt(2) = 0.82 * radPx (clear gap inside circle)
+                // Render the iconic Convergence battle glyph: an inscribed triangle inside an inscribed square inside a circle
+                drawCircleOutline(cx, cy, radPx, r, g, b, 0.52f * fade * activeBoost, 1.6f, divSegs, false);
+                float sqHalf = radPx * 0.70710678f; // inscribed square half-side = R / sqrt(2)
                 GL11.glLineWidth(1.35f);
                 GL11.glColor4f(r, g, b, 0.42f * fade * activeBoost);
                 GL11.glBegin(GL11.GL_LINE_LOOP);
@@ -3019,13 +3036,13 @@ public class BattlefieldFirepowerEvaluator {
                 GL11.glVertex2f(cx - sqHalf, cy + sqHalf);
                 GL11.glEnd();
 
-                // Inner equilateral triangle floating inside the square without touching its borders
+                // Inscribed equilateral triangle inside the square
                 GL11.glLineWidth(1.45f);
                 GL11.glColor4f(r, g, b, 0.56f * fade * activeBoost);
                 GL11.glBegin(GL11.GL_LINE_LOOP);
-                GL11.glVertex2f(cx, cy + sqHalf * 0.66f);
-                GL11.glVertex2f(cx - sqHalf * 0.64f, cy - sqHalf * 0.60f);
-                GL11.glVertex2f(cx + sqHalf * 0.64f, cy - sqHalf * 0.60f);
+                GL11.glVertex2f(cx, cy + sqHalf * 0.94f);
+                GL11.glVertex2f(cx - sqHalf * 0.88f, cy - sqHalf * 0.78f);
+                GL11.glVertex2f(cx + sqHalf * 0.88f, cy - sqHalf * 0.78f);
                 GL11.glEnd();
             }
 
@@ -3054,8 +3071,8 @@ public class BattlefieldFirepowerEvaluator {
                     float wy = offsetY + wLead.getLocation().y * scale;
                     float wRadPx = Math.max(12f, 380f * scale);
                     if (!isCircleVisibleOnScreen(wx, wy, wRadPx + 8f, screenW, screenH)) continue;
-                    float wSq = wRadPx * 0.58f;
-                    drawCircleOutline(wx, wy, wRadPx, r, g, b, 0.42f * fade * activeBoost, 1.2f, 24, false);
+                    float wSq = wRadPx * 0.70710678f;
+                    drawCircleOutline(wx, wy, wRadPx, r, g, b, 0.42f * fade * activeBoost, 1.2f, 28, false);
                     GL11.glLineWidth(1.1f);
                     GL11.glColor4f(r, g, b, 0.36f * fade * activeBoost);
                     GL11.glBegin(GL11.GL_LINE_LOOP);
@@ -3065,9 +3082,9 @@ public class BattlefieldFirepowerEvaluator {
                     GL11.glVertex2f(wx - wSq, wy + wSq);
                     GL11.glEnd();
                     GL11.glBegin(GL11.GL_LINE_LOOP);
-                    GL11.glVertex2f(wx, wy + wSq * 0.66f);
-                    GL11.glVertex2f(wx - wSq * 0.64f, wy - wSq * 0.60f);
-                    GL11.glVertex2f(wx + wSq * 0.64f, wy - wSq * 0.60f);
+                    GL11.glVertex2f(wx, wy + wSq * 0.94f);
+                    GL11.glVertex2f(wx - wSq * 0.88f, wy - wSq * 0.78f);
+                    GL11.glVertex2f(wx + wSq * 0.88f, wy - wSq * 0.78f);
                     GL11.glEnd();
                 }
             }
@@ -3079,9 +3096,16 @@ public class BattlefieldFirepowerEvaluator {
         if (radiusPx <= 1f || centerAlpha <= 0.002f) return;
         float midRad = radiusPx * 0.55f;
         float midAlpha = centerAlpha * 0.48f;
-        boolean use24 = (segs <= 28);
-        float[] cosTab = use24 ? UNIT_COS_24 : UNIT_COS_36;
-        float[] sinTab = use24 ? UNIT_SIN_24 : UNIT_SIN_36;
+        boolean highGfx = DivisionAISettings.isTsfcHighGraphics();
+        float[] cosTab;
+        float[] sinTab;
+        if (segs <= 28) {
+            cosTab = highGfx ? UNIT_COS_36 : UNIT_COS_24;
+            sinTab = highGfx ? UNIT_SIN_36 : UNIT_SIN_24;
+        } else {
+            cosTab = highGfx ? UNIT_COS_48 : UNIT_COS_36;
+            sinTab = highGfx ? UNIT_SIN_48 : UNIT_SIN_36;
+        }
         int n = cosTab.length;
 
         // Inner core to mid band
@@ -3113,9 +3137,16 @@ public class BattlefieldFirepowerEvaluator {
             float cx, float cy, float radiusPx, float r, float g, float b, float alpha,
             float lineWidth, int segs, boolean dashed) {
         if (radiusPx <= 1f || alpha <= 0.002f) return;
-        boolean use24 = (segs <= 28);
-        float[] cosTab = use24 ? UNIT_COS_24 : UNIT_COS_36;
-        float[] sinTab = use24 ? UNIT_SIN_24 : UNIT_SIN_36;
+        boolean highGfx = DivisionAISettings.isTsfcHighGraphics();
+        float[] cosTab;
+        float[] sinTab;
+        if (segs <= 28) {
+            cosTab = highGfx ? UNIT_COS_36 : UNIT_COS_24;
+            sinTab = highGfx ? UNIT_SIN_36 : UNIT_SIN_24;
+        } else {
+            cosTab = highGfx ? UNIT_COS_48 : UNIT_COS_36;
+            sinTab = highGfx ? UNIT_SIN_48 : UNIT_SIN_36;
+        }
         int n = cosTab.length;
 
         GL11.glLineWidth(lineWidth);
@@ -3191,42 +3222,58 @@ public class BattlefieldFirepowerEvaluator {
         float[] pdY = SCRATCH_PD_Y;
         boolean hasPd = false;
 
+        boolean highGfx = DivisionAISettings.isTsfcHighGraphics();
+        int contourSteps = highGfx ? HIGH_CONTOUR_STEPS : LOW_CONTOUR_STEPS;
+        float[] relCosTab = highGfx ? UNIT_COS_72 : UNIT_COS_48;
+        float[] relSinTab = highGfx ? UNIT_SIN_72 : UNIT_SIN_48;
+
         double facingRad = Math.toRadians(rose.smoothedFacingDeg);
         float cosF = (float) Math.cos(facingRad);
         float sinF = (float) Math.sin(facingRad);
 
-        // RENDER_CONTOUR_STEPS == 48 (2x NUM_SECTORS = 24):
-        // Even indices (2*s) read sector s directly; odd indices (2*s+1) average sector s and (s+1)%24 with zero floor/trig!
-        for (int i = 0; i < RENDER_CONTOUR_STEPS; i++) {
-            float relCos = UNIT_COS_48[i];
-            float relSin = UNIT_SIN_48[i];
+        for (int i = 0; i < contourSteps; i++) {
+            float relCos = relCosTab[i];
+            float relSin = relSinTab[i];
             float cos = cosF * relCos - sinF * relSin;
             float sin = sinF * relCos + cosF * relSin;
 
-            int s0 = i >> 1;
             float genReachPx, sustReachPx, shortReachPx, alphaReachPx;
             float sustVal, shortVal, alphaVal, pdReachPx, pdVal;
-            if ((i & 1) == 0) {
-                genReachPx = rose.generalRange[s0] * scale;
-                sustReachPx = rose.sustainedRange[s0] * scale;
-                shortReachPx = rose.shortRange[s0] * scale;
-                alphaReachPx = rose.alphaRange[s0] * scale;
-                sustVal = rose.sustainedDot[s0];
-                shortVal = rose.shortDot[s0];
-                alphaVal = rose.alpha[s0];
-                pdReachPx = rose.pdRange[s0] * scale;
-                pdVal = rose.pdScore[s0];
+            if (highGfx) {
+                float relDeg = i * (360f / HIGH_CONTOUR_STEPS);
+                genReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relDeg) * scale;
+                sustReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedRange, relDeg) * scale;
+                shortReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortRange, relDeg) * scale;
+                alphaReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alphaRange, relDeg) * scale;
+                sustVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedDot, relDeg);
+                shortVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relDeg);
+                alphaVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alpha, relDeg);
+                pdReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdRange, relDeg) * scale;
+                pdVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdScore, relDeg);
             } else {
-                int s1 = (s0 + 1) % NUM_SECTORS;
-                genReachPx = 0.5f * (rose.generalRange[s0] + rose.generalRange[s1]) * scale;
-                sustReachPx = 0.5f * (rose.sustainedRange[s0] + rose.sustainedRange[s1]) * scale;
-                shortReachPx = 0.5f * (rose.shortRange[s0] + rose.shortRange[s1]) * scale;
-                alphaReachPx = 0.5f * (rose.alphaRange[s0] + rose.alphaRange[s1]) * scale;
-                sustVal = 0.5f * (rose.sustainedDot[s0] + rose.sustainedDot[s1]);
-                shortVal = 0.5f * (rose.shortDot[s0] + rose.shortDot[s1]);
-                alphaVal = 0.5f * (rose.alpha[s0] + rose.alpha[s1]);
-                pdReachPx = 0.5f * (rose.pdRange[s0] + rose.pdRange[s1]) * scale;
-                pdVal = 0.5f * (rose.pdScore[s0] + rose.pdScore[s1]);
+                int s0 = i >> 1;
+                if ((i & 1) == 0) {
+                    genReachPx = rose.generalRange[s0] * scale;
+                    sustReachPx = rose.sustainedRange[s0] * scale;
+                    shortReachPx = rose.shortRange[s0] * scale;
+                    alphaReachPx = rose.alphaRange[s0] * scale;
+                    sustVal = rose.sustainedDot[s0];
+                    shortVal = rose.shortDot[s0];
+                    alphaVal = rose.alpha[s0];
+                    pdReachPx = rose.pdRange[s0] * scale;
+                    pdVal = rose.pdScore[s0];
+                } else {
+                    int s1 = (s0 + 1) % NUM_SECTORS;
+                    genReachPx = 0.5f * (rose.generalRange[s0] + rose.generalRange[s1]) * scale;
+                    sustReachPx = 0.5f * (rose.sustainedRange[s0] + rose.sustainedRange[s1]) * scale;
+                    shortReachPx = 0.5f * (rose.shortRange[s0] + rose.shortRange[s1]) * scale;
+                    alphaReachPx = 0.5f * (rose.alphaRange[s0] + rose.alphaRange[s1]) * scale;
+                    sustVal = 0.5f * (rose.sustainedDot[s0] + rose.sustainedDot[s1]);
+                    shortVal = 0.5f * (rose.shortDot[s0] + rose.shortDot[s1]);
+                    alphaVal = 0.5f * (rose.alpha[s0] + rose.alpha[s1]);
+                    pdReachPx = 0.5f * (rose.pdRange[s0] + rose.pdRange[s1]) * scale;
+                    pdVal = 0.5f * (rose.pdScore[s0] + rose.pdScore[s1]);
+                }
             }
             if (sustReachPx <= 1f) sustReachPx = genReachPx;
             if (shortReachPx <= 1f) shortReachPx = genReachPx;
@@ -3272,8 +3319,8 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glColor4f(sustR, sustG, sustB, 0.14f * readinessFade);
         GL11.glVertex2f(cx, cy);
         GL11.glColor4f(sustR, sustG, sustB, 0.07f * readinessFade);
-        for (int i = 0; i <= RENDER_CONTOUR_STEPS; i++) {
-            int idx = i % RENDER_CONTOUR_STEPS;
+        for (int i = 0; i <= contourSteps; i++) {
+            int idx = i % contourSteps;
             GL11.glVertex2f(sustX[idx], sustY[idx]);
         }
         GL11.glEnd();
@@ -3282,7 +3329,7 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glLineWidth(1.10f + 0.45f * dmgWeight);
         GL11.glColor4f(sustR, sustG, sustB, 0.36f * readinessFade);
         GL11.glBegin(GL11.GL_LINE_LOOP);
-        for (int i = 0; i < RENDER_CONTOUR_STEPS; i++) {
+        for (int i = 0; i < contourSteps; i++) {
             GL11.glVertex2f(sustX[i], sustY[i]);
         }
         GL11.glEnd();
@@ -3292,8 +3339,8 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glColor4f(shortR, shortG, shortB, 0.16f * readinessFade);
         GL11.glVertex2f(cx, cy);
         GL11.glColor4f(shortR, shortG, shortB, 0.09f * readinessFade);
-        for (int i = 0; i <= RENDER_CONTOUR_STEPS; i++) {
-            int idx = i % RENDER_CONTOUR_STEPS;
+        for (int i = 0; i <= contourSteps; i++) {
+            int idx = i % contourSteps;
             GL11.glVertex2f(shortX[idx], shortY[idx]);
         }
         GL11.glEnd();
@@ -3301,7 +3348,7 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glLineWidth(1.05f + 0.35f * dmgWeight);
         GL11.glColor4f(shortR, shortG, shortB, 0.30f * readinessFade);
         GL11.glBegin(GL11.GL_LINE_LOOP);
-        for (int i = 0; i < RENDER_CONTOUR_STEPS; i++) {
+        for (int i = 0; i < contourSteps; i++) {
             GL11.glVertex2f(shortX[i], shortY[i]);
         }
         GL11.glEnd();
@@ -3311,8 +3358,8 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glColor4f(alphaR, alphaG, alphaB, 0.21f * readinessFade);
         GL11.glVertex2f(cx, cy);
         GL11.glColor4f(alphaR, alphaG, alphaB, 0.11f * readinessFade);
-        for (int i = 0; i <= RENDER_CONTOUR_STEPS; i++) {
-            int idx = i % RENDER_CONTOUR_STEPS;
+        for (int i = 0; i <= contourSteps; i++) {
+            int idx = i % contourSteps;
             GL11.glVertex2f(alphaX[idx], alphaY[idx]);
         }
         GL11.glEnd();
@@ -3321,7 +3368,7 @@ public class BattlefieldFirepowerEvaluator {
             GL11.glLineWidth(1.15f + 0.40f * dmgWeight);
             GL11.glColor4f(alphaR, alphaG, alphaB, 0.38f * readinessFade);
             GL11.glBegin(GL11.GL_LINE_LOOP);
-            for (int i = 0; i < RENDER_CONTOUR_STEPS; i++) {
+            for (int i = 0; i < contourSteps; i++) {
                 GL11.glVertex2f(alphaX[i], alphaY[i]);
             }
             GL11.glEnd();
@@ -3332,8 +3379,8 @@ public class BattlefieldFirepowerEvaluator {
             GL11.glLineWidth(1.3f);
             GL11.glColor4f(0.92f, 0.78f, 1.00f, 0.42f * readinessFade);
             GL11.glBegin(GL11.GL_LINES);
-            for (int i = 0; i < RENDER_CONTOUR_STEPS; i += 2) {
-                int next = (i + 1) % RENDER_CONTOUR_STEPS;
+            for (int i = 0; i < contourSteps; i += 2) {
+                int next = (i + 1) % contourSteps;
                 GL11.glVertex2f(pdX[i], pdY[i]);
                 GL11.glVertex2f(pdX[next], pdY[next]);
             }

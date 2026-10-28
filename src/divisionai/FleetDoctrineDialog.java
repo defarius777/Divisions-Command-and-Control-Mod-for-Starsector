@@ -30,6 +30,9 @@ import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.LineStation;
+import divisionai.PermanentDivisionManager.SquadronFormation;
+import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
+import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
@@ -603,6 +606,91 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         highlight,
                         gray);
+
+                // Rows 7a-7g: Carrier & Wing Voidstrike Behavior Doctrine (Items C, D, E, D2, F, G, H)
+                VoidstrikeTargetObservance currVsObs = doctrine.getVoidstrikeObservance(dt);
+                VoidstrikeCoordinationMode currVsCoord = doctrine.getVoidstrikeCoordination(dt);
+                SquadronFormation currFtrFm = doctrine.getFighterFormation(dt);
+                SquadronFormation currFtrVsFm = doctrine.getFighterVoidstrikeFormation(dt);
+                SquadronFormation currBmbFm = doctrine.getBomberFormation(dt);
+                SquadronFormation currBmbVsFm = doctrine.getBomberVoidstrikeFormation(dt);
+                int currVsDepth = doctrine.getVoidstrikeSquadronDepth(dt);
+
+                addVoidstrikeObservanceRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Voidstrike Target Observance: " + currVsObs.displayName,
+                        currVsObs,
+                        "SET_VS_OBS:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        positive,
+                        gray);
+
+                addVoidstrikeCoordinationRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Deck & Multi-Div Strikes: " + currVsCoord.displayName,
+                        currVsCoord,
+                        "SET_VS_COORD:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        highlight,
+                        gray);
+
+                addSquadronFormationRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Fighter Sqdn Formation: " + currFtrFm.displayName,
+                        currFtrFm,
+                        SquadronFormation.FIGHTER_GENERAL_OPTIONS,
+                        "SET_FTR_FM:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        positive);
+
+                addSquadronFormationRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Fighter Voidstrike Form.: " + currFtrVsFm.displayName,
+                        currFtrVsFm,
+                        SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
+                        "SET_FTR_VS_FM:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        highlight);
+
+                addSquadronFormationRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Bomber Sqdn Formation: " + currBmbFm.displayName,
+                        currBmbFm,
+                        SquadronFormation.BOMBER_GENERAL_OPTIONS,
+                        "SET_BMB_FM:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        positive);
+
+                addSquadronFormationRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Bomber Voidstrike Form.: " + currBmbVsFm.displayName,
+                        currBmbVsFm,
+                        SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
+                        "SET_BMB_VS_FM:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        highlight);
+
+                addVoidstrikeDepthRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Voidstrike Sqdn Depth: " + currVsDepth,
+                        currVsDepth,
+                        "SET_VS_DEPTH:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        positive);
             }
         }
 
@@ -1336,6 +1424,253 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 2f);
     }
 
+    private void addVoidstrikeObservanceRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            VoidstrikeTargetObservance currentObs,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+
+        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+
+        float xCursor = CONTROL_COL_X;
+        for (VoidstrikeTargetObservance obs : VoidstrikeTargetObservance.values()) {
+            boolean selected = (obs == currentObs);
+            String act = actionPrefix + obs.name();
+            ButtonAPI btn = registerButton(
+                    rowUi.addButton(
+                            obs.displayName,
+                            act,
+                            selected ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            84f,
+                            22f,
+                            0f),
+                    act);
+            if (selected) {
+                btn.highlight();
+            }
+            btn.getPosition().inTL(xCursor, 3f);
+            xCursor += 90f;
+        }
+
+        if (currentObs != null) {
+            rowUi.addPara(currentObs.summary, 0f, gray).getPosition().inTL(xCursor + 8f, 6f);
+        }
+
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
+    private void addVoidstrikeCoordinationRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            VoidstrikeCoordinationMode currentCoord,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+
+        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+
+        float xCursor = CONTROL_COL_X;
+        for (VoidstrikeCoordinationMode mode : VoidstrikeCoordinationMode.values()) {
+            boolean selected = (mode == currentCoord);
+            String act = actionPrefix + mode.name();
+            ButtonAPI btn = registerButton(
+                    rowUi.addButton(
+                            mode.displayName,
+                            act,
+                            selected ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            116f,
+                            22f,
+                            0f),
+                    act);
+            if (selected) {
+                btn.highlight();
+            }
+            btn.getPosition().inTL(xCursor, 3f);
+            xCursor += 122f;
+        }
+
+        if (currentCoord != null) {
+            rowUi.addPara(currentCoord.summary, 0f, gray).getPosition().inTL(xCursor + 8f, 6f);
+        }
+
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
+    private void addSquadronFormationRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            final SquadronFormation currentFormation,
+            final SquadronFormation[] options,
+            String actionPrefix,
+            final Color baseColor,
+            Color darkColor,
+            final Color activeValueColor) {
+
+        final float btnW = 112f;
+        final float btnGap = 6f;
+        final float rowH = 28f;
+        final ButtonAPI[] formButtons = new ButtonAPI[options.length];
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, rowH, new BaseCustomUIPanelPlugin() {
+            @Override
+            public void buttonPressed(Object buttonId) {
+                FleetDoctrineDialog.this.buttonPressed(buttonId);
+            }
+
+            @Override
+            public void render(float alphaMult) {
+                for (int i = 0; i < options.length; i++) {
+                    SquadronFormation sf = options[i];
+                    ButtonAPI btn = formButtons[i];
+                    if (btn == null || btn.getPosition() == null) continue;
+                    PositionAPI bp = btn.getPosition();
+                    boolean selected = (sf == currentFormation);
+                    renderFormationIcon(
+                            sf.iconFormation,
+                            bp.getX() + 12f,
+                            bp.getY() + bp.getHeight() * 0.5f,
+                            15f,
+                            selected ? activeValueColor : baseColor,
+                            alphaMult);
+                }
+            }
+        });
+
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
+        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+
+        for (int i = 0; i < options.length; i++) {
+            SquadronFormation sf = options[i];
+            boolean selected = (sf == currentFormation);
+            float bx = CONTROL_COL_X + i * (btnW + btnGap);
+            String act = actionPrefix + sf.name();
+            ButtonAPI bForm = registerButton(
+                    rowUi.addButton(
+                            "    " + sf.shortName,
+                            act,
+                            selected ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            btnW,
+                            22f,
+                            0f),
+                    act);
+            if (selected) {
+                bForm.highlight();
+            }
+            bForm.getPosition().inTL(bx, 3f);
+            formButtons[i] = bForm;
+        }
+
+        rowUi.setHeightSoFar(rowH);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
+    private void addVoidstrikeDepthRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            int currentValue,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+
+        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+
+        float xCursor = CONTROL_COL_X;
+        String decAct = actionPrefix + Math.max(PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH, currentValue - 1);
+        ButtonAPI bDec = registerButton(
+                rowUi.addButton(
+                        "-",
+                        decAct,
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        32f,
+                        22f,
+                        0f),
+                decAct);
+        bDec.setEnabled(currentValue > PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH);
+        bDec.getPosition().inTL(xCursor, 3f);
+        xCursor += 38f;
+
+        for (int v = PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH;
+             v <= PermanentDivisionManager.MAX_VOIDSTRIKE_SQUADRON_DEPTH;
+             v++) {
+            boolean selected = (v == currentValue);
+            String valAct = actionPrefix + v;
+            ButtonAPI bVal = registerButton(
+                    rowUi.addButton(
+                            String.valueOf(v),
+                            valAct,
+                            selected ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            40f,
+                            22f,
+                            0f),
+                    valAct);
+            if (selected) {
+                bVal.highlight();
+            }
+            bVal.getPosition().inTL(xCursor, 3f);
+            xCursor += 46f;
+        }
+
+        String incAct = actionPrefix + Math.min(PermanentDivisionManager.MAX_VOIDSTRIKE_SQUADRON_DEPTH, currentValue + 1);
+        ButtonAPI bInc = registerButton(
+                rowUi.addButton(
+                        "+",
+                        incAct,
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        32f,
+                        22f,
+                        0f),
+                incAct);
+        bInc.setEnabled(currentValue < PermanentDivisionManager.MAX_VOIDSTRIKE_SQUADRON_DEPTH);
+        bInc.getPosition().inTL(xCursor, 3f);
+
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
     private void addFormationSelectorRow(
             TooltipMakerAPI body,
             float rowWidth,
@@ -2047,6 +2382,83 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
                 DivisionMovementStickiness ms = DivisionMovementStickiness.valueOf(msStr);
                 PermanentDivisionManager.updateDivisionTypeMovementStickiness(dt, ms);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_VS_OBS:")) {
+            String rest = cmd.substring("SET_VS_OBS:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                VoidstrikeTargetObservance obs = VoidstrikeTargetObservance.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeVoidstrikeObservance(dt, obs);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_VS_COORD:")) {
+            String rest = cmd.substring("SET_VS_COORD:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                VoidstrikeCoordinationMode mode = VoidstrikeCoordinationMode.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeVoidstrikeCoordination(dt, mode);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_FTR_FM:")) {
+            String rest = cmd.substring("SET_FTR_FM:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                SquadronFormation fm = SquadronFormation.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeFighterFormation(dt, fm);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_FTR_VS_FM:")) {
+            String rest = cmd.substring("SET_FTR_VS_FM:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                SquadronFormation fm = SquadronFormation.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeFighterVoidstrikeFormation(dt, fm);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_BMB_FM:")) {
+            String rest = cmd.substring("SET_BMB_FM:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                SquadronFormation fm = SquadronFormation.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeBomberFormation(dt, fm);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_BMB_VS_FM:")) {
+            String rest = cmd.substring("SET_BMB_VS_FM:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                SquadronFormation fm = SquadronFormation.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeBomberVoidstrikeFormation(dt, fm);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_VS_DEPTH:")) {
+            String rest = cmd.substring("SET_VS_DEPTH:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                int depth = Integer.parseInt(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeVoidstrikeSquadronDepth(dt, depth);
                 rebuildContent();
             }
             return;
