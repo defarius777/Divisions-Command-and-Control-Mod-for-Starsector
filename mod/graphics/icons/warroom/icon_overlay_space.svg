@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Icon B: Space Overlay — Horizontally cascading squares of increasing size and transparency from sides to center -->
+  <!-- Center Square (Biggest: 34x34, Most Transparent) -->
+  <rect x="15" y="15" width="34" height="34" rx="2.2"
+        fill="#FFFFFF" fill-opacity="0.14"
+        stroke="#FFFFFF" stroke-width="2.4" stroke-opacity="0.42" />
+  <!-- Mid-Left & Mid-Right Squares (Medium: 22x22, Medium Transparency, separated by 12px in center) -->
+  <rect x="7" y="21" width="19" height="22" rx="1.8"
+        fill="#FFFFFF" fill-opacity="0.24"
+        stroke="#FFFFFF" stroke-width="2.4" stroke-opacity="0.70" />
+  <rect x="38" y="21" width="19" height="22" rx="1.8"
+        fill="#FFFFFF" fill-opacity="0.24"
+        stroke="#FFFFFF" stroke-width="2.4" stroke-opacity="0.70" />
+  <!-- Outer-Left & Outer-Right Squares (Smallest: 12x12, Least Transparent / Most Opaque) -->
+  <rect x="2" y="26" width="11" height="12" rx="1.5"
+        fill="#FFFFFF" fill-opacity="0.88"
+        stroke="#FFFFFF" stroke-width="2.5" stroke-opacity="1.00" />
+  <rect x="51" y="26" width="11" height="12" rx="1.5"
+        fill="#FFFFFF" fill-opacity="0.88"
+        stroke="#FFFFFF" stroke-width="2.5" stroke-opacity="1.00" />
+</svg>

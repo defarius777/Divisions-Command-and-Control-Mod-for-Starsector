@@ -14,6 +14,7 @@ import com.fs.starfarer.api.combat.WeaponAPI.AIHints;
 import com.fs.starfarer.api.combat.WeaponAPI.DerivedWeaponStatsAPI;
 import com.fs.starfarer.api.combat.WeaponAPI.WeaponSize;
 import com.fs.starfarer.api.combat.WeaponAPI.WeaponType;
+import com.fs.starfarer.api.graphics.SpriteAPI;
 import com.fs.starfarer.api.input.InputEventAPI;
 import com.fs.starfarer.api.loading.WeaponSlotAPI;
 import com.fs.starfarer.api.ui.Fonts;
@@ -59,10 +60,13 @@ public class BattlefieldFirepowerEvaluator {
     private static final float TAU_VENT_DROP = 0.18f;
 
     // Right-side battle screen toggle button geometry (relative to scaled screenW x screenH)
-    public static final float BTN_WIDTH = 142f;
+    public static final float BTN_WIDTH = 158f;
     public static final float BTN_HEIGHT = 28f;
     public static final float BTN_RIGHT_MARGIN = 14f;
     public static final float BTN_Y_FRACTION = 0.52f;
+    public static final String FIREPOWER_ICON_PATH = "graphics/icons/warroom/icon_overlay_firepower.png";
+    public static final String SPACE_ICON_PATH = "graphics/icons/warroom/icon_overlay_space.png";
+    public static final String TIME_ICON_PATH = "graphics/icons/warroom/icon_overlay_time.png";
 
     private static boolean overlayVisible = false; // OFF by default
     private static float lastMouseX = -1f;
@@ -1299,6 +1303,23 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glPopMatrix();
         GL11.glPopAttrib();
 
+        // Render warroom Firepower icon (Icon A: vertically cascading triangles)
+        float iconAreaLeft = 10f;
+        try {
+            SpriteAPI fpSprite = Global.getSettings().getSprite(FIREPOWER_ICON_PATH);
+            if (fpSprite != null) {
+                float iconSz = 20f;
+                fpSprite.setSize(iconSz, iconSz);
+                fpSprite.setColor(overlayVisible
+                        ? new Color(110, 240, 255, 255)
+                        : new Color(175, 198, 218, 220));
+                fpSprite.setAlphaMult(fade);
+                fpSprite.renderAtCenter(btnX + 20f, btnY + BTN_HEIGHT * 0.5f);
+                iconAreaLeft = 32f;
+            }
+        } catch (Throwable ignored) {
+        }
+
         // Render button label text
         String btnText = overlayVisible ? "FIREPOWER: ON" : "FIREPOWER: OFF";
         Color textCol = overlayVisible
@@ -1308,7 +1329,7 @@ public class BattlefieldFirepowerEvaluator {
         if (btnLabel != null) {
             float tw = btnLabel.computeTextWidth(btnText);
             float th = btnLabel.computeTextHeight(btnText);
-            float tx = btnX + 10f + (BTN_WIDTH - 10f - tw) * 0.5f;
+            float tx = btnX + iconAreaLeft + (BTN_WIDTH - iconAreaLeft - tw) * 0.5f;
             float ty = btnY + (BTN_HEIGHT - th) * 0.5f + 2f;
             drawLabel(btnLabel, btnText, tx, ty, fade);
         }

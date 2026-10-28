@@ -10,7 +10,11 @@
 			"icon_gold-wing": "graphics/icons/icon_gold-wing.png",
 			"icon_gold": "graphics/icons/icon_gold.png",
 			"star_silver": "graphics/icons/star_silver.png",
-			"star_gold": "graphics/icons/star_gold.png"
+			"star_gold": "graphics/icons/star_gold.png",
+			"icon_overlay_firepower": "graphics/icons/warroom/icon_overlay_firepower.png",
+			"icon_overlay_space": "graphics/icons/warroom/icon_overlay_space.png",
+			"icon_overlay_time": "graphics/icons/warroom/icon_overlay_time.png",
+			"icon_overlay_time_fadeout": "graphics/icons/warroom/icon_overlay_time_fadeout.png"
 		}
 	}
 }

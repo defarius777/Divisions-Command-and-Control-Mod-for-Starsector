@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Icon A: Firepower Overlay — Vertically cascading triangles of increasing size and transparency (bottom to top) -->
+  <!-- Top Triangle (Largest, Most Transparent — Sustained DoT envelope) -->
+  <polygon points="32,4 59,39 5,39"
+           fill="#FFFFFF" fill-opacity="0.12"
+           stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" stroke-opacity="0.38" />
+  <!-- Middle Triangle (Medium Size, Medium Transparency — Short DoT 5s envelope) -->
+  <polygon points="32,19 50,49 14,49"
+           fill="#FFFFFF" fill-opacity="0.24"
+           stroke="#FFFFFF" stroke-width="2.5" stroke-linejoin="round" stroke-opacity="0.68" />
+  <!-- Bottom Triangle (Smallest, Least Transparent / Most Opaque — Alpha Strike core) -->
+  <polygon points="32,35 42,59 22,59"
+           fill="#FFFFFF" fill-opacity="0.88"
+           stroke="#FFFFFF" stroke-width="2.6" stroke-linejoin="round" stroke-opacity="1.00" />
+</svg>
