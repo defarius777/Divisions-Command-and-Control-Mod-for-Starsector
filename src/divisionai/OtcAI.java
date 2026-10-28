@@ -215,11 +215,11 @@ public class OtcAI {
                         && candidateCoreCount >= 2
                         && candidateCoreCount < alive.size()
                         && (candidateCoreWeight >= weightSum * 0.50f || candidateCoreCount * 2 >= alive.size());
-                boolean validTwoShipSplit = alive.size() == 2
+                boolean validSingleShipCore = alive.size() >= 2
                         && candidateCoreCount == 1
                         && div.rawAllMemberSpreadRadius > Math.max(950f, div.stationKeepingRadius * 1.35f);
 
-                if (validMultiShipCore || validTwoShipSplit) {
+                if (validMultiShipCore || validSingleShipCore) {
                     coreSumX = 0f;
                     coreSumY = 0f;
                     coreSumVx = 0f;

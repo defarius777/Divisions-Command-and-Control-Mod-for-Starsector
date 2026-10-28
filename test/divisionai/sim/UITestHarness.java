@@ -96,14 +96,46 @@ public class UITestHarness {
         auditV070PlayerFactionSyncLowerRightStarsForceAndNomenclatures(res);
         auditChatterVerbosityModes(res);
 
-        // Audit Battle Screen right-side Firepower Rose toggle button (off by default, Command View gated, & width budget)
+        // Audit Battle Screen right-side Time, Space, and Firepower square-bordered icon buttons
+        // (all 3 active, OFF by default, textless "Full Assault"/"Full Retreat" square-bordered style, Command View gated)
         BattlefieldFirepowerEvaluator.resetForNewBattle();
-        boolean fpDefaultOff = !BattlefieldFirepowerEvaluator.isOverlayVisible();
-        int fpOffPx = Math.round("FIREPOWER: OFF".length() * 6.8f + 12f);
-        int fpOnPx = Math.round("FIREPOWER: ON".length() * 6.8f + 12f);
-        int fpMaxBtnPx = Math.max(fpOffPx, fpOnPx) + 10;
-        boolean fpFitsBtn = fpMaxBtnPx <= (int) BattlefieldFirepowerEvaluator.BTN_WIDTH
-                && BattlefieldFirepowerEvaluator.BTN_RIGHT_MARGIN <= 24f;
+        boolean allThreeDefaultOff = !BattlefieldFirepowerEvaluator.isOverlayVisible()
+                && !BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
+                && !BattlefieldFirepowerEvaluator.isTimeOverlayVisible();
+
+        BattlefieldFirepowerEvaluator.toggleTimeOverlayVisible();
+        boolean timeToggledIndependently = BattlefieldFirepowerEvaluator.isTimeOverlayVisible()
+                && !BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
+                && !BattlefieldFirepowerEvaluator.isOverlayVisible();
+
+        BattlefieldFirepowerEvaluator.toggleSpaceOverlayVisible();
+        boolean spaceToggledIndependently = BattlefieldFirepowerEvaluator.isTimeOverlayVisible()
+                && BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
+                && !BattlefieldFirepowerEvaluator.isOverlayVisible();
+
+        BattlefieldFirepowerEvaluator.toggleOverlayVisible();
+        boolean allThreeActive = BattlefieldFirepowerEvaluator.isTimeOverlayVisible()
+                && BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
+                && BattlefieldFirepowerEvaluator.isOverlayVisible();
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+
+        float yTime = BattlefieldFirepowerEvaluator.getOverlayButtonY(1080f, 0);
+        float ySpace = BattlefieldFirepowerEvaluator.getOverlayButtonY(1080f, 1);
+        float yFirepower = BattlefieldFirepowerEvaluator.getOverlayButtonY(1080f, 2);
+        boolean squareGeometryOk = BattlefieldFirepowerEvaluator.BTN_SQUARE_W == 36f
+                && BattlefieldFirepowerEvaluator.BTN_SQUARE_H == 34f
+                && BattlefieldFirepowerEvaluator.BTN_WIDTH == 46f
+                && BattlefieldFirepowerEvaluator.BTN_RIGHT_MARGIN == 20f
+                && (yTime - ySpace) >= BattlefieldFirepowerEvaluator.BTN_SQUARE_H + 6f
+                && (ySpace - yFirepower) >= BattlefieldFirepowerEvaluator.BTN_SQUARE_H + 6f;
+
+        String fpJava = new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8);
+        boolean textlessSquareButtons = fpJava.contains("renderSingleWarroomSquareIconButton")
+                && !fpJava.contains("\"FIREPOWER: ON\"")
+                && !fpJava.contains("\"FIREPOWER: OFF\"")
+                && fpJava.contains("TIME_ICON_PATH")
+                && fpJava.contains("SPACE_ICON_PATH")
+                && fpJava.contains("FIREPOWER_ICON_PATH");
 
         boolean[] cmdOpenRef = new boolean[]{false};
         CombatUIAPI mockCmdUi = (CombatUIAPI) Proxy.newProxyInstance(
@@ -141,12 +173,17 @@ public class UITestHarness {
         boolean shownWhenCmdViewOpen = BattlefieldFirepowerEvaluator.isCommandViewWindowActive(mockFpEngine);
 
         res.record(
-                fpDefaultOff && fpFitsBtn && hiddenWhenCmdViewClosed && shownWhenCmdViewOpen,
-                "Command View right-side Firepower Rose/Plane toggle button (OFF by default, hidden on Main Menu / non-Command View)",
+                allThreeDefaultOff && timeToggledIndependently && spaceToggledIndependently
+                        && allThreeActive && squareGeometryOk && textlessSquareButtons
+                        && hiddenWhenCmdViewClosed && shownWhenCmdViewOpen,
+                "Command View 3 active textless square-bordered Warroom icon buttons (Time, Space, Firepower)",
                 String.format(
                         Locale.ROOT,
-                        "defaultOff=%b, hiddenOutsideCommandView=%b, shownInCommandView=%b, textWidthPx=%dpx <= btnWidth=%.0fpx",
-                        fpDefaultOff, hiddenWhenCmdViewClosed, shownWhenCmdViewOpen, fpMaxBtnPx, BattlefieldFirepowerEvaluator.BTN_WIDTH));
+                        "all3Active=%b, textlessSquare=%b, box=%.0fx%.0fpx (outer %.0fpx, rightMargin=%.0fpx), y=[%.0f, %.0f, %.0f], cmdViewGated=%b",
+                        allThreeActive, textlessSquareButtons,
+                        BattlefieldFirepowerEvaluator.BTN_SQUARE_W, BattlefieldFirepowerEvaluator.BTN_SQUARE_H,
+                        BattlefieldFirepowerEvaluator.BTN_WIDTH, BattlefieldFirepowerEvaluator.BTN_RIGHT_MARGIN,
+                        yTime, ySpace, yFirepower, hiddenWhenCmdViewClosed && shownWhenCmdViewOpen));
 
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);

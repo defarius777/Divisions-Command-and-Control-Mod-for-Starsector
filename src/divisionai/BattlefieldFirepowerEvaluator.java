@@ -59,16 +59,23 @@ public class BattlefieldFirepowerEvaluator {
     private static final float TAU_FALL = 1.75f;
     private static final float TAU_VENT_DROP = 0.18f;
 
-    // Right-side battle screen toggle button geometry (relative to scaled screenW x screenH)
-    public static final float BTN_WIDTH = 158f;
-    public static final float BTN_HEIGHT = 28f;
-    public static final float BTN_RIGHT_MARGIN = 14f;
+    // Right-side Warroom square-bordered icon buttons (matching "Full Assault!" / "Full Retreat!" icon housing)
+    // Each button has a 36x34 square icon box (32x32 inner cavity) + right-side Warroom C-bracket (46x38 outer footprint)
+    public static final float BTN_WIDTH = 46f;
+    public static final float BTN_HEIGHT = 34f;
+    public static final float BTN_SQUARE_W = 36f;
+    public static final float BTN_SQUARE_H = 34f;
+    public static final float BTN_ICON_SIZE = 28f;
+    public static final float BTN_VERTICAL_STRIDE = 43f; // 34px square box + 9px gap (5px between outer 38px brackets)
+    public static final float BTN_RIGHT_MARGIN = 20f;    // Matches Full Assault / Full Retreat right bracket at screenW - 20
     public static final float BTN_Y_FRACTION = 0.52f;
     public static final String FIREPOWER_ICON_PATH = "graphics/icons/warroom/icon_overlay_firepower.png";
     public static final String SPACE_ICON_PATH = "graphics/icons/warroom/icon_overlay_space.png";
     public static final String TIME_ICON_PATH = "graphics/icons/warroom/icon_overlay_time.png";
 
-    private static boolean overlayVisible = false; // OFF by default
+    private static boolean overlayVisible = false;      // Firepower overlay: OFF by default
+    private static boolean spaceOverlayVisible = false; // Space overlay: OFF by default
+    private static boolean timeOverlayVisible = false;  // Time overlay: OFF by default
     private static float lastMouseX = -1f;
     private static float lastMouseY = -1f;
     private static float lastToggleRealTime = -10f;
@@ -181,7 +188,9 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     public static void resetForNewBattle() {
-        overlayVisible = false; // Always OFF by default when a battle starts
+        overlayVisible = false;      // Always OFF by default when a battle starts
+        spaceOverlayVisible = false; // Always OFF by default when a battle starts
+        timeOverlayVisible = false;  // Always OFF by default when a battle starts
         rosesByShipId.clear();
         uiLabelCache.clear();
         lastToggleRealTime = -10f;
@@ -197,6 +206,30 @@ public class BattlefieldFirepowerEvaluator {
 
     public static void toggleOverlayVisible() {
         overlayVisible = !overlayVisible;
+    }
+
+    public static boolean isSpaceOverlayVisible() {
+        return spaceOverlayVisible;
+    }
+
+    public static void setSpaceOverlayVisible(boolean visible) {
+        spaceOverlayVisible = visible;
+    }
+
+    public static void toggleSpaceOverlayVisible() {
+        spaceOverlayVisible = !spaceOverlayVisible;
+    }
+
+    public static boolean isTimeOverlayVisible() {
+        return timeOverlayVisible;
+    }
+
+    public static void setTimeOverlayVisible(boolean visible) {
+        timeOverlayVisible = visible;
+    }
+
+    public static void toggleTimeOverlayVisible() {
+        timeOverlayVisible = !timeOverlayVisible;
     }
 
     public static ShipFirepowerRose getRoseForShip(ShipAPI ship) {
@@ -864,7 +897,24 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     /**
-     * Processes mouse events for the right-side "FIREPOWER: OFF/ON" toggle button on the Command View Window.
+     * Returns the Y coordinate (bottom of the 34px square icon box) for button index:
+     *   0 = Time Overlay (top)
+     *   1 = Space Overlay (middle)
+     *   2 = Firepower Overlay (bottom)
+     */
+    public static float getOverlayButtonY(float screenH, int buttonIndex) {
+        float centerMidY = screenH * BTN_Y_FRACTION;
+        // Button 1 (Space) is centered around centerMidY; Button 0 (Time) is above it; Button 2 (Firepower) is below it
+        return Math.round(centerMidY + (1 - buttonIndex) * BTN_VERTICAL_STRIDE);
+    }
+
+    public static float getOverlayButtonX(float screenW) {
+        return Math.round(screenW - BTN_WIDTH - BTN_RIGHT_MARGIN);
+    }
+
+    /**
+     * Processes mouse events for the 3 right-side Warroom square-bordered icon buttons
+     * (Time, Space, and Firepower) on the Command View Window.
      * Strictly ignores input on the Main Menu (TitleScreenState) or when the Command View Window is closed.
      */
     public static void processInputEvents(List<InputEventAPI> events) {
@@ -881,8 +931,7 @@ public class BattlefieldFirepowerEvaluator {
         if (!isCommandViewWindowActive(engine)) return;
         float screenW = Global.getSettings().getScreenWidth();
         float screenH = Global.getSettings().getScreenHeight();
-        float btnX = screenW - BTN_WIDTH - BTN_RIGHT_MARGIN;
-        float btnY = screenH * BTN_Y_FRACTION;
+        float btnX = getOverlayButtonX(screenW);
 
         for (InputEventAPI event : events) {
             if (event == null || event.isConsumed()) continue;
@@ -893,21 +942,31 @@ public class BattlefieldFirepowerEvaluator {
             if (event.isLMBDownEvent()) {
                 float mx = event.getX();
                 float my = event.getY();
-                if (mx >= btnX && mx <= btnX + BTN_WIDTH && my >= btnY && my <= btnY + BTN_HEIGHT) {
-                    event.consume();
-                    // Guard against double-firing in the same frame if both hooks see the event
-                    float nowReal = (engine != null)
-                            ? engine.getTotalElapsedTime(true)
-                            : -1f;
-                    if (nowReal < 0f || Math.abs(nowReal - lastToggleRealTime) > 0.05f) {
-                        lastToggleRealTime = nowReal;
-                        toggleOverlayVisible();
-                        try {
-                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
-                        } catch (Throwable ignored) {
+                if (mx >= btnX - 2f && mx <= btnX + BTN_WIDTH + 2f) {
+                    for (int idx = 0; idx < 3; idx++) {
+                        float btnY = getOverlayButtonY(screenH, idx);
+                        if (my >= btnY - 2f && my <= btnY + BTN_HEIGHT + 2f) {
+                            event.consume();
+                            float nowReal = (engine != null)
+                                    ? engine.getTotalElapsedTime(true)
+                                    : -1f;
+                            if (nowReal < 0f || Math.abs(nowReal - lastToggleRealTime) > 0.05f) {
+                                lastToggleRealTime = nowReal;
+                                if (idx == 0) {
+                                    toggleTimeOverlayVisible();
+                                } else if (idx == 1) {
+                                    toggleSpaceOverlayVisible();
+                                } else {
+                                    toggleOverlayVisible();
+                                }
+                                try {
+                                    Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
+                                } catch (Throwable ignored) {
+                                }
+                            }
+                            return;
                         }
                     }
-                    return;
                 }
             }
         }
@@ -1218,19 +1277,46 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     /**
-     * Renders the compact right-side toggle button ("FIREPOWER: OFF" / "FIREPOWER: ON")
-     * and, when enabled, a compact 3-line key underneath it.
+     * Renders the 3 textless Warroom square-bordered icon buttons on the right side of the Command View Window:
+     *   0 (Top):    Time Overlay      (icon_overlay_time.png)
+     *   1 (Middle): Space Overlay     (icon_overlay_space.png)
+     *   2 (Bottom): Firepower Overlay (icon_overlay_firepower.png)
+     * Styled identically to the square-bordered icon housings of "Full Assault!" and "Full Retreat!".
      */
     public static void renderToggleButtonAndLegendUI(float fade) {
         if (Global.getSettings() == null || fade <= 0.05f) return;
 
         float screenW = Global.getSettings().getScreenWidth();
         float screenH = Global.getSettings().getScreenHeight();
-        float btnX = screenW - BTN_WIDTH - BTN_RIGHT_MARGIN;
-        float btnY = screenH * BTN_Y_FRACTION;
+        float btnX = getOverlayButtonX(screenW);
 
-        boolean hovered = (lastMouseX >= btnX && lastMouseX <= btnX + BTN_WIDTH
-                && lastMouseY >= btnY && lastMouseY <= btnY + BTN_HEIGHT);
+        String[] iconPaths = new String[]{
+                TIME_ICON_PATH,
+                SPACE_ICON_PATH,
+                FIREPOWER_ICON_PATH
+        };
+        boolean[] activeStates = new boolean[]{
+                timeOverlayVisible,
+                spaceOverlayVisible,
+                overlayVisible
+        };
+
+        for (int idx = 0; idx < 3; idx++) {
+            float btnY = getOverlayButtonY(screenH, idx);
+            boolean active = activeStates[idx];
+            boolean hovered = (lastMouseX >= btnX - 2f && lastMouseX <= btnX + BTN_WIDTH + 2f
+                    && lastMouseY >= btnY - 2f && lastMouseY <= btnY + BTN_HEIGHT + 2f);
+            renderSingleWarroomSquareIconButton(btnX, btnY, iconPaths[idx], active, hovered, fade);
+        }
+    }
+
+    private static void renderSingleWarroomSquareIconButton(
+            float x,
+            float y,
+            String iconPath,
+            boolean active,
+            boolean hovered,
+            float fade) {
 
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glPushMatrix();
@@ -1238,112 +1324,132 @@ public class BattlefieldFirepowerEvaluator {
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
-        // Button background fill
-        if (overlayVisible) {
-            GL11.glColor4f(0.08f, 0.22f, 0.30f, (hovered ? 0.94f : 0.86f) * fade);
+        // 1. Subtle right-edge horizontal shadow/glow bar behind the bracket (matches Full Assault / Full Retreat)
+        if (active || hovered) {
+            GL11.glColor4f(0.18f, 0.52f, 0.68f, (active ? 0.36f : 0.22f) * fade);
         } else {
-            GL11.glColor4f(0.05f, 0.09f, 0.14f, (hovered ? 0.88f : 0.76f) * fade);
+            GL11.glColor4f(0.08f, 0.14f, 0.19f, 0.45f * fade);
         }
         GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2f(btnX, btnY);
-        GL11.glVertex2f(btnX + BTN_WIDTH, btnY);
-        GL11.glVertex2f(btnX + BTN_WIDTH, btnY + BTN_HEIGHT);
-        GL11.glVertex2f(btnX, btnY + BTN_HEIGHT);
+        GL11.glVertex2f(x - 2f, y - 2f);
+        GL11.glVertex2f(x + BTN_WIDTH + 20f, y - 2f);
+        GL11.glVertex2f(x + BTN_WIDTH + 20f, y + BTN_SQUARE_H + 2f);
+        GL11.glVertex2f(x - 2f, y + BTN_SQUARE_H + 2f);
         GL11.glEnd();
 
-        // Left status indicator bar
-        if (overlayVisible) {
-            GL11.glColor4f(0.25f, 0.92f, 1.00f, 0.95f * fade);
+        // 2. Outer Square Icon Frame (36x34px at x..x+36, y..y+34)
+        // Exact vanilla Warroom border color: RGB(54, 115, 142) when OFF; bright cyan when hovered/active
+        float br, bg, bb, ba;
+        if (active) {
+            br = 0.42f; bg = 0.90f; bb = 1.00f; ba = 0.98f * fade;
+        } else if (hovered) {
+            br = 0.35f; bg = 0.72f; bb = 0.88f; ba = 0.96f * fade;
         } else {
-            GL11.glColor4f(0.42f, 0.50f, 0.58f, 0.75f * fade);
+            br = 54f / 255f; bg = 115f / 255f; bb = 142f / 255f; ba = 0.95f * fade;
+        }
+
+        GL11.glColor4f(br, bg, bb, ba);
+        GL11.glBegin(GL11.GL_QUADS);
+        // Main 36x34 square frame with 1px chamfer on right corners (matching scanline y=149..182, x=1854..1890)
+        GL11.glVertex2f(x, y);
+        GL11.glVertex2f(x + BTN_SQUARE_W - 1f, y);
+        GL11.glVertex2f(x + BTN_SQUARE_W - 1f, y + BTN_SQUARE_H);
+        GL11.glVertex2f(x, y + BTN_SQUARE_H);
+        // Rightmost 1px vertical edge inset by 1px top & bottom
+        GL11.glVertex2f(x + BTN_SQUARE_W - 1f, y + 1f);
+        GL11.glVertex2f(x + BTN_SQUARE_W, y + 1f);
+        GL11.glVertex2f(x + BTN_SQUARE_W, y + BTN_SQUARE_H - 1f);
+        GL11.glVertex2f(x + BTN_SQUARE_W - 1f, y + BTN_SQUARE_H - 1f);
+        GL11.glEnd();
+
+        // 3. Inner 32x32 Dark Icon Cavity (x+2..x+34, y+1..y+33)
+        // Left border is 2px, top/bottom borders are 1px, right border is 2px
+        if (active) {
+            GL11.glColor4f(0.06f, 0.18f, 0.25f, 0.96f * fade);
+        } else if (hovered) {
+            GL11.glColor4f(0.05f, 0.11f, 0.15f, 0.96f * fade);
+        } else {
+            GL11.glColor4f(10f / 255f, 14f / 255f, 17f / 255f, 0.96f * fade);
         }
         GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2f(btnX + 3f, btnY + 4f);
-        GL11.glVertex2f(btnX + 8f, btnY + 4f);
-        GL11.glVertex2f(btnX + 8f, btnY + BTN_HEIGHT - 4f);
-        GL11.glVertex2f(btnX + 3f, btnY + BTN_HEIGHT - 4f);
+        GL11.glVertex2f(x + 2f, y + 1f);
+        GL11.glVertex2f(x + 34f, y + 1f);
+        GL11.glVertex2f(x + 34f, y + 33f);
+        GL11.glVertex2f(x + 2f, y + 33f);
         GL11.glEnd();
 
-        // Button border
-        GL11.glLineWidth(hovered ? 1.8f : 1.2f);
-        if (overlayVisible) {
-            GL11.glColor4f(0.32f, 0.88f, 1.00f, (hovered ? 1.0f : 0.85f) * fade);
-        } else {
-            GL11.glColor4f(0.45f, 0.58f, 0.68f, (hovered ? 0.90f : 0.65f) * fade);
-        }
-        GL11.glBegin(GL11.GL_LINE_LOOP);
-        GL11.glVertex2f(btnX, btnY);
-        GL11.glVertex2f(btnX + BTN_WIDTH, btnY);
-        GL11.glVertex2f(btnX + BTN_WIDTH, btnY + BTN_HEIGHT);
-        GL11.glVertex2f(btnX, btnY + BTN_HEIGHT);
-        GL11.glEnd();
-
-        // Compact legend box below button when ON
-        float legH = 54f;
-        float legY = btnY - legH - 4f;
-        if (overlayVisible) {
-            GL11.glColor4f(0.04f, 0.08f, 0.12f, 0.80f * fade);
-            GL11.glBegin(GL11.GL_QUADS);
-            GL11.glVertex2f(btnX, legY);
-            GL11.glVertex2f(btnX + BTN_WIDTH, legY);
-            GL11.glVertex2f(btnX + BTN_WIDTH, legY + legH);
-            GL11.glVertex2f(btnX, legY + legH);
-            GL11.glEnd();
-
+        // Subtle inner active rim highlight inside the 32x32 cavity when ON
+        if (active) {
             GL11.glLineWidth(1.0f);
-            GL11.glColor4f(0.25f, 0.65f, 0.82f, 0.55f * fade);
+            GL11.glColor4f(0.45f, 0.95f, 1.00f, 0.55f * fade);
             GL11.glBegin(GL11.GL_LINE_LOOP);
-            GL11.glVertex2f(btnX, legY);
-            GL11.glVertex2f(btnX + BTN_WIDTH, legY);
-            GL11.glVertex2f(btnX + BTN_WIDTH, legY + legH);
-            GL11.glVertex2f(btnX, legY + legH);
+            GL11.glVertex2f(x + 2.5f, y + 1.5f);
+            GL11.glVertex2f(x + 33.5f, y + 1.5f);
+            GL11.glVertex2f(x + 33.5f, y + 32.5f);
+            GL11.glVertex2f(x + 2.5f, y + 32.5f);
             GL11.glEnd();
         }
+
+        // 4. Right-Side Warroom Structural C-Bracket (matching Full Assault / Full Retreat x=1865..1900, y=147..184)
+        // Top lip (y + 35..36, x + 11..44), Bottom lip (y - 2..-1, x + 11..44), Right vertical bar (x + 40..46, y - 1..35)
+        GL11.glColor4f(br, bg, bb, ba);
+        GL11.glBegin(GL11.GL_QUADS);
+        // Top horizontal bracket lip (1px gap above square top border)
+        GL11.glVertex2f(x + 11f, y + BTN_SQUARE_H + 1f);
+        GL11.glVertex2f(x + 44f, y + BTN_SQUARE_H + 1f);
+        GL11.glVertex2f(x + 44f, y + BTN_SQUARE_H + 2f);
+        GL11.glVertex2f(x + 11f, y + BTN_SQUARE_H + 2f);
+        // Bottom horizontal bracket lip (1px gap below square bottom border)
+        GL11.glVertex2f(x + 11f, y - 2f);
+        GL11.glVertex2f(x + 44f, y - 2f);
+        GL11.glVertex2f(x + 44f, y - 1f);
+        GL11.glVertex2f(x + 11f, y - 1f);
+        // Right inner shoulder connecting top/bottom lips at x + 38..40
+        GL11.glVertex2f(x + 38f, y + BTN_SQUARE_H);
+        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H);
+        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H + 1f);
+        GL11.glVertex2f(x + 38f, y + BTN_SQUARE_H + 1f);
+
+        GL11.glVertex2f(x + 38f, y - 1f);
+        GL11.glVertex2f(x + 45f, y - 1f);
+        GL11.glVertex2f(x + 45f, y);
+        GL11.glVertex2f(x + 38f, y);
+        // Main vertical right bracket bar (x + 40..45, y..y+34, 2px dark gap from square right edge x+36..38)
+        GL11.glVertex2f(x + 40f, y);
+        GL11.glVertex2f(x + 45f, y);
+        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H);
+        GL11.glVertex2f(x + 40f, y + BTN_SQUARE_H);
+        GL11.glEnd();
+
+        // Outer 1px bevel column on the right edge of the bracket (RGB 46, 93, 115)
+        GL11.glColor4f(br * 0.82f, bg * 0.82f, bb * 0.82f, ba);
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glVertex2f(x + 45f, y);
+        GL11.glVertex2f(x + 46f, y);
+        GL11.glVertex2f(x + 46f, y + BTN_SQUARE_H);
+        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H);
+        GL11.glEnd();
 
         GL11.glPopMatrix();
         GL11.glPopAttrib();
 
-        // Render warroom Firepower icon (Icon A: vertically cascading triangles)
-        float iconAreaLeft = 10f;
+        // 5. Render the pure graphical Warroom icon centered inside the 32x32 square cavity (NO text)
         try {
-            SpriteAPI fpSprite = Global.getSettings().getSprite(FIREPOWER_ICON_PATH);
-            if (fpSprite != null) {
-                float iconSz = 20f;
-                fpSprite.setSize(iconSz, iconSz);
-                fpSprite.setColor(overlayVisible
-                        ? new Color(110, 240, 255, 255)
-                        : new Color(175, 198, 218, 220));
-                fpSprite.setAlphaMult(fade);
-                fpSprite.renderAtCenter(btnX + 20f, btnY + BTN_HEIGHT * 0.5f);
-                iconAreaLeft = 32f;
+            SpriteAPI iconSprite = Global.getSettings().getSprite(iconPath);
+            if (iconSprite != null) {
+                iconSprite.setSize(BTN_ICON_SIZE, BTN_ICON_SIZE);
+                if (active) {
+                    iconSprite.setColor(new Color(175, 245, 255, 255));
+                } else if (hovered) {
+                    iconSprite.setColor(new Color(170, 222, 255, 245));
+                } else {
+                    // Matches unselected Full Assault / Full Retreat icon tint RGB(122, 160, 184)
+                    iconSprite.setColor(new Color(122, 160, 184, 235));
+                }
+                iconSprite.setAlphaMult(fade);
+                iconSprite.renderAtCenter(x + 18f, y + 17f);
             }
         } catch (Throwable ignored) {
-        }
-
-        // Render button label text
-        String btnText = overlayVisible ? "FIREPOWER: ON" : "FIREPOWER: OFF";
-        Color textCol = overlayVisible
-                ? new Color(165, 245, 255, 245)
-                : new Color(190, 205, 220, 225);
-        LabelAPI btnLabel = getCachedLabel("fp_btn_lbl", btnText, Fonts.DEFAULT_SMALL, textCol);
-        if (btnLabel != null) {
-            float tw = btnLabel.computeTextWidth(btnText);
-            float th = btnLabel.computeTextHeight(btnText);
-            float tx = btnX + iconAreaLeft + (BTN_WIDTH - iconAreaLeft - tw) * 0.5f;
-            float ty = btnY + (BTN_HEIGHT - th) * 0.5f + 2f;
-            drawLabel(btnLabel, btnText, tx, ty, fade);
-        }
-
-        if (overlayVisible) {
-            String s1 = "Outer: Sustained DoT";
-            String s2 = "Mid/Core: 5s DoT / Alpha";
-            String s3 = "Dashed: Point Defense";
-            LabelAPI l1 = getCachedLabel("fp_leg_1", s1, Fonts.DEFAULT_SMALL, new Color(130, 215, 250, 230));
-            LabelAPI l2 = getCachedLabel("fp_leg_2", s2, Fonts.DEFAULT_SMALL, new Color(255, 205, 115, 230));
-            LabelAPI l3 = getCachedLabel("fp_leg_3", s3, Fonts.DEFAULT_SMALL, new Color(230, 195, 255, 230));
-            if (l1 != null) drawLabel(l1, s1, btnX + 6f, legY + legH - 18f, fade * 0.92f);
-            if (l2 != null) drawLabel(l2, s2, btnX + 6f, legY + legH - 34f, fade * 0.92f);
-            if (l3 != null) drawLabel(l3, s3, btnX + 6f, legY + legH - 50f, fade * 0.92f);
         }
     }
 
