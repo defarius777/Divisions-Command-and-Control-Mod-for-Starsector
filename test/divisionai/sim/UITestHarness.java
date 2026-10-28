@@ -506,9 +506,9 @@ public class UITestHarness {
         String pdmJava = new String(Files.readAllBytes(new File("src/divisionai/PermanentDivisionManager.java").toPath()), StandardCharsets.UTF_8);
         boolean itemBOk = defaultAllOn
                 && cellDisabledOnlyForDestroyer
-                && docDialogJava.contains("AUTO-ASSIGNER DIVISION SCHEMES — BY CAPABILITY & HULL TYPE")
-                && docDialogJava.contains("SCHEMES BY CAPABILITY")
-                && docDialogJava.contains("SCHEMES BY HULL TYPE")
+                && docDialogJava.contains("AUTO-ASSIGNER SCHEMES")
+                && docDialogJava.contains("BY CAPABILITY")
+                && docDialogJava.contains("BY HULL CLASS")
                 && docDialogJava.contains("SET_AA_SCHEME:")
                 && pdmJava.contains("classifyFleetMemberArchetype(FleetMemberAPI member, FleetDoctrineConfig doctrine)");
         res.record(
@@ -546,9 +546,8 @@ public class UITestHarness {
         String editorJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionEditorDialog.java").toPath()), StandardCharsets.UTF_8);
 
         // Item A: Buttons in Fleet Doctrine & Nomenclature screens to apply changes to player's personal faction fleets
-        boolean itemAButtonsOk = docDialogJava.contains("\"Apply Doctrine to Faction Fleets\"")
+        boolean itemAButtonsOk = docDialogJava.contains("\"Apply to Colony Fleets\"")
                 && docDialogJava.contains("\"APPLY_DOCTRINE_TO_FACTION_FLEETS\"")
-                && docDialogJava.contains("\"Apply Nomenclature to Faction\"")
                 && docDialogJava.contains("\"APPLY_NAMING_TO_FACTION_FLEETS\"")
                 && docDialogJava.contains("applyPlayerDoctrineToPersonalFactionFleets")
                 && docDialogJava.contains("applyPlayerNomenclatureToPersonalFactionFleets")
@@ -1275,14 +1274,20 @@ public class UITestHarness {
         boolean reasonsStrippedInNonVerbose = hasParentheticalReasonOnHud[0]
                 && !hasParentheticalReasonOnHud[1]
                 && !hasParentheticalReasonOnHud[2];
+        boolean mediumAliasAndAlternativesOk = (DivisionAISettings.ChatterVerbosity.fromSettingString("Medium")
+                == DivisionAISettings.ChatterVerbosity.STANDARD)
+                && !"close and engage".equals(DivisionModel.DivisionIntentType.CLOSE_AND_ENGAGE.mediumPhrase)
+                && !"close and engage".equals(DivisionModel.DivisionIntentType.CLOSE_AND_ENGAGE.minimalPhrase)
+                && "launching ToT missile strike on".equals(DivisionModel.DivisionIntentType.TOT_MISSILE_STRIKE.mediumPhrase)
+                && "ToT Salvo ->".equals(DivisionModel.DivisionIntentType.TOT_MISSILE_STRIKE.minimalPhrase);
 
         res.record(
-                csvHasRadio && allLogsPreserved && monotonicReduction && reasonsStrippedInNonVerbose,
-                "Combat Chatter Verbosity modes (Verbose, Standard, Minimal, OTC Only, Off) in Mod Settings",
+                csvHasRadio && allLogsPreserved && monotonicReduction && reasonsStrippedInNonVerbose && mediumAliasAndAlternativesOk,
+                "Combat Chatter Verbosity modes (Verbose, Standard/Medium, Minimal, OTC Only, Off) in Mod Settings",
                 String.format(
                         Locale.ROOT,
-                        "csvHasRadio=%b, starsectorLogLines=%d across all modes, hudLines=[Verbose=%d, Standard=%d, Minimal=%d, OTC Only=%d, Off=%d], conciseNoReasonInStandard=%b",
-                        csvHasRadio, logCounts[0], hudCounts[0], hudCounts[1], hudCounts[2], hudCounts[3], hudCounts[4], reasonsStrippedInNonVerbose));
+                        "csvHasRadio=%b, starsectorLogLines=%d across all modes, hudLines=[Verbose=%d, Standard=%d, Minimal=%d, OTC Only=%d, Off=%d], conciseNoReasonInStandard=%b, reducedAlts=%b",
+                        csvHasRadio, logCounts[0], hudCounts[0], hudCounts[1], hudCounts[2], hudCounts[3], hudCounts[4], reasonsStrippedInNonVerbose, mediumAliasAndAlternativesOk));
     }
 
     private static com.fs.starfarer.api.characters.PersonAPI createMockCaptain(final String aiCoreId) {
@@ -1962,7 +1967,14 @@ public class UITestHarness {
         boolean stage1Ok = (cDiv1.voidstrikeStage == 1) && (cDiv1.voidstrikeMarshalPoint.y > -1500f);
         DivisionCommanderAI.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 105f);
         boolean stage2Ok = (cDiv1.voidstrikeStage == 2);
-        boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk && stage0Ok && stage1Ok && stage2Ok;
+        boolean campaignUiSweepOk = "F. Wedge".equals(DivisionFormation.FORWARD_WEDGE.shortName)
+                && "R. Wedge".equals(DivisionFormation.REVERSE_WEDGE.shortName)
+                && "Ech. L".equals(DivisionFormation.ECHELON_LEFT.shortName)
+                && "Ech. R".equals(DivisionFormation.ECHELON_RIGHT.shortName)
+                && "F. Wedge".equals(PermanentDivisionManager.SquadronFormation.WEDGE.shortName)
+                && "R. Wedge".equals(PermanentDivisionManager.SquadronFormation.REVERSE_WEDGE.shortName);
+        boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk
+                && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk;
 
         res.record(
                 omegaCoreRecognized && allTenIconsOk && inheritedFromDoctrineOk && customOverrideOk

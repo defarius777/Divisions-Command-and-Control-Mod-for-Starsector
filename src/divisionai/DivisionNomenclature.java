@@ -60,11 +60,11 @@ public final class DivisionNomenclature {
     }
 
     public enum NumberingStyle {
-        ARABIC("Arabic (1, 2, 3)", "Appends Arabic numerals (Battle Div 1, Battle Div 2)."),
-        ROMAN("Roman (I, II, III)", "Appends Roman numerals (Battle Div I, Battle Div II)."),
-        ORDINAL_PREFIX("Ordinal (1st, 2nd, 3rd)", "Prepends ordinal numbers (1st Battle Div, 2nd Battle Div)."),
-        PHONETIC("Callsign (Alpha, Beta)", "Appends phonetic callsigns (Battle Div Alpha, Battle Div Beta)."),
-        NONE("No Numbering", "Uses only the division base title without a number.");
+        ARABIC("Arabic (1, 2)", "Battle Div 1, Battle Div 2."),
+        ROMAN("Roman (I, II)", "Battle Div I, Battle Div II."),
+        ORDINAL_PREFIX("Ordinal (1st, 2nd)", "1st Battle Div, 2nd Battle Div."),
+        PHONETIC("Callsign (Alpha)", "Battle Div Alpha, Battle Div Beta."),
+        NONE("None", "Base title only.");
 
         public final String displayName;
         public final String summary;
@@ -87,63 +87,63 @@ public final class DivisionNomenclature {
 
     public enum PlayerNamingPreset {
         NAVAL_STANDARD(
-                "Naval Standard (Battle, Carrier, Cruiser, Destroyer, Frigate)",
-                "Battle Div, Carrier Div, Cruiser Div, Destroyer Div, Frigate Div, Phase Div.",
+                "Naval Standard",
+                "Battle Div, Carrier Div, Line Cruiser Div, Destroyer Div, Frigate Div.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ARABIC),
         CLASSIC_NAVAL(
-                "Detailed Naval (Battleship, Fleet/Light/Escort Carrier, Strike Cruiser)",
-                "Battleship Div, Fleet/Light/Escort Carrier Div, Strike Cruiser Div, Destroyer Div.",
+                "Detailed Naval",
+                "Battleship Div, Fleet/Light/Escort Carrier Div, Strike Cruiser Div.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ARABIC),
         DOMAIN_ARMADA(
-                "Domain / Hegemony Armada (Battle Line, Squadron, Flotilla, Picket)",
-                "Battle Line, Carrier Wing, Cruiser Squadron, Destroyer Flotilla, Frigate Picket.",
+                "Domain / Hegemony Armada",
+                "Battle Line, Carrier Wing, Cruiser Squadron, Destroyer Flotilla, Picket.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         TRITACHYON_CORPORATE(
-                "Tri-Tachyon Corporate (Asset Group, Assurance Unit, Special Affairs)",
-                "Capital Asset Group, Flight Group, Cruiser Assurance Unit, Phase Special Affairs.",
+                "Tri-Tachyon Corporate",
+                "Capital Asset Group, Flight Group, Assurance Unit, Special Affairs.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.PHONETIC),
         PERSEAN_NAVARCHY(
-                "Persean League Navarchy (Phalanx, Mora, Lochos, Peltast)",
-                "Battle Phalanx, Carrier Group, Cruiser Mora, Destroyer Lochos, Frigate Peltast.",
+                "Persean League Navarchy",
+                "Battle Phalanx, Carrier Group, Cruiser Mora, Destroyer Lochos, Peltast.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         SINDRIAN_GUARD(
-                "Sindrian Diktat / Lion's Guard (Executor Line, Solar Squadron)",
-                "Executor Line, Solar Carrier Wing, Cruiser Phalanx, Vanguard Flotilla, Picket Guard.",
+                "Sindrian Diktat / Lion's Guard",
+                "Executor Line, Solar Wing, Cruiser Phalanx, Vanguard Flotilla, Picket Guard.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         LUDDIC_ARMADA(
-                "Luddic Armada (Hallowed Bastion, Righteous Hammer, Watchers Picket)",
-                "Hallowed Bastion, Ark Host, Righteous Hammer, Sword Flotilla, Watchers Picket.",
+                "Luddic Armada",
+                "Hallowed Bastion, Ark Host, Righteous Hammer, Sword Flotilla, Watchers.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         PIRATE_WOLFPACK(
-                "Pirate / Free Captain (Dreadnought Pack, Raider Pack, Wolfpack)",
-                "Dreadnought Pack, Flattop Pack, Raider Pack, Hunter Pack, Wolfpack, Ghost Pack.",
+                "Pirate / Free Captain",
+                "Dreadnought Pack, Flattop Pack, Raider Pack, Hunter Pack, Wolfpack.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ORDINAL_PREFIX),
         REMNANT_ORDO(
-                "Remnant AI Echelons (Sub-Ordo & Fragment)",
-                "Heavy Sub-Ordo, Carrier Sub-Ordo, Cruiser Sub-Ordo, Destroyer Fragment, Frigate Fragment.",
+                "Remnant AI Echelons",
+                "Heavy Sub-Ordo, Carrier Sub-Ordo, Cruiser Sub-Ordo, Fragment.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN),
         POST_AI_WAR_UNKNOWN(
-                "Post-AI War AI (ORDO COGITATOR/MASTER — 'UNKNOWN')",
-                "OTC is 'ORDO COGITATOR/MASTER'; all divisions display 'UNKNOWN'.",
+                "Post-AI War ('UNKNOWN')",
+                "OTC is 'ORDO COGITATOR/MASTER'; divisions display 'UNKNOWN'.",
                 NomenclatureCategory.POST_AI_WAR,
                 NumberingStyle.NONE),
         THREAT_CORRUPTED(
-                "The Threat (<<UNKNOWN?? FRAGMENT COMPILER>> — Corrupted SWARM)",
-                "OTC is '<<UNKNOWN?? FRAGMENT COMPILER>>'; divisions display corrupted SWARM text.",
+                "The Threat (Corrupted SWARM)",
+                "OTC is '<<UNKNOWN?? FRAGMENT COMPILER>>'; corrupted SWARM text.",
                 NomenclatureCategory.THREAT_SWARM,
                 NumberingStyle.NONE),
         ABYSSAL_ERROR(
-                "Abyssal / Otherworldly ('ERROR' Everywhere)",
-                "OTC and all divisions display 'ERROR' everywhere.",
+                "Abyssal ('ERROR')",
+                "OTC and all divisions display 'ERROR'.",
                 NomenclatureCategory.ABYSSAL_ERROR,
                 NumberingStyle.NONE);
 

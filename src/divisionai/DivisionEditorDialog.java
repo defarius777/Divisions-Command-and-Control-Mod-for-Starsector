@@ -426,7 +426,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET ORGANIZATION", baseColor);
         header.addPara(
-                "Selected: %s  ·  Drag or Right-Click ships to assign/unassign  ·  Left-Click division ship to set Flagship",
+                "Selected: %s  ·  Drag / Right-Click: Assign or Unassign  ·  Left-Click: Set Flagship",
                 4f,
                 highlight,
                 selectedDivName);
@@ -1002,7 +1002,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         top.addCustom(archRow, 4f);
 
         top.addPara(
-                "Posture: %s — %s",
+                "%s — %s",
                 3f,
                 positive,
                 spec.doctrine.displayName,
@@ -1044,11 +1044,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         addDivisionSpacingRow(
                 leftCol,
                 colWidth - 16f,
-                String.format(
-                        Locale.ROOT,
-                        "Ship Spacing: %du (%s)",
-                        effIntra,
-                        spec.customStationSpacing != null ? "Custom" : "Inherited"),
+                String.format(Locale.ROOT, "Ship Spacing: %du", effIntra),
                 effIntra,
                 50,
                 PermanentDivisionManager.MIN_STATION_SPACING_UNITS,
@@ -1063,11 +1059,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         addDivisionSpacingRow(
                 leftCol,
                 colWidth - 16f,
-                String.format(
-                        Locale.ROOT,
-                        "Division Interval: %du (%s)",
-                        effInter,
-                        spec.customDivisionInterval != null ? "Custom" : "Inherited"),
+                String.format(Locale.ROOT, "Division Interval: %du", effInter),
                 effInter,
                 100,
                 PermanentDivisionManager.MIN_DIVISION_INTERVAL_UNITS,
@@ -1154,7 +1146,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         // 7. Carrier & Wing Voidstrike Behavior Settings (Items C, D, E, D2, F, G, H)
         leftCol.addSectionHeading(
-                "Carrier & Wing Voidstrike Doctrine",
+                "Strike Craft & Voidstrike",
                 highlight,
                 darkColor,
                 Alignment.LMID,
@@ -1210,7 +1202,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         addDivisionSquadronFormationRow(
                 leftCol,
                 colWidth - 16f,
-                "Fighter Voidstrike",
+                "Fighter Strike",
                 effFtrVsFm,
                 SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
                 spec.customFighterVoidstrikeFormation != null,
@@ -1236,7 +1228,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         addDivisionSquadronFormationRow(
                 leftCol,
                 colWidth - 16f,
-                "Bomber Voidstrike",
+                "Bomber Strike",
                 effBmbVsFm,
                 SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
                 spec.customBomberVoidstrikeFormation != null,
@@ -1262,7 +1254,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 Alignment.MID,
                 8f);
         leftCol.addPara(
-                "Left-Click: Set Flagship  ·  Right-Click or Drag: Unassign",
+                "Left-Click: Flagship  ·  Right-Click / Drag: Unassign",
                 gray,
                 3f);
 
@@ -1760,15 +1752,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        String statusTag = isCustom
-                ? ((longestGunRange > 0 && Math.abs(effStandoff - longestGunRange) <= 25) ? "Auto" : "Custom")
-                : "Inherited";
-        String label = String.format(
-                Locale.ROOT,
-                "Standoff: %du (%s · Guns %du)",
-                effStandoff,
-                statusTag,
-                longestGunRange);
+        String label = longestGunRange > 0
+                ? String.format(Locale.ROOT, "Standoff: %du (Guns %du)", effStandoff, longestGunRange)
+                : String.format(Locale.ROOT, "Standoff: %du", effStandoff);
         rowUi.addPara(label, 0f, isCustom ? highlight : baseColor, label).getPosition().inTL(4f, 4f);
 
         float x = CONTROL_COL_X;
@@ -1816,11 +1802,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        String labelText = String.format(
-                Locale.ROOT,
-                "Line Station: %s (%s)",
-                effSpace.displayName,
-                isCustom ? "Custom" : "Inherited");
+        String labelText = "Line Station: " + effSpace.displayName;
         rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
 
         float x = CONTROL_COL_X;
@@ -1878,11 +1860,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        String labelText = String.format(
-                Locale.ROOT,
-                "Movement Stickiness: %s (%s)",
-                effStickiness.displayName,
-                isCustom ? "Custom" : "Inherited");
+        String labelText = "Cohesion: " + effStickiness.displayName;
         rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
 
         float x = CONTROL_COL_X;
@@ -1939,11 +1917,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        String labelText = String.format(
-                Locale.ROOT,
-                "Target Observance: %s (%s)",
-                effObs.displayName,
-                isCustom ? "Custom" : "Inherited");
+        String labelText = "Strike Focus: " + effObs.displayName;
         rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
 
         float x = CONTROL_COL_X;
@@ -2001,11 +1975,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        String labelText = String.format(
-                Locale.ROOT,
-                "Deck/Multi Strikes: %s (%s)",
-                effCoord.displayName,
-                isCustom ? "Custom" : "Inherited");
+        String labelText = "Strike Launch: " + effCoord.displayName;
         rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
 
         float x = CONTROL_COL_X;
@@ -2094,12 +2064,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         });
 
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
-        String labelText = String.format(
-                Locale.ROOT,
-                "%s: %s (%s)",
-                shortTitle,
-                effFormation.displayName,
-                isCustom ? "Custom" : "Inherited");
+        String labelText = shortTitle + ": " + effFormation.shortName;
         rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
 
         String inhAct = actionPrefix + "INHERIT";
@@ -2158,11 +2123,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        String labelText = String.format(
-                Locale.ROOT,
-                "Voidstrike Depth: %d (%s)",
-                effDepth,
-                isCustom ? "Custom" : "Inherited");
+        String labelText = "Strike Depth: " + effDepth;
         rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
 
         float x = CONTROL_COL_X - 24f;
@@ -2266,15 +2227,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         rowPanelRef[0] = rowPanel;
 
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
-        String labelText = String.format(
-                Locale.ROOT,
-                "Formation: %s (%s)",
-                effFormation.shortName,
-                isCustom ? "Custom" : "Inherited");
+        String labelText = "Formation: " + effFormation.shortName;
         rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
-
-        String summaryShort = truncateText(effFormation.summary, 42);
-        rowUi.addPara(summaryShort, 0f, Misc.getGrayColor()).getPosition().inTL(CONTROL_COL_X + 22f, 4f);
 
         String inhAct = "DIV_FORMATION:INHERIT";
         ButtonAPI bInh = registerButton(
@@ -2344,19 +2298,19 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         rowUi.addPara(labelText, 0f, baseColor).getPosition().inTL(4f, 4f);
 
         String toggleAct = "TOGGLE_DD:" + dropdownKey;
-        String prefix = isCustom ? "" : "[Doctrine] ";
-        String btnText = (expanded ? "[^] " : "[v] ") + prefix + effMission.dropdownLabel;
+        String btnText = (expanded ? "[^] " : "[v] ") + effMission.dropdownLabel;
         ButtonAPI bToggle = registerButton(
-                rowUi.addButton(btnText, toggleAct, activeColor, darkColor, Alignment.LMID, CutStyle.TL_BR, 286f, 21f, 0f),
+                rowUi.addButton(btnText, toggleAct, isCustom ? activeColor : baseColor, darkColor, Alignment.LMID, CutStyle.TL_BR, 286f, 21f, 0f),
                 toggleAct);
         if (expanded) bToggle.highlight();
         bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
 
         String stationTag = (effMission.autoLineStation != null)
-                ? ("Station: " + effMission.autoLineStation.displayName
-                + (effMission.carrierSpecific ? " (Carrier-Only)" : ""))
-                : (effMission.carrierSpecific ? "Carrier-Only" : "");
-        rowUi.addPara(stationTag, 0f, gray).getPosition().inTL(CONTROL_COL_X + 294f, 4f);
+                ? effMission.autoLineStation.displayName
+                : "";
+        if (!stationTag.isEmpty()) {
+            rowUi.addPara(stationTag, 0f, gray).getPosition().inTL(CONTROL_COL_X + 294f, 4f);
+        }
 
         rowUi.setHeightSoFar(26f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
@@ -2369,7 +2323,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             String inhAct = actionPrefix + "INHERIT";
             ButtonAPI bInh = registerButton(
                     inhUi.addButton(
-                            (!isCustom ? "* " : "   ") + "Inherit Fleet Doctrine Default",
+                            (!isCustom ? "* " : "   ") + "Inherit Doctrine Default",
                             inhAct,
                             !isCustom ? activeColor : baseColor,
                             darkColor,
@@ -2403,9 +2357,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
                 String selAct = actionPrefix + opt.name();
                 String spaceHint = (opt.autoLineStation != null)
-                        ? ("[" + opt.autoLineStation.displayName + "]"
-                        + (opt.carrierSpecific ? " Carrier-Only" : ""))
-                        : (opt.carrierSpecific ? "Carrier-Only" : "");
+                        ? opt.autoLineStation.displayName
+                        : "";
                 ButtonAPI bOpt = registerButton(
                         optUi.addButton(
                                 (selected ? "* " : "   ") + opt.dropdownLabel,

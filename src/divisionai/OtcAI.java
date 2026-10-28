@@ -457,8 +457,10 @@ public class OtcAI {
             } else if (div.archetype == DivisionArchetype.CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
                 mainScore *= 1.35f;
+            } else if (div.archetype == DivisionArchetype.CARRIER_GROUP) {
+                mainScore *= 0.35f;
             } else if (div.archetype.isCarrierArchetype()) {
-                mainScore *= 0.55f;
+                mainScore *= 0.12f;
             }
             // The Main Effort anchors the line, so prefer divisions whose mission keeps them there
             DivisionMissionType mission = DivisionCommanderAI.resolveActiveMission(div, now);

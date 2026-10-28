@@ -79,6 +79,9 @@ public class DivisionAISettings {
         public static ChatterVerbosity fromSettingString(String raw) {
             if (raw == null) return VERBOSE;
             String trimmed = raw.trim();
+            if ("Medium".equalsIgnoreCase(trimmed)) {
+                return STANDARD;
+            }
             for (ChatterVerbosity v : values()) {
                 if (v.displayName.equalsIgnoreCase(trimmed) || v.name().equalsIgnoreCase(trimmed)) {
                     return v;

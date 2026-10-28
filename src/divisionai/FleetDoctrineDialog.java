@@ -236,7 +236,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET DOCTRINE", baseColor);
         header.addPara(
-                "OTC command authority, default division spacing & missions, hull limits (max %s/div), and fleet naming.",
+                "OTC command, division defaults, auto-assigner, hull limits (max %s/div), and nomenclature.",
                 3f,
                 highlight,
                 String.valueOf(PermanentDivisionManager.MAX_DIVISION_SIZE));
@@ -404,12 +404,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             CustomPanelAPI factionBar = Global.getSettings().createCustom(factionBarW, 30f, subPanelPlugin);
             TooltipMakerAPI fbUi = factionBar.createUIElement(factionBarW, 30f, false);
             String statusNote = lastAppliedDoctrineFleetCount >= 0
-                    ? ("Applied to personal faction (" + lastAppliedDoctrineFleetCount + " colony fleet(s) reinitialized).")
-                    : "Also apply this Fleet Doctrine to your personal faction's colony fleets (excludes commissioned preset faction worlds).";
+                    ? ("Applied to personal faction (" + lastAppliedDoctrineFleetCount + " colony fleet(s)).")
+                    : "Apply this doctrine to your personal colony fleets.";
             fbUi.addPara(statusNote, 0f, lastAppliedDoctrineFleetCount >= 0 ? positive : gray).getPosition().inTL(6f, 6f);
             ButtonAPI bApplyDocFaction = registerButton(
                     fbUi.addButton(
-                            "Apply Doctrine to Faction Fleets",
+                            "Apply to Colony Fleets",
                             "APPLY_DOCTRINE_TO_FACTION_FLEETS",
                             highlight,
                             darkColor,
@@ -427,7 +427,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.BATTLE_GROUP_COMMAND) {
             body.addSectionHeading(
-                    "OTC COMMAND & TACTICAL PLAYS",
+                    "OTC COMMAND & PLAYS",
                     highlight,
                     darkColor,
                     Alignment.LMID,
@@ -457,15 +457,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.DIVISION_MODIFIERS) {
             body.addSectionHeading(
-                    "DIVISION DEFAULTS — SPACING, STANDOFF & MISSIONS",
+                    "DIVISION DEFAULTS",
                     highlight,
                     darkColor,
                     Alignment.LMID,
                     4f);
-            body.addPara(
-                    "Defaults inherited by divisions of each type unless overridden in Fleet Organization.",
-                    3f,
-                    gray);
 
             // Opening Mission Duration (30s - 60s)
             addOpeningDurationRow(
@@ -488,10 +484,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
                 String dtTitle = String.format(
                         Locale.ROOT,
-                        "%s  ·  %s  ·  %s  ·  %du / %du / %du standoff  ·  %s -> %s",
+                        "%s  ·  %s  ·  %s  ·  %du / %du / %du  ·  %s -> %s",
                         dt.displayName.toUpperCase(Locale.ROOT),
                         currLineStation.displayName,
-                        currFormation.displayName,
+                        currFormation.shortName,
                         currSpacing,
                         currInter,
                         currStandoff,
@@ -559,7 +555,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addFormationSelectorRow(
                         body,
                         bodyWidth - 16f,
-                        "Formation: " + currFormation.displayName,
+                        "Formation: " + currFormation.shortName,
                         currFormation,
                         "SET_FORMATION:" + dt.name() + ":",
                         baseColor,
@@ -571,7 +567,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addMovementStickinessRow(
                         body,
                         bodyWidth - 16f,
-                        "Movement Stickiness: " + currStickiness.displayName,
+                        "Cohesion: " + currStickiness.displayName,
                         currStickiness,
                         "SET_STICKINESS:" + dt.name() + ":",
                         baseColor,
@@ -619,7 +615,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addVoidstrikeObservanceRow(
                         body,
                         bodyWidth - 16f,
-                        "Voidstrike Target Observance: " + currVsObs.displayName,
+                        "Strike Focus: " + currVsObs.displayName,
                         currVsObs,
                         "SET_VS_OBS:" + dt.name() + ":",
                         baseColor,
@@ -630,7 +626,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addVoidstrikeCoordinationRow(
                         body,
                         bodyWidth - 16f,
-                        "Deck & Multi-Div Strikes: " + currVsCoord.displayName,
+                        "Strike Launch: " + currVsCoord.displayName,
                         currVsCoord,
                         "SET_VS_COORD:" + dt.name() + ":",
                         baseColor,
@@ -641,7 +637,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addSquadronFormationRow(
                         body,
                         bodyWidth - 16f,
-                        "Fighter Sqdn Formation: " + currFtrFm.displayName,
+                        "Fighter Form.: " + currFtrFm.shortName,
                         currFtrFm,
                         SquadronFormation.FIGHTER_GENERAL_OPTIONS,
                         "SET_FTR_FM:" + dt.name() + ":",
@@ -652,7 +648,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addSquadronFormationRow(
                         body,
                         bodyWidth - 16f,
-                        "Fighter Voidstrike Form.: " + currFtrVsFm.displayName,
+                        "Fighter Strike: " + currFtrVsFm.shortName,
                         currFtrVsFm,
                         SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
                         "SET_FTR_VS_FM:" + dt.name() + ":",
@@ -663,7 +659,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addSquadronFormationRow(
                         body,
                         bodyWidth - 16f,
-                        "Bomber Sqdn Formation: " + currBmbFm.displayName,
+                        "Bomber Form.: " + currBmbFm.shortName,
                         currBmbFm,
                         SquadronFormation.BOMBER_GENERAL_OPTIONS,
                         "SET_BMB_FM:" + dt.name() + ":",
@@ -674,7 +670,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addSquadronFormationRow(
                         body,
                         bodyWidth - 16f,
-                        "Bomber Voidstrike Form.: " + currBmbVsFm.displayName,
+                        "Bomber Strike: " + currBmbVsFm.shortName,
                         currBmbVsFm,
                         SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
                         "SET_BMB_VS_FM:" + dt.name() + ":",
@@ -685,7 +681,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 addVoidstrikeDepthRow(
                         body,
                         bodyWidth - 16f,
-                        "Voidstrike Sqdn Depth: " + currVsDepth,
+                        "Strike Depth: " + currVsDepth,
                         currVsDepth,
                         "SET_VS_DEPTH:" + dt.name() + ":",
                         baseColor,
@@ -708,7 +704,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.HULL_LIMITS) {
             body.addSectionHeading(
-                    "HULL LIMITS PER DIVISION  (Max " + PermanentDivisionManager.MAX_DIVISION_SIZE + " Ships)",
+                    "HULL LIMITS  (Max " + PermanentDivisionManager.MAX_DIVISION_SIZE + " / Div)",
                     highlight,
                     darkColor,
                     Alignment.LMID,
@@ -787,31 +783,25 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color gray) {
 
         body.addSectionHeading(
-                "AUTO-ASSIGNER DIVISION SCHEMES — BY CAPABILITY & HULL TYPE",
+                "AUTO-ASSIGNER SCHEMES",
                 highlight,
                 darkColor,
                 Alignment.LMID,
                 8f);
-        body.addPara(
-                "Enable or disable division schemes by capability and hull type for the player fleet's auto-assigner. "
-                        + "For example, disabling Missile on Destroyer (or disabling Destroyer under Missile) prevents the auto-assigner "
-                        + "from forming Missile Destroyer Divisions while still allowing other Missile or Destroyer divisions.",
-                3f,
-                gray);
 
         body.addSectionHeading(
-                "SCHEMES BY CAPABILITY  (Toggle Capability or Allowed Hulls per Capability)",
+                "BY CAPABILITY",
                 baseColor,
                 darkColor,
                 Alignment.LMID,
-                6f);
+                4f);
 
         for (AutoAssignCapability cap : AutoAssignCapability.values()) {
             addCapabilitySchemeRow(body, rowWidth, doctrine, cap, baseColor, darkColor, highlight, positive, gray);
         }
 
         body.addSectionHeading(
-                "SCHEMES BY HULL TYPE  (Toggle Hull Class or Allowed Capabilities per Hull Division)",
+                "BY HULL CLASS",
                 baseColor,
                 darkColor,
                 Alignment.LMID,
@@ -992,7 +982,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bApplyNamingFaction = registerButton(
                 presetUi.addButton(
-                        "Apply Nomenclature to Faction",
+                        "Apply to Colony Fleets",
                         "APPLY_NAMING_TO_FACTION_FLEETS",
                         lastAppliedNamingFleetCount >= 0 ? positive : highlight,
                         darkColor,
@@ -1006,7 +996,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bApplyExisting = registerButton(
                 presetUi.addButton(
-                        "Rename Existing Divisions",
+                        "Rename Fleet Divs",
                         "APPLY_NAMING_TO_EXISTING",
                         highlight,
                         darkColor,
@@ -1170,7 +1160,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        String label = String.format(Locale.ROOT, "Opening Window (30s-60s): %ds", currentSeconds);
+        String label = String.format(Locale.ROOT, "Opening Duration: %ds", currentSeconds);
         rowUi.addPara(label, 0f, activeValueColor, label).getPosition().inTL(6f, 5f);
 
         float xCursor = CONTROL_COL_X;
@@ -2084,20 +2074,16 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         String promptText;
         String yesBtnLabel;
         if ("APPLY_DOCTRINE_TO_FACTION_FLEETS".equals(pendingConfirmationCmd)) {
-            promptText = "Apply your current Fleet Doctrine to your personal faction's fleets (such as patrols and task forces "
-                    + "spawning out of colonies you own)? Does not affect the planetary holdings of a commissioned player "
-                    + "with mandate over a preset faction's world(s). Your personal faction will reinitialize division assignments and division names.";
-            yesBtnLabel = "Yes, Apply to Faction Fleets";
+            promptText = "Apply this Fleet Doctrine to your personal faction's colony fleets? "
+                    + "(Does not affect commissioned preset faction worlds.)";
+            yesBtnLabel = "Yes, Apply Doctrine";
         } else if ("APPLY_NAMING_TO_FACTION_FLEETS".equals(pendingConfirmationCmd)) {
-            promptText = "Apply your current Fleet Nomenclature to your personal faction's fleets (such as patrols and task forces "
-                    + "spawning out of colonies you own)? Does not affect the planetary holdings of a commissioned player "
-                    + "with mandate over a preset faction's world(s). Your personal faction will reinitialize division names.";
+            promptText = "Apply this Fleet Nomenclature to your personal faction's colony fleets? "
+                    + "(Does not affect commissioned preset faction worlds.)";
             yesBtnLabel = "Yes, Apply Nomenclature";
         } else {
-            promptText = "Reinitialize sector-wide division lists for all AI fleets across the sector? "
-                    + "Story and special fleets will be prioritized first for low-numbered permanent divisions, "
-                    + "and faction division record tables will be rebuilt.";
-            yesBtnLabel = "Yes, Reinitialize Sector Lists";
+            promptText = "Reinitialize division lists for all AI fleets across the sector?";
+            yesBtnLabel = "Yes, Reinitialize Sector";
         }
         ui.addPara(promptText, 10f, Misc.getTextColor());
 

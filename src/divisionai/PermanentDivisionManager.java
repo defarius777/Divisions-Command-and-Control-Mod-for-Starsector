@@ -72,7 +72,7 @@ public class PermanentDivisionManager {
      */
     public enum LineStation {
         VAN("Van", "Leads ahead of the main body."),
-        CENTER("Center", "Holds the center of the battle line."),
+        CENTER("Center", "Holds the center of the line."),
         REAR("Rear", "Stands off astern or in reserve.");
 
         public final String displayName;
@@ -112,61 +112,61 @@ public class PermanentDivisionManager {
                 "Abreast",
                 "icon_formation_line_abreast",
                 "graphics/icons/formations/icon_formation_line_abreast.png",
-                "Lateral line perpendicular to the enemy for maximum forward gun arcs."),
+                "Broad front for maximum forward gun arcs."),
         LINE_AHEAD(
                 "Line Ahead",
                 "Ahead",
                 "icon_formation_line_ahead",
                 "graphics/icons/formations/icon_formation_line_ahead.png",
-                "Single-file column following the flagship's wake through gaps or in broadside passes."),
+                "Single-file column following the flagship."),
         FORWARD_WEDGE(
                 "Forward Wedge",
-                "Fwd Wedge",
+                "F. Wedge",
                 "icon_formation_forward_wedge",
                 "graphics/icons/formations/icon_formation_forward_wedge.png",
-                "Flagship leads at the forward apex with wingmen stepped back on both shoulders."),
+                "Flagship leads at apex; wingmen stepped back."),
         REVERSE_WEDGE(
                 "Reverse Wedge",
-                "Rev Wedge",
+                "R. Wedge",
                 "icon_formation_reverse_wedge",
                 "graphics/icons/formations/icon_formation_reverse_wedge.png",
-                "Wingmen advance on the outer shoulders with flagship at the rear vertex to form a pocket."),
+                "Wingmen forward on shoulders; flagship at rear."),
         ECHELON_LEFT(
                 "Echelon Left",
-                "Ech. Left",
+                "Ech. L",
                 "icon_formation_echelon_left",
                 "graphics/icons/formations/icon_formation_echelon_left.png",
-                "Diagonal line stepped back to port, concentrating oblique fire while refusing the port flank."),
+                "Stepped back to port for oblique fire."),
         ECHELON_RIGHT(
                 "Echelon Right",
-                "Ech. Right",
+                "Ech. R",
                 "icon_formation_echelon_right",
                 "graphics/icons/formations/icon_formation_echelon_right.png",
-                "Diagonal line stepped back to starboard, concentrating oblique fire while refusing the starboard flank."),
+                "Stepped back to starboard for oblique fire."),
         CIRCLE(
                 "Circle",
                 "Circle",
                 "icon_formation_circle",
                 "graphics/icons/formations/icon_formation_circle.png",
-                "All-around defensive perimeter with ships arrayed on a ring facing outward."),
+                "All-around defensive ring facing outward."),
         FORWARD_SEMICIRCLE(
                 "Forward Semicircle",
-                "Fwd Arc",
+                "F. Arc",
                 "icon_formation_forward_semicircle",
                 "graphics/icons/formations/icon_formation_forward_semicircle.png",
-                "Convex dome bowing toward the enemy to screen friendly divisions across a wide front."),
+                "Convex arc bowing toward the enemy."),
         REVERSE_SEMICIRCLE(
                 "Reverse Semicircle",
-                "Rev Arc",
+                "R. Arc",
                 "icon_formation_reverse_semicircle",
                 "graphics/icons/formations/icon_formation_reverse_semicircle.png",
-                "Concave crescent opening toward the enemy so all ships fire inward on converging bearings."),
+                "Concave crescent for converging inward fire."),
         NONE(
                 "No Formation",
-                "No Form.",
+                "None",
                 "icon_formation_none",
                 "graphics/icons/formations/icon_formation_none.png",
-                "Loose free-maneuver swarm without a rigid geometric line; ships maneuver independently.");
+                "Free-maneuver swarm without fixed geometry.");
 
         public final String displayName;
         public final String shortName;
@@ -209,22 +209,22 @@ public class PermanentDivisionManager {
                 "Strict",
                 "Strict",
                 0.80f,
-                "Holds division formation tightly during approach; releases to individual combat inside gun range."),
+                "Holds formation tightly until inside gun range."),
         BALANCED(
                 "Balanced",
                 "Balanced",
                 1.00f,
-                "Moves cohesively as a division out of contact, then transitions to individual combat movement on contact."),
+                "Forms up out of contact; fights individually in range."),
         LOOSE(
                 "Loose",
                 "Loose",
                 1.20f,
-                "Marches together on transit; gives individual ships wide skirmish and kiting freedom in combat."),
+                "Wide skirmish and kiting freedom in combat."),
         FREE(
                 "Free",
                 "Free",
                 1.45f,
-                "Individual ship movement dominates in combat; division coordinates targets and broad rally vectors.");
+                "Individual ship movement; shared division targets.");
 
         public final String displayName;
         public final String shortName;
@@ -268,13 +268,13 @@ public class PermanentDivisionManager {
     public enum VoidstrikeTargetObservance {
         FREE(
                 "Free",
-                "Freely engage targets of opportunity and close threats along flight path."),
+                "Engage targets of opportunity along flight path."),
         MEDIUM(
                 "Medium",
-                "Prioritize designated target; peel off to engage close threats within 700u."),
+                "Prioritize target; engage threats within 700u."),
         HIGH(
                 "High",
-                "Strictly lock onto the designated target until it is destroyed.");
+                "Lock strictly onto designated target.");
 
         public final String displayName;
         public final String summary;
@@ -301,10 +301,10 @@ public class PermanentDivisionManager {
     public enum VoidstrikeCoordinationMode {
         COORDINATED(
                 "Coordinated",
-                "Squadrons launch, orbit carrier, form up at a nearby marshal point, then strike together."),
+                "Orbit carrier, form up at marshal point, strike together."),
         UNCOORDINATED(
                 "Uncoordinated",
-                "Strike wings attack immediately in successive dispersed waves.");
+                "Attack immediately in successive waves.");
 
         public final String displayName;
         public final String summary;
@@ -330,11 +330,11 @@ public class PermanentDivisionManager {
     public enum SquadronFormation {
         LINE_ABREAST("Line Abreast", "Abreast", DivisionFormation.LINE_ABREAST),
         LINE_AHEAD("Line Ahead", "Ahead", DivisionFormation.LINE_AHEAD),
-        WEDGE("Wedge", "Wedge", DivisionFormation.FORWARD_WEDGE),
-        REVERSE_WEDGE("Reverse Wedge", "Rev Wedge", DivisionFormation.REVERSE_WEDGE),
+        WEDGE("Forward Wedge", "F. Wedge", DivisionFormation.FORWARD_WEDGE),
+        REVERSE_WEDGE("Reverse Wedge", "R. Wedge", DivisionFormation.REVERSE_WEDGE),
         CIRCLE("Circle", "Circle", DivisionFormation.CIRCLE),
-        SEMICIRCLE("Semicircle", "Semicircle", DivisionFormation.FORWARD_SEMICIRCLE),
-        REVERSE_SEMICIRCLE("Reverse Semicircle", "Rev Semi", DivisionFormation.REVERSE_SEMICIRCLE);
+        SEMICIRCLE("Semicircle", "F. Arc", DivisionFormation.FORWARD_SEMICIRCLE),
+        REVERSE_SEMICIRCLE("Reverse Semicircle", "R. Arc", DivisionFormation.REVERSE_SEMICIRCLE);
 
         public final String displayName;
         public final String shortName;
@@ -382,75 +382,75 @@ public class PermanentDivisionManager {
         SCOUTING(
                 "Scouting",
                 "Scouting",
-                "Seize unclaimed objectives and maintain contact at standoff range.",
+                "Seize objectives and hold contact at range.",
                 false,
                 LineStation.VAN),
         CLOSE_ACTION(
                 "Close Action",
                 "Close Action",
-                "Close to decisive range and press the attack.",
+                "Close to decisive range and press attack.",
                 false,
                 LineStation.VAN),
         STANDOFF_ENGAGEMENT(
                 "Standoff Engagement",
-                "Standoff Engagement",
-                "Trade fire at maximum gun range; give ground if pressed.",
+                "Standoff",
+                "Trade fire at max gun range; yield if pressed.",
                 false,
                 LineStation.CENTER),
         ENVELOPMENT(
                 "Envelopment",
                 "Envelopment",
-                "Sweep around enemy flanks to isolate and roll up exposed ships.",
+                "Flank and roll up exposed enemy ships.",
                 false,
                 LineStation.VAN),
         TOT_ALPHA_STRIKE(
                 "ToT Alpha Strike",
-                "ToT Alpha Strike",
-                "Rapidly close, focus fire with all guns and torpedoes, then break off.",
+                "ToT Alpha",
+                "Close rapidly, focus all weapons, break off.",
                 false,
                 LineStation.VAN),
         SCREEN(
                 "Screen",
                 "Screen",
-                "Screen ahead of and abeam heavy friendly divisions.",
+                "Screen ahead of friendly heavy divisions.",
                 false,
                 LineStation.CENTER),
 
         // Carrier Missions and Tactics (explicitly labeled as Carrier-Only in UI)
         ARMED_RECONNAISSANCE(
                 "Armed Recon (Carrier)",
-                "Armed Reconnaissance",
-                "Carrier-only: stand off while strike craft scout ahead and hit targets.",
+                "Armed Recon",
+                "Send strike craft ahead to scout and strike.",
                 true,
                 LineStation.REAR),
         SPACE_SUPERIORITY(
                 "Space Superiority (Carrier)",
-                "Space Superiority",
-                "Carrier-only: sweep enemy fighters and light escorts to control space.",
+                "Space Sup.",
+                "Sweep enemy fighters and light escorts.",
                 true,
                 LineStation.CENTER),
         COMBAT_SPACE_PATROL(
                 "Combat Space Patrol (Carrier)",
-                "Combat Space Patrol",
-                "Carrier-only: keep fighter cover over heavy or threatened divisions.",
+                "CAP",
+                "Keep fighter cover over friendly divisions.",
                 true,
                 LineStation.REAR),
         CYCLIC_STRIKES(
                 "Cyclic Strikes (Carrier)",
                 "Cyclic Strikes",
-                "Carrier-only: cycle continuous strike waves against visible targets.",
+                "Cycle continuous strike waves on visible targets.",
                 true,
                 LineStation.REAR),
         DECKLOAD_STRIKE(
                 "Deckload Strike (Carrier)",
-                "Deckload Strike",
-                "Carrier-only: mass division wings into synchronized salvos on one target.",
+                "Deck Strike",
+                "Mass division wings into synchronized salvos.",
                 true,
                 LineStation.REAR),
         ALPHA_STRIKE(
                 "Alpha Strike (Carrier)",
                 "Alpha Strike",
-                "Carrier-only: coordinate full carrier strikes with the Main Effort.",
+                "Coordinate full carrier strikes with Main Effort.",
                 true,
                 LineStation.REAR),
 
@@ -458,7 +458,7 @@ public class PermanentDivisionManager {
         RESERVE(
                 "Reserve",
                 "Reserve",
-                "Hold astern until committed by the OTC to reinforce or exploit.",
+                "Hold astern until committed by the OTC.",
                 false,
                 LineStation.REAR),
 
@@ -466,7 +466,7 @@ public class PermanentDivisionManager {
         MARTYRDOM(
                 "Martyrdom",
                 "Martyrdom",
-                "Fanatical point-blank charge: rams or detonates into the enemy without backing off.",
+                "Point-blank ramming and detonation charge.",
                 false,
                 LineStation.VAN);
 
@@ -629,7 +629,7 @@ public class PermanentDivisionManager {
                 LineStation.VAN,
                 DivisionFormation.FORWARD_WEDGE),
         BATTLESHIP(
-                "Battleship Division (Capital)",
+                "Battleship Division",
                 DivisionArchetype.BATTLESHIP_DIVISION,
                 675,
                 1200,
@@ -640,7 +640,7 @@ public class PermanentDivisionManager {
                 LineStation.VAN,
                 DivisionFormation.LINE_ABREAST),
         MISSILE_BATTLESHIP(
-                "Missile Battleship Division (Capital)",
+                "Missile Battleship Division",
                 DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
                 700,
                 1250,
@@ -651,7 +651,7 @@ public class PermanentDivisionManager {
                 LineStation.CENTER,
                 DivisionFormation.LINE_ABREAST),
         FLEET_CARRIER(
-                "Fleet Carrier Division (Capital)",
+                "Fleet Carrier Division",
                 DivisionArchetype.FLEET_CARRIER_DIVISION,
                 650,
                 1350,
@@ -662,7 +662,7 @@ public class PermanentDivisionManager {
                 LineStation.REAR,
                 DivisionFormation.LINE_ABREAST),
         LIGHT_CARRIER(
-                "Light Carrier Division (Cruiser)",
+                "Light Carrier Division",
                 DivisionArchetype.LIGHT_CARRIER_DIVISION,
                 550,
                 1250,
@@ -673,7 +673,7 @@ public class PermanentDivisionManager {
                 LineStation.REAR,
                 DivisionFormation.LINE_ABREAST),
         ESCORT_CARRIER(
-                "Escort Carrier Division (Destroyer & Below)",
+                "Escort Carrier Division",
                 DivisionArchetype.ESCORT_CARRIER_DIVISION,
                 475,
                 1150,
@@ -684,7 +684,7 @@ public class PermanentDivisionManager {
                 LineStation.REAR,
                 DivisionFormation.FORWARD_SEMICIRCLE),
         CARRIER_GROUP(
-                "Carrier Group (Carrier & Escorts)",
+                "Carrier Group",
                 DivisionArchetype.CARRIER_GROUP,
                 575,
                 1300,
@@ -706,7 +706,7 @@ public class PermanentDivisionManager {
                 LineStation.VAN,
                 DivisionFormation.ECHELON_RIGHT),
         SERVICE_GROUP(
-                "Service Group (Auxiliaries)",
+                "Service Group",
                 DivisionArchetype.SERVICE_GROUP,
                 450,
                 1200,
@@ -717,7 +717,7 @@ public class PermanentDivisionManager {
                 LineStation.REAR,
                 DivisionFormation.CIRCLE),
         FORCE(
-                "Force (General / Mixed)",
+                "Force Division",
                 DivisionArchetype.FORCE_DIVISION,
                 500,
                 1050,
@@ -893,50 +893,50 @@ public class PermanentDivisionManager {
     public enum DoctrineHullCategory {
         CRUISER(
                 "Cruiser Hulls",
-                "Min ships per division",
-                "Max ships per division",
+                "Min Ships",
+                "Max Ships",
                 0,
                 4,
                 DivisionArchetype.CRUISER_DIVISION),
         CAPITAL(
                 "Capital Hulls",
-                "Min ships per division",
-                "Max ships per division",
+                "Min Ships",
+                "Max Ships",
                 0,
                 2,
                 DivisionArchetype.BATTLESHIP_DIVISION),
         DESTROYER(
                 "Destroyer Hulls",
-                "Min ships per division",
-                "Max ships per division",
+                "Min Ships",
+                "Max Ships",
                 0,
                 4,
                 DivisionArchetype.DESTROYER_DIVISION),
         FRIGATE(
                 "Frigate Hulls",
-                "Min ships per division",
-                "Max ships per division",
+                "Min Ships",
+                "Max Ships",
                 0,
                 5,
                 DivisionArchetype.FRIGATE_DIVISION),
         FREIGHTER(
                 "Freighter Hulls",
-                "Min ships per division",
-                "Max ships per division",
+                "Min Ships",
+                "Max Ships",
                 0,
                 4,
                 DivisionArchetype.SERVICE_GROUP),
         TANKER(
                 "Tanker Hulls",
-                "Min ships per division",
-                "Max ships per division",
+                "Min Ships",
+                "Max Ships",
                 0,
                 4,
                 DivisionArchetype.SERVICE_GROUP),
         TRANSPORT(
                 "Transport Hulls",
-                "Min ships per division",
-                "Max ships per division",
+                "Min Ships",
+                "Max Ships",
                 0,
                 4,
                 DivisionArchetype.SERVICE_GROUP);
@@ -972,19 +972,19 @@ public class PermanentDivisionManager {
         COMMAND_BY_DIRECTION(
                 "Command by Direction",
                 "Command by Direction",
-                "Directs targets, stations, and flanks within each mission; re-tasks reserves and pursuit."),
+                "Assigns targets, stations, and flanks; commits reserves."),
         POSITIVE_CONTROL(
                 "Positive Control",
                 "Positive Control",
-                "OTC orders directly override division missions whenever issued."),
+                "OTC orders directly override division missions."),
         COMMAND_BY_NEGATION(
                 "Command by Negation",
                 "Command by Negation",
-                "States intent and focus targets; divisions act on local initiative unless overridden."),
+                "Sets focus targets; divisions act on local initiative."),
         FIRE_DISTRIBUTION_ONLY(
                 "Fire Distribution Only",
                 "Fire Distribution Only",
-                "Assigns targets and synchronizes strikes without moving or re-tasking divisions.");
+                "Assigns targets and strikes without moving divisions.");
 
         public final String dropdownLabel;
         public final String shortName;
@@ -1034,19 +1034,19 @@ public class PermanentDivisionManager {
     public enum OtcPlay {
         LINE_AND_FIRE_DISTRIBUTION(
                 "Line & Fire Distribution",
-                "Main Effort fixes the primary threat while other divisions distribute fire across the line."),
+                "Main Effort fixes primary threat; others distribute fire."),
         DOUBLING(
                 "Doubling",
-                "Flanking divisions attack the same target from opposite sides (port and starboard)."),
+                "Flankers attack the same target from opposite sides."),
         TIME_ON_TARGET_STRIKES(
                 "Time-on-Target Strikes",
-                "Missile and carrier divisions marshal and launch synchronized salvos on the focus target."),
+                "Missile and carrier divisions launch synchronized salvos."),
         RESERVE_AND_GENERAL_CHASE(
                 "Reserve & General Chase",
-                "Holds reserves to relieve high-flux divisions, then orders fast divisions into pursuit."),
+                "Holds reserves for relief, then pursues broken enemies."),
         MARTYRDOM(
                 "Martyrdom",
-                "Commits fanatical divisions and VBIED hulls to point-blank ramming and detonation runs.");
+                "Commits fanatical hulls to point-blank ramming runs.");
 
         public final String displayName;
         public final String summary;
@@ -1876,12 +1876,12 @@ public class PermanentDivisionManager {
     }
 
     public enum DoctrineOption {
-        ADAPTIVE("Adaptive", "Balanced division posture: screens, flanks, or presses the attack as needed."),
-        SPEARHEAD("Spearhead", "Closes early and presses the attack wherever it holds local superiority."),
-        FIRE_SUPPORT("Fire Support", "Stands off at maximum gun or strike range and avoids close action."),
-        ESCORT_AND_SCREEN("Escort & Screen", "Screens friendly capital and carrier divisions against flankers."),
-        FLANKING_STRIKE("Flanking Strike", "Sweeps around enemy flanks to deliver missile and torpedo salvos."),
-        RESERVE("Reserve", "Holds astern of the line until needed to reinforce a threatened sector.");
+        ADAPTIVE("Adaptive", "Balanced: screens, flanks, or presses as needed."),
+        SPEARHEAD("Spearhead", "Closes early and presses local superiority."),
+        FIRE_SUPPORT("Fire Support", "Stands off at max gun or strike range."),
+        ESCORT_AND_SCREEN("Escort & Screen", "Screens friendly capitals and carriers."),
+        FLANKING_STRIKE("Flanking Strike", "Flanks enemy line with missile salvos."),
+        RESERVE("Reserve", "Holds astern until needed to reinforce.");
 
         public final String displayName;
         public final String summary;

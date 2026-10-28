@@ -220,12 +220,24 @@ public class DivisionCombatLog {
                 Color hlColor = safeHighlightColor();
                 if (battleGroup.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
                     ui.addMessage(1, safeNegativeHighlightColor(), sideTag + " ERROR");
-                } else {
+                } else if (verbosity == DivisionAISettings.ChatterVerbosity.VERBOSE) {
                     ui.addMessage(
                             1,
                             prefixColor, sideTag + " ",
                             hlColor, battleGroup.currentPhase.displayName,
                             textColor, " - " + directiveSummary);
+                } else if (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL) {
+                    ui.addMessage(
+                            1,
+                            prefixColor, sideTag + " ",
+                            hlColor, formatMinimalOtcPhase(battleGroup.currentPhase));
+                } else {
+                    // STANDARD ("Medium") and OTC_ONLY: reduced tactical radio alternative
+                    ui.addMessage(
+                            1,
+                            prefixColor, sideTag + " ",
+                            hlColor, formatMediumOtcPhase(battleGroup.currentPhase),
+                            textColor, " - " + formatMediumOtcDirective(directiveSummary));
                 }
             }
         }
@@ -255,7 +267,8 @@ public class DivisionCombatLog {
                 }
                 boolean isHighPriorityOrder = orderText.startsWith("Execute:")
                         || orderText.startsWith("Committing the reserve")
-                        || orderText.startsWith("Time-on-target strike:");
+                        || orderText.startsWith("Time-on-target strike:")
+                        || orderText.contains("assumes Battle Group command");
                 if (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL) {
                     if (battleGroup.side != 0 || !isHighPriorityOrder) {
                         return;
@@ -281,10 +294,18 @@ public class DivisionCombatLog {
             if (battleGroup.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {
                 ui.addMessage(1, safeNegativeHighlightColor(), sideTag + " ERROR");
             } else {
+                String hudOrderText;
+                if (verbosity == DivisionAISettings.ChatterVerbosity.VERBOSE) {
+                    hudOrderText = orderText;
+                } else if (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL) {
+                    hudOrderText = formatMinimalOtcOrder(orderText);
+                } else {
+                    hudOrderText = formatMediumOtcOrder(orderText);
+                }
                 ui.addMessage(
                         1,
                         prefixColor, sideTag + " ",
-                        safeTextColor(), orderText);
+                        safeTextColor(), hudOrderText);
             }
         }
     }
@@ -345,6 +366,7 @@ public class DivisionCombatLog {
         String sideTag = (div.side == 0)
                 ? (div.flagship != null && div.flagship.isAlly() ? "[Allied]" : "[Friendly]")
                 : "[Enemy]";
+        // Always write the full verbose chatter to starsector.log regardless of HUD verbosity
         emitLogLine(now, "[DivisionAI] " + sideTag + " " + fullLine);
 
         CombatUIAPI ui = engine != null ? engine.getCombatUI() : null;
@@ -371,36 +393,67 @@ public class DivisionCombatLog {
             Color targetColor = resolveTargetColor(div, cleanTarget);
             Color textColor = safeTextColor();
             Color grayColor = safeGrayColor();
-            boolean showReasonOnHud = (verbosity == DivisionAISettings.ChatterVerbosity.VERBOSE) && !reasonSuffix.isEmpty();
 
-            if (!cleanTarget.isEmpty()) {
-                if (showReasonOnHud) {
+            if (verbosity == DivisionAISettings.ChatterVerbosity.VERBOSE) {
+                boolean showReasonOnHud = !reasonSuffix.isEmpty();
+                if (!cleanTarget.isEmpty()) {
+                    if (showReasonOnHud) {
+                        ui.addMessage(
+                                1,
+                                actorColor, "\"" + actorName + "\"",
+                                textColor, " intends to " + div.currentIntent.verbPhrase + " ",
+                                targetColor, "\"" + cleanTarget + "\"",
+                                grayColor, reasonSuffix + ".");
+                    } else {
+                        ui.addMessage(
+                                1,
+                                actorColor, "\"" + actorName + "\"",
+                                textColor, " intends to " + div.currentIntent.verbPhrase + " ",
+                                targetColor, "\"" + cleanTarget + "\"",
+                                textColor, ".");
+                    }
+                } else {
+                    if (showReasonOnHud) {
+                        ui.addMessage(
+                                1,
+                                actorColor, "\"" + actorName + "\"",
+                                textColor, " intends to " + div.currentIntent.verbPhrase,
+                                grayColor, reasonSuffix + ".");
+                    } else {
+                        ui.addMessage(
+                                1,
+                                actorColor, "\"" + actorName + "\"",
+                                textColor, " intends to " + div.currentIntent.verbPhrase + ".");
+                    }
+                }
+            } else if (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL) {
+                // Minimal HUD dummy alternative: ultra-terse proword callout
+                if (!cleanTarget.isEmpty()) {
                     ui.addMessage(
                             1,
                             actorColor, "\"" + actorName + "\"",
-                            textColor, " intends to " + div.currentIntent.verbPhrase + " ",
-                            targetColor, "\"" + cleanTarget + "\"",
-                            grayColor, reasonSuffix + ".");
+                            textColor, ": " + div.currentIntent.minimalPhrase + " ",
+                            targetColor, "\"" + cleanTarget + "\"");
                 } else {
                     ui.addMessage(
                             1,
                             actorColor, "\"" + actorName + "\"",
-                            textColor, " intends to " + div.currentIntent.verbPhrase + " ",
-                            targetColor, "\"" + cleanTarget + "\"",
-                            textColor, ".");
+                            textColor, ": " + div.currentIntent.minimalPhrase);
                 }
             } else {
-                if (showReasonOnHud) {
+                // Standard ("Medium") HUD dummy alternative: reduced radio call without "intends to" or reason suffix
+                if (!cleanTarget.isEmpty()) {
                     ui.addMessage(
                             1,
                             actorColor, "\"" + actorName + "\"",
-                            textColor, " intends to " + div.currentIntent.verbPhrase,
-                            grayColor, reasonSuffix + ".");
+                            textColor, " " + div.currentIntent.mediumPhrase + " ",
+                            targetColor, "\"" + cleanTarget + "\"",
+                            textColor, ".");
                 } else {
                     ui.addMessage(
                             1,
                             actorColor, "\"" + actorName + "\"",
-                            textColor, " intends to " + div.currentIntent.verbPhrase + ".");
+                            textColor, " " + div.currentIntent.mediumPhrase + ".");
                 }
             }
         }
@@ -419,5 +472,105 @@ public class DivisionCombatLog {
             return safeHighlightColor();
         }
         return (actor.side == 0) ? safeNegativeHighlightColor() : safeBrightPlayerColor();
+    }
+
+    public static String formatMediumOtcPhase(DivisionModel.BattlePhase phase) {
+        if (phase == null) return "Command";
+        switch (phase) {
+            case APPROACH:
+                return "Approach";
+            case GENERAL_ENGAGEMENT:
+                return "Engagement";
+            case COORDINATED_STRIKE:
+                return "Coord. Strike";
+            case REINFORCE_THE_LINE:
+                return "Reinforce Line";
+            case GENERAL_CHASE:
+                return "General Chase";
+            case FIGHTING_RETIREMENT:
+                return "Retirement";
+            default:
+                return phase.displayName;
+        }
+    }
+
+    public static String formatMinimalOtcPhase(DivisionModel.BattlePhase phase) {
+        if (phase == null) return "OTC";
+        switch (phase) {
+            case APPROACH:
+                return "Phase: Approach";
+            case GENERAL_ENGAGEMENT:
+                return "Phase: Engage";
+            case COORDINATED_STRIKE:
+                return "Phase: Strike";
+            case REINFORCE_THE_LINE:
+                return "Phase: Reinforce";
+            case GENERAL_CHASE:
+                return "Phase: Chase";
+            case FIGHTING_RETIREMENT:
+                return "Phase: Retire";
+            default:
+                return "Phase: " + phase.displayName;
+        }
+    }
+
+    public static String formatMediumOtcDirective(String directiveSummary) {
+        if (directiveSummary == null || directiveSummary.isEmpty()) return "";
+        return directiveSummary
+                .replace(", to take objectives and gain contact.", ".")
+                .replace("; divisions engaging assigned targets.", ".")
+                .replace("Synchronizing missile and carrier strike wings on ", "Strike wings -> ")
+                .replace("Holding fire distribution; moving support to relieve ", "Relieving ")
+                .replace("Enemy line broken; all fast divisions press the pursuit.", "Enemy broken; pursue.")
+                .replace("Conducting fighting withdrawal toward reserve rally line.", "Fighting withdrawal.");
+    }
+
+    public static String formatMediumOtcOrder(String orderText) {
+        if (orderText == null || orderText.isEmpty()) return "";
+        String s = orderText
+                .replace("Time-on-target strike: ", "ToT Strike: ")
+                .replace(" division(s) to marshal against ", " div(s) marshal vs ")
+                .replace(" division to marshal", " div marshal")
+                .replace("Execute: ", "Execute Strike: ")
+                .replace(" division(s) strike ", " div(s) -> ")
+                .replace(" together", "")
+                .replace("Supporting divisions envelop ", "Envelop ")
+                .replace(" from port and starboard.", " (pincer).")
+                .replace("Committing the reserve: ", "Commit Reserve: ")
+                .replace("Reserve committed: ", "Commit Reserve: ")
+                .replace(" advances to exploit.", " -> exploit.");
+        int parenIdx = s.indexOf(" (");
+        if (parenIdx > 0 && s.endsWith(").")) {
+            s = s.substring(0, parenIdx) + ".";
+        } else if (parenIdx > 0 && s.endsWith(")")) {
+            s = s.substring(0, parenIdx);
+        }
+        return s;
+    }
+
+    public static String formatMinimalOtcOrder(String orderText) {
+        if (orderText == null || orderText.isEmpty()) return "";
+        int q1 = orderText.indexOf('"');
+        int q2 = (q1 >= 0) ? orderText.indexOf('"', q1 + 1) : -1;
+        String firstQuoted = (q1 >= 0 && q2 > q1) ? orderText.substring(q1, q2 + 1) : "";
+        if (orderText.startsWith("Time-on-target strike:")) {
+            return firstQuoted.isEmpty() ? "ToT Marshal" : ("ToT Marshal -> " + firstQuoted);
+        }
+        if (orderText.startsWith("Execute:")) {
+            return firstQuoted.isEmpty() ? "Execute Strike!" : ("Execute Strike -> " + firstQuoted);
+        }
+        if (orderText.startsWith("Committing the reserve") || orderText.startsWith("Reserve committed:")) {
+            return firstQuoted.isEmpty() ? "Commit Reserve" : ("Reserve -> " + firstQuoted);
+        }
+        if (orderText.contains("reinforce")) {
+            return firstQuoted.isEmpty() ? "Reinforce Line" : ("Reinforce -> " + firstQuoted);
+        }
+        if (orderText.startsWith("Supporting divisions envelop")) {
+            return firstQuoted.isEmpty() ? "Envelop Target" : ("Pincer -> " + firstQuoted);
+        }
+        if (orderText.contains("assumes Battle Group command")) {
+            return "Alpha Core assumes OTC";
+        }
+        return formatMediumOtcOrder(orderText);
     }
 }

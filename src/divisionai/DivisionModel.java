@@ -121,35 +121,42 @@ public class DivisionModel {
 
     /**
      * Concrete tactical intent chosen by a Division Commander (or directed by OTC).
+     *  - verbPhrase: full verbose phrase logged to starsector.log and shown in Verbose HUD mode.
+     *  - mediumPhrase: reduced chatter alternative for Standard/Medium HUD mode.
+     *  - minimalPhrase: ultra-terse proword alternative for Minimal HUD mode.
      */
     public enum DivisionIntentType {
-        CLOSE_UP("close up and re-form"),
-        CLOSE_AND_ENGAGE("close and engage"),
-        HARASSING_MISSILE_ATTACK("make a harassing missile attack on"),
-        TOT_MISSILE_STRIKE("deliver a time-on-target missile strike on"),
-        TOT_ALPHA_STRIKE("execute a time-on-target alpha strike on"),
-        PRESS_HOME("press home the attack on"),
-        TAKE_SCREENING_STATION("take screening station on"),
-        REINFORCE_DIVISION("move to reinforce"),
-        WORK_FLANK("work around the flank of"),
-        BREAK_OFF_AND_RETIRE("break off and retire from"),
-        HAUL_OUT_TO_VENT("haul out of the line to vent behind"),
-        HOLD_IN_RESERVE("hold in reserve, awaiting orders"),
-        TAKE_AND_HOLD("take and hold"),
-        FLY_ARMED_RECONNAISSANCE("fly armed reconnaissance toward"),
-        FLY_FIGHTER_SWEEP("fly fighter sweeps for space superiority against"),
-        FLY_COMBAT_SPACE_PATROL("fly combat space patrol over"),
-        FLY_CYCLIC_STRIKES("fly cyclic strikes against"),
-        LAUNCH_DECKLOAD_STRIKE("launch a deckload strike on"),
-        LAUNCH_ALPHA_STRIKE("launch an alpha strike on"),
-        FORM_LINE_AND_FIX("form the line and fix"),
-        MARSHAL_FOR_STRIKE("proceed to the marshal point to strike"),
-        GIVE_GENERAL_CHASE("give general chase to");
+        CLOSE_UP("close up and re-form", "re-forming ranks", "Re-form"),
+        CLOSE_AND_ENGAGE("close and engage", "engaging", "Engage ->"),
+        HARASSING_MISSILE_ATTACK("make a harassing missile attack on", "harassing with missiles:", "Harass ->"),
+        TOT_MISSILE_STRIKE("deliver a time-on-target missile strike on", "launching ToT missile strike on", "ToT Salvo ->"),
+        TOT_ALPHA_STRIKE("execute a time-on-target alpha strike on", "executing ToT alpha strike on", "ToT Alpha ->"),
+        PRESS_HOME("press home the attack on", "pressing attack on", "Press ->"),
+        TAKE_SCREENING_STATION("take screening station on", "screening", "Screen ->"),
+        REINFORCE_DIVISION("move to reinforce", "reinforcing", "Reinforce ->"),
+        WORK_FLANK("work around the flank of", "flanking", "Flank ->"),
+        BREAK_OFF_AND_RETIRE("break off and retire from", "retiring from", "Retire <-"),
+        HAUL_OUT_TO_VENT("haul out of the line to vent behind", "venting behind", "Venting"),
+        HOLD_IN_RESERVE("hold in reserve, awaiting orders", "holding in reserve", "Reserve"),
+        TAKE_AND_HOLD("take and hold", "seizing", "Capture ->"),
+        FLY_ARMED_RECONNAISSANCE("fly armed reconnaissance toward", "flying armed recon toward", "Recon ->"),
+        FLY_FIGHTER_SWEEP("fly fighter sweeps for space superiority against", "flying fighter sweep on", "Sweep ->"),
+        FLY_COMBAT_SPACE_PATROL("fly combat space patrol over", "patrolling over", "CAP ->"),
+        FLY_CYCLIC_STRIKES("fly cyclic strikes against", "cycling strikes on", "Strike ->"),
+        LAUNCH_DECKLOAD_STRIKE("launch a deckload strike on", "launching deck strike on", "Deck Strike ->"),
+        LAUNCH_ALPHA_STRIKE("launch an alpha strike on", "launching alpha strike on", "Alpha Strike ->"),
+        FORM_LINE_AND_FIX("form the line and fix", "fixing", "Fix ->"),
+        MARSHAL_FOR_STRIKE("proceed to the marshal point to strike", "marshalling to strike", "Marshal ->"),
+        GIVE_GENERAL_CHASE("give general chase to", "chasing", "Chase ->");
 
         public final String verbPhrase;
+        public final String mediumPhrase;
+        public final String minimalPhrase;
 
-        DivisionIntentType(String verbPhrase) {
+        DivisionIntentType(String verbPhrase, String mediumPhrase, String minimalPhrase) {
             this.verbPhrase = verbPhrase;
+            this.mediumPhrase = mediumPhrase;
+            this.minimalPhrase = minimalPhrase;
         }
     }
 
