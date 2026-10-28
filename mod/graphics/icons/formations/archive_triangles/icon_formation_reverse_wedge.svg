@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Naval Formation Icon: icon_formation_reverse_wedge -->
+  <polyline points="10.0,18.0 32.0,50.0 54.0,18.0" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-opacity="0.36" stroke-linecap="round" stroke-linejoin="round" />
+  <polygon points="10.0,12.4 14.1,22.2 10.0,19.9 5.9,22.2" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
+  <polygon points="54.0,12.4 58.1,22.2 54.0,19.9 49.9,22.2" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
+  <polygon points="21.0,28.0 25.4,38.5 21.0,36.1 16.6,38.5" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
+  <polygon points="43.0,28.0 47.4,38.5 43.0,36.1 38.6,38.5" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
+  <polygon points="32.0,43.1 37.1,55.2 32.0,52.4 26.9,55.2" fill="#FFFFFF" fill-opacity="0.96" stroke="#FFFFFF" stroke-width="2.2" stroke-linejoin="round" stroke-opacity="1.00" />
+</svg>

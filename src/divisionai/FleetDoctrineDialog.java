@@ -611,6 +611,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 SquadronFormation currBmbFm = doctrine.getBomberFormation(dt);
                 SquadronFormation currBmbVsFm = doctrine.getBomberVoidstrikeFormation(dt);
                 int currVsDepth = doctrine.getVoidstrikeSquadronDepth(dt);
+                int currVsWidth = doctrine.getVoidstrikeSquadronWidth(dt);
 
                 addVoidstrikeObservanceRow(
                         body,
@@ -687,6 +688,16 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         baseColor,
                         darkColor,
                         positive);
+
+                addVoidstrikeDepthRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Strike Width: " + currVsWidth,
+                        currVsWidth,
+                        "SET_VS_WIDTH:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        highlight);
             }
         }
 
@@ -1673,9 +1684,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color gray) {
 
         final DivisionFormation[] formations = DivisionFormation.values();
-        final float btnW = 124f;
-        final float btnGap = 6f;
-        final int cols = 5;
+        final float btnW = 114f;
+        final float btnGap = 5f;
+        final int cols = 6;
         final float rowH = 52f;
         final ButtonAPI[] formButtons = new ButtonAPI[formations.length];
 
@@ -2445,6 +2456,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
                 int depth = Integer.parseInt(rest.substring(sep + 1));
                 PermanentDivisionManager.updateDivisionTypeVoidstrikeSquadronDepth(dt, depth);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_VS_WIDTH:")) {
+            String rest = cmd.substring("SET_VS_WIDTH:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                int width = Integer.parseInt(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeVoidstrikeSquadronWidth(dt, width);
                 rebuildContent();
             }
             return;

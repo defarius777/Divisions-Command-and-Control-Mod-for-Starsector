@@ -1318,6 +1318,20 @@ public class UITestHarness {
             final float maxSpeed,
             final int owner,
             final com.fs.starfarer.api.characters.PersonAPI captain) {
+        return createMockNamedShip(id, name, hullSize, x, y, maxSpeed, owner, captain, 1.0f, 0.1f);
+    }
+
+    private static ShipAPI createMockNamedShip(
+            final String id,
+            final String name,
+            final HullSize hullSize,
+            final float x,
+            final float y,
+            final float maxSpeed,
+            final int owner,
+            final com.fs.starfarer.api.characters.PersonAPI captain,
+            final float hullLevel,
+            final float fluxLevel) {
 
         final Vector2f loc = new Vector2f(x, y);
         final Vector2f vel = new Vector2f(0f, 0f);
@@ -1343,8 +1357,8 @@ public class UITestHarness {
                     }
                     if ("getCaptain".equals(n)) return captain;
                     if ("getCollisionRadius".equals(n)) return 90f;
-                    if ("getHullLevel".equals(n)) return 1.0f;
-                    if ("getFluxLevel".equals(n)) return 0.1f;
+                    if ("getHullLevel".equals(n)) return hullLevel;
+                    if ("getFluxLevel".equals(n)) return fluxLevel;
                     Class<?> rt = m.getReturnType();
                     if (rt == boolean.class) return false;
                     if (rt == int.class) return 0;
@@ -1575,11 +1589,12 @@ public class UITestHarness {
         ShipAPI omegaShip = createMockNamedShip("omega_ship", "Tesseract", HullSize.CRUISER, 0f, -1000f, 150f, 0, omegaOfficer);
         boolean omegaCoreRecognized = BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(omegaShip);
 
-        // 2. Verify all 10 Naval Formation icons (9 structured + 1 "No Formation") exist on disk and in settings.json
+        // 2. Verify all 11 Naval Formation solid-bar icons (10 structured + 1 "No Formation") exist on disk and in settings.json,
+        //    and that the 10 original triangle formation icons were archived in mod/graphics/icons/formations/archive_triangles/
         String settingsJson = new String(
                 Files.readAllBytes(new File("mod/data/config/settings.json").toPath()),
                 StandardCharsets.UTF_8);
-        boolean allTenIconsOk = (DivisionFormation.values().length == 10);
+        boolean allTenIconsOk = (DivisionFormation.values().length == 11);
         for (DivisionFormation f : DivisionFormation.values()) {
             File pngFile = new File("mod/" + f.spritePath);
             if (!pngFile.exists() || pngFile.length() <= 100 || !settingsJson.contains("\"" + f.settingsIconKey + "\"")) {
@@ -1587,6 +1602,10 @@ public class UITestHarness {
                 break;
             }
         }
+        File archiveDir = new File("mod/graphics/icons/formations/archive_triangles");
+        File archivedWedgeSvg = new File(archiveDir, "icon_formation_forward_wedge.svg");
+        boolean archivedTrianglesOk = archiveDir.isDirectory() && archivedWedgeSvg.exists();
+        allTenIconsOk = allTenIconsOk && archivedTrianglesOk;
 
         // 3. Verify 3-tier Formation Hierarchy:
         //    (1) Fleet Doctrine -> (2) Auto-Assigner / PermanentDivisionSpec -> (3) Battle DivisionState
@@ -1971,10 +1990,63 @@ public class UITestHarness {
                 && "R. Wedge".equals(DivisionFormation.REVERSE_WEDGE.shortName)
                 && "Ech. L".equals(DivisionFormation.ECHELON_LEFT.shortName)
                 && "Ech. R".equals(DivisionFormation.ECHELON_RIGHT.shortName)
+                && "P. Circle".equals(DivisionFormation.PROTECTIVE_CIRCLE.shortName)
                 && "F. Wedge".equals(PermanentDivisionManager.SquadronFormation.WEDGE.shortName)
                 && "R. Wedge".equals(PermanentDivisionManager.SquadronFormation.REVERSE_WEDGE.shortName);
+
+        // Verify Change A: Strike Width (1..10) + Compromise Averaging when width * depth != totalSquadrons
+        vsDocCfg.setVoidstrikeSquadronWidth(PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER, 6);
+        testCarrierSpec.customVoidstrikeSquadronWidth = null;
+        PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(cDiv1, testCarrierSpec, vsDocCfg);
+        boolean vsWidthPropagatedOk = (cDiv1.voidstrikeSquadronWidth == 6);
+        testCarrierSpec.customVoidstrikeSquadronWidth = 8;
+        PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(cDiv1, testCarrierSpec, vsDocCfg);
+        boolean vsWidthCustomOk = (cDiv1.voidstrikeSquadronWidth == 8);
+        int[] exactComp = DivisionCommanderAI.computeCompromiseStrikeWidthAndDepth(6, 3, 2);
+        int[] avgComp = DivisionCommanderAI.computeCompromiseStrikeWidthAndDepth(4, 4, 4);
+        boolean strikeWidthCompromiseOk = vsWidthPropagatedOk && vsWidthCustomOk
+                && exactComp[0] == 3 && exactComp[1] == 2
+                && avgComp[0] == 3 && avgComp[1] == 3;
+
+        // Verify Change B: Effective HP (Shield + Armor + Hull HP) in 'Space' Domain & Hammerhead anti-suicide
+        ShipAPI mockHammerhead = createMockNamedShip("hh_test", "Hammerhead", HullSize.DESTROYER, 0f, 0f, 90f, 0, humanCapt, 1.0f, 0.0f);
+        ShipAPI mockDominator = createMockNamedShip("dom_test", "Dominator", HullSize.CRUISER, 0f, 1000f, 60f, 1, humanCapt, 1.0f, 0.0f);
+        float hhFullEhp = BattlefieldFirepowerEvaluator.computeShipEffectiveHp(mockHammerhead);
+        float domFullEhp = BattlefieldFirepowerEvaluator.computeShipEffectiveHp(mockDominator);
+        DivisionState hhDiv = new DivisionState("hh_div", 0, 1, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 1", cmdr);
+        hhDiv.flagship = mockHammerhead;
+        hhDiv.members.add(mockHammerhead);
+        hhDiv.totalFpStrength = 10f;
+        hhDiv.avgHullLevel = 1.0f;
+        hhDiv.avgFluxLevel = 0.0f;
+        hhDiv.avgEngageRange = 750f;
+        BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(hhDiv);
+        float freshSpaceWeight = hhDiv.spaceDominanceWeight;
+        hhDiv.avgHullLevel = 0.45f;
+        hhDiv.avgFluxLevel = 0.78f;
+        // Simulate depleted shield/hull on the Hammerhead via a damaged mock
+        ShipAPI damagedHammerhead = createMockNamedShip("hh_dmg", "Hammerhead", HullSize.DESTROYER, 0f, 0f, 90f, 0, humanCapt, 0.45f, 0.78f);
+        hhDiv.members.clear();
+        hhDiv.members.add(damagedHammerhead);
+        hhDiv.flagship = damagedHammerhead;
+        BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(hhDiv);
+        float depletedSpaceWeight = hhDiv.spaceDominanceWeight;
+        boolean ehpSpaceDomainOk = (domFullEhp > hhFullEhp * 1.8f)
+                && (freshSpaceWeight > depletedSpaceWeight * 1.35f)
+                && (hhDiv.effectiveHpRatio < 0.65f);
+
+        // Verify Change D: Protective Circle formation places core ship at center (0,0) and escorts on 360-deg outer ring
+        float[] pCircleCore = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.PROTECTIVE_CIRCLE, 0, 4, 500f);
+        float[] pCircleRing1 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.PROTECTIVE_CIRCLE, 1, 4, 500f);
+        float[] pCircleRing2 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.PROTECTIVE_CIRCLE, 2, 4, 500f);
+        float ring1Rad = (float) Math.hypot(pCircleRing1[0], pCircleRing1[1]);
+        float ring2Rad = (float) Math.hypot(pCircleRing2[0], pCircleRing2[1]);
+        boolean protectiveCircleOk = Math.abs(pCircleCore[0]) < 1f && Math.abs(pCircleCore[1]) < 1f
+                && ring1Rad > 350f && Math.abs(ring1Rad - ring2Rad) < 1f;
+
         boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk
-                && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk;
+                && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk
+                && strikeWidthCompromiseOk && ehpSpaceDomainOk && protectiveCircleOk;
 
         res.record(
                 omegaCoreRecognized && allTenIconsOk && inheritedFromDoctrineOk && customOverrideOk

@@ -149,6 +149,12 @@ public class PermanentDivisionManager {
                 "icon_formation_circle",
                 "graphics/icons/formations/icon_formation_circle.png",
                 "All-around defensive ring facing outward."),
+        PROTECTIVE_CIRCLE(
+                "Protective Circle",
+                "P. Circle",
+                "icon_formation_protective_circle",
+                "graphics/icons/formations/icon_formation_protective_circle.png",
+                "Small ships form a defensive ring around larger ships."),
         FORWARD_SEMICIRCLE(
                 "Forward Semicircle",
                 "F. Arc",
@@ -261,6 +267,8 @@ public class PermanentDivisionManager {
 
     public static final int MIN_VOIDSTRIKE_SQUADRON_DEPTH = 1;
     public static final int MAX_VOIDSTRIKE_SQUADRON_DEPTH = 10;
+    public static final int MIN_VOIDSTRIKE_SQUADRON_WIDTH = 1;
+    public static final int MAX_VOIDSTRIKE_SQUADRON_WIDTH = 10;
 
     /**
      * Item C: How closely strike craft obey the order to destroy the designated target in a Voidstrike.
@@ -693,7 +701,7 @@ public class PermanentDivisionManager {
                 DivisionMissionType.ARMED_RECONNAISSANCE,
                 DivisionMissionType.DECKLOAD_STRIKE,
                 LineStation.REAR,
-                DivisionFormation.CIRCLE),
+                DivisionFormation.PROTECTIVE_CIRCLE),
         PHASE(
                 "Phase Division",
                 DivisionArchetype.PHASE_DIVISION,
@@ -1108,6 +1116,7 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, SquadronFormation> bomberFormationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, SquadronFormation> bomberVoidstrikeFormationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, Integer> voidstrikeSquadronDepthByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Integer> voidstrikeSquadronWidthByType = new LinkedHashMap<>();
         private final Set<OtcPlay> enabledPlays = EnumSet.of(
                 OtcPlay.LINE_AND_FIRE_DISTRIBUTION,
                 OtcPlay.DOUBLING,
@@ -1140,6 +1149,7 @@ public class PermanentDivisionManager {
                 bomberFormationByType.put(dt, defaultBomberFormationFor(dt));
                 bomberVoidstrikeFormationByType.put(dt, defaultBomberVoidstrikeFormationFor(dt));
                 voidstrikeSquadronDepthByType.put(dt, defaultVoidstrikeSquadronDepthFor(dt));
+                voidstrikeSquadronWidthByType.put(dt, defaultVoidstrikeSquadronWidthFor(dt));
             }
             for (AutoAssignCapability cap : AutoAssignCapability.values()) {
                 for (AutoAssignHull hull : AutoAssignHull.values()) {
@@ -1307,6 +1317,12 @@ public class PermanentDivisionManager {
             return 2;
         }
 
+        public static int defaultVoidstrikeSquadronWidthFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.FLEET_CARRIER) return 3;
+            if (dt == DoctrineDivisionType.LIGHT_CARRIER || dt == DoctrineDivisionType.CARRIER_GROUP) return 2;
+            return 2;
+        }
+
         public VoidstrikeTargetObservance getVoidstrikeObservance(DoctrineDivisionType dt) {
             if (dt == null) return VoidstrikeTargetObservance.MEDIUM;
             VoidstrikeTargetObservance v = voidstrikeObservanceByType.get(dt);
@@ -1384,6 +1400,19 @@ public class PermanentDivisionManager {
             if (dt == null) return;
             int clamped = Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, depth));
             voidstrikeSquadronDepthByType.put(dt, clamped);
+        }
+
+        public int getVoidstrikeSquadronWidth(DoctrineDivisionType dt) {
+            if (dt == null) return 2;
+            Integer v = voidstrikeSquadronWidthByType.get(dt);
+            int raw = v != null ? v : defaultVoidstrikeSquadronWidthFor(dt);
+            return Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, raw));
+        }
+
+        public void setVoidstrikeSquadronWidth(DoctrineDivisionType dt, int width) {
+            if (dt == null) return;
+            int clamped = Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, width));
+            voidstrikeSquadronWidthByType.put(dt, clamped);
         }
 
         public int getOpeningDurationSeconds() {
@@ -1599,6 +1628,7 @@ public class PermanentDivisionManager {
                 Object bmbFmObj = map.get("bmb_fm_" + dt.name());
                 Object bmbVsFmObj = map.get("bmb_vs_fm_" + dt.name());
                 Object vsDepthObj = map.get("vs_depth_" + dt.name());
+                Object vsWidthObj = map.get("vs_width_" + dt.name());
                 if (vsObsObj instanceof String) {
                     cfg.setVoidstrikeObservance(dt, VoidstrikeTargetObservance.fromId(
                             (String) vsObsObj, FleetDoctrineConfig.defaultVoidstrikeObservanceFor(dt)));
@@ -1625,6 +1655,9 @@ public class PermanentDivisionManager {
                 }
                 if (vsDepthObj instanceof Number) {
                     cfg.setVoidstrikeSquadronDepth(dt, ((Number) vsDepthObj).intValue());
+                }
+                if (vsWidthObj instanceof Number) {
+                    cfg.setVoidstrikeSquadronWidth(dt, ((Number) vsWidthObj).intValue());
                 }
             }
         }
@@ -1681,6 +1714,7 @@ public class PermanentDivisionManager {
             serialized.put("bmb_fm_" + dt.name(), cfg.getBomberFormation(dt).name());
             serialized.put("bmb_vs_fm_" + dt.name(), cfg.getBomberVoidstrikeFormation(dt).name());
             serialized.put("vs_depth_" + dt.name(), cfg.getVoidstrikeSquadronDepth(dt));
+            serialized.put("vs_width_" + dt.name(), cfg.getVoidstrikeSquadronWidth(dt));
         }
         return serialized;
     }
@@ -1836,6 +1870,15 @@ public class PermanentDivisionManager {
         saveFleetDoctrine(cfg);
     }
 
+    public static void updateDivisionTypeVoidstrikeSquadronWidth(
+            DoctrineDivisionType dt,
+            int width) {
+        if (dt == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setVoidstrikeSquadronWidth(dt, width);
+        saveFleetDoctrine(cfg);
+    }
+
     public static void updateOtcAuthority(OtcAuthority authority) {
         if (authority == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
@@ -1933,6 +1976,7 @@ public class PermanentDivisionManager {
         public SquadronFormation customBomberFormation = null;
         public SquadronFormation customBomberVoidstrikeFormation = null;
         public Integer customVoidstrikeSquadronDepth = null;
+        public Integer customVoidstrikeSquadronWidth = null;
 
         public PermanentDivisionSpec(String id, String name, DivisionArchetype archetype) {
             this.id = id;
@@ -2010,6 +2054,17 @@ public class PermanentDivisionManager {
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
         return cfg != null ? cfg.getVoidstrikeSquadronDepth(dt) : FleetDoctrineConfig.defaultVoidstrikeSquadronDepthFor(dt);
+    }
+
+    public static int resolveEffectiveVoidstrikeSquadronWidth(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customVoidstrikeSquadronWidth != null) {
+            return Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH,
+                    Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, spec.customVoidstrikeSquadronWidth));
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getVoidstrikeSquadronWidth(dt) : FleetDoctrineConfig.defaultVoidstrikeSquadronWidthFor(dt);
     }
 
     public static DivisionFormation resolveEffectiveFormation(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
@@ -2462,6 +2517,24 @@ public class PermanentDivisionManager {
             if (divisionId.equals(spec.id)) {
                 spec.customVoidstrikeSquadronDepth = (depth != null)
                         ? Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, depth))
+                        : null;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionVoidstrikeSquadronWidth(
+            String divisionId,
+            Integer width) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customVoidstrikeSquadronWidth = (width != null)
+                        ? Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, width))
                         : null;
                 break;
             }
@@ -3143,6 +3216,9 @@ public class PermanentDivisionManager {
         div.voidstrikeSquadronDepth = (optionalSpec != null)
                 ? resolveEffectiveVoidstrikeSquadronDepth(optionalSpec, cfg)
                 : cfg.getVoidstrikeSquadronDepth(dt);
+        div.voidstrikeSquadronWidth = (optionalSpec != null)
+                ? resolveEffectiveVoidstrikeSquadronWidth(optionalSpec, cfg)
+                : cfg.getVoidstrikeSquadronWidth(dt);
 
         if (div.openingMission == DivisionMissionType.RESERVE
                 || div.mainMission == DivisionMissionType.RESERVE) {
@@ -3712,6 +3788,7 @@ public class PermanentDivisionManager {
             Object cBmbFm = map.get("customBomberFormation");
             Object cBmbVsFm = map.get("customBomberVoidstrikeFormation");
             Object cVsDepth = map.get("customVoidstrikeSquadronDepth");
+            Object cVsWidth = map.get("customVoidstrikeSquadronWidth");
             if (cIntra instanceof Number) spec.customStationSpacing = ((Number) cIntra).intValue();
             if (cInter instanceof Number) spec.customDivisionInterval = ((Number) cInter).intValue();
             if (cStandoff instanceof Number) spec.customStandoffRange = ((Number) cStandoff).intValue();
@@ -3729,6 +3806,10 @@ public class PermanentDivisionManager {
             if (cVsDepth instanceof Number) {
                 spec.customVoidstrikeSquadronDepth = Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH,
                         Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, ((Number) cVsDepth).intValue()));
+            }
+            if (cVsWidth instanceof Number) {
+                spec.customVoidstrikeSquadronWidth = Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH,
+                        Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, ((Number) cVsWidth).intValue()));
             }
 
             Object membersObj = map.get("memberIds");
@@ -3770,6 +3851,7 @@ public class PermanentDivisionManager {
             if (spec.customBomberFormation != null) map.put("customBomberFormation", spec.customBomberFormation.name());
             if (spec.customBomberVoidstrikeFormation != null) map.put("customBomberVoidstrikeFormation", spec.customBomberVoidstrikeFormation.name());
             if (spec.customVoidstrikeSquadronDepth != null) map.put("customVoidstrikeSquadronDepth", spec.customVoidstrikeSquadronDepth);
+            if (spec.customVoidstrikeSquadronWidth != null) map.put("customVoidstrikeSquadronWidth", spec.customVoidstrikeSquadronWidth);
             serialized.add(map);
         }
         pdata.put(PERSISTENT_DIVISIONS_KEY, serialized);

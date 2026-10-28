@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Naval Formation Icon: icon_formation_forward_semicircle -->
+  <polyline points="9.2,32.6 10.1,30.2 11.2,28.0 12.6,25.9 14.2,23.9 15.9,22.2 17.9,20.6 20.0,19.2 22.2,18.1 24.6,17.2 27.0,16.5 29.5,16.1 32.0,16.0 34.5,16.1 37.0,16.5 39.4,17.2 41.8,18.1 44.0,19.2 46.1,20.6 48.1,22.2 49.8,23.9 51.4,25.9 52.8,28.0 53.9,30.2 54.8,32.6" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-opacity="0.36" stroke-linecap="round" stroke-linejoin="round" />
+  <polygon points="9.2,26.8 13.4,36.9 9.2,34.6 4.9,36.9" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
+  <polygon points="17.9,14.8 22.1,24.9 17.9,22.6 13.7,24.9" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
+  <polygon points="32.0,9.2 37.0,21.1 32.0,18.3 27.0,21.1" fill="#FFFFFF" fill-opacity="0.96" stroke="#FFFFFF" stroke-width="2.2" stroke-linejoin="round" stroke-opacity="1.00" />
+  <polygon points="46.1,14.8 50.3,24.9 46.1,22.6 41.9,24.9" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
+  <polygon points="54.8,26.8 59.1,36.9 54.8,34.6 50.6,36.9" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
+</svg>

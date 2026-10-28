@@ -1668,6 +1668,139 @@ public class BattlefieldFirepowerEvaluator {
         return sum / alive.size();
     }
 
+    /**
+     * Computes a ship's current Effective HP (Shield HP + Armor HP + Hull HP):
+     *  - Hull HP: remaining hull hitpoints (with hull-size fallback for headless mock ships).
+     *  - Armor HP: remaining armor pool weighted by armor rating damage reduction and armor grid integrity.
+     *  - Shield HP: remaining flux capacity divided by shield flux/damage efficiency and weighted by shield arc coverage
+     *    (0 if overloaded or venting; phase cloak uses remaining soft-flux evasion capacity).
+     */
+    public static float computeShipEffectiveHp(ShipAPI ship) {
+        return computeShipEffectiveHpInternal(ship, false);
+    }
+
+    /**
+     * Computes a ship's maximum uninjured/unfluxed Effective HP (Max Shield HP + Max Armor HP + Max Hull HP).
+     */
+    public static float computeShipMaxEffectiveHp(ShipAPI ship) {
+        return computeShipEffectiveHpInternal(ship, true);
+    }
+
+    private static float computeShipEffectiveHpInternal(ShipAPI ship, boolean maxOnly) {
+        if (ship == null) return 1000f;
+        HullSize size = ship.getHullSize() != null ? ship.getHullSize() : HullSize.DESTROYER;
+
+        // 1. Hull HP
+        float defaultMaxHull;
+        float defaultArmor;
+        float defaultMaxFlux;
+        switch (size) {
+            case CAPITAL_SHIP:
+                defaultMaxHull = 22500f;
+                defaultArmor = 1500f;
+                defaultMaxFlux = 18000f;
+                break;
+            case CRUISER:
+                defaultMaxHull = 11500f;
+                defaultArmor = 1000f;
+                defaultMaxFlux = 10500f;
+                break;
+            case DESTROYER:
+                defaultMaxHull = 5500f;
+                defaultArmor = 550f;
+                defaultMaxFlux = 5000f;
+                break;
+            case FIGHTER:
+                defaultMaxHull = 600f;
+                defaultArmor = 120f;
+                defaultMaxFlux = 400f;
+                break;
+            case FRIGATE:
+            default:
+                defaultMaxHull = 2500f;
+                defaultArmor = 300f;
+                defaultMaxFlux = 2600f;
+                break;
+        }
+
+        float maxHull = ship.getMaxHitpoints() > 1f ? ship.getMaxHitpoints() : defaultMaxHull;
+        float hullLevel = clampVal(ship.getHullLevel(), 0f, 1f);
+        float currHull;
+        if (maxOnly) {
+            currHull = maxHull;
+        } else if (ship.getHitpoints() > 1f && ship.getMaxHitpoints() > 1f) {
+            currHull = Math.min(maxHull, ship.getHitpoints());
+        } else {
+            currHull = maxHull * (hullLevel > 0f ? hullLevel : 1.0f);
+        }
+
+        // 2. Armor Effective HP (Armor Rating * Pool * Armor DR multiplier * remaining cell integrity)
+        com.fs.starfarer.api.combat.ArmorGridAPI grid = ship.getArmorGrid();
+        float armorRating = (grid != null && grid.getArmorRating() > 0f)
+                ? grid.getArmorRating()
+                : ((ship.getHullSpec() != null && ship.getHullSpec().getArmorRating() > 0f)
+                ? ship.getHullSpec().getArmorRating()
+                : defaultArmor);
+        float armorIntegrity = 1.0f;
+        if (!maxOnly) {
+            if (grid != null && grid.getGrid() != null && grid.getMaxArmorInCell() > 0f) {
+                float[][] cells = grid.getGrid();
+                float maxCell = grid.getMaxArmorInCell();
+                float sum = 0f;
+                int count = 0;
+                for (int x = 0; x < cells.length; x++) {
+                    float[] col = cells[x];
+                    if (col == null) continue;
+                    for (int y = 0; y < col.length; y++) {
+                        sum += clampVal(col[y] / maxCell, 0f, 1f);
+                        count++;
+                    }
+                }
+                armorIntegrity = count > 0 ? clampVal(sum / count, 0.08f, 1.0f) : Math.max(0.15f, hullLevel);
+            } else {
+                armorIntegrity = Math.max(0.15f, hullLevel);
+            }
+        }
+        float maxArmorEhp = armorRating * 7.5f * (1.0f + armorRating / 550f);
+        float armorEhp = maxOnly ? maxArmorEhp : (maxArmorEhp * armorIntegrity);
+
+        // 3. Shield Effective HP (Remaining Flux Capacity / Shield Flux-per-Damage * Arc Coverage)
+        FluxTrackerAPI ft = ship.getFluxTracker();
+        float maxFlux = (ft != null && ft.getMaxFlux() > 1f) ? ft.getMaxFlux() : defaultMaxFlux;
+        float fluxLevel = maxOnly ? 0f : clampVal(ship.getFluxLevel(), 0f, 1f);
+        float currFlux = maxOnly
+                ? 0f
+                : ((ft != null && ft.getMaxFlux() > 1f && ft.getCurrFlux() >= 0f)
+                ? Math.max(ft.getCurrFlux(), maxFlux * fluxLevel)
+                : (maxFlux * fluxLevel));
+        boolean ovldOrVent = !maxOnly && ft != null && ft.isOverloadedOrVenting();
+
+        ShieldAPI sh = ship.getShield();
+        float shieldEhp = 0f;
+        if (sh != null && sh.getType() != ShieldAPI.ShieldType.NONE && sh.getType() != ShieldAPI.ShieldType.PHASE) {
+            if (!ovldOrVent) {
+                float fluxPerDam = sh.getFluxPerPointOfDamage() > 0.05f ? sh.getFluxPerPointOfDamage() : 1.0f;
+                float arc = sh.getArc() > 0f ? sh.getArc() : 180f;
+                float arcFactor = clampVal(0.60f + 0.40f * (arc / 240f), 0.60f, 1.15f);
+                float remFlux = Math.max(0f, maxFlux - currFlux);
+                shieldEhp = (remFlux / fluxPerDam) * arcFactor;
+            }
+        } else if (ship.getPhaseCloak() != null || (sh != null && sh.getType() == ShieldAPI.ShieldType.PHASE)) {
+            if (!ovldOrVent) {
+                float remFlux = Math.max(0f, maxFlux - currFlux);
+                shieldEhp = remFlux * 1.25f;
+            }
+        } else if (sh == null && ship.getHullSpec() == null && size != HullSize.FIGHTER) {
+            // Headless SimArena mock ship without explicit ShieldAPI mock: estimate baseline shield capacity from flux
+            if (!ovldOrVent) {
+                float remFlux = Math.max(0f, maxFlux - currFlux);
+                shieldEhp = remFlux * 0.80f;
+            }
+        }
+
+        return Math.max(100f, currHull + armorEhp + shieldEhp);
+    }
+
     // =========================================================================
     // Time, Space & Convergence Evaluators (Telemetry, Net Space Control & Phase-Space Convergence)
     // =========================================================================
@@ -1700,6 +1833,8 @@ public class BattlefieldFirepowerEvaluator {
         int totalFighterWings = 0;
         float wingSpeedAccum = 0f;
         float wingRangeAccum = 0f;
+        float totalCurrEhp = 0f;
+        float totalMaxEhp = 0f;
 
         for (ShipAPI s : alive) {
             if (div.detachedStragglerIds.contains(s.getId()) && div.coreMemberCount >= 1) {
@@ -1712,6 +1847,8 @@ public class BattlefieldFirepowerEvaluator {
             if (spd < minCoreSpeed) {
                 minCoreSpeed = spd;
             }
+            totalCurrEhp += computeShipEffectiveHp(s);
+            totalMaxEhp += computeShipMaxEffectiveHp(s);
 
             // Include Strike Craft (FighterWingAPI) in Time & Space base metrics
             List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
@@ -1773,26 +1910,41 @@ public class BattlefieldFirepowerEvaluator {
                 850f,
                 3900f);
 
-        // Combat readiness multiplier for Space dominance
+        // Effective HP (Shield HP + Armor HP + Hull HP) & Combat Readiness for the 'Space' Domain:
+        // Glass-cannon hulls (e.g. Hammerheads/Sunders) or divisions with depleted shields/armor/hull project less
+        // sustainable Space dominance than heavily armored/shielded line divisions of the same FP cost!
+        div.totalEffectiveHp = Math.max(100f, totalCurrEhp);
+        div.maxEffectiveHp = Math.max(div.totalEffectiveHp, totalMaxEhp);
+        div.effectiveHpRatio = clampVal(div.totalEffectiveHp / Math.max(1f, div.maxEffectiveHp), 0.18f, 1.0f);
+
+        float ehpEquivalentStrength = div.totalEffectiveHp / 1600f;
+        float ehpDensityRatio = ehpEquivalentStrength / Math.max(4f, div.totalFpStrength);
+        float ehpRadiusFactor = clampVal(
+                (0.74f + 0.26f * (float) Math.sqrt(clampVal(ehpDensityRatio, 0.35f, 2.5f)))
+                        * (0.68f + 0.32f * div.effectiveHpRatio),
+                0.58f,
+                1.22f);
+
         float readiness = clampVal(
-                (1.05f - 0.55f * div.avgFluxLevel) * Math.max(0.38f, div.avgHullLevel),
-                0.28f,
+                (1.05f - 0.55f * div.avgFluxLevel) * Math.max(0.38f, div.avgHullLevel) * (0.45f + 0.55f * div.effectiveHpRatio),
+                0.24f,
                 1.10f);
         float avgWingReach = totalFighterWings > 0 ? (wingRangeAccum / totalFighterWings) : 0f;
         float effRange = Math.max(550f, Math.max(div.avgEngageRange, avgWingReach * 0.68f));
 
-        // Space Zone 1 (Directly Dominated Up Close) & Zone 2 (Dominated Nearby), expanded by Strike Craft screens & sorties
+        // Space Zone 1 (Directly Dominated Up Close) & Zone 2 (Dominated Nearby), weighted by Effective HP & Strike Craft
         float wingInnerBonus = Math.min(240f, totalFighterWings * 42f);
         float wingDomBonus = Math.min(480f, totalFighterWings * 85f * readiness);
         div.spaceInnerRadius = clampVal(
-                div.spreadRadius * 0.55f + Math.min(900f, effRange * 0.50f) + wingInnerBonus,
-                420f,
-                1480f);
+                (div.spreadRadius * 0.55f + Math.min(900f, effRange * 0.50f)) * ehpRadiusFactor + wingInnerBonus,
+                380f,
+                1520f);
         div.spaceDominatedRadius = clampVal(
-                div.spreadRadius * 0.72f + effRange * (0.84f + 0.22f * readiness) + wingDomBonus,
+                (div.spreadRadius * 0.72f + effRange * (0.84f + 0.22f * readiness)) * ehpRadiusFactor + wingDomBonus,
                 div.spaceInnerRadius + 220f,
-                2650f);
-        div.spaceDominanceWeight = Math.max(4f, (div.totalFpStrength + totalFighterWings * 4.5f) * readiness);
+                2680f);
+        float effectiveSpaceMass = 0.38f * div.totalFpStrength + 0.62f * ehpEquivalentStrength;
+        div.spaceDominanceWeight = Math.max(4f, (effectiveSpaceMass + totalFighterWings * 4.5f) * readiness);
 
         // Default effectiveTimeRadius & spacePotentialRadius before cross-group engagement reduction
         if (div.effectiveTimeRadius <= 1f) {

@@ -326,16 +326,24 @@ public class OtcAI {
             if ((dx * dx + dy * dy) > radiusSq) continue;
 
             float fp = ShipCapabilityProfile.resolveShipFpStrength(s);
-            // Weight combat effectiveness by remaining hull and flux headroom
+            // Weight combat effectiveness by both FP readiness AND Effective HP (Shield HP + Armor HP + Hull HP)
+            // so glass-cannon destroyers (e.g. Hammerheads) do not overestimate their local force ratio against heavy armor/shields!
             float readiness = Math.max(0.35f, s.getHullLevel() * (1.15f - 0.5f * s.getFluxLevel()));
+            float ehpStrength = BattlefieldFirepowerEvaluator.computeShipEffectiveHp(s) / 1600f;
+            float effectiveStrength = 0.42f * (fp * readiness) + 0.58f * ehpStrength;
             if (s.getOwner() == div.side) {
-                friendlyFp += fp * readiness;
+                friendlyFp += effectiveStrength;
             } else if (isShipVisibleToSide(engine, div.side, s)) {
-                enemyFp += fp * readiness;
+                enemyFp += effectiveStrength;
             }
         }
 
-        div.localFriendlyStrength = Math.max(friendlyFp, div.totalFpStrength * 0.5f);
+        float selfEhpStrength = 0f;
+        for (ShipAPI m : div.getAliveMembers()) {
+            selfEhpStrength += BattlefieldFirepowerEvaluator.computeShipEffectiveHp(m) / 1600f;
+        }
+        float minSelfFloor = (0.42f * div.totalFpStrength + 0.58f * selfEhpStrength) * 0.5f;
+        div.localFriendlyStrength = Math.max(friendlyFp, minSelfFloor);
         div.localEnemyStrength = enemyFp;
         div.localForceRatio = (enemyFp <= 1f) ? 3.0f : (div.localFriendlyStrength / enemyFp);
     }

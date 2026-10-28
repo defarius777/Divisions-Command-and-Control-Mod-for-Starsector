@@ -389,6 +389,9 @@ public class DivisionModel {
         public float avgFluxLevel;
         public float maxMemberFluxLevel;
         public float avgHullLevel;
+        public float totalEffectiveHp;
+        public float maxEffectiveHp;
+        public float effectiveHpRatio = 1.0f;
         public float localFriendlyStrength;
         public float localEnemyStrength;
         public float localForceRatio; // localFriendlyStrength / max(1, localEnemyStrength)
@@ -472,6 +475,7 @@ public class DivisionModel {
         public PermanentDivisionManager.SquadronFormation bomberVoidstrikeFormation =
                 PermanentDivisionManager.SquadronFormation.LINE_ABREAST;
         public int voidstrikeSquadronDepth = 2;
+        public int voidstrikeSquadronWidth = 2;
 
         // Coordinated Voidstrike staging (0 = Orbit Carrier, 1 = Form Up at Marshal Point, 2 = Attack Run)
         public int voidstrikeStage = 2;

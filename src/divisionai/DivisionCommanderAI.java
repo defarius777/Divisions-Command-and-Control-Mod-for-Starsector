@@ -154,8 +154,10 @@ public class DivisionCommanderAI {
                 || (myGroup.authority == OtcAuthority.COMMAND_BY_DIRECTION && div.commander.stationKeepingStrictness >= 0.88f))) {
             desired = div.otcOrderedFormation;
         } else if (myGroup == null || myGroup.authority != OtcAuthority.POSITIVE_CONTROL || base != DivisionFormation.NONE) {
-            // Division Commander's tactical discretion
-            if (div.crossfireCordonIndex >= 0.52f && aliveCount >= 3) {
+            // Division Commander's tactical discretion (preserve PROTECTIVE_CIRCLE when doctrinally selected unless surrounded/breaking up)
+            if (base == DivisionFormation.PROTECTIVE_CIRCLE && aliveCount >= 2) {
+                desired = DivisionFormation.PROTECTIVE_CIRCLE;
+            } else if (div.crossfireCordonIndex >= 0.52f && aliveCount >= 3) {
                 desired = DivisionFormation.CIRCLE;
             } else if (div.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION && aliveCount >= 2) {
                 desired = DivisionFormation.FORWARD_SEMICIRCLE;
@@ -372,13 +374,25 @@ public class DivisionCommanderAI {
                 && div.localForceRatio < 0.65f
                 && (div.avgFluxLevel >= 0.35f || div.maxMemberFluxLevel >= 0.45f || div.avgHullLevel < 0.75f);
 
+        // Protect fragile destroyer divisions (e.g. Hammerhead / Sunder packs) from fighting to the death
+        // when their Effective HP (Shield + Armor + Hull HP) is depleted against heavy enemy resistance!
+        boolean isFragileDestroyerDiv = (div.archetype == DivisionArchetype.DESTROYER_DIVISION
+                || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
+        boolean ehpDepletedUnderFire = div.localEnemyStrength >= 10f
+                && ((div.effectiveHpRatio < 0.56f && (div.avgFluxLevel >= 0.34f || div.localForceRatio < 0.85f))
+                || (isFragileDestroyerDiv && div.effectiveHpRatio < 0.64f && div.localForceRatio < 0.78f && div.avgFluxLevel >= 0.38f));
+
         boolean highFluxPressure = div.avgFluxLevel >= div.commander.rotationFluxThreshold
                 || loneFrigateOvermatched
+                || ehpDepletedUnderFire
                 || (div.maxMemberFluxLevel >= 0.78f && div.localEnemyStrength > 10f && (div.localForceRatio < 0.72f || inCrossfireCordon))
                 || (div.maxMemberFluxLevel >= 0.82f && div.localEnemyStrength >= 10f && div.avgFluxLevel >= 0.42f)
                 || (div.avgFluxLevel >= 0.45f && div.localEnemyStrength > 14f && div.localForceRatio < 0.50f && div.commander.aggressionBias < 1.35f)
                 || (inCrossfireCordon && (div.maxMemberFluxLevel >= 0.64f || (div.avgFluxLevel >= 0.38f && div.localForceRatio < 0.68f)));
-        boolean canRotateOut = (div != myGroup.mainEffortDivision || div.avgFluxLevel >= 0.72f || myGroup.divisions.size() >= 3);
+        boolean canRotateOut = (div != myGroup.mainEffortDivision
+                || div.avgFluxLevel >= 0.68f
+                || div.effectiveHpRatio < 0.55f
+                || myGroup.divisions.size() >= 2);
         return highFluxPressure && canRotateOut;
     }
 
@@ -865,7 +879,13 @@ public class DivisionCommanderAI {
             Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
             div.targetEnemyDivision = nearestEnemyDiv;
             div.stationPoint.set(visEnemyPos);
-            DivisionIntentType intent = (div.localForceRatio >= 0.88f && distToVisibleEnemy < 3400f)
+            boolean isLightOrDestroyer = div.archetype == DivisionArchetype.DESTROYER_DIVISION
+                    || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                    || div.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+            float pressRatioReq = isLightOrDestroyer ? 1.18f : 0.88f;
+            boolean ehpReadyToPress = div.effectiveHpRatio >= (isLightOrDestroyer ? 0.68f : 0.55f);
+            DivisionIntentType intent = (div.localForceRatio >= pressRatioReq && ehpReadyToPress && distToVisibleEnemy < 3400f)
                     ? DivisionIntentType.PRESS_HOME
                     : DivisionIntentType.CLOSE_AND_ENGAGE;
             return commitIntent(engine, div, intent,
@@ -995,7 +1015,9 @@ public class DivisionCommanderAI {
 
             DivisionIntentType intent;
             String reason;
-            if (div.localForceRatio >= Math.max(1.22f, div.commander.commitForceRatio) && distToVisibleEnemy < 3200f) {
+            if (div.localForceRatio >= Math.max(1.22f, div.commander.commitForceRatio)
+                    && div.effectiveHpRatio >= 0.62f
+                    && distToVisibleEnemy < 3200f) {
                 intent = DivisionIntentType.PRESS_HOME;
                 reason = String.format("local advantage %.2fx", div.localForceRatio);
             } else {
@@ -1144,7 +1166,9 @@ public class DivisionCommanderAI {
                 if (activeMission == DivisionMissionType.STANDOFF_ENGAGEMENT) {
                     div.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
                     computeStandoffStation(engine, div, target, div.stationPoint);
-                } else if (div.localForceRatio >= Math.max(1.0f, div.commander.commitForceRatio) && dist < 3200f) {
+                } else if (div.localForceRatio >= Math.max(1.0f, div.commander.commitForceRatio)
+                        && div.effectiveHpRatio >= 0.62f
+                        && dist < 3200f) {
                     div.currentIntent = DivisionIntentType.PRESS_HOME;
                     div.stationPoint.set(visEnemyPos);
                 } else {
@@ -1398,17 +1422,33 @@ public class DivisionCommanderAI {
             }
 
             boolean isFrigateHull = ship.isFrigate();
+            boolean isDestroyerHull = ship.isDestroyer();
+            float shipCurrEhp = BattlefieldFirepowerEvaluator.computeShipEffectiveHp(ship);
+            float shipMaxEhp = BattlefieldFirepowerEvaluator.computeShipMaxEffectiveHp(ship);
+            float shipEhpRatio = shipCurrEhp / Math.max(1f, shipMaxEhp);
+            float hardFluxFrac = (ship.getFluxTracker() != null && ship.getFluxTracker().getMaxFlux() > 1f)
+                    ? (ship.getFluxTracker().getHardFlux() / ship.getFluxTracker().getMaxFlux())
+                    : 0f;
+
             boolean loneOrOutnumberedFrigateInDanger = isFrigateHull
                     && (alive.size() == 1 || (div.localForceRatio < 0.55f && ship.getFluxLevel() >= 0.58f))
                     && div.localEnemyStrength >= 8f
                     && (ship.getFluxLevel() >= 0.44f
-                    || (ship.getFluxTracker() != null && ship.getFluxTracker().getHardFlux() / Math.max(1f, ship.getFluxTracker().getMaxFlux()) >= 0.35f)
+                    || hardFluxFrac >= 0.35f
                     || (ship.getHullLevel() < 0.72f && ship.getFluxLevel() >= 0.25f));
+            // Prevent fragile Destroyers (e.g. Hammerheads / Sunders) from suicidally pressing into heavy armor/shields
+            // when their Effective HP (Shield + Armor + Hull HP) or hard-flux headroom is depleted!
+            boolean destroyerInEhpDanger = isDestroyerHull
+                    && div.localEnemyStrength >= 10f
+                    && ((shipEhpRatio < 0.52f && ship.getFluxLevel() >= 0.40f)
+                    || (div.localForceRatio < 0.80f && shipEhpRatio < 0.58f && (ship.getFluxLevel() >= 0.48f || hardFluxFrac >= 0.38f))
+                    || (div.localForceRatio < 0.72f && ship.getFluxLevel() >= 0.62f));
             boolean shipInPersonalCrisis = !martyrdom
                     && div.localEnemyStrength >= 8f
                     && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                     && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
                     && (loneOrOutnumberedFrigateInDanger
+                    || destroyerInEhpDanger
                     || (ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting())
                     || ship.getFluxLevel() >= 0.82f
                     || (ship.getHullLevel() < 0.42f && ship.getFluxLevel() >= 0.45f));
@@ -1419,7 +1459,8 @@ public class DivisionCommanderAI {
                 flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL * 1.4f);
                 flags.setFlag(AIFlags.RUN_QUICKLY, FLAG_TTL * 1.4f);
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL * 1.4f);
-                if (loneOrOutnumberedFrigateInDanger && myGroup != null && myGroup.reserveStation != null) {
+                if ((loneOrOutnumberedFrigateInDanger || destroyerInEhpDanger)
+                        && myGroup != null && myGroup.reserveStation != null) {
                     flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, myGroup.reserveStation);
                 }
                 continue;
@@ -1602,6 +1643,29 @@ public class DivisionCommanderAI {
     }
 
     /**
+     * Computes the effective [strikeWidth, strikeDepth] for {@code totalUnits} squadrons/craft given
+     * requested {@code reqWidth} (1..10) and {@code reqDepth} (1..10).
+     * If {@code reqWidth} and {@code reqDepth} cannot be achieved together ({@code reqWidth * reqDepth != totalUnits}),
+     * averages each requested dimension with the feasible dimension implied by the other:
+     *   {@code feasibleWidth = totalUnits / reqDepth}, {@code feasibleDepth = totalUnits / reqWidth},
+     *   {@code effWidth = round(0.5 * (reqWidth + feasibleWidth))},
+     *   {@code effDepth = round(0.5 * (reqDepth + feasibleDepth))}.
+     */
+    public static int[] computeCompromiseStrikeWidthAndDepth(int totalUnits, int reqWidth, int reqDepth) {
+        int n = Math.max(1, totalUnits);
+        int w = Math.max(1, Math.min(10, reqWidth));
+        int d = Math.max(1, Math.min(10, reqDepth));
+        if (w * d == n) {
+            return new int[]{w, d};
+        }
+        float feasibleW = Math.max(1f, (float) n / d);
+        float feasibleD = Math.max(1f, (float) n / w);
+        int effW = Math.max(1, Math.min(10, Math.round(0.5f * (w + feasibleW))));
+        int effD = Math.max(1, Math.min(10, Math.round(0.5f * (d + feasibleD))));
+        return new int[]{effW, effD};
+    }
+
+    /**
      * Computes the 2D formation offset (in units) for a strike craft inside its squadron (and rank depth 1..10
      * during Voidstrikes) for Items E, D2, F, G, and H.
      */
@@ -1611,6 +1675,28 @@ public class DivisionCommanderAI {
             int craftCount,
             int squadronRankIdx,
             int squadronDepth,
+            float craftSpacing,
+            float fwdX,
+            float fwdY,
+            float rightX,
+            float rightY) {
+        return computeSquadronCraftSlotOffset(
+                formation, craftIdx, craftCount, squadronRankIdx, squadronDepth, 0, 1,
+                craftSpacing, fwdX, fwdY, rightX, rightY);
+    }
+
+    /**
+     * Overloaded squadron craft slot offset calculator that incorporates both Voidstrike Strike Depth (1..10)
+     * and Strike Width (1..10) with automatic averaging when width and depth cannot be achieved together.
+     */
+    public static Vector2f computeSquadronCraftSlotOffset(
+            SquadronFormation formation,
+            int craftIdx,
+            int craftCount,
+            int squadronRankIdx,
+            int squadronDepth,
+            int squadronColIdx,
+            int squadronWidth,
             float craftSpacing,
             float fwdX,
             float fwdY,
@@ -1680,11 +1766,17 @@ public class DivisionCommanderAI {
             }
         }
 
-        // Apply multi-rank Voidstrike Squadron Depth (1..10): deeper ranks trail behind the lead squadron rank
+        // Apply multi-rank Voidstrike Squadron Depth (1..10) and Strike Width (1..10):
         int clampedDepth = Math.max(1, Math.min(10, squadronDepth));
         if (clampedDepth > 1 && squadronRankIdx > 0) {
             int effRank = squadronRankIdx % clampedDepth;
             localFwd -= effRank * Math.max(85f, sp * 1.95f);
+        }
+        int clampedWidth = Math.max(1, Math.min(10, squadronWidth));
+        if (clampedWidth > 1) {
+            int effCol = Math.max(0, squadronColIdx) % clampedWidth;
+            float centeredCol = effCol - (clampedWidth - 1) * 0.5f;
+            localRight += centeredCol * Math.max(92f, sp * 2.15f);
         }
 
         return new Vector2f(
@@ -1762,7 +1854,22 @@ public class DivisionCommanderAI {
         float rightX = fwdY;
         float rightY = -fwdX;
 
-        int sqdnDepth = Math.max(1, Math.min(10, div.voidstrikeSquadronDepth));
+        int reqDepth = Math.max(1, Math.min(10, div.voidstrikeSquadronDepth));
+        int reqWidth = Math.max(1, Math.min(10, div.voidstrikeSquadronWidth));
+        int totalDivWings = 0;
+        int priorCarrierWings = 0;
+        List<ShipAPI> divAlive = div.getAliveMembers();
+        for (int i = 0; i < divAlive.size(); i++) {
+            ShipAPI m = divAlive.get(i);
+            int mWings = (m.getAllWings() != null) ? m.getAllWings().size() : 0;
+            if (i < carrierIdxInDiv) {
+                priorCarrierWings += mWings;
+            }
+            totalDivWings += mWings;
+        }
+        int[] compromise = computeCompromiseStrikeWidthAndDepth(Math.max(1, totalDivWings), reqWidth, reqDepth);
+        int effSqdnWidth = compromise[0];
+        int effSqdnDepth = compromise[1];
         VoidstrikeTargetObservance observance = div.voidstrikeObservance != null
                 ? div.voidstrikeObservance
                 : VoidstrikeTargetObservance.MEDIUM;
@@ -1782,8 +1889,10 @@ public class DivisionCommanderAI {
             SquadronFormation sqdnForm = isBomberWing
                     ? (inVoidstrike ? div.bomberVoidstrikeFormation : div.bomberFormation)
                     : (inVoidstrike ? div.fighterVoidstrikeFormation : div.fighterFormation);
-            int globalSqdnIdx = carrierIdxInDiv * 4 + wIdx;
-            int rankIdx = inVoidstrike ? (globalSqdnIdx % sqdnDepth) : 0;
+            int globalSqdnIdx = priorCarrierWings + wIdx;
+            int colIdx = inVoidstrike ? (globalSqdnIdx % effSqdnWidth) : 0;
+            int rankIdx = inVoidstrike ? ((globalSqdnIdx / effSqdnWidth) % effSqdnDepth) : 0;
+            int activeColsInRank = Math.max(1, Math.min(effSqdnWidth, totalDivWings));
 
             for (int cIdx = 0; cIdx < wingMembers.size(); cIdx++) {
                 ShipAPI fighter = wingMembers.get(cIdx);
@@ -1796,7 +1905,9 @@ public class DivisionCommanderAI {
                         cIdx,
                         wingMembers.size(),
                         rankIdx,
-                        inVoidstrike ? sqdnDepth : 1,
+                        inVoidstrike ? effSqdnDepth : 1,
+                        colIdx,
+                        inVoidstrike ? activeColsInRank : 1,
                         44f,
                         fwdX,
                         fwdY,
@@ -1821,11 +1932,10 @@ public class DivisionCommanderAI {
                     fFlags.setFlag(AIFlags.ESCORT_OTHER_SHIP, FLAG_TTL, carrier);
                     fFlags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, orbitPt);
                 } else if (coordinatedStagingActive && div.voidstrikeStage == 1) {
-                    // Coordinated Stage 1: Squadrons move to nearby marshalling point and dress into Voidstrike formation & depth
-                    float wingLateral = (wIdx - (wings.size() - 1) * 0.5f) * 95f;
+                    // Coordinated Stage 1: Squadrons move to nearby marshalling point and dress into Voidstrike formation, width & depth
                     Vector2f marshalSlot = new Vector2f(
-                            div.voidstrikeMarshalPoint.x + rightX * wingLateral + slotOffset.x,
-                            div.voidstrikeMarshalPoint.y + rightY * wingLateral + slotOffset.y);
+                            div.voidstrikeMarshalPoint.x + slotOffset.x,
+                            div.voidstrikeMarshalPoint.y + slotOffset.y);
                     fFlags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                     fFlags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, marshalSlot);
                     fFlags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, marshalSlot);
@@ -1875,11 +1985,12 @@ public class DivisionCommanderAI {
                             if (dSlot > 380f && dEnemy > 850f) {
                                 fFlags.setFlag(AIFlags.ESCORT_OTHER_SHIP, FLAG_TTL, wingLeader);
                             }
-                        } else if (rankIdx > 0 && dEnemy > 750f) {
-                            // Echelon deeper squadron ranks (depth 2..10) behind the lead squadron wave
+                        } else if ((rankIdx > 0 || activeColsInRank > 1) && dEnemy > 750f) {
+                            // Echelon squadron columns (width 1..10) and deeper squadron ranks (depth 1..10)
+                            float centeredCol = colIdx - (activeColsInRank - 1) * 0.5f;
                             Vector2f rankLeadTarget = new Vector2f(
-                                    focusEnemyShip.getLocation().x - fwdX * (rankIdx * 110f),
-                                    focusEnemyShip.getLocation().y - fwdY * (rankIdx * 110f));
+                                    focusEnemyShip.getLocation().x - fwdX * (rankIdx * 110f) + rightX * (centeredCol * 95f),
+                                    focusEnemyShip.getLocation().y - fwdY * (rankIdx * 110f) + rightY * (centeredCol * 95f));
                             fFlags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, rankLeadTarget);
                         }
                     }
@@ -2315,11 +2426,15 @@ public class DivisionCommanderAI {
                             }
                         }
                     } else if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 2600f) {
-                        // Prevent lone or outnumbered frigates from diving into enemy gunlines due to vanilla AI's
-                        // helpless-target overmatch heuristic!
+                        // Prevent lone or outnumbered frigates and fragile/fluxed destroyers (e.g. Hammerheads)
+                        // from diving into enemy gunlines due to vanilla AI's helpless-target overmatch heuristic!
+                        float shipEhpRatio = BattlefieldFirepowerEvaluator.computeShipEffectiveHp(ship)
+                                / Math.max(1f, BattlefieldFirepowerEvaluator.computeShipMaxEffectiveHp(ship));
                         boolean loneOrOutnumberedFrigate = ship.isFrigate()
                                 && (div.getAliveMembers().size() == 1 || div.localForceRatio < 0.72f);
-                        if (loneOrOutnumberedFrigate) {
+                        boolean pressuredDestroyer = ship.isDestroyer()
+                                && (div.localForceRatio < 0.85f || shipEhpRatio < 0.65f || ship.getFluxLevel() >= 0.45f);
+                        if (loneOrOutnumberedFrigate || pressuredDestroyer) {
                             flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                         } else if (activeMission == DivisionMissionType.CLOSE_ACTION) {
                             flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
@@ -2328,7 +2443,9 @@ public class DivisionCommanderAI {
                         float distToEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
                         float distToSlot = distance(ship.getLocation(), slotPos);
                         boolean isWingman = (div.flagship != null && ship != div.flagship) || (div.flagship == null && shipIdx > 0);
-                        if (loneOrOutnumberedFrigate && distToEnemy < div.standoffRange * 0.80f && ship.getFluxLevel() >= 0.30f) {
+                        if ((loneOrOutnumberedFrigate && distToEnemy < div.standoffRange * 0.80f && ship.getFluxLevel() >= 0.30f)
+                                || (pressuredDestroyer && distToEnemy < div.standoffRange * 0.82f && (ship.getFluxLevel() >= 0.42f || shipEhpRatio < 0.58f))) {
+                            flags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
                             flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
                             flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
                         } else if (distToEnemy > individualEngageHorizon) {
@@ -3003,7 +3120,65 @@ public class DivisionCommanderAI {
         }
 
         int assignedSlotIdx = 0;
-        if (shipIdx != leadIdx && n > 1) {
+        if (formation == DivisionFormation.PROTECTIVE_CIRCLE && n > 1) {
+            // Protective Circle: assign the largest / carrier / flagship hulls to the inner core slots (0 .. coreCount-1)
+            // and match smaller escort hulls (frigates/destroyers) to the outer protective circle slots (coreCount .. n-1).
+            int coreCount = computeProtectiveCircleCoreCount(n);
+            boolean[] isCoreMember = new boolean[n];
+            for (int c = 0; c < coreCount; c++) {
+                int bestShipIdx = -1;
+                float bestPrio = -Float.MAX_VALUE;
+                for (int i = 0; i < n; i++) {
+                    if (isCoreMember[i]) continue;
+                    float prio = computeProtectiveCircleCorePriority(alive.get(i), div);
+                    if (prio > bestPrio) {
+                        bestPrio = prio;
+                        bestShipIdx = i;
+                    }
+                }
+                if (bestShipIdx >= 0) {
+                    isCoreMember[bestShipIdx] = true;
+                }
+            }
+            boolean[] slotTaken = new boolean[n];
+            if (isCoreMember[shipIdx]) {
+                int coreSlotCursor = 0;
+                for (int i = 0; i < n; i++) {
+                    if (!isCoreMember[i]) continue;
+                    int slot = Math.min(coreCount - 1, coreSlotCursor++);
+                    slotTaken[slot] = true;
+                    if (i == shipIdx) {
+                        assignedSlotIdx = slot;
+                        break;
+                    }
+                }
+            } else {
+                for (int c = 0; c < coreCount; c++) {
+                    slotTaken[c] = true;
+                }
+                for (int i = 0; i < n; i++) {
+                    if (isCoreMember[i]) continue;
+                    ShipAPI s = alive.get(i);
+                    int bestSlot = coreCount;
+                    float bestDistSq = Float.MAX_VALUE;
+                    for (int k = coreCount; k < n; k++) {
+                        if (slotTaken[k]) continue;
+                        float dx = s.getLocation().x - worldSlots[k].x;
+                        float dy = s.getLocation().y - worldSlots[k].y;
+                        float dSq = dx * dx + dy * dy;
+                        if (dSq < bestDistSq) {
+                            bestDistSq = dSq;
+                            bestSlot = k;
+                        }
+                    }
+                    slotTaken[bestSlot] = true;
+                    if (i == shipIdx) {
+                        assignedSlotIdx = bestSlot;
+                        break;
+                    }
+                }
+            }
+        } else if (shipIdx != leadIdx && n > 1) {
             boolean[] slotTaken = new boolean[n];
             slotTaken[0] = true; // Slot 0 reserved for flagship
             for (int i = 0; i < n; i++) {
@@ -3112,6 +3287,26 @@ public class DivisionCommanderAI {
                 float depth = (float) ((Math.cos(angleFromFwd) - 1.0) * radius);
                 return new float[]{lat, depth};
             }
+            case PROTECTIVE_CIRCLE: {
+                // Protective Circle for mixed large + small ship divisions:
+                // Core slots (0 .. coreCount-1) sit inside the protected center; escort slots (coreCount .. n-1)
+                // form a 360-degree outer defensive ring around the center at radius R.
+                int coreCount = computeProtectiveCircleCoreCount(n);
+                if (k < coreCount) {
+                    if (coreCount == 1) {
+                        return new float[]{0f, 0f};
+                    }
+                    float coreLat = (k - (coreCount - 1) * 0.5f) * (spacing * 0.62f);
+                    return new float[]{coreLat, 0f};
+                }
+                int ringCount = Math.max(1, n - coreCount);
+                int ringIdx = k - coreCount;
+                float radius = Math.max(spacing * 0.82f, (float) ((ringCount * spacing * 0.72f) / (2.0 * Math.PI)));
+                double angleFromFwd = (2.0 * Math.PI * ringIdx) / ringCount;
+                float lat = (float) (Math.sin(angleFromFwd) * radius);
+                float depth = (float) (Math.cos(angleFromFwd) * radius);
+                return new float[]{lat, depth};
+            }
             case FORWARD_SEMICIRCLE: {
                 // Convex dome bowing toward the enemy: flagship at the forward crown (k=0, depth=0), wingmen curving back along +-70 deg arc
                 int maxRank = Math.max(1, (n + 1) / 2);
@@ -3140,6 +3335,42 @@ public class DivisionCommanderAI {
                 return new float[]{lat, depth};
             }
         }
+    }
+
+    /**
+     * Number of center-protected core slots in {@link DivisionFormation#PROTECTIVE_CIRCLE} for {@code n} ships.
+     */
+    public static int computeProtectiveCircleCoreCount(int n) {
+        if (n <= 4) return 1;
+        return Math.max(1, Math.min(3, n / 3));
+    }
+
+    /**
+     * Priority score for placing a ship in the protected inner core of {@link DivisionFormation#PROTECTIVE_CIRCLE}:
+     * larger hulls (Capitals, Cruisers), dedicated carriers, and the division flagship belong in the inner core,
+     * while smaller escort hulls (Frigates, Destroyers) belong on the 360-degree outer protective circle.
+     */
+    public static float computeProtectiveCircleCorePriority(ShipAPI s, DivisionState div) {
+        if (s == null) return 0f;
+        float score = ShipCapabilityProfile.resolveShipFpStrength(s) * 2.0f;
+        if (div != null && s == div.flagship) {
+            score += 45f;
+        }
+        int bays = s.getNumFighterBays();
+        if (bays > 0) {
+            score += 110f * bays;
+        }
+        ShipAPI.HullSize hs = s.getHullSize();
+        if (hs == ShipAPI.HullSize.CAPITAL_SHIP) {
+            score += 400f;
+        } else if (hs == ShipAPI.HullSize.CRUISER) {
+            score += 240f;
+        } else if (hs == ShipAPI.HullSize.DESTROYER) {
+            score += 90f;
+        } else if (hs == ShipAPI.HullSize.FRIGATE) {
+            score += 20f;
+        }
+        return score;
     }
 
     private static void computeStandoffStation(

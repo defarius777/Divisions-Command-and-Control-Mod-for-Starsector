@@ -1166,6 +1166,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 PermanentDivisionManager.resolveEffectiveBomberVoidstrikeFormation(spec, doctrineCfg);
         int effVsDepth =
                 PermanentDivisionManager.resolveEffectiveVoidstrikeSquadronDepth(spec, doctrineCfg);
+        int effVsWidth =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeSquadronWidth(spec, doctrineCfg);
 
         addDivisionVoidstrikeObservanceRow(
                 leftCol,
@@ -1241,8 +1243,22 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         addDivisionVoidstrikeDepthRow(
                 leftCol,
                 colWidth - 16f,
+                "Strike Depth: " + effVsDepth,
                 effVsDepth,
                 spec.customVoidstrikeSquadronDepth != null,
+                "DIV_VS_DEPTH:",
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        addDivisionVoidstrikeDepthRow(
+                leftCol,
+                colWidth - 16f,
+                "Strike Width: " + effVsWidth,
+                effVsWidth,
+                spec.customVoidstrikeSquadronWidth != null,
+                "DIV_VS_WIDTH:",
                 baseColor,
                 darkColor,
                 highlight,
@@ -2113,8 +2129,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     private void addDivisionVoidstrikeDepthRow(
             TooltipMakerAPI col,
             float rowWidth,
-            int effDepth,
+            String labelText,
+            int effVal,
             boolean isCustom,
+            String actionPrefix,
             Color baseColor,
             Color darkColor,
             Color highlight,
@@ -2123,15 +2141,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        String labelText = "Strike Depth: " + effDepth;
         rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
 
         float x = CONTROL_COL_X - 24f;
         for (int v = PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH;
              v <= PermanentDivisionManager.MAX_VOIDSTRIKE_SQUADRON_DEPTH;
              v++) {
-            boolean selected = (v == effDepth);
-            String act = "DIV_VS_DEPTH:" + v;
+            boolean selected = (v == effVal);
+            String act = actionPrefix + v;
             ButtonAPI bVal = registerButton(
                     rowUi.addButton(
                             String.valueOf(v),
@@ -2149,7 +2166,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             x += 30f;
         }
 
-        String inhAct = "DIV_VS_DEPTH:INHERIT";
+        String inhAct = actionPrefix + "INHERIT";
         ButtonAPI bInh = registerButton(
                 rowUi.addButton(
                         "Inherit",
@@ -2181,9 +2198,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             final Color activeColor) {
 
         final DivisionFormation[] formations = DivisionFormation.values();
-        final float btnW = 118f;
-        final float btnGap = 6f;
-        final int cols = 5;
+        final float btnW = 98f;
+        final float btnGap = 4f;
+        final int cols = 6;
         final float rowH = 76f;
         final ButtonAPI[] formButtons = new ButtonAPI[formations.length];
 
@@ -2546,6 +2563,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             String arg = cmd.substring("DIV_VS_DEPTH:".length());
             Integer depth = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
             PermanentDivisionManager.updateIndividualDivisionVoidstrikeSquadronDepth(activeDivisionId, depth);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_VS_WIDTH:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_WIDTH:".length());
+            Integer width = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
+            PermanentDivisionManager.updateIndividualDivisionVoidstrikeSquadronWidth(activeDivisionId, width);
             rebuildContent();
             return;
         }

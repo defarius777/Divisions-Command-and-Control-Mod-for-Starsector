@@ -1,12 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Naval Formation Icon: icon_formation_none -->
-  <polyline points="14.0,24.0 21.0,14.0" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-opacity="0.36" stroke-linecap="round" stroke-linejoin="round" />
-  <polyline points="48.0,22.0 53.0,12.0" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-opacity="0.36" stroke-linecap="round" stroke-linejoin="round" />
-  <polyline points="18.0,52.0 12.0,42.0" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-opacity="0.36" stroke-linecap="round" stroke-linejoin="round" />
-  <polyline points="45.0,50.0 52.0,40.0" fill="none" stroke="#FFFFFF" stroke-width="2.1" stroke-opacity="0.36" stroke-linecap="round" stroke-linejoin="round" />
-  <polygon points="31.6,20.4 35.4,32.4 30.8,29.3 25.7,31.5" fill="#FFFFFF" fill-opacity="0.96" stroke="#FFFFFF" stroke-width="2.2" stroke-linejoin="round" stroke-opacity="1.00" />
-  <polygon points="17.6,17.0 16.7,27.7 14.1,23.7 9.4,23.8" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
-  <polygon points="46.8,14.7 54.5,22.4 49.7,21.8 46.7,25.6" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
-  <polygon points="15.4,41.1 23.5,47.7 18.9,47.7 16.4,51.5" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
-  <polygon points="48.0,40.2 46.3,50.8 44.0,46.6 39.3,46.4" fill="#FFFFFF" fill-opacity="0.56" stroke="#FFFFFF" stroke-width="1.9" stroke-linejoin="round" stroke-opacity="0.90" />
+  <!-- Naval Formation Solid-Bar Icon: icon_formation_none -->
+  <polygon points="26.4,19.9 33.3,18.4 36.6,34.1 29.7,35.6" fill="#FFFFFF" fill-opacity="1.00" />
+  <polygon points="8.0,15.0 12.9,11.5 21.0,23.0 16.1,26.5" fill="#FFFFFF" fill-opacity="0.90" />
+  <polygon points="50.1,10.9 55.4,13.7 48.9,26.1 43.6,23.3" fill="#FFFFFF" fill-opacity="0.90" />
+  <polygon points="17.3,38.9 22.9,41.1 17.7,54.1 12.1,51.9" fill="#FFFFFF" fill-opacity="0.90" />
+  <polygon points="40.8,40.9 46.3,38.4 52.2,51.1 46.7,53.6" fill="#FFFFFF" fill-opacity="0.90" />
 </svg>

@@ -24,6 +24,7 @@
 			"icon_formation_echelon_left": "graphics/icons/formations/icon_formation_echelon_left.png",
 			"icon_formation_echelon_right": "graphics/icons/formations/icon_formation_echelon_right.png",
 			"icon_formation_circle": "graphics/icons/formations/icon_formation_circle.png",
+			"icon_formation_protective_circle": "graphics/icons/formations/icon_formation_protective_circle.png",
 			"icon_formation_forward_semicircle": "graphics/icons/formations/icon_formation_forward_semicircle.png",
 			"icon_formation_reverse_semicircle": "graphics/icons/formations/icon_formation_reverse_semicircle.png"
 		}
