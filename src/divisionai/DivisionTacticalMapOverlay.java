@@ -167,6 +167,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         this.playerGroup = playerGroup;
         this.alliedAiGroup = alliedAiGroup;
         this.enemyGroup = enemyGroup;
+        BattlefieldFirepowerEvaluator.setActiveBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
     }
 
     /**
@@ -363,10 +364,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         // 4b. Render Fleet Flagship (gold star, upper-right) and Division Leader (silver star, bottom-right) badges
         renderFlagshipStarsOnTopLayer(playerFog, scale, offsetX, offsetY, fade);
 
-        // 4c. Render stabilized Weapon-Arc Firepower Roses / Planes (when toggled ON) + right-side Toggle Button
+        // 4c. Render Time, Space, Firepower, and Convergence map layers (when toggled ON)
+        BattlefieldFirepowerEvaluator.renderTimeSpaceAndConvergenceScreenSpace(
+                engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
         BattlefieldFirepowerEvaluator.renderFirepowerRosesScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
-        BattlefieldFirepowerEvaluator.renderToggleButtonAndLegendUI(fade);
 
         // 5. De-conflict and render division labels anchored to the primary division droplet entity
         deconflictPrimaryDivisionLabels(renderedPolys);
@@ -375,6 +377,20 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 renderDivisionEntityLabel(rp, fade);
             }
         }
+
+        // 5b. Update & render "Voidstrike #" labels following the live center of strike craft groups
+        // (friendly and visible enemy Voidstrikes; disappears when strike craft return)
+        BattlefieldFirepowerEvaluator.updateVoidstrikes(
+                engine,
+                playerGroup,
+                alliedAiGroup,
+                enemyGroup,
+                engine.getTotalElapsedTime(false));
+        renderVoidstrikeLabels(playerFog, scale, offsetX, offsetY, fade);
+
+        // 6. Render right-side Warroom Buttons & Urgent Alpha Core Comms Modal on the ABSOLUTE TOP LAYER
+        // above all division polygons, ship sprites, overlays, and division text labels
+        BattlefieldFirepowerEvaluator.renderToggleButtonAndLegendUI(engine, fade);
     }
 
     private void collectDivisionPolygons(
@@ -391,20 +407,48 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             if (alive.isEmpty()) continue;
 
             ShipAPI activeFlag = resolveActiveFlagship(div, alive);
-            List<ShipAPI> hullMembers;
+            List<ShipAPI> hullMembers = new ArrayList<>(alive.size() + 4);
             if (!isEnemy) {
-                hullMembers = alive;
+                hullMembers.addAll(alive);
             } else {
                 if (activeFlag == null || !isEnemyShipVisibleOnCommandMap(activeFlag, playerFog)) {
                     continue;
                 }
-                hullMembers = new ArrayList<>(alive.size());
                 for (ShipAPI s : alive) {
                     if (isEnemyShipVisibleOnCommandMap(s, playerFog)) {
                         hullMembers.add(s);
                     }
                 }
                 if (hullMembers.isEmpty()) continue;
+            }
+
+            // Include each carrier's active Strike Craft squadron (represented by its Wing Leader) in the
+            // division's water-droplet footprint so launched wings stretch and bud off from their carrier!
+            int hullCount = hullMembers.size();
+            for (int i = 0; i < hullCount; i++) {
+                ShipAPI carrier = hullMembers.get(i);
+                List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
+                if (wings == null || wings.isEmpty()) continue;
+                for (com.fs.starfarer.api.combat.FighterWingAPI wing : wings) {
+                    if (wing == null) continue;
+                    ShipAPI wingRep = wing.getLeader();
+                    if ((wingRep == null || !wingRep.isAlive() || wingRep.isHulk())
+                            && wing.getWingMembers() != null && !wing.getWingMembers().isEmpty()) {
+                        for (ShipAPI fm : wing.getWingMembers()) {
+                            if (fm != null && fm.isAlive() && !fm.isHulk()) {
+                                wingRep = fm;
+                                break;
+                            }
+                        }
+                    }
+                    if (wingRep != null && wingRep.isAlive() && !wingRep.isHulk() && !wingRep.isExpired()) {
+                        if (!isEnemy || isEnemyShipVisibleOnCommandMap(wingRep, playerFog)) {
+                            if (!hullMembers.contains(wingRep)) {
+                                hullMembers.add(wingRep);
+                            }
+                        }
+                    }
+                }
             }
 
             boolean isAlliedAi = !isEnemy && (battleGroup.isAlliedAi || hullMembers.get(0).isAlly());
@@ -1051,7 +1095,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
 
         List<Vector2f> bestLoop = selectBestContainingLoop(loops, sx, sy, mCount);
-        if (bestLoop != null && mCount > 1 && countContainedShips(bestLoop, sx, sy, mCount) < mCount) {
+        if (bestLoop == null || (mCount > 1 && countContainedShips(bestLoop, sx, sy, mCount) < mCount)) {
             // Guarantee that a thin bridge never pinches between Marching Squares grid vertices and drops a ship
             loops = traceMetaballContoursMarchingSquares(
                     sx, sy, sr, mCount, total, kPair, minX, maxX, minY, maxY, stepPx, stepPx * 1.35f);
@@ -1072,8 +1116,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float bestScore = -Float.MAX_VALUE;
         for (List<Vector2f> loop : loops) {
             float signedArea = computeSignedPolygonArea(loop);
-            if (signedArea <= 60f) continue; // Reject CW interior holes and tiny noise specks
+            if (signedArea <= 60f) continue; // Reject CW interior holes (signedArea < 0) and tiny noise specks
             int containedMembers = countContainedShips(loop, sx, sy, mCount);
+            if (containedMembers <= 0) continue; // Never select an empty interior pocket
             float score = containedMembers * 100000f + signedArea;
             if (score > bestScore) {
                 bestScore = score;
@@ -1212,24 +1257,70 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         }
 
-        // Fill interior of compact 3-ship triangles so the center of a triangular formation never has a hollow
+        // Fill interior of connected 3-ship triangles so the center of a 3+ circle cluster never traps an inverted hole
         if (mCount >= 3) {
             for (int i = 0; i < mCount; i++) {
                 for (int j = i + 1; j < mCount; j++) {
-                    if (kPair[i][j] <= 0.25f) continue;
+                    if (kPair[i][j] <= 0f) continue;
                     for (int l = j + 1; l < mCount; l++) {
-                        if (kPair[j][l] <= 0.25f || kPair[i][l] <= 0.25f) continue;
-                        float cx = (sx[i] + sx[j] + sx[l]) / 3.0f;
-                        float cy = (sy[i] + sy[j] + sy[l]) / 3.0f;
-                        float rFill = (sr[i] + sr[j] + sr[l]) * 0.28f;
-                        float dCenter = (float) Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) - rFill;
-                        bestBridge = sminPoly(bestBridge, dCenter, 8.0f);
+                        if (kPair[j][l] <= 0f || kPair[i][l] <= 0f) continue;
+                        float dTri = signedDistanceToTriangle2D(
+                                x, y, sx[i], sy[i], sx[j], sy[j], sx[l], sy[l]);
+                        float minR = Math.min(sr[i], Math.min(sr[j], sr[l]));
+                        float avgOpen = (kPair[i][j] + kPair[j][l] + kPair[i][l]) / 3.0f;
+                        float pad = minWaistPx + avgOpen * minR * 0.45f;
+                        bestBridge = sminPoly(bestBridge, dTri - pad, 6.0f);
                     }
                 }
             }
         }
 
         return sminPoly(bestCircle, bestBridge, 2.5f);
+    }
+
+    private static float signedDistanceToTriangle2D(
+            float px, float py,
+            float ax, float ay,
+            float bx, float by,
+            float cx, float cy) {
+        // Ensure CCW order (A, B, C)
+        float cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+        if (Math.abs(cross) < 1e-3f) {
+            return Float.MAX_VALUE;
+        }
+        if (cross < 0f) {
+            float tx = bx; bx = cx; cx = tx;
+            float ty = by; by = cy; cy = ty;
+        }
+        float d0 = distSqPointToSegment(px, py, ax, ay, bx, by);
+        float d1 = distSqPointToSegment(px, py, bx, by, cx, cy);
+        float d2 = distSqPointToSegment(px, py, cx, cy, ax, ay);
+        float minDist = (float) Math.sqrt(Math.min(d0, Math.min(d1, d2)));
+        float s0 = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+        float s1 = (cx - bx) * (py - by) - (cy - by) * (px - bx);
+        float s2 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx);
+        boolean inside = (s0 >= 0f && s1 >= 0f && s2 >= 0f);
+        return inside ? -minDist : minDist;
+    }
+
+    private static float distSqPointToSegment(
+            float px, float py,
+            float x0, float y0,
+            float x1, float y1) {
+        float dx = x1 - x0;
+        float dy = y1 - y0;
+        float lenSq = dx * dx + dy * dy;
+        if (lenSq <= 1e-5f) {
+            float ex = px - x0;
+            float ey = py - y0;
+            return ex * ex + ey * ey;
+        }
+        float t = clamp(((px - x0) * dx + (py - y0) * dy) / lenSq, 0f, 1f);
+        float qx = x0 + t * dx;
+        float qy = y0 + t * dy;
+        float ex = px - qx;
+        float ey = py - qy;
+        return ex * ex + ey * ey;
     }
 
     private static List<List<Vector2f>> traceMetaballContoursMarchingSquares(
@@ -1404,12 +1495,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     private static void msAddDirEdge(Map<Long, List<Long>> adj, long from, long to) {
-        List<Long> list = adj.get(from);
+        // In Y-up screen coordinates, orient directed edges so that inside regions (SDF <= 0) lie on the LEFT
+        // of each edge: outer droplet perimeters trace Counter-Clockwise (signedArea > 0) and interior holes
+        // trace Clockwise (signedArea < 0).
+        List<Long> list = adj.get(to);
         if (list == null) {
             list = new ArrayList<>(2);
-            adj.put(from, list);
+            adj.put(to, list);
         }
-        list.add(to);
+        list.add(from);
     }
 
     // =========================================================================
@@ -1611,9 +1705,22 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         boolean hasAlliedFleetFlag = false;
         boolean hasEnemyFleetFlag = false;
 
+        ShipAPI alphaCoreFlagOverride = BattlefieldFirepowerEvaluator.getPlayerConvergenceFlagshipOverride();
+        if (alphaCoreFlagOverride != null && isEligibleCommandMapShip(alphaCoreFlagOverride, playerFog)) {
+            result.add(alphaCoreFlagOverride);
+            hasPlayerFleetFlag = true;
+        } else if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
+            ShipAPI resolvedPlayerFlag = BattlefieldFirepowerEvaluator.resolveActiveFleetFlagship(engine, playerGroup);
+            if (resolvedPlayerFlag != null && isEligibleCommandMapShip(resolvedPlayerFlag, playerFog)) {
+                result.add(resolvedPlayerFlag);
+                hasPlayerFleetFlag = true;
+            }
+        }
+
         ShipAPI playerPiloted = engine.getPlayerShip();
         for (ShipAPI s : engine.getShips()) {
             if (!isEligibleCommandMapShip(s, playerFog)) continue;
+            if (hasPlayerFleetFlag && s.getOwner() == 0 && !s.isAlly()) continue;
             boolean isDesignatedFlag = (s == playerPiloted)
                     || (s.getFleetMember() != null && s.getFleetMember().isFlagship());
             if (isDesignatedFlag) {
@@ -1981,6 +2088,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         if (intent != DivisionIntentType.PRESS_HOME
                 && intent != DivisionIntentType.FORM_LINE_AND_FIX
                 && intent != DivisionIntentType.TOT_MISSILE_STRIKE
+                && intent != DivisionIntentType.TOT_ALPHA_STRIKE
                 && intent != DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
                 && intent != DivisionIntentType.LAUNCH_ALPHA_STRIKE
                 && intent != DivisionIntentType.HARASSING_MISSILE_ATTACK
@@ -2056,9 +2164,27 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         if (label != null) {
             float textW = label.computeTextWidth(liveCallsign);
             float textH = label.computeTextHeight(liveCallsign);
+            float labelY = cy + (rp.isEnemy ? (textH * 0.5f) : (textH + 4f));
             label.getPosition().setSize(textW + 10f, textH + 4f);
-            label.getPosition().setLocation(cx - (textW * 0.5f), cy + (rp.isEnemy ? (textH * 0.5f) : (textH + 4f)));
+            label.getPosition().setLocation(cx - (textW * 0.5f), labelY);
             label.render(fade * (rp.isEnemy ? 0.84f : 0.95f));
+
+            PermanentDivisionManager.DivisionFormation activeForm = div.activeFormation != null
+                    ? div.activeFormation
+                    : div.doctrinalFormation;
+            if (activeForm != null) {
+                Color iconTint = new Color(
+                        Math.min(255, Math.round(rp.cr * 255f + 45f)),
+                        Math.min(255, Math.round(rp.cg * 255f + 45f)),
+                        Math.min(255, Math.round(rp.cb * 255f + 45f)));
+                FleetDoctrineDialog.renderFormationIcon(
+                        activeForm,
+                        cx - (textW * 0.5f) - 11f,
+                        labelY - textH * 0.45f,
+                        15f,
+                        iconTint,
+                        fade * (rp.isEnemy ? 0.82f : 0.95f));
+            }
         }
 
         if (!rp.isEnemy) {
@@ -2072,6 +2198,70 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 subLabel.getPosition().setSize(subW + 10f, subH + 4f);
                 subLabel.getPosition().setLocation(cx - (subW * 0.5f), cy - 2f);
                 subLabel.render(fade * 0.88f);
+            }
+        }
+    }
+
+    /**
+     * Renders "Voidstrike #" text following the live center of each active group of strike craft
+     * assigned a target (merging multi-division voidstrikes into one label, disappearing as soon
+     * as the strike craft return, and rendering enemy voidstrikes only when visible in playerFog).
+     */
+    private void renderVoidstrikeLabels(
+            FogOfWarAPI playerFog,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade) {
+        List<BattlefieldFirepowerEvaluator.VoidstrikeRecord> voidstrikes =
+                BattlefieldFirepowerEvaluator.getActiveVoidstrikes();
+        if (voidstrikes == null || voidstrikes.isEmpty()) return;
+
+        for (BattlefieldFirepowerEvaluator.VoidstrikeRecord vs : voidstrikes) {
+            if (vs == null || vs.activeFighters.isEmpty() || vs.voidstrikeNumber <= 0) continue;
+
+            boolean isEnemy = (vs.side == BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_ENEMY);
+            boolean isAlly = (vs.side == BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_ALLIED);
+            float wx;
+            float wy;
+
+            if (isEnemy) {
+                float visSumX = 0f;
+                float visSumY = 0f;
+                int visCount = 0;
+                for (ShipAPI f : vs.activeFighters) {
+                    if (f != null && f.isAlive() && !f.isHulk() && isEnemyShipVisibleOnCommandMap(f, playerFog)) {
+                        visSumX += f.getLocation().x;
+                        visSumY += f.getLocation().y;
+                        visCount++;
+                    }
+                }
+                if (visCount == 0) {
+                    continue;
+                }
+                wx = visSumX / visCount;
+                wy = visSumY / visCount;
+            } else {
+                wx = vs.center.x;
+                wy = vs.center.y;
+            }
+
+            float sx = wx * scale + offsetX;
+            float sy = wy * scale + offsetY;
+            String text = vs.getDisplayLabel();
+
+            LabelAPI label = getOrCreateLabel(
+                    text,
+                    "VOIDSTRIKE_" + vs.side + "_" + vs.voidstrikeNumber,
+                    isEnemy,
+                    isAlly,
+                    false);
+            if (label != null) {
+                float textW = label.computeTextWidth(text);
+                float textH = label.computeTextHeight(text);
+                label.getPosition().setSize(textW + 10f, textH + 4f);
+                label.getPosition().setLocation(sx - (textW * 0.5f), sy + (textH * 0.5f));
+                label.render(fade * (isEnemy ? 0.90f : 0.96f));
             }
         }
     }
@@ -2487,6 +2677,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             case TOT_MISSILE_STRIKE:
                 intentShort = "TOT STRIKE";
                 break;
+            case TOT_ALPHA_STRIKE:
+                intentShort = "TOT ALPHA";
+                break;
             case BREAK_OFF_AND_RETIRE:
                 intentShort = "RETIRE";
                 break;
@@ -2528,6 +2721,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 break;
         }
         int fluxPct = Math.round(div.avgFluxLevel * 100f);
+        PermanentDivisionManager.DivisionFormation f = div.activeFormation != null
+                ? div.activeFormation
+                : div.doctrinalFormation;
+        if (f != null) {
+            return String.format(Locale.ROOT, "%s · %s - %d%%", intentShort, f.shortName.toUpperCase(Locale.ROOT), fluxPct);
+        }
         return String.format(Locale.ROOT, "%s - %d%%", intentShort, fluxPct);
     }
 
@@ -2547,6 +2746,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 return 510f;
             case DESTROYER:
                 return 430f;
+            case FIGHTER:
+                return 260f;
             case FRIGATE:
             default:
                 return 360f;

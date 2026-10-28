@@ -24,6 +24,7 @@ import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionState;
 import divisionai.DivisionNomenclature.NomenclatureCategory;
+import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
@@ -594,6 +595,10 @@ public final class FactionFleetDoctrines {
                         500, 1000, 1300, 0.95f,
                         DivisionMissionType.COMBAT_SPACE_PATROL, DivisionMissionType.CYCLIC_STRIKES, LineStation.REAR);
 
+                cfg.setFormation(DoctrineDivisionType.BATTLESHIP, DivisionFormation.FORWARD_WEDGE);
+                cfg.setFormation(DoctrineDivisionType.CRUISER, DivisionFormation.LINE_ABREAST);
+                cfg.setFormation(DoctrineDivisionType.DESTROYER, DivisionFormation.FORWARD_SEMICIRCLE);
+                cfg.setFormation(DoctrineDivisionType.FRIGATE, DivisionFormation.FORWARD_SEMICIRCLE);
                 cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
                 cfg.setMax(DoctrineHullCategory.CRUISER, 4);
                 cfg.setMax(DoctrineHullCategory.DESTROYER, 4);
@@ -629,6 +634,11 @@ public final class FactionFleetDoctrines {
                         500, 1150, 950, 1.30f,
                         DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN);
 
+                cfg.setFormation(DoctrineDivisionType.BATTLESHIP, DivisionFormation.REVERSE_WEDGE);
+                cfg.setFormation(DoctrineDivisionType.CRUISER, DivisionFormation.REVERSE_SEMICIRCLE);
+                cfg.setFormation(DoctrineDivisionType.DESTROYER, DivisionFormation.ECHELON_LEFT);
+                cfg.setFormation(DoctrineDivisionType.FRIGATE, DivisionFormation.REVERSE_SEMICIRCLE);
+                cfg.setFormation(DoctrineDivisionType.PHASE, DivisionFormation.ECHELON_RIGHT);
                 cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
                 cfg.setMax(DoctrineHullCategory.CRUISER, 3);
                 cfg.setMax(DoctrineHullCategory.DESTROYER, 4);
@@ -776,6 +786,9 @@ public final class FactionFleetDoctrines {
                         375, 800, 300, 1.40f,
                         DivisionMissionType.MARTYRDOM, DivisionMissionType.MARTYRDOM, LineStation.VAN);
 
+                for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
+                    cfg.setFormation(dt, DivisionFormation.NONE);
+                }
                 cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
                 cfg.setMax(DoctrineHullCategory.CRUISER, 5);
                 cfg.setMax(DoctrineHullCategory.DESTROYER, 5);
@@ -805,6 +818,8 @@ public final class FactionFleetDoctrines {
                         400, 900, 650, 1.30f,
                         DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN);
 
+                cfg.setFormation(DoctrineDivisionType.FRIGATE, DivisionFormation.NONE);
+                cfg.setFormation(DoctrineDivisionType.DESTROYER, DivisionFormation.FORWARD_WEDGE);
                 cfg.setMax(DoctrineHullCategory.CAPITAL, 3);
                 cfg.setMax(DoctrineHullCategory.CRUISER, 5);
                 cfg.setMax(DoctrineHullCategory.DESTROYER, 6);
@@ -1904,6 +1919,7 @@ public final class FactionFleetDoctrines {
                         copy.customOpeningMission = spec.customOpeningMission;
                         copy.customMainMission = spec.customMainMission;
                         copy.customLineStation = spec.customLineStation;
+                        copy.customFormation = spec.customFormation;
                         memberToSpec.put(mId, copy);
                     }
                 }

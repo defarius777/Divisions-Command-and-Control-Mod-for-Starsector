@@ -9,6 +9,7 @@ import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
 import divisionai.DivisionModel.StrikePlan;
+import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.OtcPlay;
@@ -210,6 +211,16 @@ public class OtcBattlePlanner {
                     ? "OTC: execute, strike \"" + plan.target.displayName + "\""
                     : String.format("OTC: marshal, strike in %.0fs", Math.max(0f, plan.strikeTime - now));
             p.otcOrder.set(type, plan.target, null, 0f, expires, why);
+            if (myGroup.authority.allowsPositioning()) {
+                if (plan.committed) {
+                    DivisionMissionType pMis = DivisionCommanderAI.resolveActiveMission(p, now);
+                    p.otcOrder.orderedFormation = (pMis == DivisionMissionType.TOT_ALPHA_STRIKE || !p.hasMissileStrikeCapability)
+                            ? DivisionFormation.FORWARD_WEDGE
+                            : DivisionFormation.REVERSE_SEMICIRCLE;
+                } else {
+                    p.otcOrder.orderedFormation = DivisionFormation.LINE_ABREAST;
+                }
+            }
             if (offset != null) {
                 p.otcOrder.hasStation = true;
                 p.otcOrder.station.set(targetPos.x + offset.x, targetPos.y + offset.y);
@@ -262,13 +273,18 @@ public class OtcBattlePlanner {
             }
             float marshalDist = d.archetype.isCarrierArchetype()
                     ? Math.max(2200f, d.standoffRange)
-                    : MISSILE_MARSHAL_DIST;
+                    : (DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.TOT_ALPHA_STRIKE
+                    ? Math.min(1550f, Math.max(1150f, d.avgEngageRange * 1.35f))
+                    : MISSILE_MARSHAL_DIST);
             Vector2f offset = new Vector2f(dx / len * marshalDist, dy / len * marshalDist);
             plan.marshalOffsets.put(d.id, offset);
             plan.participants.add(d);
 
             float travel = Math.max(0f, distance(d.centroid, new Vector2f(targetPos.x + offset.x, targetPos.y + offset.y)) - 250f);
-            float eta = travel / Math.max(60f, d.avgMaxSpeed * 0.8f);
+            float effectiveSpd = Math.max(45f, d.weightedTimeSpeed > 1f
+                    ? (d.weightedTimeSpeed * Math.max(0.45f, d.timeFreedomFactor))
+                    : (d.avgMaxSpeed * 0.8f));
+            float eta = travel / effectiveSpd;
             maxEta = Math.max(maxEta, eta);
         }
         plan.strikeTime = now + Math.max(MARSHAL_TIME_MIN, Math.min(MARSHAL_TIME_MAX, maxEta));
@@ -288,14 +304,17 @@ public class OtcBattlePlanner {
                 || d.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) {
             return false;
         }
+        DivisionMissionType mission = DivisionCommanderAI.resolveActiveMission(d, now);
         if (d.archetype.isCarrierArchetype()) {
             if (d.avgFluxLevel >= 0.60f) return false;
-            DivisionMissionType mission = DivisionCommanderAI.resolveActiveMission(d, now);
             if (mission == DivisionMissionType.ALPHA_STRIKE) return true;
             return myGroup.authority == OtcAuthority.POSITIVE_CONTROL
                     && mission != DivisionMissionType.COMBAT_SPACE_PATROL
                     && mission != DivisionMissionType.SPACE_SUPERIORITY
                     && mission != DivisionMissionType.RESERVE;
+        }
+        if (mission == DivisionMissionType.TOT_ALPHA_STRIKE) {
+            return d.avgFluxLevel < 0.48f && (now - d.lastBreakOffTimestamp) >= 12f;
         }
         return d.hasMissileStrikeCapability
                 && d.usableStrikeAmmoCount > 0
@@ -402,7 +421,9 @@ public class OtcBattlePlanner {
                     || DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.RESERVE;
             // The reserve is kept for real crises, not for a lone frigate in trouble
             if (isReserve && !majorCrisis) continue;
-            float score = -dist * 0.15f - d.avgFluxLevel * 400f;
+            // Time freedom bonus: prefer divisions whose effectiveTimeRadius can reach the crisis without being pinned
+            float timeReachBonus = (dist <= d.effectiveTimeRadius ? 260f : 0f) + d.timeFreedomFactor * 180f;
+            float score = -dist * 0.15f - d.avgFluxLevel * 400f + timeReachBonus;
             if (isReserve) score += 800f;
             if (d == myGroup.reinforcingDivision) score += 400f;
             if (d.isFastFlanker) score += 150f;
@@ -487,6 +508,9 @@ public class OtcBattlePlanner {
 
             boolean newOrder = !(d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == nearest);
             d.otcOrder.set(OtcOrderType.GENERAL_CHASE, nearest, null, 0f, expires, "OTC: general chase on \"" + nearest.displayName + "\"");
+            if (myGroup.authority.allowsPositioning()) {
+                d.otcOrder.orderedFormation = DivisionFormation.NONE;
+            }
             tasked.add(d);
             chasers++;
             if (newOrder) {
@@ -555,6 +579,10 @@ public class OtcBattlePlanner {
             boolean newOrder = !(main.otcOrder.type == OtcOrderType.FORM_LINE && main.otcOrder.targetEnemy == primary);
             main.otcOrder.set(OtcOrderType.FORM_LINE, primary, null, 0f, expires,
                     "OTC: Main Effort, form the line on \"" + primary.displayName + "\"");
+            if (myGroup.authority == OtcAuthority.POSITIVE_CONTROL
+                    && (main.doctrinalFormation == null || main.doctrinalFormation == DivisionFormation.NONE)) {
+                main.otcOrder.orderedFormation = DivisionFormation.LINE_ABREAST;
+            }
             if (myGroup.authority.allowsPositioning()) {
                 float dx = myGroup.fleetCentroid.x - primaryPos.x;
                 float dy = myGroup.fleetCentroid.y - primaryPos.y;
@@ -600,10 +628,25 @@ public class OtcBattlePlanner {
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e);
                 float need = Math.max(4f, neededFp.get(e));
                 float have = assignedFp.get(e);
-                float score = -distance(d.centroid, ePos) * 0.30f;
+                float dist = distance(d.centroid, ePos);
+                float score = -dist * 0.30f;
                 if (e == previous) score += 300f;
                 if (e == primary) score += 120f;
                 if (e.archetype == DivisionArchetype.SERVICE_GROUP) score -= 450f;
+
+                if (myGroup.useConvergence) {
+                    // Convergence OTC (AI / Threat / Abyssal or Alpha Core flagship):
+                    // Non-linear synthesis of Time reachability, Space seam isolation, and orthogonal Firepower
+                    score += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, e, myGroup) * 0.45f;
+                } else {
+                    // Human OTC: weights Time reachability and Space Weak Points vs Strongpoints
+                    if (dist <= d.effectiveTimeRadius + d.avgEngageRange) {
+                        score += 140f * d.timeFreedomFactor;
+                    }
+                    if (e.isWeakPoint) score += 180f;
+                    else if (e.isStrongpoint) score -= 90f;
+                }
+
                 if (have < need) {
                     score += 250f;
                 } else {
@@ -725,6 +768,17 @@ public class OtcBattlePlanner {
                         && Math.signum(d.otcOrder.flankSide) == Math.signum(side));
                 d.otcOrder.set(OtcOrderType.FLANK, target, null, side, expires,
                         String.format("OTC: %s flank of \"%s\"", side > 0f ? "port" : "starboard", target.displayName));
+                if (myGroup.authority.allowsPositioning()) {
+                    if (myGroup.useConvergence && d.getAliveMembers().size() >= 3) {
+                        d.otcOrder.orderedFormation = DivisionFormation.REVERSE_SEMICIRCLE;
+                    } else if (myGroup.authority == OtcAuthority.POSITIVE_CONTROL
+                            || d.doctrinalFormation == DivisionFormation.LINE_ABREAST
+                            || d.doctrinalFormation == DivisionFormation.FORWARD_SEMICIRCLE) {
+                        d.otcOrder.orderedFormation = (side > 0f)
+                                ? DivisionFormation.ECHELON_LEFT
+                                : DivisionFormation.ECHELON_RIGHT;
+                    }
+                }
                 d.otcOrder.hasStation = false;
                 tasked.add(d);
                 if (newOrder && flankers.size() >= 2) {

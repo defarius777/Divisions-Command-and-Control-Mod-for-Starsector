@@ -5,14 +5,23 @@ import com.fs.starfarer.api.campaign.SectorAPI;
 import com.fs.starfarer.api.ui.LabelAPI;
 import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.DivisionIntentType;
+import lunalib.backend.ui.components.LunaUIRadioButton;
+import lunalib.backend.ui.components.LunaUITextFieldWithSlider;
 import lunalib.backend.ui.components.base.LunaUIBaseElement;
 import lunalib.backend.ui.components.base.LunaUIButton;
+import lunalib.backend.ui.settings.ChangedSetting;
 import lunalib.backend.ui.settings.LunaSettingsData;
+import lunalib.backend.ui.settings.LunaSettingsLoader;
 import lunalib.backend.ui.settings.LunaSettingsUISettingsPanel;
 import lunalib.lunaSettings.LunaSettings;
 
 import java.awt.Color;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Reads Mod Settings (via LunaLib's Mod Settings menu) to control on-screen HUD chatter
@@ -86,9 +95,15 @@ public class DivisionAISettings {
     private static boolean getBool(String key, boolean defaultVal) {
         if (!isLunaLibEnabled()) return defaultVal;
         try {
+            syncAndPersistLunaSettings();
             Boolean val = LunaSettings.getBoolean(MOD_ID, key);
-            return val != null ? val : defaultVal;
+            if (val != null) return val;
+            Object live = liveSettingOverrides.get(key);
+            if (live instanceof Boolean) return (Boolean) live;
+            return defaultVal;
         } catch (Throwable t) {
+            Object live = liveSettingOverrides.get(key);
+            if (live instanceof Boolean) return (Boolean) live;
             return defaultVal;
         }
     }
@@ -96,9 +111,15 @@ public class DivisionAISettings {
     private static int getInt(String key, int defaultVal) {
         if (!isLunaLibEnabled()) return defaultVal;
         try {
+            syncAndPersistLunaSettings();
             Integer val = LunaSettings.getInt(MOD_ID, key);
-            return val != null ? val : defaultVal;
+            if (val != null) return val;
+            Object live = liveSettingOverrides.get(key);
+            if (live instanceof Number) return ((Number) live).intValue();
+            return defaultVal;
         } catch (Throwable t) {
+            Object live = liveSettingOverrides.get(key);
+            if (live instanceof Number) return ((Number) live).intValue();
             return defaultVal;
         }
     }
@@ -106,11 +127,126 @@ public class DivisionAISettings {
     private static String getString(String key, String defaultVal) {
         if (!isLunaLibEnabled()) return defaultVal;
         try {
+            syncAndPersistLunaSettings();
             String val = LunaSettings.getString(MOD_ID, key);
-            return val != null ? val : defaultVal;
+            if (val != null) return val;
+            Object live = liveSettingOverrides.get(key);
+            if (live instanceof String) return (String) live;
+            return defaultVal;
         } catch (Throwable t) {
+            Object live = liveSettingOverrides.get(key);
+            if (live instanceof String) return (String) live;
             return defaultVal;
         }
+    }
+
+    private static final Map<String, Object> liveSettingOverrides = new HashMap<String, Object>();
+
+    /**
+     * Works around two LunaLib Mod Settings quirks:
+     * 1. LunaSettingsUISettingsPanel.createRadioCard loops over radioButton.getButtons() BEFORE
+     *    subpanel.addUIElement(subpanelElement) triggers LunaUIRadioButton.positionChanged(), so
+     *    clicking a Radio option never sets unsaved=true or highlights "Save All".
+     * 2. Closing Mod Settings via ESC/Close without clicking "Save All" leaves widget changes in
+     *    LunaSettingsUISettingsPanel.Companion.getAddedElements() / getChangedSettings() without
+     *    committing them to LunaSettingsLoader.getSettings().
+     * This method synchronizes live widget values into LunaSettingsLoader.getSettings() and
+     * persists them immediately to division_ai.json.data.
+     */
+    public static void syncAndPersistLunaSettings() {
+        if (!isLunaLibEnabled()) return;
+        try {
+            Map<String, ?> allSettings = LunaSettingsLoader.getSettings();
+            Object modJson = (allSettings != null) ? allSettings.get(MOD_ID) : null;
+            boolean anyChanged = false;
+
+            List<ChangedSetting> changedList = LunaSettingsUISettingsPanel.Companion.getChangedSettings();
+            if (changedList != null) {
+                for (int i = 0; i < changedList.size(); i++) {
+                    ChangedSetting cs = changedList.get(i);
+                    if (cs != null && MOD_ID.equals(cs.getModID()) && !REINIT_FIELD_ID.equals(cs.getFieldID())) {
+                        Object val = cs.getData();
+                        if (val != null && applySettingIfChanged(modJson, cs.getFieldID(), val)) {
+                            anyChanged = true;
+                        }
+                    }
+                }
+            }
+
+            List<LunaUIBaseElement> elements = LunaSettingsUISettingsPanel.Companion.getAddedElements();
+            if (elements != null) {
+                for (int i = 0; i < elements.size(); i++) {
+                    LunaUIBaseElement el = elements.get(i);
+                    if (el == null) continue;
+                    Object keyObj = el.getKey();
+                    if (!(keyObj instanceof LunaSettingsData)) continue;
+                    LunaSettingsData data = (LunaSettingsData) keyObj;
+                    if (!MOD_ID.equals(data.getModID())) continue;
+                    String fieldId = data.getFieldID();
+                    if (fieldId == null || REINIT_FIELD_ID.equals(fieldId)) continue;
+
+                    Object widgetVal = null;
+                    if (el instanceof LunaUIRadioButton) {
+                        widgetVal = ((LunaUIRadioButton) el).getValue();
+                    } else if (el instanceof LunaUIButton) {
+                        widgetVal = Boolean.valueOf(((LunaUIButton) el).getValue());
+                    } else if (el instanceof LunaUITextFieldWithSlider) {
+                        Number num = ((LunaUITextFieldWithSlider<?>) el).getValue();
+                        if (num != null) {
+                            widgetVal = Integer.valueOf(num.intValue());
+                        }
+                    }
+
+                    if (widgetVal != null && applySettingIfChanged(modJson, fieldId, widgetVal)) {
+                        anyChanged = true;
+                        if (el instanceof LunaUIRadioButton) {
+                            try {
+                                LunaSettingsUISettingsPanel.Companion.setUnsaved(true);
+                                LunaSettingsUISettingsPanel.Companion.getUnsavedCounter().put(fieldId, Integer.valueOf(1));
+                            } catch (Throwable ignored) {}
+                        }
+                    }
+                }
+            }
+
+            if (anyChanged && modJson != null) {
+                try {
+                    MethodHandle saveHandle = MethodHandles.publicLookup().findVirtual(
+                            modJson.getClass(), "save", MethodType.methodType(void.class));
+                    saveHandle.invoke(modJson);
+                } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean applySettingIfChanged(Object modJson, String fieldId, Object newVal) {
+        if (fieldId == null || newVal == null) return false;
+        Object prevLive = liveSettingOverrides.get(fieldId);
+        boolean changed = (prevLive == null) ? true : !prevLive.equals(newVal);
+        liveSettingOverrides.put(fieldId, newVal);
+
+        if (modJson != null) {
+            try {
+                MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+                Class<?> jsonCls = modJson.getClass();
+                MethodHandle hasHandle = lookup.findVirtual(jsonCls, "has", MethodType.methodType(boolean.class, String.class));
+                boolean hasKey = (boolean) hasHandle.invoke(modJson, fieldId);
+                Object existing = null;
+                if (hasKey) {
+                    MethodHandle getHandle = lookup.findVirtual(jsonCls, "get", MethodType.methodType(Object.class, String.class));
+                    existing = getHandle.invoke(modJson, fieldId);
+                }
+                boolean jsonDiffers = (existing == null) || !String.valueOf(existing).equals(String.valueOf(newVal));
+                if (jsonDiffers) {
+                    MethodHandle putHandle = lookup.findVirtual(
+                            jsonCls, "put", MethodType.methodType(jsonCls.getSuperclass(), String.class, Object.class));
+                    putHandle.invoke(modJson, fieldId, newVal);
+                    return true;
+                }
+            } catch (Throwable ignored) {}
+        }
+        return changed;
     }
 
     public static ChatterVerbosity getChatterVerbosity() {
@@ -124,6 +260,7 @@ public class DivisionAISettings {
         if (intent == null) return false;
         switch (intent) {
             case TOT_MISSILE_STRIKE:
+            case TOT_ALPHA_STRIKE:
             case LAUNCH_ALPHA_STRIKE:
             case LAUNCH_DECKLOAD_STRIKE:
             case REINFORCE_DIVISION:
@@ -201,6 +338,7 @@ public class DivisionAISettings {
             case HAUL_OUT_TO_VENT:
             case BREAK_OFF_AND_RETIRE:
             case TOT_MISSILE_STRIKE:
+            case TOT_ALPHA_STRIKE:
             case HARASSING_MISSILE_ATTACK:
             case WORK_FLANK:
             case FLY_COMBAT_SPACE_PATROL:
@@ -239,6 +377,7 @@ public class DivisionAISettings {
      */
     public static void advanceLunaSettingsReinitButton() {
         if (!isLunaLibEnabled()) return;
+        syncAndPersistLunaSettings();
         try {
             List<LunaUIBaseElement> elements = LunaSettingsUISettingsPanel.Companion.getAddedElements();
             if (elements == null || elements.isEmpty()) {

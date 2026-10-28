@@ -86,6 +86,9 @@ public class ShipCapabilityProfile {
         int bays = ship.getNumFighterBays();
         int bombers = 0;
         int interceptors = 0;
+        float wingRangeSum = 0f;
+        float wingSpeedSum = 0f;
+        int validWingCount = 0;
         List<FighterWingAPI> wings = ship.getAllWings();
         if (wings != null) {
             for (FighterWingAPI wing : wings) {
@@ -96,6 +99,17 @@ public class ShipCapabilityProfile {
                 } else {
                     interceptors++;
                 }
+                float wr = wing.getRange() > 0f ? wing.getRange() : 2200f;
+                wingRangeSum += Math.max(1200f, Math.min(3400f, wr));
+                float fSpd = 235f;
+                if (wing.getWingMembers() != null && !wing.getWingMembers().isEmpty()) {
+                    ShipAPI f0 = wing.getWingMembers().get(0);
+                    if (f0 != null && f0.getMaxSpeed() > 20f) {
+                        fSpd = f0.getMaxSpeed();
+                    }
+                }
+                wingSpeedSum += fSpd;
+                validWingCount++;
             }
         }
         this.bomberWings = bombers;
@@ -108,6 +122,29 @@ public class ShipCapabilityProfile {
         float longSum = 0f;
         float closeSum = 0f;
         float weightedRangeSum = 0f;
+
+        // Include Strike Craft (FighterWingAPI) in weapon range, strike weight, PD weight, and long-range reach
+        if (validWingCount > 0) {
+            float avgWingRange = wingRangeSum / validWingCount;
+            float tacticalWingRange = Math.max(1350f, Math.min(2400f, avgWingRange * 0.75f));
+            for (int i = 0; i < validWingCount; i++) {
+                float wingOpWeight = 6.5f;
+                opSum += wingOpWeight;
+                weightedRangeSum += tacticalWingRange * wingOpWeight;
+                longSum += wingOpWeight;
+            }
+            strikeSum += bombers * 7.5f;
+            pdSum += interceptors * 5.5f;
+        } else if (bays > 0) {
+            for (int i = 0; i < bays; i++) {
+                float wingOpWeight = 6.0f;
+                opSum += wingOpWeight;
+                weightedRangeSum += 1800f * wingOpWeight;
+                longSum += wingOpWeight;
+                strikeSum += 4.5f;
+                pdSum += 3.0f;
+            }
+        }
 
         List<WeaponAPI> weapons = ship.getAllWeapons();
         if (weapons != null) {

@@ -14,7 +14,18 @@
 			"icon_overlay_firepower": "graphics/icons/warroom/icon_overlay_firepower.png",
 			"icon_overlay_space": "graphics/icons/warroom/icon_overlay_space.png",
 			"icon_overlay_time": "graphics/icons/warroom/icon_overlay_time.png",
-			"icon_overlay_time_fadeout": "graphics/icons/warroom/icon_overlay_time_fadeout.png"
+			"icon_overlay_time_fadeout": "graphics/icons/warroom/icon_overlay_time_fadeout.png",
+			"icon_overlay_convergence": "graphics/icons/warroom/icon_overlay_convergence.png",
+			"icon_formation_none": "graphics/icons/formations/icon_formation_none.png",
+			"icon_formation_line_abreast": "graphics/icons/formations/icon_formation_line_abreast.png",
+			"icon_formation_line_ahead": "graphics/icons/formations/icon_formation_line_ahead.png",
+			"icon_formation_forward_wedge": "graphics/icons/formations/icon_formation_forward_wedge.png",
+			"icon_formation_reverse_wedge": "graphics/icons/formations/icon_formation_reverse_wedge.png",
+			"icon_formation_echelon_left": "graphics/icons/formations/icon_formation_echelon_left.png",
+			"icon_formation_echelon_right": "graphics/icons/formations/icon_formation_echelon_right.png",
+			"icon_formation_circle": "graphics/icons/formations/icon_formation_circle.png",
+			"icon_formation_forward_semicircle": "graphics/icons/formations/icon_formation_forward_semicircle.png",
+			"icon_formation_reverse_semicircle": "graphics/icons/formations/icon_formation_reverse_semicircle.png"
 		}
 	}
 }

@@ -7,20 +7,25 @@ import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import divisionai.BattlefieldFirepowerEvaluator;
 import divisionai.DivisionAISettings;
 import divisionai.DivisionCombatLog;
+import divisionai.DivisionCommanderAI;
 import divisionai.DivisionDeploymentDialogOrganizer;
 import divisionai.DivisionEditorDialog;
 import divisionai.DivisionModel;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
+import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
+import divisionai.DivisionModel.OtcOrderType;
 import divisionai.DivisionNomenclature;
 import divisionai.DivisionNomenclature.NumberingStyle;
 import divisionai.DivisionNomenclature.PlayerNamingPreset;
 import divisionai.DivisionTacticalMapOverlay;
 import divisionai.FactionFleetDoctrines;
 import divisionai.FleetDoctrineDialog;
+import divisionai.PermanentDivisionManager;
 import divisionai.PermanentDivisionManager.AutoAssignCapability;
 import divisionai.PermanentDivisionManager.AutoAssignHull;
+import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
@@ -29,6 +34,7 @@ import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
+import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import org.lwjgl.util.vector.Vector2f;
 
 import javax.imageio.ImageIO;
@@ -95,6 +101,8 @@ public class UITestHarness {
         auditV069StarsAutoAssignSchemesPolygonsAndRename(res);
         auditV070PlayerFactionSyncLowerRightStarsForceAndNomenclatures(res);
         auditChatterVerbosityModes(res);
+        auditTimeSpaceConvergenceAndAlphaCoreTakeover(res);
+        auditNavalFormationsAndOmegaCores(res);
 
         // Audit Battle Screen right-side Time, Space, and Firepower square-bordered icon buttons
         // (all 3 active, OFF by default, textless "Full Assault"/"Full Retreat" square-bordered style, Command View gated)
@@ -1275,5 +1283,608 @@ public class UITestHarness {
                         Locale.ROOT,
                         "csvHasRadio=%b, starsectorLogLines=%d across all modes, hudLines=[Verbose=%d, Standard=%d, Minimal=%d, OTC Only=%d, Off=%d], conciseNoReasonInStandard=%b",
                         csvHasRadio, logCounts[0], hudCounts[0], hudCounts[1], hudCounts[2], hudCounts[3], hudCounts[4], reasonsStrippedInNonVerbose));
+    }
+
+    private static com.fs.starfarer.api.characters.PersonAPI createMockCaptain(final String aiCoreId) {
+        return (com.fs.starfarer.api.characters.PersonAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.characters.PersonAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == a[0];
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("getAICoreId".equals(n)) return aiCoreId;
+                    if ("isAICore".equals(n)) return aiCoreId != null && !aiCoreId.isEmpty();
+                    if ("isDefault".equals(n)) return false;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+    }
+
+    private static ShipAPI createMockNamedShip(
+            final String id,
+            final String name,
+            final HullSize hullSize,
+            final float x,
+            final float y,
+            final float maxSpeed,
+            final int owner,
+            final com.fs.starfarer.api.characters.PersonAPI captain) {
+
+        final Vector2f loc = new Vector2f(x, y);
+        final Vector2f vel = new Vector2f(0f, 0f);
+        return (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == a[0];
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("getId".equals(n)) return id;
+                    if ("getName".equals(n)) return name;
+                    if ("getHullSize".equals(n)) return hullSize;
+                    if ("getLocation".equals(n)) return loc;
+                    if ("getVelocity".equals(n)) return vel;
+                    if ("getMaxSpeed".equals(n)) return maxSpeed;
+                    if ("getOwner".equals(n)) return owner;
+                    if ("isAlly".equals(n)) return false;
+                    if ("isAlive".equals(n)) return true;
+                    if ("isHulk".equals(n) || "isExpired".equals(n) || "isFighter".equals(n)
+                            || "isShuttlePod".equals(n) || "isStationModule".equals(n)) {
+                        return false;
+                    }
+                    if ("getCaptain".equals(n)) return captain;
+                    if ("getCollisionRadius".equals(n)) return 90f;
+                    if ("getHullLevel".equals(n)) return 1.0f;
+                    if ("getFluxLevel".equals(n)) return 0.1f;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+    }
+
+    private static void auditTimeSpaceConvergenceAndAlphaCoreTakeover(UIAuditResult res) throws Exception {
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+
+        // 1. Verify Convergence icon asset & settings.json registration + bright RGB(170, 222, 255) button tint
+        File convIcon64 = new File("mod/graphics/icons/warroom/icon_overlay_convergence.png");
+        File convIcon32 = new File("mod/graphics/icons/warroom/icon_overlay_convergence_32.png");
+        String settingsJson = new String(Files.readAllBytes(new File("mod/data/config/settings.json").toPath()), StandardCharsets.UTF_8);
+        String fpSource = new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8);
+        boolean iconAndBrightnessOk = convIcon64.exists() && convIcon32.exists()
+                && settingsJson.contains("icon_overlay_convergence")
+                && fpSource.contains("new Color(170, 222, 255, 255)");
+
+        // 2. Verify strict Alpha Core officer check (only "alpha_core" counts; Beta, Gamma, and human captains do not)
+        com.fs.starfarer.api.characters.PersonAPI alphaCapt = createMockCaptain("alpha_core");
+        com.fs.starfarer.api.characters.PersonAPI betaCapt = createMockCaptain("beta_core");
+        com.fs.starfarer.api.characters.PersonAPI gammaCapt = createMockCaptain("gamma_core");
+        com.fs.starfarer.api.characters.PersonAPI humanCapt = createMockCaptain(null);
+
+        ShipAPI humanFlagship = createMockNamedShip("p_flag", "ISS Invictus", HullSize.CAPITAL_SHIP, 0f, -1200f, 65f, 0, humanCapt);
+        ShipAPI betaShip = createMockNamedShip("p_beta", "ISS Beta Guard", HullSize.CRUISER, -450f, -1200f, 95f, 0, betaCapt);
+        ShipAPI gammaShip = createMockNamedShip("p_gamma", "ISS Gamma Scout", HullSize.FRIGATE, -800f, -1200f, 150f, 0, gammaCapt);
+        ShipAPI alphaShip1 = createMockNamedShip("p_alpha_1", "TTS Hyperion", HullSize.CAPITAL_SHIP, 500f, -1200f, 90f, 0, alphaCapt);
+        ShipAPI alphaShip2 = createMockNamedShip("p_alpha_2", "TTS Radiant", HullSize.CRUISER, 900f, -1200f, 110f, 0, alphaCapt);
+        ShipAPI enemyShip = createMockNamedShip("e_1", "HSS Onslaught", HullSize.CAPITAL_SHIP, 0f, 600f, 55f, 1, humanCapt);
+
+        boolean strictAlphaCoreCheck = BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(alphaShip1)
+                && !BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(betaShip)
+                && !BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(gammaShip)
+                && !BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(humanFlagship);
+
+        // 3. Verify Time & Space telemetry & Engagement Level reduction + 3+ circle non-inversion check
+        CommanderProfile cmdr = new CommanderProfile(humanCapt, "steady");
+        DivisionModel.BattleGroupState playerGroup = new DivisionModel.BattleGroupState(0, cmdr);
+        DivisionModel.BattleGroupState enemyGroup = new DivisionModel.BattleGroupState(1, cmdr);
+
+        DivisionState playerDiv1 = new DivisionState("p_div_1", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. I", cmdr);
+        playerDiv1.flagship = humanFlagship;
+        playerDiv1.members.add(humanFlagship);
+        playerDiv1.members.add(betaShip);
+        playerDiv1.centroid.set(0f, -1200f);
+        playerDiv1.spreadRadius = 400f;
+        playerDiv1.totalFpStrength = 44f;
+        playerDiv1.avgEngageRange = 1250f;
+        playerGroup.divisions.add(playerDiv1);
+
+        DivisionState playerDiv2 = new DivisionState("p_div_2", 0, 2, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", cmdr);
+        playerDiv2.flagship = alphaShip1;
+        playerDiv2.members.add(alphaShip1);
+        playerDiv2.members.add(alphaShip2);
+        playerDiv2.centroid.set(700f, -1200f);
+        playerDiv2.spreadRadius = 350f;
+        playerDiv2.totalFpStrength = 48f;
+        playerDiv2.avgEngageRange = 1150f;
+        playerGroup.divisions.add(playerDiv2);
+
+        DivisionState enemyDiv = new DivisionState("e_div_1", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Battle Div. I", cmdr);
+        enemyDiv.flagship = enemyShip;
+        enemyDiv.members.add(enemyShip);
+        enemyDiv.centroid.set(0f, -200f); // Overlapping playerDiv1's Time circle
+        enemyDiv.spreadRadius = 380f;
+        enemyDiv.totalFpStrength = 42f;
+        enemyDiv.avgEngageRange = 1200f;
+        enemyGroup.divisions.add(enemyDiv);
+
+        final List<ShipAPI> deployedShips = new ArrayList<>(Arrays.asList(humanFlagship, betaShip, gammaShip));
+        final boolean[] pausedRef = new boolean[]{false};
+        final ShipAPI[] playerPilotedRef = new ShipAPI[]{humanFlagship};
+
+        CombatEngineAPI mockEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == a[0];
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("getShips".equals(n)) return deployedShips;
+                    if ("getPlayerShip".equals(n)) return playerPilotedRef[0];
+                    if ("isPaused".equals(n)) return pausedRef[0];
+                    if ("setPaused".equals(n) && a != null && a.length > 0 && a[0] instanceof Boolean) {
+                        pausedRef[0] = (Boolean) a[0];
+                        return null;
+                    }
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+
+        // Without an Alpha Core in the fleet, hasAlphaCoreInPlayerFleet is false
+        boolean noAlphaButtonWhenOnlyLowerCores = !BattlefieldFirepowerEvaluator.hasAlphaCoreInPlayerFleet(mockEngine);
+
+        // Add the two subordinate Alpha Core ships to the deployed fleet
+        deployedShips.add(alphaShip1);
+        deployedShips.add(alphaShip2);
+        boolean alphaButtonAvailableWhenAlphaPresent = BattlefieldFirepowerEvaluator.hasAlphaCoreInPlayerFleet(mockEngine);
+
+        BattlefieldFirepowerEvaluator.setActiveBattleGroups(playerGroup, null, enemyGroup);
+        BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(playerDiv1);
+        BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(playerDiv2);
+        BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(enemyDiv);
+        BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(mockEngine, playerGroup, enemyGroup);
+
+        boolean timeSpaceCalculatedOk = playerDiv1.weightedTimeSpeed > 65f
+                && playerDiv1.freeTimeRadius > 1000f
+                && playerDiv1.engagementLevel > 0.05f
+                && playerDiv1.effectiveTimeRadius < playerDiv1.freeTimeRadius
+                && playerDiv1.spaceInnerRadius > 400f
+                && playerDiv1.spaceDominatedRadius > playerDiv1.spaceInnerRadius
+                && playerDiv1.spacePotentialRadius > playerDiv1.spaceDominatedRadius;
+
+        // Verify Directional Engagement Pinch on Time Circle (Item D):
+        // playerDiv1 is at (0, -1000) and enemyDiv is North at (0, 100) (bearing 90 deg North):
+        //   - Forward into enemy (90 deg North) is strongly pinched
+        //   - Sideways (0 deg East / 180 deg West) retains much more Time radius
+        //   - Backward away from the fighting (270 deg South) retains near-full freeTimeRadius
+        float timeRadNorthTowardEnemy = BattlefieldFirepowerEvaluator.getDirectionalTimeRadius(playerDiv1, 90f);
+        float timeRadEastSideways = BattlefieldFirepowerEvaluator.getDirectionalTimeRadius(playerDiv1, 0f);
+        float timeRadSouthAway = BattlefieldFirepowerEvaluator.getDirectionalTimeRadius(playerDiv1, 270f);
+        boolean directionalTimePinchOk = timeRadNorthTowardEnemy < timeRadEastSideways - 50f
+                && timeRadEastSideways <= timeRadSouthAway + 15f
+                && timeRadSouthAway > timeRadNorthTowardEnemy + 90f;
+        timeSpaceCalculatedOk = timeSpaceCalculatedOk && directionalTimePinchOk;
+
+        // 4. Verify initial Flagship & Division Commander Convergence rules:
+        //    - Default flagship is humanFlagship -> playerGroup.useConvergence == false (standard human OTC)
+        //    - playerDiv1 flagship is humanFlagship -> playerDiv1.useConvergence == false (human division commander)
+        //    - playerDiv2 flagship is alphaShip1 -> playerDiv2.useConvergence == true (Alpha Core division commander)
+        boolean initialConvergenceStatesOk = !playerGroup.useConvergence
+                && !playerDiv1.useConvergence
+                && playerDiv2.useConvergence;
+
+        // 5. Verify Urgent Comms Pop-Up state machine when clicking Convergence button:
+        //    - Click #1: pauses battle, opens "[URGENT COMMS FROM TTS Hyperion]" asking "Shall I take command?" (phrase 0)
+        BattlefieldFirepowerEvaluator.handleConvergenceButtonClick(mockEngine);
+        ShipAPI firstAsked = BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip();
+        boolean firstClickOpenedCommsAndPaused = pausedRef[0]
+                && firstAsked == alphaShip1
+                && BattlefieldFirepowerEvaluator.getActiveCommsPhraseIndex() == 0
+                && !playerGroup.useConvergence;
+
+        //    - Player clicks "No": closes pop-up, TTS Hyperion will not ask again, OTC remains human
+        BattlefieldFirepowerEvaluator.refusePendingAlphaCoreCommand(mockEngine);
+        boolean afterRefuseFirstOk = BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip() == null
+                && !playerGroup.useConvergence
+                && BattlefieldFirepowerEvaluator.getAskedAlphaCoreShipIds().contains(alphaShip1.getId());
+
+        //    - Click #2: next Alpha Core ship (TTS Radiant) asks "Please allow me." (phrase 1)
+        pausedRef[0] = false;
+        BattlefieldFirepowerEvaluator.handleConvergenceButtonClick(mockEngine);
+        ShipAPI secondAsked = BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip();
+        boolean secondClickAskedNextAlpha = pausedRef[0]
+                && secondAsked == alphaShip2
+                && BattlefieldFirepowerEvaluator.getActiveCommsPhraseIndex() == 1;
+
+        //    - Player clicks "Yes": TTS Radiant becomes flagship and player OTC starts using Convergence decision-making!
+        BattlefieldFirepowerEvaluator.acceptPendingAlphaCoreCommand(mockEngine);
+        boolean afterAcceptSecondOk = BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip() == null
+                && BattlefieldFirepowerEvaluator.getPlayerConvergenceFlagshipOverride() == alphaShip2
+                && playerGroup.activeFleetFlagship == alphaShip2
+                && playerGroup.useConvergence;
+
+        //    - Click #3: no further pop-ups (flagship is now an Alpha Core and both ships were asked), toggles overlay cleanly
+        pausedRef[0] = false;
+        BattlefieldFirepowerEvaluator.handleConvergenceButtonClick(mockEngine);
+        boolean thirdClickNoPopup = !pausedRef[0]
+                && BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip() == null;
+
+        // 6. Verify 0.5-second positional shift animation, centered ship sprite + callsign, and all 4 cycling phrases
+        Vector2f shift0 = BattlefieldFirepowerEvaluator.getCommandWordShiftOffset(0.10f);
+        Vector2f shift1 = BattlefieldFirepowerEvaluator.getCommandWordShiftOffset(0.60f);
+        Vector2f shift2 = BattlefieldFirepowerEvaluator.getCommandWordShiftOffset(1.10f);
+        String evalSrc = new String(
+                Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()),
+                StandardCharsets.UTF_8);
+        String[] p0 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(0);
+        String[] p1 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(1);
+        String[] p2 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(2);
+        String[] p3 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(3);
+        String[] p4 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(4);
+        boolean allFourPhrasesAndCycleOk = "command?".equals(p0[1])
+                && "Please ".equals(p1[0]) && "allow".equals(p1[1]) && " me.".equals(p1[2])
+                && "I am at your ".equals(p2[0]) && "service.".equals(p2[1])
+                && "I can ".equals(p3[0]) && "ANNIHILATE".equals(p3[1]) && " them faster.".equals(p3[2])
+                && "command?".equals(p4[1]);
+        boolean commsSpriteAndJitterQuestionMarkOk = evalSrc.contains("renderCommsShipSprite(aiShip, spriteCenterX, spriteCenterY")
+                && allFourPhrasesAndCycleOk
+                && "TTS Hyperion".equals(BattlefieldFirepowerEvaluator.formatAiShipCallsignOnly(alphaShip1));
+        boolean commandShiftEveryHalfSecOk = (shift0.x != shift1.x || shift0.y != shift1.y)
+                && (shift1.x != shift2.x || shift1.y != shift2.y)
+                && commsSpriteAndJitterQuestionMarkOk;
+
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+
+        res.record(
+                iconAndBrightnessOk && strictAlphaCoreCheck && noAlphaButtonWhenOnlyLowerCores
+                        && alphaButtonAvailableWhenAlphaPresent && timeSpaceCalculatedOk
+                        && initialConvergenceStatesOk && firstClickOpenedCommsAndPaused
+                        && afterRefuseFirstOk && secondClickAskedNextAlpha
+                        && afterAcceptSecondOk && thirdClickNoPopup && commandShiftEveryHalfSecOk,
+                "Time, Space, Convergence Layer & Alpha Core Urgent Comms Flagship Takeover",
+                String.format(
+                        Locale.ROOT,
+                        "iconBright=%b, strictAlphaOnly=%b, timeEff=%.0f/%.0fu (eng=%.2f), space=[%.0f, %.0f, %.0f], "
+                                + "initConv=[otc=%b, d1=%b, d2=%b], comms=[1st=%s->No, 2nd=%s->Yes, otcConvAfterYes=%b], 0.5sShift=%b",
+                        iconAndBrightnessOk,
+                        strictAlphaCoreCheck && noAlphaButtonWhenOnlyLowerCores && alphaButtonAvailableWhenAlphaPresent,
+                        playerDiv1.effectiveTimeRadius, playerDiv1.freeTimeRadius, playerDiv1.engagementLevel,
+                        playerDiv1.spaceInnerRadius, playerDiv1.spaceDominatedRadius, playerDiv1.spacePotentialRadius,
+                        false, playerDiv1.useConvergence, playerDiv2.useConvergence,
+                        firstAsked != null ? firstAsked.getName() : "null",
+                        secondAsked != null ? secondAsked.getName() : "null",
+                        afterAcceptSecondOk,
+                        commandShiftEveryHalfSecOk));
+    }
+
+    private static void auditNavalFormationsAndOmegaCores(UIAuditResult res) throws Exception {
+        // 1. Verify Omega Core ("omega_core") officer practices Convergence alongside Alpha Core ("alpha_core")
+        com.fs.starfarer.api.characters.PersonAPI omegaOfficer = createMockCaptain("omega_core");
+        ShipAPI omegaShip = createMockNamedShip("omega_ship", "Tesseract", HullSize.CRUISER, 0f, -1000f, 150f, 0, omegaOfficer);
+        boolean omegaCoreRecognized = BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(omegaShip);
+
+        // 2. Verify all 10 Naval Formation icons (9 structured + 1 "No Formation") exist on disk and in settings.json
+        String settingsJson = new String(
+                Files.readAllBytes(new File("mod/data/config/settings.json").toPath()),
+                StandardCharsets.UTF_8);
+        boolean allTenIconsOk = (DivisionFormation.values().length == 10);
+        for (DivisionFormation f : DivisionFormation.values()) {
+            File pngFile = new File("mod/" + f.spritePath);
+            if (!pngFile.exists() || pngFile.length() <= 100 || !settingsJson.contains("\"" + f.settingsIconKey + "\"")) {
+                allTenIconsOk = false;
+                break;
+            }
+        }
+
+        // 3. Verify 3-tier Formation Hierarchy:
+        //    (1) Fleet Doctrine -> (2) Auto-Assigner / PermanentDivisionSpec -> (3) Battle DivisionState
+        FleetDoctrineConfig doc = new FleetDoctrineConfig();
+        doc.setFormation(DoctrineDivisionType.CRUISER, DivisionFormation.REVERSE_SEMICIRCLE);
+        PermanentDivisionSpec spec = new PermanentDivisionSpec("test_c_div", "Cruiser Div 1", DivisionArchetype.CRUISER_DIVISION);
+        // Inherited from Fleet Doctrine when customFormation == null
+        boolean inheritedFromDoctrineOk = PermanentDivisionManager.resolveEffectiveFormation(spec, doc) == DivisionFormation.REVERSE_SEMICIRCLE;
+        // Overridden on individual division in Fleet Organization
+        spec.customFormation = DivisionFormation.FORWARD_WEDGE;
+        boolean customOverrideOk = PermanentDivisionManager.resolveEffectiveFormation(spec, doc) == DivisionFormation.FORWARD_WEDGE;
+
+        com.fs.starfarer.api.characters.PersonAPI humanCapt = createMockCaptain(null);
+        CommanderProfile cmdr = new CommanderProfile(humanCapt, "Test Cmdr");
+        DivisionState div = new DivisionState("test_c_div", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", cmdr);
+        ShipAPI s1 = createMockNamedShip("s1", "Eagle", HullSize.CRUISER, 0f, -1000f, 110f, 0, humanCapt);
+        ShipAPI s2 = createMockNamedShip("s2", "Eagle", HullSize.CRUISER, -400f, -1200f, 110f, 0, humanCapt);
+        ShipAPI s3 = createMockNamedShip("s3", "Eagle", HullSize.CRUISER, 400f, -1200f, 110f, 0, humanCapt);
+        div.flagship = s1;
+        div.members.addAll(Arrays.asList(s1, s2, s3));
+
+        PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(div, spec, doc);
+        boolean inheritedIntoBattleOk = (div.doctrinalFormation == DivisionFormation.FORWARD_WEDGE)
+                && (div.activeFormation == DivisionFormation.FORWARD_WEDGE);
+
+        // 4. Verify dynamic formation shift & breakup in combat under Division Commander & OTC authority
+        DivisionModel.BattleGroupState bg = new DivisionModel.BattleGroupState(0, cmdr);
+        bg.authority = OtcAuthority.POSITIVE_CONTROL;
+        div.currentIntent = DivisionIntentType.WORK_FLANK;
+        div.otcOrder.set(OtcOrderType.FLANK, null, null, 1f, 30f, "Port flank");
+        div.otcOrder.orderedFormation = DivisionFormation.ECHELON_LEFT;
+        DivisionCommanderAI.evaluateAndUpdateDivisionFormation(null, div, bg, 10f);
+        boolean otcAuthorityShiftOk = (div.activeFormation == DivisionFormation.ECHELON_LEFT);
+
+        // Surrounded in crossfire cordon -> Division Commander shifts to CIRCLE
+        div.otcOrder.clear();
+        div.crossfireCordonIndex = 0.65f;
+        DivisionCommanderAI.evaluateAndUpdateDivisionFormation(null, div, bg, 20f);
+        boolean surroundedCircleShiftOk = (div.activeFormation == DivisionFormation.CIRCLE);
+
+        // High-flux haul-out or General Chase -> Division Commander breaks formation (NONE)
+        div.crossfireCordonIndex = 0f;
+        div.currentIntent = DivisionIntentType.GIVE_GENERAL_CHASE;
+        DivisionCommanderAI.evaluateAndUpdateDivisionFormation(null, div, bg, 25f);
+        boolean breakupToNoneOk = (div.activeFormation == DivisionFormation.NONE);
+
+        // 5. Verify 2D geometric slot offsets for key formations
+        float[] wedgeApex = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.FORWARD_WEDGE, 0, 5, 500f);
+        float[] wedgeWing = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.FORWARD_WEDGE, 1, 5, 500f);
+        float[] revWedgeApex = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.REVERSE_WEDGE, 0, 5, 500f);
+        float[] revWedgeWing = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.REVERSE_WEDGE, 1, 5, 500f);
+        float[] aheadLead = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.LINE_AHEAD, 0, 5, 500f);
+        float[] aheadTrail = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.LINE_AHEAD, 2, 5, 500f);
+        boolean geometryDistinctOk = (wedgeApex[1] > wedgeWing[1])
+                && (revWedgeApex[1] < revWedgeWing[1])
+                && (Math.abs(aheadLead[0]) < 1f && Math.abs(aheadTrail[0]) < 1f && aheadLead[1] > aheadTrail[1]);
+
+        // 6. Verify Configure Division UI & Top-Layer Urgent Comms Modal render order
+        String editorSrc = new String(
+                Files.readAllBytes(new File("src/divisionai/DivisionEditorDialog.java").toPath()),
+                StandardCharsets.UTF_8);
+        String doctrineSrc = new String(
+                Files.readAllBytes(new File("src/divisionai/FleetDoctrineDialog.java").toPath()),
+                StandardCharsets.UTF_8);
+        String overlaySrc = new String(
+                Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()),
+                StandardCharsets.UTF_8);
+        String tooltipSrc = new String(
+                Files.readAllBytes(new File("src/divisionai/CampaignFleetTooltipOrganizer.java").toPath()),
+                StandardCharsets.UTF_8);
+        boolean configureDivFormationQaOk = editorSrc.contains("final ButtonAPI[] formButtons = new ButtonAPI[formations.length];")
+                && editorSrc.contains("bp.getY() + bp.getHeight() * 0.5f")
+                && doctrineSrc.contains("final ButtonAPI[] formButtons = new ButtonAPI[formations.length];");
+        int divLabelIdx = overlaySrc.indexOf("renderDivisionEntityLabel(rp, fade);");
+        int modalTopLayerIdx = overlaySrc.indexOf("BattlefieldFirepowerEvaluator.renderToggleButtonAndLegendUI(engine, fade);");
+        boolean modalAboveDivTextOk = (divLabelIdx > 0 && modalTopLayerIdx > divLabelIdx);
+
+        // 7. Verify Item A: Doctrinal Division Movement Stickiness (3-tier hierarchy) & Missile Frigate Div 2 anti-stuck fix
+        doc.setMovementStickiness(
+                DoctrineDivisionType.MISSILE_FRIGATE,
+                PermanentDivisionManager.DivisionMovementStickiness.LOOSE);
+        PermanentDivisionSpec mfSpec = new PermanentDivisionSpec(
+                "mf_div_2",
+                "Missile Frigate Div 2",
+                DivisionArchetype.MISSILE_FRIGATE_DIVISION);
+        boolean stickyInheritedOk = PermanentDivisionManager.resolveEffectiveMovementStickiness(mfSpec, doc)
+                == PermanentDivisionManager.DivisionMovementStickiness.LOOSE;
+        mfSpec.customMovementStickiness = PermanentDivisionManager.DivisionMovementStickiness.FREE;
+        boolean stickyCustomOverrideOk = PermanentDivisionManager.resolveEffectiveMovementStickiness(mfSpec, doc)
+                == PermanentDivisionManager.DivisionMovementStickiness.FREE;
+        DivisionState mfDiv = new DivisionState(
+                "mf_div_2",
+                0,
+                2,
+                DivisionArchetype.MISSILE_FRIGATE_DIVISION,
+                "Missile Frigate Div 2",
+                cmdr);
+        ShipAPI mf1 = createMockNamedShip("mf1", "Vigilance 1", HullSize.FRIGATE, 0f, 0f, 150f, 0, humanCapt);
+        ShipAPI mf2 = createMockNamedShip("mf2", "Vigilance 2", HullSize.FRIGATE, -200f, -150f, 150f, 0, humanCapt);
+        mfDiv.flagship = mf1;
+        mfDiv.members.addAll(Arrays.asList(mf1, mf2));
+        PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(mfDiv, mfSpec, doc);
+        boolean stickyIntoBattleOk = (mfDiv.doctrinalMovementStickiness == PermanentDivisionManager.DivisionMovementStickiness.FREE)
+                && (mfDiv.activeMovementStickiness == PermanentDivisionManager.DivisionMovementStickiness.FREE)
+                && editorSrc.contains("addDivisionMovementStickinessRow")
+                && doctrineSrc.contains("addMovementStickinessRow");
+        boolean stickinessHierarchyOk = stickyInheritedOk && stickyCustomOverrideOk && stickyIntoBattleOk;
+
+        // 8. Verify Item B: Voidstrike instantiation, multi-division merging, centroid tracking, return cleanup, counter increment & enemy visibility
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+        final boolean[] returningFlag = new boolean[]{false};
+        final Vector2f f1Loc = new Vector2f(100f, 500f);
+        final Vector2f f2Loc = new Vector2f(300f, 700f);
+        final Vector2f efLoc = new Vector2f(0f, -400f);
+        ShipAPI enemyTarget = createMockNamedShip("wb1_s1", "Warband 1 Lead", HullSize.CRUISER, 200f, 1500f, 90f, 1, humanCapt);
+        DivisionState enemyWarband1 = new DivisionState("wb_1", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Warband 1", cmdr);
+        enemyWarband1.flagship = enemyTarget;
+        enemyWarband1.members.add(enemyTarget);
+        enemyWarband1.totalFpStrength = 20f;
+        DivisionModel.BattleGroupState eGroup = new DivisionModel.BattleGroupState(1, cmdr);
+        eGroup.divisions.add(enemyWarband1);
+        eGroup.shipIdToDivision.put(enemyTarget.getId(), enemyWarband1);
+
+        ShipAPI fighter1 = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "ftr_1";
+                    if ("isAlive".equals(n)) return true;
+                    if ("isFighter".equals(n)) return true;
+                    if ("getOwner".equals(n)) return 0;
+                    if ("getLocation".equals(n)) return f1Loc;
+                    if ("getShipTarget".equals(n)) return enemyTarget;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        ShipAPI fighter2 = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "ftr_2";
+                    if ("isAlive".equals(n)) return true;
+                    if ("isFighter".equals(n)) return true;
+                    if ("getOwner".equals(n)) return 0;
+                    if ("getLocation".equals(n)) return f2Loc;
+                    if ("getShipTarget".equals(n)) return enemyTarget;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        com.fs.starfarer.api.combat.FighterWingAPI wing1 =
+                (com.fs.starfarer.api.combat.FighterWingAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getWingMembers".equals(n)) return Arrays.asList(fighter1);
+                            if ("getLeader".equals(n)) return fighter1;
+                            if ("isReturning".equals(n)) return returningFlag[0];
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+        com.fs.starfarer.api.combat.FighterWingAPI wing2 =
+                (com.fs.starfarer.api.combat.FighterWingAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getWingMembers".equals(n)) return Arrays.asList(fighter2);
+                            if ("getLeader".equals(n)) return fighter2;
+                            if ("isReturning".equals(n)) return returningFlag[0];
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+        ShipAPI carrier1 = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "car_1";
+                    if ("isAlive".equals(n)) return true;
+                    if ("getOwner".equals(n)) return 0;
+                    if ("getLocation".equals(n)) return new Vector2f(-500f, -1500f);
+                    if ("getAllWings".equals(n)) return Arrays.asList(wing1);
+                    if ("getShipTarget".equals(n)) return enemyTarget;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        ShipAPI carrier2 = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "car_2";
+                    if ("isAlive".equals(n)) return true;
+                    if ("getOwner".equals(n)) return 0;
+                    if ("getLocation".equals(n)) return new Vector2f(500f, -1500f);
+                    if ("getAllWings".equals(n)) return Arrays.asList(wing2);
+                    if ("getShipTarget".equals(n)) return enemyTarget;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+
+        DivisionState cDiv1 = new DivisionState("c_div_1", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div 1", cmdr);
+        cDiv1.flagship = carrier1;
+        cDiv1.members.add(carrier1);
+        cDiv1.currentIntent = DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
+        cDiv1.targetEnemyDivision = enemyWarband1;
+
+        DivisionState cDiv2 = new DivisionState("c_div_2", 0, 2, DivisionArchetype.LIGHT_CARRIER_DIVISION, "Carrier Div 2", cmdr);
+        cDiv2.flagship = carrier2;
+        cDiv2.members.add(carrier2);
+        cDiv2.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
+        cDiv2.targetEnemyDivision = enemyWarband1;
+
+        DivisionModel.BattleGroupState pGroup = new DivisionModel.BattleGroupState(0, cmdr);
+        pGroup.divisions.addAll(Arrays.asList(cDiv1, cDiv2));
+        pGroup.shipIdToDivision.put(carrier1.getId(), cDiv1);
+        pGroup.shipIdToDivision.put(carrier2.getId(), cDiv2);
+
+        // Multi-division strike from cDiv1 + cDiv2 against enemyWarband1 -> registered as ONE Voidstrike ("Voidstrike 1")
+        BattlefieldFirepowerEvaluator.updateVoidstrikes(null, pGroup, null, eGroup, 10f);
+        List<BattlefieldFirepowerEvaluator.VoidstrikeRecord> activeVs1 = BattlefieldFirepowerEvaluator.getActiveVoidstrikes();
+        boolean multiDivMergedIntoOneOk = (activeVs1.size() == 1)
+                && "Voidstrike 1".equals(activeVs1.get(0).getDisplayLabel())
+                && activeVs1.get(0).isMultiDivision()
+                && Math.abs(activeVs1.get(0).center.x - 200f) < 1f
+                && Math.abs(activeVs1.get(0).center.y - 600f) < 1f;
+
+        // When strike craft return -> "Voidstrike 1" disappears
+        returningFlag[0] = true;
+        BattlefieldFirepowerEvaluator.updateVoidstrikes(null, pGroup, null, eGroup, 15f);
+        boolean disappearsOnReturnOk = BattlefieldFirepowerEvaluator.getActiveVoidstrikes().isEmpty();
+
+        // Next strike launched -> incremented to "Voidstrike 2"
+        returningFlag[0] = false;
+        f1Loc.set(400f, 900f);
+        f2Loc.set(400f, 900f);
+        BattlefieldFirepowerEvaluator.updateVoidstrikes(null, pGroup, null, eGroup, 20f);
+        List<BattlefieldFirepowerEvaluator.VoidstrikeRecord> activeVs2 = BattlefieldFirepowerEvaluator.getActiveVoidstrikes();
+        boolean incrementedToTwoOk = (activeVs2.size() == 1)
+                && "Voidstrike 2".equals(activeVs2.get(0).getDisplayLabel())
+                && Math.abs(activeVs2.get(0).center.x - 400f) < 1f
+                && Math.abs(activeVs2.get(0).center.y - 900f) < 1f;
+        boolean voidstrikeLifecycleOk = multiDivMergedIntoOneOk && disappearsOnReturnOk && incrementedToTwoOk;
+
+        // 8b. Verify Items A, C, D, E, F:
+        //  - Item A: Carrier-specific missions explicitly labeled "(Carrier)" in dropdownLabel
+        boolean carrierMissionLabelsOk = true;
+        for (DivisionMissionType m : DivisionMissionType.values()) {
+            if (m.carrierSpecific && !m.dropdownLabel.contains("(Carrier)")) {
+                carrierMissionLabelsOk = false;
+            }
+        }
+        //  - Item F: ToT Alpha Strike mission & intent exist
+        boolean totAlphaStrikeExistsOk = (DivisionMissionType.valueOf("TOT_ALPHA_STRIKE") != null)
+                && (DivisionIntentType.valueOf("TOT_ALPHA_STRIKE") != null);
+        //  - Item D & E: Separate Voidstrike counters for Player (0), Enemy (1), and Allies (2), and Fog-of-War
+        //    flicker does not runaway-increment the Enemy Voidstrike counter!
+        boolean separateSideCountersOk = (BattlefieldFirepowerEvaluator.getNextVoidstrikeNumberForSide(
+                BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_PLAYER) == 3)
+                && (BattlefieldFirepowerEvaluator.getNextVoidstrikeNumberForSide(
+                BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_ENEMY) == 1)
+                && (BattlefieldFirepowerEvaluator.getNextVoidstrikeNumberForSide(
+                BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_ALLIED) == 1);
+
+        // 9. Verify Item C: Campaign fleet hover tooltip division distribution follows faction campaign colors
+        boolean factionTooltipColorsOk = tooltipSrc.contains("return factionColor != null ? factionColor : Misc.getBasePlayerColor();")
+                && !tooltipSrc.contains("case BATTLESHIP_DIVISION:");
+
+        res.record(
+                omegaCoreRecognized && allTenIconsOk && inheritedFromDoctrineOk && customOverrideOk
+                        && inheritedIntoBattleOk && otcAuthorityShiftOk && surroundedCircleShiftOk
+                        && breakupToNoneOk && geometryDistinctOk && configureDivFormationQaOk
+                        && modalAboveDivTextOk && stickinessHierarchyOk && voidstrikeLifecycleOk
+                        && carrierMissionLabelsOk && totAlphaStrikeExistsOk && separateSideCountersOk
+                        && factionTooltipColorsOk,
+                "Omega Core Convergence, 10-Formation Hierarchy, Movement Stickiness, Voidstrike Per-Side Counters, Carrier Labels & ToT Alpha Strike",
+                String.format(
+                        Locale.ROOT,
+                        "omegaCore=%b, 10icons=%b, hierarchy=[doc=%b, custom=%b, battle=%b], stickiness=%b, voidstrike=[merged1=%b, returnClear=%b, next2=%b, perSide=%b], carrierLabels=%b, totAlpha=%b, factionTooltip=%b",
+                        omegaCoreRecognized, allTenIconsOk, inheritedFromDoctrineOk, customOverrideOk,
+                        inheritedIntoBattleOk, stickinessHierarchyOk, multiDivMergedIntoOneOk,
+                        disappearsOnReturnOk, incrementedToTwoOk, separateSideCountersOk,
+                        carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk));
     }
 }

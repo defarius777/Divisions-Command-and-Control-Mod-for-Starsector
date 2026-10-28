@@ -275,6 +275,7 @@ public class OtcAI {
 
             // Weapon-arc firepower-space & L/U crossfire cordon evaluation at division centroid
             BattlefieldFirepowerEvaluator.updateDivisionFirepowerTelemetry(engine, div);
+            BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(div);
             if (div.crossfireCordonIndex >= 0.32f && div.localEnemyStrength > 1f) {
                 // Weight effective local enemy pressure by L/U crossfire cordon amplification
                 float cordonMult = 1.0f + (div.crossfireCordonIndex - 0.20f) * 0.55f;
@@ -397,6 +398,11 @@ public class OtcAI {
             BattleGroupState enemyGroup,
             float now) {
 
+        BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, myGroup, enemyGroup);
+        if (enemyGroup != null) {
+            BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, myGroup);
+        }
+
         float visibleEnemyFp = 0f;
         for (DivisionState eDiv : enemyGroup.divisions) {
             visibleEnemyFp += getVisibleFpForSide(engine, myGroup.side, eDiv);
@@ -492,7 +498,9 @@ public class OtcAI {
             }
             float distToEnemy = distanceToNearestEnemyDivision(engine, div, enemyGroup);
             float distFactor = (distToEnemy < Float.MAX_VALUE * 0.5f) ? (distToEnemy * 0.001f) : 2.0f;
-            float reserveScore = distFactor + (div.isFastFlanker ? 1.5f : 0.8f) - div.avgFluxLevel;
+            // Time freedom bonus: unengaged divisions with high effectiveTimeRadius make the best mobile reserves
+            float timeFreedomBonus = div.timeFreedomFactor * 0.85f + (div.effectiveTimeRadius / 2400f) * 0.45f;
+            float reserveScore = distFactor + (div.isFastFlanker ? 1.5f : 0.8f) + timeFreedomBonus - div.avgFluxLevel;
             if (divMission == DivisionMissionType.RESERVE) {
                 reserveScore += 5f;
             }
@@ -631,16 +639,38 @@ public class OtcAI {
             BattleGroupState enemyGroup) {
         DivisionState best = null;
         float bestScore = -Float.MAX_VALUE;
+        DivisionState anchorDiv = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision.isCombatEffective())
+                ? myGroup.mainEffortDivision
+                : (!myGroup.divisions.isEmpty() ? myGroup.divisions.get(0) : null);
+
         for (DivisionState eDiv : enemyGroup.divisions) {
             if (!eDiv.isCombatEffective()) continue;
             if (!isDivisionVisibleToSide(engine, myGroup.side, eDiv)) continue;
             Vector2f visCentroid = getVisibleCentroidForSide(engine, myGroup.side, eDiv);
             float visFp = getVisibleFpForSide(engine, myGroup.side, eDiv);
             float dist = distance(myGroup.fleetCentroid, visCentroid);
-            // Prefer enemy divisions that are close, isolated, or high-value
-            float isolationBonus = (eDiv.stationKeepingRatio > 1.3f) ? 350f : 0f;
             float auxPenalty = (eDiv.archetype == DivisionArchetype.SERVICE_GROUP) ? -500f : 0f;
-            float score = visFp * 12f + isolationBonus + auxPenalty - dist * 0.25f;
+
+            float score;
+            if (myGroup.useConvergence && anchorDiv != null) {
+                // Convergence OTC decision-making (AI / Threat / Abyssal or Alpha Core flagship):
+                // Synthesizes Time, Space, and Firepower into a non-linear phase-space target score
+                float convSum = 0f;
+                int convCount = 0;
+                for (DivisionState d : myGroup.divisions) {
+                    if (!d.isCombatEffective()) continue;
+                    convSum += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, eDiv, myGroup);
+                    convCount++;
+                }
+                float avgConv = (convCount > 0) ? (convSum / convCount) : 0f;
+                score = avgConv + auxPenalty - dist * 0.14f;
+            } else {
+                // Human OTC decision-making: weights Firepower value, Space Strongpoint/Weak Point seams, and Time pinning
+                float isolationBonus = (eDiv.stationKeepingRatio > 1.3f) ? 350f : 0f;
+                float spaceSeamBonus = eDiv.isWeakPoint ? 240f : (eDiv.isStrongpoint ? -120f : 0f);
+                float pinnedBonus = eDiv.engagementLevel * 180f;
+                score = visFp * 12f + isolationBonus + spaceSeamBonus + pinnedBonus + auxPenalty - dist * 0.25f;
+            }
             if (score > bestScore) {
                 bestScore = score;
                 best = eDiv;

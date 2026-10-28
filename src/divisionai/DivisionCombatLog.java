@@ -247,12 +247,35 @@ public class DivisionCombatLog {
         if (ui != null
                 && verbosity != DivisionAISettings.ChatterVerbosity.OFF
                 && DivisionAISettings.isOtcSignalsEnabled(battleGroup.side)) {
-            if (verbosity != DivisionAISettings.ChatterVerbosity.VERBOSE
-                    && orderText.startsWith("No division free to reinforce")) {
-                return;
+            if (verbosity != DivisionAISettings.ChatterVerbosity.VERBOSE) {
+                if (orderText.startsWith("No division free to reinforce")
+                        || orderText.startsWith("Doubling:")
+                        || orderText.startsWith("General chase:")) {
+                    return;
+                }
+                boolean isHighPriorityOrder = orderText.startsWith("Execute:")
+                        || orderText.startsWith("Committing the reserve")
+                        || orderText.startsWith("Time-on-target strike:");
+                if (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL) {
+                    if (battleGroup.side != 0 || !isHighPriorityOrder) {
+                        return;
+                    }
+                } else {
+                    if (battleGroup.side != 0 && orderText.startsWith("Main Effort")) {
+                        return;
+                    }
+                    float orderCooldown = (verbosity == DivisionAISettings.ChatterVerbosity.OTC_ONLY) ? 6f : 10f;
+                    if (!isHighPriorityOrder
+                            && battleGroup.lastOtcHudLogTime > 0f
+                            && (now - battleGroup.lastOtcHudLogTime) < orderCooldown) {
+                        return;
+                    }
+                }
             }
-            if (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL && battleGroup.side != 0) {
-                return;
+            if (!orderText.startsWith("Execute:")
+                    && !orderText.startsWith("Committing the reserve")
+                    && !orderText.startsWith("Time-on-target strike:")) {
+                battleGroup.lastOtcHudLogTime = now;
             }
             Color prefixColor = (battleGroup.side == 0) ? safePositiveHighlightColor() : safeNegativeHighlightColor();
             if (battleGroup.nomenclatureCategory == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR) {

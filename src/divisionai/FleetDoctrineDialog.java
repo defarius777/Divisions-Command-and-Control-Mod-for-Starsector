@@ -3,6 +3,7 @@ package divisionai;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.BaseCustomUIPanelPlugin;
 import com.fs.starfarer.api.campaign.CustomUIPanelPlugin;
+import com.fs.starfarer.api.graphics.SpriteAPI;
 import com.fs.starfarer.api.input.InputEventAPI;
 import com.fs.starfarer.api.ui.Alignment;
 import com.fs.starfarer.api.ui.ButtonAPI;
@@ -20,11 +21,13 @@ import divisionai.DivisionNomenclature.PlayerNamingConfig;
 import divisionai.DivisionNomenclature.PlayerNamingPreset;
 import divisionai.PermanentDivisionManager.AutoAssignCapability;
 import divisionai.PermanentDivisionManager.AutoAssignHull;
-import divisionai.PermanentDivisionManager.OtcAuthority;
-import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
+import divisionai.PermanentDivisionManager.DivisionFormation;
+import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
+import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.LineStation;
 import org.lwjgl.input.Keyboard;
@@ -477,12 +480,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 DivisionMissionType currOpenMis = doctrine.getOpeningMission(dt);
                 DivisionMissionType currMainMis = doctrine.getMainMission(dt);
                 LineStation currLineStation = doctrine.getLineStation(dt);
+                DivisionFormation currFormation = doctrine.getFormation(dt);
+                DivisionMovementStickiness currStickiness = doctrine.getMovementStickiness(dt);
 
                 String dtTitle = String.format(
                         Locale.ROOT,
-                        "%s  ·  %s  ·  %du / %du / %du standoff  ·  %s -> %s",
+                        "%s  ·  %s  ·  %s  ·  %du / %du / %du standoff  ·  %s -> %s",
                         dt.displayName.toUpperCase(Locale.ROOT),
                         currLineStation.displayName,
+                        currFormation.displayName,
                         currSpacing,
                         currInter,
                         currStandoff,
@@ -545,6 +551,30 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         baseColor,
                         darkColor,
                         positive);
+
+                // Row 4b: Naval Formation (with formation icons)
+                addFormationSelectorRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Formation: " + currFormation.displayName,
+                        currFormation,
+                        "SET_FORMATION:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        highlight,
+                        gray);
+
+                // Row 4c: Doctrinal Division Movement Stickiness (Division Movement vs. Individual Movement)
+                addMovementStickinessRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Movement Stickiness: " + currStickiness.displayName,
+                        currStickiness,
+                        "SET_STICKINESS:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        positive,
+                        gray);
 
                 // Row 5: Opening Mission Drop-Down Menu (30s - 60s)
                 addMissionDropdownRow(
@@ -1258,6 +1288,170 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 2f);
     }
 
+    private void addMovementStickinessRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            DivisionMovementStickiness currentStickiness,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+
+        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+
+        float xCursor = CONTROL_COL_X;
+        for (DivisionMovementStickiness ms : DivisionMovementStickiness.values()) {
+            boolean selected = (ms == currentStickiness);
+            String act = actionPrefix + ms.name();
+            ButtonAPI bMs = registerButton(
+                    rowUi.addButton(
+                            ms.displayName,
+                            act,
+                            selected ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            74f,
+                            22f,
+                            0f),
+                    act);
+            if (selected) {
+                bMs.highlight();
+            }
+            bMs.getPosition().inTL(xCursor, 3f);
+            xCursor += 80f;
+        }
+
+        if (currentStickiness != null) {
+            rowUi.addPara(currentStickiness.summary, 0f, gray).getPosition().inTL(xCursor + 8f, 6f);
+        }
+
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
+    private void addFormationSelectorRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            final DivisionFormation currentFormation,
+            String actionPrefix,
+            final Color baseColor,
+            Color darkColor,
+            final Color activeValueColor,
+            Color gray) {
+
+        final DivisionFormation[] formations = DivisionFormation.values();
+        final float btnW = 124f;
+        final float btnGap = 6f;
+        final int cols = 5;
+        final float rowH = 52f;
+        final ButtonAPI[] formButtons = new ButtonAPI[formations.length];
+
+        final CustomPanelAPI[] rowPanelRef = new CustomPanelAPI[1];
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, rowH, new BaseCustomUIPanelPlugin() {
+            @Override
+            public void buttonPressed(Object buttonId) {
+                FleetDoctrineDialog.this.buttonPressed(buttonId);
+            }
+
+            @Override
+            public void render(float alphaMult) {
+                for (int i = 0; i < formations.length; i++) {
+                    DivisionFormation f = formations[i];
+                    ButtonAPI btn = formButtons[i];
+                    if (btn == null || btn.getPosition() == null) continue;
+                    PositionAPI bp = btn.getPosition();
+                    boolean selected = (f == currentFormation);
+                    renderFormationIcon(
+                            f,
+                            bp.getX() + 13f,
+                            bp.getY() + bp.getHeight() * 0.5f,
+                            16f,
+                            selected ? activeValueColor : baseColor,
+                            alphaMult);
+                }
+            }
+        });
+        rowPanelRef[0] = rowPanel;
+
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
+        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+        float summaryX = CONTROL_COL_X + cols * (btnW + btnGap) + 8f;
+        rowUi.addPara(currentFormation.summary, 0f, gray).getPosition().inTL(summaryX, 16f);
+
+        for (int i = 0; i < formations.length; i++) {
+            DivisionFormation f = formations[i];
+            boolean selected = (f == currentFormation);
+            int r = i / cols;
+            int c = i % cols;
+            float bx = CONTROL_COL_X + c * (btnW + btnGap);
+            float by = 2f + r * 24f;
+            String act = actionPrefix + f.name();
+            ButtonAPI bForm = registerButton(
+                    rowUi.addButton(
+                            "    " + f.shortName,
+                            act,
+                            selected ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            btnW,
+                            22f,
+                            0f),
+                    act);
+            if (selected) {
+                bForm.highlight();
+            }
+            bForm.getPosition().inTL(bx, by);
+            formButtons[i] = bForm;
+        }
+
+        rowUi.setHeightSoFar(rowH);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
+    public static void renderFormationIcon(
+            DivisionFormation formation,
+            float centerX,
+            float centerY,
+            float size,
+            Color tint,
+            float alphaMult) {
+        if (formation == null) return;
+        try {
+            SpriteAPI sprite = Global.getSettings().getSprite("division_ai", formation.settingsIconKey);
+            if (sprite == null) {
+                sprite = Global.getSettings().getSprite(formation.spritePath);
+            }
+            if (sprite != null) {
+                float prevW = sprite.getWidth();
+                float prevH = sprite.getHeight();
+                Color prevColor = sprite.getColor();
+                float prevAlpha = sprite.getAlphaMult();
+                sprite.setSize(size, size);
+                if (tint != null) {
+                    sprite.setColor(tint);
+                }
+                sprite.setAlphaMult(alphaMult);
+                sprite.renderAtCenter(centerX, centerY);
+                sprite.setSize(prevW, prevH);
+                if (prevColor != null) {
+                    sprite.setColor(prevColor);
+                }
+                sprite.setAlphaMult(prevAlpha);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void addMissionDropdownRow(
             TooltipMakerAPI body,
             float rowWidth,
@@ -1288,7 +1482,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         Alignment.LMID,
                         CutStyle.TL_BR,
-                        236f,
+                        268f,
                         22f,
                         0f),
                 toggleAct);
@@ -1297,7 +1491,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
         bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
 
-        rowUi.addPara(currentMission.summary, 0f, gray).getPosition().inTL(CONTROL_COL_X + 252f, 5f);
+        rowUi.addPara(currentMission.summary, 0f, gray).getPosition().inTL(CONTROL_COL_X + 280f, 5f);
 
         rowUi.setHeightSoFar(28f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
@@ -1321,7 +1515,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                                 darkColor,
                                 Alignment.LMID,
                                 CutStyle.ALL,
-                                224f,
+                                256f,
                                 20f,
                                 0f),
                         selAct);
@@ -1332,7 +1526,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
                 optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
                         .getPosition()
-                        .inTL(CONTROL_COL_X + 252f, 4f);
+                        .inTL(CONTROL_COL_X + 280f, 4f);
 
                 optUi.setHeightSoFar(26f);
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
@@ -1827,6 +2021,32 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
                 LineStation ps = LineStation.valueOf(psStr);
                 PermanentDivisionManager.updateDivisionTypeLineStation(dt, ps);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_FORMATION:")) {
+            String rest = cmd.substring("SET_FORMATION:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                String dtStr = rest.substring(0, sep);
+                String fmStr = rest.substring(sep + 1);
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
+                DivisionFormation fm = DivisionFormation.valueOf(fmStr);
+                PermanentDivisionManager.updateDivisionTypeFormation(dt, fm);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_STICKINESS:")) {
+            String rest = cmd.substring("SET_STICKINESS:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                String dtStr = rest.substring(0, sep);
+                String msStr = rest.substring(sep + 1);
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
+                DivisionMovementStickiness ms = DivisionMovementStickiness.valueOf(msStr);
+                PermanentDivisionManager.updateDivisionTypeMovementStickiness(dt, ms);
                 rebuildContent();
             }
             return;

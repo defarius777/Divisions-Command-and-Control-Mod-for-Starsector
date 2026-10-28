@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Icon D: Convergence Overlay — Triangle inside a Square inside a Circle (AI / Tri-Tachyon geometry) -->
+  <!-- Outer Circle (Time horizon envelope) -->
+  <circle cx="32" cy="32" r="24"
+          fill="#FFFFFF" fill-opacity="0.18"
+          stroke="#FFFFFF" stroke-width="2.6" stroke-opacity="0.62" />
+  <!-- Middle Inscribed Square (Space / Zone of Control) -->
+  <rect x="15" y="15" width="34" height="34" rx="1.6"
+        fill="#FFFFFF" fill-opacity="0.34"
+        stroke="#FFFFFF" stroke-width="2.6" stroke-opacity="0.84" />
+  <!-- Inner Inscribed Triangle (Firepower / Focal Convergence Core) -->
+  <polygon points="32,19 19,43 45,43"
+           fill="#FFFFFF" fill-opacity="0.95"
+           stroke="#FFFFFF" stroke-width="2.7" stroke-linejoin="round" stroke-opacity="1.00" />
+</svg>

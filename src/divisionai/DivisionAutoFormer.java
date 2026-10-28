@@ -539,6 +539,7 @@ public class DivisionAutoFormer {
             div.openingMission = docCfg.getOpeningMission(docType);
             div.mainMission = docCfg.getMainMission(docType);
             div.lineStation = docCfg.getLineStation(docType);
+            div.doctrinalFormation = docCfg.getFormation(docType);
         } else {
             div.stationSpacing = docType.defaultStationSpacingUnits;
             div.divisionInterval = docType.defaultDivisionIntervalUnits;
@@ -548,6 +549,10 @@ public class DivisionAutoFormer {
             div.openingMission = docType.defaultOpeningMission;
             div.mainMission = docType.defaultMainMission;
             div.lineStation = docType.defaultLineStation;
+            div.doctrinalFormation = docType.defaultFormation;
+        }
+        if (div.lastFormationChangeTime < -100f) {
+            div.activeFormation = div.doctrinalFormation;
         }
 
         // Desired cohesion radius scales by archetype, ideal intra-division spacing, and commander strictness

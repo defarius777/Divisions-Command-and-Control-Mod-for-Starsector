@@ -21,11 +21,14 @@ import com.fs.starfarer.api.ui.TooltipMakerAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.DivisionArchetype;
+import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
+import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
-import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import divisionai.PermanentDivisionManager.LineStation;
+import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
@@ -721,25 +724,52 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         int effIntra = PermanentDivisionManager.resolveEffectiveStationSpacing(spec, doctrineCfg);
         int effStandoff = PermanentDivisionManager.resolveEffectiveStandoffRange(spec, doctrineCfg);
         LineStation effSpace = PermanentDivisionManager.resolveEffectiveLineStation(spec, doctrineCfg);
+        final DivisionFormation effForm = PermanentDivisionManager.resolveEffectiveFormation(spec, doctrineCfg);
         DivisionMissionType effOpen = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
         DivisionMissionType effMain = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
 
         PersonAPI cap = (flagship != null) ? flagship.getCaptain() : null;
-        String cmdrDesc = (cap != null && !cap.isDefault())
+        String rawCmdrDesc = (cap != null && !cap.isDefault())
                 ? (cap.getNameString() + " [" + cap.getPersonalityAPI().getDisplayName() + "]")
                 : "No Officer";
+        String cmdrDesc = truncateText(rawCmdrDesc, 26);
 
         LabelAPI sub1 = topUi.addPara(
-                "%s  ·  %s  ·  %su / %su standoff  ·  %s -> %s",
+                "%s  ·  %s  ·  %s  ·  %su / %su  ·  %s -> %s",
                 2f,
                 isSelected ? positive : gray,
                 cmdrDesc,
                 effSpace.displayName,
+                effForm.shortName,
                 String.valueOf(effIntra),
                 String.valueOf(effStandoff),
                 effOpen.shortName,
                 effMain.shortName);
-        sub1.getPosition().inTL(6f, 30f);
+        sub1.getPosition().inTL(26f, 30f);
+
+        final CustomPanelAPI[] badgeRef = new CustomPanelAPI[1];
+        CustomPanelAPI formBadge = Global.getSettings().createCustom(18f, 18f, new BaseCustomUIPanelPlugin() {
+            @Override
+            public void buttonPressed(Object buttonId) {
+                DivisionEditorDialog.this.buttonPressed(buttonId);
+            }
+
+            @Override
+            public void render(float alphaMult) {
+                CustomPanelAPI self = badgeRef[0];
+                if (self == null || self.getPosition() == null) return;
+                PositionAPI p = self.getPosition();
+                FleetDoctrineDialog.renderFormationIcon(
+                        effForm,
+                        p.getX() + 9f,
+                        p.getY() + 9f,
+                        16f,
+                        isSelected ? positive : highlight,
+                        alphaMult);
+            }
+        });
+        badgeRef[0] = formBadge;
+        cardPanel.addComponent(formBadge).inTL(6f, 32f);
 
         topUi.setHeightSoFar(56f);
         cardPanel.addUIElement(topUi).inTL(2f, 2f);
@@ -994,6 +1024,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         int effStandoff = PermanentDivisionManager.resolveEffectiveStandoffRange(spec, doctrineCfg);
         int longestGunRange = PermanentDivisionManager.computeDivisionLongestGunRange(spec, fleet);
         LineStation effPrefSpace = PermanentDivisionManager.resolveEffectiveLineStation(spec, doctrineCfg);
+        DivisionFormation effFormation = PermanentDivisionManager.resolveEffectiveFormation(spec, doctrineCfg);
+        DivisionMovementStickiness effStickiness =
+                PermanentDivisionManager.resolveEffectiveMovementStickiness(spec, doctrineCfg);
         DivisionMissionType effOpenMis = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
         DivisionMissionType effMainMis = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
 
@@ -1060,6 +1093,28 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 colWidth - 16f,
                 effPrefSpace,
                 spec.customLineStation != null,
+                baseColor,
+                darkColor,
+                positive);
+
+        // 4b. Naval Formation row (10 formations with icons + Inherit)
+        addDivisionFormationRow(
+                leftCol,
+                colWidth - 16f,
+                effFormation,
+                spec.customFormation != null,
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        // 4c. Doctrinal Division Movement Stickiness row (Strict / Balanced / Loose / Free + Inherit)
+        addDivisionMovementStickinessRow(
+                leftCol,
+                colWidth - 16f,
+                effStickiness,
+                effStickiness,
+                spec.customMovementStickiness != null,
                 baseColor,
                 darkColor,
                 positive);
@@ -1703,6 +1758,181 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         col.addCustom(rowPanel, 2f);
     }
 
+    private void addDivisionMovementStickinessRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            DivisionMovementStickiness effStickiness,
+            DivisionMovementStickiness defStickiness,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color activeColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        String labelText = String.format(
+                Locale.ROOT,
+                "Movement Stickiness: %s (%s)",
+                effStickiness.displayName,
+                isCustom ? "Custom" : "Inherited");
+        rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
+
+        float x = CONTROL_COL_X;
+        for (DivisionMovementStickiness ms : DivisionMovementStickiness.values()) {
+            boolean selected = (ms == effStickiness);
+            String act = "DIV_STICKINESS:" + ms.name();
+            ButtonAPI bMs = registerButton(
+                    rowUi.addButton(
+                            ms.displayName,
+                            act,
+                            selected ? activeColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            62f,
+                            20f,
+                            0f),
+                    act);
+            if (selected) bMs.highlight();
+            bMs.getPosition().inTL(x, 3f);
+            x += 66f;
+        }
+
+        String inhAct = "DIV_STICKINESS:INHERIT";
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton(
+                        "Inherit",
+                        inhAct,
+                        !isCustom ? activeColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        72f,
+                        20f,
+                        0f),
+                inhAct);
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(x, 3f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
+    private void addDivisionFormationRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            final DivisionFormation effFormation,
+            final boolean isCustom,
+            final Color baseColor,
+            Color darkColor,
+            final Color highlight,
+            final Color activeColor) {
+
+        final DivisionFormation[] formations = DivisionFormation.values();
+        final float btnW = 118f;
+        final float btnGap = 6f;
+        final int cols = 5;
+        final float rowH = 76f;
+        final ButtonAPI[] formButtons = new ButtonAPI[formations.length];
+
+        final CustomPanelAPI[] rowPanelRef = new CustomPanelAPI[1];
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, rowH, new BaseCustomUIPanelPlugin() {
+            @Override
+            public void buttonPressed(Object buttonId) {
+                DivisionEditorDialog.this.buttonPressed(buttonId);
+            }
+
+            @Override
+            public void render(float alphaMult) {
+                CustomPanelAPI self = rowPanelRef[0];
+                if (self == null || self.getPosition() == null) return;
+                PositionAPI rp = self.getPosition();
+                // Render active formation preview icon in the header bar at CONTROL_COL_X
+                FleetDoctrineDialog.renderFormationIcon(
+                        effFormation,
+                        rp.getX() + CONTROL_COL_X + 9f,
+                        rp.getY() + rp.getHeight() - 12f,
+                        16f,
+                        isCustom ? highlight : activeColor,
+                        alphaMult);
+                // Render each button's formation icon directly from the button's live PositionAPI
+                for (int i = 0; i < formations.length; i++) {
+                    DivisionFormation f = formations[i];
+                    ButtonAPI btn = formButtons[i];
+                    if (btn == null || btn.getPosition() == null) continue;
+                    PositionAPI bp = btn.getPosition();
+                    boolean selected = (f == effFormation);
+                    FleetDoctrineDialog.renderFormationIcon(
+                            f,
+                            bp.getX() + 12f,
+                            bp.getY() + bp.getHeight() * 0.5f,
+                            15f,
+                            selected ? (isCustom ? highlight : activeColor) : baseColor,
+                            alphaMult);
+                }
+            }
+        });
+        rowPanelRef[0] = rowPanel;
+
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
+        String labelText = String.format(
+                Locale.ROOT,
+                "Formation: %s (%s)",
+                effFormation.shortName,
+                isCustom ? "Custom" : "Inherited");
+        rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
+
+        String summaryShort = truncateText(effFormation.summary, 42);
+        rowUi.addPara(summaryShort, 0f, Misc.getGrayColor()).getPosition().inTL(CONTROL_COL_X + 22f, 4f);
+
+        String inhAct = "DIV_FORMATION:INHERIT";
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton(
+                        "Inherit",
+                        inhAct,
+                        !isCustom ? activeColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        86f,
+                        20f,
+                        0f),
+                inhAct);
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(rowWidth - 90f, 2f);
+
+        for (int i = 0; i < formations.length; i++) {
+            DivisionFormation f = formations[i];
+            boolean selected = (f == effFormation);
+            int r = i / cols;
+            int c = i % cols;
+            float bx = 4f + c * (btnW + btnGap);
+            float by = 26f + r * 24f;
+            String act = "DIV_FORMATION:" + f.name();
+            ButtonAPI bForm = registerButton(
+                    rowUi.addButton(
+                            "    " + f.shortName,
+                            act,
+                            selected ? (isCustom ? highlight : activeColor) : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            btnW,
+                            21f,
+                            0f),
+                    act);
+            if (selected) bForm.highlight();
+            bForm.getPosition().inTL(bx, by);
+            formButtons[i] = bForm;
+        }
+
+        rowUi.setHeightSoFar(rowH);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
     private void addDivisionMissionDropdownRow(
             TooltipMakerAPI col,
             float rowWidth,
@@ -1728,15 +1958,16 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         String prefix = isCustom ? "" : "[Doctrine] ";
         String btnText = (expanded ? "[^] " : "[v] ") + prefix + effMission.dropdownLabel;
         ButtonAPI bToggle = registerButton(
-                rowUi.addButton(btnText, toggleAct, activeColor, darkColor, Alignment.LMID, CutStyle.TL_BR, 276f, 21f, 0f),
+                rowUi.addButton(btnText, toggleAct, activeColor, darkColor, Alignment.LMID, CutStyle.TL_BR, 286f, 21f, 0f),
                 toggleAct);
         if (expanded) bToggle.highlight();
         bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
 
         String stationTag = (effMission.autoLineStation != null)
-                ? ("Station: " + effMission.autoLineStation.displayName)
-                : "";
-        rowUi.addPara(stationTag, 0f, gray).getPosition().inTL(CONTROL_COL_X + 286f, 4f);
+                ? ("Station: " + effMission.autoLineStation.displayName
+                + (effMission.carrierSpecific ? " (Carrier-Only)" : ""))
+                : (effMission.carrierSpecific ? "Carrier-Only" : "");
+        rowUi.addPara(stationTag, 0f, gray).getPosition().inTL(CONTROL_COL_X + 294f, 4f);
 
         rowUi.setHeightSoFar(26f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
@@ -1755,7 +1986,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                             darkColor,
                             Alignment.LMID,
                             CutStyle.ALL,
-                            264f,
+                            274f,
                             20f,
                             0f),
                     inhAct);
@@ -1783,8 +2014,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
                 String selAct = actionPrefix + opt.name();
                 String spaceHint = (opt.autoLineStation != null)
-                        ? ("[" + opt.autoLineStation.displayName + "]")
-                        : "";
+                        ? ("[" + opt.autoLineStation.displayName + "]"
+                        + (opt.carrierSpecific ? " Carrier-Only" : ""))
+                        : (opt.carrierSpecific ? "Carrier-Only" : "");
                 ButtonAPI bOpt = registerButton(
                         optUi.addButton(
                                 (selected ? "* " : "   ") + opt.dropdownLabel,
@@ -1793,13 +2025,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                                 darkColor,
                                 Alignment.LMID,
                                 CutStyle.ALL,
-                                264f,
+                                274f,
                                 20f,
                                 0f),
                         selAct);
                 if (selected) bOpt.highlight();
                 bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 2f);
-                optUi.addPara(spaceHint, 0f, selected ? activeColor : gray).getPosition().inTL(CONTROL_COL_X + 286f, 4f);
+                optUi.addPara(spaceHint, 0f, selected ? activeColor : gray).getPosition().inTL(CONTROL_COL_X + 294f, 4f);
                 optUi.setHeightSoFar(24f);
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
                 col.addCustom(optPanel, 1f);
@@ -1893,6 +2125,23 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             String arg = cmd.substring("DIV_LINE_STATION:".length());
             LineStation ps = "INHERIT".equals(arg) ? null : LineStation.valueOf(arg);
             PermanentDivisionManager.updateIndividualDivisionLineStation(activeDivisionId, ps);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_FORMATION:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_FORMATION:".length());
+            DivisionFormation fm = "INHERIT".equals(arg) ? null : DivisionFormation.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionFormation(activeDivisionId, fm);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_STICKINESS:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_STICKINESS:".length());
+            DivisionMovementStickiness ms =
+                    "INHERIT".equals(arg) ? null : DivisionMovementStickiness.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionMovementStickiness(activeDivisionId, ms);
             rebuildContent();
             return;
         }

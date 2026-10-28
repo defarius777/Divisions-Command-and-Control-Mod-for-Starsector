@@ -107,6 +107,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         // Organize the Deployment Window even while the combat engine is paused during deployment
         deploymentOrganizer.advance(engine);
 
+        if (initializedBattle) {
+            tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
+            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, playerGroup);
+            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, alliedAiGroup);
+            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, enemyGroup);
+        }
+
         if (engine.isPaused() || engine.isCombatOver()) {
             return;
         }
@@ -185,31 +192,38 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             boolean alliedAiHasDivisions = !alliedAiGroup.divisions.isEmpty();
             boolean enemyHasDivisions = !enemyGroup.divisions.isEmpty();
 
+            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, playerGroup);
+            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, alliedAiGroup);
+            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, enemyGroup);
+
             if (playerHasDivisions && !loggedPlayerOtcInit) {
                 loggedPlayerOtcInit = true;
                 LOG.info(String.format(
-                        "[DivisionAI] Player Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], ActiveDivs=%d)",
+                        "[DivisionAI] Player Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], Convergence=%b, ActiveDivs=%d)",
                         playerGroup.missionContext.displayName,
                         playerGroup.otc.commanderName,
                         playerGroup.otc.personalityId,
+                        playerGroup.useConvergence,
                         playerGroup.divisions.size()));
             }
             if (alliedAiHasDivisions && !loggedAlliedAiOtcInit) {
                 loggedAlliedAiOtcInit = true;
                 LOG.info(String.format(
-                        "[DivisionAI] Allied AI Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], ActiveDivs=%d)",
+                        "[DivisionAI] Allied AI Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], Convergence=%b, ActiveDivs=%d)",
                         alliedAiGroup.missionContext.displayName,
                         alliedAiGroup.otc.commanderName,
                         alliedAiGroup.otc.personalityId,
+                        alliedAiGroup.useConvergence,
                         alliedAiGroup.divisions.size()));
             }
             if (enemyHasDivisions && !loggedEnemyOtcInit) {
                 loggedEnemyOtcInit = true;
                 LOG.info(String.format(
-                        "[DivisionAI] Enemy Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], ActiveDivs=%d)",
+                        "[DivisionAI] Enemy Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], Convergence=%b, ActiveDivs=%d)",
                         enemyGroup.missionContext.displayName,
                         enemyGroup.otc.commanderName,
                         enemyGroup.otc.personalityId,
+                        enemyGroup.useConvergence,
                         enemyGroup.divisions.size()));
             }
 
@@ -263,6 +277,14 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             if (enemyHasDivisions && !side0OpposingView.divisions.isEmpty()) {
                 DivisionCommanderAI.evaluateAndExecuteDivisions(engine, enemyGroup, side0OpposingView, now);
             }
+
+            // 5. Update active Voidstrike instantiation, multi-division merging, and return cleanup
+            BattlefieldFirepowerEvaluator.updateVoidstrikes(
+                    engine,
+                    playerGroup,
+                    alliedAiGroup,
+                    enemyGroup,
+                    now);
         }
 
         // Maintain HUD status on the player flagship ONLY if the player fleet has at least 1 active division

@@ -564,7 +564,12 @@ public final class CampaignFleetTooltipOrganizer {
 
         NomenclatureCategory nomCat = DivisionNomenclature.resolveCategoryForCampaignFleet(fleet);
         FactionAPI faction = fleet.getFaction();
-        Color factionColor = (faction != null) ? faction.getBaseUIColor() : Misc.getBasePlayerColor();
+        Color factionColor = (faction != null && faction.getBaseUIColor() != null)
+                ? faction.getBaseUIColor()
+                : Misc.getBasePlayerColor();
+        Color factionBrightColor = (faction != null && faction.getBrightUIColor() != null)
+                ? faction.getBrightUIColor()
+                : factionColor;
 
         listClearHandle.invoke(scrollingList, false);
         List<FleetMemberAPI> orderedMembers = new ArrayList<>(allEntries.size());
@@ -583,6 +588,7 @@ public final class CampaignFleetTooltipOrganizer {
             float boxHeight = itemH * rowsForDiv;
             float divisionSpanWidth = itemW * (HEADER_COLS + maxShipsInDivRow);
             Color divColor = resolveDivisionCardColor(spec.archetype, nomCat, factionColor);
+            Color divTextColor = resolveDivisionTextColor(nomCat, factionBrightColor, divColor);
 
             int idx = 0;
             boolean firstRowOfDiv = true;
@@ -599,6 +605,7 @@ public final class CampaignFleetTooltipOrganizer {
                             dIdx + 1,
                             nomCat,
                             divColor,
+                            divTextColor,
                             boxWidth,
                             boxHeight,
                             divisionSpanWidth);
@@ -702,45 +709,18 @@ public final class CampaignFleetTooltipOrganizer {
             DivisionArchetype archetype,
             NomenclatureCategory nomCat,
             Color factionColor) {
-        if (nomCat == NomenclatureCategory.ABYSSAL_ERROR) {
-            return new Color(235, 55, 75, 255);
+        // Follow the campaign UI color of the fleet's respective faction across all divisions (not multicolored by archetype)
+        return factionColor != null ? factionColor : Misc.getBasePlayerColor();
+    }
+
+    private Color resolveDivisionTextColor(
+            NomenclatureCategory nomCat,
+            Color factionBrightColor,
+            Color fallbackColor) {
+        if (factionBrightColor != null) {
+            return factionBrightColor;
         }
-        if (nomCat == NomenclatureCategory.THREAT_SWARM) {
-            return new Color(175, 210, 155, 255);
-        }
-        if (nomCat == NomenclatureCategory.POST_AI_WAR) {
-            return new Color(110, 225, 255, 255);
-        }
-        if (archetype == null) {
-            return factionColor != null ? factionColor : Misc.getBasePlayerColor();
-        }
-        switch (archetype) {
-            case BATTLESHIP_DIVISION:
-            case MISSILE_BATTLESHIP_DIVISION:
-                return new Color(255, 195, 75, 255);
-            case FLEET_CARRIER_DIVISION:
-            case LIGHT_CARRIER_DIVISION:
-            case ESCORT_CARRIER_DIVISION:
-            case CARRIER_GROUP:
-                return new Color(135, 215, 255, 255);
-            case CRUISER_DIVISION:
-            case MISSILE_CRUISER_DIVISION:
-            case STRIKE_CRUISER_DIVISION:
-                return new Color(110, 235, 190, 255);
-            case DESTROYER_DIVISION:
-            case MISSILE_DESTROYER_DIVISION:
-                return new Color(155, 225, 120, 255);
-            case FRIGATE_DIVISION:
-            case MISSILE_FRIGATE_DIVISION:
-                return new Color(120, 200, 255, 255);
-            case PHASE_DIVISION:
-                return new Color(205, 140, 255, 255);
-            case FORCE_DIVISION:
-                return new Color(150, 225, 215, 255);
-            case SERVICE_GROUP:
-            default:
-                return new Color(185, 195, 205, 255);
-        }
+        return fallbackColor != null ? fallbackColor : Misc.getBasePlayerColor();
     }
 
     private void addExpandedDivisionHeaderCard(
@@ -749,6 +729,7 @@ public final class CampaignFleetTooltipOrganizer {
             int divisionNumber,
             NomenclatureCategory nomCat,
             Color accentColor,
+            Color brightTextColor,
             float boxWidth,
             float boxHeight,
             float divisionSpanWidth) throws Throwable {
@@ -759,12 +740,9 @@ public final class CampaignFleetTooltipOrganizer {
                 divisionNumber,
                 spec.name);
 
-        Color textColor = accentColor != null ? accentColor : Misc.getBasePlayerColor();
-        if (nomCat == NomenclatureCategory.ABYSSAL_ERROR) {
-            textColor = Misc.getNegativeHighlightColor();
-        } else if (nomCat == NomenclatureCategory.THREAT_SWARM) {
-            textColor = new Color(210, 235, 195, 255);
-        }
+        Color textColor = brightTextColor != null
+                ? brightTextColor
+                : (accentColor != null ? accentColor : Misc.getBasePlayerColor());
 
         DivisionHeaderCardPlugin plugin = new DivisionHeaderCardPlugin(
                 accentColor,

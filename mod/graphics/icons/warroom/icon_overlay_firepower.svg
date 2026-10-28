@@ -2,14 +2,14 @@
   <!-- Icon A: Firepower Overlay — Inverted firing-cone triangles originating from shared bottom origin (32,58) -->
   <!-- Outer Cone (Tallest & Widest Angle, Most Transparent — Sustained DoT long-range envelope) -->
   <polygon points="32,58 3,7 61,7"
-           fill="#FFFFFF" fill-opacity="0.14"
-           stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" stroke-opacity="0.42" />
+           fill="#FFFFFF" fill-opacity="0.20"
+           stroke="#FFFFFF" stroke-width="2.6" stroke-linejoin="round" stroke-opacity="0.58" />
   <!-- Middle Cone (Medium Height & Width Angle, Medium Transparency — Short DoT 5s burst envelope) -->
   <polygon points="32,58 15,19 49,19"
-           fill="#FFFFFF" fill-opacity="0.26"
-           stroke="#FFFFFF" stroke-width="2.5" stroke-linejoin="round" stroke-opacity="0.70" />
+           fill="#FFFFFF" fill-opacity="0.34"
+           stroke="#FFFFFF" stroke-width="2.7" stroke-linejoin="round" stroke-opacity="0.82" />
   <!-- Inner Core Cone (Smallest & Narrowest Angle, Most Opaque — Alpha Strike core) -->
   <polygon points="32,58 25,31 39,31"
-           fill="#FFFFFF" fill-opacity="0.88"
-           stroke="#FFFFFF" stroke-width="2.6" stroke-linejoin="round" stroke-opacity="1.00" />
+           fill="#FFFFFF" fill-opacity="0.95"
+           stroke="#FFFFFF" stroke-width="2.8" stroke-linejoin="round" stroke-opacity="1.00" />
 </svg>

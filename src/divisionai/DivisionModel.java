@@ -127,6 +127,7 @@ public class DivisionModel {
         CLOSE_AND_ENGAGE("close and engage"),
         HARASSING_MISSILE_ATTACK("make a harassing missile attack on"),
         TOT_MISSILE_STRIKE("deliver a time-on-target missile strike on"),
+        TOT_ALPHA_STRIKE("execute a time-on-target alpha strike on"),
         PRESS_HOME("press home the attack on"),
         TAKE_SCREENING_STATION("take screening station on"),
         REINFORCE_DIVISION("move to reinforce"),
@@ -178,6 +179,7 @@ public class DivisionModel {
         public final Vector2f station = new Vector2f();
         public boolean hasStation;
         public float flankSide; // +1 / -1 relative to the enemy's facing axis, 0 = unassigned
+        public PermanentDivisionManager.DivisionFormation orderedFormation = null;
         public float expiresTime = -100f;
         public String reason = "";
         /** Incremented whenever the type or target changes, so division commanders re-evaluate immediately. */
@@ -196,6 +198,7 @@ public class DivisionModel {
             targetFriendly = null;
             hasStation = false;
             flankSide = 0f;
+            orderedFormation = null;
             reason = "";
         }
 
@@ -208,6 +211,7 @@ public class DivisionModel {
             targetEnemy = enemy;
             targetFriendly = friendly;
             flankSide = side;
+            orderedFormation = null;
             hasStation = false;
             expiresTime = expires;
             reason = why != null ? why : "";
@@ -343,6 +347,11 @@ public class DivisionModel {
         public float divisionInterval = 950f;
         public float standoffRange = 850f;
         public float stationKeepingMult = 1.0f;
+        public PermanentDivisionManager.DivisionMovementStickiness doctrinalMovementStickiness =
+                PermanentDivisionManager.DivisionMovementStickiness.BALANCED;
+        public PermanentDivisionManager.DivisionMovementStickiness activeMovementStickiness =
+                PermanentDivisionManager.DivisionMovementStickiness.BALANCED;
+        public boolean inIndividualCombatMovementMode = false;
         public float openingPhaseDurationSeconds = 45f;
         public PermanentDivisionManager.DivisionMissionType openingMission =
                 PermanentDivisionManager.DivisionMissionType.SCOUTING;
@@ -350,6 +359,15 @@ public class DivisionModel {
                 PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION;
         public PermanentDivisionManager.LineStation lineStation =
                 PermanentDivisionManager.LineStation.CENTER;
+        public PermanentDivisionManager.DivisionFormation doctrinalFormation =
+                PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+        public PermanentDivisionManager.DivisionFormation activeFormation =
+                PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+        public PermanentDivisionManager.DivisionFormation otcOrderedFormation = null;
+        public float formationHeadingX = 0f;
+        public float formationHeadingY = 1f;
+        public boolean formationHeadingInitialized = false;
+        public float lastFormationChangeTime = -999f;
 
         // Dynamic telemetry updated every evaluation tick
         public final Vector2f centroid = new Vector2f();
@@ -376,6 +394,33 @@ public class DivisionModel {
         public boolean hasShipNeedingHelp;
         public ShipAPI shipNeedingHelp;
         public int usableStrikeAmmoCount;
+
+        // Time Layer (Mobility horizon & Directional Engagement Level / Fixing)
+        public static final int TIME_DIRECTIONS = 24;
+        public float weightedTimeSpeed;       // Weighted division speed (FP-weighted + slowest core hull anchor)
+        public float freeTimeRadius;          // Unencumbered reach over tactical time horizon
+        public float engagementLevel;         // 0.0 = free to maneuver, up to 0.85 = pinned by enemy Space/Firepower
+        public float timeFreedomFactor = 1.0f;// 1.0 - engagementLevel
+        public float effectiveTimeRadius;     // freeTimeRadius * timeFreedomFactor
+        public final float[] directionalEngagement = new float[TIME_DIRECTIONS];
+        public final float[] directionalTimeRadii = new float[TIME_DIRECTIONS];
+        public boolean directionalTimeInitialized = false;
+
+        // Space Layer (Zone of Control: Dominated Up Close, Dominated Nearby, Potentially Dominated)
+        public float spaceInnerRadius;        // Directly dominated up close
+        public float spaceDominatedRadius;    // Dominated nearby (sustained weapon reach)
+        public float spacePotentialRadius;    // Potentially dominated given Time + Firepower
+        public float spaceDominanceWeight;    // Firepower & readiness weighted authority
+        public float friendlySpaceSupport;    // Overlapping friendly Space authority at division centroid
+        public float hostileSpacePressure;    // Overlapping enemy Space authority at division centroid
+        public float netSpaceControl;         // friendlySpaceSupport - hostileSpacePressure
+        public boolean isStrongpoint;         // High mutual Space overlap in line of battle
+        public boolean isWeakPoint;           // Exposed seam / low mutual Space overlap
+
+        // Convergence Layer (AI / Threat / Abyssal & Alpha Core-commanded flagship decision-making)
+        public boolean useConvergence = false;
+        public float convergenceScore = 0f;
+        public final Vector2f convergenceFocalPoint = new Vector2f();
 
         // Current C2 orders, station endpoint, and out-of-contact wide-arc route waypoint
         public DivisionIntentType currentIntent = DivisionIntentType.CLOSE_UP;
@@ -462,6 +507,8 @@ public class DivisionModel {
         public DivisionState mainEffortDivision;
         public DivisionState reserveDivision;
         public DivisionState primaryThreatEnemyDivision;
+        public boolean useConvergence = false;
+        public ShipAPI activeFleetFlagship = null;
 
         public float lastOtcEvaluationTime = -100f;
         public float lastOtcSignalLogTime = -100f;
@@ -473,7 +520,11 @@ public class DivisionModel {
         public PermanentDivisionManager.OtcAuthority authority =
                 PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION;
         public final Set<PermanentDivisionManager.OtcPlay> plays =
-                EnumSet.allOf(PermanentDivisionManager.OtcPlay.class);
+                EnumSet.of(
+                        PermanentDivisionManager.OtcPlay.LINE_AND_FIRE_DISTRIBUTION,
+                        PermanentDivisionManager.OtcPlay.DOUBLING,
+                        PermanentDivisionManager.OtcPlay.TIME_ON_TARGET_STRIKES,
+                        PermanentDivisionManager.OtcPlay.RESERVE_AND_GENERAL_CHASE);
         public float phaseEnteredTime = 0f;
         public DivisionState crisisDivision;
         public DivisionState reinforcingDivision;
