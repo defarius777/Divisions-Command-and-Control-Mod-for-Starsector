@@ -612,9 +612,45 @@ public class DivisionAITestSuite {
         arena.runSimulation(3.0f);
         boolean heldHaulOutWhileWingmanHighFlux = (hhDiv.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT);
 
-        check(defaultOff && toggledOn && resetBackToOff,
-                "Battle screen right-side Firepower Rose toggle button defaults to OFF and toggles cleanly",
-                String.format(Locale.ROOT, "defaultOff=%b, toggledOn=%b, resetBackToOff=%b", defaultOff, toggledOn, resetBackToOff));
+        // Verify Hybrid Fire Classification (GENERAL, POINT_DEFENSE, HYBRID) & Onslaught vs Pegasus missile capability
+        SimShipState flakCap = arena.addShip(eFront, "ef_flak", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, 950f, 50f, 1400f, 0, 0);
+        flakCap.weapons.clear();
+        // 4 Medium Missiles (weight 12) + 3 Large Ballistics (weight 21) + 7 Medium Ballistics (weight 21) + 2 Large Devastator Flak (weight 14) = 17.6% missile share
+        for (int i = 0; i < 4; i++) flakCap.addDirectionalWeapon(1500f, 45f, 0f, false, true);
+        for (int i = 0; i < 10; i++) flakCap.addDirectionalWeapon(1100f, 180f, 0f, false, false);
+        flakCap.weapons.add((com.fs.starfarer.api.combat.WeaponAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.WeaponAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.WeaponAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "devastator";
+                    if ("getDisplayName".equals(n)) return "Devastator Cannon";
+                    if ("getSize".equals(n)) return com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.LARGE;
+                    if ("getType".equals(n)) return com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC;
+                    if ("getRange".equals(n)) return 750f;
+                    if ("getArc".equals(n)) return 240f;
+                    if ("getArcFacing".equals(n)) return 0f;
+                    if ("hasAIHint".equals(n)) return a != null && a.length > 0
+                            && (a[0] == com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD
+                            || a[0] == com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD_ALSO);
+                    if ("isDecorative".equals(n) || "isDisabled".equals(n) || "isPermanentlyDisabled".equals(n) || "usesAmmo".equals(n)) return Boolean.FALSE;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                }));
+        BattlefieldFirepowerEvaluator.FireClassification devClass = BattlefieldFirepowerEvaluator.classifyWeaponFire(
+                flakCap.weapons.get(flakCap.weapons.size() - 1));
+        divisionai.ShipCapabilityProfile onslaughtProf = new divisionai.ShipCapabilityProfile(flakCap.proxy);
+        boolean hybridAndOnslaughtClassificationOk = (devClass == BattlefieldFirepowerEvaluator.FireClassification.HYBRID)
+                && !onslaughtProf.hasHeavyMissileLoadout
+                && (onslaughtProf.primaryTag != divisionai.ShipCapabilityProfile.TacticalTag.MISSILE_CAPITAL);
+
+        check(defaultOff && toggledOn && resetBackToOff && hybridAndOnslaughtClassificationOk,
+                "Battle screen right-side Firepower Rose toggle button defaults to OFF and Hybrid/Onslaught classification verified",
+                String.format(Locale.ROOT, "defaultOff=%b, toggledOn=%b, resetBackToOff=%b, devClass=%s, onslaughtMissileCap=%b",
+                        defaultOff, toggledOn, resetBackToOff, devClass, onslaughtProf.hasHeavyMissileLoadout));
         check(bowShortDot > 150f && bowAlpha > 250f && sternShortDot < bowShortDot * 0.25f && sternPd > 20f,
                 "ShipFirepowerRose distinguishes 3-horizon General arcs from PD arcs and stern blind spots",
                 String.format(Locale.ROOT, "bowShort=%.0f, bowAlpha=%.0f, sternShort=%.0f (blind spot), sternPd=%.0f",

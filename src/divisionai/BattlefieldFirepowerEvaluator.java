@@ -249,6 +249,77 @@ public class BattlefieldFirepowerEvaluator {
     private static final Map<String, LabelAPI> uiLabelCache = new HashMap<>();
 
     /**
+     * Three-way tactical fire classification:
+     *  - GENERAL:       Anti-ship weaponry (main guns, strike missiles, heavy beams).
+     *  - POINT_DEFENSE: Dedicated anti-strike-craft / anti-missile point defense (small PD lasers, Vulcans, Light MGs).
+     *  - HYBRID:        Dual-purpose weaponry effective against BOTH ships and strike craft
+     *                   (Large/Medium Flak Cannons, Devastator Cannons, Dual Flak, Heavy Machine Guns, Paladin PD, PD_ALSO guns).
+     */
+    public enum FireClassification {
+        GENERAL,
+        POINT_DEFENSE,
+        HYBRID
+    }
+
+    public static WeaponSize resolveEffectiveWeaponSize(WeaponAPI w) {
+        if (w == null) return WeaponSize.SMALL;
+        WeaponSize specSize = w.getSize();
+        WeaponSize slotSize = (w.getSlot() != null) ? w.getSlot().getSlotSize() : null;
+        if (specSize == WeaponSize.LARGE || slotSize == WeaponSize.LARGE) return WeaponSize.LARGE;
+        if (specSize == WeaponSize.MEDIUM || slotSize == WeaponSize.MEDIUM) return WeaponSize.MEDIUM;
+        return specSize != null ? specSize : (slotSize != null ? slotSize : WeaponSize.SMALL);
+    }
+
+    public static FireClassification classifyWeaponFire(WeaponAPI w) {
+        if (w == null) return FireClassification.GENERAL;
+        boolean isStrike = w.hasAIHint(AIHints.STRIKE);
+        if (isStrike) return FireClassification.GENERAL;
+
+        boolean isPdOnly = w.hasAIHint(AIHints.PD_ONLY) || w.hasAIHint(AIHints.ANTI_FTR);
+        boolean isPdAlso = w.hasAIHint(AIHints.PD_ALSO);
+        boolean isPd = isPdOnly || isPdAlso || w.hasAIHint(AIHints.PD);
+
+        WeaponSize size = resolveEffectiveWeaponSize(w);
+        String wId = w.getId() != null ? w.getId().toLowerCase(Locale.ROOT) : "";
+        String wName = (w.getDisplayName() != null) ? w.getDisplayName().toLowerCase(Locale.ROOT) : "";
+
+        // Hybrid weapons: explicit PD_ALSO weapons, Flak/Devastator/Paladin/HMG families,
+        // any LARGE PD mount, or any MEDIUM non-PD_ONLY PD weapon
+        boolean isNamedHybrid = wId.contains("flak") || wId.contains("devastator")
+                || wId.contains("heavymg") || wId.contains("guardian") || wId.contains("paladin")
+                || wName.contains("flak") || wName.contains("devastator");
+        if (isPdAlso || isNamedHybrid
+                || (isPd && size == WeaponSize.LARGE)
+                || (isPd && !isPdOnly && size == WeaponSize.MEDIUM)) {
+            return FireClassification.HYBRID;
+        }
+        if (isPd) {
+            return FireClassification.POINT_DEFENSE;
+        }
+        return FireClassification.GENERAL;
+    }
+
+    public static float getShipHybridFirepower(ShipAPI ship) {
+        if (ship == null) return 0f;
+        ShipFirepowerRose rose = rosesByShipId.get(ship.getId());
+        if (rose != null && rose.initialized) {
+            return rose.peakSectorHybrid;
+        }
+        float totalHybrid = 0f;
+        List<WeaponAPI> weapons = ship.getAllWeapons();
+        if (weapons != null) {
+            for (WeaponAPI w : weapons) {
+                if (!isUsableCombatWeapon(w) || w.isDisabled() || w.isPermanentlyDisabled()) continue;
+                if (classifyWeaponFire(w) == FireClassification.HYBRID) {
+                    WeaponSize sz = resolveEffectiveWeaponSize(w);
+                    totalHybrid += (sz == WeaponSize.LARGE ? 240f : (sz == WeaponSize.MEDIUM ? 135f : 55f));
+                }
+            }
+        }
+        return totalHybrid;
+    }
+
+    /**
      * Stabilized 24-sector Polar Firepower Rose for a single ship.
      * Sector 0 is centered on 0 deg (ship bow, relative to smoothedFacingDeg);
      * Sector 6 is +90 deg (port beam); Sector 12 is 180 deg (stern); Sector 18 is 270 deg (starboard beam).
@@ -260,11 +331,12 @@ public class BattlefieldFirepowerEvaluator {
         public boolean initialized = false;
         public float lastUpdateTime = -100f;
 
-        // Smoothed 3-horizon General scores & PD score per 15-degree sector
+        // Smoothed 3-horizon General scores, PD score, & Hybrid score per 15-degree sector
         public final float[] alpha = new float[NUM_SECTORS];
         public final float[] shortDot = new float[NUM_SECTORS];
         public final float[] sustainedDot = new float[NUM_SECTORS];
         public final float[] pdScore = new float[NUM_SECTORS];
+        public final float[] hybridScore = new float[NUM_SECTORS];
 
         // Smoothed weapon reach (world units) per sector, weighted by potential damage per horizon
         public final float[] generalRange = new float[NUM_SECTORS];
@@ -272,13 +344,16 @@ public class BattlefieldFirepowerEvaluator {
         public final float[] shortRange = new float[NUM_SECTORS];
         public final float[] alphaRange = new float[NUM_SECTORS];
         public final float[] pdRange = new float[NUM_SECTORS];
+        public final float[] hybridRange = new float[NUM_SECTORS];
 
         // Summary metrics for fast queries, potential-damage weighting, and blind-spot comparison
         public float peakSectorShortDot = 1f;
         public float peakSectorAlpha = 1f;
         public float peakSectorSustained = 1f;
+        public float peakSectorHybrid = 0f;
         public float maxGeneralRange = 600f;
         public float maxPdRange = 400f;
+        public float maxHybridRange = 400f;
         public float liveReadinessMult = 1f;
         // Absolute potential-damage weight [0.35 .. 1.35] so heavy capital/cruiser firepower envelopes
         // render with visibly greater weight, reach prominence, and lethality contours than light plinkers
@@ -298,6 +373,11 @@ public class BattlefieldFirepowerEvaluator {
         /** Interpolates PD weapon reach at a world bearing (degrees). */
         public float samplePdRangeAtWorldAngle(float worldAngleDeg) {
             return sampleArrayAtRelAngle(pdRange, normalizeAngle360(worldAngleDeg - smoothedFacingDeg));
+        }
+
+        /** Interpolates Hybrid weapon reach at a world bearing (degrees). */
+        public float sampleHybridRangeAtWorldAngle(float worldAngleDeg) {
+            return sampleArrayAtRelAngle(hybridRange, normalizeAngle360(worldAngleDeg - smoothedFacingDeg));
         }
 
         /** Interpolates Short DoT score at a world bearing (degrees). */
@@ -320,6 +400,11 @@ public class BattlefieldFirepowerEvaluator {
             return sampleArrayAtRelAngle(pdScore, normalizeAngle360(worldAngleDeg - smoothedFacingDeg));
         }
 
+        /** Interpolates Hybrid (dual anti-ship + anti-strike-craft) score at a world bearing (degrees). */
+        public float sampleHybridAtWorldAngle(float worldAngleDeg) {
+            return sampleArrayAtRelAngle(hybridScore, normalizeAngle360(worldAngleDeg - smoothedFacingDeg));
+        }
+
         private static float sampleArrayAtRelAngle(float[] arr, float relAngleDeg) {
             float exactIdx = (relAngleDeg / SECTOR_DEG);
             int idx0 = ((int) Math.floor(exactIdx)) % NUM_SECTORS;
@@ -338,6 +423,7 @@ public class BattlefieldFirepowerEvaluator {
         public float incomingShortDot;
         public float incomingSustainedDot;
         public float incomingPd;
+        public float incomingHybrid;
 
         public float friendlyShortDot;
         public float friendlySustainedDot;
@@ -1016,11 +1102,13 @@ public class BattlefieldFirepowerEvaluator {
         float[] rawShort = new float[NUM_SECTORS];
         float[] rawSustained = new float[NUM_SECTORS];
         float[] rawPd = new float[NUM_SECTORS];
+        float[] rawHybrid = new float[NUM_SECTORS];
         float[] rawGenRange = new float[NUM_SECTORS];
         float[] rawSustRangeWeightedSum = new float[NUM_SECTORS];
         float[] rawShortRangeWeightedSum = new float[NUM_SECTORS];
         float[] rawAlphaRangeWeightedSum = new float[NUM_SECTORS];
         float[] rawPdRange = new float[NUM_SECTORS];
+        float[] rawHybridRange = new float[NUM_SECTORS];
 
         float hullOmega = Math.abs(ship.getAngularVelocity());
 
@@ -1033,25 +1121,29 @@ public class BattlefieldFirepowerEvaluator {
                 float range = w.getRange();
                 if (range <= 50f) continue;
 
-                boolean isPdOnly = w.hasAIHint(AIHints.PD_ONLY) || w.hasAIHint(AIHints.ANTI_FTR);
-                boolean isPdAlso = w.hasAIHint(AIHints.PD_ALSO);
-                boolean isPd = isPdOnly || isPdAlso || w.hasAIHint(AIHints.PD);
                 boolean isStrike = w.hasAIHint(AIHints.STRIKE);
+                FireClassification fireClass = classifyWeaponFire(w);
 
                 float pdFrac;
                 float genFrac;
-                if (isPdOnly || (isPd && !isPdAlso && !isStrike)) {
+                float hybridFrac;
+                if (fireClass == FireClassification.HYBRID) {
+                    // Hybrid weapons (Large/Medium Flak, Devastators, Dual Flak, HMG, Paladin PD, PD_ALSO guns)
+                    // are effective against BOTH ships (especially frigates/destroyers) AND strike craft!
+                    pdFrac = 0.90f;
+                    genFrac = 0.85f;
+                    hybridFrac = 1.0f;
+                } else if (fireClass == FireClassification.POINT_DEFENSE) {
                     pdFrac = 1.0f;
                     genFrac = 0.14f; // light close-in pressure against frigates
-                } else if (isPdAlso) {
-                    pdFrac = 0.65f;
-                    genFrac = 0.70f;
+                    hybridFrac = 0.0f;
                 } else {
                     pdFrac = 0.0f;
                     genFrac = 1.0f;
+                    hybridFrac = 0.0f;
                 }
 
-                float sizeW = weaponSizeWeight(w.getSize());
+                float sizeW = weaponSizeWeight(resolveEffectiveWeaponSize(w));
                 DerivedWeaponStatsAPI derived = w.getDerivedStats();
                 float burstDmg;
                 float dps;
@@ -1078,7 +1170,9 @@ public class BattlefieldFirepowerEvaluator {
                 DamageType dmgType = w.getDamageType();
                 float typeMult = 1.0f;
                 if (dmgType == DamageType.FRAGMENTATION && !isStrike) {
-                    typeMult = 0.45f; // Fragmentation is much less threatening to shielded/armored ships
+                    // Hybrid Flak Cannons (Flak / Dual Flak) shred frigates, destroyers, and exposed hulls
+                    // far harder than light fragmentation PD!
+                    typeMult = (fireClass == FireClassification.HYBRID) ? 0.82f : 0.45f;
                 } else if (dmgType == DamageType.KINETIC || dmgType == DamageType.HIGH_EXPLOSIVE) {
                     typeMult = 1.12f;
                 }
@@ -1152,6 +1246,14 @@ public class BattlefieldFirepowerEvaluator {
                         float effPdRange = range * (0.75f + 0.25f * angularWeight);
                         if (effPdRange > rawPdRange[s]) {
                             rawPdRange[s] = effPdRange;
+                        }
+                    }
+                    if (hybridFrac > 0f) {
+                        float hw = angularWeight * hybridFrac * readiness;
+                        rawHybrid[s] += (wShortDot * 0.75f + wAlpha * 0.25f) * hw;
+                        float effHybridRange = range * (0.76f + 0.24f * angularWeight);
+                        if (effHybridRange > rawHybridRange[s]) {
+                            rawHybridRange[s] = effHybridRange;
                         }
                     }
                 }
@@ -1297,8 +1399,10 @@ public class BattlefieldFirepowerEvaluator {
         float peakShort = 1f;
         float peakAlpha = 1f;
         float peakSust = 1f;
+        float peakHyb = 0f;
         float maxGenR = 300f;
         float maxPdR = 200f;
+        float maxHybR = 200f;
 
         for (int s = 0; s < NUM_SECTORS; s++) {
             if (!rose.initialized) {
@@ -1306,35 +1410,43 @@ public class BattlefieldFirepowerEvaluator {
                 rose.shortDot[s] = rawShort[s];
                 rose.sustainedDot[s] = rawSustained[s];
                 rose.pdScore[s] = rawPd[s];
+                rose.hybridScore[s] = rawHybrid[s];
                 rose.generalRange[s] = rawGenRange[s];
                 rose.sustainedRange[s] = rawSustRange[s];
                 rose.shortRange[s] = rawShortRange[s];
                 rose.alphaRange[s] = rawAlphaRange[s];
                 rose.pdRange[s] = rawPdRange[s];
+                rose.hybridRange[s] = rawHybridRange[s];
             } else {
                 rose.alpha[s] = blendAsymmetric(rose.alpha[s], rawAlpha[s], alphaRise, alphaFall);
                 rose.shortDot[s] = blendAsymmetric(rose.shortDot[s], rawShort[s], alphaRise, alphaFall);
                 rose.sustainedDot[s] = blendAsymmetric(rose.sustainedDot[s], rawSustained[s], alphaRise, alphaFall);
                 rose.pdScore[s] = blendAsymmetric(rose.pdScore[s], rawPd[s], alphaRise, alphaFall);
+                rose.hybridScore[s] = blendAsymmetric(rose.hybridScore[s], rawHybrid[s], alphaRise, alphaFall);
                 rose.generalRange[s] = blendAsymmetric(rose.generalRange[s], rawGenRange[s], alphaRise, alphaFall * 0.7f);
                 rose.sustainedRange[s] = blendAsymmetric(rose.sustainedRange[s], rawSustRange[s], alphaRise, alphaFall * 0.7f);
                 rose.shortRange[s] = blendAsymmetric(rose.shortRange[s], rawShortRange[s], alphaRise, alphaFall * 0.7f);
                 rose.alphaRange[s] = blendAsymmetric(rose.alphaRange[s], rawAlphaRange[s], alphaRise, alphaFall * 0.7f);
                 rose.pdRange[s] = blendAsymmetric(rose.pdRange[s], rawPdRange[s], alphaRise, alphaFall * 0.7f);
+                rose.hybridRange[s] = blendAsymmetric(rose.hybridRange[s], rawHybridRange[s], alphaRise, alphaFall * 0.7f);
             }
 
             if (rose.shortDot[s] > peakShort) peakShort = rose.shortDot[s];
             if (rose.alpha[s] > peakAlpha) peakAlpha = rose.alpha[s];
             if (rose.sustainedDot[s] > peakSust) peakSust = rose.sustainedDot[s];
+            if (rose.hybridScore[s] > peakHyb) peakHyb = rose.hybridScore[s];
             if (rose.generalRange[s] > maxGenR) maxGenR = rose.generalRange[s];
             if (rose.pdRange[s] > maxPdR) maxPdR = rose.pdRange[s];
+            if (rose.hybridRange[s] > maxHybR) maxHybR = rose.hybridRange[s];
         }
 
         rose.peakSectorShortDot = peakShort;
         rose.peakSectorAlpha = peakAlpha;
         rose.peakSectorSustained = peakSust;
+        rose.peakSectorHybrid = peakHyb;
         rose.maxGeneralRange = maxGenR;
         rose.maxPdRange = maxPdR;
+        rose.maxHybridRange = maxHybR;
         // Compute absolute potential-damage weight across all 3 horizons (Sustained + Short Burst + Alpha Salvo)
         // so high-damage ships and torpedo boats visibly project heavier, denser firepower envelopes than light hulls
         float compositePotentialDmg = peakShort * 0.45f + peakSust * 0.30f + (peakAlpha * 0.35f) * 0.25f;
@@ -1428,6 +1540,11 @@ public class BattlefieldFirepowerEvaluator {
                     float pdFactor = (dist <= pdReach) ? 1.0f : Math.max(0f, 1.0f - (dist - pdReach) / 120f);
                     eval.incomingPd += ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdScore, relAngle) * pdFactor;
                 }
+                float hybridReach = ShipFirepowerRose.sampleArrayAtRelAngle(rose.hybridRange, relAngle);
+                if (hybridReach > 50f && dist <= hybridReach + 180f) {
+                    float hybFactor = (dist <= hybridReach) ? 1.0f : Math.max(0f, 1.0f - (dist - hybridReach) / 180f);
+                    eval.incomingHybrid += ShipFirepowerRose.sampleArrayAtRelAngle(rose.hybridScore, relAngle) * hybFactor;
+                }
             }
         }
 
@@ -1491,15 +1608,28 @@ public class BattlefieldFirepowerEvaluator {
         div.incomingShortDotThreat = eval.incomingShortDot;
         div.incomingSustainedDotThreat = eval.incomingSustainedDot;
         div.incomingPdThreat = eval.incomingPd;
+        div.incomingHybridThreat = eval.incomingHybrid;
         div.crossfireCordonIndex = eval.cordonIndex;
+
+        boolean isLightOrDestroyerDiv = div.archetype == DivisionModel.DivisionArchetype.FRIGATE_DIVISION
+                || div.archetype == DivisionModel.DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                || div.archetype == DivisionModel.DivisionArchetype.DESTROYER_DIVISION
+                || div.archetype == DivisionModel.DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                || div.archetype == DivisionModel.DivisionArchetype.PHASE_DIVISION;
+        float dangerScore = eval.effectiveDanger;
+        if (isLightOrDestroyerDiv && (eval.incomingHybrid > 0f || eval.incomingPd > 0f)) {
+            // Hybrid weapons (Large/Medium Flak, Devastator, Dual Flak, HMG, Paladin PD) are especially
+            // lethal to Frigates and Destroyers at close range!
+            dangerScore += eval.incomingHybrid * 0.65f + eval.incomingPd * 0.25f;
+        }
 
         // Asymmetric smoothing on division danger score
         if (div.smoothedDangerScore <= 0f) {
-            div.smoothedDangerScore = eval.effectiveDanger;
-        } else if (eval.effectiveDanger >= div.smoothedDangerScore) {
-            div.smoothedDangerScore = div.smoothedDangerScore * 0.55f + eval.effectiveDanger * 0.45f;
+            div.smoothedDangerScore = dangerScore;
+        } else if (dangerScore >= div.smoothedDangerScore) {
+            div.smoothedDangerScore = div.smoothedDangerScore * 0.55f + dangerScore * 0.45f;
         } else {
-            div.smoothedDangerScore = div.smoothedDangerScore * 0.80f + eval.effectiveDanger * 0.20f;
+            div.smoothedDangerScore = div.smoothedDangerScore * 0.80f + dangerScore * 0.20f;
         }
     }
 
@@ -1531,7 +1661,9 @@ public class BattlefieldFirepowerEvaluator {
             float worldBearing = (dist > 1f)
                     ? normalizeAngle360((float) Math.toDegrees(Math.atan2(dy, dx)))
                     : rose.smoothedFacingDeg;
-            float bearingShortDot = rose.sampleShortDotAtWorldAngle(worldBearing);
+            float bearingShortDot = Math.max(
+                    rose.sampleShortDotAtWorldAngle(worldBearing),
+                    rose.sampleHybridAtWorldAngle(worldBearing) * 0.90f);
             float sectorRatio = bearingShortDot / Math.max(1f, rose.peakSectorShortDot);
 
             // If this bearing has < 55% of the ship's peak arc firepower (e.g. stern/quarter blind spot or disunified facing)

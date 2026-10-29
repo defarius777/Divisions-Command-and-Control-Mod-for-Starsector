@@ -421,6 +421,7 @@ public class DivisionModel {
         public float incomingShortDotThreat;
         public float incomingSustainedDotThreat;
         public float incomingPdThreat;
+        public float incomingHybridThreat;
         public float crossfireCordonIndex; // 0.0 = unidirectional, >= 0.35 = L-cordon, >= 0.60 = U-cordon
         public float smoothedDangerScore;
         public boolean hasShipNeedingHelp;

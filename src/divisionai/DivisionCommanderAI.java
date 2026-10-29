@@ -1003,18 +1003,20 @@ public class DivisionCommanderAI {
             boolean timeOnTargetCue = (myGroup.currentPhase == BattlePhase.COORDINATED_STRIKE)
                     && (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
                     && (missileTargetEnemyDiv == myGroup.primaryThreatEnemyDivision);
-            // Opportunistic ToT Alpha Strike: Torpedo Frigates or Destroyers/Cruisers exploiting a stranded/vulnerable
-            // capital ship or high-flux heavy target!
-            boolean strandedCapitalTarget = (missileTargetEnemyDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                    || missileTargetEnemyDiv.archetype.isCarrierArchetype()
-                    || missileTargetEnemyDiv.isWeakPoint)
-                    && (missileTargetEnemyDiv.getAliveMembers().size() <= 2
-                    || missileTargetEnemyDiv.avgFluxLevel >= 0.42f
-                    || missileTargetEnemyDiv.isWeakPoint)
-                    && (div.archetype == DivisionArchetype.FRIGATE_DIVISION
+            boolean targetHasHeavyHybridFlak = hasEnemyHybridFlakScreen(missileTargetEnemyDiv);
+            boolean isLightOrDestroyerDiv = (div.archetype == DivisionArchetype.FRIGATE_DIVISION
                     || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
                     || div.archetype == DivisionArchetype.DESTROYER_DIVISION
-                    || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                    || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
+            // Opportunistic ToT Alpha Strike: only charge in with all guns when the target capital is genuinely
+            // high-flux / damaged & isolated AND (for frigates/destroyers) not protected by active Large/Medium Flak!
+            boolean strandedCapitalTarget = (missileTargetEnemyDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || missileTargetEnemyDiv.archetype.isCarrierArchetype())
+                    && (missileTargetEnemyDiv.avgFluxLevel >= 0.68f
+                    || missileTargetEnemyDiv.effectiveHpRatio <= 0.45f)
+                    && missileTargetEnemyDiv.localFriendlyStrength <= 45f
+                    && (!isLightOrDestroyerDiv || !targetHasHeavyHybridFlak || missileTargetEnemyDiv.avgFluxLevel >= 0.80f)
+                    && (isLightOrDestroyerDiv
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION)
                     && div.getAliveMembers().size() >= 2
                     && div.avgFluxLevel < 0.38f;
@@ -1130,13 +1132,26 @@ public class DivisionCommanderAI {
                         || prevIntent == DivisionIntentType.TOT_ALPHA_STRIKE
                         || prevIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE;
                 div.targetEnemyDivision = target;
+                boolean isLightOrDestroyer = div.archetype == DivisionArchetype.FRIGATE_DIVISION
+                        || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                        || div.archetype == DivisionArchetype.DESTROYER_DIVISION
+                        || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION;
+                boolean flakProtectedHeavyTarget = isLightOrDestroyer
+                        && hasEnemyHybridFlakScreen(target)
+                        && target.avgFluxLevel < 0.78f;
                 if (div.archetype.isCarrierArchetype()) {
                     div.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
                     computeStandoffStation(engine, div, target, div.stationPoint);
+                } else if (flakProtectedHeavyTarget && activeMission != DivisionMissionType.TOT_ALPHA_STRIKE) {
+                    if (div.hasMissileStrikeCapability && div.usableStrikeAmmoCount > 0) {
+                        div.currentIntent = DivisionIntentType.TOT_MISSILE_STRIKE;
+                        div.stationPoint.set(OtcAI.getVisibleCentroidForSide(engine, div.side, target));
+                    } else {
+                        div.currentIntent = DivisionIntentType.WORK_FLANK;
+                        computeFlankStation(engine, div, target, div.stationPoint, myGroup);
+                    }
                 } else if (activeMission == DivisionMissionType.TOT_ALPHA_STRIKE
                         || !div.hasMissileStrikeCapability
-                        || div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                        || div.archetype == DivisionArchetype.DESTROYER_DIVISION
                         || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
                     div.currentIntent = DivisionIntentType.TOT_ALPHA_STRIKE;
                     div.stationPoint.set(OtcAI.getVisibleCentroidForSide(engine, div.side, target));
@@ -2453,6 +2468,22 @@ public class DivisionCommanderAI {
                     // ToT Alpha Strike: rapidly close distance, focus fire with ALL available guns and torpedoes on a
                     // single target (such as a stranded/vulnerable capital ship), and then get out of dodge via
                     // isStrikeRunOver -> BREAK_OFF_AND_RETIRE!
+                    boolean flakDanger = isEnemyShipFlakLethalToLightHull(ship, focusEnemyShip);
+                    if (flakDanger) {
+                        flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+                        flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL * 1.4f);
+                        if (focusEnemyShip != null) {
+                            directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
+                            float distToEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
+                            float safeFlakFloor = ship.isFrigate() ? 820f : 760f;
+                            if (distToEnemy < safeFlakFloor) {
+                                flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
+                            } else if (distToEnemy > 1500f) {
+                                flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
+                            }
+                        }
+                        break;
+                    }
                     flags.unsetFlag(AIFlags.BACK_OFF);
                     flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL * 1.5f);
                     flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL * 1.6f);
@@ -2713,14 +2744,15 @@ public class DivisionCommanderAI {
                         }
                     } else if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 2600f) {
                         // Prevent lone or outnumbered frigates and fragile/fluxed destroyers (e.g. Hammerheads)
-                        // from diving into enemy gunlines due to vanilla AI's helpless-target overmatch heuristic!
+                        // from diving into enemy gunlines or Large/Medium Flak batteries!
                         float shipEhpRatio = BattlefieldFirepowerEvaluator.computeShipEffectiveHp(ship)
                                 / Math.max(1f, BattlefieldFirepowerEvaluator.computeShipMaxEffectiveHp(ship));
                         boolean loneOrOutnumberedFrigate = ship.isFrigate()
                                 && (div.getAliveMembers().size() == 1 || div.localForceRatio < 0.72f);
                         boolean pressuredDestroyer = ship.isDestroyer()
                                 && (div.localForceRatio < 0.85f || shipEhpRatio < 0.65f || ship.getFluxLevel() >= 0.45f);
-                        if (loneOrOutnumberedFrigate || pressuredDestroyer) {
+                        boolean flakDangerToLightHull = isEnemyShipFlakLethalToLightHull(ship, focusEnemyShip);
+                        if (loneOrOutnumberedFrigate || pressuredDestroyer || flakDangerToLightHull) {
                             flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                         } else if (activeMission == DivisionMissionType.CLOSE_ACTION) {
                             flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
@@ -2729,7 +2761,9 @@ public class DivisionCommanderAI {
                         float distToEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
                         float distToSlot = distance(ship.getLocation(), slotPos);
                         boolean isWingman = (div.flagship != null && ship != div.flagship) || (div.flagship == null && shipIdx > 0);
-                        if ((loneOrOutnumberedFrigate && distToEnemy < div.standoffRange * 0.80f && ship.getFluxLevel() >= 0.30f)
+                        float safeFlakFloor = ship.isFrigate() ? 820f : 760f;
+                        if ((flakDangerToLightHull && distToEnemy < safeFlakFloor)
+                                || (loneOrOutnumberedFrigate && distToEnemy < div.standoffRange * 0.80f && ship.getFluxLevel() >= 0.30f)
                                 || (pressuredDestroyer && distToEnemy < div.standoffRange * 0.82f && (ship.getFluxLevel() >= 0.42f || shipEhpRatio < 0.58f))) {
                             flags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
                             flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
@@ -2755,6 +2789,26 @@ public class DivisionCommanderAI {
                     }
                     break;
             }
+    }
+
+    private static boolean hasEnemyHybridFlakScreen(DivisionState enemyDiv) {
+        if (enemyDiv == null) return false;
+        for (ShipAPI e : enemyDiv.getAliveMembers()) {
+            if (e == null || (!e.isCapital() && !e.isCruiser())) continue;
+            if (BattlefieldFirepowerEvaluator.getShipHybridFirepower(e) >= 110f) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isEnemyShipFlakLethalToLightHull(ShipAPI ship, ShipAPI enemyShip) {
+        if (ship == null || enemyShip == null) return false;
+        if (!ship.isFrigate() && !ship.isDestroyer()) return false;
+        if (!enemyShip.isCapital() && !enemyShip.isCruiser()) return false;
+        if (enemyShip.getFluxTracker() != null && enemyShip.getFluxTracker().isOverloadedOrVenting()) return false;
+        if (enemyShip.getFluxLevel() >= 0.80f) return false;
+        return BattlefieldFirepowerEvaluator.getShipHybridFirepower(enemyShip) >= 110f;
     }
 
     /**

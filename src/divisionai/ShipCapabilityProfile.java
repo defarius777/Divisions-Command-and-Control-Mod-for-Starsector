@@ -146,6 +146,15 @@ public class ShipCapabilityProfile {
             }
         }
 
+        float purePdSum = 0f;
+        float missileWeight = 0f;
+        float weaponOnlyOpSum = 0f;
+        int largeMissileCount = 0;
+        int mediumMissileCount = 0;
+        String hullIdLower = (spec != null && spec.getHullId() != null)
+                ? spec.getHullId().toLowerCase(java.util.Locale.ROOT)
+                : "";
+
         List<WeaponAPI> weapons = ship.getAllWeapons();
         if (weapons != null) {
             for (WeaponAPI w : weapons) {
@@ -154,34 +163,56 @@ public class ShipCapabilityProfile {
                 if (type == WeaponType.DECORATIVE || type == WeaponType.LAUNCH_BAY || type == WeaponType.SYSTEM || type == WeaponType.STATION_MODULE) {
                     continue;
                 }
-                float weight = sizeWeight(w.getSize());
+                WeaponSize effSize = BattlefieldFirepowerEvaluator.resolveEffectiveWeaponSize(w);
+                float weight = (w.getSize() == null && (w.getSlot() == null || w.getSlot().getSlotSize() == null))
+                        ? 3.0f
+                        : sizeWeight(effSize);
                 opSum += weight;
+                weaponOnlyOpSum += weight;
 
                 float range = w.getRange();
                 weightedRangeSum += range * weight;
 
-                boolean isPd = w.hasAIHint(AIHints.PD) || w.hasAIHint(AIHints.PD_ONLY) || w.hasAIHint(AIHints.PD_ALSO) || w.hasAIHint(AIHints.ANTI_FTR);
                 boolean isStrike = w.hasAIHint(AIHints.STRIKE);
+                BattlefieldFirepowerEvaluator.FireClassification fireClass = BattlefieldFirepowerEvaluator.classifyWeaponFire(w);
 
-                if (isPd) {
+                if (type == WeaponType.MISSILE) {
+                    missileWeight += weight;
+                    if (effSize == WeaponSize.LARGE) {
+                        largeMissileCount++;
+                    } else if (effSize == WeaponSize.MEDIUM) {
+                        mediumMissileCount++;
+                    }
+                }
+
+                if (fireClass == BattlefieldFirepowerEvaluator.FireClassification.POINT_DEFENSE) {
                     pdSum += weight;
-                }
-                if (isStrike) {
-                    strikeSum += weight * (type == WeaponType.MISSILE ? 1.35f : 1.0f);
-                }
-                if (!isPd) {
+                    purePdSum += weight;
+                } else if (fireClass == BattlefieldFirepowerEvaluator.FireClassification.HYBRID) {
+                    // Hybrid weapons (Large/Medium Flak, Devastators, Dual Flak, HMG, Paladin PD, PD_ALSO)
+                    // count toward BOTH Point Defense AND anti-ship close/mid-range combat weight!
+                    pdSum += weight * 0.90f;
+                    if (range >= 900f) {
+                        longSum += weight * 0.85f;
+                    } else if (range <= 700f) {
+                        closeSum += weight * 0.85f;
+                    }
+                } else {
                     if (range >= 900f) {
                         longSum += weight;
                     } else if (range <= 650f) {
                         closeSum += weight;
                     }
                 }
+                if (isStrike) {
+                    strikeSum += weight * (type == WeaponType.MISSILE ? 1.35f : 1.0f);
+                }
             }
         }
 
         // Battlecarriers (e.g. Legion, Odyssey, or capitals with COMBAT hint / heavy gun batteries) default to Battle Divisions, not Carrier Divisions
         boolean isBattlecarrier = (bays > 0) && (hints.contains(ShipTypeHints.COMBAT)
-                || (this.hullSize == HullSize.CAPITAL_SHIP && bays <= 2 && (opSum - pdSum) >= 20f));
+                || (this.hullSize == HullSize.CAPITAL_SHIP && bays <= 2 && (opSum - purePdSum) >= 20f));
         this.isDedicatedCarrier = !isBattlecarrier
                 && ((bays >= 1 && hints.contains(ShipTypeHints.CARRIER)) || (bays >= 2));
 
@@ -192,10 +223,28 @@ public class ShipCapabilityProfile {
         this.closeBrawlWeight = closeSum;
         this.avgWeaponRange = opSum > 0f ? (weightedRangeSum / opSum) : 700f;
 
-        // Torpedo / strike loadout detection: strong strike missiles on non-carrier hulls
-        this.hasHeavyMissileLoadout = !this.isDedicatedCarrier
-                && ((strikeSum >= 4.0f && (strikeSum / this.totalWeaponOP) >= 0.28f)
-                || (strikeSum >= 3.0f && (hullSize == HullSize.FRIGATE || hullSize == HullSize.DESTROYER)));
+        // Dedicated Missile Ship detection: requires missiles to be a primary armament of the hull
+        // (e.g. Pegasus, Gryphon, Falcon (P), or missile-boat destroyers/frigates), never gun battleships like Onslaught!
+        float missileShare = weaponOnlyOpSum > 0f ? (missileWeight / weaponOnlyOpSum) : 0f;
+        boolean isHeadlessMockMissileShip = (weapons != null && weapons.size() <= 2 && strikeSum >= 3.0f);
+        if (this.isDedicatedCarrier) {
+            this.hasHeavyMissileLoadout = false;
+        } else if (hullSize == HullSize.CAPITAL_SHIP) {
+            this.hasHeavyMissileLoadout = hullIdLower.contains("pegasus")
+                    || (largeMissileCount >= 2 && missileShare >= 0.38f)
+                    || (missileShare >= 0.45f && missileWeight >= 16.0f);
+        } else if (hullSize == HullSize.CRUISER) {
+            this.hasHeavyMissileLoadout = hullIdLower.contains("gryphon")
+                    || (largeMissileCount >= 1 && missileShare >= 0.38f)
+                    || (missileShare >= 0.45f && missileWeight >= 9.0f);
+        } else if (hullSize == HullSize.DESTROYER) {
+            this.hasHeavyMissileLoadout = (largeMissileCount >= 1 && missileShare >= 0.38f)
+                    || (missileShare >= 0.42f && missileWeight >= 6.0f)
+                    || isHeadlessMockMissileShip;
+        } else {
+            this.hasHeavyMissileLoadout = (missileShare >= 0.45f && missileWeight >= 3.0f)
+                    || isHeadlessMockMissileShip;
+        }
 
         this.isPdScreenCapable = (pdSum / this.totalWeaponOP) >= 0.32f
                 || (interceptorSupportWings >= 1 && pdSum >= 2.0f);

@@ -1228,6 +1228,30 @@ public final class FactionFleetDoctrines {
             }
 
             refreshNpcDivisionFlagship(spec, eligibleById);
+            // Auto-migrate existing campaign NPC missile divisions if their ships are actually gun hulls (e.g. Onslaughts)
+            if (spec.archetype != null && spec.archetype.isMissileArchetype()) {
+                FleetMemberAPI flagM = eligibleById.get(spec.flagshipMemberId);
+                if (flagM != null) {
+                    DivisionArchetype recalcArch = classifyNpcFleetMemberArchetype(flagM, factionId, nomCat, doctrine);
+                    if (recalcArch != null && !recalcArch.isMissileArchetype()) {
+                        spec.archetype = recalcArch;
+                        FactionDivisionRecord oldRec = recordById.get(spec.id);
+                        int unitNum = (oldRec != null && oldRec.unitNumber > 0) ? oldRec.unitNumber : 1;
+                        PersonAPI flagCmdr = flagM.getCaptain();
+                        if ((flagCmdr == null || flagCmdr.isDefault()) && fleet != null && flagM.isFlagship()) {
+                            flagCmdr = fleet.getCommander();
+                        }
+                        long uSeed = (oldRec != null && oldRec.unitSeed != 0L) ? oldRec.unitSeed : unitNum * 2654435761L;
+                        spec.name = DivisionNomenclature.formatFactionDivisionName(
+                                factionId, nomCat, recalcArch, unitNum, flagCmdr, uSeed);
+                        if (oldRec != null) {
+                            oldRec.archetype = recalcArch;
+                            oldRec.bucketKey = DivisionNomenclature.resolvePrefixBucketKey(recalcArch);
+                            oldRec.divisionName = spec.name;
+                        }
+                    }
+                }
+            }
             PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(spec, fleet);
             retained.add(spec);
 

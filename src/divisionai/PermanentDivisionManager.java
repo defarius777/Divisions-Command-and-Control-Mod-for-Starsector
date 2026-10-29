@@ -13,6 +13,7 @@ import com.fs.starfarer.api.fleet.FleetMemberAPI;
 import com.fs.starfarer.api.loading.FighterWingSpecAPI;
 import com.fs.starfarer.api.loading.WeaponSpecAPI;
 import com.fs.starfarer.api.combat.WeaponAPI.AIHints;
+import com.fs.starfarer.api.combat.WeaponAPI.WeaponSize;
 import com.fs.starfarer.api.combat.WeaponAPI.WeaponType;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
@@ -3934,33 +3935,70 @@ public class PermanentDivisionManager {
 
         int strikeWeaponCount = 0;
         int missileWeight = 0;
+        int totalWeaponWeight = 0;
+        int largeMissileCount = 0;
+        int mediumMissileCount = 0;
         if (variant != null) {
-            for (String slotId : variant.getNonBuiltInWeaponSlots()) {
-                String wId = variant.getWeaponId(slotId);
-                if (wId == null) continue;
-                WeaponSpecAPI wSpec = Global.getSettings().getWeaponSpec(wId);
-                if (wSpec == null) continue;
-                if (wSpec.getType() == WeaponType.MISSILE) {
-                    switch (wSpec.getSize()) {
+            java.util.Collection<String> slotIds = variant.getFittedWeaponSlots();
+            if (slotIds == null || slotIds.isEmpty()) {
+                slotIds = variant.getNonBuiltInWeaponSlots();
+            }
+            if (slotIds != null) {
+                for (String slotId : slotIds) {
+                    if (slotId == null) continue;
+                    WeaponSpecAPI wSpec = variant.getWeaponSpec(slotId);
+                    if (wSpec == null) {
+                        String wId = variant.getWeaponId(slotId);
+                        if (wId != null && Global.getSettings() != null) {
+                            wSpec = Global.getSettings().getWeaponSpec(wId);
+                        }
+                    }
+                    if (wSpec == null) continue;
+                    WeaponType wt = wSpec.getType();
+                    if (wt == WeaponType.DECORATIVE || wt == WeaponType.LAUNCH_BAY
+                            || wt == WeaponType.SYSTEM || wt == WeaponType.STATION_MODULE) {
+                        continue;
+                    }
+                    WeaponSize sz = wSpec.getSize();
+                    if (hullSpec != null && hullSpec.getWeaponSlotAPI(slotId) != null
+                            && hullSpec.getWeaponSlotAPI(slotId).getSlotSize() != null) {
+                        WeaponSize slotSz = hullSpec.getWeaponSlotAPI(slotId).getSlotSize();
+                        if (slotSz == WeaponSize.LARGE
+                                || (slotSz == WeaponSize.MEDIUM && sz == WeaponSize.SMALL)) {
+                            sz = slotSz;
+                        }
+                    }
+                    int wWeight;
+                    switch (sz != null ? sz : WeaponSize.SMALL) {
                         case LARGE:
-                            missileWeight += 7;
+                            wWeight = 7;
                             break;
                         case MEDIUM:
-                            missileWeight += 3;
+                            wWeight = 3;
                             break;
                         case SMALL:
                         default:
-                            missileWeight += 1;
+                            wWeight = 1;
                             break;
                     }
-                    if (wSpec.getAIHints().contains(AIHints.STRIKE)
-                            || wSpec.getAIHints().contains(AIHints.DANGEROUS)
-                            || (wSpec.getMaxAmmo() > 0 && wSpec.getMaxAmmo() <= 24)) {
-                        strikeWeaponCount++;
+                    totalWeaponWeight += wWeight;
+                    if (wt == WeaponType.MISSILE) {
+                        missileWeight += wWeight;
+                        if (sz == WeaponSize.LARGE) {
+                            largeMissileCount++;
+                        } else if (sz == WeaponSize.MEDIUM) {
+                            mediumMissileCount++;
+                        }
+                        if (wSpec.getAIHints() != null && (wSpec.getAIHints().contains(AIHints.STRIKE)
+                                || wSpec.getAIHints().contains(AIHints.DANGEROUS)
+                                || (wSpec.getMaxAmmo() > 0 && wSpec.getMaxAmmo() <= 24))) {
+                            strikeWeaponCount++;
+                        }
                     }
                 }
             }
         }
+        float missileShare = totalWeaponWeight > 0 ? ((float) missileWeight / totalWeaponWeight) : 0f;
         String hullId = (hullSpec != null && hullSpec.getHullId() != null)
                 ? hullSpec.getHullId().toLowerCase()
                 : "";
@@ -3970,12 +4008,16 @@ public class PermanentDivisionManager {
 
         switch (size) {
             case CAPITAL_SHIP:
-                if (missileAllowed && (missileWeight >= 10 || strikeWeaponCount >= 3 || hullId.contains("pegasus"))) {
+                if (missileAllowed && (hullId.contains("pegasus")
+                        || (largeMissileCount >= 2 && missileShare >= 0.38f)
+                        || (missileShare >= 0.45f && missileWeight >= 16))) {
                     return DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
                 }
                 return lineAllowed ? DivisionArchetype.BATTLESHIP_DIVISION : DivisionArchetype.FORCE_DIVISION;
             case CRUISER:
-                if (missileAllowed && (missileWeight >= 6 || strikeWeaponCount >= 2 || hullId.contains("gryphon"))) {
+                if (missileAllowed && (hullId.contains("gryphon")
+                        || (largeMissileCount >= 1 && missileShare >= 0.38f)
+                        || (missileShare >= 0.45f && missileWeight >= 9))) {
                     return DivisionArchetype.MISSILE_CRUISER_DIVISION;
                 }
                 if ((doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.STRIKE, AutoAssignHull.CRUISER))
@@ -3985,13 +4027,14 @@ public class PermanentDivisionManager {
                 }
                 return lineAllowed ? DivisionArchetype.CRUISER_DIVISION : DivisionArchetype.FORCE_DIVISION;
             case DESTROYER:
-                if (missileAllowed && (strikeWeaponCount >= 1 || missileWeight >= 3)) {
+                if (missileAllowed && ((largeMissileCount >= 1 && missileShare >= 0.38f)
+                        || (missileShare >= 0.42f && missileWeight >= 6))) {
                     return DivisionArchetype.MISSILE_DESTROYER_DIVISION;
                 }
                 return lineAllowed ? DivisionArchetype.DESTROYER_DIVISION : DivisionArchetype.FORCE_DIVISION;
             case FRIGATE:
             default:
-                if (missileAllowed && (strikeWeaponCount >= 1 || missileWeight >= 2)) {
+                if (missileAllowed && (missileShare >= 0.45f && missileWeight >= 3)) {
                     return DivisionArchetype.MISSILE_FRIGATE_DIVISION;
                 }
                 return lineAllowed ? DivisionArchetype.FRIGATE_DIVISION : DivisionArchetype.FORCE_DIVISION;
