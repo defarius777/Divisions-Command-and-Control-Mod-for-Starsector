@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs><linearGradient id="fill" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FFF3C4"/><stop offset="50%" stop-color="#E0B450"/><stop offset="100%" stop-color="#A9761F"/></linearGradient></defs>
+  <!-- Reverse Semicircle: downward arc with square-cut ends -->
+  <path d="M9 20.5 A23 23 0 0 0 55 20.5 L47 20.5 A15 15 0 0 1 17 20.5 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
+</svg>

@@ -179,6 +179,8 @@ public class PermanentDivisionManager {
         public final String shortName;
         public final String settingsIconKey;
         public final String spritePath;
+        public final String goldSettingsIconKey;
+        public final String goldSpritePath;
         public final String summary;
 
         DivisionFormation(
@@ -191,7 +193,19 @@ public class PermanentDivisionManager {
             this.shortName = shortName;
             this.settingsIconKey = settingsIconKey;
             this.spritePath = spritePath;
+            this.goldSettingsIconKey = settingsIconKey + "_gold";
+            this.goldSpritePath = spritePath.endsWith(".png")
+                    ? (spritePath.substring(0, spritePath.length() - 4) + "_gold.png")
+                    : (spritePath + "_gold");
             this.summary = summary;
+        }
+
+        public String getSettingsIconKey(boolean isFlagshipDivision) {
+            return isFlagshipDivision ? goldSettingsIconKey : settingsIconKey;
+        }
+
+        public String getSpritePath(boolean isFlagshipDivision) {
+            return isFlagshipDivision ? goldSpritePath : spritePath;
         }
 
         public static DivisionFormation fromId(String id, DivisionFormation fallback) {

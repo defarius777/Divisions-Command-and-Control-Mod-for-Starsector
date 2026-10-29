@@ -2015,19 +2015,54 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             float size,
             Color tint,
             float alphaMult) {
+        renderFormationIcon(formation, centerX, centerY, size, tint, alphaMult, false, true);
+    }
+
+    public static void renderFormationIcon(
+            DivisionFormation formation,
+            float centerX,
+            float centerY,
+            float size,
+            Color tint,
+            float alphaMult,
+            boolean isFlagshipDivision) {
+        renderFormationIcon(formation, centerX, centerY, size, tint, alphaMult, isFlagshipDivision, true);
+    }
+
+    public static void renderFormationIcon(
+            DivisionFormation formation,
+            float centerX,
+            float centerY,
+            float size,
+            Color tint,
+            float alphaMult,
+            boolean isFlagshipDivision,
+            boolean drawSquareBorder) {
         if (formation == null) return;
         try {
-            SpriteAPI sprite = Global.getSettings().getSprite("division_ai", formation.settingsIconKey);
+            if (drawSquareBorder) {
+                renderFormationSquareBorder(centerX, centerY, size, isFlagshipDivision, alphaMult);
+            }
+            String iconKey = formation.getSettingsIconKey(isFlagshipDivision);
+            String path = formation.getSpritePath(isFlagshipDivision);
+            SpriteAPI sprite = Global.getSettings().getSprite("division_ai", iconKey);
             if (sprite == null) {
-                sprite = Global.getSettings().getSprite(formation.spritePath);
+                sprite = Global.getSettings().getSprite(path);
+            }
+            if (sprite == null && isFlagshipDivision) {
+                sprite = Global.getSettings().getSprite("division_ai", formation.settingsIconKey);
+                if (sprite == null) {
+                    sprite = Global.getSettings().getSprite(formation.spritePath);
+                }
             }
             if (sprite != null) {
                 float prevW = sprite.getWidth();
                 float prevH = sprite.getHeight();
                 Color prevColor = sprite.getColor();
                 float prevAlpha = sprite.getAlphaMult();
-                sprite.setSize(size, size);
-                // Render formation icons in their native brushed silver & dark logo lineart (Color.WHITE)
+                float innerSize = drawSquareBorder ? Math.max(8f, size - 2f) : size;
+                sprite.setSize(innerSize, innerSize);
+                // Render formation icons in their native metallic silver or flagship gold gradient (Color.WHITE)
                 sprite.setColor(Color.WHITE);
                 sprite.setAlphaMult(alphaMult);
                 sprite.renderAtCenter(centerX, centerY);
@@ -2039,6 +2074,75 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    public static void renderFormationSquareBorder(
+            float centerX,
+            float centerY,
+            float size,
+            boolean isFlagshipDivision,
+            float alphaMult) {
+        float half = size * 0.5f;
+        float x0 = (float) Math.round(centerX - half);
+        float y0 = (float) Math.round(centerY - half);
+        float x1 = (float) Math.round(centerX + half);
+        float y1 = (float) Math.round(centerY + half);
+
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+        // 1. Dark translucent backing plate for contrast against nebulae and bright UI backgrounds
+        if (isFlagshipDivision) {
+            GL11.glColor4f(0.10f, 0.09f, 0.05f, 0.80f * alphaMult);
+        } else {
+            GL11.glColor4f(0.06f, 0.08f, 0.11f, 0.80f * alphaMult);
+        }
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glVertex2f(x0, y0);
+        GL11.glVertex2f(x1, y0);
+        GL11.glVertex2f(x1, y1);
+        GL11.glVertex2f(x0, y1);
+        GL11.glEnd();
+
+        // 2. Dark charcoal outer frame (#303842 matching the icon SVG stroke)
+        GL11.glLineWidth(1.0f);
+        GL11.glColor4f(48f / 255f, 56f / 255f, 66f / 255f, 0.92f * alphaMult);
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        GL11.glVertex2f(x0 - 0.8f, y0 - 0.8f);
+        GL11.glVertex2f(x1 + 0.8f, y0 - 0.8f);
+        GL11.glVertex2f(x1 + 0.8f, y1 + 0.8f);
+        GL11.glVertex2f(x0 - 0.8f, y1 + 0.8f);
+        GL11.glEnd();
+
+        // 3. Beveled binary-rank metallic square border (Gold #FFF3C4->#E0B450->#A9761F vs Silver #F2F6FA->#C8D2DC->#8C98A6)
+        float tlR, tlG, tlB;
+        float brR, brG, brB;
+        if (isFlagshipDivision) {
+            tlR = 248f / 255f; tlG = 218f / 255f; tlB = 132f / 255f;
+            brR = 198f / 255f; brG = 146f / 255f; brB = 44f / 255f;
+        } else {
+            tlR = 232f / 255f; tlG = 239f / 255f; tlB = 246f / 255f;
+            brR = 154f / 255f; brG = 166f / 255f; brB = 180f / 255f;
+        }
+        GL11.glLineWidth(1.25f);
+        GL11.glBegin(GL11.GL_LINES);
+        // Top and Left edges (light source highlight)
+        GL11.glColor4f(tlR, tlG, tlB, 0.96f * alphaMult);
+        GL11.glVertex2f(x0, y1);
+        GL11.glVertex2f(x1, y1);
+        GL11.glVertex2f(x0, y0);
+        GL11.glVertex2f(x0, y1);
+        // Bottom and Right edges (metallic mid/shadow tone)
+        GL11.glColor4f(brR, brG, brB, 0.96f * alphaMult);
+        GL11.glVertex2f(x0, y0);
+        GL11.glVertex2f(x1, y0);
+        GL11.glVertex2f(x1, y0);
+        GL11.glVertex2f(x1, y1);
+        GL11.glEnd();
+
+        GL11.glPopAttrib();
     }
 
     private void addMissionDropdownRow(

@@ -1,13 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <defs>
-    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F2F6FA"/>
-      <stop offset="50%" stop-color="#C8D2DC"/>
-      <stop offset="100%" stop-color="#8C98A6"/>
-    </linearGradient>
-  </defs>
-  <!-- Line Abreast: three side-by-side vertical bars (no inner lineart) -->
-  <rect x="11" y="16" width="10" height="32" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
-  <rect x="27" y="16" width="10" height="32" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
-  <rect x="43" y="16" width="10" height="32" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
+  <defs><linearGradient id="fill" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#F2F6FA"/><stop offset="50%" stop-color="#C8D2DC"/><stop offset="100%" stop-color="#8C98A6"/></linearGradient></defs>
+  <!-- Line Abreast: one horizontal bar -->
+  <path d="M10 28 L54 28 L54 36 L10 36 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
 </svg>

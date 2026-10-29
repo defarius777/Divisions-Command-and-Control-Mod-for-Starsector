@@ -372,9 +372,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         // 5. De-conflict and render division labels anchored to the primary division droplet entity
         deconflictPrimaryDivisionLabels(renderedPolys);
+        Set<ShipAPI> fleetFlagshipsForLabels = resolveFleetFlagships(playerFog);
         for (RenderedDivisionPolygon rp : renderedPolys) {
             if (rp.isPrimaryDroplet) {
-                renderDivisionEntityLabel(rp, fade);
+                renderDivisionEntityLabel(rp, fade, fleetFlagshipsForLabels);
             }
         }
 
@@ -2160,7 +2161,25 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     /**
      * Renders the division callsign and intent/flux sub-badge centered on the division entity itself.
      */
-    private void renderDivisionEntityLabel(RenderedDivisionPolygon rp, float fade) {
+    public static boolean isFlagshipDivision(DivisionState div, Set<ShipAPI> fleetFlagships) {
+        if (div == null || fleetFlagships == null || fleetFlagships.isEmpty()) {
+            return false;
+        }
+        if (div.flagship != null && fleetFlagships.contains(div.flagship)) {
+            return true;
+        }
+        for (ShipAPI m : div.getAliveMembers()) {
+            if (fleetFlagships.contains(m)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void renderDivisionEntityLabel(
+            RenderedDivisionPolygon rp,
+            float fade,
+            Set<ShipAPI> fleetFlagships) {
         DivisionState div = rp.div;
         float cx = rp.labelX;
         float cy = rp.labelY;
@@ -2211,7 +2230,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         textCenterY,
                         iconSize,
                         iconTint,
-                        fade * (rp.isEnemy ? 0.82f : 0.95f));
+                        fade * (rp.isEnemy ? 0.82f : 0.95f),
+                        isFlagshipDivision(div, fleetFlagships));
             }
         }
 

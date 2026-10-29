@@ -26,7 +26,18 @@
 			"icon_formation_circle": "graphics/icons/formations/icon_formation_circle.png",
 			"icon_formation_protective_circle": "graphics/icons/formations/icon_formation_protective_circle.png",
 			"icon_formation_forward_semicircle": "graphics/icons/formations/icon_formation_forward_semicircle.png",
-			"icon_formation_reverse_semicircle": "graphics/icons/formations/icon_formation_reverse_semicircle.png"
+			"icon_formation_reverse_semicircle": "graphics/icons/formations/icon_formation_reverse_semicircle.png",
+			"icon_formation_none_gold": "graphics/icons/formations/icon_formation_none_gold.png",
+			"icon_formation_line_abreast_gold": "graphics/icons/formations/icon_formation_line_abreast_gold.png",
+			"icon_formation_line_ahead_gold": "graphics/icons/formations/icon_formation_line_ahead_gold.png",
+			"icon_formation_forward_wedge_gold": "graphics/icons/formations/icon_formation_forward_wedge_gold.png",
+			"icon_formation_reverse_wedge_gold": "graphics/icons/formations/icon_formation_reverse_wedge_gold.png",
+			"icon_formation_echelon_left_gold": "graphics/icons/formations/icon_formation_echelon_left_gold.png",
+			"icon_formation_echelon_right_gold": "graphics/icons/formations/icon_formation_echelon_right_gold.png",
+			"icon_formation_circle_gold": "graphics/icons/formations/icon_formation_circle_gold.png",
+			"icon_formation_protective_circle_gold": "graphics/icons/formations/icon_formation_protective_circle_gold.png",
+			"icon_formation_forward_semicircle_gold": "graphics/icons/formations/icon_formation_forward_semicircle_gold.png",
+			"icon_formation_reverse_semicircle_gold": "graphics/icons/formations/icon_formation_reverse_semicircle_gold.png"
 		}
 	}
 }

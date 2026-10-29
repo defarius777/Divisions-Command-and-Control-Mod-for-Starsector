@@ -804,6 +804,14 @@ public class BattlefieldFirepowerEvaluator {
      */
     public static void updateConvergenceCommandStates(CombatEngineAPI engine, BattleGroupState group) {
         if (group == null) return;
+        if (group.forceConvergenceOverride != null) {
+            boolean forced = group.forceConvergenceOverride;
+            group.useConvergence = forced;
+            for (DivisionState div : group.divisions) {
+                div.useConvergence = forced && !div.getAliveMembers().isEmpty();
+            }
+            return;
+        }
         boolean nonHuman = isNonHumanConvergenceGroup(group);
         ShipAPI fleetFlag = resolveActiveFleetFlagship(engine, group);
         group.activeFleetFlagship = fleetFlag;
@@ -2954,10 +2962,10 @@ public class BattlefieldFirepowerEvaluator {
 
         // 2. Target Pinning, Map-Edge Compression & Space Seam Vulnerability (Items D, E, F)
         float enemyEdgePinch = computeEdgeProximityPinch(engine, ePos, enemyDiv.freeTimeRadius);
-        float enemyPinnedBonus = 1.0f + enemyDiv.engagementLevel * 0.85f + enemyEdgePinch * 0.32f;
-        float seamVulnerability = enemyDiv.isWeakPoint ? 1.38f : (enemyDiv.isStrongpoint ? 0.74f : 1.05f);
+        float enemyPinnedBonus = 1.0f + enemyDiv.engagementLevel * 0.85f + enemyEdgePinch * 0.35f;
+        float seamVulnerability = enemyDiv.isWeakPoint ? 1.52f : (enemyDiv.isStrongpoint ? 0.68f : 1.08f);
         if (myDiv.hasCarrierCapability && !enemyDiv.isScreenCapable) {
-            seamVulnerability *= 1.18f;
+            seamVulnerability *= 1.22f;
         }
         // Discount retreating ("unable") enemy divisions while able enemy divisions remain on the field
         float unableTargetMult = 1.0f;
@@ -2966,29 +2974,37 @@ public class BattlefieldFirepowerEvaluator {
         }
 
         // 3. Firepower / Flux Collapse Multiplier
-        float fluxCollapseMult = 1.0f + enemyDiv.avgFluxLevel * 1.15f + (1.0f - enemyDiv.avgHullLevel) * 0.75f;
+        float fluxCollapseMult = 1.0f + enemyDiv.avgFluxLevel * 1.45f + (1.0f - enemyDiv.avgHullLevel) * 0.90f;
         float blindSpot = evaluateBlindSpotAdvantage(engine, myDiv.side, enemyDiv, myDiv.centroid);
 
-        // 4. Multi-Division Phase-Locked Orthogonal Convergence (reward ~90 deg L/U pincer angles with sibling divisions)
+        // 4. Multi-Division Phase-Locked Orthogonal Convergence (reward ~90 deg L/U pincer angles & focus fire)
         float pincerSynergy = 1.0f;
         if (myGroup != null) {
+            if (enemyDiv == myGroup.primaryThreatEnemyDivision) {
+                pincerSynergy += 0.28f;
+            }
             float myBearing = (float) Math.toDegrees(Math.atan2(myDiv.centroid.y - ePos.y, myDiv.centroid.x - ePos.x));
             for (DivisionState peer : myGroup.divisions) {
                 if (peer == null || peer == myDiv || !peer.isAbleCombatEffective()) continue;
                 if (peer.targetEnemyDivision == enemyDiv || peer == myGroup.mainEffortDivision) {
                     float peerBearing = (float) Math.toDegrees(Math.atan2(peer.centroid.y - ePos.y, peer.centroid.x - ePos.x));
                     float angDiff = Math.abs(shortestAngleDiffDeg(myBearing, peerBearing));
-                    if (angDiff >= 55f && angDiff <= 145f) {
-                        pincerSynergy += 0.32f;
+                    if (angDiff >= 22f && angDiff <= 68f) {
+                        pincerSynergy += 0.38f;
+                    } else if (angDiff < 22f) {
+                        pincerSynergy += 0.24f;
+                    } else {
+                        pincerSynergy += 0.10f;
                     }
                 }
             }
         }
 
-        // Multiplicative phase-space product (strictly stronger than linear sum when all 3 align!)
-        float baseValue = OtcAI.getVisibleFpForSide(engine, myDiv.side, enemyDiv) * 9.0f + blindSpot * 0.8f;
+        // Multiplicative phase-space product with bounded FP base so Weak Points & high-flux targets are prioritized
+        float visFp = OtcAI.getVisibleFpForSide(engine, myDiv.side, enemyDiv);
+        float baseValue = Math.min(440f, 165f + visFp * 4.2f) + blindSpot * 0.95f;
         return baseValue * timeCoincidence * enemyPinnedBonus * seamVulnerability * fluxCollapseMult
-                * Math.min(1.75f, pincerSynergy) * unableTargetMult;
+                * Math.min(1.85f, pincerSynergy) * unableTargetMult;
     }
 
     /**
@@ -3027,6 +3043,12 @@ public class BattlefieldFirepowerEvaluator {
         float halfSamples = (numSamples - 1) * 0.5f;
         boolean hasPrevStation = (myDiv.stationPoint.x != 0f || myDiv.stationPoint.y != 0f);
 
+        PointFirepowerEval prefEval = evaluatePoint(engine, myDiv.side, preferredPos, shieldArc);
+        if (prefEval.cordonIndex < 0.18f && prefEval.effectiveDanger < 120f) {
+            outStation.set(preferredPos);
+            return;
+        }
+
         float bestScore = -Float.MAX_VALUE;
         float bestX = preferredPos.x;
         float bestY = preferredPos.y;
@@ -3054,10 +3076,12 @@ public class BattlefieldFirepowerEvaluator {
                         float peerAng = (float) Math.toDegrees(
                                 Math.atan2(peer.centroid.y - arcCenter.y, peer.centroid.x - arcCenter.x));
                         float sep = Math.abs(shortestAngleDiffDeg(angleDeg, peerAng));
-                        if (sep >= 65f && sep <= 125f) {
-                            crossfireSynergy += 240f;
-                        } else if (sep < 28f) {
-                            crossfireSynergy -= 160f; // avoid stacking into the exact same firing lane
+                        if (sep >= 24f && sep <= 58f) {
+                            crossfireSynergy += 220f;
+                        } else if (sep < 16f) {
+                            crossfireSynergy -= 120f; // avoid stacking into the exact same firing lane
+                        } else if (sep > 72f) {
+                            crossfireSynergy -= (sep - 72f) * 4.5f; // avoid isolating divisions beyond mutual support range
                         }
                     }
                 }
@@ -3076,13 +3100,16 @@ public class BattlefieldFirepowerEvaluator {
 
             float score = blindSpot * 1.45f
                     + crossfireSynergy
-                    + netSpace * 1.85f
-                    + fpEval.friendlyShortDot * 0.16f
+                    + netSpace * 1.65f
+                    + fpEval.friendlyShortDot * 0.12f
                     + edgeTacticalScore
-                    - fpEval.effectiveDanger * 0.68f
+                    - fpEval.effectiveDanger * 0.65f
                     - fpEval.cordonIndex * 640f
-                    - timePenalty
-                    - Math.abs(offsetFraction) * 110f;
+                    - timePenalty * 0.65f
+                    - Math.abs(offsetFraction) * 160f;
+            if (myDiv.avgFluxLevel >= 0.40f || myDiv.maxMemberFluxLevel >= 0.60f) {
+                score -= fpEval.incomingAlpha * 0.45f;
+            }
 
             if (hasPrevStation) {
                 score -= distance(cand, myDiv.stationPoint) * 0.14f;

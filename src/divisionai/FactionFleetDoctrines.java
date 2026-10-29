@@ -1642,7 +1642,7 @@ public final class FactionFleetDoctrines {
                 // Post-AI War AI Fleets, Domain Resurgent & Automated Derelicts:
                 // ORDO COGITATOR/MASTER Positive Control machine synchronization
                 cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.REFUSED_FLANK_OBLIQUE);
+                cfg.setFleetWideFormation(FleetWideFormation.FLEET_PROTECTIVE_BASTION);
                 cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
                 cfg.setOpeningDurationSeconds(35);
                 cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
@@ -1651,25 +1651,25 @@ public final class FactionFleetDoctrines {
                 cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
 
                 configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        650, 1150, 750, 0.85f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
+                        600, 1050, 680, 0.88f,
+                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
+                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
                 configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        525, 1000, 750, 0.85f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
+                        480, 950, 620, 0.88f,
+                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
+                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.BROADSIDE_ROLL);
                 configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        525, 1000, 680, 0.92f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
+                        480, 950, 600, 0.90f,
+                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
+                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.ECHELON_STRIKE);
                 configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        425, 900, 700, 0.88f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_LEFT, DivisionSetpieceAttack.ECHELON_STRIKE);
+                        420, 880, 600, 0.90f,
+                        DivisionMissionType.SCREEN, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
+                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
                 configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        375, 850, 650, 0.90f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
+                        360, 820, 520, 0.92f,
+                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.VAN,
+                        DivisionFormation.PROTECTIVE_CIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
                 configureDivisionTypeFull(cfg, DoctrineDivisionType.PHASE,
                         450, 950, 700, 0.95f,
                         DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,

@@ -1,13 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <defs>
-    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F2F6FA"/>
-      <stop offset="50%" stop-color="#C8D2DC"/>
-      <stop offset="100%" stop-color="#8C98A6"/>
-    </linearGradient>
-  </defs>
-  <!-- No Formation: three vertical bars of equal size; two in close proximity (both x,y offset) and one far away (both x,y offset), no inner lineart -->
-  <rect x="9" y="9" width="10" height="22" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
-  <rect x="22" y="17" width="10" height="22" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
-  <rect x="45" y="33" width="10" height="22" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
+  <defs><linearGradient id="fill" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#F2F6FA"/><stop offset="50%" stop-color="#C8D2DC"/><stop offset="100%" stop-color="#8C98A6"/></linearGradient></defs>
+  <!-- No Formation: three identical vertical bars scattered at irregular offsets -->
+  <path d="M9 10 L17 10 L17 30 L9 30 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
+  <path d="M23 34 L31 34 L31 54 L23 54 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
+  <path d="M46 20 L54 20 L54 40 L46 40 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
 </svg>

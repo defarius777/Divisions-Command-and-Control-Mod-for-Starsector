@@ -1680,7 +1680,7 @@ public class UITestHarness {
         boolean configureDivFormationQaOk = editorSrc.contains("final ButtonAPI[] formButtons = new ButtonAPI[formations.length];")
                 && editorSrc.contains("bp.getY() + bp.getHeight() * 0.5f")
                 && doctrineSrc.contains("final ButtonAPI[] formButtons = new ButtonAPI[formations.length];");
-        int divLabelIdx = overlaySrc.indexOf("renderDivisionEntityLabel(rp, fade);");
+        int divLabelIdx = overlaySrc.indexOf("renderDivisionEntityLabel(rp, fade");
         int modalTopLayerIdx = overlaySrc.indexOf("BattlefieldFirepowerEvaluator.renderToggleButtonAndLegendUI(engine, fade);");
         boolean modalAboveDivTextOk = (divLabelIdx > 0 && modalTopLayerIdx > divLabelIdx);
 
@@ -2063,9 +2063,14 @@ public class UITestHarness {
         //   3 vertical equal-size bars (two close with x,y offset and one far away with x,y offset)
         boolean formationIconsCleanOk = true;
         for (DivisionFormation f : DivisionFormation.values()) {
-            String svgName = "mod/graphics/icons/formations/" + f.settingsIconKey + ".svg";
-            String svgContent = new String(Files.readAllBytes(new File(svgName).toPath()), StandardCharsets.UTF_8);
-            if (svgContent.contains("#182028")) {
+            String svgSilverName = "mod/graphics/icons/formations/" + f.getSettingsIconKey(false) + ".svg";
+            String svgGoldName = "mod/graphics/icons/formations/" + f.getSettingsIconKey(true) + ".svg";
+            String svgSilver = new String(Files.readAllBytes(new File(svgSilverName).toPath()), StandardCharsets.UTF_8);
+            String svgGold = new String(Files.readAllBytes(new File(svgGoldName).toPath()), StandardCharsets.UTF_8);
+            if (svgSilver.contains("#182028") || svgGold.contains("#182028")
+                    || !svgSilver.contains("#C8D2DC") || !svgGold.contains("#E0B450")
+                    || !new File("mod/" + f.getSpritePath(false)).isFile()
+                    || !new File("mod/" + f.getSpritePath(true)).isFile()) {
                 formationIconsCleanOk = false;
                 break;
             }
@@ -2073,10 +2078,15 @@ public class UITestHarness {
         String noneSvg = new String(
                 Files.readAllBytes(new File("mod/graphics/icons/formations/icon_formation_none.svg").toPath()),
                 StandardCharsets.UTF_8);
+        String noneGoldSvg = new String(
+                Files.readAllBytes(new File("mod/graphics/icons/formations/icon_formation_none_gold.svg").toPath()),
+                StandardCharsets.UTF_8);
         boolean noneIconVerticalBarsOk = !noneSvg.contains("rotate(")
-                && noneSvg.contains("x=\"9\" y=\"9\" width=\"10\" height=\"22\"")
-                && noneSvg.contains("x=\"22\" y=\"17\" width=\"10\" height=\"22\"")
-                && noneSvg.contains("x=\"45\" y=\"33\" width=\"10\" height=\"22\"");
+                && noneSvg.contains("M9 10 L17 10 L17 30 L9 30 Z")
+                && noneSvg.contains("M23 34 L31 34 L31 54 L23 54 Z")
+                && noneSvg.contains("M46 20 L54 20 L54 40 L46 40 Z")
+                && noneGoldSvg.contains("M9 10 L17 10 L17 30 L9 30 Z")
+                && noneGoldSvg.contains("#E0B450");
 
         // - Items A, B, C, D, E, F (Opening Echelon/Line Abreast handedness, Voidstrike mid-flight continuity,
         //   Directional pinchable non-circular Space, Map-edge pinching, and Unable/Retreating unit discounting):
@@ -2141,6 +2151,11 @@ public class UITestHarness {
         boolean unableNotAbleCombatEffectiveOk = !hhDiv.isAbleCombatEffective()
                 && unableShipDetectedOk;
 
+        java.util.Set<ShipAPI> flagSet = new java.util.HashSet<>(Arrays.asList(damagedHammerhead));
+        boolean flagshipDivRankOk = DivisionTacticalMapOverlay.isFlagshipDivision(hhDiv, flagSet)
+                && !DivisionTacticalMapOverlay.isFlagshipDivision(enemyWarband2, flagSet)
+                && doctrineSrc.contains("renderFormationSquareBorder");
+        formationIconsCleanOk = formationIconsCleanOk && flagshipDivRankOk;
         boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk
                 && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk
                 && strikeWidthCompromiseOk && ehpSpaceDomainOk && protectiveCircleOk

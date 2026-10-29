@@ -836,12 +836,12 @@ public class DivisionFormationNavigator {
         // Direct close-in attack intents do not detour around their own attack target once within 2400u,
         // though they still skirt around other intervening enemy divisions on long transits.
         boolean directAttackIntent = (intent == DivisionIntentType.PRESS_HOME
+                || intent == DivisionIntentType.FORM_LINE_AND_FIX
                 || intent == DivisionIntentType.TOT_MISSILE_STRIKE
                 || intent == DivisionIntentType.TOT_ALPHA_STRIKE
                 || intent == DivisionIntentType.HARASSING_MISSILE_ATTACK
                 || intent == DivisionIntentType.GIVE_GENERAL_CHASE
-                || (intent == DivisionIntentType.CLOSE_AND_ENGAGE
-                && resolveActiveMission(div, engine != null ? engine.getTotalElapsedTime(false) : 0f) == DivisionMissionType.CLOSE_ACTION));
+                || intent == DivisionIntentType.CLOSE_AND_ENGAGE);
 
         DivisionState ignoreDirectTarget = directAttackIntent ? div.targetEnemyDivision : null;
         DivisionState flankTarget = (intent == DivisionIntentType.WORK_FLANK) ? div.targetEnemyDivision : null;
@@ -912,7 +912,8 @@ public class DivisionFormationNavigator {
         for (DivisionState eDiv : enemyGroup.divisions) {
             if (eDiv == null || !eDiv.isCombatEffective()) continue;
             if (!OtcAI.isDivisionVisibleToSide(engine, side, eDiv)) continue;
-            if (eDiv == ignoreDirectAttackTarget && chordLen < 2600f) continue;
+            if (eDiv == ignoreDirectAttackTarget) continue;
+            if (ignoreDirectAttackTarget != null && OtcAI.getVisibleFpForSide(engine, side, eDiv) < 24f) continue;
 
             Vector2f eCenter = OtcAI.getVisibleCentroidForSide(engine, side, eDiv);
             float distGoalToEnemy = distance(goalPos, eCenter);

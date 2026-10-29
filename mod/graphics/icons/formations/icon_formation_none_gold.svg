@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs><linearGradient id="fill" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FFF3C4"/><stop offset="50%" stop-color="#E0B450"/><stop offset="100%" stop-color="#A9761F"/></linearGradient></defs>
+  <!-- No Formation: three identical vertical bars scattered at irregular offsets -->
+  <path d="M9 10 L17 10 L17 30 L9 30 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
+  <path d="M23 34 L31 34 L31 54 L23 54 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
+  <path d="M46 20 L54 20 L54 40 L46 40 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
+</svg>

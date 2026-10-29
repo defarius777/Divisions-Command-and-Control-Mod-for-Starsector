@@ -463,6 +463,7 @@ public class DivisionModel {
 
         // Convergence Layer (AI / Threat / Abyssal & Alpha Core-commanded flagship decision-making)
         public boolean useConvergence = false;
+        public Boolean forceConvergenceOverride = null;
         public float convergenceScore = 0f;
         public final Vector2f convergenceFocalPoint = new Vector2f();
 
@@ -593,6 +594,7 @@ public class DivisionModel {
         public DivisionState reserveDivision;
         public DivisionState primaryThreatEnemyDivision;
         public boolean useConvergence = false;
+        public Boolean forceConvergenceOverride = null;
         public ShipAPI activeFleetFlagship = null;
 
         public float lastOtcEvaluationTime = -100f;

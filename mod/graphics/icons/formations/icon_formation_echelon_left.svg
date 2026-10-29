@@ -1,11 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <defs>
-    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F2F6FA"/>
-      <stop offset="50%" stop-color="#C8D2DC"/>
-      <stop offset="100%" stop-color="#8C98A6"/>
-    </linearGradient>
-  </defs>
-  <!-- Echelon Left: solid diagonal bar (no inner lineart) -->
-  <polygon points="12,46 46,12 52,18 18,52" fill="url(#silver)" stroke="#303842" stroke-width="1.5" stroke-linejoin="round"/>
+  <defs><linearGradient id="fill" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#F2F6FA"/><stop offset="50%" stop-color="#C8D2DC"/><stop offset="100%" stop-color="#8C98A6"/></linearGradient></defs>
+  <!-- Echelon Left: diagonal bar rising to the right -->
+  <path d="M17.83 51.83 L51.83 17.83 L46.17 12.17 L12.17 46.17 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
 </svg>

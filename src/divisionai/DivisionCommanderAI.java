@@ -179,9 +179,7 @@ public class DivisionCommanderAI {
             } else if (div.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION && aliveCount >= 2) {
                 desired = DivisionFormation.FORWARD_SEMICIRCLE;
             } else if (div.currentIntent == DivisionIntentType.WORK_FLANK && aliveCount >= 2) {
-                if (div.useConvergence && aliveCount >= 3) {
-                    desired = DivisionFormation.REVERSE_SEMICIRCLE;
-                } else if (base == DivisionFormation.LINE_ABREAST
+                if (base == DivisionFormation.LINE_ABREAST
                         || base == DivisionFormation.FORWARD_SEMICIRCLE
                         || base == DivisionFormation.FORWARD_WEDGE) {
                     float fSide = (div.otcOrder != null && div.otcOrder.flankSide != 0f)
@@ -1638,7 +1636,7 @@ public class DivisionCommanderAI {
         List<ShipAPI> alive = div.getAliveMembers();
         if (alive.isEmpty()) return;
 
-        ShipAPI focusEnemyShip = pickFocusEnemyShip(engine, div.side, div.targetEnemyDivision, div.centroid);
+        ShipAPI focusEnemyShip = pickFocusEnemyShip(engine, div.side, div.targetEnemyDivision, div.centroid, div.useConvergence || (myGroup != null && myGroup.useConvergence));
 
         // Timed strike: participants and the Main Effort all concentrate on the plan's single focus ship
         StrikePlan plan = myGroup.strikePlan;
@@ -1734,6 +1732,7 @@ public class DivisionCommanderAI {
                     && ((shipEhpRatio < 0.52f && ship.getFluxLevel() >= 0.40f)
                     || (div.localForceRatio < 0.80f && shipEhpRatio < 0.58f && (ship.getFluxLevel() >= 0.48f || hardFluxFrac >= 0.38f))
                     || (div.localForceRatio < 0.72f && ship.getFluxLevel() >= 0.62f));
+            float crisisFluxThreshold = 0.82f;
             boolean shipInPersonalCrisis = !martyrdom
                     && div.localEnemyStrength >= 8f
                     && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
@@ -1741,7 +1740,7 @@ public class DivisionCommanderAI {
                     && (loneOrOutnumberedFrigateInDanger
                     || destroyerInEhpDanger
                     || (ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting())
-                    || ship.getFluxLevel() >= 0.82f
+                    || ship.getFluxLevel() >= crisisFluxThreshold
                     || (ship.getHullLevel() < 0.42f && ship.getFluxLevel() >= 0.45f));
             if (shipInPersonalCrisis) {
                 flags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
@@ -1979,6 +1978,13 @@ public class DivisionCommanderAI {
                     boolean inActiveGunRange = distToEnemy <= Math.max(1550f, div.standoffRange * 1.30f);
                     if (focusEnemyShip != null) {
                         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
+                        boolean enemyCollapsed = (focusEnemyShip.getFluxTracker() != null && focusEnemyShip.getFluxTracker().isOverloadedOrVenting())
+                                || focusEnemyShip.getFluxLevel() >= 0.78f
+                                || (focusEnemyShip.getHullLevel() < 0.45f && focusEnemyShip.getFluxLevel() >= 0.50f);
+                        if (div.useConvergence && ship.getFluxLevel() < 0.58f && enemyCollapsed) {
+                            flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL);
+                            flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
+                        }
                     }
                     if (structuredFormation) {
                         float activeTol = inActiveGunRange
@@ -2335,6 +2341,13 @@ public class DivisionCommanderAI {
                             flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                         } else if (activeMission == DivisionMissionType.CLOSE_ACTION) {
                             flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
+                            boolean enemyCollapsed = focusEnemyShip != null
+                                    && ((focusEnemyShip.getFluxTracker() != null && focusEnemyShip.getFluxTracker().isOverloadedOrVenting())
+                                    || focusEnemyShip.getFluxLevel() >= 0.78f
+                                    || (focusEnemyShip.getHullLevel() < 0.45f && focusEnemyShip.getFluxLevel() >= 0.50f));
+                            if (div.useConvergence && ship.getFluxLevel() < 0.58f && enemyCollapsed) {
+                                flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL);
+                            }
                         }
                         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
                         float distToEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
@@ -2562,9 +2575,11 @@ public class DivisionCommanderAI {
         }
         ShipAPI currTarget = ship.getShipTarget();
         float distFocus = distance(ship.getLocation(), focusEnemyShip.getLocation());
+        boolean convLock = div != null && div.useConvergence && distFocus <= 1850f;
         boolean preferFocus = currTarget == null
                 || !currTarget.isAlive()
                 || currTarget.isHulk()
+                || convLock
                 || distFocus + 250f < distance(ship.getLocation(), currTarget.getLocation());
         if (preferFocus) {
             ship.setShipTarget(focusEnemyShip);
@@ -2718,15 +2733,40 @@ public class DivisionCommanderAI {
             int observerSide,
             DivisionState enemyDiv,
             Vector2f fromPoint) {
+        return pickFocusEnemyShip(engine, observerSide, enemyDiv, fromPoint, false);
+    }
+
+    static ShipAPI pickFocusEnemyShip(
+            CombatEngineAPI engine,
+            int observerSide,
+            DivisionState enemyDiv,
+            Vector2f fromPoint,
+            boolean useConvergence) {
         if (enemyDiv == null) return null;
         List<ShipAPI> enemies = enemyDiv.getAliveMembers();
         ShipAPI best = null;
         float bestScore = -Float.MAX_VALUE;
+        Vector2f refPt = (useConvergence && enemyDiv.centroid != null) ? enemyDiv.centroid : fromPoint;
         for (ShipAPI e : enemies) {
             if (!OtcAI.isShipVisibleToSide(engine, observerSide, e)) continue;
-            float d = distance(fromPoint, e.getLocation());
-            // Prefer closer targets and high-flux/exposed targets inside the target division
-            float score = -d * 0.45f + e.getFluxLevel() * 550f + (1f - e.getHullLevel()) * 400f;
+            float d = distance(refPt, e.getLocation());
+            float score;
+            if (useConvergence) {
+                // Convergence Fleet-Wide Kill-Target Synchronization:
+                // All friendly divisions engaging enemyDiv lock onto the exact same highest-vulnerability hull
+                boolean ovl = e.getFluxTracker() != null && e.getFluxTracker().isOverloadedOrVenting();
+                float hardFrac = (e.getFluxTracker() != null && e.getFluxTracker().getMaxFlux() > 1f)
+                        ? (e.getFluxTracker().getHardFlux() / e.getFluxTracker().getMaxFlux())
+                        : 0f;
+                score = -d * 0.25f
+                        + (ovl ? 850f : 0f)
+                        + e.getFluxLevel() * 820f
+                        + hardFrac * 450f
+                        + (1f - e.getHullLevel()) * 680f;
+            } else {
+                // Standard Human Division Commander: prefers closer targets and high-flux/exposed targets from division centroid
+                score = -d * 0.45f + e.getFluxLevel() * 550f + (1f - e.getHullLevel()) * 400f;
+            }
             if (score > bestScore) {
                 bestScore = score;
                 best = e;

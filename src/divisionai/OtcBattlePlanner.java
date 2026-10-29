@@ -422,13 +422,16 @@ public class OtcBattlePlanner {
                     }
                     case CONVERGENCE_KILL_BOX:
                     default: {
+                        float side = (idx % 2 == 0) ? 1f : -1f;
                         spAtk = d.hasMissileStrikeCapability
                                 ? DivisionSetpieceAttack.WALL_SALVO_PASS
                                 : DivisionSetpieceAttack.HORNS_OF_THE_BULL;
                         spForm = d.hasMissileStrikeCapability
-                                ? DivisionFormation.REVERSE_SEMICIRCLE
-                                : DivisionFormation.FORWARD_SEMICIRCLE;
-                        offset = new Vector2f(dx / len * marshalDist, dy / len * marshalDist);
+                                ? DivisionFormation.LINE_ABREAST
+                                : DivisionFormation.LINE_ABREAST;
+                        float vx = fdx * 0.93f + fperpX * side * 0.36f;
+                        float vy = fdy * 0.93f + fperpY * side * 0.36f;
+                        offset = new Vector2f(vx * marshalDist, vy * marshalDist);
                         break;
                     }
                 }
@@ -805,15 +808,23 @@ public class OtcBattlePlanner {
                 float need = Math.max(4f, neededFp.get(e));
                 float have = assignedFp.get(e);
                 float dist = distance(d.centroid, ePos);
-                float score = -dist * (dist > 1500f ? 0.72f : 0.48f);
-                if (e == previous && dist <= 1850f) score += 260f;
-                if (e == primary && dist <= 1950f) score += 310f;
+                float visFp = OtcAI.getVisibleFpForSide(engine, myGroup.side, e);
+                float score = -dist * (dist > 1500f ? 0.55f : 0.42f);
+                if (e == previous && dist <= 2200f) score += 260f;
+                if (e == primary) score += (dist <= 2200f) ? 360f : 260f;
                 if (e.archetype == DivisionArchetype.SERVICE_GROUP) score -= 450f;
+
+                // Prevent heavy battleline divisions (Battleships/Cruisers) from being baited away by tiny light screens
+                if (d.totalFpStrength >= 32f && visFp < 20f && e != primary) {
+                    score -= 420f;
+                } else if (d.totalFpStrength >= 32f && visFp >= 28f) {
+                    score += Math.min(280f, visFp * 3.5f);
+                }
 
                 if (myGroup.useConvergence) {
                     // Convergence OTC (AI / Threat / Abyssal or Alpha Core flagship):
                     // Non-linear synthesis of Time reachability, Space seam isolation, and orthogonal Firepower
-                    score += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, e, myGroup) * 0.45f;
+                    score += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, e, myGroup) * 0.48f;
                 } else {
                     // Human OTC: weights Time reachability and Space Weak Points vs Strongpoints
                     if (dist <= d.effectiveTimeRadius + d.avgEngageRange) {

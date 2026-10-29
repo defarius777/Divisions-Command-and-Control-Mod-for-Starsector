@@ -21,7 +21,9 @@ import org.lwjgl.util.vector.Vector2f;
 
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Force-level OTC AI:
@@ -921,6 +923,18 @@ public class OtcAI {
         float maxAbsY = mapH * 0.42f;
         float fwdDirY = (group.side == 0) ? 1f : -1f;
 
+        Set<ShipAPI> unplacedGroupShips = new HashSet<>();
+        if (now <= 1.6f) {
+            for (DivisionState d : group.divisions) {
+                if (d == null || !d.isCombatEffective() || d.initialDeploymentMarshalled) continue;
+                for (ShipAPI s : d.getAliveMembers()) {
+                    if (s != null && !(s == engine.getPlayerShip() && !engine.isUIAutopilotOn())) {
+                        unplacedGroupShips.add(s);
+                    }
+                }
+            }
+        }
+
         for (DivisionState div : group.divisions) {
             if (div == null || !div.isCombatEffective() || div.initialDeploymentMarshalled) continue;
             float nearestEnemy = (enemyGroup != null) ? distanceToNearestEnemyDivision(engine, div, enemyGroup) : 99999f;
@@ -987,7 +1001,8 @@ public class OtcAI {
                             fm, i, alive, s, targetCenterX, targetCenterY, initHx, initHy, spacing);
                     float sx = Math.max(-maxAbsX, Math.min(maxAbsX, slot.x));
                     float sy = Math.max(-maxAbsY, Math.min(maxAbsY, slot.y));
-                    if (isDeploymentSlotClear(engine, s, sx, sy)) {
+                    unplacedGroupShips.remove(s);
+                    if (isDeploymentSlotClear(engine, s, sx, sy, unplacedGroupShips)) {
                         s.getLocation().set(sx, sy);
                         s.setFacing(initFacingDeg);
                     }
@@ -999,11 +1014,17 @@ public class OtcAI {
         group.initialDeploymentDone = true;
     }
 
-    private static boolean isDeploymentSlotClear(CombatEngineAPI engine, ShipAPI movingShip, float x, float y) {
+    private static boolean isDeploymentSlotClear(
+            CombatEngineAPI engine,
+            ShipAPI movingShip,
+            float x,
+            float y,
+            Set<ShipAPI> unplacedGroupShips) {
         if (engine == null || engine.getShips() == null) return true;
         float myRad = Math.max(40f, movingShip.getCollisionRadius());
         for (ShipAPI other : engine.getShips()) {
             if (other == null || other == movingShip || !other.isAlive() || other.isFighter()) continue;
+            if (unplacedGroupShips != null && unplacedGroupShips.contains(other)) continue;
             float minSep = (myRad + Math.max(40f, other.getCollisionRadius())) * 0.92f;
             float dx = other.getLocation().x - x;
             float dy = other.getLocation().y - y;
@@ -1047,7 +1068,7 @@ public class OtcAI {
             float score;
             if (myGroup.useConvergence && anchorDiv != null) {
                 // Convergence OTC decision-making (AI / Threat / Abyssal or Alpha Core flagship):
-                // Synthesizes Time, Space, and Firepower into a non-linear phase-space target score
+                // Synthesizes Capital/Cruiser mass value with Time, Space, and Firepower vulnerability
                 float convSum = 0f;
                 int convCount = 0;
                 for (DivisionState d : myGroup.divisions) {
@@ -1056,7 +1077,10 @@ public class OtcAI {
                     convCount++;
                 }
                 float avgConv = (convCount > 0) ? (convSum / convCount) : 0f;
-                score = avgConv + auxPenalty + unablePenalty + edgePinchBonus - dist * 0.14f;
+                float collapseBonus = (visFp >= 20f)
+                        ? (eDiv.avgFluxLevel * 360f + (1.0f - eDiv.avgHullLevel) * 320f)
+                        : 0f;
+                score = visFp * 11.5f + avgConv * 0.55f + collapseBonus + auxPenalty + unablePenalty + edgePinchBonus - dist * 0.20f;
             } else {
                 // Human OTC decision-making: weights Firepower value, Space Strongpoint/Weak Point seams, Time pinning, and Map-Edge pinching
                 float isolationBonus = (eDiv.stationKeepingRatio > 1.3f) ? 350f : 0f;

@@ -751,6 +751,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 effMain.shortName);
         sub1.getPosition().inTL(26f, 30f);
 
+        final boolean flagshipDivCard = isFlagshipDivision(spec, members);
         final CustomPanelAPI[] badgeRef = new CustomPanelAPI[1];
         CustomPanelAPI formBadge = Global.getSettings().createCustom(18f, 18f, new BaseCustomUIPanelPlugin() {
             @Override
@@ -769,7 +770,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         p.getY() + 9f,
                         16f,
                         isSelected ? positive : highlight,
-                        alphaMult);
+                        alphaMult,
+                        flagshipDivCard);
             }
         });
         badgeRef[0] = formBadge;
@@ -2148,7 +2150,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                             bp.getY() + bp.getHeight() * 0.5f,
                             14f,
                             selected ? (isCustom ? highlight : activeColor) : baseColor,
-                            alphaMult);
+                            alphaMult,
+                            isSelectedDivisionFlagship());
                 }
             }
         });
@@ -2261,6 +2264,46 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         col.addCustom(rowPanel, 2f);
     }
 
+    public static boolean isFlagshipDivision(PermanentDivisionSpec spec, List<FleetMemberAPI> resolvedMembers) {
+        if (spec == null) return false;
+        if (resolvedMembers != null) {
+            for (FleetMemberAPI m : resolvedMembers) {
+                if (m != null && m.isFlagship()) {
+                    return true;
+                }
+            }
+        }
+        try {
+            CampaignFleetAPI pf = Global.getSector() != null ? Global.getSector().getPlayerFleet() : null;
+            if (pf != null) {
+                if (resolvedMembers == null) {
+                    List<FleetMemberAPI> members = PermanentDivisionManager.getMembersInDivision(spec, pf);
+                    for (FleetMemberAPI m : members) {
+                        if (m != null && m.isFlagship()) {
+                            return true;
+                        }
+                    }
+                }
+                if (pf.getFlagship() != null) {
+                    String fid = pf.getFlagship().getId();
+                    if (fid != null) {
+                        if (fid.equals(spec.flagshipMemberId)) return true;
+                        if (spec.memberIds != null && spec.memberIds.contains(fid)) return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    private boolean isSelectedDivisionFlagship() {
+        String divId = (activeDivisionId != null) ? activeDivisionId : selectedOverviewDivisionId;
+        if (divId == null) return false;
+        PermanentDivisionSpec s = PermanentDivisionManager.getDivisionById(divId);
+        return isFlagshipDivision(s, null);
+    }
+
     private void addDivisionFormationRow(
             TooltipMakerAPI col,
             float rowWidth,
@@ -2290,6 +2333,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 CustomPanelAPI self = rowPanelRef[0];
                 if (self == null || self.getPosition() == null) return;
                 PositionAPI rp = self.getPosition();
+                boolean flagshipDivSelected = isSelectedDivisionFlagship();
                 // Render active formation preview icon in the header bar at CONTROL_COL_X
                 FleetDoctrineDialog.renderFormationIcon(
                         effFormation,
@@ -2297,7 +2341,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         rp.getY() + rp.getHeight() - 12f,
                         16f,
                         isCustom ? highlight : activeColor,
-                        alphaMult);
+                        alphaMult,
+                        flagshipDivSelected);
                 // Render each button's formation icon directly from the button's live PositionAPI
                 for (int i = 0; i < formations.length; i++) {
                     DivisionFormation f = formations[i];
@@ -2311,7 +2356,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                             bp.getY() + bp.getHeight() * 0.5f,
                             15f,
                             selected ? (isCustom ? highlight : activeColor) : baseColor,
-                            alphaMult);
+                            alphaMult,
+                            flagshipDivSelected);
                 }
             }
         });

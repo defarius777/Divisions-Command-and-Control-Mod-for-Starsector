@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs><linearGradient id="fill" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FFF3C4"/><stop offset="50%" stop-color="#E0B450"/><stop offset="100%" stop-color="#A9761F"/></linearGradient></defs>
+  <!-- Forward Wedge: 90-degree chevron pointing up -->
+  <path d="M14.83 46.23 L32 29.06 L49.17 46.23 L54.83 40.57 L32 17.74 L9.17 40.57 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
+</svg>

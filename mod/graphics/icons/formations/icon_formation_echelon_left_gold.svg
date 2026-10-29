@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs><linearGradient id="fill" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#FFF3C4"/><stop offset="50%" stop-color="#E0B450"/><stop offset="100%" stop-color="#A9761F"/></linearGradient></defs>
+  <!-- Echelon Left: diagonal bar rising to the right -->
+  <path d="M17.83 51.83 L51.83 17.83 L46.17 12.17 L12.17 46.17 Z" fill="url(#fill)" fill-rule="evenodd" stroke="#303842" stroke-width="1.5" stroke-linejoin="miter" stroke-miterlimit="10"/>
+</svg>
