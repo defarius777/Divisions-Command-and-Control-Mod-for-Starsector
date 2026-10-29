@@ -93,6 +93,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
         // Never run combat C2 or UI overlays on the Main Menu background battle (TitleScreenState)
         if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) {
+            DynamicBattleMusicController.ensureCleanedUpOutsideCombat();
             return;
         }
         if (BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) {
@@ -120,7 +121,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         if (engine.isCombatOver()) {
             if (musicController != null) {
-                musicController.cleanupBattleMusicSession();
+                BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
+                        ? side0OpposingView
+                        : playerGroup;
+                musicController.advance(engine, musicPlayerView, enemyGroup, amount);
             }
             return;
         }

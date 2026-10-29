@@ -2045,15 +2045,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             String iconKey = formation.getSettingsIconKey(isFlagshipDivision);
             String path = formation.getSpritePath(isFlagshipDivision);
-            SpriteAPI sprite = Global.getSettings().getSprite("division_ai", iconKey);
-            if (sprite == null) {
-                sprite = Global.getSettings().getSprite(path);
-            }
-            if (sprite == null && isFlagshipDivision) {
-                sprite = Global.getSettings().getSprite("division_ai", formation.settingsIconKey);
-                if (sprite == null) {
-                    sprite = Global.getSettings().getSprite(formation.spritePath);
-                }
+            SpriteAPI sprite = loadFormationSpriteSafe(iconKey, path);
+            if ((sprite == null || sprite.getTextureId() <= 0) && isFlagshipDivision) {
+                sprite = loadFormationSpriteSafe(formation.settingsIconKey, formation.spritePath);
             }
             if (sprite != null) {
                 float prevW = sprite.getWidth();
@@ -2074,6 +2068,27 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    private static SpriteAPI loadFormationSpriteSafe(String iconKey, String path) {
+        SpriteAPI sprite = null;
+        if (iconKey != null && !iconKey.isEmpty()) {
+            try {
+                sprite = Global.getSettings().getSprite("division_ai", iconKey);
+            } catch (Throwable ignored) {
+            }
+        }
+        if ((sprite == null || sprite.getTextureId() <= 0) && path != null && !path.isEmpty()) {
+            try {
+                Global.getSettings().loadTexture(path);
+            } catch (Throwable ignored) {
+            }
+            try {
+                sprite = Global.getSettings().getSprite(path);
+            } catch (Throwable ignored) {
+            }
+        }
+        return sprite;
     }
 
     public static void renderFormationSquareBorder(

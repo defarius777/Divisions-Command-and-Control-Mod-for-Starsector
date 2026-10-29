@@ -200,8 +200,11 @@ public class DynamicBattleMusicController {
     private static MethodHandle mhSoundOAdvanceWithVol;
     private static MethodHandle mhSoundOStopAndRelease;
 
-    // Track whether any combat music session suspended default music so campaign transitions can clean up safely
-    private static boolean globalCombatMusicSuspended = false;
+    // Track whether any combat music session suspended default music so campaign/title transitions can clean up safely
+    private static volatile boolean globalCombatMusicSuspended = false;
+    private static volatile DynamicBattleMusicController activeSessionController = null;
+    private static volatile CombatEngineAPI activeSessionEngine = null;
+    private static volatile Thread stateWatchdogThread = null;
 
     // Instance state per battle
     private boolean battleSessionInitialized = false;
@@ -761,13 +764,35 @@ public class DynamicBattleMusicController {
             CombatEngineAPI engine,
             BattleGroupState playerSideView,
             BattleGroupState enemyGroup,
-             float amount) {
+            float amount) {
         ensureConfigLoaded();
         if (!systemEnabled || engine == null) return;
 
+        float dt = Math.max(0.016f, Math.min(0.25f, amount > 0f ? amount : 0.033f));
+        float masterMusicVol = getMasterMusicVolumeSetting();
+
         if (engine.isCombatOver()) {
             if (!battleSessionCleanedUp) {
-                cleanupBattleMusicSession();
+                if (!battleSessionInitialized || !isAnyLayerTriggered()) {
+                    cleanupBattleMusicSession(1);
+                } else {
+                    currentBattleEngagementLevel = 0f;
+                    float combatEndFadeSpeed = Math.max(0.45f, fadeOutSpeedPerSec * 2.0f);
+                    boolean anyStillAudible = false;
+                    for (int i = 0; i < activeLayers.size(); i++) {
+                        ActiveLayerRuntime layer = activeLayers.get(i);
+                        if (!layer.triggered || !layer.playbackStarted) continue;
+                        layer.targetVolume = 0f;
+                        layer.currentVolume = Math.max(0f, layer.currentVolume - combatEndFadeSpeed * dt);
+                        applyLayerVolume(layer, masterMusicVol);
+                        if (layer.currentVolume > 0.01f) {
+                            anyStillAudible = true;
+                        }
+                    }
+                    if (!anyStillAudible) {
+                        cleanupBattleMusicSession(0);
+                    }
+                }
             }
             return;
         }
@@ -804,14 +829,12 @@ public class DynamicBattleMusicController {
             currentBattleEngagementLevel = Math.max(playerEngagement, enemyEngagement);
         }
 
-        float dt = Math.max(0f, Math.min(0.25f, amount));
-        float masterMusicVol = getMasterMusicVolumeSetting();
-
         for (int i = 0; i < activeLayers.size(); i++) {
             ActiveLayerRuntime layer = activeLayers.get(i);
             if (!layer.triggered && currentBattleEngagementLevel >= layer.spec.activationThreshold) {
                 layer.triggered = true;
-                layer.currentVolume = layer.spec.minVolume;
+                // Start near 0 and smoothly fade in toward targetVolume
+                layer.currentVolume = Math.min(layer.spec.minVolume, 0.04f);
                 startLayerPlayback(layer);
             }
 
@@ -831,12 +854,26 @@ public class DynamicBattleMusicController {
             }
 
             applyLayerVolume(layer, masterMusicVol);
+
+            // If engagement has dropped well below threshold and the layer has faded completely out to 0,
+            // stop its stream cleanly so it can re-trigger from the beginning if combat resumes later
+            if (currentBattleEngagementLevel < layer.spec.activationThreshold * 0.25f && layer.currentVolume <= 0.006f) {
+                stopSingleLayerStream(layer, 0);
+                layer.triggered = false;
+                layer.playbackStarted = false;
+                layer.currentVolume = 0f;
+            }
         }
     }
 
     private void initializeBattleMusicSession(CombatEngineAPI engine, BattleGroupState enemyGroup) {
+        if (activeSessionController != null && activeSessionController != this && !activeSessionController.battleSessionCleanedUp) {
+            activeSessionController.cleanupBattleMusicSession(0);
+        }
         battleSessionInitialized = true;
         battleSessionCleanedUp = false;
+        activeSessionController = this;
+        activeSessionEngine = engine;
         activeEnemyFactionKey = resolveEnemyMusicFactionKey(engine, enemyGroup);
         activeProfile = getResolvedProfileForFaction(activeEnemyFactionKey);
         activeLayers.clear();
@@ -856,8 +893,9 @@ public class DynamicBattleMusicController {
             }
         } catch (Throwable ignored) {
         }
-        stopCurrentNativeMusic();
+        stopCurrentNativeMusic(0);
         setNativeDynamicVolumeMultiplier(0f);
+        ensureStateWatchdogRunning();
 
         LOG.info(String.format(
                 "[DivisionAI] Dynamic Battle Music initialized: enemyFaction=%s, silent=%b, layers=%d",
@@ -923,43 +961,137 @@ public class DynamicBattleMusicController {
         }
     }
 
-    public void cleanupBattleMusicSession() {
-        battleSessionCleanedUp = true;
-        for (ActiveLayerRuntime layer : activeLayers) {
-            if (layer.standaloneStreamPlayer != null) {
-                stopStandaloneStreamPlayer(layer.standaloneStreamPlayer);
-                layer.standaloneStreamPlayer = null;
+    private void stopSingleLayerStream(ActiveLayerRuntime layer, int fadeOutSec) {
+        if (layer == null) return;
+        if (layer.standaloneStreamPlayer != null) {
+            stopStandaloneStreamPlayer(layer.standaloneStreamPlayer);
+            layer.standaloneStreamPlayer = null;
+        }
+        if (layer.layerIndex == 0 && layer.playbackStarted) {
+            try {
+                SoundPlayerAPI sp = Global.getSoundPlayer();
+                if (sp != null) {
+                    if (fadeOutSec > 0) {
+                        sp.playCustomMusic(fadeOutSec, 0, null);
+                    }
+                    sp.pauseCustomMusic();
+                }
+            } catch (Throwable ignored) {
             }
+            stopCurrentNativeMusic(fadeOutSec);
+        }
+    }
+
+    public void cleanupBattleMusicSession() {
+        cleanupBattleMusicSession(1);
+    }
+
+    public synchronized void cleanupBattleMusicSession(int fadeOutSec) {
+        battleSessionCleanedUp = true;
+        for (int i = 0; i < activeLayers.size(); i++) {
+            ActiveLayerRuntime layer = activeLayers.get(i);
+            stopSingleLayerStream(layer, fadeOutSec);
         }
         activeLayers.clear();
-        setNativeDynamicVolumeMultiplier(1.0f);
         try {
             SoundPlayerAPI sp = Global.getSoundPlayer();
             if (sp != null) {
+                if (fadeOutSec > 0) {
+                    sp.playCustomMusic(fadeOutSec, 0, null);
+                }
+                sp.pauseCustomMusic();
                 sp.setSuspendDefaultMusicPlayback(false);
             }
         } catch (Throwable ignored) {
         }
+        stopCurrentNativeMusic(fadeOutSec);
+        setNativeDynamicVolumeMultiplier(1.0f);
         globalCombatMusicSuspended = false;
+        if (activeSessionController == this) {
+            activeSessionController = null;
+            activeSessionEngine = null;
+        }
     }
 
     /**
-     * Called from campaign script advance to guarantee that if the player exits combat abruptly,
-     * default campaign music playback and full volume multiplier are immediately restored.
+     * Called from campaign script advance, Main Menu combat advance, or background watchdog to guarantee
+     * that whenever the player exits real combat (to Campaign or Main Menu), any battle music fades out
+     * and default music playback + full volume multiplier are immediately restored.
      */
     public static void ensureCleanedUpOutsideCombat() {
-        if (!globalCombatMusicSuspended) return;
+        if (!globalCombatMusicSuspended && activeSessionController == null) return;
         try {
-            if (Global.getCurrentState() != GameState.COMBAT) {
-                setNativeDynamicVolumeMultiplier(1.0f);
-                SoundPlayerAPI sp = Global.getSoundPlayer();
-                if (sp != null) {
-                    sp.setSuspendDefaultMusicPlayback(false);
+            CombatEngineAPI curEngine = Global.getCombatEngine();
+            boolean inRealCombat = (Global.getCurrentState() == GameState.COMBAT)
+                    && curEngine != null
+                    && BattlefieldFirepowerEvaluator.isRealCombatEngine(curEngine)
+                    && (activeSessionEngine == null || curEngine == activeSessionEngine);
+            if (!inRealCombat) {
+                DynamicBattleMusicController ctrl = activeSessionController;
+                if (ctrl != null) {
+                    ctrl.fadeOutAndCleanupOnStateExit();
+                } else {
+                    try {
+                        SoundPlayerAPI sp = Global.getSoundPlayer();
+                        if (sp != null) {
+                            sp.playCustomMusic(1, 0, null);
+                            sp.pauseCustomMusic();
+                            sp.setSuspendDefaultMusicPlayback(false);
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                    stopCurrentNativeMusic(1);
+                    setNativeDynamicVolumeMultiplier(1.0f);
+                    globalCombatMusicSuspended = false;
                 }
-                globalCombatMusicSuspended = false;
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    private void fadeOutAndCleanupOnStateExit() {
+        if (battleSessionCleanedUp) return;
+        float masterMusicVol = getMasterMusicVolumeSetting();
+        // Smooth 0.9s volume ramp down if called from the background state watchdog thread
+        if (Thread.currentThread() == stateWatchdogThread && isAnyLayerTriggered()) {
+            for (int step = 5; step >= 0; step--) {
+                float factor = step / 6.0f;
+                for (int i = 0; i < activeLayers.size(); i++) {
+                    ActiveLayerRuntime layer = activeLayers.get(i);
+                    if (layer.triggered && layer.playbackStarted) {
+                        layer.currentVolume *= factor;
+                        applyLayerVolume(layer, masterMusicVol);
+                    }
+                }
+                try {
+                    Thread.sleep(140L);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
+        cleanupBattleMusicSession(1);
+    }
+
+    private static synchronized void ensureStateWatchdogRunning() {
+        if (stateWatchdogThread != null && stateWatchdogThread.isAlive()) return;
+        Thread t = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (globalCombatMusicSuspended || activeSessionController != null) {
+                    try {
+                        Thread.sleep(150L);
+                        ensureCleanedUpOutsideCombat();
+                    } catch (InterruptedException e) {
+                        break;
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }, "DivisionAI-BattleMusic-Watchdog");
+        t.setDaemon(true);
+        stateWatchdogThread = t;
+        t.start();
     }
 
     public float getCurrentBattleEngagementLevel() {
@@ -1066,9 +1198,9 @@ public class DynamicBattleMusicController {
             // sound.H.o00000(float) -> sets sound.H.class dynamic volume multiplier (0..1)
             mhSoundHSetDynamicVolMult = lookup.findVirtual(
                     soundHClass, "o00000", MethodType.methodType(void.class, float.class));
-            // sound.H.return() -> stops current music stream cleanly
+            // sound.H.Object(int fadeOutSec) -> fades out current music stream over fadeOutSec seconds and clears queue
             mhSoundHStopCurrent = lookup.findVirtual(
-                    soundHClass, "return", MethodType.methodType(void.class));
+                    soundHClass, "Object", MethodType.methodType(void.class, int.class));
 
             // com.fs.starfarer.loading.int(JSONObject) -> stream descriptor
             mhStreamDescriptorCtor = lookup.findConstructor(
@@ -1117,13 +1249,13 @@ public class DynamicBattleMusicController {
         }
     }
 
-    private static void stopCurrentNativeMusic() {
+    private static void stopCurrentNativeMusic(int fadeOutSec) {
         ensureAudioHandlesInitialized();
         if (mhSoundHGetInstance == null || mhSoundHStopCurrent == null) return;
         try {
             Object soundH = mhSoundHGetInstance.invoke();
             if (soundH != null) {
-                mhSoundHStopCurrent.invoke(soundH);
+                mhSoundHStopCurrent.invoke(soundH, Math.max(0, fadeOutSec));
             }
         } catch (Throwable ignored) {
         }
@@ -1135,7 +1267,7 @@ public class DynamicBattleMusicController {
             if (sp != null) {
                 String cur = sp.getCurrentMusicId();
                 if (cur != null && cur.toLowerCase(Locale.ROOT).contains("battle_ambience")) {
-                    stopCurrentNativeMusic();
+                    stopCurrentNativeMusic(0);
                 }
             }
         } catch (Throwable ignored) {

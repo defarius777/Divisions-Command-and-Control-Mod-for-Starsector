@@ -2211,9 +2211,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float totalRowW = (activeForm != null) ? (iconSize + iconGap + textW) : textW;
             float rowStartX = cx - (totalRowW * 0.5f);
             float textX = (activeForm != null) ? (rowStartX + iconSize + iconGap) : rowStartX;
-            // With Alignment.BL and height = textH + 4f, com.fs.starfarer.ui.d renders glyphs from
-            // top = labelY + textH + 4f down to bottom = labelY + 4f, so vertical center is labelY + textH * 0.5f + 4f.
-            float textCenterY = labelY + (textH * 0.5f) + 4f;
+            // With Alignment.BL and height = textH + 4f, com.fs.starfarer.ui.d renders capital letters
+            // from labelY + 3f (baseline) to labelY + 13f (cap-height top), so the true visual horizontal
+            // centerline of the division name is labelY + (textH * 0.5f).
+            float textCenterY = labelY + (textH * 0.5f);
 
             label.getPosition().setSize(textW + 16f, textH + 4f);
             label.getPosition().setLocation(textX, labelY);

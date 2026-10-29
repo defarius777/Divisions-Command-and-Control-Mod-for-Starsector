@@ -157,9 +157,9 @@ public class TsfcWarroomRenderer {
         int divCountSig = ((playerGroup != null ? playerGroup.divisions.size() : 0) << 16)
                 ^ ((alliedAiGroup != null ? alliedAiGroup.divisions.size() : 0) << 8)
                 ^ (enemyGroup != null ? enemyGroup.divisions.size() : 0);
-        boolean needsUninitBase = hasAnyUninitializedDivisionTimeSpace(playerGroup)
-                || hasAnyUninitializedDivisionTimeSpace(alliedAiGroup)
-                || hasAnyUninitializedDivisionTimeSpace(enemyGroup);
+        boolean needsUninitBase = hasAnyUninitializedDivisionTimeSpace(engine, playerGroup)
+                || hasAnyUninitializedDivisionTimeSpace(engine, alliedAiGroup)
+                || hasAnyUninitializedDivisionTimeSpace(engine, enemyGroup);
         if (needsUninitBase
                 || engine != lastTimeSpaceConvEngine
                 || divCountSig != lastTimeSpaceConvDivCountSig
@@ -224,9 +224,10 @@ public class TsfcWarroomRenderer {
         GL11.glPopAttrib();
     }
 
-    static boolean hasAnyUninitializedDivisionTimeSpace(BattleGroupState group) {
+    static boolean hasAnyUninitializedDivisionTimeSpace(CombatEngineAPI engine, BattleGroupState group) {
         if (group == null) return false;
-        for (DivisionState d : group.divisions) {
+        List<DivisionState> allDivs = getDivisionsAndStationBastionsForRendering(engine, group);
+        for (DivisionState d : allDivs) {
             if (d != null && d.isCombatEffective()
                     && (d.freeTimeRadius <= 1f || !d.directionalTimeInitialized || !d.directionalSpaceInitialized)) {
                 return true;
@@ -245,12 +246,14 @@ public class TsfcWarroomRenderer {
             float offsetY,
             float fade) {
 
-        if (group == null || group.divisions.isEmpty()) return;
+        if (group == null) return;
+        List<DivisionState> renderDivs = getDivisionsAndStationBastionsForRendering(engine, group);
+        if (renderDivs.isEmpty()) return;
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
-        for (DivisionState div : group.divisions) {
+        for (DivisionState div : renderDivs) {
             if (!div.isCombatEffective()) continue;
             if (isEnemy && !OtcAI.isDivisionVisibleToSide(engine, 0, div)) continue;
             Vector2f cWorld = isEnemy ? OtcAI.getVisibleCentroidForSide(engine, 0, div) : div.centroid;
@@ -418,12 +421,14 @@ public class TsfcWarroomRenderer {
             float offsetY,
             float fade) {
 
-        if (group == null || group.divisions.isEmpty()) return;
+        if (group == null) return;
+        List<DivisionState> renderDivs = getDivisionsAndStationBastionsForRendering(engine, group);
+        if (renderDivs.isEmpty()) return;
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
-        for (DivisionState div : group.divisions) {
+        for (DivisionState div : renderDivs) {
             if (!div.isCombatEffective()) continue;
             if (isEnemy && !OtcAI.isDivisionVisibleToSide(engine, 0, div)) continue;
             Vector2f cWorld = isEnemy ? OtcAI.getVisibleCentroidForSide(engine, 0, div) : div.centroid;
@@ -496,12 +501,14 @@ public class TsfcWarroomRenderer {
             float offsetY,
             float fade) {
 
-        if (group == null || group.divisions.isEmpty()) return;
+        if (group == null) return;
+        List<DivisionState> renderDivs = getDivisionsAndStationBastionsForRendering(engine, group);
+        if (renderDivs.isEmpty()) return;
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
-        for (DivisionState div : group.divisions) {
+        for (DivisionState div : renderDivs) {
             if (!div.isCombatEffective()) continue;
             if (isEnemy && !OtcAI.isDivisionVisibleToSide(engine, 0, div)) continue;
             Vector2f cWorld = isEnemy ? OtcAI.getVisibleCentroidForSide(engine, 0, div) : div.centroid;

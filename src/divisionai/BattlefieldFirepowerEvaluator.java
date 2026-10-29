@@ -246,6 +246,7 @@ public class BattlefieldFirepowerEvaluator {
     static float lastToggleRealTime = -10f;
 
     static final Map<String, ShipFirepowerRose> rosesByShipId = new HashMap<>();
+    static final Map<String, DivisionState> stationBastionsByShipId = new HashMap<>();
     static final Map<String, LabelAPI> uiLabelCache = new HashMap<>();
 
     /**
@@ -466,6 +467,7 @@ public class BattlefieldFirepowerEvaluator {
         activeAlliedGroupRef = null;
         activeEnemyGroupRef = null;
         rosesByShipId.clear();
+        stationBastionsByShipId.clear();
         uiLabelCache.clear();
         lastToggleRealTime = -10f;
         lastTimeSpaceConvEngine = null;
@@ -983,8 +985,10 @@ public class BattlefieldFirepowerEvaluator {
 
     public static boolean isEligibleFirepowerUnit(ShipAPI ship) {
         if (ship == null || !ship.isAlive() || ship.isHulk() || ship.isExpired()) return false;
-        if (ship.isShuttlePod() || ship.isDrone() || ship.isStation() || ship.isStationModule()) return false;
-        if (ship.getParentStation() != null) return false;
+        if (ship.isShuttlePod() || ship.isDrone()) return false;
+        if (ship.isStation() || ship.isStationModule() || ship.getParentStation() != null) {
+            return hasAnyUsableCombatWeapon(ship);
+        }
         if (ship.isFighter()) {
             // Represent each airborne Strike Craft squadron (FighterWingAPI) via its Wing Leader so strike craft
             // project a cohesive squadron Firepower Rose without 6x duplicate per-fighter clutter
@@ -998,6 +1002,25 @@ public class BattlefieldFirepowerEvaluator {
             return members != null && !members.isEmpty() && members.get(0) == ship;
         }
         return DivisionAutoFormer.isEligibleCombatHull(ship);
+    }
+
+    public static boolean hasAnyUsableCombatWeapon(ShipAPI ship) {
+        if (ship == null) return false;
+        List<WeaponAPI> weapons = ship.getAllWeapons();
+        if (weapons == null || weapons.isEmpty()) return false;
+        for (int i = 0; i < weapons.size(); i++) {
+            if (isUsableCombatWeapon(weapons.get(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean isRootCombatStation(ShipAPI ship) {
+        if (ship == null || !ship.isAlive() || ship.isHulk() || ship.isExpired()) return false;
+        if (ship.isFighter() || ship.isShuttlePod() || ship.isDrone()) return false;
+        if (ship.isStationModule() || ship.getParentStation() != null) return false;
+        return ship.isStation();
     }
 
     /**
@@ -1990,7 +2013,10 @@ public class BattlefieldFirepowerEvaluator {
                 continue;
             }
             float w = ShipCapabilityProfile.resolveShipFpStrength(s) * (s == div.flagship ? 1.35f : 1.0f);
-            float spd = Math.max(25f, s.getMaxSpeed());
+            boolean isStationElement = s.isStation() || s.isStationModule() || s.getParentStation() != null;
+            float spd = isStationElement
+                    ? Math.max(48f, Math.min(115f, Math.max(850f, div.avgEngageRange) * 0.055f))
+                    : Math.max(25f, s.getMaxSpeed());
             weightedSpeedSum += spd * w;
             weightSum += w;
             if (spd < minCoreSpeed) {
@@ -2123,6 +2149,186 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     /**
+     * Synchronizes and returns synthetic Station Bastion {@link DivisionState}s for any live root orbital stations
+     * belonging to {@code group} so stations project Time, Space, and Convergence without being issued mobile
+     * maneuver orders or cluttering the map with mobile division callsigns.
+     */
+    public static List<DivisionState> syncAndGetStationBastionsForGroup(
+            CombatEngineAPI engine,
+            BattleGroupState group) {
+        if (engine == null || group == null) return Collections.emptyList();
+        List<ShipAPI> ships = engine.getShips();
+        if (ships == null || ships.isEmpty()) return Collections.emptyList();
+
+        List<DivisionState> bastions = new ArrayList<>();
+        for (int i = 0; i < ships.size(); i++) {
+            ShipAPI st = ships.get(i);
+            if (!isRootCombatStation(st)) continue;
+            if (st.getOwner() != group.side) continue;
+            if (group.side == 0 && st.isAlly() != group.isAlliedAi) continue;
+
+            String key = st.getId();
+            DivisionState bastion = stationBastionsByShipId.get(key);
+            if (bastion == null) {
+                CommanderProfile cmdr = new CommanderProfile(st.getCaptain(), st.getName() != null ? st.getName() : "Orbital Station");
+                bastion = new DivisionState(
+                        "station_bastion_" + key,
+                        group.side,
+                        90 + bastions.size(),
+                        DivisionArchetype.BATTLESHIP_DIVISION,
+                        st.getName() != null ? st.getName() : "Orbital Station",
+                        cmdr);
+                bastion.doctrinalFormation = PermanentDivisionManager.DivisionFormation.CIRCLE;
+                bastion.activeFormation = PermanentDivisionManager.DivisionFormation.CIRCLE;
+                stationBastionsByShipId.put(key, bastion);
+            }
+            bastion.useConvergence = group.useConvergence || isAlphaCoreControlledShip(st);
+            bastion.flagship = st;
+            bastion.members.clear();
+            bastion.members.add(st);
+
+            List<ShipAPI> childMods = st.getChildModulesCopy();
+            if (childMods != null) {
+                for (int mIdx = 0; mIdx < childMods.size(); mIdx++) {
+                    ShipAPI mod = childMods.get(mIdx);
+                    if (mod != null && mod.isAlive() && !mod.isHulk() && !mod.isExpired() && !bastion.members.contains(mod)) {
+                        bastion.members.add(mod);
+                    }
+                }
+            }
+            for (int mIdx = 0; mIdx < ships.size(); mIdx++) {
+                ShipAPI mod = ships.get(mIdx);
+                if (mod != null && mod != st && mod.isAlive() && !mod.isHulk() && !mod.isExpired()
+                        && mod.getParentStation() == st && !bastion.members.contains(mod)) {
+                    bastion.members.add(mod);
+                }
+            }
+
+            Vector2f stLoc = st.getLocation() != null ? st.getLocation() : new Vector2f(0f, 0f);
+            bastion.centroid.set(stLoc);
+            bastion.stationPoint.set(stLoc);
+            bastion.velocity.set(0f, 0f);
+            double hRad = Math.toRadians(st.getFacing());
+            bastion.formationHeadingX = (float) Math.cos(hRad);
+            bastion.formationHeadingY = (float) Math.sin(hRad);
+            bastion.formationHeadingInitialized = true;
+
+            float maxSpread = Math.max(220f, st.getCollisionRadius());
+            float totalFp = 0f;
+            float rangeWeightedSum = 0f;
+            float rangeWeightSum = 0f;
+            float fluxSum = 0f;
+            float hullSum = 0f;
+            int count = 0;
+            for (int mIdx = 0; mIdx < bastion.members.size(); mIdx++) {
+                ShipAPI m = bastion.members.get(mIdx);
+                if (m == null || !m.isAlive() || m.isHulk()) continue;
+                count++;
+                if (m.getLocation() != null) {
+                    float d = distance(stLoc, m.getLocation()) + Math.max(40f, m.getCollisionRadius() * 0.65f);
+                    if (d > maxSpread) maxSpread = d;
+                }
+                float fp = ShipCapabilityProfile.resolveShipFpStrength(m);
+                totalFp += fp;
+                fluxSum += m.getFluxLevel();
+                hullSum += m.getHullLevel();
+
+                List<WeaponAPI> weapons = m.getAllWeapons();
+                if (weapons != null) {
+                    for (int wIdx = 0; wIdx < weapons.size(); wIdx++) {
+                        WeaponAPI w = weapons.get(wIdx);
+                        if (!isUsableCombatWeapon(w)) continue;
+                        float wr = w.getRange();
+                        if (wr <= 150f) continue;
+                        float ww = weaponSizeWeight(w.getSize());
+                        rangeWeightedSum += wr * ww;
+                        rangeWeightSum += ww;
+                    }
+                }
+            }
+            bastion.spreadRadius = clampVal(maxSpread, 240f, 850f);
+            bastion.totalFpStrength = Math.max(36f, totalFp);
+            bastion.avgEngageRange = (rangeWeightSum > 0f)
+                    ? clampVal(rangeWeightedSum / rangeWeightSum, 650f, 2400f)
+                    : 1150f;
+            bastion.avgFluxLevel = (count > 0) ? (fluxSum / count) : 0f;
+            bastion.avgHullLevel = (count > 0) ? (hullSum / count) : 1f;
+            bastion.coreMemberCount = Math.max(1, count);
+            bastion.ableMemberCount = Math.max(1, count);
+            bastion.isUnableDivision = false;
+            bastion.retreatingFraction = 0f;
+
+            PointFirepowerEval eval = evaluatePoint(engine, group.side, stLoc, Math.max(250f, st.getCollisionRadius()));
+            bastion.incomingShortDotThreat = eval.incomingShortDot;
+            bastion.crossfireCordonIndex = eval.cordonIndex;
+
+            updateDivisionBaseTimeSpace(bastion);
+            bastions.add(bastion);
+        }
+        return bastions;
+    }
+
+    public static List<DivisionState> getDivisionsAndStationBastionsForRendering(
+            CombatEngineAPI engine,
+            BattleGroupState group) {
+        if (group == null) return Collections.emptyList();
+        List<DivisionState> bastions = syncAndGetStationBastionsForGroup(engine, group);
+        if (bastions.isEmpty()) {
+            return group.divisions;
+        }
+        if (group.divisions.isEmpty()) {
+            return bastions;
+        }
+        List<DivisionState> combined = new ArrayList<>(group.divisions.size() + bastions.size());
+        combined.addAll(group.divisions);
+        combined.addAll(bastions);
+        return combined;
+    }
+
+    private static List<DivisionState> collectPeerDivisionsAndStations(
+            CombatEngineAPI engine,
+            BattleGroupState group,
+            boolean includeSiblingSide0Groups) {
+        if (group == null) return Collections.emptyList();
+        List<DivisionState> out = new ArrayList<>(group.divisions);
+        out.addAll(syncAndGetStationBastionsForGroup(engine, group));
+        if (includeSiblingSide0Groups && group.side == 0) {
+            BattleGroupState sibling = group.isAlliedAi ? activePlayerGroupRef : activeAlliedGroupRef;
+            if (sibling != null && sibling != group) {
+                for (int i = 0; i < sibling.divisions.size(); i++) {
+                    DivisionState d = sibling.divisions.get(i);
+                    if (d != null && !out.contains(d)) out.add(d);
+                }
+                List<DivisionState> sibStations = syncAndGetStationBastionsForGroup(engine, sibling);
+                for (int i = 0; i < sibStations.size(); i++) {
+                    DivisionState s = sibStations.get(i);
+                    if (s != null && !out.contains(s)) out.add(s);
+                }
+            }
+        } else if (includeSiblingSide0Groups && group.side == 1) {
+            if (activePlayerGroupRef != null) {
+                List<DivisionState> pStations = syncAndGetStationBastionsForGroup(engine, activePlayerGroupRef);
+                for (int i = 0; i < pStations.size(); i++) {
+                    DivisionState s = pStations.get(i);
+                    if (s != null && !out.contains(s)) out.add(s);
+                }
+            }
+            if (activeAlliedGroupRef != null) {
+                for (int i = 0; i < activeAlliedGroupRef.divisions.size(); i++) {
+                    DivisionState d = activeAlliedGroupRef.divisions.get(i);
+                    if (d != null && !out.contains(d)) out.add(d);
+                }
+                List<DivisionState> aStations = syncAndGetStationBastionsForGroup(engine, activeAlliedGroupRef);
+                for (int i = 0; i < aStations.size(); i++) {
+                    DivisionState s = aStations.get(i);
+                    if (s != null && !out.contains(s)) out.add(s);
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
      * Evaluates cross-division Time & Space interactions and Convergence across myGroup and enemyGroup:
      *  1. Computes Engagement Level (reduction of Time freedom caused by Enemy Space & Enemy Firepower overlapping
      *     a division's Time circle), updating effectiveTimeRadius = freeTimeRadius * (1 - engagementLevel).
@@ -2146,25 +2352,29 @@ public class BattlefieldFirepowerEvaluator {
             updateConvergenceCommandStates(engine, enemyGroup);
         }
 
-        for (DivisionState d : myGroup.divisions) {
+        List<DivisionState> myEffectiveDivs = getDivisionsAndStationBastionsForRendering(engine, myGroup);
+        List<DivisionState> myPeersWithAllies = collectPeerDivisionsAndStations(engine, myGroup, true);
+        List<DivisionState> enemyEffectiveDivs = (enemyGroup != null)
+                ? collectPeerDivisionsAndStations(engine, enemyGroup, myGroup.side == 1)
+                : Collections.<DivisionState>emptyList();
+
+        for (DivisionState d : myEffectiveDivs) {
             if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
                 updateDivisionBaseTimeSpace(d);
             }
         }
-        if (enemyGroup != null) {
-            for (DivisionState e : enemyGroup.divisions) {
-                if (e.isCombatEffective() && e.freeTimeRadius <= 1f) {
-                    updateDivisionBaseTimeSpace(e);
-                }
+        for (DivisionState e : enemyEffectiveDivs) {
+            if (e.isCombatEffective() && e.freeTimeRadius <= 1f) {
+                updateDivisionBaseTimeSpace(e);
             }
         }
 
-        for (DivisionState div : myGroup.divisions) {
+        for (DivisionState div : myEffectiveDivs) {
             if (!div.isCombatEffective()) continue;
 
-            // 1. Friendly Space mutual support from sibling divisions (excluding retreating/unable divisions)
+            // 1. Friendly Space mutual support from sibling divisions & friendly stations (excluding retreating/unable divisions)
             float friendlySupport = 0f;
-            for (DivisionState peer : myGroup.divisions) {
+            for (DivisionState peer : myPeersWithAllies) {
                 if (peer == null || peer == div || !peer.isAbleCombatEffective()) continue;
                 float d = distance(div.centroid, peer.centroid);
                 float bearingToDiv = (float) Math.toDegrees(Math.atan2(div.centroid.y - peer.centroid.y, div.centroid.x - peer.centroid.x));
@@ -2179,8 +2389,8 @@ public class BattlefieldFirepowerEvaluator {
 
             // 2. Enemy Space overlap with this division's Time circle & footprint
             float enemySpaceOverlap = 0f;
-            if (enemyGroup != null) {
-                for (DivisionState eDiv : enemyGroup.divisions) {
+            if (!enemyEffectiveDivs.isEmpty()) {
+                for (DivisionState eDiv : enemyEffectiveDivs) {
                     if (eDiv == null || !eDiv.isCombatEffective()) continue;
                     if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
                     Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
@@ -2253,10 +2463,13 @@ public class BattlefieldFirepowerEvaluator {
             //     and Firepower, bolstered along friendly seams, and pinched against the combat map edges!
             computeDirectionalSpaceEnvelope(engine, div, myGroup, enemyGroup, refStrength);
 
-            // 5. Strongpoint vs Weak Point classification
-            div.isStrongpoint = (friendlySupport >= Math.max(24f, div.totalFpStrength * 0.58f))
-                    && div.avgFluxLevel < 0.62f;
-            div.isWeakPoint = (friendlySupport < 12f)
+            // 5. Strongpoint vs Weak Point classification (orbital stations are anchored fortress strongpoints)
+            boolean isStationBastion = (div.flagship != null && div.flagship.isStation());
+            div.isStrongpoint = isStationBastion
+                    ? (div.avgFluxLevel < 0.78f)
+                    : ((friendlySupport >= Math.max(24f, div.totalFpStrength * 0.58f)) && div.avgFluxLevel < 0.62f);
+            div.isWeakPoint = !isStationBastion
+                    && (friendlySupport < 12f)
                     && (div.avgFluxLevel >= 0.38f
                     || div.crossfireCordonIndex >= 0.28f
                     || div.totalFpStrength <= 32f
@@ -2313,6 +2526,10 @@ public class BattlefieldFirepowerEvaluator {
 
         // Baseline non-directional drag from the division's own flux load (venting/overloaded ships maneuver slower in all directions)
         float baseDrag = clampVal(fluxEngagement * 0.72f, 0f, 0.18f);
+        List<DivisionState> myPeers = collectPeerDivisionsAndStations(engine, myGroup, true);
+        List<DivisionState> enemyUnits = (enemyGroup != null)
+                ? collectPeerDivisionsAndStations(engine, enemyGroup, div.side == 1)
+                : Collections.<DivisionState>emptyList();
 
         for (int s = 0; s < nDirs; s++) {
             float angleDeg = s * (360f / nDirs);
@@ -2323,8 +2540,8 @@ public class BattlefieldFirepowerEvaluator {
             float dirPinch = baseDrag;
 
             // 1. Directional Enemy Contact & Space Blocking Lobe
-            if (enemyGroup != null) {
-                for (DivisionState eDiv : enemyGroup.divisions) {
+            if (!enemyUnits.isEmpty()) {
+                for (DivisionState eDiv : enemyUnits) {
                     if (eDiv == null || !eDiv.isCombatEffective()) continue;
                     if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
                     Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
@@ -2369,8 +2586,8 @@ public class BattlefieldFirepowerEvaluator {
                     div.centroid.x + ux * (freeR * 0.55f),
                     div.centroid.y + uy * (freeR * 0.55f));
             float peerFriendlySpace = 0f;
-            if (myGroup != null) {
-                for (DivisionState peer : myGroup.divisions) {
+            if (!myPeers.isEmpty()) {
+                for (DivisionState peer : myPeers) {
                     if (peer == null || peer == div || !peer.isCombatEffective()) continue;
                     float dist = distance(stepPt, peer.centroid);
                     float potR = Math.max(peer.spaceDominatedRadius + 180f, peer.spacePotentialRadius);
@@ -2384,8 +2601,8 @@ public class BattlefieldFirepowerEvaluator {
                 }
             }
             float stepEnemySpace = 0f;
-            if (enemyGroup != null) {
-                for (DivisionState e : enemyGroup.divisions) {
+            if (!enemyUnits.isEmpty()) {
+                for (DivisionState e : enemyUnits) {
                     if (e == null || !e.isCombatEffective()) continue;
                     if (!OtcAI.isDivisionVisibleToSide(engine, div.side, e)) continue;
                     Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, e);
@@ -2486,6 +2703,10 @@ public class BattlefieldFirepowerEvaluator {
                 : (div.doctrinalFormation != null ? div.doctrinalFormation : PermanentDivisionManager.DivisionFormation.LINE_ABREAST);
 
         List<ShipAPI> alive = div.getAliveMembers();
+        List<DivisionState> myPeers = collectPeerDivisionsAndStations(engine, myGroup, true);
+        List<DivisionState> enemyUnits = (enemyGroup != null)
+                ? collectPeerDivisionsAndStations(engine, enemyGroup, div.side == 1)
+                : Collections.<DivisionState>emptyList();
         float[] rawIn = new float[nDirs];
         float[] rawDom = new float[nDirs];
         float[] rawPot = new float[nDirs];
@@ -2562,8 +2783,8 @@ public class BattlefieldFirepowerEvaluator {
 
             // 2. Directional Pinching by Opposing Enemy Space & Enemy Firepower (and bolstering by Friendly Space)
             float enemyPinch = 0f;
-            if (enemyGroup != null) {
-                for (DivisionState eDiv : enemyGroup.divisions) {
+            if (!enemyUnits.isEmpty()) {
+                for (DivisionState eDiv : enemyUnits) {
                     if (eDiv == null || !eDiv.isCombatEffective()) continue;
                     if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
                     Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
@@ -2585,8 +2806,8 @@ public class BattlefieldFirepowerEvaluator {
             }
 
             float friendlyBolster = 0f;
-            if (myGroup != null) {
-                for (DivisionState peer : myGroup.divisions) {
+            if (!myPeers.isEmpty()) {
+                for (DivisionState peer : myPeers) {
                     if (peer == null || peer == div || !peer.isAbleCombatEffective()) continue;
                     float dx = peer.centroid.x - div.centroid.x;
                     float dy = peer.centroid.y - div.centroid.y;

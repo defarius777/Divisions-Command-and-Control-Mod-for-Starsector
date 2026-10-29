@@ -2057,8 +2057,9 @@ public class UITestHarness {
                 && tooltipSrc.contains("line3Label.setText(l3);");
 
         // - Item C: Warroom formation icon inline with division text ("[symbol] Strike Cruiser Div 1")
+        //   and centered on the exact horizontal plane of the division name capital letters
         boolean warroomInlineFormOk = overlaySrc.contains("float totalRowW = (activeForm != null) ? (iconSize + iconGap + textW) : textW;")
-                && overlaySrc.contains("float textCenterY = labelY + (textH * 0.5f) + 4f;")
+                && overlaySrc.contains("float textCenterY = labelY + (textH * 0.5f);")
                 && overlaySrc.contains("rowStartX + (iconSize * 0.5f)");
 
         // - Item E & F: No inner #182028 lineart in any of the 11 formation SVGs, and None formation icon has
@@ -2175,6 +2176,8 @@ public class UITestHarness {
         boolean flagshipDivRankOk = DivisionTacticalMapOverlay.isFlagshipDivision(hhDiv, flagSet)
                 && !DivisionTacticalMapOverlay.isFlagshipDivision(enemyWarband2, flagSet)
                 && doctrineSrc.contains("renderFormationSquareBorder")
+                && doctrineSrc.contains("loadFormationSpriteSafe")
+                && doctrineSrc.contains("Global.getSettings().loadTexture(path)")
                 && weightRoleSortOk
                 && inputEventOrderOk;
 
@@ -2271,9 +2274,96 @@ public class UITestHarness {
                 && defProf.layers.get(0).computeTargetVolume(0.30f, true) > 0.24f
                 && defProf.layers.get(0).computeTargetVolume(0.85f, true) >= 0.99f;
 
+        // Verify Station Time & Space Bastion Projection (Issue C) & Battle Music Fade-Out / Cessation (Issues D & E):
+        ShipAPI mockStation = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == a[0];
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("getId".equals(n)) return "station_fortress_1";
+                    if ("getName".equals(n)) return "Def's Landing Station";
+                    if ("getOwner".equals(n)) return 0;
+                    if ("isAlly".equals(n)) return true;
+                    if ("isAlive".equals(n) || "isStation".equals(n)) return true;
+                    if ("isHulk".equals(n) || "isExpired".equals(n) || "isFighter".equals(n)
+                            || "isShuttlePod".equals(n) || "isDrone".equals(n) || "isStationModule".equals(n)) {
+                        return false;
+                    }
+                    if ("getParentStation".equals(n)) return null;
+                    if ("getLocation".equals(n)) return new Vector2f(0f, 0f);
+                    if ("getVelocity".equals(n)) return new Vector2f(0f, 0f);
+                    if ("getCollisionRadius".equals(n)) return 380f;
+                    if ("getMaxSpeed".equals(n)) return 0f;
+                    if ("getHullSize".equals(n)) return ShipAPI.HullSize.CAPITAL_SHIP;
+                    if ("getHullLevel".equals(n)) return 0.95f;
+                    if ("getFluxLevel".equals(n)) return 0.10f;
+                    if ("getNumFighterBays".equals(n)) return 3;
+                    if ("getAllWeapons".equals(n)) return new ArrayList<com.fs.starfarer.api.combat.WeaponAPI>();
+                    if ("getChildModulesCopy".equals(n)) return new ArrayList<ShipAPI>();
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final List<ShipAPI> stationShips = new ArrayList<>(Arrays.asList(mockStation, enemyTarget));
+        final boolean[] combatOverRef = new boolean[]{false};
+        CombatEngineAPI musicTestEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == a[0];
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("getShips".equals(n)) return stationShips;
+                    if ("isCombatOver".equals(n)) return combatOverRef[0];
+                    if ("isInCampaign".equals(n)) return true;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        BattleGroupState alliedStationGroup = new BattleGroupState(0, cmdr);
+        alliedStationGroup.isAlliedAi = true;
+        BattlefieldFirepowerEvaluator.setActiveBattleGroups(engTestGroup, alliedStationGroup, eGroup);
+        BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(musicTestEngine, alliedStationGroup, eGroup);
+        List<DivisionState> stationBastions = BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(musicTestEngine, alliedStationGroup);
+        boolean stationTimeSpaceProjectedOk = !stationBastions.isEmpty()
+                && stationBastions.get(0).freeTimeRadius >= 850f
+                && stationBastions.get(0).effectiveTimeRadius >= 400f
+                && stationBastions.get(0).spaceInnerRadius >= 380f
+                && stationBastions.get(0).spaceDominatedRadius > stationBastions.get(0).spaceInnerRadius
+                && stationBastions.get(0).spacePotentialRadius > stationBastions.get(0).spaceDominatedRadius
+                && stationBastions.get(0).directionalTimeInitialized
+                && stationBastions.get(0).directionalSpaceInitialized
+                && stationBastions.get(0).isStrongpoint;
+
+        // Verify Battle Music Fade-Out & Cessation on Combat Over:
+        DynamicBattleMusicController musicCtrl = new DynamicBattleMusicController();
+        engTestGroup.smoothedEngagementLevel = 0.80f;
+        for (int step = 0; step < 12; step++) {
+            musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.20f);
+        }
+        float peakVolBeforeCombatEnd = musicCtrl.getPrimaryLayerVolume();
+        combatOverRef[0] = true;
+        musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.20f);
+        float volDuringCombatEndFade = musicCtrl.getPrimaryLayerVolume();
+        for (int step = 0; step < 20; step++) {
+            musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.20f);
+        }
+        float volAfterCombatEndFade = musicCtrl.getPrimaryLayerVolume();
+        boolean musicFadeOutAndCessationOk = peakVolBeforeCombatEnd > 0.50f
+                && volDuringCombatEndFade < peakVolBeforeCombatEnd
+                && volDuringCombatEndFade > 0.01f
+                && volAfterCombatEndFade == 0f;
+
         formationIconsCleanOk = formationIconsCleanOk && flagshipDivRankOk
                 && twoFrigateDivsBelowThresholdOk && fourFrigateDivsCrossThresholdOk
-                && battleshipCommitHighEngagementOk && musicProfilesOk;
+                && battleshipCommitHighEngagementOk && musicProfilesOk
+                && stationTimeSpaceProjectedOk && musicFadeOutAndCessationOk;
         boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk
                 && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk
                 && strikeWidthCompromiseOk && ehpSpaceDomainOk && protectiveCircleOk

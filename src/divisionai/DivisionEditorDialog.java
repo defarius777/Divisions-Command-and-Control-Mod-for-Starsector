@@ -775,7 +775,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             }
         });
         badgeRef[0] = formBadge;
-        cardPanel.addComponent(formBadge).inTL(6f, 32f);
+        cardPanel.addComponent(formBadge).inTL(6f, 30f);
 
         topUi.setHeightSoFar(56f);
         cardPanel.addUIElement(topUi).inTL(2f, 2f);
