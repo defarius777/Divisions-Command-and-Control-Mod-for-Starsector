@@ -2962,6 +2962,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         if (closed || !isDraggingShip || pressedTile == null || pressedTile.member == null) return;
 
         FleetMemberAPI m = pressedTile.member;
+        ShipIconTile hoveredShipTile = findShipTileAt(mouseX, mouseY);
         DropTargetZone hoveredZone = findDropZoneAt(mouseX, mouseY);
 
         float ghostW = 96f;
@@ -2999,7 +3000,15 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         renderShipMemberSprite(m, mouseX, mouseY + 4f, ghostW - 14f, ghostH - 24f, 0.95f * alphaMult);
 
         String actionDesc;
-        if (hoveredZone != null) {
+        if (hoveredShipTile != null
+                && hoveredShipTile.member != null
+                && !hoveredShipTile.member.getId().equals(m.getId())
+                && hoveredShipTile.sourceDivisionId != null
+                && hoveredShipTile.sourceDivisionId.equals(pressedTile.sourceDivisionId)) {
+            actionDesc = hoveredShipTile.isFlagship
+                    ? ("Drop -> Set Flagship (" + m.getHullSpec().getHullName() + ")")
+                    : ("Drop -> Swap with " + hoveredShipTile.member.getHullSpec().getHullName());
+        } else if (hoveredZone != null) {
             actionDesc = (hoveredZone.targetDivisionId == null)
                     ? ("Drop -> Unassign " + m.getHullSpec().getHullName())
                     : ("Drop -> Assign to " + hoveredZone.label);
@@ -3058,7 +3067,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
             // Right-Click on a Ship Icon Tile -> Quick Assign / Unassign
             if (event.isRMBDownEvent()) {
-                ShipIconTile rmbTile = findShipTileAt(event.getX(), event.getY());
+                float ex = event.getX();
+                float ey = event.getY();
+                ShipIconTile rmbTile = findShipTileAt(ex, ey);
                 if (rmbTile != null && rmbTile.member != null) {
                     event.consume();
                     handleShipTileRightClick(rmbTile);
@@ -3068,19 +3079,21 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
             // Left-Mouse Down -> Start potential drag on a Ship Icon Tile, or select a Division Card
             if (event.isLMBDownEvent()) {
-                ShipIconTile lmbTile = findShipTileAt(event.getX(), event.getY());
+                float ex = event.getX();
+                float ey = event.getY();
+                ShipIconTile lmbTile = findShipTileAt(ex, ey);
                 if (lmbTile != null && lmbTile.member != null) {
                     pressedTile = lmbTile;
-                    pressStartX = event.getX();
-                    pressStartY = event.getY();
+                    pressStartX = ex;
+                    pressStartY = ey;
                     isDraggingShip = false;
                     event.consume();
                     continue;
                 }
 
                 // On Screen 1 (Overview), clicking inside a Division Card (outside its buttons) selects that division
-                if (activeDivisionId == null && !isPointOverAnyButton(event.getX(), event.getY())) {
-                    DropTargetZone clickedZone = findDropZoneAt(event.getX(), event.getY());
+                if (activeDivisionId == null && !isPointOverAnyButton(ex, ey)) {
+                    DropTargetZone clickedZone = findDropZoneAt(ex, ey);
                     if (clickedZone != null && clickedZone.targetDivisionId != null) {
                         event.consume();
                         handleAction("SELECT_DIV:" + clickedZone.targetDivisionId);
@@ -3091,8 +3104,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
             // Mouse Move while holding a Ship Icon Tile -> Transition to active Drag-and-Drop
             if (event.isMouseMoveEvent() && pressedTile != null) {
-                float dx = event.getX() - pressStartX;
-                float dy = event.getY() - pressStartY;
+                float ex = event.getX();
+                float ey = event.getY();
+                float dx = ex - pressStartX;
+                float dy = ey - pressStartY;
                 if ((dx * dx + dy * dy) >= (DRAG_START_THRESHOLD_PX * DRAG_START_THRESHOLD_PX)) {
                     isDraggingShip = true;
                 }
@@ -3102,6 +3117,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
             // Left-Mouse Up -> Complete Drag-and-Drop OR execute clean Left-Click on Ship Icon Tile
             if (event.isLMBUpEvent() && pressedTile != null) {
+                float dropX = event.getX();
+                float dropY = event.getY();
                 ShipIconTile finishedTile = pressedTile;
                 boolean wasDragging = isDraggingShip;
                 pressedTile = null;
@@ -3109,9 +3126,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 event.consume();
 
                 if (wasDragging) {
-                    DropTargetZone dropZone = findDropZoneAt(event.getX(), event.getY());
-                    if (dropZone != null) {
-                        handleShipTileDrop(finishedTile, dropZone);
+                    ShipIconTile targetShipTile = findShipTileAt(dropX, dropY);
+                    DropTargetZone dropZone = findDropZoneAt(dropX, dropY);
+                    if (dropZone != null || targetShipTile != null) {
+                        handleShipTileDrop(finishedTile, dropZone, targetShipTile);
                     }
                 } else {
                     handleShipTileLeftClick(finishedTile);
@@ -3197,11 +3215,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private void handleShipTileDrop(ShipIconTile tile, DropTargetZone dropZone) {
-        if (tile == null || tile.member == null || dropZone == null) return;
+    private void handleShipTileDrop(ShipIconTile tile, DropTargetZone dropZone, ShipIconTile targetShipTile) {
+        if (tile == null || tile.member == null) return;
+        if (dropZone == null && targetShipTile == null) return;
         savePendingNameFieldIfAny();
         String memberId = tile.member.getId();
-        String targetDivId = dropZone.targetDivisionId;
+        String targetDivId = (dropZone != null)
+                ? dropZone.targetDivisionId
+                : (targetShipTile != null ? targetShipTile.sourceDivisionId : null);
 
         if (targetDivId == null) {
             // Dropped onto the Unassigned Fleet Pool -> Unassign from source division
@@ -3210,10 +3231,27 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 rebuildContent();
             }
         } else {
-            // Dropped onto a Division Card / Division Bay -> Assign or transfer to that division
+            // Dropped onto a Division Card / Division Bay -> Assign, transfer, or swap within the same division
             selectedOverviewDivisionId = targetDivId;
             if (!targetDivId.equals(tile.sourceDivisionId)) {
                 PermanentDivisionManager.assignShipToDivision(memberId, targetDivId);
+                if (targetShipTile != null
+                        && targetShipTile.member != null
+                        && targetDivId.equals(targetShipTile.sourceDivisionId)) {
+                    PermanentDivisionManager.swapOrReorderShipsInDivision(
+                            targetDivId,
+                            memberId,
+                            targetShipTile.member.getId());
+                }
+                rebuildContent();
+            } else if (targetShipTile != null
+                    && targetShipTile.member != null
+                    && !memberId.equals(targetShipTile.member.getId())
+                    && targetDivId.equals(targetShipTile.sourceDivisionId)) {
+                PermanentDivisionManager.swapOrReorderShipsInDivision(
+                        targetDivId,
+                        memberId,
+                        targetShipTile.member.getId());
                 rebuildContent();
             }
         }

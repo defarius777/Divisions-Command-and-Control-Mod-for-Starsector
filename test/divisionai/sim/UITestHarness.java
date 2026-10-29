@@ -2152,9 +2152,29 @@ public class UITestHarness {
                 && unableShipDetectedOk;
 
         java.util.Set<ShipAPI> flagSet = new java.util.HashSet<>(Arrays.asList(damagedHammerhead));
+        List<PermanentDivisionSpec> sortTestSpecs = new ArrayList<>(Arrays.asList(
+                new PermanentDivisionSpec("d_srv", "Service Group 1", DivisionArchetype.SERVICE_GROUP),
+                new PermanentDivisionSpec("d_ff", "Frigate Div 1", DivisionArchetype.FRIGATE_DIVISION),
+                new PermanentDivisionSpec("d_dd", "Destroyer Div 1", DivisionArchetype.DESTROYER_DIVISION),
+                new PermanentDivisionSpec("d_ca", "Line Cruiser Div 1", DivisionArchetype.CRUISER_DIVISION),
+                new PermanentDivisionSpec("d_cv", "Fleet Carrier Div 1", DivisionArchetype.FLEET_CARRIER_DIVISION),
+                new PermanentDivisionSpec("d_bb", "Battleship Div 1", DivisionArchetype.BATTLESHIP_DIVISION)
+        ));
+        PermanentDivisionManager.sortDivisionsByWeightClassAndRole(sortTestSpecs, null);
+        boolean weightRoleSortOk = sortTestSpecs.get(0).archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                && sortTestSpecs.get(1).archetype == DivisionArchetype.FLEET_CARRIER_DIVISION
+                && sortTestSpecs.get(2).archetype == DivisionArchetype.CRUISER_DIVISION
+                && sortTestSpecs.get(3).archetype == DivisionArchetype.DESTROYER_DIVISION
+                && sortTestSpecs.get(4).archetype == DivisionArchetype.FRIGATE_DIVISION
+                && sortTestSpecs.get(5).archetype == DivisionArchetype.SERVICE_GROUP;
+        boolean inputEventOrderOk = editorSrc.contains("float dropX = event.getX();")
+                && editorSrc.indexOf("float dropX = event.getX();") < editorSrc.indexOf("DropTargetZone dropZone = findDropZoneAt(dropX, dropY);")
+                && editorSrc.contains("handleShipTileDrop(finishedTile, dropZone, targetShipTile)");
         boolean flagshipDivRankOk = DivisionTacticalMapOverlay.isFlagshipDivision(hhDiv, flagSet)
                 && !DivisionTacticalMapOverlay.isFlagshipDivision(enemyWarband2, flagSet)
-                && doctrineSrc.contains("renderFormationSquareBorder");
+                && doctrineSrc.contains("renderFormationSquareBorder")
+                && weightRoleSortOk
+                && inputEventOrderOk;
         formationIconsCleanOk = formationIconsCleanOk && flagshipDivRankOk;
         boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk
                 && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk

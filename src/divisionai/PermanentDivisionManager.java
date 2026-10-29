@@ -2908,6 +2908,7 @@ public class PermanentDivisionManager {
 
         List<PermanentDivisionSpec> specs = loadSpecsFromPersistentData(pdata);
         pruneRemovedFleetMembers(specs, playerFleet);
+        sortDivisionsByWeightClassAndRole(specs, playerFleet);
         saveSpecsToPersistentData(pdata, specs);
         return specs;
     }
@@ -3110,10 +3111,15 @@ public class PermanentDivisionManager {
         }
 
         // 3b. Group any remaining unassigned ships into new divisions (up to doctrine.getMax(cat) and MAX_DIVISION_SIZE = 10)
-        // Sort unassigned so ships with commanders lead new divisions first!
+        // Sort unassigned by Weight Class & Role first (Heavy Capital -> Cruiser -> Destroyer -> Frigate -> Non-Combatant),
+        // and within the same weight class/role prefer ships with commanders so they lead new divisions!
+        final FleetDoctrineConfig sortDocRef = doctrine;
         Collections.sort(unassigned, new Comparator<FleetMemberAPI>() {
             @Override
             public int compare(FleetMemberAPI a, FleetMemberAPI b) {
+                int rA = getArchetypeWeightAndRoleSortOrder(classifyFleetMemberArchetype(a, sortDocRef));
+                int rB = getArchetypeWeightAndRoleSortOrder(classifyFleetMemberArchetype(b, sortDocRef));
+                if (rA != rB) return Integer.compare(rA, rB);
                 boolean aCmd = a.getCaptain() != null && !a.getCaptain().isDefault();
                 boolean bCmd = b.getCaptain() != null && !b.getCaptain().isDefault();
                 if (aCmd != bCmd) return aCmd ? -1 : 1;
@@ -3158,6 +3164,7 @@ public class PermanentDivisionManager {
                 recalculateDivisionStandoffRangeFromGuns(s, fleet);
             }
         }
+        sortDivisionsByWeightClassAndRole(specs, fleet);
         saveSpecsToPersistentData(pdata, specs);
         LOG.info("[DivisionAI] Auto-assigned fleet ships across " + specs.size() + " permanent divisions.");
     }
@@ -3251,6 +3258,7 @@ public class PermanentDivisionManager {
             created.flagshipMemberId = optionalFirstMemberId;
             recalculateDivisionStandoffRangeFromGuns(created, sector.getPlayerFleet());
         }
+        sortDivisionsByWeightClassAndRole(specs, sector.getPlayerFleet());
         saveSpecsToPersistentData(pdata, specs);
         return created;
     }
@@ -3290,6 +3298,7 @@ public class PermanentDivisionManager {
             ensureValidFlagship(target, fleet);
             recalculateDivisionStandoffRangeFromGuns(target, fleet);
         }
+        sortDivisionsByWeightClassAndRole(specs, fleet);
         saveSpecsToPersistentData(pdata, specs);
     }
 
@@ -3308,6 +3317,7 @@ public class PermanentDivisionManager {
                 break;
             }
         }
+        sortDivisionsByWeightClassAndRole(specs, fleet);
         saveSpecsToPersistentData(pdata, specs);
     }
 
@@ -3326,6 +3336,185 @@ public class PermanentDivisionManager {
             }
         }
         saveSpecsToPersistentData(pdata, specs);
+    }
+
+    /**
+     * Swaps or reorders two ships within the same permanent division when dragging-and-dropping
+     * one ship tile onto another ship tile in the Division Editor. If dropped onto the current
+     * division flagship tile (or slot 0), promotes the dragged ship to division flagship.
+     */
+    public static void swapOrReorderShipsInDivision(
+            String divisionId,
+            String draggedMemberId,
+            String targetMemberId) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null || draggedMemberId == null || targetMemberId == null) return;
+        if (draggedMemberId.equals(targetMemberId)) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                int idxFrom = spec.memberIds.indexOf(draggedMemberId);
+                int idxTo = spec.memberIds.indexOf(targetMemberId);
+                if (idxFrom >= 0 && idxTo >= 0 && idxFrom != idxTo) {
+                    Collections.swap(spec.memberIds, idxFrom, idxTo);
+                    if (targetMemberId.equals(spec.flagshipMemberId) || idxTo == 0) {
+                        spec.flagshipMemberId = draggedMemberId;
+                    } else if (draggedMemberId.equals(spec.flagshipMemberId) && idxFrom == 0) {
+                        spec.flagshipMemberId = targetMemberId;
+                    }
+                }
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    /**
+     * Canonical sort order by Weight Class and Role, from Heavy Combat at the top (0)
+     * to Non-Combatant Auxiliary at the bottom (90).
+     */
+    public static int getArchetypeWeightAndRoleSortOrder(DivisionArchetype arch) {
+        if (arch == null) return 50;
+        switch (arch) {
+            // 1. Capital Weight Class (Heavy Combat - Top)
+            case BATTLESHIP_DIVISION:         return 10;
+            case MISSILE_BATTLESHIP_DIVISION: return 11;
+            case FLEET_CARRIER_DIVISION:      return 12;
+            case CARRIER_GROUP:               return 13;
+            // 2. Cruiser Weight Class (Medium-Heavy Combat)
+            case CRUISER_DIVISION:            return 20;
+            case STRIKE_CRUISER_DIVISION:     return 21;
+            case MISSILE_CRUISER_DIVISION:    return 22;
+            case LIGHT_CARRIER_DIVISION:      return 23;
+            // 3. Destroyer Weight Class (Medium-Light Combat)
+            case DESTROYER_DIVISION:          return 30;
+            case MISSILE_DESTROYER_DIVISION:  return 31;
+            case ESCORT_CARRIER_DIVISION:     return 32;
+            // 4. Frigate & Phase Weight Class (Light / Specialist Combat)
+            case FRIGATE_DIVISION:            return 40;
+            case MISSILE_FRIGATE_DIVISION:    return 41;
+            case PHASE_DIVISION:              return 42;
+            // 5. General / Mixed Force
+            case FORCE_DIVISION:              return 50;
+            // 6. Non-Combatant / Auxiliary (Bottom)
+            case SERVICE_GROUP:               return 90;
+            default:                          return 50;
+        }
+    }
+
+    /**
+     * Sorts permanent divisions in-place by weight class and role from heavy combat at the top
+     * to non-combatant auxiliary (Service Group / civilian) at the bottom.
+     */
+    public static void sortDivisionsByWeightClassAndRole(
+            List<PermanentDivisionSpec> specs,
+            CampaignFleetAPI fleet) {
+        if (specs == null || specs.size() <= 1) return;
+        final Map<String, FleetMemberAPI> byId = mapFleetMembersById(fleet);
+        final FleetDoctrineConfig doctrine = getFleetDoctrine();
+
+        Collections.sort(specs, new Comparator<PermanentDivisionSpec>() {
+            @Override
+            public int compare(PermanentDivisionSpec a, PermanentDivisionSpec b) {
+                if (a == b) return 0;
+                if (a == null) return 1;
+                if (b == null) return -1;
+
+                int rankA = resolveEffectiveDivisionSortRank(a, byId, doctrine);
+                int rankB = resolveEffectiveDivisionSortRank(b, byId, doctrine);
+                if (rankA != rankB) {
+                    return Integer.compare(rankA, rankB);
+                }
+
+                // Within the same weight class & role, keep Flagship Division first
+                boolean flagA = containsFleetFlagship(a, byId);
+                boolean flagB = containsFleetFlagship(b, byId);
+                if (flagA != flagB) {
+                    return flagA ? -1 : 1;
+                }
+
+                // Keep non-empty divisions above empty divisions of the same archetype
+                boolean emptyA = (a.memberIds == null || a.memberIds.isEmpty());
+                boolean emptyB = (b.memberIds == null || b.memberIds.isEmpty());
+                if (emptyA != emptyB) {
+                    return emptyA ? 1 : -1;
+                }
+
+                // Preserve stable division sequence number (e.g. BatDiv 1 before BatDiv 2)
+                int seqA = extractTrailingNumber(a.name, extractTrailingNumber(a.id, 999));
+                int seqB = extractTrailingNumber(b.name, extractTrailingNumber(b.id, 999));
+                if (seqA != seqB) {
+                    return Integer.compare(seqA, seqB);
+                }
+                return String.valueOf(a.id).compareTo(String.valueOf(b.id));
+            }
+        });
+    }
+
+    private static int resolveEffectiveDivisionSortRank(
+            PermanentDivisionSpec spec,
+            Map<String, FleetMemberAPI> byId,
+            FleetDoctrineConfig doctrine) {
+        if (spec == null) return 99;
+        DivisionArchetype arch = spec.archetype != null ? spec.archetype : DivisionArchetype.FORCE_DIVISION;
+        if (arch == DivisionArchetype.SERVICE_GROUP) {
+            return 90;
+        }
+        if (byId != null && !byId.isEmpty() && spec.memberIds != null && !spec.memberIds.isEmpty()) {
+            boolean allCivilian = true;
+            int bestMemberRank = Integer.MAX_VALUE;
+            for (String mId : spec.memberIds) {
+                FleetMemberAPI m = byId.get(mId);
+                if (m == null) continue;
+                DoctrineHullCategory cat = classifyHullCategory(m);
+                if (cat != DoctrineHullCategory.FREIGHTER
+                        && cat != DoctrineHullCategory.TANKER
+                        && cat != DoctrineHullCategory.TRANSPORT
+                        && !m.isCivilian()) {
+                    allCivilian = false;
+                }
+                DivisionArchetype mArch = classifyFleetMemberArchetype(m, doctrine);
+                if (mArch != null) {
+                    bestMemberRank = Math.min(bestMemberRank, getArchetypeWeightAndRoleSortOrder(mArch));
+                }
+            }
+            if (allCivilian) {
+                return 90;
+            }
+            if (arch == DivisionArchetype.FORCE_DIVISION && bestMemberRank < Integer.MAX_VALUE) {
+                return bestMemberRank;
+            }
+        }
+        return getArchetypeWeightAndRoleSortOrder(arch);
+    }
+
+    private static boolean containsFleetFlagship(PermanentDivisionSpec spec, Map<String, FleetMemberAPI> byId) {
+        if (spec == null || spec.memberIds == null || byId == null) return false;
+        for (String mId : spec.memberIds) {
+            FleetMemberAPI m = byId.get(mId);
+            if (m != null && m.isFlagship()) return true;
+        }
+        return false;
+    }
+
+    private static int extractTrailingNumber(String text, int fallback) {
+        if (text == null) return fallback;
+        int end = text.length() - 1;
+        while (end >= 0 && !Character.isDigit(text.charAt(end))) {
+            end--;
+        }
+        if (end < 0) return fallback;
+        int start = end;
+        while (start >= 0 && Character.isDigit(text.charAt(start))) {
+            start--;
+        }
+        try {
+            return Integer.parseInt(text.substring(start + 1, end + 1));
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     public static void updateDivisionMetadata(
@@ -3352,6 +3541,7 @@ public class PermanentDivisionManager {
                 break;
             }
         }
+        sortDivisionsByWeightClassAndRole(specs, sector.getPlayerFleet());
         saveSpecsToPersistentData(pdata, specs);
     }
 
@@ -3668,13 +3858,7 @@ public class PermanentDivisionManager {
         List<FleetMemberAPI> missileCruisers = buckets.get(DivisionArchetype.MISSILE_CRUISER_DIVISION);
         List<FleetMemberAPI> strikeCruisers = buckets.get(DivisionArchetype.STRIKE_CRUISER_DIVISION);
 
-        // 1. Carrier Divisions (Fleet Carrier, Light Carrier, Escort Carrier)
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.FLEET_CARRIER_DIVISION, buckets.get(DivisionArchetype.FLEET_CARRIER_DIVISION), 2);
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.LIGHT_CARRIER_DIVISION, buckets.get(DivisionArchetype.LIGHT_CARRIER_DIVISION), 3);
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.ESCORT_CARRIER_DIVISION, buckets.get(DivisionArchetype.ESCORT_CARRIER_DIVISION), 4);
-
-        // 2. Battle & Missile Battleship Divisions
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, missileCapitals, 2);
+        // 1. Capital Weight Class (Battleship, Missile Battleship, Fleet Carrier)
         for (int i = 0; i < capitals.size(); i += 2) {
             List<FleetMemberAPI> group = new ArrayList<>();
             group.add(capitals.get(i));
@@ -3686,26 +3870,33 @@ public class PermanentDivisionManager {
             }
             addBuiltDivision(specs, pdata, DivisionArchetype.BATTLESHIP_DIVISION, group);
         }
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, missileCapitals, 2);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.FLEET_CARRIER_DIVISION, buckets.get(DivisionArchetype.FLEET_CARRIER_DIVISION), 2);
 
-        // 3. Line Cruiser, Missile Cruiser & Strike Cruiser Divisions
+        // 2. Cruiser Weight Class (Line Cruiser, Strike Cruiser, Missile Cruiser, Light Carrier)
         if (strikeCruisers.size() == 1 && !lineCruisers.isEmpty()) {
             lineCruisers.add(strikeCruisers.remove(0));
         }
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_CRUISER_DIVISION, missileCruisers, 4);
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.STRIKE_CRUISER_DIVISION, strikeCruisers, 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.CRUISER_DIVISION, lineCruisers, 4);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.STRIKE_CRUISER_DIVISION, strikeCruisers, 4);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_CRUISER_DIVISION, missileCruisers, 4);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.LIGHT_CARRIER_DIVISION, buckets.get(DivisionArchetype.LIGHT_CARRIER_DIVISION), 3);
 
-        // 4. Destroyer & Missile Destroyer Divisions
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_DESTROYER_DIVISION, buckets.get(DivisionArchetype.MISSILE_DESTROYER_DIVISION), 4);
+        // 3. Destroyer Weight Class (Destroyer, Missile Destroyer, Escort Carrier)
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.DESTROYER_DIVISION, buckets.get(DivisionArchetype.DESTROYER_DIVISION), 4);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_DESTROYER_DIVISION, buckets.get(DivisionArchetype.MISSILE_DESTROYER_DIVISION), 4);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.ESCORT_CARRIER_DIVISION, buckets.get(DivisionArchetype.ESCORT_CARRIER_DIVISION), 4);
 
-        // 5. Frigate, Missile Frigate, Phase, Auxiliary, and Force Divisions
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_FRIGATE_DIVISION, buckets.get(DivisionArchetype.MISSILE_FRIGATE_DIVISION), 5);
+        // 4. Frigate & Phase Weight Class (Frigate, Missile Frigate, Phase)
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.FRIGATE_DIVISION, buckets.get(DivisionArchetype.FRIGATE_DIVISION), 5);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_FRIGATE_DIVISION, buckets.get(DivisionArchetype.MISSILE_FRIGATE_DIVISION), 5);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.PHASE_DIVISION, buckets.get(DivisionArchetype.PHASE_DIVISION), 4);
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.SERVICE_GROUP, buckets.get(DivisionArchetype.SERVICE_GROUP), 5);
-        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.FORCE_DIVISION, buckets.get(DivisionArchetype.FORCE_DIVISION), 4);
 
+        // 5. General Force & Non-Combatant Auxiliary (Service Group at the bottom)
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.FORCE_DIVISION, buckets.get(DivisionArchetype.FORCE_DIVISION), 4);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.SERVICE_GROUP, buckets.get(DivisionArchetype.SERVICE_GROUP), 5);
+
+        sortDivisionsByWeightClassAndRole(specs, fleet);
         return specs;
     }
 
