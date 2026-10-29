@@ -19,6 +19,7 @@ import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import org.lwjgl.util.vector.Vector2f;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -288,14 +289,36 @@ public class OtcAI {
             totalFriendlyFp += weightSum;
         }
 
+        float frontlineWeightedX = 0f;
+        float frontlineWeightedY = 0f;
+        float frontlineFp = 0f;
+        for (DivisionState div : battleGroup.divisions) {
+            if (!div.isCombatEffective()) continue;
+            if (div.currentIntent != DivisionModel.DivisionIntentType.HOLD_IN_RESERVE
+                    && div.currentIntent != DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT
+                    && div.currentIntent != DivisionModel.DivisionIntentType.BREAK_OFF_AND_RETIRE) {
+                frontlineWeightedX += div.centroid.x * div.totalFpStrength;
+                frontlineWeightedY += div.centroid.y * div.totalFpStrength;
+                frontlineFp += div.totalFpStrength;
+            }
+        }
+
         battleGroup.totalFriendlyStrength = totalFriendlyFp;
         if (totalFriendlyFp > 0f) {
             battleGroup.fleetCentroid.set(fleetWeightedX / totalFriendlyFp, fleetWeightedY / totalFriendlyFp);
         }
 
-        // Reserve station sits 1800u behind the fleet centroid toward friendly map edge
+        // Anchor reserveStation 680u behind the engaged frontline centroid (close tactical support distance)
         float retreatDirY = (battleGroup.side == 0) ? -1f : 1f;
-        battleGroup.reserveStation.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * 1800f);
+        if (frontlineFp > 0f) {
+            float fx = frontlineWeightedX / frontlineFp;
+            float fy = frontlineWeightedY / frontlineFp;
+            float maxEdgeY = (engine != null && engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.36f) : 3400f;
+            float targetResY = Math.max(-maxEdgeY, Math.min(maxEdgeY, fy + retreatDirY * 680f));
+            battleGroup.reserveStation.set(fx, targetResY);
+        } else if (battleGroup.reserveStation.x == 0f && battleGroup.reserveStation.y == 0f) {
+            battleGroup.reserveStation.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * 680f);
+        }
     }
 
     private static void evaluateLocalForceRatioViaGrid(CombatEngineAPI engine, DivisionState div) {
@@ -577,20 +600,27 @@ public class OtcAI {
             myGroup.phaseEnteredTime = now;
         }
 
-        // Reserve management. With the Reserve & Exploit play the reserve is held until the OTC commits it
-        // (relief, exploitation) or 150s pass; otherwise only during the opening 90s.
+        // Reserve management: hold a mobile reserve during approach or while enjoying a clear force advantage,
+        // but commit the reserve immediately once the main battle line is in close contact against an equal/superior force
+        // so we never fight 4v5 outnumbered while 20% of the fleet watches from the rear.
         boolean reservePlay = myGroup.isPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE) && myGroup.authority.allowsRetasking();
+        boolean frontlineInCloseFight = minContactDist < 1850f && (myGroup.forceRatio <= 1.18f || worstLocalRatio < 0.98f);
+        if (frontlineInCloseFight && myGroup.reserveDivision != null) {
+            myGroup.reserveCommitted = true;
+        }
         boolean holdReserve;
         if (reservePlay) {
             holdReserve = !myGroup.reserveCommitted
-                    && (now < 150f)
-                    && (activeDivCount >= 3)
+                    && !frontlineInCloseFight
+                    && (now < 90f)
+                    && (activeDivCount >= 4)
                     && nextPhase != BattlePhase.FIGHTING_RETIREMENT
                     && (myGroup.otc.aggressionBias <= 1.35f);
         } else {
-            holdReserve = (now < 90f)
-                    && (activeDivCount >= 3)
-                    && (nextPhase == BattlePhase.APPROACH || nextPhase == BattlePhase.GENERAL_ENGAGEMENT)
+            holdReserve = !frontlineInCloseFight
+                    && (now < 45f)
+                    && (activeDivCount >= 4)
+                    && (nextPhase == BattlePhase.APPROACH)
                     && (myGroup.otc.aggressionBias <= 1.20f);
         }
 
@@ -600,7 +630,8 @@ public class OtcAI {
         }
         myGroup.reserveDivision = holdReserve ? bestReserveCandidate : null;
 
-        // Orchestrate: turn the battle plan into per-division taskings
+        // Orchestrate: compute multi-division / fleet-wide formation geometry, then turn the battle plan into per-division taskings
+        updateFleetWideFormationGeometry(engine, myGroup, enemyGroup);
         OtcBattlePlanner.planBattle(engine, myGroup, enemyGroup, endangeredDiv, minorEndangeredDiv, now);
 
         // Log OTC operational directive when phase or primary focus shifts
@@ -611,22 +642,31 @@ public class OtcAI {
     private static String buildOtcSignal(BattleGroupState battleGroup, DivisionState endangeredDiv) {
         String mainName = battleGroup.mainEffortDivision != null ? "\"" + battleGroup.mainEffortDivision.displayName + "\"" : "the main body";
         String targetName = battleGroup.primaryThreatEnemyDivision != null ? "\"" + battleGroup.primaryThreatEnemyDivision.displayName + "\"" : "the enemy line";
+        String fwTag = (battleGroup.activeFleetWideFormation != null)
+                ? " [" + battleGroup.activeFleetWideFormation.shortName + "]"
+                : "";
+        String spTag = (battleGroup.activeMultiDivisionSetpiece != null
+                && battleGroup.activeMultiDivisionSetpiece != PermanentDivisionManager.MultiDivisionSetpiece.NONE)
+                ? " {" + battleGroup.activeMultiDivisionSetpiece.shortName + "}"
+                : "";
 
         switch (battleGroup.currentPhase) {
             case APPROACH:
                 if (battleGroup.reserveDivision != null) {
-                    return String.format("Scouts ahead, %s leading; \"%s\" held in reserve.", mainName, battleGroup.reserveDivision.displayName);
+                    return String.format("Scouts ahead%s, %s leading; \"%s\" held in reserve.", fwTag, mainName, battleGroup.reserveDivision.displayName);
                 }
-                return String.format("Scouts ahead, %s leading, to take objectives and gain contact.", mainName);
+                return String.format("Scouts ahead%s, %s leading, to take objectives and gain contact.", fwTag, mainName);
             case COORDINATED_STRIKE:
                 if (battleGroup.strikePlan != null && battleGroup.strikePlan.target != null) {
-                    return String.format("%s fixes; %d strike division%s on time-on-target against \"%s\".",
+                    return String.format("%s fixes%s%s; %d strike division%s on time-on-target against \"%s\".",
                             mainName,
+                            fwTag,
+                            spTag,
                             battleGroup.strikePlan.participants.size(),
                             battleGroup.strikePlan.participants.size() == 1 ? "" : "s",
                             battleGroup.strikePlan.target.displayName);
                 }
-                return String.format("%s fixes; strike divisions stand by against %s.", mainName, targetName);
+                return String.format("%s fixes%s%s; strike divisions stand by against %s.", mainName, fwTag, spTag, targetName);
             case REINFORCE_THE_LINE:
                 if (endangeredDiv != null) {
                     return String.format("Reinforce \"%s\" (local ratio %.2f); close up the screens.",
@@ -639,8 +679,259 @@ public class OtcAI {
                 return "Retire by divisions toward the rendezvous, covering each other.";
             case GENERAL_ENGAGEMENT:
             default:
-                return String.format("Line of battle formed on %s, engaging %s.", mainName, targetName);
+                return String.format("Line of battle%s%s formed on %s, engaging %s.", fwTag, spTag, mainName, targetName);
         }
+    }
+
+    /**
+     * Scope Items 3 & 4: Computes the Fleet-Wide (Multi-Division) Formation offsets for all active divisions
+     * in the BattleGroup relative to the fleet advance axis, and supports initial deployment marshalling.
+     */
+    public static void updateFleetWideFormationGeometry(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup) {
+        if (myGroup == null) return;
+        List<DivisionState> active = new ArrayList<>();
+        for (DivisionState d : myGroup.divisions) {
+            if (d != null && d.isCombatEffective()) {
+                active.add(d);
+            }
+        }
+        if (active.isEmpty()) return;
+
+        PermanentDivisionManager.FleetWideFormation configured = myGroup.fleetWideFormation != null
+                ? myGroup.fleetWideFormation
+                : PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO;
+        PermanentDivisionManager.FleetWideFormation resolved = configured;
+        if (configured == PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO) {
+            boolean hasCarrier = false;
+            int fastFlankers = 0;
+            for (DivisionState d : active) {
+                if (d.archetype != null && d.archetype.isCarrierArchetype()) hasCarrier = true;
+                if (d.isFastFlanker) fastFlankers++;
+            }
+            if (hasCarrier && myGroup.forceRatio < 0.92f) {
+                resolved = PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION;
+            } else if (myGroup.useConvergence && fastFlankers >= 2) {
+                resolved = PermanentDivisionManager.FleetWideFormation.CRESCENT_HORNS;
+            } else if (myGroup.forceRatio >= 1.28f && active.size() >= 3) {
+                resolved = PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
+            } else if (myGroup.forceRatio < 0.80f && active.size() >= 3) {
+                resolved = PermanentDivisionManager.FleetWideFormation.REFUSED_FLANK_OBLIQUE;
+            } else if (hasCarrier && active.size() >= 3) {
+                resolved = PermanentDivisionManager.FleetWideFormation.CHECKERBOARD_QUINCUNX;
+            } else {
+                resolved = PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST;
+            }
+        }
+        myGroup.activeFleetWideFormation = resolved;
+
+        // Determine fleet advance axis (toward primary visible enemy or default +Y/-Y battle axis)
+        float axisX = 0f;
+        float axisY = (myGroup.side == 0) ? 1f : -1f;
+        if (myGroup.primaryThreatEnemyDivision != null
+                && isDivisionVisibleToSide(engine, myGroup.side, myGroup.primaryThreatEnemyDivision)) {
+            Vector2f ePos = getVisibleCentroidForSide(engine, myGroup.side, myGroup.primaryThreatEnemyDivision);
+            float dx = ePos.x - myGroup.fleetCentroid.x;
+            float dy = ePos.y - myGroup.fleetCentroid.y;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            if (len > 50f) {
+                axisX = dx / len;
+                axisY = dy / len;
+            }
+        }
+        float perpX = axisY;
+        float perpY = -axisX;
+
+        List<DivisionState> combatDivs = new ArrayList<>();
+        List<DivisionState> supportDivs = new ArrayList<>();
+        for (DivisionState d : active) {
+            if (d.archetype != null && (d.archetype.isCarrierArchetype()
+                    || d.archetype == DivisionArchetype.SERVICE_GROUP
+                    || d.isDesignatedReserve)) {
+                supportDivs.add(d);
+            } else {
+                combatDivs.add(d);
+            }
+        }
+        // Put Main Effort first in combatDivs for spearhead/center indexing
+        if (myGroup.mainEffortDivision != null && combatDivs.remove(myGroup.mainEffortDivision)) {
+            combatDivs.add(0, myGroup.mainEffortDivision);
+        }
+
+        int nCombat = combatDivs.size();
+        for (int i = 0; i < nCombat; i++) {
+            DivisionState d = combatDivs.get(i);
+            float rawInterval = Math.max(650f, d.divisionInterval);
+            float interval = (nCombat >= 4)
+                    ? Math.min(rawInterval * 0.72f, 2100f / nCombat)
+                    : rawInterval;
+            float fwd = 0f;
+            float lat = 0f;
+            switch (resolved) {
+                case GRAND_COLUMN_IN_DEPTH: {
+                    fwd = ((nCombat - 1) * 0.5f - i) * 650f;
+                    lat = (i == 0) ? 0f : ((i % 2 == 1) ? -160f : 160f);
+                    break;
+                }
+                case GRAND_WEDGE_SPEARHEAD: {
+                    if (i == 0) {
+                        fwd = 380f;
+                        lat = 0f;
+                    } else {
+                        int wingRank = (i + 1) / 2;
+                        float side = (i % 2 == 1) ? -1f : 1f;
+                        fwd = 380f - wingRank * 440f;
+                        lat = side * wingRank * interval * 0.88f;
+                    }
+                    break;
+                }
+                case REFUSED_FLANK_OBLIQUE: {
+                    float centered = i - (nCombat - 1) * 0.5f;
+                    lat = centered * interval * 0.85f;
+                    fwd = 340f - i * 310f;
+                    break;
+                }
+                case CRESCENT_HORNS: {
+                    if (i == 0) {
+                        fwd = -80f;
+                        lat = 0f;
+                    } else {
+                        int wingRank = (i + 1) / 2;
+                        float side = (i % 2 == 1) ? -1f : 1f;
+                        fwd = -60f + Math.min(260f, wingRank * 110f);
+                        lat = side * wingRank * interval * 0.82f;
+                    }
+                    break;
+                }
+                case CHECKERBOARD_QUINCUNX: {
+                    int rank = i % 2;
+                    float centered = i - (nCombat - 1) * 0.5f;
+                    fwd = (rank == 0) ? 240f : -380f;
+                    lat = centered * interval * 0.78f;
+                    break;
+                }
+                case FLEET_PROTECTIVE_BASTION: {
+                    double angle = (nCombat == 1)
+                            ? 0.0
+                            : (-Math.PI * 0.42 + (Math.PI * 0.84 * i) / (nCombat - 1));
+                    float radius = Math.max(780f, interval * 0.82f);
+                    fwd = (float) Math.cos(angle) * radius;
+                    lat = (float) Math.sin(angle) * radius;
+                    break;
+                }
+                case GRAND_LINE_ABREAST:
+                case DOCTRINAL_AUTO:
+                default: {
+                    float centered;
+                    if (i == 0) {
+                        centered = 0f;
+                    } else {
+                        int wingRank = (i + 1) / 2;
+                        float side = (i % 2 == 1) ? -1f : 1f;
+                        centered = side * wingRank;
+                    }
+                    fwd = (i == 0) ? 90f : 0f;
+                    lat = centered * interval * 0.90f;
+                    break;
+                }
+            }
+            d.fleetFormationOffset.set(axisX * fwd + perpX * lat, axisY * fwd + perpY * lat);
+            d.hasFleetFormationOffset = true;
+        }
+
+        int nSupport = supportDivs.size();
+        for (int i = 0; i < nSupport; i++) {
+            DivisionState d = supportDivs.get(i);
+            float interval = Math.max(850f, d.divisionInterval);
+            float centered = i - (nSupport - 1) * 0.5f;
+            float fwd = (resolved == PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION)
+                    ? -120f
+                    : -880f;
+            float lat = centered * interval * 0.75f;
+            d.fleetFormationOffset.set(axisX * fwd + perpX * lat, axisY * fwd + perpY * lat);
+            d.hasFleetFormationOffset = true;
+        }
+    }
+
+    /**
+     * Scope Item 4: Deploys/marshals divisions directly into their Fleet-Wide Formation and intra-division
+     * formation slots at battle start (when safe in the deployment zone before close combat begins).
+     */
+    public static void applyInitialFleetFormationDeployment(
+            CombatEngineAPI engine,
+            BattleGroupState group,
+             BattleGroupState enemyGroup,
+            float now) {
+        if (engine == null || group == null || !group.deployInFleetFormation) return;
+        if (now > 3.5f && group.initialDeploymentDone) return;
+        if (group.divisions.isEmpty()) return;
+
+        updateFleetWideFormationGeometry(engine, group, enemyGroup);
+
+        float mapW = Math.max(8000f, engine.getMapWidth());
+        float mapH = Math.max(8000f, engine.getMapHeight());
+        float maxAbsX = mapW * 0.42f;
+        float maxAbsY = mapH * 0.42f;
+        float fwdDirY = (group.side == 0) ? 1f : -1f;
+
+        for (DivisionState div : group.divisions) {
+            if (div == null || !div.isCombatEffective() || div.initialDeploymentMarshalled) continue;
+            float nearestEnemy = (enemyGroup != null) ? distanceToNearestEnemyDivision(engine, div, enemyGroup) : 99999f;
+            if (nearestEnemy < 2000f) {
+                div.initialDeploymentMarshalled = true;
+                continue;
+            }
+            float targetCenterX = group.fleetCentroid.x + div.fleetFormationOffset.x;
+            float targetCenterY = group.fleetCentroid.y + div.fleetFormationOffset.y;
+            targetCenterX = Math.max(-maxAbsX, Math.min(maxAbsX, targetCenterX));
+            targetCenterY = Math.max(-maxAbsY, Math.min(maxAbsY, targetCenterY));
+
+            div.stationPoint.set(targetCenterX, targetCenterY);
+            if (!div.formationHeadingInitialized) {
+                div.formationHeadingX = 0f;
+                div.formationHeadingY = fwdDirY;
+                div.formationHeadingInitialized = true;
+            }
+            if (now <= 1.6f) {
+                List<ShipAPI> alive = div.getAliveMembers();
+                PermanentDivisionManager.DivisionFormation fm = div.activeFormation != null
+                        ? div.activeFormation
+                        : (div.doctrinalFormation != null ? div.doctrinalFormation : PermanentDivisionManager.DivisionFormation.LINE_ABREAST);
+                float spacing = Math.max(220f, div.stationSpacing);
+                for (int i = 0; i < alive.size(); i++) {
+                    ShipAPI s = alive.get(i);
+                    if (s == null || s == engine.getPlayerShip() && !engine.isUIAutopilotOn()) continue;
+                    Vector2f slot = DivisionCommanderAI.computeFormationSlotPositionForAnchor(
+                            fm, i, alive, s, targetCenterX, targetCenterY, 0f, fwdDirY, spacing);
+                    float sx = Math.max(-maxAbsX, Math.min(maxAbsX, slot.x));
+                    float sy = Math.max(-maxAbsY, Math.min(maxAbsY, slot.y));
+                    if (isDeploymentSlotClear(engine, s, sx, sy)) {
+                        s.getLocation().set(sx, sy);
+                        s.setFacing((group.side == 0) ? 90f : 270f);
+                    }
+                }
+                div.centroid.set(targetCenterX, targetCenterY);
+            }
+            div.initialDeploymentMarshalled = true;
+        }
+        group.initialDeploymentDone = true;
+    }
+
+    private static boolean isDeploymentSlotClear(CombatEngineAPI engine, ShipAPI movingShip, float x, float y) {
+        if (engine == null || engine.getShips() == null) return true;
+        float myRad = Math.max(40f, movingShip.getCollisionRadius());
+        for (ShipAPI other : engine.getShips()) {
+            if (other == null || other == movingShip || !other.isAlive() || other.isFighter()) continue;
+            float minSep = (myRad + Math.max(40f, other.getCollisionRadius())) * 0.92f;
+            float dx = other.getLocation().x - x;
+            float dy = other.getLocation().y - y;
+            if ((dx * dx + dy * dy) < minSep * minSep) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static DivisionState pickPrimaryEnemyTargetDivision(

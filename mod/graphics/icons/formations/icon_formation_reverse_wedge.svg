@@ -1,9 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Naval Formation Solid-Bar Icon: icon_formation_reverse_wedge -->
-  <polyline points="9.0,17.0 32.0,50.0 55.0,17.0" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-opacity="0.38" stroke-linecap="round" stroke-linejoin="round" />
-  <polygon points="5.9,11.2 12.1,11.2 12.1,25.8 5.9,25.8" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="51.9,11.2 58.1,11.2 58.1,25.8 51.9,25.8" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="17.4,27.2 23.6,27.2 23.6,41.8 17.4,41.8" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="40.4,27.2 46.6,27.2 46.6,41.8 40.4,41.8" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="28.5,42.2 35.5,42.2 35.5,58.8 28.5,58.8" fill="#FFFFFF" fill-opacity="1.00" />
+  <defs>
+    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F2F6FA"/>
+      <stop offset="50%" stop-color="#C8D2DC"/>
+      <stop offset="100%" stop-color="#8C98A6"/>
+    </linearGradient>
+  </defs>
+  <!-- Reverse Wedge: solid inverted triangle pointing down (no inner lineart) -->
+  <polygon points="12,18 52,18 32,54" fill="url(#silver)" stroke="#303842" stroke-width="1.6" stroke-linejoin="round"/>
 </svg>

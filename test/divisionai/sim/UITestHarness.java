@@ -370,16 +370,16 @@ public class UITestHarness {
                 "Item E: Scroll bar offset preserved across UI actions in Fleet Doctrine and Fleet Organization/Configure Division",
                 "FleetDoctrineDialog + DivisionEditorDialog scroll state hooks verified");
 
-        // F. Commander portrait and level badge in lower-left corner of ship icons
+        // F. Commander portrait and level badge on left side of ship icons
         boolean itemFOk = edSrc.contains("renderCommanderPortraitSprite")
                 && edSrc.contains("Fonts.VICTOR_10")
                 && edSrc.contains("showCommanderLevel")
                 && edSrc.contains("float px = x + 2f;")
-                && edSrc.contains("float py = y + 2f;");
+                && edSrc.contains("float py = y + h - portraitBoxSize - 16f;");
         res.record(
                 itemFOk,
-                "Item F: Ship icons render commander portrait in lower-left corner with Fleet-screen Victor-10 level badge",
-                "portraitBoxSize=24px at lower-left (x+2, y+2) with Victor-10 top-right level badge");
+                "Item F: Ship icons render commander portrait on upper-left side with Fleet-screen Victor-10 level badge",
+                "portraitBoxSize=24px at upper-left (x+2, y+h-portraitBoxSize-16) with Victor-10 top-right level badge");
 
         // G. Martyrdom tactics enabled for Luddic Path (not Church) and off by default for player and other factions
         FleetDoctrineConfig defaultPlayerCfg = new FleetDoctrineConfig();
@@ -479,16 +479,16 @@ public class UITestHarness {
     }
 
     private static void auditV069StarsAutoAssignSchemesPolygonsAndRename(UIAuditResult res) throws Exception {
-        // Item A: Division Leader & Fleet Flagship stars on lower-right corner & larger star size
+        // Item A/D: Division Leader & Fleet Flagship stars on left side under/replacing commander portrait
         String overlayJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()), StandardCharsets.UTF_8);
         boolean itemAOk = overlayJava.contains("renderShipCornerStar(ship, silverStar, false, scale, offsetX, offsetY, fade)")
                 && overlayJava.contains("renderShipCornerStar(ship, goldStar, false, scale, offsetX, offsetY, fade)")
-                && overlayJava.contains("upperRightCorner ? (sy + cornerOffset) : (sy - cornerOffset)")
-                && overlayJava.contains("clamp(18.5f * zoom, 14.0f, 26.0f)");
+                && overlayJava.contains("? (portraitCenterY - portraitSize * 0.5f - starSize * 0.5f - 1.5f * zoom)")
+                && overlayJava.contains("clamp(16.0f * zoom, 12.0f, 22.0f)");
         res.record(
                 itemAOk,
-                "v0.6.9 Item A: Division Leader & Fleet Flagship stars on lower-right corner & enlarged flagship star size (14-26px)",
-                "silverStar->bottomRight, goldStar->bottomRight, size=14..26px");
+                "v0.6.9 Item A / Item D: Division Leader & Fleet Flagship stars on left side under/replacing commander portrait (12-22px)",
+                "silverStar & goldStar on left side (under commander portrait if present, replacing portrait if absent), size=12..22px");
 
         // Item B: Auto-Assigner Division Schemes by Capability & Hull Type in Fleet Doctrine
         FleetDoctrineConfig cfg = new FleetDoctrineConfig();
@@ -589,17 +589,20 @@ public class UITestHarness {
                 String.format(Locale.ROOT, "beforeSync='%s', afterSync='%s', commissionedPresetFaction='%s'",
                         beforeSyncPlayerFactionName, afterSyncPlayerFactionName, hegemonyFactionName));
 
-        // Item B: Division & Fleet Flagship stars on lower-right corner vertically aligned with commander portrait
+        // Item B/D: Division & Fleet Flagship stars directly under commander portrait on left side if commander exists,
+        // or replacing the commander portrait if no commander exists.
         boolean itemBOk = overlayJava.contains("float boxHalf = iconRadiusPx * (16.8f / 18.0f);")
-                && overlayJava.contains("float cornerOffset = Math.max(boxHalf - 2.0f, 10.5f * zoom);")
+                && overlayJava.contains("float portraitCenterX = sx - boxHalf + portraitSize * 0.5f + 2.0f * zoom;")
+                && overlayJava.contains("? (portraitCenterY - portraitSize * 0.5f - starSize * 0.5f - 1.5f * zoom)")
                 && overlayJava.contains("renderShipCornerStar(ship, goldStar, false, scale, offsetX, offsetY, fade)")
                 && overlayJava.contains("renderShipCornerStar(ship, silverStar, false, scale, offsetX, offsetY, fade)")
-                && editorJava.contains("float starY = y + 2f + portraitBoxSize * 0.5f;");
+                && editorJava.contains("? (py - starSize * 0.5f - 2f)")
+                && editorJava.contains(": (py + portraitBoxSize * 0.5f);");
 
         res.record(
                 itemBOk,
-                "v0.7.0 Item B: Division/Flagship stars on lower-right corner vertically aligned with commander portrait",
-                "warroom starY=sy-(boxHalf-2f) aligned with portraitCenterY; editor starY=y+2f+portraitBoxSize*0.5f");
+                "v0.7.0 Item B/D: Division/Flagship stars under commander portrait on left side (or replacing portrait if no commander)",
+                "warroom & editor starX aligned with left portraitCenterX; under portrait if hasCommander else at portraitCenterY");
 
         // Item C: Generic "Force" division default
         boolean itemCOk = "Force".equals(DivisionArchetype.FORCE_DIVISION.shortPrefix)
@@ -2044,9 +2047,45 @@ public class UITestHarness {
         boolean protectiveCircleOk = Math.abs(pCircleCore[0]) < 1f && Math.abs(pCircleCore[1]) < 1f
                 && ring1Rad > 350f && Math.abs(ring1Rad - ring2Rad) < 1f;
 
+        // Verify Items B, C, E, F:
+        // - Item B: Campaign fleet hover tooltip pixel-width balanced 1/2/3-line splitting & pre-sized LabelAPI before setText
+        String[] mbLines = divisionai.CampaignFleetTooltipOrganizer.splitBalancedLines("Missile Battleship Div 1", null, 82f);
+        String[] scLines = divisionai.CampaignFleetTooltipOrganizer.splitBalancedLines("Strike Cruiser Div 1", null, 82f);
+        String[] unLines = divisionai.CampaignFleetTooltipOrganizer.splitBalancedLines("Unassigned", null, 82f);
+        boolean tooltipTextQaOk = (mbLines.length == 3 && "Missile".equals(mbLines[0]) && "Battleship".equals(mbLines[1]) && "Div 1".equals(mbLines[2]))
+                && (scLines.length == 2)
+                && (unLines.length == 1 && "Unassigned".equals(unLines[0]))
+                && tooltipSrc.contains("p1.setSize(safeW1, lineH);")
+                && tooltipSrc.contains("line3Label.setText(l3);");
+
+        // - Item C: Warroom formation icon inline with division text ("[symbol] Strike Cruiser Div 1")
+        boolean warroomInlineFormOk = overlaySrc.contains("float totalRowW = (activeForm != null) ? (iconSize + iconGap + textW) : textW;")
+                && overlaySrc.contains("float textCenterY = labelY + (textH * 0.5f) + 4f;")
+                && overlaySrc.contains("rowStartX + (iconSize * 0.5f)");
+
+        // - Item E & F: No inner #182028 lineart in any of the 11 formation SVGs, and None formation icon has
+        //   3 vertical equal-size bars (two close with x,y offset and one far away with x,y offset)
+        boolean formationIconsCleanOk = true;
+        for (DivisionFormation f : DivisionFormation.values()) {
+            String svgName = "mod/graphics/icons/formations/" + f.settingsIconKey + ".svg";
+            String svgContent = new String(Files.readAllBytes(new File(svgName).toPath()), StandardCharsets.UTF_8);
+            if (svgContent.contains("#182028")) {
+                formationIconsCleanOk = false;
+                break;
+            }
+        }
+        String noneSvg = new String(
+                Files.readAllBytes(new File("mod/graphics/icons/formations/icon_formation_none.svg").toPath()),
+                StandardCharsets.UTF_8);
+        boolean noneIconVerticalBarsOk = !noneSvg.contains("rotate(")
+                && noneSvg.contains("x=\"9\" y=\"9\" width=\"10\" height=\"22\"")
+                && noneSvg.contains("x=\"22\" y=\"17\" width=\"10\" height=\"22\"")
+                && noneSvg.contains("x=\"45\" y=\"33\" width=\"10\" height=\"22\"");
+
         boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk
                 && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk
-                && strikeWidthCompromiseOk && ehpSpaceDomainOk && protectiveCircleOk;
+                && strikeWidthCompromiseOk && ehpSpaceDomainOk && protectiveCircleOk
+                && tooltipTextQaOk && warroomInlineFormOk && formationIconsCleanOk && noneIconVerticalBarsOk;
 
         res.record(
                 omegaCoreRecognized && allTenIconsOk && inheritedFromDoctrineOk && customOverrideOk

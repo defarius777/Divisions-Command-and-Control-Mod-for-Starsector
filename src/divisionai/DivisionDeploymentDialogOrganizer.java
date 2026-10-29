@@ -518,10 +518,17 @@ public class DivisionDeploymentDialogOrganizer {
                 orderedMembers.add(e.member);
             }
 
+            PermanentDivisionManager.FleetDoctrineConfig docCfg = PermanentDivisionManager.getFleetDoctrine();
+            PermanentDivisionManager.DivisionFormation divFm =
+                    PermanentDivisionManager.resolveEffectiveFormation(divSpec, docCfg);
+            String rowTitle = (divFm != null)
+                    ? (divSpec.name + " [" + divFm.shortName + "]")
+                    : divSpec.name;
+
             currentSlotIndex = appendRowGroupToScrollingList(
                     fdd,
                     scrollingList,
-                    divSpec.name,
+                    rowTitle,
                     true,
                     divEntries,
                     currentSlotIndex,
@@ -762,7 +769,7 @@ public class DivisionDeploymentDialogOrganizer {
         Color btnDark = isDivisionRow ? DIV_BTN_DARK_COLOR : UNASSIGNED_BTN_DARK;
 
         tt.setParaFont(Fonts.DEFAULT_SMALL);
-        String clippedTitle = title.length() > 16 ? title.substring(0, 15) + "." : title;
+        String clippedTitle = CampaignFleetTooltipOrganizer.fitSingleLineToWidth(title, null, width - 16f);
         LabelAPI lbl = tt.addPara("%s", 0f, titleColor, clippedTitle);
         lbl.getPosition().inTL(6f, 6f);
 

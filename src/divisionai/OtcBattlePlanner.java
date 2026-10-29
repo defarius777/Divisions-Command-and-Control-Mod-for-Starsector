@@ -10,8 +10,11 @@ import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
 import divisionai.DivisionModel.StrikePlan;
 import divisionai.PermanentDivisionManager.DivisionFormation;
-import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
+import divisionai.PermanentDivisionManager.FleetWideFormation;
+import divisionai.PermanentDivisionManager.MultiDivisionSetpiece;
+import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import org.lwjgl.util.vector.Vector2f;
 
@@ -201,18 +204,32 @@ public class OtcBattlePlanner {
             plan = tryCreateStrikePlan(engine, myGroup, active, now);
             myGroup.strikePlan = plan;
         }
-        if (plan == null) return;
+        if (plan == null) {
+            myGroup.activeMultiDivisionSetpiece = MultiDivisionSetpiece.NONE;
+            return;
+        }
+        myGroup.activeMultiDivisionSetpiece = plan.setpieceType != null
+                ? plan.setpieceType
+                : MultiDivisionSetpiece.CONVERGENCE_KILL_BOX;
 
         Vector2f targetPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, plan.target);
+        String spLabel = (plan.setpieceType != null && plan.setpieceType != MultiDivisionSetpiece.NONE)
+                ? " [" + plan.setpieceType.shortName + "]"
+                : "";
         for (DivisionState p : plan.participants) {
             Vector2f offset = plan.marshalOffsets.get(p.id);
             OtcOrderType type = plan.committed ? OtcOrderType.EXECUTE_STRIKE : OtcOrderType.MARSHAL;
+            DivisionSetpieceAttack pSetpiece = plan.participantSetpieces.get(p.id);
+            DivisionFormation pForm = plan.participantFormations.get(p.id);
             String why = plan.committed
-                    ? "OTC: execute, strike \"" + plan.target.displayName + "\""
-                    : String.format("OTC: marshal, strike in %.0fs", Math.max(0f, plan.strikeTime - now));
+                    ? "OTC: execute" + spLabel + ", strike \"" + plan.target.displayName + "\""
+                    : String.format("OTC: marshal%s, strike in %.0fs", spLabel, Math.max(0f, plan.strikeTime - now));
             p.otcOrder.set(type, plan.target, null, 0f, expires, why);
+            p.otcOrder.orderedSetpieceAttack = pSetpiece;
             if (myGroup.authority.allowsPositioning()) {
-                if (plan.committed) {
+                if (pForm != null) {
+                    p.otcOrder.orderedFormation = pForm;
+                } else if (plan.committed) {
                     DivisionMissionType pMis = DivisionCommanderAI.resolveActiveMission(p, now);
                     p.otcOrder.orderedFormation = (pMis == DivisionMissionType.TOT_ALPHA_STRIKE || !p.hasMissileStrikeCapability)
                             ? DivisionFormation.FORWARD_WEDGE
@@ -254,30 +271,154 @@ public class OtcBattlePlanner {
         boolean mainEffortCanFix = myGroup.mainEffortDivision != null
                 && myGroup.mainEffortDivision.isCombatEffective()
                 && distance(myGroup.mainEffortDivision.centroid, targetPos) < 4000f;
+
+        // Scope Item 2: If Multi-Division Setpiece Doctrine is enabled and we have >= 2 combat-ready divisions
+        // within reach of the target, allow non-missile maneuver divisions to join a coordinated Multi-Division Setpiece!
+        MultiDivisionSetpiece docSp = myGroup.multiDivisionSetpieceDoctrine != null
+                ? myGroup.multiDivisionSetpieceDoctrine
+                : MultiDivisionSetpiece.AUTO_DOCTRINAL;
+        if (strikers.isEmpty()
+                && docSp != MultiDivisionSetpiece.NONE
+                && docSp != MultiDivisionSetpiece.AUTO_DOCTRINAL
+                && active.size() >= 2
+                && mainEffortCanFix) {
+            for (DivisionState d : active) {
+                if (d == myGroup.mainEffortDivision || d == myGroup.reserveDivision || d == myGroup.reinforcingDivision) continue;
+                if (d.archetype == DivisionArchetype.SERVICE_GROUP || !d.detachedStragglerIds.isEmpty()) continue;
+                if (d.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
+                        || d.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) continue;
+                if (d.avgFluxLevel >= 0.48f || d.effectiveHpRatio < 0.55f) continue;
+                if (distance(d.centroid, targetPos) <= 3400f) {
+                    strikers.add(d);
+                }
+            }
+        }
         if (strikers.isEmpty() || (strikers.size() < 2 && !mainEffortCanFix)) {
             return null;
         }
 
+        MultiDivisionSetpiece chosenSetpiece = docSp;
+        if (chosenSetpiece == MultiDivisionSetpiece.AUTO_DOCTRINAL) {
+            boolean anyCarrierStriker = false;
+            int flankCapable = 0;
+            for (DivisionState s : strikers) {
+                if (s.archetype != null && s.archetype.isCarrierArchetype()) anyCarrierStriker = true;
+                if (s.isFastFlanker || s.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) flankCapable++;
+            }
+            if (myGroup.useConvergence || anyCarrierStriker) {
+                chosenSetpiece = MultiDivisionSetpiece.CONVERGENCE_KILL_BOX;
+            } else if (flankCapable >= 2) {
+                chosenSetpiece = MultiDivisionSetpiece.CANNAAE_DOUBLE_ENVELOPMENT;
+            } else if (mainEffortCanFix && flankCapable >= 1) {
+                chosenSetpiece = MultiDivisionSetpiece.HAMMER_AND_ANVIL;
+            } else if (target.isStrongpoint) {
+                chosenSetpiece = MultiDivisionSetpiece.ECHELONED_WAVE_BREACH;
+            } else {
+                chosenSetpiece = MultiDivisionSetpiece.CROSSING_THE_T_COLUMN;
+            }
+        }
+
         StrikePlan plan = new StrikePlan();
         plan.target = target;
+        plan.setpieceType = chosenSetpiece;
         plan.createdTime = now;
         float maxEta = 0f;
-        for (DivisionState d : strikers) {
+
+        // Compute front axis from target toward our fleet centroid
+        float fdx = myGroup.fleetCentroid.x - targetPos.x;
+        float fdy = myGroup.fleetCentroid.y - targetPos.y;
+        float flen = (float) Math.sqrt(fdx * fdx + fdy * fdy);
+        if (flen < 1f) {
+            fdx = 0f;
+            fdy = (myGroup.side == 0) ? -1f : 1f;
+            flen = 1f;
+        }
+        fdx /= flen;
+        fdy /= flen;
+        float fperpX = -fdy;
+        float fperpY = fdx;
+
+        for (int idx = 0; idx < strikers.size(); idx++) {
+            DivisionState d = strikers.get(idx);
             float dx = d.centroid.x - targetPos.x;
             float dy = d.centroid.y - targetPos.y;
             float len = (float) Math.sqrt(dx * dx + dy * dy);
             if (len < 1f) {
-                dx = 0f;
-                dy = (myGroup.side == 0) ? -1f : 1f;
+                dx = fdx;
+                dy = fdy;
                 len = 1f;
             }
             float marshalDist = d.archetype.isCarrierArchetype()
-                    ? Math.max(2200f, d.standoffRange)
+                    ? Math.max(2000f, d.standoffRange)
                     : (DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.TOT_ALPHA_STRIKE
-                    ? Math.min(1550f, Math.max(1150f, d.avgEngageRange * 1.35f))
-                    : MISSILE_MARSHAL_DIST);
-            Vector2f offset = new Vector2f(dx / len * marshalDist, dy / len * marshalDist);
+                    ? Math.min(1150f, Math.max(800f, d.avgEngageRange * 1.05f))
+                    : Math.max(850f, Math.min(1250f, d.avgEngageRange > 100f ? d.avgEngageRange * 1.05f : d.standoffRange)));
+
+            DivisionSetpieceAttack spAtk = DivisionSetpieceAttack.WALL_SALVO_PASS;
+            DivisionFormation spForm = DivisionFormation.LINE_ABREAST;
+            Vector2f offset;
+
+            if (d.archetype.isCarrierArchetype()) {
+                spAtk = DivisionSetpieceAttack.NONE;
+                spForm = d.doctrinalFormation != null ? d.doctrinalFormation : DivisionFormation.PROTECTIVE_CIRCLE;
+                offset = new Vector2f(dx / len * marshalDist, dy / len * marshalDist);
+            } else {
+                switch (chosenSetpiece) {
+                    case HAMMER_AND_ANVIL: {
+                        spAtk = DivisionSetpieceAttack.LANCE_CHARGE;
+                        spForm = DivisionFormation.FORWARD_WEDGE;
+                        float side = ((d.centroid.x - targetPos.x) * fperpX + (d.centroid.y - targetPos.y) * fperpY) >= 0f ? 1f : -1f;
+                        float vx = fdx * 0.55f + fperpX * side * 0.83f;
+                        float vy = fdy * 0.55f + fperpY * side * 0.83f;
+                        offset = new Vector2f(vx * marshalDist, vy * marshalDist);
+                        break;
+                    }
+                    case CANNAAE_DOUBLE_ENVELOPMENT: {
+                        float side = (idx % 2 == 0) ? 1f : -1f;
+                        spAtk = (d.getAliveMembers().size() >= 3)
+                                ? DivisionSetpieceAttack.HORNS_OF_THE_BULL
+                                : DivisionSetpieceAttack.ECHELON_STRIKE;
+                        spForm = (spAtk == DivisionSetpieceAttack.HORNS_OF_THE_BULL)
+                                ? DivisionFormation.FORWARD_SEMICIRCLE
+                                : (side > 0f ? DivisionFormation.ECHELON_LEFT : DivisionFormation.ECHELON_RIGHT);
+                        float vx = fdx * 0.45f + fperpX * side * 0.89f;
+                        float vy = fdy * 0.45f + fperpY * side * 0.89f;
+                        offset = new Vector2f(vx * marshalDist, vy * marshalDist);
+                        break;
+                    }
+                    case CROSSING_THE_T_COLUMN: {
+                        spAtk = DivisionSetpieceAttack.BROADSIDE_ROLL;
+                        spForm = DivisionFormation.LINE_AHEAD;
+                        float side = (idx % 2 == 0) ? 1f : -1f;
+                        float vx = fdx * 0.85f + fperpX * side * 0.52f;
+                        float vy = fdy * 0.85f + fperpY * side * 0.52f;
+                        offset = new Vector2f(vx * marshalDist, vy * marshalDist);
+                        break;
+                    }
+                    case ECHELONED_WAVE_BREACH: {
+                        spAtk = DivisionSetpieceAttack.LANCE_CHARGE;
+                        spForm = DivisionFormation.FORWARD_WEDGE;
+                        float waveDist = marshalDist + idx * 360f;
+                        offset = new Vector2f(dx / len * waveDist, dy / len * waveDist);
+                        break;
+                    }
+                    case CONVERGENCE_KILL_BOX:
+                    default: {
+                        spAtk = d.hasMissileStrikeCapability
+                                ? DivisionSetpieceAttack.WALL_SALVO_PASS
+                                : DivisionSetpieceAttack.HORNS_OF_THE_BULL;
+                        spForm = d.hasMissileStrikeCapability
+                                ? DivisionFormation.REVERSE_SEMICIRCLE
+                                : DivisionFormation.FORWARD_SEMICIRCLE;
+                        offset = new Vector2f(dx / len * marshalDist, dy / len * marshalDist);
+                        break;
+                    }
+                }
+            }
+
             plan.marshalOffsets.put(d.id, offset);
+            plan.participantSetpieces.put(d.id, spAtk);
+            plan.participantFormations.put(d.id, spForm);
             plan.participants.add(d);
 
             float travel = Math.max(0f, distance(d.centroid, new Vector2f(targetPos.x + offset.x, targetPos.y + offset.y)) - 250f);
@@ -287,15 +428,21 @@ public class OtcBattlePlanner {
             float eta = travel / effectiveSpd;
             maxEta = Math.max(maxEta, eta);
         }
-        plan.strikeTime = now + Math.max(MARSHAL_TIME_MIN, Math.min(MARSHAL_TIME_MAX, maxEta));
+        plan.strikeTime = now + Math.max(2.0f, Math.min(8.0f, maxEta * 0.65f));
+        if (maxEta <= 3.5f) {
+            plan.committed = true;
+            plan.commitTime = now;
+            plan.focusShip = pickStrikeFocusShip(engine, myGroup.side, plan.target);
+        }
 
         logOrder(engine, myGroup, "strike_plan", String.format(
-                "Time-on-target strike: %d division%s to marshal against \"%s\", strike in %.0fs%s.",
+                "Setpiece [%s]: %d division%s to marshal against \"%s\", strike in %.0fs%s.",
+                chosenSetpiece.displayName,
                 strikers.size(),
                 strikers.size() == 1 ? "" : "s",
                 target.displayName,
                 plan.strikeTime - now,
-                mainEffortCanFix ? " (\"" + myGroup.mainEffortDivision.displayName + "\" fixes the target)" : ""), now);
+                mainEffortCanFix ? " (\"" + myGroup.mainEffortDivision.displayName + "\" fixes as anvil)" : ""), now);
         return plan;
     }
 
@@ -559,7 +706,7 @@ public class OtcBattlePlanner {
         Map<DivisionState, Float> assignedFp = new HashMap<>();
         Map<DivisionState, Float> neededFp = new HashMap<>();
         for (DivisionState e : visibleEnemies) {
-            neededFp.put(e, OtcAI.getVisibleFpForSide(engine, myGroup.side, e) * 1.3f);
+            neededFp.put(e, OtcAI.getVisibleFpForSide(engine, myGroup.side, e) * 1.85f);
             assignedFp.put(e, 0f);
         }
         // Divisions already committed elsewhere still count toward the enemy they are engaging
@@ -629,9 +776,9 @@ public class OtcBattlePlanner {
                 float need = Math.max(4f, neededFp.get(e));
                 float have = assignedFp.get(e);
                 float dist = distance(d.centroid, ePos);
-                float score = -dist * 0.30f;
-                if (e == previous) score += 300f;
-                if (e == primary) score += 120f;
+                float score = -dist * (dist > 1500f ? 0.72f : 0.48f);
+                if (e == previous && dist <= 1850f) score += 260f;
+                if (e == primary && dist <= 1950f) score += 310f;
                 if (e.archetype == DivisionArchetype.SERVICE_GROUP) score -= 450f;
 
                 if (myGroup.useConvergence) {

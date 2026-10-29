@@ -1,9 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Naval Formation Solid-Bar Icon: icon_formation_forward_wedge -->
-  <polyline points="9.0,47.0 32.0,14.0 55.0,47.0" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-opacity="0.38" stroke-linecap="round" stroke-linejoin="round" />
-  <polygon points="28.5,5.2 35.5,5.2 35.5,21.8 28.5,21.8" fill="#FFFFFF" fill-opacity="1.00" />
-  <polygon points="17.4,22.2 23.6,22.2 23.6,36.8 17.4,36.8" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="40.4,22.2 46.6,22.2 46.6,36.8 40.4,36.8" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="5.9,38.2 12.1,38.2 12.1,52.8 5.9,52.8" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="51.9,38.2 58.1,38.2 58.1,52.8 51.9,52.8" fill="#FFFFFF" fill-opacity="0.90" />
+  <defs>
+    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F2F6FA"/>
+      <stop offset="50%" stop-color="#C8D2DC"/>
+      <stop offset="100%" stop-color="#8C98A6"/>
+    </linearGradient>
+  </defs>
+  <!-- Forward Wedge: solid triangle pointing up (no inner lineart) -->
+  <polygon points="32,10 52,46 12,46" fill="url(#silver)" stroke="#303842" stroke-width="1.6" stroke-linejoin="round"/>
 </svg>

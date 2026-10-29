@@ -1681,14 +1681,23 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float sx = ship.getLocation().x * scale + (float) ((int) offsetX);
         float sy = ship.getLocation().y * scale + (float) ((int) offsetY);
 
-        // Both Fleet Flagship (gold star) and Division Leader (silver star) render on the lower-right corner,
-        // vertically aligned with the commander portrait on the lower-left of the warroom ship icon
-        // (in com.fs.starfarer.ui.B.new, boxHalf = iconRadiusPx * (16.8f / 18.0f), portraitCenter = (sx - boxHalf + 2f, sy - boxHalf + 2f)).
+        // In com.fs.starfarer.ui.B.new, the commander portrait sits on the upper-left of the ship icon:
+        // boxHalf = iconRadiusPx * (16.8f / 18.0f), portraitSize = boxHalf * 0.5f,
+        // portraitCenter = (sx - boxHalf + portraitSize * 0.5f + 2f * zoom, sy + boxHalf - portraitSize * 0.5f - 2f * zoom).
+        // Per Item D: If a commander exists, the star renders directly under the commander portrait on the left side
+        // of the ship icon; if there is no commander, the star replaces the commander portrait.
         float boxHalf = iconRadiusPx * (16.8f / 18.0f);
-        float cornerOffset = Math.max(boxHalf - 2.0f, 10.5f * zoom);
-        float starX = (float) Math.round(sx + cornerOffset);
-        float starY = (float) Math.round(upperRightCorner ? (sy + cornerOffset) : (sy - cornerOffset));
-        float starSize = (float) (Math.round(clamp(18.5f * zoom, 14.0f, 26.0f) * 0.5f) * 2);
+        float portraitSize = Math.max(10.5f * zoom, boxHalf * 0.5f);
+        float portraitCenterX = sx - boxHalf + portraitSize * 0.5f + 2.0f * zoom;
+        float portraitCenterY = sy + boxHalf - portraitSize * 0.5f - 2.0f * zoom;
+        boolean hasCommander = (ship.getCaptain() != null && !ship.getCaptain().isDefault());
+
+        float starSize = (float) (Math.round(clamp(16.0f * zoom, 12.0f, 22.0f) * 0.5f) * 2);
+        float starX = (float) Math.round(portraitCenterX);
+        float starY = (float) Math.round(
+                hasCommander
+                        ? (portraitCenterY - portraitSize * 0.5f - starSize * 0.5f - 1.5f * zoom)
+                        : portraitCenterY);
 
         starSprite.setSize(starSize, starSize);
         starSprite.setColor(Color.WHITE);
@@ -2165,13 +2174,23 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float textW = label.computeTextWidth(liveCallsign);
             float textH = label.computeTextHeight(liveCallsign);
             float labelY = cy + (rp.isEnemy ? (textH * 0.5f) : (textH + 4f));
-            label.getPosition().setSize(textW + 10f, textH + 4f);
-            label.getPosition().setLocation(cx - (textW * 0.5f), labelY);
-            label.render(fade * (rp.isEnemy ? 0.84f : 0.95f));
 
             PermanentDivisionManager.DivisionFormation activeForm = div.activeFormation != null
                     ? div.activeFormation
                     : div.doctrinalFormation;
+            float iconSize = 16f;
+            float iconGap = 6f;
+            float totalRowW = (activeForm != null) ? (iconSize + iconGap + textW) : textW;
+            float rowStartX = cx - (totalRowW * 0.5f);
+            float textX = (activeForm != null) ? (rowStartX + iconSize + iconGap) : rowStartX;
+            // With Alignment.BL and height = textH + 4f, com.fs.starfarer.ui.d renders glyphs from
+            // top = labelY + textH + 4f down to bottom = labelY + 4f, so vertical center is labelY + textH * 0.5f + 4f.
+            float textCenterY = labelY + (textH * 0.5f) + 4f;
+
+            label.getPosition().setSize(textW + 16f, textH + 4f);
+            label.getPosition().setLocation(textX, labelY);
+            label.render(fade * (rp.isEnemy ? 0.84f : 0.95f));
+
             if (activeForm != null) {
                 Color iconTint = new Color(
                         Math.min(255, Math.round(rp.cr * 255f + 45f)),
@@ -2179,9 +2198,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         Math.min(255, Math.round(rp.cb * 255f + 45f)));
                 FleetDoctrineDialog.renderFormationIcon(
                         activeForm,
-                        cx - (textW * 0.5f) - 11f,
-                        labelY - textH * 0.45f,
-                        15f,
+                        rowStartX + (iconSize * 0.5f),
+                        textCenterY,
+                        iconSize,
                         iconTint,
                         fade * (rp.isEnemy ? 0.82f : 0.95f));
             }
@@ -2724,10 +2743,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         PermanentDivisionManager.DivisionFormation f = div.activeFormation != null
                 ? div.activeFormation
                 : div.doctrinalFormation;
+        String spTag = (div.activeSetpieceAttack != null
+                && div.activeSetpieceAttack != PermanentDivisionManager.DivisionSetpieceAttack.NONE
+                && div.setpieceStage > 0)
+                ? " [" + div.activeSetpieceAttack.shortName.toUpperCase(Locale.ROOT) + "]"
+                : "";
         if (f != null) {
-            return String.format(Locale.ROOT, "%s · %s - %d%%", intentShort, f.shortName.toUpperCase(Locale.ROOT), fluxPct);
+            return String.format(Locale.ROOT, "%s · %s%s - %d%%", intentShort, f.shortName.toUpperCase(Locale.ROOT), spTag, fluxPct);
         }
-        return String.format(Locale.ROOT, "%s - %d%%", intentShort, fluxPct);
+        return String.format(Locale.ROOT, "%s%s - %d%%", intentShort, spTag, fluxPct);
     }
 
     private static boolean isEnemyShipVisibleOnCommandMap(ShipAPI ship, FogOfWarAPI playerFog) {
@@ -2780,6 +2804,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
             labelCache.put(key, label);
         } else if (cacheKeyOverride != null) {
+            label.getPosition().setSize(1000f, 40f);
             label.setText(text);
         }
         return label;

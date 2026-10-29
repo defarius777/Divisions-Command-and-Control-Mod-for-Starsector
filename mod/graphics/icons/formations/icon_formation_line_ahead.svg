@@ -1,9 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Naval Formation Solid-Bar Icon: icon_formation_line_ahead -->
-  <polyline points="32.0,9.0 32.0,55.0" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-opacity="0.38" stroke-linecap="round" stroke-linejoin="round" />
-  <polygon points="28.2,4.6 35.8,4.6 35.8,13.4 28.2,13.4" fill="#FFFFFF" fill-opacity="1.00" />
-  <polygon points="28.7,16.9 35.3,16.9 35.3,24.7 28.7,24.7" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="28.7,28.3 35.3,28.3 35.3,36.1 28.7,36.1" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="28.7,39.7 35.3,39.7 35.3,47.5 28.7,47.5" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="28.7,51.1 35.3,51.1 35.3,58.9 28.7,58.9" fill="#FFFFFF" fill-opacity="0.90" />
+  <defs>
+    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F2F6FA"/>
+      <stop offset="50%" stop-color="#C8D2DC"/>
+      <stop offset="100%" stop-color="#8C98A6"/>
+    </linearGradient>
+  </defs>
+  <!-- Line Ahead: three nose-to-tail vertical bars in a single column (no inner lineart) -->
+  <rect x="27" y="5" width="10" height="16" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
+  <rect x="27" y="24" width="10" height="16" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
+  <rect x="27" y="43" width="10" height="16" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
 </svg>

@@ -133,6 +133,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             // Player OTC orchestration comes from Fleet Doctrine; Allied AI and Enemy battle groups use the Hybrid defaults
             PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
             playerGroup.authority = doctrine.getOtcAuthority();
+            playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
+            playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
+            playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
             playerGroup.plays.clear();
             playerGroup.plays.addAll(doctrine.getEnabledPlays());
 
@@ -240,11 +243,17 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             // 2. Update telemetry ONLY for active battlegroups
             if (playerHasDivisions) {
                 OtcAI.updateTelemetry(engine, playerGroup);
+                OtcAI.applyInitialFleetFormationDeployment(engine, playerGroup, enemyGroup, now);
+                OtcAI.updateTelemetry(engine, playerGroup);
             }
             if (alliedAiHasDivisions) {
                 OtcAI.updateTelemetry(engine, alliedAiGroup);
+                OtcAI.applyInitialFleetFormationDeployment(engine, alliedAiGroup, enemyGroup, now);
+                OtcAI.updateTelemetry(engine, alliedAiGroup);
             }
             if (enemyHasDivisions) {
+                OtcAI.updateTelemetry(engine, enemyGroup);
+                OtcAI.applyInitialFleetFormationDeployment(engine, enemyGroup, playerGroup, now);
                 OtcAI.updateTelemetry(engine, enemyGroup);
             }
 

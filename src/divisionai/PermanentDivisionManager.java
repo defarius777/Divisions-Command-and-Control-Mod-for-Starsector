@@ -265,6 +265,201 @@ public class PermanentDivisionManager {
         }
     }
 
+    /**
+     * Scope Item 1: Setpiece Division Attacks executed in locked formation carriage.
+     *  - Stage 1 (Dressing at IP): Division forms up tightly into the setpiece's signature formation at an Initial Point.
+     *  - Stage 2 (Executing Pass): The entire formation carriage translates along the strike vector in unison.
+     *  - Stage 3 (Recovery): Division reforms at egress or returns to tactical stationing.
+     */
+    public enum DivisionSetpieceAttack {
+        AUTO_TACTICAL(
+                "Auto (Tactical)",
+                "Auto",
+                null,
+                "Commander selects setpiece pass dynamically from T-S-F-C."),
+        NONE(
+                "None (Standard)",
+                "Std",
+                null,
+                "Standard division movement without locked setpiece passes."),
+        LANCE_CHARGE(
+                "Wedge Lance Charge",
+                "Lance",
+                DivisionFormation.FORWARD_WEDGE,
+                "Dresses into Forward Wedge at IP, then drives a high-speed charge through the enemy weak point."),
+        BROADSIDE_ROLL(
+                "Line Ahead Broadside Roll",
+                "Roll",
+                DivisionFormation.LINE_AHEAD,
+                "Forms Line Ahead and wheels across the enemy bow ('Crossing the T'), rolling sequential broadsides."),
+        WALL_SALVO_PASS(
+                "Line Abreast Salvo Pass",
+                "Salvo",
+                DivisionFormation.LINE_ABREAST,
+                "Advances as a locked Line Abreast wall to gun/missile range, unleashes a synchronized volley, and recoils."),
+        HORNS_OF_THE_BULL(
+                "Semicircle Enveloping Horns",
+                "Horns",
+                DivisionFormation.FORWARD_SEMICIRCLE,
+                "Sweeps forward in a Forward Semicircle crescent to pocket the target inside a multi-angle crossfire."),
+        ECHELON_STRIKE(
+                "Echelon Oblique Strike",
+                "Oblique",
+                DivisionFormation.ECHELON_RIGHT,
+                "Approaches obliquely in Echelon on the enemy's quarter to roll up their outer flank ship-by-ship.");
+
+        public final String displayName;
+        public final String shortName;
+        public final DivisionFormation signatureFormation;
+        public final String summary;
+
+        DivisionSetpieceAttack(
+                String displayName,
+                String shortName,
+                DivisionFormation signatureFormation,
+                String summary) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.signatureFormation = signatureFormation;
+            this.summary = summary;
+        }
+
+        public static DivisionSetpieceAttack fromId(String id, DivisionSetpieceAttack fallback) {
+            if (id == null) return fallback;
+            try {
+                return DivisionSetpieceAttack.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Scope Item 2: OTC-coordinated Multi-Division Setpiece Attacks in Formation.
+     * Coordinates 2+ divisions with synchronized Time-on-Target (ToT) and complementary formation passes.
+     */
+    public enum MultiDivisionSetpiece {
+        AUTO_DOCTRINAL(
+                "Auto (Tactical)",
+                "Auto",
+                "OTC selects multi-division setpieces dynamically from T-S-F-C."),
+        NONE(
+                "None (Standard)",
+                "Std",
+                "Standard OTC orchestration without multi-division setpieces."),
+        HAMMER_AND_ANVIL(
+                "Hammer & Anvil",
+                "H&A",
+                "Anvil division fixes enemy front in Line Abreast while Hammer division drives a Wedge Lance Charge into their flank."),
+        CANNAAE_DOUBLE_ENVELOPMENT(
+                "Double Envelopment (Cannae)",
+                "Cannae",
+                "Center fixes in Reverse Semicircle while Port and Starboard wings pinch both flanks in Echelon/Horns."),
+        CROSSING_THE_T_COLUMN(
+                "Grand Column Crossing the T",
+                "Cross-T",
+                "Divisions form an echeloned Line Ahead column wheeling across the enemy bow to concentrate broadsides."),
+        ECHELONED_WAVE_BREACH(
+                "Echeloned Wave Breach",
+                "Wave",
+                "Successive divisions execute timed Wedge Lance Charges along the same breach axis to crack enemy strongpoints."),
+        CONVERGENCE_KILL_BOX(
+                "Convergence Kill-Box",
+                "KillBox",
+                "Surrounds an isolated enemy division on multiple vectors with synchronized Salvo Passes and Voidstrikes.");
+
+        public final String displayName;
+        public final String shortName;
+        public final String summary;
+
+        MultiDivisionSetpiece(String displayName, String shortName, String summary) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.summary = summary;
+        }
+
+        public static MultiDivisionSetpiece fromId(String id, MultiDivisionSetpiece fallback) {
+            if (id == null) return fallback;
+            try {
+                return MultiDivisionSetpiece.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Scope Items 3 & 4: Multi-Division / Fleet-Wide Formations governing how divisions deploy at battle start
+     * and station relative to one another across the battlefield.
+     */
+    public enum FleetWideFormation {
+        DOCTRINAL_AUTO(
+                "Auto (Tactical Line)",
+                "Auto",
+                DivisionFormation.LINE_ABREAST,
+                "Divisions station by Van / Center / Rear doctrine and T-S-F-C geometry."),
+        GRAND_LINE_ABREAST(
+                "Grand Line Abreast",
+                "G. Line",
+                DivisionFormation.LINE_ABREAST,
+                "Frontline divisions deployed side-by-side in a wide battle line abreast; carriers/reserves centered behind."),
+        GRAND_COLUMN_IN_DEPTH(
+                "Grand Column in Depth",
+                "G. Column",
+                DivisionFormation.LINE_AHEAD,
+                "Divisions arrayed in sequential depth along the axis of advance for deep breakthrough or succession relief."),
+        GRAND_WEDGE_SPEARHEAD(
+                "Grand Spearhead Wedge",
+                "G. Wedge",
+                DivisionFormation.FORWARD_WEDGE,
+                "Main Effort division forms the forward apex with wing divisions stepped back on port and starboard quarters."),
+        REFUSED_FLANK_OBLIQUE(
+                "Refused Flank (Oblique)",
+                "Oblique",
+                DivisionFormation.ECHELON_RIGHT,
+                "Concentrates heavy and strike divisions on one reinforced wing in echelon while the refused wing holds standoff."),
+        CRESCENT_HORNS(
+                "Grand Crescent (Horns)",
+                "Crescent",
+                DivisionFormation.FORWARD_SEMICIRCLE,
+                "Center division holds back while port and starboard wing divisions advance forward as enveloping horns."),
+        CHECKERBOARD_QUINCUNX(
+                "Checkerboard (Quincunx)",
+                "Quincunx",
+                DivisionFormation.REVERSE_WEDGE,
+                "Staggered two-rank checkerboard of divisions with open firing lanes for second-rank line and carrier divisions."),
+        FLEET_PROTECTIVE_BASTION(
+                "Fleet Protective Bastion",
+                "Bastion",
+                DivisionFormation.PROTECTIVE_CIRCLE,
+                "Carriers and support divisions in the protected core ringed by frontline combat divisions around the perimeter.");
+
+        public final String displayName;
+        public final String shortName;
+        public final DivisionFormation iconFormation;
+        public final String summary;
+
+        FleetWideFormation(
+                String displayName,
+                String shortName,
+                DivisionFormation iconFormation,
+                String summary) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.iconFormation = iconFormation;
+            this.summary = summary;
+        }
+
+        public static FleetWideFormation fromId(String id, FleetWideFormation fallback) {
+            if (id == null) return fallback;
+            try {
+                return FleetWideFormation.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
     public static final int MIN_VOIDSTRIKE_SQUADRON_DEPTH = 1;
     public static final int MAX_VOIDSTRIKE_SQUADRON_DEPTH = 10;
     public static final int MIN_VOIDSTRIKE_SQUADRON_WIDTH = 1;
@@ -1117,6 +1312,7 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, SquadronFormation> bomberVoidstrikeFormationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, Integer> voidstrikeSquadronDepthByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, Integer> voidstrikeSquadronWidthByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, DivisionSetpieceAttack> setpieceAttackByType = new LinkedHashMap<>();
         private final Set<OtcPlay> enabledPlays = EnumSet.of(
                 OtcPlay.LINE_AND_FIRE_DISTRIBUTION,
                 OtcPlay.DOUBLING,
@@ -1126,6 +1322,9 @@ public class PermanentDivisionManager {
         private final Set<AutoAssignHull> enabledAutoHulls = EnumSet.allOf(AutoAssignHull.class);
         private final Map<String, Boolean> enabledAutoSchemeMatrix = new LinkedHashMap<>();
         private OtcAuthority otcAuthority = OtcAuthority.COMMAND_BY_DIRECTION;
+        private FleetWideFormation fleetWideFormation = FleetWideFormation.DOCTRINAL_AUTO;
+        private MultiDivisionSetpiece multiDivisionSetpiece = MultiDivisionSetpiece.AUTO_DOCTRINAL;
+        private boolean deployInFleetFormation = true;
         private int openingDurationSeconds = 45;
 
         public FleetDoctrineConfig() {
@@ -1150,6 +1349,7 @@ public class PermanentDivisionManager {
                 bomberVoidstrikeFormationByType.put(dt, defaultBomberVoidstrikeFormationFor(dt));
                 voidstrikeSquadronDepthByType.put(dt, defaultVoidstrikeSquadronDepthFor(dt));
                 voidstrikeSquadronWidthByType.put(dt, defaultVoidstrikeSquadronWidthFor(dt));
+                setpieceAttackByType.put(dt, defaultSetpieceAttackFor(dt));
             }
             for (AutoAssignCapability cap : AutoAssignCapability.values()) {
                 for (AutoAssignHull hull : AutoAssignHull.values()) {
@@ -1215,6 +1415,66 @@ public class PermanentDivisionManager {
             if (authority != null) {
                 this.otcAuthority = authority;
             }
+        }
+
+        public FleetWideFormation getFleetWideFormation() {
+            return fleetWideFormation != null ? fleetWideFormation : FleetWideFormation.DOCTRINAL_AUTO;
+        }
+
+        public void setFleetWideFormation(FleetWideFormation formation) {
+            if (formation != null) {
+                this.fleetWideFormation = formation;
+            }
+        }
+
+        public MultiDivisionSetpiece getMultiDivisionSetpiece() {
+            return multiDivisionSetpiece != null ? multiDivisionSetpiece : MultiDivisionSetpiece.AUTO_DOCTRINAL;
+        }
+
+        public void setMultiDivisionSetpiece(MultiDivisionSetpiece setpiece) {
+            if (setpiece != null) {
+                this.multiDivisionSetpiece = setpiece;
+            }
+        }
+
+        public boolean isDeployInFleetFormation() {
+            return deployInFleetFormation;
+        }
+
+        public void setDeployInFleetFormation(boolean deployInFleetFormation) {
+            this.deployInFleetFormation = deployInFleetFormation;
+        }
+
+        public static DivisionSetpieceAttack defaultSetpieceAttackFor(DoctrineDivisionType dt) {
+            if (dt == null || dt.isCarrierType() || dt == DoctrineDivisionType.SERVICE_GROUP) {
+                return DivisionSetpieceAttack.NONE;
+            }
+            switch (dt) {
+                case STRIKE_CRUISER:
+                    return DivisionSetpieceAttack.LANCE_CHARGE;
+                case FRIGATE:
+                    return DivisionSetpieceAttack.HORNS_OF_THE_BULL;
+                case PHASE:
+                    return DivisionSetpieceAttack.ECHELON_STRIKE;
+                case MISSILE_FRIGATE:
+                case MISSILE_DESTROYER:
+                case MISSILE_CRUISER:
+                case MISSILE_BATTLESHIP:
+                    return DivisionSetpieceAttack.WALL_SALVO_PASS;
+                default:
+                    return DivisionSetpieceAttack.AUTO_TACTICAL;
+            }
+        }
+
+        public DivisionSetpieceAttack getSetpieceAttack(DoctrineDivisionType dt) {
+            if (dt == null) return DivisionSetpieceAttack.AUTO_TACTICAL;
+            DivisionSetpieceAttack sp = setpieceAttackByType.get(dt);
+            return sp != null ? sp : defaultSetpieceAttackFor(dt);
+        }
+
+        public void setSetpieceAttack(DoctrineDivisionType dt, DivisionSetpieceAttack setpiece) {
+            if (dt == null || setpiece == null) return;
+            setpieceAttackByType.put(dt, setpiece);
         }
 
         public boolean isPlayEnabled(OtcPlay play) {
@@ -1563,6 +1823,18 @@ public class PermanentDivisionManager {
             if (authObj instanceof String) {
                 cfg.setOtcAuthority(OtcAuthority.fromId((String) authObj, OtcAuthority.COMMAND_BY_DIRECTION));
             }
+            Object fwFmObj = map.get("bg_fleet_formation");
+            if (fwFmObj instanceof String) {
+                cfg.setFleetWideFormation(FleetWideFormation.fromId((String) fwFmObj, FleetWideFormation.DOCTRINAL_AUTO));
+            }
+            Object mdSpObj = map.get("bg_multi_setpiece");
+            if (mdSpObj instanceof String) {
+                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.fromId((String) mdSpObj, MultiDivisionSetpiece.AUTO_DOCTRINAL));
+            }
+            Object depFmObj = map.get("bg_deploy_in_formation");
+            if (depFmObj instanceof Boolean) {
+                cfg.setDeployInFleetFormation((Boolean) depFmObj);
+            }
             for (OtcPlay play : OtcPlay.values()) {
                 Object playObj = getWithLegacyKey(map, "bg_play_", play.name(), play.legacyName());
                 if (playObj instanceof Boolean) {
@@ -1659,6 +1931,11 @@ public class PermanentDivisionManager {
                 if (vsWidthObj instanceof Number) {
                     cfg.setVoidstrikeSquadronWidth(dt, ((Number) vsWidthObj).intValue());
                 }
+                Object spAtkObj = map.get("setpiece_atk_" + dt.name());
+                if (spAtkObj instanceof String) {
+                    cfg.setSetpieceAttack(dt, DivisionSetpieceAttack.fromId(
+                            (String) spAtkObj, FleetDoctrineConfig.defaultSetpieceAttackFor(dt)));
+                }
             }
         }
         return cfg;
@@ -1681,6 +1958,9 @@ public class PermanentDivisionManager {
         if (cfg == null) return serialized;
         serialized.put("opening_duration_sec", cfg.getOpeningDurationSeconds());
         serialized.put("bg_authority", cfg.getOtcAuthority().name());
+        serialized.put("bg_fleet_formation", cfg.getFleetWideFormation().name());
+        serialized.put("bg_multi_setpiece", cfg.getMultiDivisionSetpiece().name());
+        serialized.put("bg_deploy_in_formation", cfg.isDeployInFleetFormation());
         for (OtcPlay play : OtcPlay.values()) {
             serialized.put("bg_play_" + play.name(), cfg.isPlayEnabled(play));
         }
@@ -1715,6 +1995,7 @@ public class PermanentDivisionManager {
             serialized.put("bmb_vs_fm_" + dt.name(), cfg.getBomberVoidstrikeFormation(dt).name());
             serialized.put("vs_depth_" + dt.name(), cfg.getVoidstrikeSquadronDepth(dt));
             serialized.put("vs_width_" + dt.name(), cfg.getVoidstrikeSquadronWidth(dt));
+            serialized.put("setpiece_atk_" + dt.name(), cfg.getSetpieceAttack(dt).name());
         }
         return serialized;
     }
@@ -1886,6 +2167,35 @@ public class PermanentDivisionManager {
         saveFleetDoctrine(cfg);
     }
 
+    public static void updateFleetWideFormation(FleetWideFormation formation) {
+        if (formation == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setFleetWideFormation(formation);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateMultiDivisionSetpiece(MultiDivisionSetpiece setpiece) {
+        if (setpiece == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setMultiDivisionSetpiece(setpiece);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDeployInFleetFormation(boolean enabled) {
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setDeployInFleetFormation(enabled);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeSetpieceAttack(
+            DoctrineDivisionType dt,
+            DivisionSetpieceAttack setpiece) {
+        if (dt == null || setpiece == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setSetpieceAttack(dt, setpiece);
+        saveFleetDoctrine(cfg);
+    }
+
     public static void updateOtcPlay(OtcPlay play, boolean enabled) {
         if (play == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
@@ -1977,6 +2287,7 @@ public class PermanentDivisionManager {
         public SquadronFormation customBomberVoidstrikeFormation = null;
         public Integer customVoidstrikeSquadronDepth = null;
         public Integer customVoidstrikeSquadronWidth = null;
+        public DivisionSetpieceAttack customSetpieceAttack = null;
 
         public PermanentDivisionSpec(String id, String name, DivisionArchetype archetype) {
             this.id = id;
@@ -2073,6 +2384,14 @@ public class PermanentDivisionManager {
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
         return cfg != null ? cfg.getFormation(dt) : dt.defaultFormation;
+    }
+
+    public static DivisionSetpieceAttack resolveEffectiveSetpieceAttack(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customSetpieceAttack != null) {
+            return spec.customSetpieceAttack;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getSetpieceAttack(dt) : FleetDoctrineConfig.defaultSetpieceAttackFor(dt);
     }
 
     public static DivisionMovementStickiness resolveEffectiveMovementStickiness(
@@ -2404,6 +2723,22 @@ public class PermanentDivisionManager {
         for (PermanentDivisionSpec spec : specs) {
             if (divisionId.equals(spec.id)) {
                 spec.customMovementStickiness = stickiness;
+                break;
+            }
+        }
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    public static void updateIndividualDivisionSetpieceAttack(
+            String divisionId,
+            DivisionSetpieceAttack setpiece) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || divisionId == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        for (PermanentDivisionSpec spec : specs) {
+            if (divisionId.equals(spec.id)) {
+                spec.customSetpieceAttack = setpiece;
                 break;
             }
         }
@@ -3219,6 +3554,9 @@ public class PermanentDivisionManager {
         div.voidstrikeSquadronWidth = (optionalSpec != null)
                 ? resolveEffectiveVoidstrikeSquadronWidth(optionalSpec, cfg)
                 : cfg.getVoidstrikeSquadronWidth(dt);
+        div.doctrinalSetpieceAttack = (optionalSpec != null)
+                ? resolveEffectiveSetpieceAttack(optionalSpec, cfg)
+                : cfg.getSetpieceAttack(dt);
 
         if (div.openingMission == DivisionMissionType.RESERVE
                 || div.mainMission == DivisionMissionType.RESERVE) {
@@ -3811,6 +4149,10 @@ public class PermanentDivisionManager {
                 spec.customVoidstrikeSquadronWidth = Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH,
                         Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, ((Number) cVsWidth).intValue()));
             }
+            Object cSetpiece = map.get("customSetpieceAttack");
+            if (cSetpiece instanceof String) {
+                spec.customSetpieceAttack = DivisionSetpieceAttack.fromId((String) cSetpiece, null);
+            }
 
             Object membersObj = map.get("memberIds");
             if (membersObj instanceof List) {
@@ -3852,6 +4194,7 @@ public class PermanentDivisionManager {
             if (spec.customBomberVoidstrikeFormation != null) map.put("customBomberVoidstrikeFormation", spec.customBomberVoidstrikeFormation.name());
             if (spec.customVoidstrikeSquadronDepth != null) map.put("customVoidstrikeSquadronDepth", spec.customVoidstrikeSquadronDepth);
             if (spec.customVoidstrikeSquadronWidth != null) map.put("customVoidstrikeSquadronWidth", spec.customVoidstrikeSquadronWidth);
+            if (spec.customSetpieceAttack != null) map.put("customSetpieceAttack", spec.customSetpieceAttack.name());
             serialized.add(map);
         }
         pdata.put(PERSISTENT_DIVISIONS_KEY, serialized);

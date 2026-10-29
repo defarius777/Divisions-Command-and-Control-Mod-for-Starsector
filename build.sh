@@ -13,8 +13,10 @@ mkdir -p build mod/jars mod/data/config
 find src -name '*.java' > build/sources.txt
 "$JDK/javac.exe" -encoding UTF-8 -source 17 -target 17 -cp "$CP" -d build @build/sources.txt
 
-"$JDK/jar.exe" cf mod/jars/DivisionAI.jar -C build divisionai
-if [ -d "${STARSECTOR_DIR:-../Starsector}/mods/DivisionAI" ]; then
-    cp -r mod/* "${STARSECTOR_DIR:-../Starsector}/mods/DivisionAI/"
+"$JDK/jar.exe" cf build/DivisionAI.jar -C build divisionai
+cp build/DivisionAI.jar mod/jars/DivisionAI.jar 2>/dev/null || true
+if [ -n "${STARSECTOR_DIR:-}" ] && [ -d "$STARSECTOR_DIR/mods/DivisionAI" ]; then
+    cp -r mod/* "$STARSECTOR_DIR/mods/DivisionAI/" 2>/dev/null || true
+    cp build/DivisionAI.jar "$STARSECTOR_DIR/mods/DivisionAI/jars/DivisionAI.jar" 2>/dev/null || true
 fi
 echo "BUILD OK -> mod/jars/DivisionAI.jar"

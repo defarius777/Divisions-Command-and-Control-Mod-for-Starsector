@@ -26,7 +26,10 @@ import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
+import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
+import divisionai.PermanentDivisionManager.FleetWideFormation;
+import divisionai.PermanentDivisionManager.MultiDivisionSetpiece;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.LineStation;
@@ -442,6 +445,25 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     positive,
                     gray);
 
+            addFleetWideFormationDropdownRow(
+                    body,
+                    bodyWidth - 16f,
+                    doctrine.getFleetWideFormation(),
+                    doctrine.isDeployInFleetFormation(),
+                    baseColor,
+                    darkColor,
+                    positive,
+                    gray);
+
+            addMultiDivisionSetpieceDropdownRow(
+                    body,
+                    bodyWidth - 16f,
+                    doctrine.getMultiDivisionSetpiece(),
+                    baseColor,
+                    darkColor,
+                    positive,
+                    gray);
+
             for (OtcPlay play : OtcPlay.values()) {
                 addPlayToggleRow(
                         body,
@@ -574,6 +596,20 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         positive,
                         gray);
+
+                if (!dt.isCarrierType() && dt != DoctrineDivisionType.SERVICE_GROUP) {
+                    DivisionSetpieceAttack currSetpiece = doctrine.getSetpieceAttack(dt);
+                    addDivisionSetpieceAttackRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Setpiece: " + currSetpiece.shortName,
+                            currSetpiece,
+                            "SET_DIV_SETPIECE:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            gray);
+                }
 
                 // Row 5: Opening Mission Drop-Down Menu (30s - 60s)
                 addMissionDropdownRow(
@@ -1278,6 +1314,224 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
+    private void addFleetWideFormationDropdownRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            FleetWideFormation current,
+            boolean deployInFormation,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+
+        String ddKey = "FLEET_WIDE_FORMATION_DD";
+        boolean expanded = ddKey.equals(expandedDropdownKey);
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
+        rowUi.addPara("Fleet Formation:", 0f, baseColor).getPosition().inTL(6f, 6f);
+
+        String toggleAct = "TOGGLE_DD:" + ddKey;
+        String btnText = (expanded ? "[^] " : "[v] ") + current.displayName;
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        activeValueColor,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        236f,
+                        24f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        String depAct = "SET_DEPLOY_IN_FORMATION:" + (deployInFormation ? "OFF" : "ON");
+        ButtonAPI bDep = registerButton(
+                rowUi.addButton(
+                        "Spawn in Form: " + (deployInFormation ? "On" : "Off"),
+                        depAct,
+                        deployInFormation ? activeValueColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        132f,
+                        22f,
+                        0f),
+                depAct);
+        if (deployInFormation) {
+            bDep.highlight();
+        }
+        bDep.getPosition().inTL(CONTROL_COL_X + 244f, 4f);
+
+        rowUi.addPara(current.summary, 0f, expanded ? activeValueColor : gray)
+                .getPosition()
+                .inTL(CONTROL_COL_X + 386f, 6f);
+
+        rowUi.setHeightSoFar(30f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 3f);
+
+        if (expanded) {
+            for (FleetWideFormation option : FleetWideFormation.values()) {
+                boolean isCurrent = (option == current);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 28f, false);
+                String selAct = "SET_FLEET_FORMATION:" + option.name();
+                ButtonAPI bOpt = registerButton(
+                        optUi.addButton(
+                                (isCurrent ? "* " : "   ") + option.displayName,
+                                selAct,
+                                isCurrent ? activeValueColor : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                224f,
+                                22f,
+                                0f),
+                        selAct);
+                if (isCurrent) {
+                    bOpt.highlight();
+                }
+                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
+
+                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
+                        .getPosition()
+                        .inTL(CONTROL_COL_X + 252f, 5f);
+
+                optUi.setHeightSoFar(28f);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                body.addCustom(optPanel, 2f);
+            }
+        }
+    }
+
+    private void addMultiDivisionSetpieceDropdownRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            MultiDivisionSetpiece current,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+
+        String ddKey = "MULTI_DIV_SETPIECE_DD";
+        boolean expanded = ddKey.equals(expandedDropdownKey);
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
+        rowUi.addPara("Multi-Div Setpiece:", 0f, baseColor).getPosition().inTL(6f, 6f);
+
+        String toggleAct = "TOGGLE_DD:" + ddKey;
+        String btnText = (expanded ? "[^] " : "[v] ") + current.displayName;
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        activeValueColor,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        236f,
+                        24f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        rowUi.addPara(current.summary, 0f, expanded ? activeValueColor : gray)
+                .getPosition()
+                .inTL(CONTROL_COL_X + 252f, 6f);
+
+        rowUi.setHeightSoFar(30f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 3f);
+
+        if (expanded) {
+            for (MultiDivisionSetpiece option : MultiDivisionSetpiece.values()) {
+                boolean isCurrent = (option == current);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 28f, false);
+                String selAct = "SET_MULTI_SETPIECE:" + option.name();
+                ButtonAPI bOpt = registerButton(
+                        optUi.addButton(
+                                (isCurrent ? "* " : "   ") + option.displayName,
+                                selAct,
+                                isCurrent ? activeValueColor : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                224f,
+                                22f,
+                                0f),
+                        selAct);
+                if (isCurrent) {
+                    bOpt.highlight();
+                }
+                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
+
+                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
+                        .getPosition()
+                        .inTL(CONTROL_COL_X + 252f, 5f);
+
+                optUi.setHeightSoFar(28f);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                body.addCustom(optPanel, 2f);
+            }
+        }
+    }
+
+    private void addDivisionSetpieceAttackRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            DivisionSetpieceAttack current,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+        rowUi.addPara(labelText, 0f, baseColor, current.shortName).getPosition().inTL(6f, 5f);
+
+        float x = CONTROL_COL_X;
+        float btnW = 58f;
+        for (DivisionSetpieceAttack opt : DivisionSetpieceAttack.values()) {
+            boolean isCurr = (opt == current);
+            String act = actionPrefix + opt.name();
+            ButtonAPI btn = registerButton(
+                    rowUi.addButton(
+                            opt.shortName,
+                            act,
+                            isCurr ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            btnW,
+                            22f,
+                            0f),
+                    act);
+            if (isCurr) {
+                btn.highlight();
+            }
+            btn.getPosition().inTL(x, 3f);
+            x += btnW + 4f;
+        }
+
+        rowUi.addPara(current.summary, 0f, gray).getPosition().inTL(x + 8f, 5f);
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
     private void addPlayToggleRow(
             TooltipMakerAPI body,
             float rowWidth,
@@ -1773,9 +2027,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 Color prevColor = sprite.getColor();
                 float prevAlpha = sprite.getAlphaMult();
                 sprite.setSize(size, size);
-                if (tint != null) {
-                    sprite.setColor(tint);
-                }
+                // Render formation icons in their native brushed silver & dark logo lineart (Color.WHITE)
+                sprite.setColor(Color.WHITE);
                 sprite.setAlphaMult(alphaMult);
                 sprite.renderAtCenter(centerX, centerY);
                 sprite.setSize(prevW, prevH);
@@ -2219,6 +2472,41 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             expandedDropdownKey = null;
             rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_FLEET_FORMATION:")) {
+            FleetWideFormation fw = FleetWideFormation.fromId(cmd.substring("SET_FLEET_FORMATION:".length()), null);
+            if (fw != null) {
+                PermanentDivisionManager.updateFleetWideFormation(fw);
+            }
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_DEPLOY_IN_FORMATION:")) {
+            boolean enabled = "ON".equals(cmd.substring("SET_DEPLOY_IN_FORMATION:".length()));
+            PermanentDivisionManager.updateDeployInFleetFormation(enabled);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_MULTI_SETPIECE:")) {
+            MultiDivisionSetpiece msp = MultiDivisionSetpiece.fromId(cmd.substring("SET_MULTI_SETPIECE:".length()), null);
+            if (msp != null) {
+                PermanentDivisionManager.updateMultiDivisionSetpiece(msp);
+            }
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_DIV_SETPIECE:")) {
+            String rest = cmd.substring("SET_DIV_SETPIECE:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                DivisionSetpieceAttack sp = DivisionSetpieceAttack.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeSetpieceAttack(dt, sp);
+                rebuildContent();
+            }
             return;
         }
         if (cmd.startsWith("SET_OTC_PLAY:")) {

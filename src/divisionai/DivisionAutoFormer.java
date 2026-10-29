@@ -191,6 +191,9 @@ public class DivisionAutoFormer {
             PermanentDivisionManager.FleetDoctrineConfig fDoc =
                     FactionFleetDoctrines.getDoctrineForFactionId(detectedFactionId, null);
             battleGroup.authority = fDoc.getOtcAuthority();
+            battleGroup.fleetWideFormation = fDoc.getFleetWideFormation();
+            battleGroup.multiDivisionSetpieceDoctrine = fDoc.getMultiDivisionSetpiece();
+            battleGroup.deployInFleetFormation = fDoc.isDeployInFleetFormation();
             battleGroup.plays.clear();
             battleGroup.plays.addAll(fDoc.getEnabledPlays());
         }

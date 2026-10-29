@@ -26,10 +26,13 @@ import divisionai.DivisionModel.DivisionState;
 import divisionai.DivisionNomenclature.NomenclatureCategory;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
+import divisionai.PermanentDivisionManager.FleetWideFormation;
 import divisionai.PermanentDivisionManager.LineStation;
+import divisionai.PermanentDivisionManager.MultiDivisionSetpiece;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
@@ -599,6 +602,10 @@ public final class FactionFleetDoctrines {
                 cfg.setFormation(DoctrineDivisionType.CRUISER, DivisionFormation.LINE_ABREAST);
                 cfg.setFormation(DoctrineDivisionType.DESTROYER, DivisionFormation.FORWARD_SEMICIRCLE);
                 cfg.setFormation(DoctrineDivisionType.FRIGATE, DivisionFormation.FORWARD_SEMICIRCLE);
+                cfg.setFleetWideFormation(FleetWideFormation.GRAND_LINE_ABREAST);
+                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.HAMMER_AND_ANVIL);
+                cfg.setSetpieceAttack(DoctrineDivisionType.BATTLESHIP, DivisionSetpieceAttack.LANCE_CHARGE);
+                cfg.setSetpieceAttack(DoctrineDivisionType.CRUISER, DivisionSetpieceAttack.WALL_SALVO_PASS);
                 cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
                 cfg.setMax(DoctrineHullCategory.CRUISER, 4);
                 cfg.setMax(DoctrineHullCategory.DESTROYER, 4);
@@ -639,6 +646,11 @@ public final class FactionFleetDoctrines {
                 cfg.setFormation(DoctrineDivisionType.DESTROYER, DivisionFormation.ECHELON_LEFT);
                 cfg.setFormation(DoctrineDivisionType.FRIGATE, DivisionFormation.REVERSE_SEMICIRCLE);
                 cfg.setFormation(DoctrineDivisionType.PHASE, DivisionFormation.ECHELON_RIGHT);
+                cfg.setFleetWideFormation(FleetWideFormation.CRESCENT_HORNS);
+                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CANNAAE_DOUBLE_ENVELOPMENT);
+                cfg.setSetpieceAttack(DoctrineDivisionType.CRUISER, DivisionSetpieceAttack.ECHELON_STRIKE);
+                cfg.setSetpieceAttack(DoctrineDivisionType.DESTROYER, DivisionSetpieceAttack.ECHELON_STRIKE);
+                cfg.setSetpieceAttack(DoctrineDivisionType.FRIGATE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
                 cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
                 cfg.setMax(DoctrineHullCategory.CRUISER, 3);
                 cfg.setMax(DoctrineHullCategory.DESTROYER, 4);
@@ -674,6 +686,10 @@ public final class FactionFleetDoctrines {
                         525, 1050, 1450, 0.95f,
                         DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR);
 
+                cfg.setFleetWideFormation(FleetWideFormation.CHECKERBOARD_QUINCUNX);
+                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CROSSING_THE_T_COLUMN);
+                cfg.setSetpieceAttack(DoctrineDivisionType.BATTLESHIP, DivisionSetpieceAttack.BROADSIDE_ROLL);
+                cfg.setSetpieceAttack(DoctrineDivisionType.CRUISER, DivisionSetpieceAttack.WALL_SALVO_PASS);
                 cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
                 cfg.setMax(DoctrineHullCategory.CRUISER, 4);
                 cfg.setMax(DoctrineHullCategory.DESTROYER, 4);
@@ -685,6 +701,8 @@ public final class FactionFleetDoctrines {
             case "lions_guard": {
                 // Supreme Executor Philip Andrada's "Great Plan": rigid centralized Positive Control
                 cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
+                cfg.setFleetWideFormation(FleetWideFormation.GRAND_COLUMN_IN_DEPTH);
+                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.ECHELONED_WAVE_BREACH);
                 cfg.setOpeningDurationSeconds(35);
                 cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
                 cfg.setPlayEnabled(OtcPlay.DOUBLING, "lions_guard".equals(id));
@@ -715,6 +733,8 @@ public final class FactionFleetDoctrines {
             case "knights_of_ludd": {
                 // Massed armored wall of faith + Perdition deckload strikes (Martyrdom OFF for Luddic Church)
                 cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
+                cfg.setFleetWideFormation(FleetWideFormation.FLEET_PROTECTIVE_BASTION);
+                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.HAMMER_AND_ANVIL);
                 cfg.setOpeningDurationSeconds(40);
                 cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
                 cfg.setPlayEnabled(OtcPlay.DOUBLING, false);
@@ -847,6 +867,8 @@ public final class FactionFleetDoctrines {
             case "derelict": {
                 // Post-AI War AI Fleets: ORDO COGITATOR/MASTER Positive Control machine synchronization
                 cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
+                cfg.setFleetWideFormation(FleetWideFormation.REFUSED_FLANK_OBLIQUE);
+                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
                 cfg.setOpeningDurationSeconds(35);
                 cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
                 cfg.setPlayEnabled(OtcPlay.DOUBLING, true);

@@ -5,6 +5,8 @@ dist/
 logo/
 Flavor Study/
 reference_icons/
+logs/
+tools/
 *.class
 .DS_Store
 Thumbs.db

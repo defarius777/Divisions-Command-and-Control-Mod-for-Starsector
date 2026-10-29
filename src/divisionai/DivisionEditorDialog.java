@@ -24,6 +24,7 @@ import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
+import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
@@ -1114,6 +1115,20 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 darkColor,
                 positive);
 
+        if (spec.archetype != null && !spec.archetype.isCarrierArchetype()
+                && spec.archetype != DivisionArchetype.SERVICE_GROUP) {
+            DivisionSetpieceAttack effSetpiece =
+                    PermanentDivisionManager.resolveEffectiveSetpieceAttack(spec, doctrineCfg);
+            addDivisionSetpieceAttackRow(
+                    leftCol,
+                    colWidth - 16f,
+                    effSetpiece,
+                    spec.customSetpieceAttack != null,
+                    baseColor,
+                    darkColor,
+                    highlight);
+        }
+
         // 5. Opening Mission Drop-Down (0 - openingDurationSeconds)
         addDivisionMissionDropdownRow(
                 leftCol,
@@ -1511,11 +1526,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         h - 30f,
                         effAlpha);
 
-                // Render Commander Portrait in the lower-left corner of the ship icon box (Item F)
+                // Render Commander Portrait on the upper-left side of the ship icon box
+                float px = x + 2f;
+                float py = y + h - portraitBoxSize - 16f;
                 if (hasCommander) {
-                    float px = x + 2f;
-                    float py = y + 2f;
-
                     GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
                     GL11.glDisable(GL11.GL_TEXTURE_2D);
                     GL11.glEnable(GL11.GL_BLEND);
@@ -1544,7 +1558,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     GL11.glEnable(GL11.GL_BLEND);
                     GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
-                    // Crisp border around lower-left commander portrait
+                    // Crisp border around commander portrait
                     GL11.glLineWidth(1.1f);
                     GL11.glColor4f(
                             baseColor.getRed() / 255f,
@@ -1576,8 +1590,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     GL11.glPopAttrib();
                 }
 
-                // Render Fleet Flagship (gold star) or Division Leader (silver star) in the lower-right corner,
-                // vertically aligned with the commander portrait on the lower-left (py + portraitBoxSize * 0.5f)
+                // Per Item D: Division/Fleet flagship star renders directly under the commander portrait on the left side
+                // of the ship icon if a commander exists; if there is no commander, the star replaces the commander portrait.
                 boolean isFleetFlag = member.isFlagship();
                 if (isFleetFlag || isFlagship) {
                     try {
@@ -1586,8 +1600,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                                 isFleetFlag ? "star_gold" : "star_silver");
                         if (starSprite != null) {
                             float starSize = 16f;
-                            float starX = x + w - starSize * 0.5f - 2f;
-                            float starY = y + 2f + portraitBoxSize * 0.5f;
+                            float starX = px + portraitBoxSize * 0.5f;
+                            float starY = hasCommander
+                                    ? (py - starSize * 0.5f - 2f)
+                                    : (py + portraitBoxSize * 0.5f);
                             starSprite.setSize(starSize, starSize);
                             starSprite.setColor(Color.WHITE);
                             starSprite.setAlphaMult(Math.min(1f, effAlpha * 0.96f));
@@ -1601,7 +1617,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         });
         panelRef[0] = tilePanel;
 
-        // Text overlay labels inside the tile (top badge: FLAG/DP, lower-left portrait level, bottom label: hull name)
+        // Text overlay labels inside the tile (top badge: FLAG/DP, left portrait level, bottom label: hull name)
         TooltipMakerAPI textUi = tilePanel.createUIElement(width, height, false);
         String topBadge = (isFlagship ? "★FLAG " : "")
                 + String.format(Locale.ROOT, "%.0fDP", member.getDeploymentPointsCost());
@@ -1609,12 +1625,12 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         topLbl.getPosition().inTL(3f, 2f);
 
         String hullName = member.getHullSpec() != null ? member.getHullSpec().getHullName() : member.getShipName();
-        int maxHullChars = hasCommander ? 9 : 12;
+        int maxHullChars = 12;
         LabelAPI botLbl = textUi.addPara(truncateText(hullName, maxHullChars), baseColor, 0f);
-        botLbl.getPosition().inTL(hasCommander ? (portraitBoxSize + 5f) : 3f, height - 17f);
+        botLbl.getPosition().inTL(3f, height - 17f);
 
         if (showCommanderLevel) {
-            // Match vanilla Fleet screen (com.fs.starfarer.coreui.OOoo): Victor 10 font at top-right of the lower-left portrait box
+            // Match vanilla Fleet screen (com.fs.starfarer.coreui.OOoo): Victor 10 font at top-right of the portrait box
             textUi.setParaFont(Fonts.VICTOR_10);
             Color levelColor = (captain.getFaction() != null && captain.getFaction().getBrightUIColor() != null)
                     ? captain.getFaction().getBrightUIColor()
@@ -1623,7 +1639,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             LabelAPI lvlLbl = textUi.addPara(lvlStr, levelColor, 0f);
             float lvlW = lvlLbl.computeTextWidth(lvlStr);
             float lvlX = 2f + portraitBoxSize - lvlW - 1f;
-            float lvlY = height - 2f - portraitBoxSize;
+            float lvlY = 16f;
             lvlLbl.getPosition().inTL(lvlX, lvlY);
             textUi.setParaFontDefault();
         }
@@ -1910,6 +1926,64 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         Alignment.MID,
                         CutStyle.ALL,
                         72f,
+                        20f,
+                        0f),
+                inhAct);
+        if (!isCustom) bInh.highlight();
+        bInh.getPosition().inTL(x, 3f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
+    private void addDivisionSetpieceAttackRow(
+            TooltipMakerAPI col,
+            float rowWidth,
+            DivisionSetpieceAttack effSetpiece,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color activeColor) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        String labelText = "Setpiece: " + effSetpiece.shortName;
+        rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
+
+        float x = CONTROL_COL_X;
+        float btnW = 46f;
+        for (DivisionSetpieceAttack sp : DivisionSetpieceAttack.values()) {
+            boolean selected = (sp == effSetpiece);
+            String act = "DIV_SETPIECE:" + sp.name();
+            ButtonAPI bSp = registerButton(
+                    rowUi.addButton(
+                            sp.shortName,
+                            act,
+                            selected ? activeColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.ALL,
+                            btnW,
+                            20f,
+                            0f),
+                    act);
+            if (selected) bSp.highlight();
+            bSp.getPosition().inTL(x, 3f);
+            x += btnW + 3f;
+        }
+
+        String inhAct = "DIV_SETPIECE:INHERIT";
+        ButtonAPI bInh = registerButton(
+                rowUi.addButton(
+                        "Inherit",
+                        inhAct,
+                        !isCustom ? activeColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        56f,
                         20f,
                         0f),
                 inhAct);
@@ -2501,6 +2575,15 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             DivisionMovementStickiness ms =
                     "INHERIT".equals(arg) ? null : DivisionMovementStickiness.valueOf(arg);
             PermanentDivisionManager.updateIndividualDivisionMovementStickiness(activeDivisionId, ms);
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("DIV_SETPIECE:") && activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_SETPIECE:".length());
+            DivisionSetpieceAttack sp =
+                    "INHERIT".equals(arg) ? null : DivisionSetpieceAttack.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionSetpieceAttack(activeDivisionId, sp);
             rebuildContent();
             return;
         }

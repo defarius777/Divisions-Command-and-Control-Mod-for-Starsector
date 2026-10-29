@@ -1,9 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Naval Formation Solid-Bar Icon: icon_formation_echelon_right -->
-  <polyline points="12.0,12.0 52.0,52.0" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-opacity="0.38" stroke-linecap="round" stroke-linejoin="round" />
-  <polygon points="9.0,4.5 16.0,4.5 16.0,20.5 9.0,20.5" fill="#FFFFFF" fill-opacity="1.00" />
-  <polygon points="19.1,14.9 25.3,14.9 25.3,29.4 19.1,29.4" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="28.9,24.8 35.1,24.8 35.1,39.2 28.9,39.2" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="38.7,34.5 44.9,34.5 44.9,49.0 38.7,49.0" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="48.4,44.2 54.6,44.2 54.6,58.8 48.4,58.8" fill="#FFFFFF" fill-opacity="0.90" />
+  <defs>
+    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F2F6FA"/>
+      <stop offset="50%" stop-color="#C8D2DC"/>
+      <stop offset="100%" stop-color="#8C98A6"/>
+    </linearGradient>
+  </defs>
+  <!-- Echelon Right: solid diagonal bar (no inner lineart) -->
+  <polygon points="52,46 18,12 12,18 46,52" fill="url(#silver)" stroke="#303842" stroke-width="1.5" stroke-linejoin="round"/>
 </svg>

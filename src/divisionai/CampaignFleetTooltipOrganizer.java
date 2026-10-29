@@ -98,6 +98,18 @@ public final class CampaignFleetTooltipOrganizer {
         }
     }
 
+    public static String[] splitBalancedLines(String text, LabelAPI measurer, float maxLineW) {
+        return DivisionHeaderCardPlugin.splitBalancedLines(text, measurer, maxLineW);
+    }
+
+    public static String fitSingleLineToWidth(String text, LabelAPI measurer, float maxLineW) {
+        return DivisionHeaderCardPlugin.fitSingleLineToWidth(text, measurer, maxLineW);
+    }
+
+    public static float measureLineWidth(String text, LabelAPI measurer) {
+        return DivisionHeaderCardPlugin.measureLineWidth(text, measurer);
+    }
+
     private static final class DivisionHeaderCardPlugin extends BaseCustomUIPanelPlugin {
         private CustomPanelAPI panel;
         private final Color accentColor;
@@ -107,6 +119,7 @@ public final class CampaignFleetTooltipOrganizer {
         private final float divisionSpanWidth;
         private LabelAPI line1Label;
         private LabelAPI line2Label;
+        private LabelAPI line3Label;
 
         DivisionHeaderCardPlugin(
                 Color accentColor,
@@ -131,70 +144,257 @@ public final class CampaignFleetTooltipOrganizer {
             this.line2Label.setColor(textColor);
             this.line2Label.setAlignment(Alignment.MID);
 
-            card.addComponent((UIComponentAPI) line1Label).inTL(4f, 0f);
-            card.addComponent((UIComponentAPI) line2Label).inTL(4f, 0f);
+            this.line3Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
+            this.line3Label.setColor(textColor);
+            this.line3Label.setAlignment(Alignment.MID);
+
+            PositionAPI p1 = card.addComponent((UIComponentAPI) line1Label);
+            PositionAPI p2 = card.addComponent((UIComponentAPI) line2Label);
+            PositionAPI p3 = card.addComponent((UIComponentAPI) line3Label);
+            // Pre-initialize non-zero widths before any setText() call so com.fs.starfarer.ui.d
+            // never word-wraps spaces into newlines against a 0px width.
+            float initW = Math.max(120f, boxWidth * 2f);
+            p1.setSize(initW, 14f).inTL(0f, 0f);
+            p2.setSize(initW, 14f).inTL(0f, 0f);
+            p3.setSize(initW, 14f).inTL(0f, 0f);
 
             updateTitleAndLayout(initialTitle);
         }
 
         void updateTitleAndLayout(String rawTitle) {
-            if (line1Label == null || line2Label == null) return;
-            String clean = rawTitle != null ? rawTitle.trim() : "";
+            if (line1Label == null || line2Label == null || line3Label == null) return;
+            String clean = rawTitle != null ? rawTitle.trim().replaceAll("\\s+", " ") : "";
+            // Usable interior width between the 3px left accent bar (x+1..x+4) and right card edge (x+boxWidth-3)
             float maxTextWidth = Math.max(40f, boxWidth - 14f);
+            float usableCenterX = 4f + (boxWidth - 7f) * 0.5f;
 
-            String[] lines = splitBalancedTwoLines(clean, line1Label, maxTextWidth);
-            if (lines[1] == null || lines[1].isEmpty()) {
-                line1Label.setText(lines[0]);
+            String[] lines = splitBalancedLines(clean, line1Label, maxTextWidth);
+            PositionAPI p1 = ((UIComponentAPI) line1Label).getPosition();
+            PositionAPI p2 = ((UIComponentAPI) line2Label).getPosition();
+            PositionAPI p3 = ((UIComponentAPI) line3Label).getPosition();
+
+            if (lines.length <= 1 || lines[1] == null || lines[1].isEmpty()) {
+                String l1 = lines.length > 0 ? fitSingleLineToWidth(lines[0], line1Label, maxTextWidth) : "";
+                float safeW = Math.max(boxWidth - 6f, measureLineWidth(l1, line1Label) + 24f);
+                p1.setSize(safeW, boxHeight);
+                p1.inTL(usableCenterX - safeW * 0.5f, 0f);
+                line1Label.setText(l1);
+
+                p2.setSize(safeW, 0f);
+                p2.inTL(usableCenterX - safeW * 0.5f, 0f);
                 line2Label.setText("");
 
-                PositionAPI p1 = ((UIComponentAPI) line1Label).getPosition();
-                p1.setSize(boxWidth - 8f, boxHeight);
-                p1.inTL(5f, 0f);
-
-                PositionAPI p2 = ((UIComponentAPI) line2Label).getPosition();
-                p2.setSize(0f, 0f);
-                p2.inTL(5f, 0f);
-            } else {
-                line1Label.setText(lines[0]);
-                line2Label.setText(lines[1]);
-
+                p3.setSize(safeW, 0f);
+                p3.inTL(usableCenterX - safeW * 0.5f, 0f);
+                line3Label.setText("");
+            } else if (lines.length == 2 || lines[2] == null || lines[2].isEmpty()) {
+                String l1 = fitSingleLineToWidth(lines[0], line1Label, maxTextWidth);
+                String l2 = fitSingleLineToWidth(lines[1], line2Label, maxTextWidth);
                 float lineH = 14f;
                 float blockH = lineH * 2f;
                 float topY = Math.max(2f, (boxHeight - blockH) * 0.5f);
 
-                PositionAPI p1 = ((UIComponentAPI) line1Label).getPosition();
-                p1.setSize(boxWidth - 8f, lineH);
-                p1.inTL(5f, topY);
+                float safeW1 = Math.max(boxWidth - 6f, measureLineWidth(l1, line1Label) + 24f);
+                p1.setSize(safeW1, lineH);
+                p1.inTL(usableCenterX - safeW1 * 0.5f, topY);
+                line1Label.setText(l1);
 
-                PositionAPI p2 = ((UIComponentAPI) line2Label).getPosition();
-                p2.setSize(boxWidth - 8f, lineH);
-                p2.inTL(5f, topY + lineH);
+                float safeW2 = Math.max(boxWidth - 6f, measureLineWidth(l2, line2Label) + 24f);
+                p2.setSize(safeW2, lineH);
+                p2.inTL(usableCenterX - safeW2 * 0.5f, topY + lineH);
+                line2Label.setText(l2);
+
+                p3.setSize(safeW2, 0f);
+                p3.inTL(usableCenterX - safeW2 * 0.5f, 0f);
+                line3Label.setText("");
+            } else {
+                String l1 = fitSingleLineToWidth(lines[0], line1Label, maxTextWidth);
+                String l2 = fitSingleLineToWidth(lines[1], line2Label, maxTextWidth);
+                String l3 = fitSingleLineToWidth(lines[2], line3Label, maxTextWidth);
+                float lineH = 12f;
+                float blockH = lineH * 3f;
+                float topY = Math.max(1f, (boxHeight - blockH) * 0.5f);
+
+                float safeW1 = Math.max(boxWidth - 6f, measureLineWidth(l1, line1Label) + 24f);
+                p1.setSize(safeW1, lineH);
+                p1.inTL(usableCenterX - safeW1 * 0.5f, topY);
+                line1Label.setText(l1);
+
+                float safeW2 = Math.max(boxWidth - 6f, measureLineWidth(l2, line2Label) + 24f);
+                p2.setSize(safeW2, lineH);
+                p2.inTL(usableCenterX - safeW2 * 0.5f, topY + lineH);
+                line2Label.setText(l2);
+
+                float safeW3 = Math.max(boxWidth - 6f, measureLineWidth(l3, line3Label) + 24f);
+                p3.setSize(safeW3, lineH);
+                p3.inTL(usableCenterX - safeW3 * 0.5f, topY + lineH * 2f);
+                line3Label.setText(l3);
             }
         }
 
-        private static String[] splitBalancedTwoLines(String text, LabelAPI measurer, float maxLineW) {
-            if (text.isEmpty() || measurer.computeTextWidth(text) <= maxLineW || !text.contains(" ")) {
-                return new String[]{text, ""};
+        public static float measureLineWidth(String text, LabelAPI measurer) {
+            if (text == null || text.isEmpty()) return 0f;
+            if (measurer != null) {
+                try {
+                    float w = measurer.computeTextWidth(text);
+                    if (w > 0f) return w;
+                } catch (Throwable ignored) {
+                }
+            }
+            // Exact glyph-advance fallback matching Starsector's insignia15LTaa.fnt (Fonts.DEFAULT_SMALL)
+            float sum = 0f;
+            for (int i = 0; i < text.length(); i++) {
+                char c = text.charAt(i);
+                switch (c) {
+                    case ' ':
+                    case '.':
+                    case ',':
+                    case ':':
+                    case ';':
+                    case '!':
+                    case '\'':
+                    case '|':
+                    case 'i':
+                    case 'l':
+                        sum += 3.5f;
+                        break;
+                    case 'I':
+                    case 'j':
+                    case 't':
+                    case 'f':
+                    case 'r':
+                    case '-':
+                    case '1':
+                        sum += 5.0f;
+                        break;
+                    case 'm':
+                    case 'w':
+                    case 'M':
+                    case 'W':
+                        sum += 10.0f;
+                        break;
+                    default:
+                        sum += (Character.isUpperCase(c) ? 8.0f : 6.5f);
+                        break;
+                }
+            }
+            return sum;
+        }
+
+        public static String fitSingleLineToWidth(String text, LabelAPI measurer, float maxLineW) {
+            if (text == null || text.isEmpty()) return "";
+            if (measureLineWidth(text, measurer) <= maxLineW + 1f) {
+                return text;
+            }
+            String candidate = text;
+            while (candidate.length() > 3 && measureLineWidth(candidate + ".", measurer) > maxLineW + 1f) {
+                candidate = candidate.substring(0, candidate.length() - 1).trim();
+            }
+            return candidate + ".";
+        }
+
+        public static String[] splitBalancedLines(String text, LabelAPI measurer, float maxLineW) {
+            if (text == null) return new String[]{""};
+            String norm = text.trim().replaceAll("\\s+", " ");
+            if (norm.isEmpty()) return new String[]{""};
+
+            // Pre-split any hyphenated token wider than maxLineW
+            String[] rawTokens = norm.split(" ");
+            List<String> words = new ArrayList<>(rawTokens.length + 2);
+            for (String tok : rawTokens) {
+                if (measureLineWidth(tok, measurer) > maxLineW && tok.indexOf('-') > 0 && tok.indexOf('-') < tok.length() - 1) {
+                    int dash = tok.indexOf('-');
+                    words.add(tok.substring(0, dash + 1));
+                    words.add(tok.substring(dash + 1));
+                } else {
+                    words.add(tok);
+                }
             }
 
-            int bestSpace = -1;
-            int mid = text.length() / 2;
-            int bestDist = Integer.MAX_VALUE;
-            for (int i = 1; i < text.length() - 1; i++) {
-                if (text.charAt(i) == ' ') {
-                    int dist = Math.abs(i - mid);
-                    if (dist < bestDist) {
-                        bestDist = dist;
-                        bestSpace = i;
+            float fullW = measureLineWidth(norm, measurer);
+            float singleLineThreshold = Math.min(62f, maxLineW);
+            if (words.size() == 1 || fullW <= singleLineThreshold) {
+                return new String[]{fitSingleLineToWidth(norm, measurer, maxLineW)};
+            }
+
+            // Evaluate all 2-line split points using actual pixel widths
+            String best2L1 = norm;
+            String best2L2 = "";
+            float best2Score = Float.MAX_VALUE;
+            float best2MaxW = Float.MAX_VALUE;
+
+            for (int i = 1; i < words.size(); i++) {
+                String l1 = joinWords(words, 0, i);
+                String l2 = joinWords(words, i, words.size());
+                float w1 = measureLineWidth(l1, measurer);
+                float w2 = measureLineWidth(l2, measurer);
+                float maxW = Math.max(w1, w2);
+                float overflowPenalty = Math.max(0f, maxW - maxLineW) * 100f;
+                float score = overflowPenalty + maxW + 0.15f * Math.abs(w1 - w2);
+                if (score < best2Score) {
+                    best2Score = score;
+                    best2MaxW = maxW;
+                    best2L1 = l1;
+                    best2L2 = l2;
+                }
+            }
+
+            if (best2MaxW <= maxLineW || words.size() < 3) {
+                return new String[]{best2L1, best2L2};
+            }
+
+            // Evaluate 3-line splits when 2 lines would exceed maxLineW
+            String best3L1 = best2L1;
+            String best3L2 = best2L2;
+            String best3L3 = "";
+            float best3Score = Float.MAX_VALUE;
+            float best3MaxW = Float.MAX_VALUE;
+
+            for (int i = 1; i < words.size() - 1; i++) {
+                for (int j = i + 1; j < words.size(); j++) {
+                    String l1 = joinWords(words, 0, i);
+                    String l2 = joinWords(words, i, j);
+                    String l3 = joinWords(words, j, words.size());
+                    float w1 = measureLineWidth(l1, measurer);
+                    float w2 = measureLineWidth(l2, measurer);
+                    float w3 = measureLineWidth(l3, measurer);
+                    float maxW = Math.max(w1, Math.max(w2, w3));
+                    float overflowPenalty = Math.max(0f, maxW - maxLineW) * 100f;
+                    float score = overflowPenalty + maxW + 0.10f * (Math.abs(w1 - w2) + Math.abs(w2 - w3));
+                    if (score < best3Score) {
+                        best3Score = score;
+                        best3MaxW = maxW;
+                        best3L1 = l1;
+                        best3L2 = l2;
+                        best3L3 = l3;
                     }
                 }
             }
-            if (bestSpace <= 0) {
-                return new String[]{text, ""};
+
+            if (best3MaxW < best2MaxW) {
+                return new String[]{best3L1, best3L2, best3L3};
             }
-            String first = text.substring(0, bestSpace).trim();
-            String second = text.substring(bestSpace + 1).trim();
-            return new String[]{first, second};
+            return new String[]{best2L1, best2L2};
+        }
+
+        private static String joinWords(List<String> words, int from, int to) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = from; i < to; i++) {
+                if (i > from) sb.append(' ');
+                sb.append(words.get(i));
+            }
+            return sb.toString();
+        }
+
+        private static String[] splitBalancedTwoLines(String text, LabelAPI measurer, float maxLineW) {
+            String[] res = splitBalancedLines(text, measurer, maxLineW);
+            if (res.length == 1) {
+                return new String[]{res[0], ""};
+            } else if (res.length == 2) {
+                return res;
+            } else {
+                return new String[]{res[0], res[1] + " " + res[2]};
+            }
         }
 
         @Override
@@ -659,9 +859,11 @@ public final class CampaignFleetTooltipOrganizer {
             }
         }
 
-        // If the fleet has more members than displayed (compact tooltip "+N" badge in bottom-right cell)
+        // If the fleet has more members/wings than displayed (compact tooltip "+N" badge in bottom-right cell)
         // and the last row occupied the rightmost column, reserve an extra row so "+N" never overlaps a ship.
-        int totalFleetMembers = fleet.getFleetData().getMembersListCopy().size();
+        int totalFleetMembers = fleet.getMembersWithFightersCopy() != null
+                ? fleet.getMembersWithFightersCopy().size()
+                : fleet.getFleetData().getMembersListCopy().size();
         if (totalFleetMembers > allEntries.size() && lastPlacedColInRow == totalCols - 1) {
             for (int c = 0; c < totalCols; c++) {
                 addEmptySpacerCell(scrollingList);

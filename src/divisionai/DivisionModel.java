@@ -187,6 +187,7 @@ public class DivisionModel {
         public boolean hasStation;
         public float flankSide; // +1 / -1 relative to the enemy's facing axis, 0 = unassigned
         public PermanentDivisionManager.DivisionFormation orderedFormation = null;
+        public PermanentDivisionManager.DivisionSetpieceAttack orderedSetpieceAttack = null;
         public float expiresTime = -100f;
         public String reason = "";
         /** Incremented whenever the type or target changes, so division commanders re-evaluate immediately. */
@@ -206,6 +207,7 @@ public class DivisionModel {
             hasStation = false;
             flankSide = 0f;
             orderedFormation = null;
+            orderedSetpieceAttack = null;
             reason = "";
         }
 
@@ -219,6 +221,7 @@ public class DivisionModel {
             targetFriendly = friendly;
             flankSide = side;
             orderedFormation = null;
+            orderedSetpieceAttack = null;
             hasStation = false;
             expiresTime = expires;
             reason = why != null ? why : "";
@@ -226,13 +229,18 @@ public class DivisionModel {
     }
 
     /**
-     * A synchronized multi-division strike: participants stage, then all commit at the strike time
-     * onto one focus ship of the target division.
+     * A synchronized multi-division strike / setpiece: participants stage at their formation IPs,
+     * then all commit at the strike time onto the target division in coordinated formation carriages.
      */
     public static class StrikePlan {
         public DivisionState target;
+        public PermanentDivisionManager.MultiDivisionSetpiece setpieceType =
+                PermanentDivisionManager.MultiDivisionSetpiece.NONE;
         public final List<DivisionState> participants = new ArrayList<>();
         public final Map<String, Vector2f> marshalOffsets = new HashMap<>();
+        public final Map<String, Vector2f> passTargetOffsets = new HashMap<>();
+        public final Map<String, PermanentDivisionManager.DivisionSetpieceAttack> participantSetpieces = new HashMap<>();
+        public final Map<String, PermanentDivisionManager.DivisionFormation> participantFormations = new HashMap<>();
         public float createdTime;
         public float strikeTime;
         public boolean committed;
@@ -375,6 +383,20 @@ public class DivisionModel {
         public float formationHeadingY = 1f;
         public boolean formationHeadingInitialized = false;
         public float lastFormationChangeTime = -999f;
+
+        // Scope Item 1 & 3: Setpiece Division Attacks in Formation & Multi-Division / Fleet-Wide Formation stationing
+        public PermanentDivisionManager.DivisionSetpieceAttack doctrinalSetpieceAttack =
+                PermanentDivisionManager.DivisionSetpieceAttack.AUTO_TACTICAL;
+        public PermanentDivisionManager.DivisionSetpieceAttack activeSetpieceAttack =
+                PermanentDivisionManager.DivisionSetpieceAttack.NONE;
+        public int setpieceStage = 0; // 0 = Inactive, 1 = Dressing at IP, 2 = Executing Formation Pass
+        public float setpieceStageStartTime = -999f;
+        public float lastSetpieceEndTime = -999f;
+        public final Vector2f setpieceIpPoint = new Vector2f();
+        public final Vector2f setpiecePassTarget = new Vector2f();
+        public final Vector2f fleetFormationOffset = new Vector2f();
+        public boolean hasFleetFormationOffset = false;
+        public boolean initialDeploymentMarshalled = false;
 
         // Dynamic telemetry updated every evaluation tick
         public final Vector2f centroid = new Vector2f();
@@ -551,6 +573,16 @@ public class DivisionModel {
         // Battle Group orchestration (configured in Fleet Doctrine for the player; defaults for AI battlegroups)
         public PermanentDivisionManager.OtcAuthority authority =
                 PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION;
+        public PermanentDivisionManager.FleetWideFormation fleetWideFormation =
+                PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO;
+        public PermanentDivisionManager.FleetWideFormation activeFleetWideFormation =
+                PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST;
+        public PermanentDivisionManager.MultiDivisionSetpiece multiDivisionSetpieceDoctrine =
+                PermanentDivisionManager.MultiDivisionSetpiece.AUTO_DOCTRINAL;
+        public PermanentDivisionManager.MultiDivisionSetpiece activeMultiDivisionSetpiece =
+                PermanentDivisionManager.MultiDivisionSetpiece.NONE;
+        public boolean deployInFleetFormation = true;
+        public boolean initialDeploymentDone = false;
         public final Set<PermanentDivisionManager.OtcPlay> plays =
                 EnumSet.of(
                         PermanentDivisionManager.OtcPlay.LINE_AND_FIRE_DISTRIBUTION,

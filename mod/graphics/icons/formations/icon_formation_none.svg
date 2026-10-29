@@ -1,8 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Naval Formation Solid-Bar Icon: icon_formation_none -->
-  <polygon points="26.4,19.9 33.3,18.4 36.6,34.1 29.7,35.6" fill="#FFFFFF" fill-opacity="1.00" />
-  <polygon points="8.0,15.0 12.9,11.5 21.0,23.0 16.1,26.5" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="50.1,10.9 55.4,13.7 48.9,26.1 43.6,23.3" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="17.3,38.9 22.9,41.1 17.7,54.1 12.1,51.9" fill="#FFFFFF" fill-opacity="0.90" />
-  <polygon points="40.8,40.9 46.3,38.4 52.2,51.1 46.7,53.6" fill="#FFFFFF" fill-opacity="0.90" />
+  <defs>
+    <linearGradient id="silver" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F2F6FA"/>
+      <stop offset="50%" stop-color="#C8D2DC"/>
+      <stop offset="100%" stop-color="#8C98A6"/>
+    </linearGradient>
+  </defs>
+  <!-- No Formation: three vertical bars of equal size; two in close proximity (both x,y offset) and one far away (both x,y offset), no inner lineart -->
+  <rect x="9" y="9" width="10" height="22" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
+  <rect x="22" y="17" width="10" height="22" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
+  <rect x="45" y="33" width="10" height="22" rx="2" fill="url(#silver)" stroke="#303842" stroke-width="1.5"/>
 </svg>
