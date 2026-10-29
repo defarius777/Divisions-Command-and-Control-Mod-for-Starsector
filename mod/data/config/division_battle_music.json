@@ -1,6 +1,6 @@
 {
 	"#_comment_overview": "Submod-friendly dynamic battle music configuration for Divisions: Command and Control (division_ai). Merged across all enabled mods via Global.getSettings().getMergedJSONForMod('data/config/division_battle_music.json', 'division_ai').",
-	"#_comment_submods": "Submods can add or override faction profiles under 'factions'. Each profile may specify 'silent': true, or a 'layers' array of 1..N engagement-driven layers. Each layer starts silent until 'activationThreshold' is reached, then scales volume from 'minVolume' to 'maxVolume' up to 'fullVolumeEngagement'.",
+	"#_comment_submods": "Submods can add or override faction profiles under 'factions'. Layer 0 ('ambience_base' / battle_ambience_01.ogg) plays at all times as the first and bottom layer (alwaysOn: true, fadeOnPause: false). Each combat track layer supports per-track pause fade control via 'fadeOnPause' (boolean), 'pauseFadeOutSec' (seconds to fade into pause when battle is paused), and 'pauseFadeInSec' (seconds to fade back in when time resumes).",
 	"enabled": true,
 	"defaultActivationThreshold": 0.26,
 	"defaultFullVolumeEngagement": 0.72,
@@ -8,9 +8,24 @@
 	"defaultMaxVolume": 1.0,
 	"fadeInSpeedPerSec": 0.38,
 	"fadeOutSpeedPerSec": 0.22,
+	"defaultPauseFadeOutSec": 0.35,
+	"defaultPauseFadeInSec": 0.40,
 	"defaultProfile": {
 		"silent": false,
 		"layers": [
+			{
+				"id": "ambience_base",
+				"musicSetIds": ["divisionai_battle_ambience"],
+				"files": ["battle_ambience_01.ogg"],
+				"source": "sounds/music/music.bin",
+				"randomStart": false,
+				"activationThreshold": 0.0,
+				"fullVolumeEngagement": 1.0,
+				"minVolume": 0.85,
+				"maxVolume": 1.0,
+				"alwaysOn": true,
+				"fadeOnPause": false
+			},
 			{
 				"id": "base",
 				"musicSetIds": ["divisionai_battle_default"],
@@ -20,7 +35,11 @@
 				"activationThreshold": 0.26,
 				"fullVolumeEngagement": 0.72,
 				"minVolume": 0.24,
-				"maxVolume": 1.0
+				"maxVolume": 1.0,
+				"alwaysOn": false,
+				"fadeOnPause": true,
+				"pauseFadeOutSec": 0.35,
+				"pauseFadeInSec": 0.40
 			}
 		]
 	},
@@ -28,6 +47,19 @@
 		"hegemony": {
 			"silent": false,
 			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
 				{
 					"id": "base",
 					"musicSetIds": [
@@ -43,7 +75,11 @@
 					"activationThreshold": 0.26,
 					"fullVolumeEngagement": 0.72,
 					"minVolume": 0.24,
-					"maxVolume": 1.0
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
 				}
 			]
 		},
@@ -51,6 +87,19 @@
 			"silent": false,
 			"layers": [
 				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
+				{
 					"id": "base",
 					"musicSetIds": ["divisionai_battle_persean"],
 					"files": ["faction_league_encounter_03_friendly.ogg"],
@@ -59,7 +108,11 @@
 					"activationThreshold": 0.26,
 					"fullVolumeEngagement": 0.72,
 					"minVolume": 0.24,
-					"maxVolume": 1.0
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
 				}
 			]
 		},
@@ -67,6 +120,19 @@
 			"silent": false,
 			"layers": [
 				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
+				{
 					"id": "base",
 					"musicSetIds": ["divisionai_battle_persean"],
 					"files": ["faction_league_encounter_03_friendly.ogg"],
@@ -75,7 +141,11 @@
 					"activationThreshold": 0.26,
 					"fullVolumeEngagement": 0.72,
 					"minVolume": 0.24,
-					"maxVolume": 1.0
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
 				}
 			]
 		},
@@ -83,6 +153,19 @@
 			"silent": false,
 			"layers": [
 				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
+				{
 					"id": "base",
 					"musicSetIds": ["divisionai_battle_luddic"],
 					"files": [
@@ -94,7 +177,11 @@
 					"activationThreshold": 0.26,
 					"fullVolumeEngagement": 0.72,
 					"minVolume": 0.24,
-					"maxVolume": 1.0
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
 				}
 			]
 		},
@@ -102,24 +189,18 @@
 			"silent": false,
 			"layers": [
 				{
-					"id": "base",
-					"musicSetIds": ["divisionai_battle_luddic"],
-					"files": [
-						"faction_luddite_market_02_hostile_var01.ogg",
-						"faction_luddite_market_02_hostile_var02.ogg"
-					],
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
 					"source": "sounds/music/music.bin",
 					"randomStart": false,
-					"activationThreshold": 0.26,
-					"fullVolumeEngagement": 0.72,
-					"minVolume": 0.24,
-					"maxVolume": 1.0
-				}
-			]
-		},
-		"knights_of_ludd": {
-			"silent": false,
-			"layers": [
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
 				{
 					"id": "base",
 					"musicSetIds": ["divisionai_battle_luddic"],
@@ -132,13 +213,66 @@
 					"activationThreshold": 0.26,
 					"fullVolumeEngagement": 0.72,
 					"minVolume": 0.24,
-					"maxVolume": 1.0
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
+				}
+			]
+		},
+		"knights_of_ludd": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_luddic"],
+					"files": [
+						"faction_luddite_market_02_hostile_var01.ogg",
+						"faction_luddite_market_02_hostile_var02.ogg"
+					],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
 				}
 			]
 		},
 		"pirates": {
 			"silent": false,
 			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
 				{
 					"id": "base",
 					"musicSetIds": ["divisionai_battle_pirates"],
@@ -151,13 +285,30 @@
 					"activationThreshold": 0.26,
 					"fullVolumeEngagement": 0.72,
 					"minVolume": 0.24,
-					"maxVolume": 1.0
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
 				}
 			]
 		},
 		"tritachyon": {
 			"silent": false,
 			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
 				{
 					"id": "base",
 					"musicSetIds": ["divisionai_battle_tritach"],
@@ -167,7 +318,11 @@
 					"activationThreshold": 0.26,
 					"fullVolumeEngagement": 0.72,
 					"minVolume": 0.24,
-					"maxVolume": 1.0
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
 				}
 			]
 		},
@@ -175,21 +330,18 @@
 			"silent": false,
 			"layers": [
 				{
-					"id": "base",
-					"musicSetIds": ["divisionai_battle_remnant"],
-					"files": ["faction_tritach_market_02_hostile.ogg"],
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
 					"source": "sounds/music/music.bin",
 					"randomStart": false,
-					"activationThreshold": 0.26,
-					"fullVolumeEngagement": 0.72,
-					"minVolume": 0.24,
-					"maxVolume": 1.0
-				}
-			]
-		},
-		"omega": {
-			"silent": false,
-			"layers": [
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
 				{
 					"id": "base",
 					"musicSetIds": ["divisionai_battle_remnant"],
@@ -199,29 +351,135 @@
 					"activationThreshold": 0.26,
 					"fullVolumeEngagement": 0.72,
 					"minVolume": 0.24,
-					"maxVolume": 1.0
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
+				}
+			]
+		},
+		"omega": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_remnant"],
+					"files": ["faction_tritach_market_02_hostile.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
 				}
 			]
 		},
 		"threat": {
 			"silent": true,
-			"layers": []
+			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				}
+			]
 		},
 		"dweller": {
 			"silent": true,
-			"layers": []
+			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				}
+			]
 		},
 		"abyssal": {
 			"silent": true,
-			"layers": []
+			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				}
+			]
 		},
 		"abyssal_horrors": {
 			"silent": true,
-			"layers": []
+			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				}
+			]
 		},
 		"derelict": {
 			"silent": false,
 			"layers": [
+				{
+					"id": "ambience_base",
+					"musicSetIds": ["divisionai_battle_ambience"],
+					"files": ["battle_ambience_01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.0,
+					"fullVolumeEngagement": 1.0,
+					"minVolume": 0.85,
+					"maxVolume": 1.0,
+					"alwaysOn": true,
+					"fadeOnPause": false
+				},
 				{
 					"id": "base",
 					"musicSetIds": ["divisionai_battle_default"],
@@ -231,7 +489,11 @@
 					"activationThreshold": 0.26,
 					"fullVolumeEngagement": 0.72,
 					"minVolume": 0.24,
-					"maxVolume": 1.0
+					"maxVolume": 1.0,
+					"alwaysOn": false,
+					"fadeOnPause": true,
+					"pauseFadeOutSec": 0.35,
+					"pauseFadeInSec": 0.40
 				}
 			]
 		}

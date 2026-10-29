@@ -37,6 +37,37 @@ public class DivisionAISettings {
     public static final String REINIT_FIELD_ID = "divai_reinit_sector_divisions";
     public static final String CHATTER_VERBOSITY_FIELD_ID = "divai_chatter_verbosity";
     public static final String TSFC_GRAPHICS_QUALITY_FIELD_ID = "divai_tsfc_graphics_quality";
+    public static final String ENABLE_BATTLE_MUSIC_FIELD_ID = "divai_enable_battle_music";
+    public static final String BATTLE_MUSIC_CONTROL_FIELD_ID = "divai_battle_music_control";
+    public static final String SETTINGS_JSON_ENABLE_BATTLE_MUSIC_KEY = "divisionai_enableDynamicBattleMusic";
+
+    public enum BattleMusicControlMode {
+        MOD_DYNAMIC("Division AI Dynamic Music"),
+        VANILLA_DEFAULT("Vanilla Default");
+
+        public final String displayName;
+
+        BattleMusicControlMode(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public static BattleMusicControlMode fromSettingString(String raw) {
+            if (raw == null) return MOD_DYNAMIC;
+            String trimmed = raw.trim();
+            if ("Vanilla".equalsIgnoreCase(trimmed)
+                    || "Vanilla Default".equalsIgnoreCase(trimmed)
+                    || "VANILLA_DEFAULT".equalsIgnoreCase(trimmed)
+                    || "Disabled".equalsIgnoreCase(trimmed)
+                    || "Off".equalsIgnoreCase(trimmed)
+                    || "false".equalsIgnoreCase(trimmed)) {
+                return VANILLA_DEFAULT;
+            }
+            return MOD_DYNAMIC;
+        }
+    }
+
+    /** Optional override used by headless unit tests or runtime programmatic toggles (null in normal gameplay). */
+    public static Boolean testBattleMusicEnabledOverride = null;
 
     public enum TsfcGraphicsQuality {
         HIGH("High"),
@@ -409,6 +440,54 @@ public class DivisionAISettings {
 
     public static boolean isTsfcHighGraphics() {
         return getTsfcGraphicsQuality() == TsfcGraphicsQuality.HIGH;
+    }
+
+    /**
+     * Returns true when Division AI's dynamic battle music engine is enabled, or false when disabled
+     * (in which case combat music control is yielded to vanilla Starsector default).
+     */
+    public static boolean isDynamicBattleMusicEnabled() {
+        if (testBattleMusicEnabledOverride != null) {
+            return testBattleMusicEnabledOverride.booleanValue();
+        }
+        boolean defaultFromSettingsJson = true;
+        try {
+            if (Global.getSettings() != null) {
+                defaultFromSettingsJson = Global.getSettings().getBoolean(SETTINGS_JSON_ENABLE_BATTLE_MUSIC_KEY);
+            }
+        } catch (Throwable ignored) {
+            defaultFromSettingsJson = true;
+        }
+        boolean enabledToggle = getBool(ENABLE_BATTLE_MUSIC_FIELD_ID, defaultFromSettingsJson);
+        if (!enabledToggle) {
+            return false;
+        }
+        String controlRaw = getString(BATTLE_MUSIC_CONTROL_FIELD_ID, BattleMusicControlMode.MOD_DYNAMIC.displayName);
+        if (BattleMusicControlMode.fromSettingString(controlRaw) == BattleMusicControlMode.VANILLA_DEFAULT) {
+            return false;
+        }
+        return true;
+    }
+
+    public static BattleMusicControlMode getBattleMusicControlMode() {
+        return isDynamicBattleMusicEnabled()
+                ? BattleMusicControlMode.MOD_DYNAMIC
+                : BattleMusicControlMode.VANILLA_DEFAULT;
+    }
+
+    public static void setDynamicBattleMusicEnabled(Boolean enabled) {
+        testBattleMusicEnabledOverride = enabled;
+        if (enabled != null) {
+            liveSettingOverrides.put(ENABLE_BATTLE_MUSIC_FIELD_ID, enabled);
+            liveSettingOverrides.put(
+                    BATTLE_MUSIC_CONTROL_FIELD_ID,
+                    enabled.booleanValue()
+                            ? BattleMusicControlMode.MOD_DYNAMIC.displayName
+                            : BattleMusicControlMode.VANILLA_DEFAULT.displayName);
+        } else {
+            liveSettingOverrides.remove(ENABLE_BATTLE_MUSIC_FIELD_ID);
+            liveSettingOverrides.remove(BATTLE_MUSIC_CONTROL_FIELD_ID);
+        }
     }
 
     /**

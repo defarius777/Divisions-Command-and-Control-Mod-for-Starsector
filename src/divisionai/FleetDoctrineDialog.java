@@ -162,20 +162,29 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private void commitCustomPrefixTextFields() {
         if (prefixTextFields.isEmpty() && customOtcTitleField == null) return;
         PlayerNamingConfig cfg = DivisionNomenclature.getPlayerNamingConfig();
+        PlayerNamingConfig prevSnapshot = cfg.copy();
         if (customOtcTitleField != null) {
             cfg.setCustomOtcTitle(customOtcTitleField.getText());
         }
+        boolean anyPrefixChanged = false;
         for (Map.Entry<DivisionArchetype, TextFieldAPI> e : prefixTextFields.entrySet()) {
             DivisionArchetype arch = e.getKey();
             TextFieldAPI tf = e.getValue();
             if (arch == null || tf == null) continue;
             String typed = tf.getText() != null ? tf.getText().trim() : "";
             String presetDefault = DivisionNomenclature.getDefaultPrefixForPreset(cfg.getPreset(), arch);
+            String before = cfg.getPrefixForArchetype(arch);
             if (typed.isEmpty() || typed.equals(presetDefault)) {
                 cfg.setCustomPrefixForArchetype(arch, null);
             } else {
                 cfg.setCustomPrefixForArchetype(arch, typed);
             }
+            if (!cfg.getPrefixForArchetype(arch).equals(before)) {
+                anyPrefixChanged = true;
+            }
+        }
+        if (anyPrefixChanged) {
+            PermanentDivisionManager.updateDefaultNamedPlayerDivisionsAfterNamingChange(prevSnapshot);
         }
     }
 
@@ -2070,7 +2079,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private static SpriteAPI loadFormationSpriteSafe(String iconKey, String path) {
+    public static SpriteAPI loadFormationSpriteSafe(String iconKey, String path) {
         SpriteAPI sprite = null;
         if (iconKey != null && !iconKey.isEmpty()) {
             try {
@@ -2559,8 +2568,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     cmd.substring("SET_NAMING_PRESET:".length()),
                     PlayerNamingPreset.NAVAL_STANDARD);
             PlayerNamingConfig cfg = DivisionNomenclature.getPlayerNamingConfig();
+            PlayerNamingConfig prevSnapshot = cfg.copy();
             cfg.clearCustomPrefixes();
             cfg.setPreset(preset);
+            PermanentDivisionManager.updateDefaultNamedPlayerDivisionsAfterNamingChange(prevSnapshot);
             prefixTextFields.clear();
             customOtcTitleField = null;
             expandedDropdownKey = null;
@@ -2571,7 +2582,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             NumberingStyle style = NumberingStyle.fromId(
                     cmd.substring("SET_NUMBERING_STYLE:".length()),
                     NumberingStyle.ARABIC);
-            DivisionNomenclature.getPlayerNamingConfig().setNumberingStyle(style);
+            PlayerNamingConfig cfg = DivisionNomenclature.getPlayerNamingConfig();
+            PlayerNamingConfig prevSnapshot = cfg.copy();
+            cfg.setNumberingStyle(style);
+            PermanentDivisionManager.updateDefaultNamedPlayerDivisionsAfterNamingChange(prevSnapshot);
             rebuildContent();
             return;
         }

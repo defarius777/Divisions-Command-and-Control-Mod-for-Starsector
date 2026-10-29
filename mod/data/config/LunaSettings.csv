@@ -24,5 +24,11 @@ divai_tsfc_graphics_quality,T-S-F-C Overlay Graphics Fidelity,Radio,High,"High, 
 - High: Full-fidelity 72-step smooth polar firepower contours and 48-segment anti-aliased gradients and circles.
 - Low: Fast 48-step contours and reduced circle segment counts for maximum frame rate in massive battles.",,,
 ,,,,,,,,
+divai_musicHeader,Dynamic Battle Music Engine,Header,Dynamic Battle Music Engine,,,,,
+divai_enable_battle_music,Enable Dynamic Battle Music Engine,Boolean,true,,"Enables Division AI's layered dynamic combat music engine (continuous battle_ambience_01.ogg bottom layer + faction combat tracks with pause fade-out/resume). Disable to switch combat music control to vanilla Starsector default.",,,
+divai_battle_music_control,Combat Music Control Mode,Radio,Division AI Dynamic Music,"Division AI Dynamic Music, Vanilla Default","Select whether Division AI controls combat music and ambience or switches combat music control to vanilla Starsector default:
+- Division AI Dynamic Music: Continuous battle_ambience_01.ogg base layer with dynamic faction combat tracks and pause fade-out/resume.
+- Vanilla Default: Disables Division AI's music engine and hands full combat music control back to vanilla Starsector.",,,
+,,,,,,,,
 divai_sectorHeader,Sector Campaign Divisions,Header,Sector-Wide Division Lists,,,,,
 divai_reinit_sector_divisions,Reinitialize Sector-Wide Division Lists,Boolean,false,,"Reinitializes all NPC faction division record tables and re-sorts all instanced non-player fleets across the sector (Story/Special fleets prioritized first). Click once to arm 'Are you sure?', then click again to confirm.",,,

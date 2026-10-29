@@ -470,7 +470,9 @@ public class TsfcWarroomRenderer {
                 }
             }
 
-            // Render airborne Strike Craft squadron Space Zones of Control when deployed away from the carrier centroid
+            // Render airborne Strike Craft squadron permeable Space Zones of Control when deployed away from the carrier centroid.
+            // Per Task F: Because warships can physically move through strike craft, strike craft do NOT render a solid
+            // Tier-1 Inner Hull-Exclusion ring; they render only a dashed permeable outer Space contour.
             for (ShipAPI s : div.getAliveMembers()) {
                 List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
                 if (wings == null) continue;
@@ -480,12 +482,10 @@ public class TsfcWarroomRenderer {
                     if (isEnemy && playerFog != null && !playerFog.isVisible(wLead)) continue;
                     float wx = offsetX + wLead.getLocation().x * scale;
                     float wy = offsetY + wLead.getLocation().y * scale;
-                    float wInPx = Math.max(9f, 260f * scale);
-                    float wDomPx = Math.max(wInPx + 5f, 560f * scale);
+                    float wDomPx = Math.max(12f, 480f * scale);
                     if (!isCircleVisibleOnScreen(wx, wy, wDomPx + 8f, screenW, screenH)) continue;
-                    drawIncreasinglyTransparentCircle(wx, wy, wDomPx, r, g, b, 0.13f * fade, 24);
-                    drawCircleOutline(wx, wy, wDomPx, r, g, b, 0.32f * fade, 1.15f, 24, true);
-                    drawCircleOutline(wx, wy, wInPx, r, g, b, 0.44f * fade, 1.25f, 24, false);
+                    drawIncreasinglyTransparentCircle(wx, wy, wDomPx, r, g, b, 0.09f * fade, 24);
+                    drawCircleOutline(wx, wy, wDomPx, r, g, b, 0.28f * fade, 1.10f, 24, true);
                 }
             }
         }

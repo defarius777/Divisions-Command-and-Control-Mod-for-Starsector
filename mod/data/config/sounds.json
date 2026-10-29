@@ -1,5 +1,8 @@
 {
 	"music":{
+		"divisionai_battle_ambience":[
+			{"file":"battle_ambience_01.ogg", "source":"sounds/music/music.bin", "volume":1.0}
+		],
 		"divisionai_battle_default":[
 			{"file":"faction_hegemony_market_02_hostile_var01.ogg", "source":"sounds/music/music.bin", "volume":0.85}
 		],

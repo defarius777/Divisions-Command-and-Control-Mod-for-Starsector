@@ -3527,13 +3527,40 @@ public class PermanentDivisionManager {
         Map<String, Object> pdata = sector.getPersistentData();
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
 
+        reDesignateDivisionInList(specs, divisionId, newName, newArchetype, newDoctrine);
+        sortDivisionsByWeightClassAndRole(specs, sector.getPlayerFleet());
+        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    /**
+     * Updates a division's name, archetype, and/or doctrine within {@code specs}.
+     * Per Task B: If the player re-designates a division ({@code newArchetype != spec.archetype}) while its name
+     * is default as per the player's chosen nomenclature, the division is renamed according to that same nomenclature
+     * for the new archetype. If the name is custom (even by one character), the division is not renamed.
+     */
+    public static void reDesignateDivisionInList(
+            List<PermanentDivisionSpec> specs,
+            String divisionId,
+            String newName,
+            DivisionArchetype newArchetype,
+            DoctrineOption newDoctrine) {
+        if (specs == null || divisionId == null) return;
         for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
-                if (newName != null && !newName.trim().isEmpty()) {
+            if (spec != null && divisionId.equals(spec.id)) {
+                boolean hasExplicitName = (newName != null && !newName.trim().isEmpty());
+                if (hasExplicitName) {
                     spec.name = newName.trim();
                 }
                 if (newArchetype != null) {
+                    boolean archetypeChanged = (newArchetype != spec.archetype);
+                    DivisionArchetype oldArchetype = spec.archetype;
                     spec.archetype = newArchetype;
+                    if (archetypeChanged && !hasExplicitName) {
+                        DivisionNomenclature.PlayerNamingConfig cfg = DivisionNomenclature.getPlayerNamingConfig();
+                        if (DivisionNomenclature.isDefaultDivisionNameForConfig(spec.name, oldArchetype, cfg)) {
+                            spec.name = findNextAvailablePlayerDivisionName(specs, newArchetype, spec.id);
+                        }
+                    }
                 }
                 if (newDoctrine != null) {
                     spec.doctrine = newDoctrine;
@@ -3541,8 +3568,39 @@ public class PermanentDivisionManager {
                 break;
             }
         }
-        sortDivisionsByWeightClassAndRole(specs, sector.getPlayerFleet());
-        saveSpecsToPersistentData(pdata, specs);
+    }
+
+    /**
+     * Finds the lowest sequence number {@code seq >= 1} under the player's chosen nomenclature such that
+     * {@code formatPlayerDivisionName(archetype, seq)} is not already used by another division in {@code specs}.
+     */
+    public static String findNextAvailablePlayerDivisionName(
+            List<PermanentDivisionSpec> specs,
+            DivisionArchetype archetype,
+            String excludeDivisionId) {
+        DivisionArchetype arch = (archetype != null) ? archetype : DivisionArchetype.FORCE_DIVISION;
+        DivisionNomenclature.PlayerNamingConfig cfg = DivisionNomenclature.getPlayerNamingConfig();
+        String firstCandidate = DivisionNomenclature.formatDivisionNameWithConfig(cfg, arch, 1);
+        String secondCandidate = DivisionNomenclature.formatDivisionNameWithConfig(cfg, arch, 2);
+        if (firstCandidate.equals(secondCandidate) || specs == null || specs.isEmpty()) {
+            return firstCandidate;
+        }
+        for (int seq = 1; seq <= 999; seq++) {
+            String candidate = DivisionNomenclature.formatDivisionNameWithConfig(cfg, arch, seq);
+            boolean taken = false;
+            for (PermanentDivisionSpec existing : specs) {
+                if (existing == null) continue;
+                if (excludeDivisionId != null && excludeDivisionId.equals(existing.id)) continue;
+                if (existing.name != null && candidate.equalsIgnoreCase(existing.name.trim())) {
+                    taken = true;
+                    break;
+                }
+            }
+            if (!taken) {
+                return candidate;
+            }
+        }
+        return firstCandidate;
     }
 
     public static List<FleetMemberAPI> getMembersInDivision(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
@@ -3903,12 +3961,13 @@ public class PermanentDivisionManager {
     public static float computeFlagshipCandidateScore(FleetMemberAPI m, boolean preferCarrierFlagship) {
         if (m == null) return -1f;
         float score = m.getDeploymentPointsCost();
+        if (m.isFlagship()) {
+            // The Fleet Flagship always takes highest priority so it is seeded into Division 1 and leads its division
+            score += 5000f;
+        }
         if (m.getCaptain() != null && !m.getCaptain().isDefault()) {
             // Ships that already have a commander naturally take top priority as division flagships
             score += 1000f + m.getCaptain().getStats().getLevel() * 25f;
-        }
-        if (m.isFlagship()) {
-            score += 500f;
         }
         if (preferCarrierFlagship && (m.isCarrier() || m.getNumFlightDecks() > 0)) {
             score += 400f;
@@ -3927,7 +3986,7 @@ public class PermanentDivisionManager {
         List<FleetMemberAPI> withoutCmd = new ArrayList<>();
         for (FleetMemberAPI m : pool) {
             if (m == null) continue;
-            if (m.getCaptain() != null && !m.getCaptain().isDefault()) {
+            if (m.isFlagship() || (m.getCaptain() != null && !m.getCaptain().isDefault())) {
                 withCmd.add(m);
             } else {
                 withoutCmd.add(m);
@@ -4034,16 +4093,8 @@ public class PermanentDivisionManager {
         }
         pdata.put(PERSISTENT_SEQ_KEY, nextSeq);
 
-        String bucketKey = DivisionNomenclature.resolvePrefixBucketKey(arch);
-        int prefixNumber = 1;
-        for (PermanentDivisionSpec existing : specs) {
-            if (bucketKey.equals(DivisionNomenclature.resolvePrefixBucketKey(existing.archetype))) {
-                prefixNumber++;
-            }
-        }
-
         String id = "perm_div_" + nextSeq;
-        String name = DivisionNomenclature.formatPlayerDivisionName(arch, prefixNumber);
+        String name = findNextAvailablePlayerDivisionName(specs, arch, id);
         PermanentDivisionSpec created = new PermanentDivisionSpec(id, name, arch);
         specs.add(created);
         return created;
@@ -4058,21 +4109,79 @@ public class PermanentDivisionManager {
         if (sector == null) return 0;
         Map<String, Object> pdata = sector.getPersistentData();
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        sortDivisionsByWeightClassAndRole(specs, sector.getPlayerFleet());
+        DivisionNomenclature.PlayerNamingConfig cfg = DivisionNomenclature.getPlayerNamingConfig();
         Map<String, Integer> seqByBucket = new LinkedHashMap<>();
         int updated = 0;
         for (PermanentDivisionSpec spec : specs) {
             if (spec == null) continue;
             DivisionArchetype arch = spec.archetype != null ? spec.archetype : DivisionArchetype.CRUISER_DIVISION;
-            String bucketKey = DivisionNomenclature.resolvePrefixBucketKey(arch);
+            String bucketKey = DivisionNomenclature.resolvePlayerPrefixBucketKey(cfg, arch);
             int seq = (seqByBucket.containsKey(bucketKey) ? seqByBucket.get(bucketKey) : 0) + 1;
             seqByBucket.put(bucketKey, seq);
-            String newName = DivisionNomenclature.formatPlayerDivisionName(arch, seq);
+            String newName = DivisionNomenclature.formatDivisionNameWithConfig(cfg, arch, seq);
             if (!newName.equals(spec.name)) {
                 spec.name = newName;
                 updated++;
             }
         }
+        sortDivisionsByWeightClassAndRole(specs, sector.getPlayerFleet());
         saveSpecsToPersistentData(pdata, specs);
+        return updated;
+    }
+
+    /**
+     * When the player changes their Fleet Nomenclature preset, numbering style, or custom prefixes,
+     * automatically updates any division in {@code specs} whose name was default under {@code previousCfg}
+     * (or current {@code newCfg}), while leaving any custom-named division untouched.
+     */
+    public static int updateDefaultNamedDivisionsInList(
+            List<PermanentDivisionSpec> specs,
+            DivisionNomenclature.PlayerNamingConfig previousCfg,
+            DivisionNomenclature.PlayerNamingConfig newCfg) {
+        if (specs == null || specs.isEmpty()) return 0;
+        DivisionNomenclature.PlayerNamingConfig effNew = newCfg != null
+                ? newCfg
+                : DivisionNomenclature.getPlayerNamingConfig();
+        DivisionNomenclature.PlayerNamingConfig effPrev = previousCfg != null ? previousCfg : effNew;
+
+        Map<String, Integer> seqByBucket = new LinkedHashMap<>();
+        int updated = 0;
+        for (PermanentDivisionSpec spec : specs) {
+            if (spec == null) continue;
+            DivisionArchetype arch = spec.archetype != null ? spec.archetype : DivisionArchetype.CRUISER_DIVISION;
+            String bucketKey = DivisionNomenclature.resolvePlayerPrefixBucketKey(effNew, arch);
+            int seq = (seqByBucket.containsKey(bucketKey) ? seqByBucket.get(bucketKey) : 0) + 1;
+            seqByBucket.put(bucketKey, seq);
+
+            boolean wasDefault = DivisionNomenclature.isDefaultDivisionNameForConfig(spec.name, arch, effPrev)
+                    || DivisionNomenclature.isDefaultDivisionNameForConfig(spec.name, arch, effNew);
+            if (wasDefault) {
+                String newName = DivisionNomenclature.formatDivisionNameWithConfig(effNew, arch, seq);
+                if (!newName.equals(spec.name)) {
+                    spec.name = newName;
+                    updated++;
+                }
+            }
+        }
+        return updated;
+    }
+
+    public static int updateDefaultNamedPlayerDivisionsAfterNamingChange(
+            DivisionNomenclature.PlayerNamingConfig previousCfg) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null) return 0;
+        Map<String, Object> pdata = sector.getPersistentData();
+        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+        sortDivisionsByWeightClassAndRole(specs, sector.getPlayerFleet());
+        int updated = updateDefaultNamedDivisionsInList(
+                specs,
+                previousCfg,
+                DivisionNomenclature.getPlayerNamingConfig());
+        if (updated > 0) {
+            sortDivisionsByWeightClassAndRole(specs, sector.getPlayerFleet());
+            saveSpecsToPersistentData(pdata, specs);
+        }
         return updated;
     }
 

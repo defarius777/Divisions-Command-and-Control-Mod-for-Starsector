@@ -413,7 +413,6 @@ public class DivisionAutoFormer {
             List<ShipCapabilityProfile> members) {
 
         boolean isAlliedAi = !members.isEmpty() && members.get(0).ship.isAlly();
-        String sidePrefix = (battleGroup.side == 0) ? (isAlliedAi ? "Allied " : "") : "Enemy ";
         int number = nextDivisionNumberForBucket(battleGroup, archetype, isAlliedAi);
 
         ShipAPI leaderShip = pickDivisionFlagship(members, archetype);
@@ -426,16 +425,13 @@ public class DivisionAutoFormer {
             long seed = (leaderShip != null && leaderShip.getId() != null)
                     ? leaderShip.getId().hashCode() * 6364136223846793005L + nameSeq * 1442695040888963407L
                     : (nameSeq * 1442695040888963407L);
-            String baseName = DivisionNomenclature.formatFactionDivisionName(
+            displayName = DivisionNomenclature.formatFactionDivisionName(
                     battleGroup.factionId,
                     nomCat,
                     archetype,
                     nameSeq,
                     captain,
                     seed);
-            displayName = (nomCat == DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL)
-                    ? (sidePrefix + baseName)
-                    : baseName;
 
             if (nomCat != DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL) {
                 break;

@@ -486,6 +486,8 @@ public class DivisionDeploymentDialogOrganizer {
         int currentSlotIndex = 0;
         int labelCols = LABEL_COLS; // Columns 0..1 (116px wide) hold the Division Row Header card
         int shipsPerRow = Math.max(1, totalCols - labelCols);
+        DivisionNomenclature.NomenclatureCategory playerNomCat = DivisionNomenclature.getPlayerNomenclatureCategory();
+        int divSeq = 1;
 
         for (PermanentDivisionSpec divSpec : nonEmptyDivisions) {
             List<MemberIconEntry> divEntries = new ArrayList<>();
@@ -514,22 +516,30 @@ public class DivisionDeploymentDialogOrganizer {
                 continue;
             }
 
+            boolean isFlagshipDiv = false;
             for (MemberIconEntry e : divEntries) {
                 orderedMembers.add(e.member);
+                if (e.member != null && e.member.isFlagship()) {
+                    isFlagshipDiv = true;
+                }
             }
 
             PermanentDivisionManager.FleetDoctrineConfig docCfg = PermanentDivisionManager.getFleetDoctrine();
             PermanentDivisionManager.DivisionFormation divFm =
                     PermanentDivisionManager.resolveEffectiveFormation(divSpec, docCfg);
-            String rowTitle = (divFm != null)
-                    ? (divSpec.name + " [" + divFm.shortName + "]")
-                    : divSpec.name;
+            String rowTitle = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                    playerNomCat,
+                    divSpec.archetype,
+                    divSeq++,
+                    divSpec.name);
 
             currentSlotIndex = appendRowGroupToScrollingList(
                     fdd,
                     scrollingList,
                     rowTitle,
                     true,
+                    divFm,
+                    isFlagshipDiv,
                     divEntries,
                     currentSlotIndex,
                     totalCols,
@@ -553,6 +563,8 @@ public class DivisionDeploymentDialogOrganizer {
                     fdd,
                     scrollingList,
                     "Unassigned",
+                    false,
+                    null,
                     false,
                     unassignedEntries,
                     currentSlotIndex,
@@ -582,6 +594,8 @@ public class DivisionDeploymentDialogOrganizer {
             Object scrollingList,
             String groupTitle,
             boolean isDivisionRow,
+            PermanentDivisionManager.DivisionFormation divFm,
+            boolean isFlagshipDiv,
             List<MemberIconEntry> entries,
             int currentSlotIndex,
             int totalCols,
@@ -614,6 +628,8 @@ public class DivisionDeploymentDialogOrganizer {
                         groupTitle,
                         totalDp,
                         isDivisionRow,
+                        divFm,
+                        isFlagshipDiv,
                         entries,
                         itemW * labelCols,
                         groupCardHeight,
@@ -679,6 +695,8 @@ public class DivisionDeploymentDialogOrganizer {
             final String title,
             final float totalDp,
             final boolean isDivisionRow,
+            final PermanentDivisionManager.DivisionFormation divFm,
+            final boolean isFlagshipDiv,
             final List<MemberIconEntry> groupEntries,
             final float width,
             final float height,
@@ -687,6 +705,31 @@ public class DivisionDeploymentDialogOrganizer {
         final ButtonAPI[] toggleBtnHolder = new ButtonAPI[1];
         final CustomPanelAPI[] cardRef = new CustomPanelAPI[1];
         final Color accentColor = isDivisionRow ? DIV_ACCENT_COLOR : UNASSIGNED_ACCENT_COLOR;
+        final float cardW = width - 3f;
+        final float cardH = height - 2f;
+
+        Color titleColor = isDivisionRow ? DIV_HEADER_TEXT_COLOR : UNASSIGNED_TEXT_COLOR;
+        Color btnBase = isDivisionRow ? DIV_BTN_BASE_COLOR : UNASSIGNED_BTN_BASE;
+        Color btnDark = isDivisionRow ? DIV_BTN_DARK_COLOR : UNASSIGNED_BTN_DARK;
+
+        LabelAPI line1Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
+        line1Label.setColor(titleColor);
+        line1Label.setAlignment(Alignment.LMID);
+
+        LabelAPI line2Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
+        line2Label.setColor(titleColor);
+        line2Label.setAlignment(Alignment.LMID);
+
+        boolean hasFormationBadge = isDivisionRow && divFm != null;
+        float line1LeftX = hasFormationBadge ? 20f : 6f;
+        float line2LeftX = 6f;
+        float maxLine1W = Math.max(42f, cardW - line1LeftX - 4f);
+        float maxLine2W = Math.max(54f, cardW - line2LeftX - 4f);
+
+        String[] lines = splitDeploymentCardTitleLines(title, line1Label, maxLine1W, maxLine2W);
+        final boolean isTwoLineTitle = (lines.length >= 2 && lines[1] != null && !lines[1].isEmpty());
+        // Vertical center offset from top of card for the 12x12 formation icon badge so it aligns with Line 1
+        final float iconCenterTopY = isTwoLineTitle ? 9.5f : 15.5f;
 
         BaseCustomUIPanelPlugin cardPlugin = new BaseCustomUIPanelPlugin() {
             @Override
@@ -739,6 +782,24 @@ public class DivisionDeploymentDialogOrganizer {
                 }
 
                 GL11.glPopAttrib();
+
+                // Render 12x12 Formation Icon Box aligned with the division name
+                if (isDivisionRow && divFm != null) {
+                    float iconSize = 12f;
+                    float iconCx = pos.getX() + 11.5f;
+                    float iconCy = pos.getY() + pos.getHeight() - iconCenterTopY;
+                    com.fs.starfarer.api.graphics.SpriteAPI sprite = FleetDoctrineDialog.loadFormationSpriteSafe(
+                            divFm.getSettingsIconKey(isFlagshipDiv),
+                            divFm.getSpritePath(isFlagshipDiv));
+                    if (sprite != null) {
+                        sprite.setSize(iconSize, iconSize);
+                        sprite.setColor(Color.WHITE);
+                        sprite.setAlphaMult(0.95f * alphaMult);
+                        sprite.renderAtCenter(iconCx, iconCy);
+                    }
+                    FleetDoctrineDialog.renderFormationSquareBorder(
+                            iconCx, iconCy, iconSize, isFlagshipDiv, 0.95f * alphaMult);
+                }
             }
 
             @Override
@@ -760,19 +821,38 @@ public class DivisionDeploymentDialogOrganizer {
             }
         };
 
-        CustomPanelAPI card = Global.getSettings().createCustom(width - 3f, height - 2f, cardPlugin);
+        CustomPanelAPI card = Global.getSettings().createCustom(cardW, cardH, cardPlugin);
         cardRef[0] = card;
-        TooltipMakerAPI tt = card.createUIElement(width - 3f, height - 2f, false);
 
-        Color titleColor = isDivisionRow ? DIV_HEADER_TEXT_COLOR : UNASSIGNED_TEXT_COLOR;
-        Color btnBase = isDivisionRow ? DIV_BTN_BASE_COLOR : UNASSIGNED_BTN_BASE;
-        Color btnDark = isDivisionRow ? DIV_BTN_DARK_COLOR : UNASSIGNED_BTN_DARK;
+        // Pre-initialize non-zero label widths before setText() so Starsector's label never word-wraps spaces into newlines
+        PositionAPI p1 = card.addComponent((UIComponentAPI) line1Label);
+        PositionAPI p2 = card.addComponent((UIComponentAPI) line2Label);
+        float initLabelW = Math.max(160f, cardW * 2f);
+        p1.setSize(initLabelW, 13f).inTL(0f, 0f);
+        p2.setSize(initLabelW, 13f).inTL(0f, 0f);
 
-        tt.setParaFont(Fonts.DEFAULT_SMALL);
-        String clippedTitle = CampaignFleetTooltipOrganizer.fitSingleLineToWidth(title, null, width - 16f);
-        LabelAPI lbl = tt.addPara("%s", 0f, titleColor, clippedTitle);
-        lbl.getPosition().inTL(6f, 6f);
+        if (!isTwoLineTitle) {
+            String l1 = lines.length > 0 ? lines[0] : "";
+            float safeW1 = Math.max(maxLine1W, CampaignFleetTooltipOrganizer.measureLineWidth(l1, line1Label) + 20f);
+            p1.setSize(safeW1, 14f).inTL(line1LeftX, 9f);
+            line1Label.setText(l1);
 
+            p2.setSize(safeW1, 0f).inTL(line2LeftX, 0f);
+            line2Label.setText("");
+        } else {
+            String l1 = lines[0];
+            String l2 = lines[1];
+            float safeW1 = Math.max(maxLine1W, CampaignFleetTooltipOrganizer.measureLineWidth(l1, line1Label) + 20f);
+            p1.setSize(safeW1, 13f).inTL(line1LeftX, 3f);
+            line1Label.setText(l1);
+
+            float safeW2 = Math.max(maxLine2W, CampaignFleetTooltipOrganizer.measureLineWidth(l2, line2Label) + 20f);
+            p2.setSize(safeW2, 13f).inTL(line2LeftX, 16f);
+            line2Label.setText(l2);
+        }
+
+        // Bottom Select button sits at y_top = 35f..51f (well below Line 2 at y_top = 16f..29f, so it never eats the division name)
+        TooltipMakerAPI tt = card.createUIElement(cardW, cardH, false);
         String btnLabel = String.format(Locale.ROOT, "Select (%.0f DP)", totalDp);
         ButtonAPI btn = tt.addButton(
                 btnLabel,
@@ -781,15 +861,73 @@ public class DivisionDeploymentDialogOrganizer {
                 btnDark,
                 Alignment.MID,
                 CutStyle.ALL,
-                width - 12f,
-                19f,
+                cardW - 10f,
+                16f,
                 0f);
-        btn.getPosition().inTL(6f, 31f);
+        btn.getPosition().inTL(5f, 35f);
         toggleBtnHolder[0] = btn;
 
-        tt.setHeightSoFar(height - 2f);
+        tt.setHeightSoFar(cardH);
         card.addUIElement(tt).inTL(0f, 0f);
         return card;
+    }
+
+    /**
+     * Splits a deployment screen division title into at most 2 non-overflowing lines (Line 1 beside the
+     * 12x12 formation icon badge within {@code maxLine1W}, and Line 2 across {@code maxLine2W}), so the
+     * title always stays in the top zone ({@code y_top = 3..29px}) and never collides with the Select button
+     * at {@code y_top = 35px}.
+     */
+    public static String[] splitDeploymentCardTitleLines(
+            String rawTitle,
+            LabelAPI measurer,
+            float maxLine1W,
+            float maxLine2W) {
+        if (rawTitle == null) return new String[]{""};
+        String norm = rawTitle.trim().replaceAll("\\s+", " ");
+        if (norm.isEmpty()) return new String[]{""};
+
+        if (CampaignFleetTooltipOrganizer.measureLineWidth(norm, measurer) <= maxLine1W + 1f) {
+            return new String[]{norm};
+        }
+
+        String[] words = norm.split(" ");
+        if (words.length <= 1) {
+            return new String[]{CampaignFleetTooltipOrganizer.fitSingleLineToWidth(norm, measurer, maxLine1W)};
+        }
+
+        String bestL1 = words[0];
+        String bestL2 = "";
+        float bestScore = Float.MAX_VALUE;
+        for (int split = 1; split < words.length; split++) {
+            StringBuilder sb1 = new StringBuilder();
+            for (int i = 0; i < split; i++) {
+                if (i > 0) sb1.append(' ');
+                sb1.append(words[i]);
+            }
+            StringBuilder sb2 = new StringBuilder();
+            for (int i = split; i < words.length; i++) {
+                if (i > split) sb2.append(' ');
+                sb2.append(words[i]);
+            }
+            String cand1 = sb1.toString();
+            String cand2 = sb2.toString();
+            float w1 = CampaignFleetTooltipOrganizer.measureLineWidth(cand1, measurer);
+            float w2 = CampaignFleetTooltipOrganizer.measureLineWidth(cand2, measurer);
+            float over1 = Math.max(0f, w1 - maxLine1W);
+            float over2 = Math.max(0f, w2 - maxLine2W);
+            float score = (over1 + over2) * 100f + Math.max(w1 / Math.max(1f, maxLine1W), w2 / Math.max(1f, maxLine2W)) * 20f
+                    + Math.abs(w1 - w2) * 0.1f;
+            if (score < bestScore) {
+                bestScore = score;
+                bestL1 = cand1;
+                bestL2 = cand2;
+            }
+        }
+        return new String[]{
+                CampaignFleetTooltipOrganizer.fitSingleLineToWidth(bestL1, measurer, maxLine1W),
+                CampaignFleetTooltipOrganizer.fitSingleLineToWidth(bestL2, measurer, maxLine2W)
+        };
     }
 
     @SuppressWarnings("unchecked")

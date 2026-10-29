@@ -129,6 +129,12 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             return;
         }
         if (engine.isPaused()) {
+            if (musicController != null && initializedBattle) {
+                BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
+                        ? side0OpposingView
+                        : playerGroup;
+                musicController.advance(engine, musicPlayerView, enemyGroup, amount);
+            }
             return;
         }
 

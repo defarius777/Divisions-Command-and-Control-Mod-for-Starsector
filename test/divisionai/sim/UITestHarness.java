@@ -2252,27 +2252,34 @@ public class UITestHarness {
         DynamicBattleMusicController.FactionMusicProfile thrProf = DynamicBattleMusicController.getResolvedProfileForFaction("threat");
         DynamicBattleMusicController.FactionMusicProfile abyProf = DynamicBattleMusicController.getResolvedProfileForFaction("dweller");
 
-        boolean musicProfilesOk = defProf != null && !defProf.silent && defProf.layers.get(0).files.contains("faction_hegemony_market_02_hostile_var01.ogg")
-                && derProf != null && !derProf.silent && derProf.layers.get(0).files.contains("faction_hegemony_market_02_hostile_var01.ogg")
-                && hegProf != null && !hegProf.silent && hegProf.layers.get(0).files.contains("faction_hegemony_encounter_02_hostile.ogg")
-                && hegProf.layers.get(0).files.contains("faction_hegemony_encounter_01_neutral.ogg")
-                && perProf != null && !perProf.silent && perProf.layers.get(0).files.contains("faction_league_encounter_03_friendly.ogg")
-                && ludProf != null && !ludProf.silent && ludProf.layers.get(0).files.size() == 2
-                && "faction_luddite_market_02_hostile_var01.ogg".equals(ludProf.layers.get(0).files.get(0))
-                && "faction_luddite_market_02_hostile_var02.ogg".equals(ludProf.layers.get(0).files.get(1))
-                && !ludProf.layers.get(0).randomStart
-                && pthProf != null && !pthProf.silent && pthProf.layers.get(0).files.size() == 2
-                && pirProf != null && !pirProf.silent && pirProf.layers.get(0).files.size() == 2
-                && "faction_pirate_market_02_hostile_var01.ogg".equals(pirProf.layers.get(0).files.get(0))
-                && "faction_pirate_market_02_hostile_var02.ogg".equals(pirProf.layers.get(0).files.get(1))
-                && !pirProf.layers.get(0).randomStart
-                && triProf != null && !triProf.silent && triProf.layers.get(0).files.contains("faction_tritach_market_02_hostile.ogg")
-                && remProf != null && !remProf.silent && remProf.layers.get(0).files.contains("faction_tritach_market_02_hostile.ogg")
-                && thrProf != null && thrProf.silent
-                && abyProf != null && abyProf.silent
-                && defProf.layers.get(0).computeTargetVolume(0.18f, false) == 0f
-                && defProf.layers.get(0).computeTargetVolume(0.30f, true) > 0.24f
-                && defProf.layers.get(0).computeTargetVolume(0.85f, true) >= 0.99f;
+        boolean musicProfilesOk = defProf != null && !defProf.silent
+                && defProf.getAmbienceBottomLayer() != null
+                && defProf.getAmbienceBottomLayer().files.contains("battle_ambience_01.ogg")
+                && defProf.getAmbienceBottomLayer().alwaysOn
+                && !defProf.getAmbienceBottomLayer().fadeOnPause
+                && defProf.getPrimaryBattleTrackLayer() != null
+                && defProf.getPrimaryBattleTrackLayer().files.contains("faction_hegemony_market_02_hostile_var01.ogg")
+                && defProf.getPrimaryBattleTrackLayer().fadeOnPause
+                && derProf != null && !derProf.silent && derProf.getPrimaryBattleTrackLayer().files.contains("faction_hegemony_market_02_hostile_var01.ogg")
+                && hegProf != null && !hegProf.silent && hegProf.getPrimaryBattleTrackLayer().files.contains("faction_hegemony_encounter_02_hostile.ogg")
+                && hegProf.getPrimaryBattleTrackLayer().files.contains("faction_hegemony_encounter_01_neutral.ogg")
+                && perProf != null && !perProf.silent && perProf.getPrimaryBattleTrackLayer().files.contains("faction_league_encounter_03_friendly.ogg")
+                && ludProf != null && !ludProf.silent && ludProf.getPrimaryBattleTrackLayer().files.size() == 2
+                && "faction_luddite_market_02_hostile_var01.ogg".equals(ludProf.getPrimaryBattleTrackLayer().files.get(0))
+                && "faction_luddite_market_02_hostile_var02.ogg".equals(ludProf.getPrimaryBattleTrackLayer().files.get(1))
+                && !ludProf.getPrimaryBattleTrackLayer().randomStart
+                && pthProf != null && !pthProf.silent && pthProf.getPrimaryBattleTrackLayer().files.size() == 2
+                && pirProf != null && !pirProf.silent && pirProf.getPrimaryBattleTrackLayer().files.size() == 2
+                && "faction_pirate_market_02_hostile_var01.ogg".equals(pirProf.getPrimaryBattleTrackLayer().files.get(0))
+                && "faction_pirate_market_02_hostile_var02.ogg".equals(pirProf.getPrimaryBattleTrackLayer().files.get(1))
+                && !pirProf.getPrimaryBattleTrackLayer().randomStart
+                && triProf != null && !triProf.silent && triProf.getPrimaryBattleTrackLayer().files.contains("faction_tritach_market_02_hostile.ogg")
+                && remProf != null && !remProf.silent && remProf.getPrimaryBattleTrackLayer().files.contains("faction_tritach_market_02_hostile.ogg")
+                && thrProf != null && thrProf.silent && thrProf.getAmbienceBottomLayer().files.contains("battle_ambience_01.ogg") && thrProf.getPrimaryBattleTrackLayer() == null
+                && abyProf != null && abyProf.silent && abyProf.getAmbienceBottomLayer().files.contains("battle_ambience_01.ogg") && abyProf.getPrimaryBattleTrackLayer() == null
+                && defProf.getPrimaryBattleTrackLayer().computeTargetVolume(0.18f, false) == 0f
+                && defProf.getPrimaryBattleTrackLayer().computeTargetVolume(0.30f, true) > 0.24f
+                && defProf.getPrimaryBattleTrackLayer().computeTargetVolume(0.85f, true) >= 0.99f;
 
         // Verify Station Time & Space Bastion Projection (Issue C) & Battle Music Fade-Out / Cessation (Issues D & E):
         ShipAPI mockStation = (ShipAPI) Proxy.newProxyInstance(
@@ -2310,6 +2317,7 @@ public class UITestHarness {
                 });
         final List<ShipAPI> stationShips = new ArrayList<>(Arrays.asList(mockStation, enemyTarget));
         final boolean[] combatOverRef = new boolean[]{false};
+        final boolean[] combatPausedRef = new boolean[]{false};
         CombatEngineAPI musicTestEngine = (CombatEngineAPI) Proxy.newProxyInstance(
                 UITestHarness.class.getClassLoader(),
                 new Class<?>[]{CombatEngineAPI.class},
@@ -2319,6 +2327,7 @@ public class UITestHarness {
                     if ("hashCode".equals(n)) return System.identityHashCode(p);
                     if ("getShips".equals(n)) return stationShips;
                     if ("isCombatOver".equals(n)) return combatOverRef[0];
+                    if ("isPaused".equals(n)) return combatPausedRef[0];
                     if ("isInCampaign".equals(n)) return true;
                     Class<?> rt = m.getReturnType();
                     if (rt == boolean.class) return false;
@@ -2341,13 +2350,91 @@ public class UITestHarness {
                 && stationBastions.get(0).directionalSpaceInitialized
                 && stationBastions.get(0).isStrongpoint;
 
-        // Verify Battle Music Fade-Out & Cessation on Combat Over:
+        // Verify Tasks A, B, C, D, E, F (2026-10-30 QA Pass & Enhancements):
+        // Task A: Deployment screen division tag 2-line splitter & non-overlapping Select button layout,
+        //         and player-faction allied station nomenclature (never ABYSSAL_ERROR / UNKNOWN)
+        String[] depTagShort = DivisionDeploymentDialogOrganizer.splitDeploymentCardTitleLines("Cruiser Div 1", null, 88f, 102f);
+        String[] depTagLong = DivisionDeploymentDialogOrganizer.splitDeploymentCardTitleLines("Missile Battleship Division 1", null, 88f, 102f);
+        DivisionNomenclature.NomenclatureCategory alliedPlayerStationCat =
+                DivisionNomenclature.resolveCategoryForCombatShips(Arrays.asList(mockStation), "player", false);
+        DivisionNomenclature.PlayerNamingConfig playerNomCfg = DivisionNomenclature.getPlayerNamingConfig();
+        boolean taskADeploymentAndNamingOk = depTagShort.length == 1
+                && "Cruiser Div 1".equals(depTagShort[0])
+                && depTagLong.length == 2
+                && !depTagLong[0].isEmpty()
+                && !depTagLong[1].isEmpty()
+                && alliedPlayerStationCat != DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR
+                && DivisionNomenclature.resolvePlayerPrefixBucketKey(playerNomCfg, DivisionArchetype.LIGHT_CARRIER_DIVISION)
+                        .equals(DivisionNomenclature.resolvePlayerPrefixBucketKey(playerNomCfg, DivisionArchetype.FLEET_CARRIER_DIVISION))
+                && !DivisionNomenclature.resolvePlayerPrefixBucketKey(playerNomCfg, DivisionArchetype.MISSILE_CRUISER_DIVISION)
+                        .equals(DivisionNomenclature.resolvePlayerPrefixBucketKey(playerNomCfg, DivisionArchetype.CRUISER_DIVISION));
+
+        // Task B: Re-designation renames division ONLY when its name is default per chosen nomenclature;
+        //         if custom (even by 1 character), it is NOT renamed
+        String defaultCruiserName = DivisionNomenclature.formatDivisionNameWithConfig(
+                playerNomCfg, DivisionArchetype.CRUISER_DIVISION, 1);
+        String expectedBattleshipName = DivisionNomenclature.formatDivisionNameWithConfig(
+                playerNomCfg, DivisionArchetype.BATTLESHIP_DIVISION, 1);
+        PermanentDivisionManager.PermanentDivisionSpec redesigDefaultSpec =
+                new PermanentDivisionManager.PermanentDivisionSpec("test_rd_1", defaultCruiserName, DivisionArchetype.CRUISER_DIVISION);
+        PermanentDivisionManager.PermanentDivisionSpec redesigCustomByOneCharSpec =
+                new PermanentDivisionManager.PermanentDivisionSpec("test_rd_2", defaultCruiserName + "X", DivisionArchetype.CRUISER_DIVISION);
+        List<PermanentDivisionManager.PermanentDivisionSpec> redesigList =
+                new ArrayList<>(Arrays.asList(redesigDefaultSpec, redesigCustomByOneCharSpec));
+        PermanentDivisionManager.reDesignateDivisionInList(
+                redesigList, "test_rd_1", null, DivisionArchetype.BATTLESHIP_DIVISION, null);
+        PermanentDivisionManager.reDesignateDivisionInList(
+                redesigList, "test_rd_2", null, DivisionArchetype.BATTLESHIP_DIVISION, null);
+        boolean taskBReDesignateRenameOk = expectedBattleshipName.equals(redesigDefaultSpec.name)
+                && redesigDefaultSpec.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                && (defaultCruiserName + "X").equals(redesigCustomByOneCharSpec.name)
+                && redesigCustomByOneCharSpec.archetype == DivisionArchetype.BATTLESHIP_DIVISION;
+
+        // Tasks C, D, E:
+        // - Task C: battle_ambience_01.ogg plays at all times as Layer 0 (even at 0 engagement)
+        // - Task D: Pausing battle quickly fades battle track into pause while keeping ambience playing, and resumes on unpause
+        // - Task E: Option to disable mod music engine and switch control to vanilla default
         DynamicBattleMusicController musicCtrl = new DynamicBattleMusicController();
+        engTestGroup.smoothedEngagementLevel = 0.0f;
+        musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.10f);
+        float ambienceAtZeroEng = musicCtrl.getAmbienceLayerVolume();
+        float battleTrackAtZeroEng = musicCtrl.getBattleTrackLayerVolume();
+
         engTestGroup.smoothedEngagementLevel = 0.80f;
         for (int step = 0; step < 12; step++) {
             musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.20f);
         }
-        float peakVolBeforeCombatEnd = musicCtrl.getPrimaryLayerVolume();
+        float peakVolBeforeCombatEnd = musicCtrl.getBattleTrackLayerVolume();
+
+        // Pause the battle -> battle track fades out to 0 and pauses in-place; ambience stays playing!
+        combatPausedRef[0] = true;
+        for (int step = 0; step < 8; step++) {
+            musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.10f);
+        }
+        float battleTrackWhilePaused = musicCtrl.getBattleTrackLayerVolume();
+        float ambienceWhilePaused = musicCtrl.getAmbienceLayerVolume();
+        boolean pausedInPlaceFlag = musicCtrl.isBattleTrackPausedInPlace();
+
+        // Resume time -> battle track unpauses and fades back in!
+        combatPausedRef[0] = false;
+        for (int step = 0; step < 8; step++) {
+            musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.10f);
+        }
+        float battleTrackAfterResume = musicCtrl.getBattleTrackLayerVolume();
+        boolean unpausedAfterResumeFlag = !musicCtrl.isBattleTrackPausedInPlace();
+
+        // Task E: Disable music engine -> switches control to vanilla default; re-enable -> resumes mod control
+        DivisionAISettings.setDynamicBattleMusicEnabled(Boolean.FALSE);
+        musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.10f);
+        boolean switchedToVanillaOk = musicCtrl.isYieldedToVanillaDefault()
+                && musicCtrl.getAmbienceLayerVolume() == 0f
+                && musicCtrl.getBattleTrackLayerVolume() == 0f;
+        DivisionAISettings.setDynamicBattleMusicEnabled(null);
+        for (int step = 0; step < 10; step++) {
+            musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.20f);
+        }
+        float reEnabledBattleTrackVol = musicCtrl.getBattleTrackLayerVolume();
+
         combatOverRef[0] = true;
         musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.20f);
         float volDuringCombatEndFade = musicCtrl.getPrimaryLayerVolume();
@@ -2355,15 +2442,32 @@ public class UITestHarness {
             musicCtrl.advance(musicTestEngine, engTestGroup, eGroup, 0.20f);
         }
         float volAfterCombatEndFade = musicCtrl.getPrimaryLayerVolume();
-        boolean musicFadeOutAndCessationOk = peakVolBeforeCombatEnd > 0.50f
-                && volDuringCombatEndFade < peakVolBeforeCombatEnd
+        boolean musicFadeOutAndCessationOk = ambienceAtZeroEng >= 0.80f
+                && battleTrackAtZeroEng == 0f
+                && peakVolBeforeCombatEnd > 0.50f
+                && battleTrackWhilePaused == 0f
+                && ambienceWhilePaused >= 0.80f
+                && pausedInPlaceFlag
+                && battleTrackAfterResume > 0.50f
+                && unpausedAfterResumeFlag
+                && switchedToVanillaOk
+                && reEnabledBattleTrackVol > 0.50f
+                && volDuringCombatEndFade < reEnabledBattleTrackVol
                 && volDuringCombatEndFade > 0.01f
                 && volAfterCombatEndFade == 0f;
+
+        // Task F: Strike craft do not inflate solid hull-exclusion spaceInnerRadius (since warships can move through them)
+        //         while still contributing to spaceDominatedRadius
+        BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(cDiv1);
+        boolean taskFStrikeCraftSpaceOk = evalSrc.contains("float wingInnerBonus = 0f;")
+                && cDiv1.spaceInnerRadius >= 380f
+                && cDiv1.spaceDominatedRadius > cDiv1.spaceInnerRadius + 220f;
 
         formationIconsCleanOk = formationIconsCleanOk && flagshipDivRankOk
                 && twoFrigateDivsBelowThresholdOk && fourFrigateDivsCrossThresholdOk
                 && battleshipCommitHighEngagementOk && musicProfilesOk
-                && stationTimeSpaceProjectedOk && musicFadeOutAndCessationOk;
+                && stationTimeSpaceProjectedOk && musicFadeOutAndCessationOk
+                && taskADeploymentAndNamingOk && taskBReDesignateRenameOk && taskFStrikeCraftSpaceOk;
         boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk
                 && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk
                 && strikeWidthCompromiseOk && ehpSpaceDomainOk && protectiveCircleOk
@@ -2382,11 +2486,12 @@ public class UITestHarness {
                 "Omega Core Convergence, 10-Formation Hierarchy, Movement Stickiness, Voidstrike Doctrine (A-H), High/Low TSFC Graphics & Optimization",
                 String.format(
                         Locale.ROOT,
-                        "omegaCore=%b, 10icons=%b, hierarchy=[doc=%b, custom=%b, battle=%b], stickiness=%b, voidstrike=[merged1=%b, returnClear=%b, next2=%b, perSide=%b, doctrineAndStaging=%b(s0=%b,s1=%b,s2=%b,ehp=%b)], carrierLabels=%b, totAlpha=%b, factionTooltip=%b, convIconAndOpt=%b, tsfcGfx=%b",
+                        "omegaCore=%b, 10icons=%b, hierarchy=[doc=%b, custom=%b, battle=%b], stickiness=%b, voidstrike=[merged1=%b, returnClear=%b, next2=%b, perSide=%b, doctrineAndStaging=%b(s0=%b,s1=%b,s2=%b,ehp=%b,dir=%b,mp=%b,mFade=%b,tA=%b,tB=%b,tF=%b)], carrierLabels=%b, totAlpha=%b, factionTooltip=%b, convIconAndOpt=%b, tsfcGfx=%b",
                         omegaCoreRecognized, allTenIconsOk, inheritedFromDoctrineOk, customOverrideOk,
                         inheritedIntoBattleOk, stickinessHierarchyOk, multiDivMergedIntoOneOk,
                         disappearsOnReturnOk, incrementedToTwoOk, separateSideCountersOk, voidstrikeDoctrineAndStagingOk,
-                        stage0Ok, stage1Ok, stage2Ok, ehpSpaceDomainOk,
+                        stage0Ok, stage1Ok, stage2Ok, ehpSpaceDomainOk, directionalAndEdgePinchedSpaceOk,
+                        musicProfilesOk, musicFadeOutAndCessationOk, taskADeploymentAndNamingOk, taskBReDesignateRenameOk, taskFStrikeCraftSpaceOk,
                         carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk,
                         convergenceIconAndTsfcOptOk, tsfcGraphicsSettingOk));
     }

@@ -348,25 +348,43 @@ public final class DivisionNomenclature {
             return getPlayerNomenclatureCategory();
         }
         FactionAPI faction = fleet.getFaction();
-        if (faction != null) {
-            NomenclatureCategory byFaction = resolveCategoryForFactionId(faction.getId());
+        String fId = (faction != null && faction.getId() != null) ? faction.getId().trim() : null;
+        if ("player".equalsIgnoreCase(fId)) {
+            PlayerNamingConfig applied = getAppliedPlayerFactionNamingConfig();
+            return applied != null ? applied.getPreset().category : getPlayerNomenclatureCategory();
+        }
+        if (fId != null) {
+            NomenclatureCategory byFaction = resolveCategoryForFactionId(fId);
             if (byFaction != NomenclatureCategory.HUMAN_NAVAL) {
                 return byFaction;
             }
         }
-        if (fleet.getFleetData() != null) {
+        if (fleet.getFleetData() != null && isNeutralOrUnknownFactionId(fId)) {
             List<FleetMemberAPI> members = fleet.getFleetData().getMembersListCopy();
-            return resolveCategoryForFleetMembers(members, faction != null ? faction.getId() : null);
+            return resolveCategoryForFleetMembers(members, fId);
         }
         return NomenclatureCategory.HUMAN_NAVAL;
+    }
+
+    private static boolean isNeutralOrUnknownFactionId(String factionId) {
+        if (factionId == null) return true;
+        String id = factionId.trim().toLowerCase(Locale.ROOT);
+        return id.isEmpty() || "neutral".equals(id) || "unknown".equals(id);
     }
 
     public static NomenclatureCategory resolveCategoryForFleetMembers(
             Collection<FleetMemberAPI> members,
             String factionIdHint) {
+        if ("player".equalsIgnoreCase(factionIdHint)) {
+            PlayerNamingConfig applied = getAppliedPlayerFactionNamingConfig();
+            return applied != null ? applied.getPreset().category : getPlayerNomenclatureCategory();
+        }
         NomenclatureCategory byFaction = resolveCategoryForFactionId(factionIdHint);
         if (byFaction != NomenclatureCategory.HUMAN_NAVAL) {
             return byFaction;
+        }
+        if (!isNeutralOrUnknownFactionId(factionIdHint)) {
+            return NomenclatureCategory.HUMAN_NAVAL;
         }
         if (members == null || members.isEmpty()) {
             return NomenclatureCategory.HUMAN_NAVAL;
@@ -399,9 +417,16 @@ public final class DivisionNomenclature {
         if (isPlayerBattleGroup) {
             return getPlayerNomenclatureCategory();
         }
+        if ("player".equalsIgnoreCase(factionIdHint)) {
+            PlayerNamingConfig applied = getAppliedPlayerFactionNamingConfig();
+            return applied != null ? applied.getPreset().category : getPlayerNomenclatureCategory();
+        }
         NomenclatureCategory byFaction = resolveCategoryForFactionId(factionIdHint);
         if (byFaction != NomenclatureCategory.HUMAN_NAVAL) {
             return byFaction;
+        }
+        if (!isNeutralOrUnknownFactionId(factionIdHint)) {
+            return NomenclatureCategory.HUMAN_NAVAL;
         }
         if (ships == null || ships.isEmpty()) {
             return NomenclatureCategory.HUMAN_NAVAL;
@@ -545,8 +570,9 @@ public final class DivisionNomenclature {
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
             case ESCORT_CARRIER_DIVISION:
-            case CARRIER_GROUP:
                 return "CARRIER";
+            case CARRIER_GROUP:
+                return "CARRIER_GROUP";
             case MISSILE_CRUISER_DIVISION:
                 return "MISSILE_CRUISER";
             case STRIKE_CRUISER_DIVISION:
@@ -570,6 +596,64 @@ public final class DivisionNomenclature {
             default:
                 return archetype.name();
         }
+    }
+
+    /**
+     * Resolves the numbering bucket key for a player division under the player's active {@link PlayerNamingConfig}.
+     * Two archetypes share a numbering sequence if and only if they share the exact same prefix under {@code cfg}
+     * (e.g. under Naval Standard, Fleet/Light/Escort Carrier share "Carrier Div", whereas under Detailed Naval
+     * "Fleet Carrier Div", "Light Carrier Div", and "Escort Carrier Div" each have their own sequence starting at 1).
+     */
+    public static String resolvePlayerPrefixBucketKey(PlayerNamingConfig cfg, DivisionArchetype archetype) {
+        PlayerNamingConfig effectiveCfg = cfg != null ? cfg : getPlayerNamingConfig();
+        DivisionArchetype arch = archetype != null ? archetype : DivisionArchetype.FORCE_DIVISION;
+        String prefix = effectiveCfg.getPrefixForArchetype(arch);
+        if (prefix == null || prefix.trim().isEmpty()) {
+            return resolvePrefixBucketKey(arch);
+        }
+        return prefix.trim().toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * Returns {@code true} if {@code currentName} is an unmodified default division name as per {@code cfg}
+     * (character-for-character and case-sensitive). If the player has customized the division's name by even
+     * a single character, returns {@code false}.
+     */
+    public static boolean isDefaultDivisionNameForConfig(
+            String currentName,
+            DivisionArchetype currentArchetype,
+            PlayerNamingConfig cfg) {
+        if (currentName == null || currentName.isEmpty()) {
+            return true;
+        }
+        PlayerNamingConfig effectiveCfg = cfg != null ? cfg : getPlayerNamingConfig();
+        NomenclatureCategory cat = effectiveCfg.getPreset().category;
+        if (cat == NomenclatureCategory.ABYSSAL_ERROR) {
+            return ABYSSAL_ERROR_TEXT.equals(currentName);
+        }
+        if (cat == NomenclatureCategory.POST_AI_WAR) {
+            return POST_AI_WAR_DIVISION_NAME.equals(currentName);
+        }
+        if (cat == NomenclatureCategory.THREAT_SWARM) {
+            return currentName.contains("SWARM") || currentName.contains("SWaRM")
+                    || currentName.contains("SWArM") || currentName.contains("sWARM");
+        }
+        if (currentArchetype != null) {
+            for (int seq = 1; seq <= 99; seq++) {
+                if (currentName.equals(formatDivisionNameWithConfig(effectiveCfg, currentArchetype, seq))) {
+                    return true;
+                }
+            }
+        }
+        for (DivisionArchetype arch : DivisionArchetype.values()) {
+            if (arch == currentArchetype) continue;
+            for (int seq = 1; seq <= 99; seq++) {
+                if (currentName.equals(formatDivisionNameWithConfig(effectiveCfg, arch, seq))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

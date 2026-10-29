@@ -1,4 +1,5 @@
 {
+	"divisionai_enableDynamicBattleMusic": true,
 	"plugins": {
 		"divisionai_combat_plugin": "divisionai.DivisionAICombatPlugin"
 	},

@@ -2105,13 +2105,19 @@ public class BattlefieldFirepowerEvaluator {
                 0.24f,
                 1.10f);
         float avgWingReach = totalFighterWings > 0 ? (wingRangeAccum / totalFighterWings) : 0f;
-        float effRange = Math.max(550f, Math.max(div.avgEngageRange, avgWingReach * 0.68f));
+        float coreHullEngageRange = Math.max(550f, div.avgEngageRange);
+        float effRange = Math.max(coreHullEngageRange, avgWingReach * 0.68f);
 
-        // Space Zone 1 (Directly Dominated Up Close) & Zone 2 (Dominated Nearby), weighted by Effective HP & Strike Craft
-        float wingInnerBonus = Math.min(240f, totalFighterWings * 42f);
-        float wingDomBonus = Math.min(480f, totalFighterWings * 85f * readiness);
+        // Space Zone 1 (Directly Dominated Up Close — solid hull physical occupancy & direct gunline)
+        // vs. Zone 2 (Dominated Nearby) & Zone 3 (Potentially Dominated):
+        // Per Task F: Warships can physically fly/move right through strike craft squadrons (fighters have no
+        // ship-to-ship hull collision blocking). Therefore, strike craft do NOT inflate Zone 1 (spaceInnerRadius),
+        // which is strictly anchored by the division's solid warship hulls and direct hull weapon reach!
+        // Strike craft instead project permeable sortie Space into Zone 2 (spaceDominatedRadius) and Zone 3 (spacePotentialRadius).
+        float wingInnerBonus = 0f;
+        float wingDomBonus = Math.min(340f, totalFighterWings * 60f * readiness);
         div.spaceInnerRadius = clampVal(
-                (div.spreadRadius * 0.55f + Math.min(900f, effRange * 0.50f)) * ehpRadiusFactor + wingInnerBonus,
+                (div.spreadRadius * 0.55f + Math.min(900f, coreHullEngageRange * 0.50f)) * ehpRadiusFactor + wingInnerBonus,
                 380f,
                 1520f);
         div.spaceDominatedRadius = clampVal(
@@ -2122,7 +2128,8 @@ public class BattlefieldFirepowerEvaluator {
         float unableDiscount = div.isUnableDivision
                 ? 0.22f
                 : Math.max(0.25f, 1.0f - 0.72f * div.retreatingFraction);
-        div.spaceDominanceWeight = Math.max(2f, (effectiveSpaceMass + totalFighterWings * 4.5f) * readiness * unableDiscount);
+        // Strike craft exert permeable harassment/sortie Space weight rather than solid hull-blocking mass
+        div.spaceDominanceWeight = Math.max(2f, (effectiveSpaceMass + totalFighterWings * 2.2f) * readiness * unableDiscount);
         if (div.isUnableDivision || div.retreatingFraction > 0.25f) {
             float spaceShrink = Math.max(0.42f, 1.0f - 0.55f * div.retreatingFraction);
             div.spaceInnerRadius *= spaceShrink;
@@ -2782,7 +2789,13 @@ public class BattlefieldFirepowerEvaluator {
             float sectorAnisotropy = clampVal(formShape * (0.78f + 0.22f * weaponArcFactor) + memberReachBoost * 0.5f, 0.72f, 1.26f);
 
             // 2. Directional Pinching by Opposing Enemy Space & Enemy Firepower (and bolstering by Friendly Space)
+            //    Per Task F: Warships can physically move right through strike craft! Therefore:
+            //      - Only solid hull-exclusion Space (spaceInnerRadius / warship hull mass) pinches Zone 1 (secIn).
+            //      - Airborne enemy strike craft squadrons exert only soft permeable pressure on outer Space (Zone 2/3)
+            //        and NEVER hard-block or pinch a warship division's inner hull Space (Zone 1).
             float enemyPinch = 0f;
+            float enemyHullInnerPinch = 0f;
+            float enemyStrikeCraftSoftPinch = 0f;
             if (!enemyUnits.isEmpty()) {
                 for (DivisionState eDiv : enemyUnits) {
                     if (eDiv == null || !eDiv.isCombatEffective()) continue;
@@ -2792,6 +2805,7 @@ public class BattlefieldFirepowerEvaluator {
                     float dy = ePos.y - div.centroid.y;
                     float d = (float) Math.sqrt(dx * dx + dy * dy);
                     float eDomR = Math.max(650f, eDiv.spaceDominatedRadius);
+                    float eInR = Math.max(380f, eDiv.spaceInnerRadius);
                     float maxDist = basePot + eDomR;
                     if (d < maxDist && d > 1f) {
                         float cosAlign = (dx * ux + dy * uy) / d;
@@ -2799,7 +2813,37 @@ public class BattlefieldFirepowerEvaluator {
                             float overlap = clampVal(1.0f - (d / Math.max(400f, maxDist)), 0f, 1f);
                             float weightRatio = eDiv.spaceDominanceWeight
                                     / Math.max(8f, div.spaceDominanceWeight + eDiv.spaceDominanceWeight * 0.85f);
-                            enemyPinch += overlap * weightRatio * (cosAlign * cosAlign) * 0.58f;
+                            float sectorPinch = overlap * weightRatio * (cosAlign * cosAlign) * 0.58f;
+                            enemyPinch += sectorPinch;
+
+                            // Inner hull-exclusion pinch is driven strictly by solid warship hull proximity (baseInner + eInR),
+                            // because warships can move through enemy strike craft squadrons!
+                            float hullBlockingSpan = baseInner + eInR * 1.35f;
+                            if (d < hullBlockingSpan) {
+                                float hullOverlap = clampVal(1.0f - (d / Math.max(300f, hullBlockingSpan)), 0f, 1f);
+                                enemyHullInnerPinch += hullOverlap * weightRatio * (cosAlign * cosAlign) * 0.52f;
+                            }
+                        }
+                    }
+                    // Airborne enemy strike craft deployed away from their carrier exert soft permeable pressure
+                    // on outer Space (secPot / secDom) only, and zero physical blocking on secIn:
+                    for (ShipAPI es : eDiv.getAliveMembers()) {
+                        List<com.fs.starfarer.api.combat.FighterWingAPI> eWings = es.getAllWings();
+                        if (eWings == null) continue;
+                        for (com.fs.starfarer.api.combat.FighterWingAPI ew : eWings) {
+                            ShipAPI wLead = resolveAliveWingLeader(ew);
+                            if (wLead == null || !OtcAI.isShipVisibleToSide(engine, div.side, wLead)) continue;
+                            if (distance(wLead.getLocation(), ePos) <= 260f) continue;
+                            float wdx = wLead.getLocation().x - div.centroid.x;
+                            float wdy = wLead.getLocation().y - div.centroid.y;
+                            float wd = (float) Math.sqrt(wdx * wdx + wdy * wdy);
+                            if (wd < basePot + 450f && wd > 1f) {
+                                float wCos = (wdx * ux + wdy * uy) / wd;
+                                if (wCos > 0.10f) {
+                                    float wOv = clampVal(1.0f - (wd / Math.max(350f, basePot + 450f)), 0f, 1f);
+                                    enemyStrikeCraftSoftPinch += wOv * (wCos * wCos) * 0.035f;
+                                }
+                            }
                         }
                     }
                 }
@@ -2823,8 +2867,14 @@ public class BattlefieldFirepowerEvaluator {
                 }
             }
 
-            float netPinchMult = clampVal(1.0f - clampVal(enemyPinch, 0f, 0.52f) + clampVal(friendlyBolster, 0f, 0.14f), 0.46f, 1.14f);
-            float innerPinchMult = clampVal(1.0f - clampVal(enemyPinch * 0.55f, 0f, 0.34f) + clampVal(friendlyBolster * 0.5f, 0f, 0.08f), 0.62f, 1.12f);
+            float netPinchMult = clampVal(
+                    1.0f - clampVal(enemyPinch + enemyStrikeCraftSoftPinch, 0f, 0.52f) + clampVal(friendlyBolster, 0f, 0.14f),
+                    0.46f,
+                    1.14f);
+            float innerPinchMult = clampVal(
+                    1.0f - clampVal(enemyHullInnerPinch, 0f, 0.34f) + clampVal(friendlyBolster * 0.5f, 0f, 0.08f),
+                    0.62f,
+                    1.12f);
 
             // Couple Potential Space to directional Time freedom in this sector so pinned sectors cannot project Potential Space
             float dirTimeR = div.directionalTimeInitialized ? div.directionalTimeRadii[s] : div.effectiveTimeRadius;
@@ -3085,7 +3135,11 @@ public class BattlefieldFirepowerEvaluator {
                             : (0.55f * (1f - (dist - domR) / Math.max(100f, potR - domR))));
                     friendlySpace += d.spaceDominanceWeight * Math.max(0f, w);
                 }
-                // Airborne Strike Craft squadrons also project Friendly Space at their squadron location
+                // Airborne Strike Craft squadrons project permeable sortie Space at their squadron location.
+                // Per Task F: Because warships can physically move right through strike craft (no ship-to-ship
+                // collision blocking), strike craft have NO solid inner hull-exclusion core (inR = 0) and exert
+                // a permeable harassment/screening Space field (smoothly tapering from center to 720u) rather than
+                // a solid hull-blocking zone.
                 for (ShipAPI s : d.getAliveMembers()) {
                     List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
                     if (wings == null) continue;
@@ -3093,9 +3147,9 @@ public class BattlefieldFirepowerEvaluator {
                         ShipAPI wLead = resolveAliveWingLeader(wing);
                         if (wLead == null || distance(wLead.getLocation(), d.centroid) <= 260f) continue;
                         float wDist = distance(point, wLead.getLocation());
-                        if (wDist < 920f) {
-                            float ww = (wDist <= 260f) ? 1.0f : (1.0f - (wDist - 260f) / 660f);
-                            friendlySpace += 5.5f * Math.max(0f, ww);
+                        if (wDist < 720f) {
+                            float ww = 0.55f * (1.0f - (wDist / 720f));
+                            friendlySpace += 2.2f * Math.max(0f, ww);
                         }
                     }
                 }
@@ -3119,7 +3173,8 @@ public class BattlefieldFirepowerEvaluator {
                             : (0.55f * (1f - (dist - domR) / Math.max(100f, potR - domR))));
                     enemySpace += domW * Math.max(0f, w);
                 }
-                // Enemy airborne Strike Craft squadrons also project Enemy Space at their squadron location
+                // Enemy airborne Strike Craft squadrons also project permeable harassment Space at their squadron location
+                // (never a solid inner hull-blocking core, since warships can move right through strike craft)
                 for (ShipAPI s : e.getAliveMembers()) {
                     List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
                     if (wings == null) continue;
@@ -3128,9 +3183,9 @@ public class BattlefieldFirepowerEvaluator {
                         if (wLead == null || !OtcAI.isShipVisibleToSide(engine, observerSide, wLead)) continue;
                         if (distance(wLead.getLocation(), ePos) <= 260f) continue;
                         float wDist = distance(point, wLead.getLocation());
-                        if (wDist < 920f) {
-                            float ww = (wDist <= 260f) ? 1.0f : (1.0f - (wDist - 260f) / 660f);
-                            enemySpace += 5.5f * Math.max(0f, ww);
+                        if (wDist < 720f) {
+                            float ww = 0.55f * (1.0f - (wDist / 720f));
+                            enemySpace += 2.2f * Math.max(0f, ww);
                         }
                     }
                 }
