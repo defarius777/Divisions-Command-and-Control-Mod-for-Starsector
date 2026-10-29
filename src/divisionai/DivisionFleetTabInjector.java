@@ -68,6 +68,7 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
         }
         fleetTooltipOrganizer.advance();
         DivisionAISettings.advanceLunaSettingsReinitButton();
+        DynamicBattleMusicController.ensureCleanedUpOutsideCombat();
 
         if (!CoreUITabId.FLEET.equals(campaignUI.getCurrentCoreTab())) {
             if (activeDialog != null && !activeDialog.isClosed()) {

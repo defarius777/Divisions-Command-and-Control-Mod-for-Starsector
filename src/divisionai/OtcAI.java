@@ -66,6 +66,9 @@ public class OtcAI {
                 div.incomingPdThreat = 0f;
                 div.crossfireCordonIndex = 0f;
                 div.smoothedDangerScore = 0f;
+                div.activeWeaponFiringRatio = 0f;
+                div.violentContactIntensity = 0f;
+                div.engagedFpMass = 0f;
                 continue;
             }
 
@@ -316,6 +319,12 @@ public class OtcAI {
                 div.localForceRatio = div.localFriendlyStrength / Math.max(1f, div.localEnemyStrength);
             }
 
+            // Explicit division-level violent contact measurement (weapon discharge + incoming threat + flux/damage)
+            div.activeWeaponFiringRatio = DynamicBattleMusicController.computeDivisionActiveFiringRatio(div);
+            div.violentContactIntensity = DynamicBattleMusicController.computeDivisionViolentContactIntensity(
+                    div, div.activeWeaponFiringRatio);
+            div.engagedFpMass = div.totalFpStrength * div.violentContactIntensity;
+
             if (!div.isUnableDivision) {
                 fleetWeightedX += div.centroid.x * div.totalFpStrength;
                 fleetWeightedY += div.centroid.y * div.totalFpStrength;
@@ -341,6 +350,9 @@ public class OtcAI {
         if (totalFriendlyFp > 0f) {
             battleGroup.fleetCentroid.set(fleetWeightedX / totalFriendlyFp, fleetWeightedY / totalFriendlyFp);
         }
+
+        // Compute explicit mass-weighted fleet engagement telemetry across the entire battlegroup
+        DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(battleGroup);
 
         // Anchor reserveStation 680u behind the engaged frontline centroid (close tactical support distance).
         // Item D: When outnumbered / fighting retirement / in Fleet Protective Bastion, anchor the reserve station
@@ -622,7 +634,8 @@ public class OtcAI {
             nextPhase = BattlePhase.FIGHTING_RETIREMENT;
         } else if (crisis || crisisPersists) {
             nextPhase = BattlePhase.REINFORCE_THE_LINE;
-        } else if ((!anyEnemyVisible && now < 90f) || (minContactDist > 3300f && hasUncapturedObjectives && now < 75f)) {
+        } else if ((!anyEnemyVisible && now < 90f)
+                || (minContactDist > 3300f && hasUncapturedObjectives && now < 75f && myGroup.fleetEngagementLevel < 0.22f)) {
             nextPhase = BattlePhase.APPROACH;
         } else if (generalChase || generalChasePersists) {
             nextPhase = BattlePhase.GENERAL_CHASE;
@@ -648,10 +661,11 @@ public class OtcAI {
         }
 
         // Reserve management: hold a mobile reserve during approach or while enjoying a clear force advantage,
-        // but commit the reserve immediately once the main battle line is in close contact against an equal/superior force
+        // but commit the reserve immediately once the main battle line is in violent contact against an equal/superior force
         // so we never fight 4v5 outnumbered while 20% of the fleet watches from the rear.
         boolean reservePlay = myGroup.isPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE) && myGroup.authority.allowsRetasking();
-        boolean frontlineInCloseFight = minContactDist < 1850f && (myGroup.forceRatio <= 1.18f || worstLocalRatio < 0.98f);
+        boolean frontlineInCloseFight = (minContactDist < 1850f || myGroup.fleetEngagementLevel >= 0.26f)
+                && (myGroup.forceRatio <= 1.18f || worstLocalRatio < 0.98f || myGroup.fleetEngagementLevel >= 0.38f);
         if (frontlineInCloseFight && myGroup.reserveDivision != null) {
             myGroup.reserveCommitted = true;
         }

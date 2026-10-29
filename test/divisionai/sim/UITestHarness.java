@@ -15,11 +15,13 @@ import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
+import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.OtcOrderType;
 import divisionai.DivisionNomenclature;
 import divisionai.DivisionNomenclature.NumberingStyle;
 import divisionai.DivisionNomenclature.PlayerNamingPreset;
 import divisionai.DivisionTacticalMapOverlay;
+import divisionai.DynamicBattleMusicController;
 import divisionai.FactionFleetDoctrines;
 import divisionai.FleetDoctrineDialog;
 import divisionai.PermanentDivisionManager;
@@ -2175,7 +2177,103 @@ public class UITestHarness {
                 && doctrineSrc.contains("renderFormationSquareBorder")
                 && weightRoleSortOk
                 && inputEventOrderOk;
-        formationIconsCleanOk = formationIconsCleanOk && flagshipDivRankOk;
+
+        // Verify Explicit Mass-Weighted Fleet Engagement Telemetry & Dynamic Battle Music Profiles:
+        // Case 1: 2 Frigate Divisions (~15 FP each = 30 FP total) engaging at 0.85 intensity while a
+        //         4-ship Battleship Division (112 FP) is uncommitted -> stays BELOW 0.26 threshold!
+        BattleGroupState engTestGroup = new BattleGroupState(0, cmdr);
+        DivisionState bbUncommitted = new DivisionState("bb_un", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "BB Div 1", cmdr);
+        bbUncommitted.members.add(damagedHammerhead);
+        bbUncommitted.ableMemberCount = 4;
+        bbUncommitted.isUnableDivision = false;
+        bbUncommitted.totalFpStrength = 112f;
+        bbUncommitted.violentContactIntensity = 0.0f;
+
+        DivisionState ffEng1 = new DivisionState("ff_1", 0, 2, DivisionArchetype.FRIGATE_DIVISION, "FF Div 1", cmdr);
+        ffEng1.members.add(damagedHammerhead);
+        ffEng1.ableMemberCount = 3;
+        ffEng1.isUnableDivision = false;
+        ffEng1.totalFpStrength = 15f;
+        ffEng1.violentContactIntensity = 0.85f;
+
+        DivisionState ffEng2 = new DivisionState("ff_2", 0, 3, DivisionArchetype.FRIGATE_DIVISION, "FF Div 2", cmdr);
+        ffEng2.members.add(damagedHammerhead);
+        ffEng2.ableMemberCount = 3;
+        ffEng2.isUnableDivision = false;
+        ffEng2.totalFpStrength = 15f;
+        ffEng2.violentContactIntensity = 0.85f;
+
+        engTestGroup.divisions.addAll(Arrays.asList(bbUncommitted, ffEng1, ffEng2));
+        engTestGroup.mainEffortDivision = bbUncommitted;
+        DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(engTestGroup);
+        boolean twoFrigateDivsBelowThresholdOk = engTestGroup.fleetEngagementLevel < DynamicBattleMusicController.DEFAULT_ACTIVATION_THRESHOLD
+                && !engTestGroup.mainEffortEngaged
+                && engTestGroup.engagedDivisionCount == 2;
+
+        // Case 2: 4 Frigate Divisions engaging while the 4-ship Battleship Division is still uncommitted -> CROSSES 0.26 threshold!
+        DivisionState ffEng3 = new DivisionState("ff_3", 0, 4, DivisionArchetype.FRIGATE_DIVISION, "FF Div 3", cmdr);
+        ffEng3.members.add(damagedHammerhead);
+        ffEng3.ableMemberCount = 3;
+        ffEng3.isUnableDivision = false;
+        ffEng3.totalFpStrength = 15f;
+        ffEng3.violentContactIntensity = 0.85f;
+
+        DivisionState ffEng4 = new DivisionState("ff_4", 0, 5, DivisionArchetype.FRIGATE_DIVISION, "FF Div 4", cmdr);
+        ffEng4.members.add(damagedHammerhead);
+        ffEng4.ableMemberCount = 3;
+        ffEng4.isUnableDivision = false;
+        ffEng4.totalFpStrength = 15f;
+        ffEng4.violentContactIntensity = 0.85f;
+
+        engTestGroup.divisions.addAll(Arrays.asList(ffEng3, ffEng4));
+        DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(engTestGroup);
+        boolean fourFrigateDivsCrossThresholdOk = engTestGroup.fleetEngagementLevel >= DynamicBattleMusicController.DEFAULT_ACTIVATION_THRESHOLD
+                && engTestGroup.engagedDivisionCount == 4;
+
+        // Case 3: 4-ship Battleship Division commits -> swells past full-volume engagement!
+        bbUncommitted.violentContactIntensity = 0.90f;
+        DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(engTestGroup);
+        boolean battleshipCommitHighEngagementOk = engTestGroup.fleetEngagementLevel >= DynamicBattleMusicController.DEFAULT_FULL_VOLUME_ENGAGEMENT
+                && engTestGroup.mainEffortEngaged;
+
+        // Verify all required Faction Music Profiles & Multi-Layer Volume Curves
+        DynamicBattleMusicController.FactionMusicProfile defProf = DynamicBattleMusicController.getResolvedProfileForFaction("unknown_modded_faction");
+        DynamicBattleMusicController.FactionMusicProfile derProf = DynamicBattleMusicController.getResolvedProfileForFaction("derelict");
+        DynamicBattleMusicController.FactionMusicProfile hegProf = DynamicBattleMusicController.getResolvedProfileForFaction("hegemony");
+        DynamicBattleMusicController.FactionMusicProfile perProf = DynamicBattleMusicController.getResolvedProfileForFaction("persean");
+        DynamicBattleMusicController.FactionMusicProfile ludProf = DynamicBattleMusicController.getResolvedProfileForFaction("luddic_church");
+        DynamicBattleMusicController.FactionMusicProfile pthProf = DynamicBattleMusicController.getResolvedProfileForFaction("luddic_path");
+        DynamicBattleMusicController.FactionMusicProfile pirProf = DynamicBattleMusicController.getResolvedProfileForFaction("pirates");
+        DynamicBattleMusicController.FactionMusicProfile triProf = DynamicBattleMusicController.getResolvedProfileForFaction("tritachyon");
+        DynamicBattleMusicController.FactionMusicProfile remProf = DynamicBattleMusicController.getResolvedProfileForFaction("remnant");
+        DynamicBattleMusicController.FactionMusicProfile thrProf = DynamicBattleMusicController.getResolvedProfileForFaction("threat");
+        DynamicBattleMusicController.FactionMusicProfile abyProf = DynamicBattleMusicController.getResolvedProfileForFaction("dweller");
+
+        boolean musicProfilesOk = defProf != null && !defProf.silent && defProf.layers.get(0).files.contains("faction_hegemony_market_02_hostile_var01.ogg")
+                && derProf != null && !derProf.silent && derProf.layers.get(0).files.contains("faction_hegemony_market_02_hostile_var01.ogg")
+                && hegProf != null && !hegProf.silent && hegProf.layers.get(0).files.contains("faction_hegemony_encounter_02_hostile.ogg")
+                && hegProf.layers.get(0).files.contains("faction_hegemony_encounter_01_neutral.ogg")
+                && perProf != null && !perProf.silent && perProf.layers.get(0).files.contains("faction_league_encounter_03_friendly.ogg")
+                && ludProf != null && !ludProf.silent && ludProf.layers.get(0).files.size() == 2
+                && "faction_luddite_market_02_hostile_var01.ogg".equals(ludProf.layers.get(0).files.get(0))
+                && "faction_luddite_market_02_hostile_var02.ogg".equals(ludProf.layers.get(0).files.get(1))
+                && !ludProf.layers.get(0).randomStart
+                && pthProf != null && !pthProf.silent && pthProf.layers.get(0).files.size() == 2
+                && pirProf != null && !pirProf.silent && pirProf.layers.get(0).files.size() == 2
+                && "faction_pirate_market_02_hostile_var01.ogg".equals(pirProf.layers.get(0).files.get(0))
+                && "faction_pirate_market_02_hostile_var02.ogg".equals(pirProf.layers.get(0).files.get(1))
+                && !pirProf.layers.get(0).randomStart
+                && triProf != null && !triProf.silent && triProf.layers.get(0).files.contains("faction_tritach_market_02_hostile.ogg")
+                && remProf != null && !remProf.silent && remProf.layers.get(0).files.contains("faction_tritach_market_02_hostile.ogg")
+                && thrProf != null && thrProf.silent
+                && abyProf != null && abyProf.silent
+                && defProf.layers.get(0).computeTargetVolume(0.18f, false) == 0f
+                && defProf.layers.get(0).computeTargetVolume(0.30f, true) > 0.24f
+                && defProf.layers.get(0).computeTargetVolume(0.85f, true) >= 0.99f;
+
+        formationIconsCleanOk = formationIconsCleanOk && flagshipDivRankOk
+                && twoFrigateDivsBelowThresholdOk && fourFrigateDivsCrossThresholdOk
+                && battleshipCommitHighEngagementOk && musicProfilesOk;
         boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk
                 && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk
                 && strikeWidthCompromiseOk && ehpSpaceDomainOk && protectiveCircleOk

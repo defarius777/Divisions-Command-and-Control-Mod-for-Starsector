@@ -761,6 +761,15 @@ public class OtcBattlePlanner {
                     len = 1f;
                 }
                 float hold = Math.max(500f, main.standoffRange * 0.9f);
+                // Explicit Fleet Engagement OTC adaptation: if vanguard/light divisions are in violent contact
+                // (engagedDivisionCount >= 1) while the heavy Main Effort is still uncommitted (!mainEffortEngaged),
+                // tighten the Main Effort's fixing station by 22% so the battleships rapidly close into gun range
+                // to relieve the vanguard rather than hanging back out of range!
+                if (myGroup.engagedDivisionCount >= 1
+                        && !myGroup.mainEffortEngaged
+                        && myGroup.forceRatio >= 0.88f) {
+                    hold = Math.max(460f, hold * 0.78f);
+                }
                 float stX = primaryPos.x + dx / len * hold;
                 float stY = primaryPos.y + dy / len * hold;
                 // Item D: If our fleet is outnumbered or balled up in a protective bastion, pull the Main Effort's

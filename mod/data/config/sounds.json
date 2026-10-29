@@ -1,0 +1,44 @@
+{
+	"music":{
+		"divisionai_battle_default":[
+			{"file":"faction_hegemony_market_02_hostile_var01.ogg", "source":"sounds/music/music.bin", "volume":0.85}
+		],
+		"divisionai_battle_hegemony_hostile":[
+			{"file":"faction_hegemony_encounter_02_hostile.ogg", "source":"sounds/music/music.bin", "volume":0.85}
+		],
+		"divisionai_battle_hegemony_neutral":[
+			{"file":"faction_hegemony_encounter_01_neutral.ogg", "source":"sounds/music/music.bin", "volume":0.85}
+		],
+		"divisionai_battle_persean":[
+			{"file":"faction_league_encounter_03_friendly.ogg", "source":"sounds/music/music.bin", "volume":0.85}
+		],
+		"divisionai_battle_luddic":[
+			{
+				"source":"sounds/music/music.bin",
+				"volume":0.85,
+				"files":[
+					"faction_luddite_market_02_hostile_var01.ogg",
+					"faction_luddite_market_02_hostile_var02.ogg"
+				],
+				"randomStart":false
+			}
+		],
+		"divisionai_battle_pirates":[
+			{
+				"source":"sounds/music/music.bin",
+				"volume":0.85,
+				"files":[
+					"faction_pirate_market_02_hostile_var01.ogg",
+					"faction_pirate_market_02_hostile_var02.ogg"
+				],
+				"randomStart":false
+			}
+		],
+		"divisionai_battle_tritach":[
+			{"file":"faction_tritach_market_02_hostile.ogg", "source":"sounds/music/music.bin", "volume":0.85}
+		],
+		"divisionai_battle_remnant":[
+			{"file":"faction_tritach_market_02_hostile.ogg", "source":"sounds/music/music.bin", "volume":0.85}
+		]
+	}
+}

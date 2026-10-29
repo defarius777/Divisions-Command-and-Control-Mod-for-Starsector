@@ -1,0 +1,239 @@
+{
+	"#_comment_overview": "Submod-friendly dynamic battle music configuration for Divisions: Command and Control (division_ai). Merged across all enabled mods via Global.getSettings().getMergedJSONForMod('data/config/division_battle_music.json', 'division_ai').",
+	"#_comment_submods": "Submods can add or override faction profiles under 'factions'. Each profile may specify 'silent': true, or a 'layers' array of 1..N engagement-driven layers. Each layer starts silent until 'activationThreshold' is reached, then scales volume from 'minVolume' to 'maxVolume' up to 'fullVolumeEngagement'.",
+	"enabled": true,
+	"defaultActivationThreshold": 0.26,
+	"defaultFullVolumeEngagement": 0.72,
+	"defaultMinVolume": 0.24,
+	"defaultMaxVolume": 1.0,
+	"fadeInSpeedPerSec": 0.38,
+	"fadeOutSpeedPerSec": 0.22,
+	"defaultProfile": {
+		"silent": false,
+		"layers": [
+			{
+				"id": "base",
+				"musicSetIds": ["divisionai_battle_default"],
+				"files": ["faction_hegemony_market_02_hostile_var01.ogg"],
+				"source": "sounds/music/music.bin",
+				"randomStart": false,
+				"activationThreshold": 0.26,
+				"fullVolumeEngagement": 0.72,
+				"minVolume": 0.24,
+				"maxVolume": 1.0
+			}
+		]
+	},
+	"factions": {
+		"hegemony": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": [
+						"divisionai_battle_hegemony_hostile",
+						"divisionai_battle_hegemony_neutral"
+					],
+					"files": [
+						"faction_hegemony_encounter_02_hostile.ogg",
+						"faction_hegemony_encounter_01_neutral.ogg"
+					],
+					"source": "sounds/music/music.bin",
+					"randomStart": true,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"persean": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_persean"],
+					"files": ["faction_league_encounter_03_friendly.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"persean_league": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_persean"],
+					"files": ["faction_league_encounter_03_friendly.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"luddic_church": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_luddic"],
+					"files": [
+						"faction_luddite_market_02_hostile_var01.ogg",
+						"faction_luddite_market_02_hostile_var02.ogg"
+					],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"luddic_path": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_luddic"],
+					"files": [
+						"faction_luddite_market_02_hostile_var01.ogg",
+						"faction_luddite_market_02_hostile_var02.ogg"
+					],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"knights_of_ludd": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_luddic"],
+					"files": [
+						"faction_luddite_market_02_hostile_var01.ogg",
+						"faction_luddite_market_02_hostile_var02.ogg"
+					],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"pirates": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_pirates"],
+					"files": [
+						"faction_pirate_market_02_hostile_var01.ogg",
+						"faction_pirate_market_02_hostile_var02.ogg"
+					],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"tritachyon": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_tritach"],
+					"files": ["faction_tritach_market_02_hostile.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"remnant": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_remnant"],
+					"files": ["faction_tritach_market_02_hostile.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"omega": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_remnant"],
+					"files": ["faction_tritach_market_02_hostile.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		},
+		"threat": {
+			"silent": true,
+			"layers": []
+		},
+		"dweller": {
+			"silent": true,
+			"layers": []
+		},
+		"abyssal": {
+			"silent": true,
+			"layers": []
+		},
+		"abyssal_horrors": {
+			"silent": true,
+			"layers": []
+		},
+		"derelict": {
+			"silent": false,
+			"layers": [
+				{
+					"id": "base",
+					"musicSetIds": ["divisionai_battle_default"],
+					"files": ["faction_hegemony_market_02_hostile_var01.ogg"],
+					"source": "sounds/music/music.bin",
+					"randomStart": false,
+					"activationThreshold": 0.26,
+					"fullVolumeEngagement": 0.72,
+					"minVolume": 0.24,
+					"maxVolume": 1.0
+				}
+			]
+		}
+	}
+}

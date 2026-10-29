@@ -427,6 +427,10 @@ public class DivisionModel {
         public boolean hasShipNeedingHelp;
         public ShipAPI shipNeedingHelp;
         public int usableStrikeAmmoCount;
+        // Explicit violent contact / engagement telemetry (0.0 = out of contact, 1.0 = full weapon/flux exchange)
+        public float activeWeaponFiringRatio = 0f;
+        public float violentContactIntensity = 0f;
+        public float engagedFpMass = 0f;
 
         // Time Layer (Mobility horizon & Directional Engagement Level / Fixing)
         public static final int TIME_DIRECTIONS = 24;
@@ -589,6 +593,14 @@ public class DivisionModel {
         public float totalFriendlyStrength;
         public float totalEnemyStrength;
         public float forceRatio = 1.0f;
+
+        // Explicit Fleet-Wide Engagement / Violent Contact Telemetry (mass-weighted across all divisions)
+        public float engagedFpMass = 0f;
+        public float engagedMassFraction = 0f;
+        public float fleetEngagementLevel = 0f;
+        public float smoothedEngagementLevel = 0f;
+        public int engagedDivisionCount = 0;
+        public boolean mainEffortEngaged = false;
 
         public DivisionState mainEffortDivision;
         public DivisionState reserveDivision;

@@ -41,7 +41,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private BattleGroupState enemyGroup;
     private DivisionTacticalMapOverlay tacticalOverlay;
     private DivisionDeploymentDialogOrganizer deploymentOrganizer;
+    private DynamicBattleMusicController musicController;
     private DivisionState passiveContactGroup;
+    private BattleGroupState side0OpposingView;
 
     private float divisionTimer = 0f;
     private float otcTimer = 0f;
@@ -60,8 +62,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.divisionTimer = 0f;
         this.otcTimer = 0f;
         this.passiveContactGroup = null;
+        this.side0OpposingView = null;
         this.tacticalOverlay = new DivisionTacticalMapOverlay(engine);
         this.deploymentOrganizer = new DivisionDeploymentDialogOrganizer();
+        this.musicController = new DynamicBattleMusicController();
         BattlefieldFirepowerEvaluator.resetForNewBattle();
         if (engine != null) {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
@@ -114,7 +118,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, enemyGroup);
         }
 
-        if (engine.isPaused() || engine.isCombatOver()) {
+        if (engine.isCombatOver()) {
+            if (musicController != null) {
+                musicController.cleanupBattleMusicSession();
+            }
+            return;
+        }
+        if (engine.isPaused()) {
             return;
         }
 
@@ -296,6 +306,14 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     now);
         }
 
+        // Advance dynamic engagement-driven battle music every frame
+        if (musicController != null) {
+            BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
+                    ? side0OpposingView
+                    : playerGroup;
+            musicController.advance(engine, musicPlayerView, enemyGroup, amount);
+        }
+
         // Maintain HUD status on the player flagship ONLY if the player fleet has at least 1 active division
         maintainPlayerHudStatus();
     }
@@ -307,8 +325,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
      *  - A passive contact-tracking group for any unassigned player ships (never issued orders, never rendered)
      */
     private BattleGroupState buildSide0OpposingViewForEnemy(List<ShipAPI> playerHulls) {
-        BattleGroupState view = new BattleGroupState(0, playerGroup.otc);
+        if (side0OpposingView == null) {
+            side0OpposingView = new BattleGroupState(0, playerGroup.otc);
+        }
+        BattleGroupState view = side0OpposingView;
+        view.otc = playerGroup.otc;
         view.missionContext = playerGroup.missionContext;
+        view.divisions.clear();
         view.divisions.addAll(playerGroup.divisions);
         view.divisions.addAll(alliedAiGroup.divisions);
 
@@ -379,7 +402,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 HUD_STATUS_KEY_OTC,
                 "graphics/icons/hullsys/reserve_deployment.png",
                 "OTC Phase: " + playerGroup.currentPhase.displayName,
-                String.format("Force Ratio %.2fx | %d Divisions in Action", playerGroup.forceRatio, playerGroup.divisions.size()),
+                String.format("Force Ratio %.2fx | Engaged %.0f%% | %d Divs",
+                        playerGroup.forceRatio,
+                        playerGroup.smoothedEngagementLevel * 100f,
+                        playerGroup.divisions.size()),
                 false);
     }
 }
