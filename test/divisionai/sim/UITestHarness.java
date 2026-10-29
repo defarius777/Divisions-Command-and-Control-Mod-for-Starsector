@@ -137,7 +137,7 @@ public class UITestHarness {
                 && (yTime - ySpace) >= BattlefieldFirepowerEvaluator.BTN_SQUARE_H + 6f
                 && (ySpace - yFirepower) >= BattlefieldFirepowerEvaluator.BTN_SQUARE_H + 6f;
 
-        String fpJava = new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8);
+        String fpJava = (new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8) + new String(Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()), StandardCharsets.UTF_8));
         boolean textlessSquareButtons = fpJava.contains("renderSingleWarroomSquareIconButton")
                 && !fpJava.contains("\"FIREPOWER: ON\"")
                 && !fpJava.contains("\"FIREPOWER: OFF\"")
@@ -1377,7 +1377,7 @@ public class UITestHarness {
         File convIcon64 = new File("mod/graphics/icons/warroom/icon_overlay_convergence.png");
         File convIcon32 = new File("mod/graphics/icons/warroom/icon_overlay_convergence_32.png");
         String settingsJson = new String(Files.readAllBytes(new File("mod/data/config/settings.json").toPath()), StandardCharsets.UTF_8);
-        String fpSource = new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8);
+        String fpSource = (new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8) + new String(Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()), StandardCharsets.UTF_8));
         boolean iconAndBrightnessOk = convIcon64.exists() && convIcon32.exists()
                 && settingsJson.contains("icon_overlay_convergence")
                 && fpSource.contains("new Color(170, 222, 255, 255)");
@@ -1542,9 +1542,7 @@ public class UITestHarness {
         Vector2f shift0 = BattlefieldFirepowerEvaluator.getCommandWordShiftOffset(0.10f);
         Vector2f shift1 = BattlefieldFirepowerEvaluator.getCommandWordShiftOffset(0.60f);
         Vector2f shift2 = BattlefieldFirepowerEvaluator.getCommandWordShiftOffset(1.10f);
-        String evalSrc = new String(
-                Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()),
-                StandardCharsets.UTF_8);
+        String evalSrc = (new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8) + new String(Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()), StandardCharsets.UTF_8));
         String[] p0 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(0);
         String[] p1 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(1);
         String[] p2 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(2);
@@ -1904,9 +1902,7 @@ public class UITestHarness {
         String convSvg = new String(
                 Files.readAllBytes(new File("mod/graphics/icons/warroom/icon_overlay_convergence.svg").toPath()),
                 StandardCharsets.UTF_8);
-        String evalSrc = new String(
-                Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()),
-                StandardCharsets.UTF_8);
+        String evalSrc = (new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8) + new String(Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()), StandardCharsets.UTF_8));
         boolean convergenceIconAndTsfcOptOk = convSvg.contains("r=\"27.5\"")
                 && convSvg.contains("width=\"32\" height=\"32\"")
                 && convSvg.contains("points=\"32,21.5 21.8,41.5 42.2,41.5\"")

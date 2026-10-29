@@ -58,15 +58,15 @@ import java.util.List;
  */
 public class DivisionCommanderAI {
 
-    private static final float STRIKE_WINDOW_DURATION = 14.0f;
-    private static final float FLAG_TTL = 0.85f;
+    static final float STRIKE_WINDOW_DURATION = 14.0f;
+    static final float FLAG_TTL = 0.85f;
 
-    private static boolean resolvedBasicAiHandles = false;
-    private static Class<?> basicShipAiClass = null;
-    private static Class<?> shipAiWrapperClass = null;
-    private static Class<?> obfShipClass = null;
-    private static MethodHandle unwrapAiHandle = null;
-    private static MethodHandle setTargetOverrideHandle = null;
+    static boolean resolvedBasicAiHandles = false;
+    static Class<?> basicShipAiClass = null;
+    static Class<?> shipAiWrapperClass = null;
+    static Class<?> obfShipClass = null;
+    static MethodHandle unwrapAiHandle = null;
+    static MethodHandle setTargetOverrideHandle = null;
 
     public static void evaluateAndExecuteDivisions(
             CombatEngineAPI engine,
@@ -261,12 +261,12 @@ public class DivisionCommanderAI {
         return activeMission;
     }
 
-    private static boolean isInOpeningWindow(DivisionState div, float now) {
+    static boolean isInOpeningWindow(DivisionState div, float now) {
         return now <= Math.max(30f, Math.min(60f, div.openingPhaseDurationSeconds));
     }
 
     /** Intents that hold for the commander's commitment time; the rest end on their own triggers. */
-    private static boolean isCommittableIntent(DivisionIntentType intent) {
+    static boolean isCommittableIntent(DivisionIntentType intent) {
         switch (intent) {
             case CLOSE_UP:
             case HOLD_IN_RESERVE:
@@ -330,7 +330,7 @@ public class DivisionCommanderAI {
     }
 
     /** Events that break intent commitment and force an immediate re-evaluation. */
-    private static boolean hasUrgentTrigger(CombatEngineAPI engine, DivisionState div, BattleGroupState myGroup, float now) {
+    static boolean hasUrgentTrigger(CombatEngineAPI engine, DivisionState div, BattleGroupState myGroup, float now) {
         if (div.otcOrder.version != div.appliedOtcOrderVersion) return true;
         boolean martyrdom = isMartyrdomActive(div, myGroup, now);
         if (!martyrdom && isStrikeRunOver(div, now)) return true;
@@ -364,7 +364,7 @@ public class DivisionCommanderAI {
     }
 
     /** A missile run, ToT Alpha Strike, or flank maneuver finished its window (or expended torpedoes / built flux) -> break off! */
-    private static boolean isStrikeRunOver(DivisionState div, float now) {
+    static boolean isStrikeRunOver(DivisionState div, float now) {
         boolean inMissileStrike = (div.currentIntent == DivisionIntentType.HARASSING_MISSILE_ATTACK
                 || div.currentIntent == DivisionIntentType.TOT_MISSILE_STRIKE);
         boolean inTotAlphaStrike = (div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE);
@@ -392,7 +392,7 @@ public class DivisionCommanderAI {
     }
 
     /** Requires actual flux buildup (or critical damage under heavy local overmatch / L-U crossfire cordon) so fresh divisions never retreat. */
-    private static boolean isUnderHighFluxPressure(DivisionState div, BattleGroupState myGroup) {
+    static boolean isUnderHighFluxPressure(DivisionState div, BattleGroupState myGroup) {
         boolean inCrossfireCordon = div.crossfireCordonIndex >= 0.36f && div.localEnemyStrength >= 10f;
         boolean isLoneFrigateDiv = (div.getAliveMembers().size() == 1)
                 && (div.totalFpStrength <= 10f
@@ -430,7 +430,7 @@ public class DivisionCommanderAI {
         return highFluxPressure && canRotateOut;
     }
 
-    private static boolean isEndangered(DivisionState div) {
+    static boolean isEndangered(DivisionState div) {
         return div.localEnemyStrength >= 12f && div.localForceRatio < 0.85f;
     }
 
@@ -439,7 +439,7 @@ public class DivisionCommanderAI {
      * (binding under Hybrid / Central Planning / Target Coordination; preferred under Mission-Type Tactics,
      * where a much closer enemy on top of the division takes precedence), otherwise its own pick.
      */
-    private static DivisionState resolveOtcTarget(
+    static DivisionState resolveOtcTarget(
             CombatEngineAPI engine,
             DivisionState div,
             OtcOrder task,
@@ -461,7 +461,7 @@ public class DivisionCommanderAI {
     // Section 2: Division Intent Priority Ladder & Tactical Sub-Evaluators
     // =========================================================================
 
-    private static boolean commitIntent(
+    static boolean commitIntent(
             CombatEngineAPI engine,
             DivisionState div,
             DivisionIntentType intent,
@@ -474,7 +474,7 @@ public class DivisionCommanderAI {
         return true;
     }
 
-    private static void selectDivisionIntent(
+    static void selectDivisionIntent(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -641,7 +641,7 @@ public class DivisionCommanderAI {
                 distToVisibleEnemy, distToMissileTarget, strikeCooldownElapsed, soloStrikeAllowed, now);
     }
 
-    private static boolean trySelectWithdrawalOrVentIntent(
+    static boolean trySelectWithdrawalOrVentIntent(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -711,7 +711,7 @@ public class DivisionCommanderAI {
         return false;
     }
 
-    private static String assignCarrierStandoffOrReserveStation(
+    static String assignCarrierStandoffOrReserveStation(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -725,7 +725,7 @@ public class DivisionCommanderAI {
         return "the contact zone";
     }
 
-    private static boolean trySelectCarrierMissionIntent(
+    static boolean trySelectCarrierMissionIntent(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -832,7 +832,7 @@ public class DivisionCommanderAI {
         }
     }
 
-    private static boolean trySelectCombatMissionIntent(
+    static boolean trySelectCombatMissionIntent(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -970,7 +970,7 @@ public class DivisionCommanderAI {
         return false;
     }
 
-    private static void selectFallbackTacticalIntent(
+    static void selectFallbackTacticalIntent(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -1121,7 +1121,7 @@ public class DivisionCommanderAI {
      * shapes the division's own mission (targets, flank sides) or when the division declines a request
      * under Mission-Type Tactics; the mission ladder then runs with the OTC target applied.
      */
-    private static boolean applyOtcOrder(
+    static boolean applyOtcOrder(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -1277,7 +1277,7 @@ public class DivisionCommanderAI {
     }
 
     /** Mission-Type Tactics: a division joins a timed strike only if it is in shape to. */
-    private static boolean acceptsStrikeRequest(DivisionState div) {
+    static boolean acceptsStrikeRequest(DivisionState div) {
         return div.avgFluxLevel < 0.60f && (div.localEnemyStrength < 20f || div.localForceRatio >= 0.90f);
     }
 
@@ -1285,7 +1285,7 @@ public class DivisionCommanderAI {
      * With the Timed Strikes play (outside Mission-Type Tactics) strike divisions hold their missiles for the OTC's
      * synchronized strikes instead of freelancing, except against targets that come within close range.
      */
-    private static boolean isSoloStrikeAllowed(BattleGroupState myGroup, float distToMissileTarget) {
+    static boolean isSoloStrikeAllowed(BattleGroupState myGroup, float distToMissileTarget) {
         if (!myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES)) return true;
         if (myGroup.authority == OtcAuthority.COMMAND_BY_NEGATION) return true;
         if (myGroup.strikePlan != null) return false;
@@ -1293,14 +1293,14 @@ public class DivisionCommanderAI {
         return distToMissileTarget < 2200f;
     }
 
-    private static String flankSideTag(DivisionState div, DivisionState enemyDiv, BattleGroupState myGroup) {
+    static String flankSideTag(DivisionState div, DivisionState enemyDiv, BattleGroupState myGroup) {
         float side = assignedFlankSide(div, enemyDiv, myGroup);
         if (side == 0f) return "";
         return side > 0f ? " [OTC: port flank]" : " [OTC: starboard flank]";
     }
 
     /** The OTC-assigned flank side for this target, or 0 if the OTC has not assigned one. */
-    private static float assignedFlankSide(DivisionState div, DivisionState enemyDiv, BattleGroupState myGroup) {
+    static float assignedFlankSide(DivisionState div, DivisionState enemyDiv, BattleGroupState myGroup) {
         if (myGroup == null || !myGroup.authority.allowsPositioning()) return 0f;
         OtcOrder task = div.otcOrder;
         if (task.type == OtcOrderType.FLANK && task.targetEnemy == enemyDiv && task.flankSide != 0f) {
@@ -1310,7 +1310,7 @@ public class DivisionCommanderAI {
     }
 
     /** Recomputes the current intent's maneuver station and out-of-contact wide-arc route waypoint every tick. */
-    private static void refreshStationPoint(
+    static void refreshStationPoint(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -1431,7 +1431,7 @@ public class DivisionCommanderAI {
      *  - Stage 1 (Dressing at IP): Division forms up at an Initial Point in its setpiece formation.
      *  - Stage 2 (Executing Pass): The entire formation carriage translates along the strike vector in unison.
      */
-    private static void updateAndApplySetpieceDivisionAttack(
+    static void updateAndApplySetpieceDivisionAttack(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -1612,7 +1612,7 @@ public class DivisionCommanderAI {
         div.stationPoint.set(div.setpiecePassTarget);
     }
 
-    private static void computePatrolStation(DivisionState carrierDiv, DivisionState protectedDiv, Vector2f outStation) {
+    static void computePatrolStation(DivisionState carrierDiv, DivisionState protectedDiv, Vector2f outStation) {
         float backSign = (carrierDiv.side == 0) ? -1f : 1f;
         outStation.set(
                 protectedDiv.centroid.x,
@@ -1623,7 +1623,7 @@ public class DivisionCommanderAI {
      * Cooperatively nudges ships in the division via ShipwideAIFlags.
      * Never overrides the player's manually piloted flagship or explicit player orders.
      */
-    private static void applyDivisionFlagsToShips(
+    static void applyDivisionFlagsToShips(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -1787,223 +1787,18 @@ public class DivisionCommanderAI {
         }
     }
 
-    /**
-     * Item D: Updates Coordinated vs. Uncoordinated Voidstrike staging for deck strikes and multi-division strikes:
-     *  - UNCOORDINATED: voidstrikeStage = 2 immediately (wings attack in successive dispersed waves).
-     *  - COORDINATED:
-     *      * Stage 0 (Orbit Carrier, ~1.8s): Newly launched squadrons circle around their carrier as the deck cycle launches.
-     *      * Stage 1 (Form Up at Marshal Point nearby, ~2.4s or until >= 72% of airborne wings reach the marshal point):
-     *        Squadrons converge on a marshalling point ~420u ahead of the carrier division (or shared multi-division
-     *        marshalling point for OTC StrikePlan participants) and dress into their Voidstrike formation & depth.
-     *      * Stage 2 (Massed Voidstrike Attack Run): All marshalled squadrons unleash together onto the target!
-     */
     public static void updateDivisionVoidstrikeStaging(
             DivisionState div,
             BattleGroupState myGroup,
             ShipAPI focusEnemyShip,
             float now) {
-        if (div == null) return;
-
-        boolean hasWings = false;
-        int airborneWings = 0;
-        int wingsClearedCarriers = 0;
-        int wingsCommittedDownrange = 0;
-        for (ShipAPI m : div.getAliveMembers()) {
-            if (m.getAllWings() != null && !m.getAllWings().isEmpty()) {
-                hasWings = true;
-                for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
-                    if (w != null && w.getWingMembers() != null && !w.getWingMembers().isEmpty()) {
-                        airborneWings++;
-                        ShipAPI leader = w.getLeader();
-                        if (leader != null && leader.isAlive() && !w.isReturning(leader)) {
-                            float dCarrier = distance(leader.getLocation(), m.getLocation());
-                            if (dCarrier >= 130f) wingsClearedCarriers++;
-                            if (dCarrier >= 460f) wingsCommittedDownrange++;
-                        }
-                    }
-                }
-            }
-        }
-        if (!hasWings || focusEnemyShip == null || !focusEnemyShip.isAlive() || focusEnemyShip.isHulk()) {
-            div.voidstrikeStage = 0;
-            div.voidstrikeLastTargetKey = null;
-            return;
-        }
-
-        boolean isDeckOrMultiDivStrike = div.currentIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
-                || div.currentIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
-                || div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
-                || div.currentIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
-                || div.currentIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
-                || div.currentIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
-                || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
-                || div.currentIntent == DivisionIntentType.PRESS_HOME
-                || (myGroup != null && myGroup.strikePlan != null && myGroup.strikePlan.participants.contains(div));
-
-        if (div.voidstrikeCoordination == VoidstrikeCoordinationMode.UNCOORDINATED
-                && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
-            div.voidstrikeStage = 2;
-            return;
-        }
-        if (!isDeckOrMultiDivStrike) {
-            div.voidstrikeStage = 2;
-            return;
-        }
-
-        // Compute nearby marshalling point (~360u ahead of carrier division centroid toward focusEnemyShip;
-        // if part of a multi-division StrikePlan, blend 40% toward the StrikePlan's shared axis)
-        Vector2f anchor = (div.centroid.x != 0f || div.centroid.y != 0f)
-                ? div.centroid
-                : ((div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk())
-                ? div.flagship.getLocation()
-                : div.centroid);
-        float dx = focusEnemyShip.getLocation().x - anchor.x;
-        float dy = focusEnemyShip.getLocation().y - anchor.y;
-        float dist = (float) Math.sqrt(dx * dx + dy * dy);
-        float dirX = dist > 1f ? (dx / dist) : 0f;
-        float dirY = dist > 1f ? (dy / dist) : (div.side == 0 ? 1f : -1f);
-        float marshalLead = Math.min(380f, Math.max(240f, dist * 0.20f));
-        float mx = anchor.x + dirX * marshalLead;
-        float my = anchor.y + dirY * marshalLead;
-
-        if (myGroup != null && myGroup.strikePlan != null
-                && myGroup.strikePlan.participants.size() >= 2
-                && myGroup.strikePlan.participants.contains(div)) {
-            float sumX = 0f;
-            float sumY = 0f;
-            int cnt = 0;
-            for (DivisionState pDiv : myGroup.strikePlan.participants) {
-                if (pDiv != null && pDiv.isAbleCombatEffective() && pDiv.hasCarrierCapability) {
-                    sumX += pDiv.centroid.x;
-                    sumY += pDiv.centroid.y;
-                    cnt++;
-                }
-            }
-            if (cnt >= 2) {
-                float avgX = sumX / cnt + dirX * marshalLead;
-                float avgY = sumY / cnt + dirY * marshalLead;
-                mx = mx * 0.60f + avgX * 0.40f;
-                my = my * 0.60f + avgY * 0.40f;
-            }
-        }
-        div.voidstrikeMarshalPoint.set(mx, my);
-
-        String targetKey = (div.targetEnemyDivision != null ? div.targetEnemyDivision.id : focusEnemyShip.getId());
-        boolean hadPreviousTarget = (div.voidstrikeLastTargetKey != null);
-        boolean targetChanged = (!hadPreviousTarget || !div.voidstrikeLastTargetKey.equals(targetKey));
-
-        // If enemy is already at point-blank knife-fight range (< 850u), skip staging and strike immediately
-        if (dist < 850f && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
-            div.voidstrikeStage = 2;
-            div.voidstrikeLastTargetKey = targetKey;
-            return;
-        }
-
-        // Item C: If a strike wave is already airborne downrange in Stage 2 (hadPreviousTarget && wingsCommittedDownrange > 0)
-        // and the target changes mid-flight (e.g. target ship destroyed or retargeted), do NOT reset to Stage 0 and
-        // abort the airborne wave! Keep voidstrikeStage = 2 so the airborne squadrons press home on the new target!
-        if (targetChanged) {
-            div.voidstrikeLastTargetKey = targetKey;
-            if (hadPreviousTarget && div.voidstrikeStage == 2 && wingsCommittedDownrange > 0
-                    && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
-                return;
-            }
-            div.voidstrikeStage = 0;
-            div.voidstrikeStageStartTime = now;
-        }
-
-        // During OTC MARSHAL_FOR_STRIKE countdown, keep wings in Stage 0 -> Stage 1 at the marshal point
-        // (instead of pulling them back into carrier bays!) so they are already formed up when the strike commits!
-        if (div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE) {
-            if (div.voidstrikeStage == 2) {
-                div.voidstrikeStage = 1;
-                div.voidstrikeStageStartTime = now;
-            } else if (div.voidstrikeStage == 0) {
-                float elapsed = Math.max(0f, now - div.voidstrikeStageStartTime);
-                if ((elapsed >= 1.1f && airborneWings > 0)
-                        || wingsClearedCarriers >= Math.max(1, Math.round(airborneWings * 0.65f))) {
-                    div.voidstrikeStage = 1;
-                    div.voidstrikeStageStartTime = now;
-                }
-            }
-            return;
-        }
-
-        float elapsedInStage = Math.max(0f, now - div.voidstrikeStageStartTime);
-        if (div.voidstrikeStage == 0) {
-            // Stage 0: Squadrons launch and clear their carrier decks (~1.2s)
-            if (elapsedInStage >= 1.2f && airborneWings > 0) {
-                div.voidstrikeStage = 1;
-                div.voidstrikeStageStartTime = now;
-            }
-        } else if (div.voidstrikeStage == 1) {
-            // Stage 1: Squadrons form up at the marshalling point; wait until >= 78% of airborne wings are within
-            // 420u of voidstrikeMarshalPoint (up to 5.8s max timeout so slower bombers & trailing carriers' wings
-            // actually reach the marshal point and form up together before departing!)
-            int assembledWings = 0;
-            for (ShipAPI m : div.getAliveMembers()) {
-                if (m.getAllWings() == null) continue;
-                for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
-                    if (w == null || w.getLeader() == null || !w.getLeader().isAlive()) continue;
-                    if (distance(w.getLeader().getLocation(), div.voidstrikeMarshalPoint) <= 420f) {
-                        assembledWings++;
-                    }
-                }
-            }
-            boolean majorityAssembled = airborneWings > 0 && assembledWings >= Math.max(1, Math.round(airborneWings * 0.78f));
-            float maxStage1Wait = (airborneWings >= 2) ? 4.8f : 2.6f;
-            if ((elapsedInStage >= 1.2f && majorityAssembled) || elapsedInStage >= maxStage1Wait) {
-                div.voidstrikeStage = 2;
-                div.voidstrikeStageStartTime = now;
-            }
-        } else if (div.voidstrikeStage == 2) {
-            // In cyclic / deckload strikes, if all strike craft returned near carrier after a long run (> 14s), re-marshal next wave
-            if (elapsedInStage >= 14.5f && airborneWings > 0) {
-                int nearCarrier = 0;
-                for (ShipAPI m : div.getAliveMembers()) {
-                    if (m.getAllWings() == null) continue;
-                    for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
-                        if (w == null || w.getLeader() == null || !w.getLeader().isAlive()) continue;
-                        if (distance(w.getLeader().getLocation(), m.getLocation()) <= 340f) {
-                            nearCarrier++;
-                        }
-                    }
-                }
-                if (nearCarrier >= Math.max(1, Math.round(airborneWings * 0.75f))) {
-                    div.voidstrikeStage = 0;
-                    div.voidstrikeStageStartTime = now;
-                }
-            }
-        }
+        VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(div, myGroup, focusEnemyShip, now);
     }
 
-    /**
-     * Computes the effective [strikeWidth, strikeDepth] for {@code totalUnits} squadrons/craft given
-     * requested {@code reqWidth} (1..10) and {@code reqDepth} (1..10).
-     * If {@code reqWidth} and {@code reqDepth} cannot be achieved together ({@code reqWidth * reqDepth != totalUnits}),
-     * averages each requested dimension with the feasible dimension implied by the other:
-     *   {@code feasibleWidth = totalUnits / reqDepth}, {@code feasibleDepth = totalUnits / reqWidth},
-     *   {@code effWidth = round(0.5 * (reqWidth + feasibleWidth))},
-     *   {@code effDepth = round(0.5 * (reqDepth + feasibleDepth))}.
-     */
     public static int[] computeCompromiseStrikeWidthAndDepth(int totalUnits, int reqWidth, int reqDepth) {
-        int n = Math.max(1, totalUnits);
-        int w = Math.max(1, Math.min(10, reqWidth));
-        int d = Math.max(1, Math.min(10, reqDepth));
-        if (w * d == n) {
-            return new int[]{w, d};
-        }
-        float feasibleW = Math.max(1f, (float) n / d);
-        float feasibleD = Math.max(1f, (float) n / w);
-        int effW = Math.max(1, Math.min(10, Math.round(0.5f * (w + feasibleW))));
-        int effD = Math.max(1, Math.min(10, Math.round(0.5f * (d + feasibleD))));
-        return new int[]{effW, effD};
+        return VoidstrikeCoordinator.computeCompromiseStrikeWidthAndDepth(totalUnits, reqWidth, reqDepth);
     }
 
-    /**
-     * Computes the 2D formation offset (in units) for a strike craft inside its squadron (and rank depth 1..10
-     * during Voidstrikes) for Items E, D2, F, G, and H.
-     */
     public static Vector2f computeSquadronCraftSlotOffset(
             SquadronFormation formation,
             int craftIdx,
@@ -2015,15 +1810,11 @@ public class DivisionCommanderAI {
             float fwdY,
             float rightX,
             float rightY) {
-        return computeSquadronCraftSlotOffset(
-                formation, craftIdx, craftCount, squadronRankIdx, squadronDepth, 0, 1,
+        return VoidstrikeCoordinator.computeSquadronCraftSlotOffset(
+                formation, craftIdx, craftCount, squadronRankIdx, squadronDepth,
                 craftSpacing, fwdX, fwdY, rightX, rightY);
     }
 
-    /**
-     * Overloaded squadron craft slot offset calculator that incorporates both Voidstrike Strike Depth (1..10)
-     * and Strike Width (1..10) with automatic averaging when width and depth cannot be achieved together.
-     */
     public static Vector2f computeSquadronCraftSlotOffset(
             SquadronFormation formation,
             int craftIdx,
@@ -2037,329 +1828,22 @@ public class DivisionCommanderAI {
             float fwdY,
             float rightX,
             float rightY) {
-
-        SquadronFormation fm = formation != null ? formation : SquadronFormation.WEDGE;
-        int n = Math.max(1, craftCount);
-        int idx = Math.max(0, Math.min(n - 1, craftIdx));
-        float sp = Math.max(28f, craftSpacing);
-
-        // Lateral index centered around 0
-        float centered = idx - (n - 1) * 0.5f;
-        int wingSide = (idx % 2 == 1) ? 1 : -1;
-        int pairRank = (idx + 1) / 2;
-
-        float localFwd = 0f;
-        float localRight = 0f;
-
-        switch (fm) {
-            case LINE_ABREAST:
-                localRight = centered * sp;
-                localFwd = 0f;
-                break;
-            case LINE_AHEAD:
-                localRight = 0f;
-                localFwd = -idx * sp * 0.92f;
-                break;
-            case WEDGE:
-                if (idx == 0) {
-                    localFwd = sp * 0.45f;
-                    localRight = 0f;
-                } else {
-                    localRight = wingSide * pairRank * sp * 0.85f;
-                    localFwd = (sp * 0.45f) - pairRank * sp * 0.72f;
-                }
-                break;
-            case REVERSE_WEDGE:
-                if (idx == 0) {
-                    localFwd = -sp * 0.45f;
-                    localRight = 0f;
-                } else {
-                    localRight = wingSide * pairRank * sp * 0.85f;
-                    localFwd = (-sp * 0.45f) + pairRank * sp * 0.72f;
-                }
-                break;
-            case CIRCLE: {
-                double ang = (2.0 * Math.PI * idx) / n;
-                float rad = Math.max(sp * 0.65f, (n * sp) / (float) (2.0 * Math.PI));
-                localFwd = (float) Math.cos(ang) * rad;
-                localRight = (float) Math.sin(ang) * rad;
-                break;
-            }
-            case SEMICIRCLE: {
-                double t = (n <= 1) ? 0.0 : (idx / (double) (n - 1)) * Math.PI - (0.5 * Math.PI);
-                float rad = Math.max(sp * 0.75f, n * sp * 0.34f);
-                localFwd = (float) Math.cos(t) * rad * 0.65f;
-                localRight = (float) Math.sin(t) * rad;
-                break;
-            }
-            case REVERSE_SEMICIRCLE: {
-                double t = (n <= 1) ? 0.0 : (idx / (double) (n - 1)) * Math.PI - (0.5 * Math.PI);
-                float rad = Math.max(sp * 0.75f, n * sp * 0.34f);
-                localFwd = -(float) Math.cos(t) * rad * 0.65f;
-                localRight = (float) Math.sin(t) * rad;
-                break;
-            }
-        }
-
-        // Apply multi-rank Voidstrike Squadron Depth (1..10) and Strike Width (1..10):
-        int clampedDepth = Math.max(1, Math.min(10, squadronDepth));
-        if (clampedDepth > 1 && squadronRankIdx > 0) {
-            int effRank = squadronRankIdx % clampedDepth;
-            localFwd -= effRank * Math.max(85f, sp * 1.95f);
-        }
-        int clampedWidth = Math.max(1, Math.min(10, squadronWidth));
-        if (clampedWidth > 1) {
-            int effCol = Math.max(0, squadronColIdx) % clampedWidth;
-            float centeredCol = effCol - (clampedWidth - 1) * 0.5f;
-            localRight += centeredCol * Math.max(92f, sp * 2.15f);
-        }
-
-        return new Vector2f(
-                fwdX * localFwd + rightX * localRight,
-                fwdY * localFwd + rightY * localRight);
+        return VoidstrikeCoordinator.computeSquadronCraftSlotOffset(
+                formation, craftIdx, craftCount, squadronRankIdx, squadronDepth,
+                squadronColIdx, squadronWidth, craftSpacing, fwdX, fwdY, rightX, rightY);
     }
 
-    /**
-     * Integrates a ship's Strike Craft (FighterWingAPI squadrons) into the division's formation and Voidstrike doctrine:
-     *  - Item C (VoidstrikeTargetObservance): FREE, MEDIUM, HIGH target observance on the designated strike target.
-     *  - Item D (VoidstrikeCoordinationMode): COORDINATED (Stage 0 orbit carrier -> Stage 1 marshal point -> Stage 2 strike)
-     *    vs UNCOORDINATED (dispersed waves).
-     *  - Items E, D2, F, G (SquadronFormation): Fighter & Bomber formations in general patrol vs Voidstrike.
-     *  - Item H (voidstrikeSquadronDepth 1..10): Multi-rank depth across squadrons in a Voidstrike.
-     */
-    private static void dressShipStrikeCraftInFormation(
+    static void dressShipStrikeCraftInFormation(
             ShipAPI carrier,
             int carrierIdxInDiv,
             ShipAPI focusEnemyShip,
             DivisionState div,
             BattleGroupState myGroup,
             float now) {
-        if (carrier == null || div == null) return;
-        List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
-        if (wings == null || wings.isEmpty()) return;
-
-        // Item C: Only pull fighters back inside carrier bays when genuinely out of combat (HOLD_IN_RESERVE,
-        // HAUL_OUT_TO_VENT without local enemies, or CLOSE_UP without a strike target).
-        // Never setPullBackFighters(true) during MARSHAL_FOR_STRIKE or Stage 0/1 staging once wings are launching,
-        // because setPullBackFighters(true) forces airborne squadrons to land back inside the carrier instead of
-        // assembling at voidstrikeMarshalPoint!
-        boolean holdFightersInFormation = div.currentIntent == DivisionIntentType.HOLD_IN_RESERVE
-                || (div.currentIntent == DivisionIntentType.CLOSE_UP && focusEnemyShip == null)
-                || (div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT && div.localEnemyStrength < 10f);
-
-        boolean coordinatedStagingActive = !holdFightersInFormation
-                && focusEnemyShip != null
-                && focusEnemyShip.isAlive()
-                && (div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
-                || (div.voidstrikeCoordination == VoidstrikeCoordinationMode.COORDINATED
-                && (div.voidstrikeStage == 0 || div.voidstrikeStage == 1)));
-
-        if (holdFightersInFormation) {
-            if (!carrier.isPullBackFighters()) {
-                carrier.setPullBackFighters(true);
-                div.fighterPullbackShipIds.add(carrier.getId());
-            }
-        } else {
-            if (carrier.isPullBackFighters()) {
-                carrier.setPullBackFighters(false);
-            }
-            div.fighterPullbackShipIds.remove(carrier.getId());
-        }
-
-        ShipAPI escortAnchor = (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk())
-                ? div.flagship
-                : carrier;
-
-        boolean inVoidstrike = !holdFightersInFormation
-                && focusEnemyShip != null
-                && focusEnemyShip.isAlive()
-                && (div.currentIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
-                || div.currentIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
-                || div.currentIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
-                || div.currentIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
-                || div.currentIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
-                || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
-                || div.currentIntent == DivisionIntentType.PRESS_HOME
-                || distance(carrier.getLocation(), focusEnemyShip.getLocation()) > 650f);
-
-        // Compute attack / patrol heading basis vectors
-        float fwdX = div.formationHeadingInitialized ? div.formationHeadingX : 0f;
-        float fwdY = div.formationHeadingInitialized ? div.formationHeadingY : (div.side == 0 ? 1f : -1f);
-        if (focusEnemyShip != null && focusEnemyShip.isAlive()) {
-            float dx = focusEnemyShip.getLocation().x - carrier.getLocation().x;
-            float dy = focusEnemyShip.getLocation().y - carrier.getLocation().y;
-            float len = (float) Math.sqrt(dx * dx + dy * dy);
-            if (len > 1f) {
-                fwdX = dx / len;
-                fwdY = dy / len;
-            }
-        }
-        float rightX = fwdY;
-        float rightY = -fwdX;
-
-        int reqDepth = Math.max(1, Math.min(10, div.voidstrikeSquadronDepth));
-        int reqWidth = Math.max(1, Math.min(10, div.voidstrikeSquadronWidth));
-        int totalDivWings = 0;
-        int priorCarrierWings = 0;
-        List<ShipAPI> divAlive = div.getAliveMembers();
-        for (int i = 0; i < divAlive.size(); i++) {
-            ShipAPI m = divAlive.get(i);
-            int mWings = (m.getAllWings() != null) ? m.getAllWings().size() : 0;
-            if (i < carrierIdxInDiv) {
-                priorCarrierWings += mWings;
-            }
-            totalDivWings += mWings;
-        }
-        int[] compromise = computeCompromiseStrikeWidthAndDepth(Math.max(1, totalDivWings), reqWidth, reqDepth);
-        int effSqdnWidth = compromise[0];
-        int effSqdnDepth = compromise[1];
-        VoidstrikeTargetObservance observance = div.voidstrikeObservance != null
-                ? div.voidstrikeObservance
-                : VoidstrikeTargetObservance.MEDIUM;
-
-        for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
-            com.fs.starfarer.api.combat.FighterWingAPI wing = wings.get(wIdx);
-            if (wing == null) continue;
-            List<ShipAPI> wingMembers = wing.getWingMembers();
-            if (wingMembers == null || wingMembers.isEmpty()) continue;
-            ShipAPI wingLeader = wing.getLeader();
-            if (wingLeader == null || !wingLeader.isAlive()) {
-                wingLeader = wingMembers.get(0);
-            }
-
-            boolean isBomberWing = (wing.getSpec() != null && wing.getSpec().isBomber())
-                    || (wing.getRole() == com.fs.starfarer.api.loading.WingRole.BOMBER);
-            SquadronFormation sqdnForm = isBomberWing
-                    ? (inVoidstrike ? div.bomberVoidstrikeFormation : div.bomberFormation)
-                    : (inVoidstrike ? div.fighterVoidstrikeFormation : div.fighterFormation);
-            int globalSqdnIdx = priorCarrierWings + wIdx;
-            int colIdx = inVoidstrike ? (globalSqdnIdx % effSqdnWidth) : 0;
-            int rankIdx = inVoidstrike ? ((globalSqdnIdx / effSqdnWidth) % effSqdnDepth) : 0;
-            int activeColsInRank = Math.max(1, Math.min(effSqdnWidth, totalDivWings));
-
-            for (int cIdx = 0; cIdx < wingMembers.size(); cIdx++) {
-                ShipAPI fighter = wingMembers.get(cIdx);
-                if (fighter == null || !fighter.isAlive() || fighter.isHulk()) continue;
-                ShipwideAIFlags fFlags = fighter.getAIFlags();
-                if (fFlags == null) continue;
-
-                Vector2f slotOffset = computeSquadronCraftSlotOffset(
-                        sqdnForm,
-                        cIdx,
-                        wingMembers.size(),
-                        rankIdx,
-                        inVoidstrike ? effSqdnDepth : 1,
-                        colIdx,
-                        inVoidstrike ? activeColsInRank : 1,
-                        44f,
-                        fwdX,
-                        fwdY,
-                        rightX,
-                        rightY);
-
-                if (holdFightersInFormation) {
-                    fFlags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
-                    fFlags.setFlag(AIFlags.ESCORT_OTHER_SHIP, FLAG_TTL, escortAnchor);
-                    Vector2f patrolSlot = new Vector2f(
-                            escortAnchor.getLocation().x + slotOffset.x,
-                            escortAnchor.getLocation().y + slotOffset.y);
-                    fFlags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, patrolSlot);
-                } else if (coordinatedStagingActive && div.voidstrikeStage == 0) {
-                    // Coordinated Stage 0: Squadrons launch and circle/orbit around their carrier
-                    double orbitAng = (now * 1.45) + (wIdx * 1.57) + (cIdx * 0.55);
-                    float orbitRad = Math.max(135f, carrier.getCollisionRadius() + 75f);
-                    Vector2f orbitPt = new Vector2f(
-                            carrier.getLocation().x + (float) Math.cos(orbitAng) * orbitRad,
-                            carrier.getLocation().y + (float) Math.sin(orbitAng) * orbitRad);
-                    fighter.setShipTarget(null);
-                    fFlags.unsetFlag(AIFlags.MANEUVER_TARGET);
-                    fFlags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
-                    fFlags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
-                    fFlags.setFlag(AIFlags.ESCORT_OTHER_SHIP, FLAG_TTL, carrier);
-                    fFlags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, orbitPt);
-                    fFlags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, orbitPt);
-                } else if (coordinatedStagingActive && div.voidstrikeStage == 1) {
-                    // Coordinated Stage 1: Squadrons move to nearby marshalling point and dress into Voidstrike formation, width & depth.
-                    // Clear fighter shipTarget and gently pace fast interceptors/fighters at marshalSlot so they wait for slower bombers!
-                    Vector2f marshalSlot = new Vector2f(
-                            div.voidstrikeMarshalPoint.x + slotOffset.x,
-                            div.voidstrikeMarshalPoint.y + slotOffset.y);
-                    fighter.setShipTarget(null);
-                    fFlags.unsetFlag(AIFlags.MANEUVER_TARGET);
-                    fFlags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
-                    fFlags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
-                    fFlags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, marshalSlot);
-                    fFlags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, marshalSlot);
-                    float dMarshal = distance(fighter.getLocation(), marshalSlot);
-                    if (dMarshal <= 260f && fighter.getVelocity() != null) {
-                        // Gentle velocity damping/steering at the marshal point so early-arriving wings hold formation
-                        float toSlotX = marshalSlot.x - fighter.getLocation().x;
-                        float toSlotY = marshalSlot.y - fighter.getLocation().y;
-                        float desiredVx = toSlotX * 0.85f + carrier.getVelocity().x * 0.5f;
-                        float desiredVy = toSlotY * 0.85f + carrier.getVelocity().y * 0.5f;
-                        fighter.getVelocity().set(
-                                fighter.getVelocity().x * 0.82f + desiredVx * 0.18f,
-                                fighter.getVelocity().y * 0.82f + desiredVy * 0.18f);
-                    }
-                } else if (focusEnemyShip != null && focusEnemyShip.isAlive()) {
-                    float dEnemy = distance(fighter.getLocation(), focusEnemyShip.getLocation());
-
-                    // Item C: Target Selection Observance (FREE, MEDIUM, HIGH)
-                    if (observance == VoidstrikeTargetObservance.HIGH) {
-                        fFlags.setFlag(AIFlags.MANEUVER_TARGET, FLAG_TTL * 1.5f, focusEnemyShip);
-                        fFlags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, FLAG_TTL * 1.5f, focusEnemyShip);
-                        fFlags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
-                        fighter.setShipTarget(focusEnemyShip);
-                    } else if (observance == VoidstrikeTargetObservance.MEDIUM) {
-                        fFlags.setFlag(AIFlags.MANEUVER_TARGET, FLAG_TTL, focusEnemyShip);
-                        ShipAPI currTgt = fighter.getShipTarget();
-                        boolean hasCloseInterceptor = currTgt != null
-                                && currTgt.isAlive()
-                                && !currTgt.isHulk()
-                                && currTgt != focusEnemyShip
-                                && distance(fighter.getLocation(), currTgt.getLocation()) <= 680f;
-                        if (!hasCloseInterceptor) {
-                            fighter.setShipTarget(focusEnemyShip);
-                        }
-                    } else {
-                        // FREE observance: allow engaging targets of opportunity along flight path
-                        ShipAPI currTgt = fighter.getShipTarget();
-                        boolean hasOpportunityTarget = currTgt != null
-                                && currTgt.isAlive()
-                                && !currTgt.isHulk()
-                                && distance(fighter.getLocation(), currTgt.getLocation()) <= 1250f;
-                        if (!hasOpportunityTarget) {
-                            fFlags.setFlag(AIFlags.MANEUVER_TARGET, FLAG_TTL, focusEnemyShip);
-                        }
-                    }
-
-                    // Dress squadron formation & Voidstrike depth (1..10) on the approach leg (dEnemy > 520f)
-                    if (wingLeader != null && wingLeader.isAlive() && dEnemy > 520f) {
-                        Vector2f leaderLoc = wingLeader.getLocation();
-                        Vector2f desiredCraftPos = new Vector2f(
-                                leaderLoc.x + slotOffset.x,
-                                leaderLoc.y + slotOffset.y);
-                        if (fighter != wingLeader) {
-                            float dSlot = distance(fighter.getLocation(), desiredCraftPos);
-                            if (dSlot > 75f) {
-                                fFlags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, desiredCraftPos);
-                            }
-                            if (dSlot > 380f && dEnemy > 850f) {
-                                fFlags.setFlag(AIFlags.ESCORT_OTHER_SHIP, FLAG_TTL, wingLeader);
-                            }
-                        } else if ((rankIdx > 0 || activeColsInRank > 1) && dEnemy > 750f) {
-                            // Echelon squadron columns (width 1..10) and deeper squadron ranks (depth 1..10)
-                            float centeredCol = colIdx - (activeColsInRank - 1) * 0.5f;
-                            Vector2f rankLeadTarget = new Vector2f(
-                                    focusEnemyShip.getLocation().x - fwdX * (rankIdx * 110f) + rightX * (centeredCol * 95f),
-                                    focusEnemyShip.getLocation().y - fwdY * (rankIdx * 110f) + rightY * (centeredCol * 95f));
-                            fFlags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, rankLeadTarget);
-                        }
-                    }
-                }
-            }
-        }
+        VoidstrikeCoordinator.dressShipStrikeCraftInFormation(
+                carrier, carrierIdxInDiv, focusEnemyShip, div, myGroup, now);
     }
+
 
     /**
      * Returns true ONLY when a division advancing on a battlefield objective (TAKE_AND_HOLD) should advance
@@ -2424,7 +1908,7 @@ public class DivisionCommanderAI {
         return false;
     }
 
-    private static void applyIntentFlagsToShip(
+    static void applyIntentFlagsToShip(
             CombatEngineAPI engine,
             ShipAPI ship,
             int shipIdx,
@@ -2886,7 +2370,7 @@ public class DivisionCommanderAI {
             }
     }
 
-    private static boolean hasEnemyHybridFlakScreen(DivisionState enemyDiv) {
+    static boolean hasEnemyHybridFlakScreen(DivisionState enemyDiv) {
         if (enemyDiv == null) return false;
         for (ShipAPI e : enemyDiv.getAliveMembers()) {
             if (e == null || (!e.isCapital() && !e.isCruiser())) continue;
@@ -2897,7 +2381,7 @@ public class DivisionCommanderAI {
         return false;
     }
 
-    private static boolean isEnemyShipFlakLethalToLightHull(ShipAPI ship, ShipAPI enemyShip) {
+    static boolean isEnemyShipFlakLethalToLightHull(ShipAPI ship, ShipAPI enemyShip) {
         if (ship == null || enemyShip == null) return false;
         if (!ship.isFrigate() && !ship.isDestroyer()) return false;
         if (!enemyShip.isCapital() && !enemyShip.isCruiser()) return false;
@@ -2911,7 +2395,7 @@ public class DivisionCommanderAI {
      * RALLY, ESCORT, RETREAT, etc.) so Division AI never pulls ships away from player-ordered control points.
      * In vanilla Starsector, ships without an explicit task have assignment == null or SEARCH_AND_DESTROY.
      */
-    private static boolean hasExplicitCommandOrder(ShipAPI ship, DivisionState div, CombatTaskManagerAPI tm) {
+    static boolean hasExplicitCommandOrder(ShipAPI ship, DivisionState div, CombatTaskManagerAPI tm) {
         if (ship != null && (ship.isRetreating() || ship.isDirectRetreat())) return true;
         if (tm == null) return false;
         AssignmentInfo info = tm.getAssignmentFor(ship);
@@ -2931,7 +2415,7 @@ public class DivisionCommanderAI {
         return true;
     }
 
-    private static DivisionState findBestEnemyDivisionFor(
+    static DivisionState findBestEnemyDivisionFor(
             CombatEngineAPI engine,
             DivisionState myDiv,
             BattleGroupState myGroup,
@@ -3043,11 +2527,11 @@ public class DivisionCommanderAI {
         return best;
     }
 
-    private static void directShipAndFightersOntoTarget(ShipAPI ship, ShipwideAIFlags flags, ShipAPI focusEnemyShip) {
+    static void directShipAndFightersOntoTarget(ShipAPI ship, ShipwideAIFlags flags, ShipAPI focusEnemyShip) {
         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, null);
     }
 
-    private static void directShipAndFightersOntoTarget(
+    static void directShipAndFightersOntoTarget(
             ShipAPI ship,
             ShipwideAIFlags flags,
             ShipAPI focusEnemyShip,
@@ -3095,7 +2579,7 @@ public class DivisionCommanderAI {
      * (lines 790, 867) directs StrafeTargetManeuverV2 onto the division's focus target instead of
      * immediately overwriting ship.getShipTarget() with an uncoordinated local pick.
      */
-    private static void applyBasicShipAiTargetOverride(ShipAPI ship, ShipAPI focusEnemyShip) {
+    static void applyBasicShipAiTargetOverride(ShipAPI ship, ShipAPI focusEnemyShip) {
         if (ship == null || focusEnemyShip == null) return;
         ShipAIPlugin ai = ship.getShipAI();
         if (ai == null) return;
@@ -3136,7 +2620,7 @@ public class DivisionCommanderAI {
         }
     }
 
-    private static DivisionState findEndangeredFriendlyDivision(DivisionState myDiv, BattleGroupState myGroup) {
+    static DivisionState findEndangeredFriendlyDivision(DivisionState myDiv, BattleGroupState myGroup) {
         DivisionState best = null;
         float bestUrgency = 0f;
         for (DivisionState other : myGroup.divisions) {
@@ -3180,7 +2664,7 @@ public class DivisionCommanderAI {
         return best;
     }
 
-    private static DivisionState findHeavyFriendlyDivisionToScreen(DivisionState myDiv, BattleGroupState myGroup) {
+    static DivisionState findHeavyFriendlyDivisionToScreen(DivisionState myDiv, BattleGroupState myGroup) {
         DivisionState best = null;
         float bestScore = -Float.MAX_VALUE;
         for (DivisionState other : myGroup.divisions) {
@@ -3229,7 +2713,7 @@ public class DivisionCommanderAI {
         return best;
     }
 
-    private static ShipAPI pickFocusEnemyShip(
+    static ShipAPI pickFocusEnemyShip(
             CombatEngineAPI engine,
             int observerSide,
             DivisionState enemyDiv,
@@ -3255,7 +2739,7 @@ public class DivisionCommanderAI {
      * Checks if any ship in this division has been directly assigned to an objective in CombatTaskManager,
      * or if there is an unclaimed player/task-manager objective assignment in tm.getAllAssignments().
      */
-    private static BattleObjectiveAPI findTaskManagerObjectiveForDivision(
+    static BattleObjectiveAPI findTaskManagerObjectiveForDivision(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -3319,7 +2803,7 @@ public class DivisionCommanderAI {
         return null;
     }
 
-    private static BattleObjectiveAPI findNearestContestObjective(
+    static BattleObjectiveAPI findNearestContestObjective(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -3344,7 +2828,7 @@ public class DivisionCommanderAI {
         return bestUnclaimed;
     }
 
-    private static boolean isObjectiveClaimedByOtherDivision(
+    static boolean isObjectiveClaimedByOtherDivision(
             BattleObjectiveAPI obj,
             DivisionState myDiv,
             BattleGroupState myGroup) {
@@ -3359,7 +2843,7 @@ public class DivisionCommanderAI {
         return false;
     }
 
-    private static boolean isShipCrowdedByDivisionPeer(ShipAPI ship, List<ShipAPI> alive, float minSpacing) {
+    static boolean isShipCrowdedByDivisionPeer(ShipAPI ship, List<ShipAPI> alive, float minSpacing) {
         if (ship == null || alive == null || alive.size() <= 1) return false;
         for (ShipAPI peer : alive) {
             if (peer == null || peer == ship || !peer.isAlive()) continue;
@@ -3378,403 +2862,17 @@ public class DivisionCommanderAI {
      *  - During `CLOSE_UP`, slots contract to 60% of `stationSpacing` around the division flagship (or centroid)
      *    without inter-division repulsion so scattered ships rally tightly back into formation.
      */
-    private static Vector2f computeShipFormationSlot(
+    static Vector2f computeShipFormationSlot(
             CombatEngineAPI engine,
             ShipAPI ship,
             int shipIdx,
             List<ShipAPI> alive,
             DivisionState div,
             BattleGroupState myGroup) {
-
-        boolean closingUp = (div.currentIntent == DivisionIntentType.CLOSE_UP);
-        float baseSpacing = Math.max(150f, div.stationSpacing);
-        float effectiveSlotSpacing = closingUp ? Math.max(140f, baseSpacing * 0.60f) : baseSpacing;
-
-        Vector2f rawCenter;
-        if (closingUp) {
-            rawCenter = (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
-                    && !div.detachedStragglerIds.contains(div.flagship.getId()))
-                    ? div.flagship.getLocation()
-                    : div.centroid;
-        } else if (div.hasRouteWaypoint) {
-            rawCenter = div.routeWaypoint;
-        } else {
-            rawCenter = div.stationPoint;
-        }
-
-        float centerX = rawCenter.x;
-        float centerY = rawCenter.y;
-
-        // Moving Formation Carriage: when a division in a structured formation is marching toward a distant
-        // objective or station (e.g. right after deploying as a solid block), project the formation carriage
-        // a bounded lead distance ahead of the division's core centroid along the march vector so ships
-        // immediately fan out laterally into their Wedge / Semicircle / Line Abreast / Echelon while advancing!
-        DivisionFormation formation = div.activeFormation != null
-                ? div.activeFormation
-                : (div.doctrinalFormation != null ? div.doctrinalFormation : DivisionFormation.LINE_ABREAST);
-        float marchDirX = 0f;
-        float marchDirY = 0f;
-        float marchDist = 0f;
-        if (div.centroid != null && (Math.abs(div.centroid.x) > 1f || Math.abs(div.centroid.y) > 1f)) {
-            float gdx = centerX - div.centroid.x;
-            float gdy = centerY - div.centroid.y;
-            marchDist = (float) Math.sqrt(gdx * gdx + gdy * gdy);
-            if (marchDist > 1f) {
-                marchDirX = gdx / marchDist;
-                marchDirY = gdy / marchDist;
-            }
-        }
-        if (!closingUp
-                && !div.hasRouteWaypoint
-                && formation != DivisionFormation.NONE
-                && alive.size() >= 2
-                && (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
-                || div.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE
-                || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX)
-                && marchDist > 1f) {
-            // Only use the short 680u cautious step on TAKE_AND_HOLD when advancing into enemy-controlled space
-            // (Station assault, Pursuit battle, or Enemy Space on the objective) or under a Cautious commander.
-            // During CLOSE_AND_ENGAGE, FORM_LINE_AND_FIX, and standard Meeting Engagement TAKE_AND_HOLD, project the
-            // carriage >= 1950u ahead so rear Wedge/Column ranks never fall at/behind div.centroid and ships never
-            // stall inside vanilla BasicShipAI's < 450u CAMP_LOCATION braking zone!
-            boolean cautiousObjectiveStep = (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD)
-                    && shouldAdvanceCautiouslyOnObjective(engine, div, myGroup, null);
-            float maxCarriageLead = cautiousObjectiveStep
-                    ? Math.max(850f, effectiveSlotSpacing * 2.10f)
-                    : Math.max(1950f, effectiveSlotSpacing * 4.0f);
-            if (marchDist > maxCarriageLead) {
-                centerX = div.centroid.x + marchDirX * maxCarriageLead;
-                centerY = div.centroid.y + marchDirY * maxCarriageLead;
-            }
-        }
-
-        // Whole-division inter-division spacing & main-line clearance (applied to the division center as a unit,
-        // never pushing individual ships of the same division in opposite directions!
-        // CRITICAL: When the division is advancing toward a target/objective (marchDist > 180f), project out any
-        // backward component along marchDir so friendly divisions ONLY separate laterally and NEVER push a division's
-        // carriage backward onto its own centroid, which previously froze Missile Frigate Div 2 in the middle of battle!)
-        if (!closingUp && myGroup != null) {
-            float desiredInter = Math.max(400f, div.divisionInterval);
-            for (DivisionState peerDiv : myGroup.divisions) {
-                if (peerDiv == null || peerDiv == div || !peerDiv.isCombatEffective()) continue;
-                // Do not repel from the friendly division we are actively screening, reinforcing, or venting behind
-                if (peerDiv == div.targetFriendlyDivision) continue;
-                float minInter = Math.max(desiredInter, peerDiv.divisionInterval) * 0.85f;
-                float idx = div.centroid.x - peerDiv.centroid.x;
-                float idy = div.centroid.y - peerDiv.centroid.y;
-                float iDist = (float) Math.sqrt(idx * idx + idy * idy);
-                if (iDist > 1f && iDist < minInter) {
-                    float push = Math.min(420f, (minInter - iDist) * 0.55f);
-                    float px = (idx / iDist) * push;
-                    float py = (idy / iDist) * push;
-                    if (marchDist > 180f) {
-                        float dot = px * marchDirX + py * marchDirY;
-                        if (dot < 0f) {
-                            px -= dot * marchDirX;
-                            py -= dot * marchDirY;
-                        }
-                    }
-                    centerX += px;
-                    centerY += py;
-                }
-            }
-
-            // Anti-balling with main battle line: shift Frigate & Phase division center clear of heavy main-line centroid
-            if ((div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                    || div.archetype == DivisionArchetype.PHASE_DIVISION)
-                    && myGroup.mainEffortDivision != null
-                    && myGroup.mainEffortDivision != div
-                    && myGroup.mainEffortDivision != div.targetFriendlyDivision
-                    && myGroup.mainEffortDivision.isCombatEffective()) {
-                Vector2f mainPos = myGroup.mainEffortDivision.centroid;
-                float mdx = div.centroid.x - mainPos.x;
-                float mdy = div.centroid.y - mainPos.y;
-                float mDist = (float) Math.sqrt(mdx * mdx + mdy * mdy);
-                float minClearance = Math.max(550f, Math.max(div.divisionInterval * 0.80f, div.standoffRange * 0.75f));
-                if (mDist > 1f && mDist < minClearance) {
-                    float push = Math.min(500f, (minClearance - mDist) * 0.70f);
-                    float px = (mdx / mDist) * push;
-                    float py = (mdy / mDist) * push;
-                    if (marchDist > 180f) {
-                        float dot = px * marchDirX + py * marchDirY;
-                        if (dot < 0f) {
-                            px -= dot * marchDirX;
-                            py -= dot * marchDirY;
-                        }
-                    }
-                    centerX += px;
-                    centerY += py;
-                }
-            }
-        }
-
-        float desiredFwdX = 0f;
-        float desiredFwdY = (div.side == 0) ? 1f : -1f;
-        if (div.targetEnemyDivision != null) {
-            Vector2f visEnemy = OtcAI.getVisibleCentroidForSide(engine, div.side, div.targetEnemyDivision);
-            float dx = visEnemy.x - div.centroid.x;
-            float dy = visEnemy.y - div.centroid.y;
-            float len = (float) Math.sqrt(dx * dx + dy * dy);
-            if (len > 1f) {
-                desiredFwdX = dx / len;
-                desiredFwdY = dy / len;
-            }
-        } else if (div.centroid != null && rawCenter != null) {
-            // When advancing on an objective or station before enemy contact, orient formation heading along the march vector
-            float dx = rawCenter.x - div.centroid.x;
-            float dy = rawCenter.y - div.centroid.y;
-            float len = (float) Math.sqrt(dx * dx + dy * dy);
-            if (len > 220f) {
-                desiredFwdX = dx / len;
-                desiredFwdY = dy / len;
-            }
-        }
-
-        // Smoothly wheel the division's formation heading so the line wheels as a cohesive naval unit.
-        // Item A: Use a faster wheel rate (0.50) when marching out of combat toward an opening objective so
-        // Line Abreast and Echelon Right immediately align perpendicular/echeloned to the march vector!
-        if (!div.formationHeadingInitialized) {
-            div.formationHeadingX = desiredFwdX;
-            div.formationHeadingY = desiredFwdY;
-            div.formationHeadingInitialized = true;
-        } else if (shipIdx == 0) {
-            float blend = (div.targetEnemyDivision == null) ? 0.50f : 0.28f;
-            float bx = div.formationHeadingX * (1f - blend) + desiredFwdX * blend;
-            float by = div.formationHeadingY * (1f - blend) + desiredFwdY * blend;
-            float bLen = (float) Math.sqrt(bx * bx + by * by);
-            if (bLen > 0.001f) {
-                div.formationHeadingX = bx / bLen;
-                div.formationHeadingY = by / bLen;
-            }
-        }
-
-        float fwdX = div.formationHeadingX;
-        float fwdY = div.formationHeadingY;
-        // Lateral axis perpendicular to forward threat vector (+lat = starboard / right of heading, matching computeFormationSlotPositionForAnchor)
-        float latX = fwdY;
-        float latY = -fwdX;
-
-        // Station in Line depth bias (Van / Center / Rear) relative to the main battle line when marching without a
-        // standoff-computed enemy station (never double-apply VAN +220u on top of computeStandoffStation, which previously
-        // pushed VAN Destroyer divisions 350u inside heavy cruiser gunlines!).
-        float stationDepthBias = 0f;
-        LineStation lineStation = (div.lineStation != null) ? div.lineStation : LineStation.CENTER;
-        if (!closingUp
-                && div.targetEnemyDivision == null
-                && div.currentIntent != DivisionIntentType.HOLD_IN_RESERVE
-                && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
-                && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE) {
-            if (lineStation == LineStation.VAN) {
-                stationDepthBias = 220f;
-            } else if (lineStation == LineStation.REAR) {
-                stationDepthBias = -320f;
-            }
-        }
-
-        float anchorX = centerX + fwdX * stationDepthBias;
-        float anchorY = centerY + fwdY * stationDepthBias;
-
-        int n = Math.max(1, alive.size());
-        float[] slotLx = new float[n];
-        float[] slotLy = new float[n];
-        Vector2f[] worldSlots = new Vector2f[n];
-        // Also compute true formation slots anchored on the division's current centroid so greedy wingman-to-slot
-        // matching uses the ships' actual lateral positions rather than a carriage 1950u ahead!
-        float curCenterX = (div.centroid != null) ? div.centroid.x : anchorX;
-        float curCenterY = (div.centroid != null) ? div.centroid.y : anchorY;
-        Vector2f[] currentCentroidSlots = new Vector2f[n];
-        for (int k = 0; k < n; k++) {
-            float[] local = computeLocalFormationOffset(formation, k, n, effectiveSlotSpacing);
-            float lx = local[0];
-            float ly = local[1];
-            slotLx[k] = lx;
-            slotLy[k] = ly;
-            worldSlots[k] = new Vector2f(
-                    anchorX + latX * lx + fwdX * ly,
-                    anchorY + latY * lx + fwdY * ly);
-            currentCentroidSlots[k] = new Vector2f(
-                    curCenterX + latX * lx + fwdX * ly,
-                    curCenterY + latY * lx + fwdY * ly);
-        }
-
-        // Permutation-free slot assignment:
-        //  - Slot 0 is the Flagship Command Slot (occupied by div.flagship if alive in `alive`, else alive.get(0)).
-        //  - Remaining wingmen are matched to slots 1..n-1 greedily by minimum distance so wingmen never criss-cross.
-        int leadIdx = 0;
-        if (div.flagship != null) {
-            for (int i = 0; i < n; i++) {
-                if (alive.get(i) == div.flagship) {
-                    leadIdx = i;
-                    break;
-                }
-            }
-        }
-
-        int assignedSlotIdx = 0;
-        if (formation == DivisionFormation.PROTECTIVE_CIRCLE && n > 1) {
-            // Protective Circle: assign the largest / carrier / flagship hulls to the inner core slots (0 .. coreCount-1)
-            // and match smaller escort hulls (frigates/destroyers) to the outer protective circle slots (coreCount .. n-1).
-            int coreCount = computeProtectiveCircleCoreCount(n);
-            boolean[] isCoreMember = new boolean[n];
-            for (int c = 0; c < coreCount; c++) {
-                int bestShipIdx = -1;
-                float bestPrio = -Float.MAX_VALUE;
-                for (int i = 0; i < n; i++) {
-                    if (isCoreMember[i]) continue;
-                    float prio = computeProtectiveCircleCorePriority(alive.get(i), div);
-                    if (prio > bestPrio) {
-                        bestPrio = prio;
-                        bestShipIdx = i;
-                    }
-                }
-                if (bestShipIdx >= 0) {
-                    isCoreMember[bestShipIdx] = true;
-                }
-            }
-            boolean[] slotTaken = new boolean[n];
-            if (isCoreMember[shipIdx]) {
-                int coreSlotCursor = 0;
-                for (int i = 0; i < n; i++) {
-                    if (!isCoreMember[i]) continue;
-                    int slot = Math.min(coreCount - 1, coreSlotCursor++);
-                    slotTaken[slot] = true;
-                    if (i == shipIdx) {
-                        assignedSlotIdx = slot;
-                        break;
-                    }
-                }
-            } else {
-                for (int c = 0; c < coreCount; c++) {
-                    slotTaken[c] = true;
-                }
-                for (int i = 0; i < n; i++) {
-                    if (isCoreMember[i]) continue;
-                    ShipAPI s = alive.get(i);
-                    int bestSlot = coreCount;
-                    float bestDistSq = Float.MAX_VALUE;
-                    for (int k = coreCount; k < n; k++) {
-                        if (slotTaken[k]) continue;
-                        float dx = s.getLocation().x - worldSlots[k].x;
-                        float dy = s.getLocation().y - worldSlots[k].y;
-                        float dSq = dx * dx + dy * dy;
-                        if (dSq < bestDistSq) {
-                            bestDistSq = dSq;
-                            bestSlot = k;
-                        }
-                    }
-                    slotTaken[bestSlot] = true;
-                    if (i == shipIdx) {
-                        assignedSlotIdx = bestSlot;
-                        break;
-                    }
-                }
-            }
-        } else if (shipIdx != leadIdx && n > 1) {
-            boolean[] slotTaken = new boolean[n];
-            slotTaken[0] = true; // Slot 0 reserved for flagship
-            for (int i = 0; i < n; i++) {
-                if (i == leadIdx) continue;
-                ShipAPI s = alive.get(i);
-                int bestSlot = 1;
-                float bestDistSq = Float.MAX_VALUE;
-                for (int k = 1; k < n; k++) {
-                    if (slotTaken[k]) continue;
-                    float dx = s.getLocation().x - currentCentroidSlots[k].x;
-                    float dy = s.getLocation().y - currentCentroidSlots[k].y;
-                    float dSq = dx * dx + dy * dy;
-                    if (dSq < bestDistSq) {
-                        bestDistSq = dSq;
-                        bestSlot = k;
-                    }
-                }
-                slotTaken[bestSlot] = true;
-                if (i == shipIdx) {
-                    assignedSlotIdx = bestSlot;
-                    break;
-                }
-                }
-                }
-
-                float slotX = worldSlots[assignedSlotIdx].x;
-                float slotY = worldSlots[assignedSlotIdx].y;
-
-                // Item A: Longitudinal & Lateral Formation Dressing while Marching!
-                // Previously, when marching toward an objective 3000u away, every slot had a CAMP_LOCATION 1500-1950u ahead of
-                // the division centroid. Because BasicShipAI accelerates at 100% full speed whenever CAMP_LOCATION is > 450u away,
-                // faster ships (Omen/Wolf) raced ahead of slower ships (Hound/Kite/Dram) in LINE_ABREAST, and rear echelon ships
-                // in ECHELON_RIGHT (ly < 0) raced side-by-side with the flagship instead of stepping back into echelon depth!
-                // Fix: Measure each ship's along-track position relative to its true formation rank around the division reference.
-                // If a ship is AHEAD of its formation rank (alongError > 25u), pull its slot forward lead back into BasicShipAI's
-                // proportional speed-matching zone around its true lateral lane so it dresses back/laterally into exact Line Abreast
-                // or Echelon Right while ships behind the rank burn at 100% speed to catch up!
-                if (!closingUp
-                && formation != DivisionFormation.NONE
-                && n >= 2
-                && marchDist > 260f
-                && (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
-                || div.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE
-                || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX)) {
-                ShipAPI refShip = (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
-                && !div.detachedStragglerIds.contains(div.flagship.getId()))
-                ? div.flagship : null;
-                float refX = (refShip != null)
-                ? (refShip.getLocation().x * 0.55f + curCenterX * 0.45f)
-                : curCenterX;
-                float refY = (refShip != null)
-                ? (refShip.getLocation().y * 0.55f + curCenterY * 0.45f)
-                : curCenterY;
-                float trueRankX = refX + latX * slotLx[assignedSlotIdx] + fwdX * slotLy[assignedSlotIdx];
-                float trueRankY = refY + latY * slotLx[assignedSlotIdx] + fwdY * slotLy[assignedSlotIdx];
-
-                float errX = ship.getLocation().x - trueRankX;
-                float errY = ship.getLocation().y - trueRankY;
-                float alongError = errX * fwdX + errY * fwdY;
-                float latError = Math.abs(errX * latX + errY * latY);
-
-                if (alongError > 25f) {
-                // Ship is ahead of its assigned rank (e.g. rear echelon ship in ECHELON_RIGHT or fast ship in LINE_ABREAST):
-                // Place its target along its true lateral lane at a throttled lead ahead of trueRank so it dresses into rank!
-                float dressLead = Math.max(45f, 340f - alongError * 0.75f - latError * 0.25f);
-                float dressedX = trueRankX + fwdX * dressLead;
-                float dressedY = trueRankY + fwdY * dressLead;
-                slotX = dressedX;
-                slotY = dressedY;
-                } else if (latError > 95f) {
-                // Ship is laterally out of its lane (e.g. wheeling into NW/NE objective): pull carriage closer along fwd
-                // so the lateral steering angle toward its lane is sharp (~30-45 deg) instead of diluted over 1950u!
-                float lateralDressLead = Math.max(420f, Math.min(950f, 1150f - latError * 0.85f));
-                if (marchDist > lateralDressLead) {
-                slotX = trueRankX + fwdX * lateralDressLead;
-                slotY = trueRankY + fwdY * lateralDressLead;
-                }
-                }
-                }
-
-        // Intra-division peer anti-collision: when practicing a structured formation, only nudge if two ships are
-        // actually encroaching within 0.48 * effectiveSlotSpacing so we never warp the formation's geometry.
-        float repelThreshold = (formation == DivisionFormation.NONE)
-                ? (effectiveSlotSpacing * 0.85f)
-                : (effectiveSlotSpacing * 0.48f);
-        for (ShipAPI peer : alive) {
-            if (peer == null || peer == ship || !peer.isAlive()) continue;
-            float pdx = ship.getLocation().x - peer.getLocation().x;
-            float pdy = ship.getLocation().y - peer.getLocation().y;
-            float pDist = (float) Math.sqrt(pdx * pdx + pdy * pdy);
-            if (pDist > 1f && pDist < repelThreshold) {
-                float push = (repelThreshold - pDist) * 0.55f;
-                slotX += (pdx / pDist) * push;
-                slotY += (pdy / pDist) * push;
-            }
-        }
-
-        return new Vector2f(slotX, slotY);
+        return DivisionFormationNavigator.computeShipFormationSlot(
+                engine, ship, shipIdx, alive, div, myGroup);
     }
 
-    /**
-     * Scope Item 4: Computes the world-space formation slot position for {@code ship} (at index {@code shipIdx}
-     * in {@code alive}) anchored around {@code (anchorX, anchorY)} with heading {@code (headingX, headingY)}.
-     * Used by initial Fleet-Wide Formation deployment marshalling so divisions deploy directly in formation.
-     */
     public static Vector2f computeFormationSlotPositionForAnchor(
             DivisionFormation formation,
             int shipIdx,
@@ -3785,693 +2883,98 @@ public class DivisionCommanderAI {
             float headingX,
             float headingY,
             float spacing) {
-        int n = (alive != null) ? alive.size() : 1;
-        if (n <= 1) {
-            return new Vector2f(anchorX, anchorY);
-        }
-        float rightX = headingY;
-        float rightY = -headingX;
-        float[] local = computeLocalFormationOffset(formation, shipIdx, n, Math.max(180f, spacing));
-        float lat = local[0];
-        float depth = local[1];
-        return new Vector2f(
-                anchorX + rightX * lat + headingX * depth,
-                anchorY + rightY * lat + headingY * depth);
+        return DivisionFormationNavigator.computeFormationSlotPositionForAnchor(
+                formation, shipIdx, alive, ship, anchorX, anchorY, headingX, headingY, spacing);
     }
 
-    /**
-     * Computes the local (lateralOffset, forwardDepthOffset) in combat units for slot {@code k} of {@code n} ships
-     * in the given {@link DivisionFormation}.
-     * Slot {@code k = 0} is always the Flagship Command Slot.
-     * {@code +lateral} = starboard (right of heading), {@code -lateral} = port (left of heading);
-     * {@code +depth} = ahead (toward enemy), {@code -depth} = astern.
-     */
     public static float[] computeLocalFormationOffset(
             DivisionFormation formation,
             int k,
             int n,
             float spacing) {
-        if (n <= 1) {
-            return new float[]{0f, 0f};
-        }
-        DivisionFormation f = (formation != null) ? formation : DivisionFormation.LINE_ABREAST;
-        int rank = (k + 1) / 2;
-        float sideSign = (k == 0) ? 0f : ((k % 2 == 1) ? -1f : 1f);
-
-        switch (f) {
-            case LINE_ABREAST: {
-                // Pure lateral battle line perpendicular to the enemy; flagship in the center
-                return new float[]{sideSign * rank * spacing, 0f};
-            }
-            case LINE_AHEAD: {
-                // Single-file column: flagship at the van (k=0, depth=0), wingmen astern in its wake
-                return new float[]{0f, -k * (spacing * 0.82f)};
-            }
-            case FORWARD_WEDGE: {
-                // V-wedge pointing forward: flagship at the forward apex (k=0, depth=0), wingmen stepped back on both shoulders
-                float lat = sideSign * rank * (spacing * 0.84f);
-                float depth = -rank * (spacing * 0.68f);
-                return new float[]{lat, depth};
-            }
-            case REVERSE_WEDGE: {
-                // Inverted V-pocket opening toward the enemy: flagship at the rear vertex (k=0), wingmen forward on shoulders
-                int maxRank = Math.max(1, n / 2);
-                float vertexRear = -maxRank * (spacing * 0.68f);
-                float lat = sideSign * rank * (spacing * 0.84f);
-                float depth = vertexRear + rank * (spacing * 0.68f);
-                return new float[]{lat, depth};
-            }
-            case ECHELON_LEFT: {
-                // Stepped diagonal line back and to port (-lateral) from flagship at front-starboard (k=0, depth=0)
-                float step = spacing * 0.72f;
-                return new float[]{-k * step, -k * (step * 0.82f)};
-            }
-            case ECHELON_RIGHT: {
-                // Stepped diagonal line back and to starboard (+lateral) from flagship at front-port (k=0, depth=0)
-                float step = spacing * 0.72f;
-                return new float[]{k * step, -k * (step * 0.82f)};
-            }
-            case CIRCLE: {
-                // All-around defensive ring: flagship at the forward crown (k=0, depth=0), wingmen around the ring behind it
-                float radius = Math.max(spacing * 0.65f, (float) ((n * spacing * 0.72f) / (2.0 * Math.PI)));
-                double angleFromFwd = (2.0 * Math.PI * k) / n;
-                float lat = (float) (Math.sin(angleFromFwd) * radius);
-                float depth = (float) ((Math.cos(angleFromFwd) - 1.0) * radius);
-                return new float[]{lat, depth};
-            }
-            case PROTECTIVE_CIRCLE: {
-                // Protective Circle for mixed large + small ship divisions:
-                // Core slots (0 .. coreCount-1) sit inside the protected center; escort slots (coreCount .. n-1)
-                // form a 360-degree outer defensive ring around the center at radius R.
-                int coreCount = computeProtectiveCircleCoreCount(n);
-                if (k < coreCount) {
-                    if (coreCount == 1) {
-                        return new float[]{0f, 0f};
-                    }
-                    float coreLat = (k - (coreCount - 1) * 0.5f) * (spacing * 0.62f);
-                    return new float[]{coreLat, 0f};
-                }
-                int ringCount = Math.max(1, n - coreCount);
-                int ringIdx = k - coreCount;
-                float radius = Math.max(spacing * 0.82f, (float) ((ringCount * spacing * 0.72f) / (2.0 * Math.PI)));
-                double angleFromFwd = (2.0 * Math.PI * ringIdx) / ringCount;
-                float lat = (float) (Math.sin(angleFromFwd) * radius);
-                float depth = (float) (Math.cos(angleFromFwd) * radius);
-                return new float[]{lat, depth};
-            }
-            case FORWARD_SEMICIRCLE: {
-                // Convex dome bowing toward the enemy: flagship at the forward crown (k=0, depth=0), wingmen curving back along +-70 deg arc
-                int maxRank = Math.max(1, (n + 1) / 2);
-                float radius = Math.max(spacing * 0.85f, maxRank * spacing * 0.82f);
-                double maxAngle = Math.toRadians(70.0);
-                double theta = (k == 0) ? 0.0 : (sideSign * (rank / (double) maxRank) * maxAngle);
-                float lat = (float) (Math.sin(theta) * radius);
-                float depth = (float) ((Math.cos(theta) - 1.0) * radius);
-                return new float[]{lat, depth};
-            }
-            case REVERSE_SEMICIRCLE: {
-                // Concave crescent opening toward the enemy: flagship at the rear-center base (k=0), wingmen curving forward on both horns
-                int maxRank = Math.max(1, (n + 1) / 2);
-                float radius = Math.max(spacing * 0.85f, maxRank * spacing * 0.82f);
-                double maxAngle = Math.toRadians(70.0);
-                double theta = (k == 0) ? 0.0 : (sideSign * (rank / (double) maxRank) * maxAngle);
-                float lat = (float) (Math.sin(theta) * radius);
-                float depth = (float) (-Math.cos(theta) * radius * 0.55f);
-                return new float[]{lat, depth};
-            }
-            case NONE:
-            default: {
-                // Loose organic scatter for free maneuver
-                float lat = sideSign * rank * (spacing * 0.95f);
-                float depth = ((k % 3) - 1) * (spacing * 0.28f);
-                return new float[]{lat, depth};
-            }
-        }
+        return DivisionFormationNavigator.computeLocalFormationOffset(formation, k, n, spacing);
     }
 
-    /**
-     * Number of center-protected core slots in {@link DivisionFormation#PROTECTIVE_CIRCLE} for {@code n} ships.
-     */
     public static int computeProtectiveCircleCoreCount(int n) {
-        if (n <= 4) return 1;
-        return Math.max(1, Math.min(3, n / 3));
+        return DivisionFormationNavigator.computeProtectiveCircleCoreCount(n);
     }
 
-    /**
-     * Priority score for placing a ship in the protected inner core of {@link DivisionFormation#PROTECTIVE_CIRCLE}:
-     * larger hulls (Capitals, Cruisers), dedicated carriers, and the division flagship belong in the inner core,
-     * while smaller escort hulls (Frigates, Destroyers) belong on the 360-degree outer protective circle.
-     */
     public static float computeProtectiveCircleCorePriority(ShipAPI s, DivisionState div) {
-        if (s == null) return 0f;
-        float score = ShipCapabilityProfile.resolveShipFpStrength(s) * 2.0f;
-        if (div != null && s == div.flagship) {
-            score += 45f;
-        }
-        int bays = s.getNumFighterBays();
-        if (bays > 0) {
-            score += 110f * bays;
-        }
-        ShipAPI.HullSize hs = s.getHullSize();
-        if (hs == ShipAPI.HullSize.CAPITAL_SHIP) {
-            score += 400f;
-        } else if (hs == ShipAPI.HullSize.CRUISER) {
-            score += 240f;
-        } else if (hs == ShipAPI.HullSize.DESTROYER) {
-            score += 90f;
-        } else if (hs == ShipAPI.HullSize.FRIGATE) {
-            score += 20f;
-        }
-        return score;
+        return DivisionFormationNavigator.computeProtectiveCircleCorePriority(s, div);
     }
 
-    private static void computeStandoffStation(
+    static void computeStandoffStation(
             CombatEngineAPI engine,
             DivisionState div,
             DivisionState enemyDiv,
             Vector2f outStation) {
-        if (enemyDiv == null) {
-            outStation.set(div.centroid);
-            return;
-        }
-        Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, enemyDiv);
-        float dx = div.centroid.x - visEnemyPos.x;
-        float dy = div.centroid.y - visEnemyPos.y;
-        float len = (float) Math.sqrt(dx * dx + dy * dy);
-        float standoff = Math.max(400f, div.standoffRange);
-        if (!div.archetype.isCarrierArchetype() && div.standoffRange <= 1050f && div.avgEngageRange > 250f) {
-            standoff = Math.min(standoff, Math.max(480f, div.avgEngageRange * 0.84f));
-        }
-        LineStation lineStation = (div.lineStation != null) ? div.lineStation : LineStation.CENTER;
-        boolean isLightOrDdDiv = div.archetype == DivisionArchetype.DESTROYER_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
-                || div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
-        boolean outmatchedOrFragile = isLightOrDdDiv
-                && (div.localForceRatio < 0.95f
-                || div.effectiveHpRatio < 0.72f
-                || (enemyDiv.totalEffectiveHp > div.totalEffectiveHp * 1.35f && div.totalEffectiveHp > 100f));
-        if (outmatchedOrFragile && div.avgEngageRange > 250f) {
-            // Kite near the outer edge of our own gun envelope (never outside our own weapons!)
-            standoff = Math.max(standoff, Math.min(1050f, div.avgEngageRange * 0.90f));
-        } else if (lineStation == LineStation.VAN && !outmatchedOrFragile) {
-            standoff = Math.max(450f, standoff * 0.88f);
-        } else if (lineStation == LineStation.REAR) {
-            standoff = standoff * 1.12f;
-        }
-        if (len > 1f) {
-            outStation.set(
-                    visEnemyPos.x + (dx / len) * standoff,
-                    visEnemyPos.y + (dy / len) * standoff);
-        } else {
-            float backY = (div.side == 0) ? -standoff : standoff;
-            outStation.set(visEnemyPos.x, visEnemyPos.y + backY);
-        }
-        // Slide standoff station out of L/U crossfire overlaps and toward enemy blind spots / disunified arcs
-        if (div.useConvergence) {
-            BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
-                    engine, div, enemyDiv, null, null, visEnemyPos, outStation, 42f, outStation);
-        } else {
-            BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
-                    engine, div, enemyDiv, visEnemyPos, outStation, 36f, 5, outStation);
-        }
+        DivisionFormationNavigator.computeStandoffStation(engine, div, enemyDiv, outStation);
     }
 
-    /**
-     * Places a reinforcing division on the friendly / low-cordon shoulder of the beleaguered division
-     * rather than diving straight onto its centroid inside an L- or U-shaped enemy crossfire pocket.
-     */
-    private static void computeReinforceStation(
+    static void computeReinforceStation(
             CombatEngineAPI engine,
-            DivisionState reinforcer,
-            DivisionState friend,
+            DivisionState myDiv,
+            DivisionState endangeredDiv,
             Vector2f outStation,
             BattleGroupState myGroup) {
-        if (friend == null) return;
-        if (reinforcer == null) {
-            outStation.set(friend.centroid);
-            return;
-        }
-        // Default support offset: 480u toward the reinforcer / friendly reserve side of friend.centroid
-        float dx = reinforcer.centroid.x - friend.centroid.x;
-        float dy = reinforcer.centroid.y - friend.centroid.y;
-        if (myGroup != null) {
-            dx = dx * 0.65f + (myGroup.reserveStation.x - friend.centroid.x) * 0.35f;
-            dy = dy * 0.65f + (myGroup.reserveStation.y - friend.centroid.y) * 0.35f;
-        }
-        float len = (float) Math.sqrt(dx * dx + dy * dy);
-        float supportDist = Math.max(420f, Math.min(680f, reinforcer.stationSpacing * 1.15f));
-        if (len > 1f) {
-            outStation.set(
-                    friend.centroid.x + (dx / len) * supportDist,
-                    friend.centroid.y + (dy / len) * supportDist);
-        } else {
-            float backY = (reinforcer.side == 0) ? -supportDist : supportDist;
-            outStation.set(friend.centroid.x, friend.centroid.y + backY);
-        }
-        BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
-                engine, reinforcer, friend.targetEnemyDivision, friend.centroid, outStation, 50f, 5, outStation);
-        clampToMapBounds(engine, outStation, 650f);
+        DivisionFormationNavigator.computeReinforceStation(engine, myDiv, endangeredDiv, outStation, myGroup);
     }
 
-    private static void computeScreeningStation(
+    static void computeScreeningStation(
             CombatEngineAPI engine,
-            DivisionState screenDiv,
+            DivisionState myDiv,
             DivisionState protectedDiv,
             DivisionState enemyDiv,
             Vector2f outStation,
             int side) {
-        if (protectedDiv == null) return;
-        float standoff = (screenDiv != null) ? Math.max(550f, screenDiv.standoffRange) : 750f;
-        float flankSign = (screenDiv != null && screenDiv.divisionNumber % 2 == 0) ? -1f : 1f;
-        float lateralOffset = (screenDiv != null) ? Math.max(320f, screenDiv.stationSpacing * 0.85f) * flankSign : 0f;
-
-        if (enemyDiv != null) {
-            Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, side, enemyDiv);
-            float dx = visEnemyPos.x - protectedDiv.centroid.x;
-            float dy = visEnemyPos.y - protectedDiv.centroid.y;
-            float len = (float) Math.sqrt(dx * dx + dy * dy);
-            if (len > 1f) {
-                float fwdX = dx / len;
-                float fwdY = dy / len;
-                float latX = -fwdY;
-                float latY = fwdX;
-                float minEnemyClearance = Math.max(780f, (screenDiv != null && screenDiv.avgEngageRange > 250f) ? screenDiv.avgEngageRange * 0.85f : standoff);
-                float fwdAdvance = Math.min(standoff * 0.65f, Math.max(120f, len - minEnemyClearance));
-                outStation.set(
-                        protectedDiv.centroid.x + fwdX * fwdAdvance + latX * lateralOffset,
-                        protectedDiv.centroid.y + fwdY * fwdAdvance + latY * lateralOffset);
-                return;
-            }
-        }
-        float forwardY = (side == 0) ? standoff * 0.80f : -standoff * 0.80f;
-        outStation.set(protectedDiv.centroid.x + lateralOffset, protectedDiv.centroid.y + forwardY);
+        DivisionFormationNavigator.computeScreeningStation(engine, myDiv, protectedDiv, enemyDiv, outStation, side);
     }
 
-    private static void computeFlankStation(
+    static void computeFlankStation(
             CombatEngineAPI engine,
             DivisionState flankerDiv,
             DivisionState enemyDiv,
             Vector2f outStation,
             BattleGroupState myGroup) {
-        Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, flankerDiv.side, enemyDiv);
-        float flankRadius = Math.max(
-                1250f,
-                flankerDiv.standoffRange + enemyDiv.spreadRadius * 0.55f + flankerDiv.stationSpacing * 0.65f);
-
-        // Pincer: an OTC-assigned flank side is measured on the battlegroup's attack axis (fleet centre -> target),
-        // so two flankers on opposite sides really do envelop the target from left and right.
-        float assignedSide = assignedFlankSide(flankerDiv, enemyDiv, myGroup);
-        if (assignedSide != 0f) {
-            float ax = visEnemyPos.x - myGroup.fleetCentroid.x;
-            float ay = visEnemyPos.y - myGroup.fleetCentroid.y;
-            float aLen = (float) Math.sqrt(ax * ax + ay * ay);
-            if (aLen > 1f) {
-                float fwdX = ax / aLen;
-                float fwdY = ay / aLen;
-                float perpX = -fwdY;
-                float perpY = fwdX;
-                // Check if the flanker is still approaching from the front hemisphere of the target division;
-                // if so, swing wider laterally so it sweeps around the enemy's outer wing out of contact.
-                float relX = flankerDiv.centroid.x - visEnemyPos.x;
-                float relY = flankerDiv.centroid.y - visEnemyPos.y;
-                float relLen = (float) Math.sqrt(relX * relX + relY * relY);
-                float forwardDot = (relLen > 1f) ? ((relX * fwdX + relY * fwdY) / relLen) : -1f;
-                float lateralMult = (forwardDot < -0.15f) ? 1.28f : 1.0f;
-                float depthMult = (forwardDot < -0.15f) ? 0.15f : 0.32f;
-                outStation.set(
-                        visEnemyPos.x + perpX * flankRadius * lateralMult * assignedSide + fwdX * flankRadius * depthMult,
-                        visEnemyPos.y + perpY * flankRadius * lateralMult * assignedSide + fwdY * flankRadius * depthMult);
-                if (flankerDiv.useConvergence) {
-                    BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
-                            engine, flankerDiv, enemyDiv, myGroup, null, visEnemyPos, outStation, 52f, outStation);
-                } else {
-                    BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
-                            engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 48f, 7, outStation);
-                }
-                clampToMapBounds(engine, outStation, 650f);
-                return;
-            }
-        }
-
-        float dx = visEnemyPos.x - flankerDiv.centroid.x;
-        float dy = visEnemyPos.y - flankerDiv.centroid.y;
-        float len = (float) Math.sqrt(dx * dx + dy * dy);
-        if (len <= 1f) {
-            outStation.set(visEnemyPos);
-            return;
-        }
-        // Perpendicular offset to swing wide around the enemy division's flank, scaled by doctrinal standoff & spacing
-        float perpX = -dy / len;
-        float perpY = dx / len;
-        float sideSign = (flankerDiv.divisionNumber % 2 == 1) ? 1f : -1f;
-        // Item D: Check map-edge clearance on both flanks of the enemy division so an autonomous flanker never
-        // tries to squeeze into a pinched gap between the enemy and the map wall, and instead swings around the
-        // open flank to pin the enemy against the map edge!
-        float posClearance = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
-                engine, visEnemyPos, perpX * sideSign, perpY * sideSign, 200f);
-        float negClearance = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
-                engine, visEnemyPos, -perpX * sideSign, -perpY * sideSign, 200f);
-        if (posClearance < 950f && negClearance > posClearance + 400f) {
-            sideSign = -sideSign;
-        }
-        outStation.set(
-                visEnemyPos.x + perpX * flankRadius * sideSign,
-                visEnemyPos.y + perpY * flankRadius * sideSign);
-        if (flankerDiv.useConvergence) {
-            BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
-                    engine, flankerDiv, enemyDiv, myGroup, null, visEnemyPos, outStation, 60f, outStation);
-        } else {
-            BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
-                    engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 55f, 7, outStation);
-        }
-        clampToMapBounds(engine, outStation, 650f);
+        DivisionFormationNavigator.computeFlankStation(engine, flankerDiv, enemyDiv, outStation, myGroup);
     }
 
-    /**
-     * Updates a division's out-of-contact wide-arc route waypoint (div.routeWaypoint).
-     * When a division is executing a flank, staging for a strike, seizing an objective, reinforcing,
-     * screening, or retiring to vent, and an enemy division / battle line lies across the straight chord
-     * from div.centroid to div.stationPoint, projects an intermediate tangent waypoint around the outer
-     * perimeter of the enemy threat zone so the division maneuvers out of contact before assuming station.
-     */
-    private static void updateDivisionOutOfContactRoute(
+    static void updateDivisionOutOfContactRoute(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
             BattleGroupState enemyGroup) {
-
-        div.routeWaypoint.set(div.stationPoint);
-        div.hasRouteWaypoint = false;
-        if (enemyGroup == null || enemyGroup.divisions.isEmpty()) return;
-
-        DivisionIntentType intent = div.currentIntent;
-        if (intent == DivisionIntentType.CLOSE_UP) {
-            return;
-        }
-
-        // Direct close-in attack intents do not detour around their own attack target once within 2400u,
-        // though they still skirt around other intervening enemy divisions on long transits.
-        boolean directAttackIntent = (intent == DivisionIntentType.PRESS_HOME
-                || intent == DivisionIntentType.TOT_MISSILE_STRIKE
-                || intent == DivisionIntentType.TOT_ALPHA_STRIKE
-                || intent == DivisionIntentType.HARASSING_MISSILE_ATTACK
-                || intent == DivisionIntentType.GIVE_GENERAL_CHASE
-                || (intent == DivisionIntentType.CLOSE_AND_ENGAGE
-                && resolveActiveMission(div, engine != null ? engine.getTotalElapsedTime(false) : 0f) == DivisionMissionType.CLOSE_ACTION));
-
-        DivisionState ignoreDirectTarget = directAttackIntent ? div.targetEnemyDivision : null;
-        DivisionState flankTarget = (intent == DivisionIntentType.WORK_FLANK) ? div.targetEnemyDivision : null;
-
-        float preferredSide = assignedFlankSide(div, div.targetEnemyDivision, myGroup);
-        if (preferredSide == 0f) {
-            preferredSide = div.routeSkirtSide;
-        }
-
-        float[] chosenSide = new float[]{preferredSide};
-        Vector2f wp = computeOutOfContactRoutePoint(
-                engine,
-                div.side,
-                div.centroid,
-                div.stationPoint,
-                ignoreDirectTarget,
-                flankTarget,
-                preferredSide,
-                enemyGroup,
-                chosenSide);
-        div.routeSkirtSide = chosenSide[0];
-        div.routeWaypoint.set(wp);
-        div.hasRouteWaypoint = distance(div.routeWaypoint, div.stationPoint) > 220f;
+        DivisionFormationNavigator.updateDivisionOutOfContactRoute(engine, div, myGroup, enemyGroup);
     }
 
-    /**
-     * Computes an out-of-contact wide-arc waypoint from startPos (A) to goalPos (B) that skirts around
-     * any intervening visible enemy division threat zones.
-     *
-     * If the straight chord A -> B slices through an enemy threat circle (or enemy battle line cluster),
-     * returns a tangent/arc waypoint W at ~52 degrees ahead along the outer perimeter of the obstacle
-     * on the open flank side. Once the chord A -> B is clear of enemy threat zones, returns goalPos (B).
-     */
-    private static Vector2f computeOutOfContactRoutePoint(
+    static Vector2f computeOutOfContactRoutePoint(
             CombatEngineAPI engine,
-            int side,
+            int observerSide,
             Vector2f startPos,
             Vector2f goalPos,
-            DivisionState ignoreDirectAttackTarget,
-            DivisionState flankTargetDiv,
-            float preferredSideHint,
+            DivisionState movingDiv,
+            DivisionState targetEnemyDiv,
+            float existingSideSign,
             BattleGroupState enemyGroup,
-            float[] outChosenSide) {
-
-        if (startPos == null || goalPos == null) {
-            return goalPos != null ? new Vector2f(goalPos) : new Vector2f();
-        }
-        if (enemyGroup == null || enemyGroup.divisions.isEmpty()) {
-            return new Vector2f(goalPos);
-        }
-
-        float chordX = goalPos.x - startPos.x;
-        float chordY = goalPos.y - startPos.y;
-        float chordLen = (float) Math.sqrt(chordX * chordX + chordY * chordY);
-        if (chordLen < 360f) {
-            return new Vector2f(goalPos);
-        }
-
-        float dirX = chordX / chordLen;
-        float dirY = chordY / chordLen;
-
-        // Find the primary visible enemy division whose threat zone blocks the straight segment A -> B
-        DivisionState blockingDiv = null;
-        Vector2f blockingCenter = null;
-        float blockingRadius = 0f;
-        float earliestBlockProj = Float.MAX_VALUE;
-
-        for (DivisionState eDiv : enemyGroup.divisions) {
-            if (eDiv == null || !eDiv.isCombatEffective()) continue;
-            if (!OtcAI.isDivisionVisibleToSide(engine, side, eDiv)) continue;
-            if (eDiv == ignoreDirectAttackTarget && chordLen < 2600f) continue;
-
-            Vector2f eCenter = OtcAI.getVisibleCentroidForSide(engine, side, eDiv);
-            float distGoalToEnemy = distance(goalPos, eCenter);
-            float distStartToEnemy = distance(startPos, eCenter);
-
-            // Threat avoidance radius: enemy engagement range + spread + out-of-contact buffer
-            float threatRadius = Math.max(1150f, eDiv.avgEngageRange * 1.10f)
-                    + Math.min(700f, eDiv.spreadRadius * 0.70f)
-                    + 320f;
-            if (eDiv == flankTargetDiv) {
-                // For the enemy division being flanked, keep the avoidance disc just inside the flank station radius
-                // so the flanker sweeps around its front/beam out of contact rather than cutting across its nose.
-                threatRadius = Math.min(threatRadius, Math.max(850f, distGoalToEnemy * 0.88f));
-            } else if (distGoalToEnemy < threatRadius + 140f) {
-                // If goalPos itself sits close to this enemy division, shrink avoidance radius so goalPos remains reachable
-                threatRadius = Math.max(700f, distGoalToEnemy - 140f);
-            }
-
-            // Project eCenter onto segment A -> B
-            float relX = eCenter.x - startPos.x;
-            float relY = eCenter.y - startPos.y;
-            float proj = relX * dirX + relY * dirY;
-            if (proj <= 60f || proj >= chordLen - 40f) {
-                continue;
-            }
-
-            float closestX = startPos.x + dirX * proj;
-            float closestY = startPos.y + dirY * proj;
-            float perpDist = (float) Math.sqrt(
-                    (eCenter.x - closestX) * (eCenter.x - closestX)
-                            + (eCenter.y - closestY) * (eCenter.y - closestY));
-
-            if (perpDist < threatRadius * 0.96f && proj < earliestBlockProj) {
-                // Also skip if startPos is already closer to goalPos than to eCenter and moving away
-                if (distStartToEnemy > distGoalToEnemy && proj > chordLen * 0.75f) {
-                    continue;
-                }
-                earliestBlockProj = proj;
-                blockingDiv = eDiv;
-                blockingCenter = eCenter;
-                blockingRadius = threatRadius;
-            }
-        }
-
-        if (blockingDiv == null || blockingCenter == null) {
-            return new Vector2f(goalPos);
-        }
-
-        // Expand obstacle center/radius slightly if adjacent enemy divisions form a contiguous battle line with blockingDiv
-        float clusterX = blockingCenter.x * blockingDiv.totalFpStrength;
-        float clusterY = blockingCenter.y * blockingDiv.totalFpStrength;
-        float clusterWeight = Math.max(1f, blockingDiv.totalFpStrength);
-        for (DivisionState otherE : enemyGroup.divisions) {
-            if (otherE == null || otherE == blockingDiv || !otherE.isCombatEffective()) continue;
-            if (!OtcAI.isDivisionVisibleToSide(engine, side, otherE)) continue;
-            if (otherE == ignoreDirectAttackTarget) continue;
-            Vector2f oPos = OtcAI.getVisibleCentroidForSide(engine, side, otherE);
-            float dBetween = distance(blockingCenter, oPos);
-            if (dBetween < 1850f) {
-                // Project onto A -> B as well
-                float oProj = (oPos.x - startPos.x) * dirX + (oPos.y - startPos.y) * dirY;
-                if (oProj > 0f && oProj < chordLen) {
-                    float w = otherE.totalFpStrength * 0.55f;
-                    clusterX += oPos.x * w;
-                    clusterY += oPos.y * w;
-                    clusterWeight += w;
-                }
-            }
-        }
-        Vector2f obsCenter = new Vector2f(clusterX / clusterWeight, clusterY / clusterWeight);
-        float extraClusterSpan = distance(obsCenter, blockingCenter);
-        float skirtRadius = Math.min(2850f, blockingRadius + extraClusterSpan * 0.65f + 240f);
-
-        // Two candidate normals perpendicular to A -> B: +1 (Port / Left of chord) and -1 (Starboard / Right of chord)
-        float normX = -dirY;
-        float normY = dirX;
-
-        float bestSide = (preferredSideHint != 0f) ? Math.signum(preferredSideHint) : 1f;
-        float bestSideScore = -Float.MAX_VALUE;
-
-        for (int sIdx = 0; sIdx < 2; sIdx++) {
-            float candidateSide = (sIdx == 0) ? 1f : -1f;
-            float candX = obsCenter.x + normX * candidateSide * skirtRadius;
-            float candY = obsCenter.y + normY * candidateSide * skirtRadius;
-            Vector2f candApex = new Vector2f(candX, candY);
-
-            float score = 0f;
-            // 1. Prefer swinging around the OUTSIDE of the enemy fleet centroid rather than between enemy divisions
-            if (enemyGroup.totalFriendlyStrength > 0f) {
-                score += distance(candApex, enemyGroup.fleetCentroid) * 0.42f;
-            }
-            // 2. Penalize candidate apex if other visible enemy divisions sit near that side
-            for (DivisionState otherE : enemyGroup.divisions) {
-                if (otherE == null || otherE == blockingDiv || !otherE.isCombatEffective()) continue;
-                if (!OtcAI.isDivisionVisibleToSide(engine, side, otherE)) continue;
-                Vector2f oPos = OtcAI.getVisibleCentroidForSide(engine, side, otherE);
-                float dToCand = distance(candApex, oPos);
-                if (dToCand < 1900f) {
-                    score -= (1900f - dToCand) * 0.65f;
-                }
-            }
-            // 2b. Penalize candidate apex by actual overlapping weapon-arc firepower & L/U crossfire cordon
-            BattlefieldFirepowerEvaluator.PointFirepowerEval fpEval =
-                    BattlefieldFirepowerEvaluator.evaluatePoint(engine, side, candApex, 180f);
-            score -= fpEval.effectiveDanger * 0.42f + fpEval.cordonIndex * 380f;
-            if (blockingDiv != null) {
-                score += BattlefieldFirepowerEvaluator.evaluateBlindSpotAdvantage(engine, side, blockingDiv, candApex) * 0.85f;
-            }
-
-            // 3. Shorter tangent geometry from startPos around obsCenter
-            float crossStart = (startPos.x - obsCenter.x) * normX * candidateSide
-                    + (startPos.y - obsCenter.y) * normY * candidateSide;
-            score += crossStart * 0.35f;
-
-            // 4. Hysteresis / OTC flank-side stickiness so units don't flip-flop mid-flank
-            if (preferredSideHint != 0f && Math.signum(preferredSideHint) == candidateSide) {
-                score += 620f;
-            }
-
-            // 5. Penalize proximity to combat map borders
-            if (engine != null) {
-                float halfW = engine.getMapWidth() * 0.5f - 900f;
-                float halfH = engine.getMapHeight() * 0.5f - 900f;
-                if (Math.abs(candX) > halfW) {
-                    score -= (Math.abs(candX) - halfW) * 1.2f;
-                }
-                if (Math.abs(candY) > halfH) {
-                    score -= (Math.abs(candY) - halfH) * 1.2f;
-                }
-            }
-
-            if (score > bestSideScore) {
-                bestSideScore = score;
-                bestSide = candidateSide;
-            }
-        }
-
-        if (outChosenSide != null && outChosenSide.length > 0) {
-            outChosenSide[0] = bestSide;
-        }
-
-        // Place waypoint W along the outer perimeter of obsCenter, stepped ~52 degrees ahead along the chosen side arc
-        float rx = startPos.x - obsCenter.x;
-        float ry = startPos.y - obsCenter.y;
-        float rLen = (float) Math.sqrt(rx * rx + ry * ry);
-        float ux;
-        float uy;
-        if (rLen > 1f) {
-            ux = rx / rLen;
-            uy = ry / rLen;
-        } else {
-            ux = normX * bestSide;
-            uy = normY * bestSide;
-        }
-
-        // Tangent vector perpendicular to u that advances toward goalPos around the chosen side
-        float t1x = -uy;
-        float t1y = ux;
-        float t2x = uy;
-        float t2y = -ux;
-        // Pick the tangent whose projection along (dir + 0.5 * chosenNormal) is positive
-        float guideX = dirX + normX * bestSide * 0.65f;
-        float guideY = dirY + normY * bestSide * 0.65f;
-        float tx;
-        float ty;
-        if (t1x * guideX + t1y * guideY >= t2x * guideX + t2y * guideY) {
-            tx = t1x;
-            ty = t1y;
-        } else {
-            tx = t2x;
-            ty = t2y;
-        }
-
-        // 52-degree angular step around the perimeter (cos 52° ≈ 0.616, sin 52° ≈ 0.788)
-        float stepDirX = 0.616f * ux + 0.788f * tx;
-        float stepDirY = 0.616f * uy + 0.788f * ty;
-        float stepLen = (float) Math.sqrt(stepDirX * stepDirX + stepDirY * stepDirY);
-        if (stepLen > 1e-4f) {
-            stepDirX /= stepLen;
-            stepDirY /= stepLen;
-        }
-
-        Vector2f waypoint = new Vector2f(
-                obsCenter.x + stepDirX * skirtRadius,
-                obsCenter.y + stepDirY * skirtRadius);
-        clampToMapBounds(engine, waypoint, 650f);
-        return waypoint;
+            float[] outSideSign) {
+        return DivisionFormationNavigator.computeOutOfContactRoutePoint(
+                engine, observerSide, startPos, goalPos, movingDiv, targetEnemyDiv, existingSideSign, enemyGroup, outSideSign);
     }
 
-    private static boolean isShipNearVisibleEnemy(
+    static boolean isShipNearVisibleEnemy(
             CombatEngineAPI engine,
-            int side,
+            int observerSide,
             Vector2f pos,
             BattleGroupState enemyGroup,
             float radius) {
-        if (pos == null || enemyGroup == null) return false;
-        float rSq = radius * radius;
-        for (DivisionState eDiv : enemyGroup.divisions) {
-            if (eDiv == null || !eDiv.isCombatEffective()) continue;
-            for (ShipAPI e : eDiv.getAliveMembers()) {
-                if (!OtcAI.isShipVisibleToSide(engine, side, e)) continue;
-                float dx = pos.x - e.getLocation().x;
-                float dy = pos.y - e.getLocation().y;
-                if ((dx * dx + dy * dy) <= rSq) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return DivisionFormationNavigator.isShipNearVisibleEnemy(engine, observerSide, pos, enemyGroup, radius);
     }
 
-    private static void clampToMapBounds(CombatEngineAPI engine, Vector2f pt, float margin) {
-        if (engine == null || pt == null) return;
-        float maxW = Math.max(2000f, engine.getMapWidth() * 0.5f - margin);
-        float maxH = Math.max(2000f, engine.getMapHeight() * 0.5f - margin);
-        if (pt.x > maxW) pt.x = maxW;
-        if (pt.x < -maxW) pt.x = -maxW;
-        if (pt.y > maxH) pt.y = maxH;
-        if (pt.y < -maxH) pt.y = -maxH;
+    static void clampToMapBounds(CombatEngineAPI engine, Vector2f pt, float margin) {
+        DivisionFormationNavigator.clampToMapBounds(engine, pt, margin);
     }
 
-    private static float distance(Vector2f a, Vector2f b) {
+    static float distance(Vector2f a, Vector2f b) {
         float dx = a.x - b.x;
         float dy = a.y - b.y;
         return (float) Math.sqrt(dx * dx + dy * dy);
