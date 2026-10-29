@@ -323,13 +323,16 @@ public final class DivisionNomenclature {
     public static NomenclatureCategory resolveCategoryForFactionId(String factionId) {
         if (factionId == null) return NomenclatureCategory.HUMAN_NAVAL;
         String id = factionId.trim().toLowerCase(Locale.ROOT);
-        if ("dweller".equals(id) || "omega".equals(id) || id.contains("abyssal") || id.contains("dweller")) {
+        if ("dweller".equals(id) || "omega".equals(id) || "liminal".equals(id)
+                || id.contains("abyssal") || id.contains("dweller")) {
             return NomenclatureCategory.ABYSSAL_ERROR;
         }
-        if ("threat".equals(id) || id.contains("threat")) {
+        if ("threat".equals(id) || id.contains("threat")
+                || "mess".equals(id) || "mess_remnant".equals(id) || "hmi_nightmare".equals(id)) {
             return NomenclatureCategory.THREAT_SWARM;
         }
-        if ("remnant".equals(id) || "remnants".equals(id) || "derelict".equals(id)) {
+        if ("remnant".equals(id) || "remnants".equals(id) || "derelict".equals(id)
+                || "domres".equals(id) || "indevo_derelict".equals(id) || "indevo_converters".equals(id)) {
             return NomenclatureCategory.POST_AI_WAR;
         }
         return NomenclatureCategory.HUMAN_NAVAL;
@@ -623,7 +626,8 @@ public final class DivisionNomenclature {
         if (isPirateOrIndependentFaction(fId)) {
             return formatPirateOrIndependentDivisionName(fId, archetype, num, commander, seed);
         }
-        if ("persean".equals(fId)) {
+        if ("persean".equals(fId) || "persean_league".equals(fId)
+                || "mayasura".equals(fId) || "mayasuran_guard".equals(fId)) {
             return formatPerseanDivisionName(archetype, num, commander, seed);
         }
 
@@ -645,10 +649,20 @@ public final class DivisionNomenclature {
     private static boolean isPirateOrIndependentFaction(String fId) {
         if (fId == null) return false;
         return "pirates".equals(fId)
+                || "pirate_privateers".equals(fId)
+                || "jaydeepiracy".equals(fId)
+                || "jdp_flowerfish".equals(fId)
+                || "hmi_sv".equals(fId)
+                || "fang".equals(fId)
                 || "independent".equals(fId)
                 || "mercenary".equals(fId)
                 || "scavengers".equals(fId)
-                || "luddic_path".equals(fId);
+                || "cft".equals(fId)
+                || "jyd".equals(fId)
+                || "brighton".equals(fId)
+                || "hmi_brighton".equals(fId)
+                || "luddic_path".equals(fId)
+                || "luddenhance".equals(fId);
     }
 
     private static final String[] PIRATE_INDIE_UNIT_NOUNS = {
