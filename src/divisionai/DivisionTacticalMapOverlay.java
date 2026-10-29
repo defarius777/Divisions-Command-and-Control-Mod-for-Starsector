@@ -1686,18 +1686,27 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         // portraitCenter = (sx - boxHalf + portraitSize * 0.5f + 2f * zoom, sy + boxHalf - portraitSize * 0.5f - 2f * zoom).
         // Per Item D: If a commander exists, the star renders directly under the commander portrait on the left side
         // of the ship icon; if there is no commander, the star replaces the commander portrait.
-        float boxHalf = iconRadiusPx * (16.8f / 18.0f);
-        float portraitSize = Math.max(10.5f * zoom, boxHalf * 0.5f);
-        float portraitCenterX = sx - boxHalf + portraitSize * 0.5f + 2.0f * zoom;
-        float portraitCenterY = sy + boxHalf - portraitSize * 0.5f - 2.0f * zoom;
+        // In com.fs.starfarer.combat.new.A and com.fs.starfarer.ui.B.new, every non-station ship's
+        // tactical map widget uses a fixed 42x42 base box scaled by bScale = scale * 1000f / 75f
+        // (stations use iconRadiusPx * 1.7f). Within B.new:
+        //   boxHalf = 21.0f * bScale, portraitSize = 10.5f * bScale (width / 4),
+        //   portraitCenter = (sx - boxHalf + portraitSize * 0.5f + 2f * bScale,
+        //                     sy + boxHalf - portraitSize * 0.5f - 2f * bScale).
+        // Using the exact B.new boxHalf rather than hull-size-dependent iconRadiusPx ensures the
+        // Fleet Flagship gold star (including on large Capital flagships) is centered directly under
+        // the commander portrait at every zoom level.
+        float bScale = scale * 1000f / 75f;
+        float boxHalf = ship.isStation() ? (iconRadiusPx * 0.85f) : (21.0f * bScale);
+        float portraitSize = boxHalf * 0.5f;
+        float portraitCenterX = sx - boxHalf + portraitSize * 0.5f + 2.0f * bScale;
+        float portraitCenterY = sy + boxHalf - portraitSize * 0.5f - 2.0f * bScale;
         boolean hasCommander = (ship.getCaptain() != null && !ship.getCaptain().isDefault());
 
         float starSize = (float) (Math.round(clamp(16.0f * zoom, 12.0f, 22.0f) * 0.5f) * 2);
-        float starX = (float) Math.round(portraitCenterX);
-        float starY = (float) Math.round(
-                hasCommander
-                        ? (portraitCenterY - portraitSize * 0.5f - starSize * 0.5f - 1.5f * zoom)
-                        : portraitCenterY);
+        float starX = portraitCenterX;
+        float starY = hasCommander
+                ? (portraitCenterY - portraitSize * 0.5f - starSize * 0.5f - 1.5f * bScale)
+                : portraitCenterY;
 
         starSprite.setSize(starSize, starSize);
         starSprite.setColor(Color.WHITE);

@@ -50,6 +50,10 @@ public class OtcAI {
             div.detachedStragglerIds.clear();
             if (alive.isEmpty()) {
                 div.coreMemberCount = 0;
+                div.ableMemberCount = 0;
+                div.retreatingMemberCount = 0;
+                div.retreatingFraction = 0f;
+                div.isUnableDivision = true;
                 div.coreFpRatio = 1f;
                 div.localFriendlyStrength = 0f;
                 div.localEnemyStrength = 0f;
@@ -63,9 +67,29 @@ public class OtcAI {
                 continue;
             }
 
+            int ableCount = 0;
+            int retreatingCount = 0;
+            float ableWeightSum = 0f;
+            boolean[] shipUnable = new boolean[alive.size()];
+            for (int i = 0; i < alive.size(); i++) {
+                ShipAPI s = alive.get(i);
+                boolean unable = DivisionState.isShipUnable(s);
+                shipUnable[i] = unable;
+                if (unable) {
+                    retreatingCount++;
+                } else {
+                    ableCount++;
+                    ableWeightSum += ShipCapabilityProfile.resolveShipFpStrength(s);
+                }
+            }
+            div.ableMemberCount = ableCount;
+            div.retreatingMemberCount = retreatingCount;
+            div.retreatingFraction = (float) retreatingCount / Math.max(1, alive.size());
+            div.isUnableDivision = (ableCount == 0 || div.retreatingFraction >= 0.65f);
+
             div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(
                     div.archetype,
-                    alive.size(),
+                    Math.max(1, ableCount > 0 ? ableCount : alive.size()),
                     div.stationSpacing,
                     div.stationKeepingMult,
                     div.commander.stationKeepingStrictness);
@@ -85,8 +109,13 @@ public class OtcAI {
             float[] weights = new float[alive.size()];
             for (int i = 0; i < alive.size(); i++) {
                 ShipAPI s = alive.get(i);
-                float w = ShipCapabilityProfile.resolveShipFpStrength(s);
+                float baseW = ShipCapabilityProfile.resolveShipFpStrength(s);
+                // Discount retreating ("unable") ships when able ships remain so fleeing ships do not drag the division centroid
+                float w = (shipUnable[i] && ableCount > 0) ? (baseW * 0.12f) : baseW;
                 weights[i] = w;
+                if (shipUnable[i] && ableCount > 0) {
+                    div.detachedStragglerIds.add(s.getId());
+                }
                 sumX += s.getLocation().x * w;
                 sumY += s.getLocation().y * w;
                 sumVx += s.getVelocity().x * w;
@@ -95,19 +124,20 @@ public class OtcAI {
 
                 float fl = s.getFluxLevel();
                 fluxSum += fl;
-                if (fl > maxFlux) maxFlux = fl;
+                if (!shipUnable[i] && fl > maxFlux) maxFlux = fl;
                 hullSum += s.getHullLevel();
 
-                ShipwideAIFlags flags = s.getAIFlags();
-                if (flags != null && (flags.hasFlag(AIFlags.NEEDS_HELP) || flags.hasFlag(AIFlags.IN_CRITICAL_DPS_DANGER))) {
-                    needsHelp = true;
-                    helpShip = s;
-                } else if (fl >= 0.84f || s.getHullLevel() <= 0.45f) {
-                    needsHelp = true;
-                    if (helpShip == null) helpShip = s;
+                if (!shipUnable[i]) {
+                    ShipwideAIFlags flags = s.getAIFlags();
+                    if (flags != null && (flags.hasFlag(AIFlags.NEEDS_HELP) || flags.hasFlag(AIFlags.IN_CRITICAL_DPS_DANGER))) {
+                        needsHelp = true;
+                        helpShip = s;
+                    } else if (fl >= 0.84f || s.getHullLevel() <= 0.45f) {
+                        needsHelp = true;
+                        if (helpShip == null) helpShip = s;
+                    }
+                    strikeAmmo += countUsableStrikeAmmo(s);
                 }
-
-                strikeAmmo += countUsableStrikeAmmo(s);
             }
 
             float rawCenterX = sumX / Math.max(1f, weightSum);
@@ -254,7 +284,7 @@ public class OtcAI {
             div.hasShipNeedingHelp = needsHelp;
             div.shipNeedingHelp = helpShip;
             div.usableStrikeAmmoCount = strikeAmmo;
-            div.totalFpStrength = weightSum;
+            div.totalFpStrength = (ableCount > 0) ? Math.max(1f, ableWeightSum) : Math.max(1f, weightSum * 0.25f);
 
             // Compute RMS spread radius around the Core Cluster (excluding detached stragglers)
             float coreDistSqSum = 0f;
@@ -284,16 +314,18 @@ public class OtcAI {
                 div.localForceRatio = div.localFriendlyStrength / Math.max(1f, div.localEnemyStrength);
             }
 
-            fleetWeightedX += div.centroid.x * weightSum;
-            fleetWeightedY += div.centroid.y * weightSum;
-            totalFriendlyFp += weightSum;
+            if (!div.isUnableDivision) {
+                fleetWeightedX += div.centroid.x * div.totalFpStrength;
+                fleetWeightedY += div.centroid.y * div.totalFpStrength;
+                totalFriendlyFp += div.totalFpStrength;
+            }
         }
 
         float frontlineWeightedX = 0f;
         float frontlineWeightedY = 0f;
         float frontlineFp = 0f;
         for (DivisionState div : battleGroup.divisions) {
-            if (!div.isCombatEffective()) continue;
+            if (!div.isAbleCombatEffective()) continue;
             if (div.currentIntent != DivisionModel.DivisionIntentType.HOLD_IN_RESERVE
                     && div.currentIntent != DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT
                     && div.currentIntent != DivisionModel.DivisionIntentType.BREAK_OFF_AND_RETIRE) {
@@ -308,13 +340,24 @@ public class OtcAI {
             battleGroup.fleetCentroid.set(fleetWeightedX / totalFriendlyFp, fleetWeightedY / totalFriendlyFp);
         }
 
-        // Anchor reserveStation 680u behind the engaged frontline centroid (close tactical support distance)
+        // Anchor reserveStation 680u behind the engaged frontline centroid (close tactical support distance).
+        // Item D: When outnumbered / fighting retirement / in Fleet Protective Bastion, anchor the reserve station
+        // closer to the friendly map edge so a balled-up fleet uses the map edge as a safe rear-blocking zone!
         float retreatDirY = (battleGroup.side == 0) ? -1f : 1f;
+        float halfH = (engine != null && engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.5f) : 9000f;
+        float maxEdgeY = halfH * 0.78f;
+        boolean edgeBastionPosture = battleGroup.forceRatio < 0.82f
+                || battleGroup.currentPhase == DivisionModel.BattlePhase.FIGHTING_RETIREMENT
+                || battleGroup.activeFleetWideFormation == PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION;
         if (frontlineFp > 0f) {
             float fx = frontlineWeightedX / frontlineFp;
             float fy = frontlineWeightedY / frontlineFp;
-            float maxEdgeY = (engine != null && engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.36f) : 3400f;
-            float targetResY = Math.max(-maxEdgeY, Math.min(maxEdgeY, fy + retreatDirY * 680f));
+            float pullBackDist = edgeBastionPosture ? 920f : 680f;
+            float targetResY = Math.max(-maxEdgeY, Math.min(maxEdgeY, fy + retreatDirY * pullBackDist));
+            if (edgeBastionPosture) {
+                float friendlyEdgeZoneY = retreatDirY * (halfH - 1450f);
+                targetResY = targetResY * 0.65f + friendlyEdgeZoneY * 0.35f;
+            }
             battleGroup.reserveStation.set(fx, targetResY);
         } else if (battleGroup.reserveStation.x == 0f && battleGroup.reserveStation.y == 0f) {
             battleGroup.reserveStation.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * 680f);
@@ -343,6 +386,7 @@ public class OtcAI {
             if (!(obj instanceof ShipAPI)) continue;
             ShipAPI s = (ShipAPI) obj;
             if (!DivisionAutoFormer.isEligibleCombatHull(s)) continue;
+            if (DivisionState.isShipUnable(s)) continue;
 
             float dx = s.getLocation().x - div.centroid.x;
             float dy = s.getLocation().y - div.centroid.y;
@@ -397,7 +441,7 @@ public class OtcAI {
         float weightSum = 0f;
         for (ShipAPI s : div.getAliveMembers()) {
             if (!isShipVisibleToSide(engine, observerSide, s)) continue;
-            float w = ShipCapabilityProfile.resolveShipFpStrength(s);
+            float w = ShipCapabilityProfile.resolveShipFpStrength(s) * (DivisionState.isShipUnable(s) ? 0.15f : 1.0f);
             sumX += s.getLocation().x * w;
             sumY += s.getLocation().y * w;
             weightSum += w;
@@ -414,7 +458,8 @@ public class OtcAI {
         float fpSum = 0f;
         for (ShipAPI s : div.getAliveMembers()) {
             if (isShipVisibleToSide(engine, observerSide, s)) {
-                fpSum += ShipCapabilityProfile.resolveShipFpStrength(s);
+                float w = ShipCapabilityProfile.resolveShipFpStrength(s);
+                fpSum += DivisionState.isShipUnable(s) ? (w * 0.20f) : w;
             }
         }
         return fpSum;
@@ -461,7 +506,7 @@ public class OtcAI {
         DivisionState minorEndangeredDiv = null;
         float worstMinorLocalRatio = Float.MAX_VALUE;
         for (DivisionState div : myGroup.divisions) {
-            if (!div.isCombatEffective()) {
+            if (!div.isAbleCombatEffective()) {
                 div.isDesignatedMainEffort = false;
                 div.isDesignatedReserve = false;
                 continue;
@@ -512,7 +557,7 @@ public class OtcAI {
         // Second pass: pick a mobile reserve candidate (never pick Main Effort, Battle Divisions, Cruiser lines,
         // Carrier groups, or divisions explicitly tasked to ENVELOPMENT / SCREEN unless their mission is RESERVE)
         for (DivisionState div : myGroup.divisions) {
-            if (!div.isCombatEffective()) continue;
+            if (!div.isAbleCombatEffective()) continue;
             if (div == strongestLineDiv
                     || div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
                     || div.archetype == DivisionArchetype.CRUISER_DIVISION
@@ -889,11 +934,46 @@ public class OtcAI {
             targetCenterY = Math.max(-maxAbsY, Math.min(maxAbsY, targetCenterY));
 
             div.stationPoint.set(targetCenterX, targetCenterY);
-            if (!div.formationHeadingInitialized) {
-                div.formationHeadingX = 0f;
-                div.formationHeadingY = fwdDirY;
-                div.formationHeadingInitialized = true;
+            // Item A: Orient initial deployment heading toward the division's opening objective (e.g. Comm Relay Beta NW
+            // or Sensor Jammer Delta NE) when the division is a scouting/fast/non-heavy unit, so Line Abreast and
+            // Echelon Right deploy perpendicular/echeloned to their actual opening march vector instead of facing 90 deg North!
+            float initHx = 0f;
+            float initHy = fwdDirY;
+            boolean isHeavyOrCarrier = div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || (div.archetype != null && div.archetype.isCarrierArchetype());
+            DivisionMissionType openMission = DivisionCommanderAI.resolveActiveMission(div, now);
+            if (!isHeavyOrCarrier
+                    && openMission != DivisionMissionType.RESERVE
+                    && engine.getObjectives() != null
+                    && !engine.getObjectives().isEmpty()) {
+                BattleObjectiveAPI nearestObj = null;
+                float bestObjDist = Float.MAX_VALUE;
+                for (BattleObjectiveAPI obj : engine.getObjectives()) {
+                    if (obj == null || obj.getOwner() == group.side) continue;
+                    float odx = obj.getLocation().x - targetCenterX;
+                    float ody = obj.getLocation().y - targetCenterY;
+                    float d = (float) Math.sqrt(odx * odx + ody * ody);
+                    if (d < bestObjDist) {
+                        bestObjDist = d;
+                        nearestObj = obj;
+                    }
+                }
+                if (nearestObj != null && bestObjDist > 250f) {
+                    float odx = nearestObj.getLocation().x - targetCenterX;
+                    float ody = nearestObj.getLocation().y - targetCenterY;
+                    float oLen = (float) Math.sqrt(odx * odx + ody * ody);
+                    if (oLen > 1f) {
+                        initHx = odx / oLen;
+                        initHy = ody / oLen;
+                    }
+                }
             }
+            div.formationHeadingX = initHx;
+            div.formationHeadingY = initHy;
+            div.formationHeadingInitialized = true;
+            float initFacingDeg = (float) Math.toDegrees(Math.atan2(initHy, initHx));
+            if (initFacingDeg < 0f) initFacingDeg += 360f;
+
             if (now <= 1.6f) {
                 List<ShipAPI> alive = div.getAliveMembers();
                 PermanentDivisionManager.DivisionFormation fm = div.activeFormation != null
@@ -904,12 +984,12 @@ public class OtcAI {
                     ShipAPI s = alive.get(i);
                     if (s == null || s == engine.getPlayerShip() && !engine.isUIAutopilotOn()) continue;
                     Vector2f slot = DivisionCommanderAI.computeFormationSlotPositionForAnchor(
-                            fm, i, alive, s, targetCenterX, targetCenterY, 0f, fwdDirY, spacing);
+                            fm, i, alive, s, targetCenterX, targetCenterY, initHx, initHy, spacing);
                     float sx = Math.max(-maxAbsX, Math.min(maxAbsX, slot.x));
                     float sy = Math.max(-maxAbsY, Math.min(maxAbsY, slot.y));
                     if (isDeploymentSlotClear(engine, s, sx, sy)) {
                         s.getLocation().set(sx, sy);
-                        s.setFacing((group.side == 0) ? 90f : 270f);
+                        s.setFacing(initFacingDeg);
                     }
                 }
                 div.centroid.set(targetCenterX, targetCenterY);
@@ -944,6 +1024,14 @@ public class OtcAI {
                 ? myGroup.mainEffortDivision
                 : (!myGroup.divisions.isEmpty() ? myGroup.divisions.get(0) : null);
 
+        boolean anyAbleVisibleEnemy = false;
+        for (DivisionState eDiv : enemyGroup.divisions) {
+            if (eDiv.isAbleCombatEffective() && isDivisionVisibleToSide(engine, myGroup.side, eDiv)) {
+                anyAbleVisibleEnemy = true;
+                break;
+            }
+        }
+
         for (DivisionState eDiv : enemyGroup.divisions) {
             if (!eDiv.isCombatEffective()) continue;
             if (!isDivisionVisibleToSide(engine, myGroup.side, eDiv)) continue;
@@ -951,6 +1039,10 @@ public class OtcAI {
             float visFp = getVisibleFpForSide(engine, myGroup.side, eDiv);
             float dist = distance(myGroup.fleetCentroid, visCentroid);
             float auxPenalty = (eDiv.archetype == DivisionArchetype.SERVICE_GROUP) ? -500f : 0f;
+            // Item F: Heavily deprioritize retreating ("unable") enemy divisions as long as able enemy divisions remain
+            float unablePenalty = (anyAbleVisibleEnemy && (eDiv.isUnableDivision || eDiv.retreatingFraction >= 0.5f)) ? -1400f : 0f;
+            // Item D: Bonus for enemy divisions pinched against a map edge or corner (restricted maneuver options)
+            float edgePinchBonus = BattlefieldFirepowerEvaluator.computeEdgeProximityPinch(engine, visCentroid, eDiv.freeTimeRadius) * 240f;
 
             float score;
             if (myGroup.useConvergence && anchorDiv != null) {
@@ -959,18 +1051,18 @@ public class OtcAI {
                 float convSum = 0f;
                 int convCount = 0;
                 for (DivisionState d : myGroup.divisions) {
-                    if (!d.isCombatEffective()) continue;
+                    if (!d.isAbleCombatEffective()) continue;
                     convSum += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, eDiv, myGroup);
                     convCount++;
                 }
                 float avgConv = (convCount > 0) ? (convSum / convCount) : 0f;
-                score = avgConv + auxPenalty - dist * 0.14f;
+                score = avgConv + auxPenalty + unablePenalty + edgePinchBonus - dist * 0.14f;
             } else {
-                // Human OTC decision-making: weights Firepower value, Space Strongpoint/Weak Point seams, and Time pinning
+                // Human OTC decision-making: weights Firepower value, Space Strongpoint/Weak Point seams, Time pinning, and Map-Edge pinching
                 float isolationBonus = (eDiv.stationKeepingRatio > 1.3f) ? 350f : 0f;
                 float spaceSeamBonus = eDiv.isWeakPoint ? 240f : (eDiv.isStrongpoint ? -120f : 0f);
                 float pinnedBonus = eDiv.engagementLevel * 180f;
-                score = visFp * 12f + isolationBonus + spaceSeamBonus + pinnedBonus + auxPenalty - dist * 0.25f;
+                score = visFp * 12f + isolationBonus + spaceSeamBonus + pinnedBonus + edgePinchBonus + auxPenalty + unablePenalty - dist * 0.25f;
             }
             if (score > bestScore) {
                 bestScore = score;

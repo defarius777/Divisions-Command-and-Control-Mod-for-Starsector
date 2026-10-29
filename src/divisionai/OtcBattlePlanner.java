@@ -71,12 +71,26 @@ public class OtcBattlePlanner {
         OtcAuthority auth = myGroup.authority;
         List<DivisionState> active = new ArrayList<>();
         for (DivisionState d : myGroup.divisions) {
-            if (d.isCombatEffective()) active.add(d);
+            if (d.isAbleCombatEffective()) active.add(d);
         }
         List<DivisionState> visibleEnemies = new ArrayList<>();
+        boolean anyAbleVisibleEnemy = false;
         for (DivisionState e : enemyGroup.divisions) {
             if (e.isCombatEffective() && OtcAI.isDivisionVisibleToSide(engine, myGroup.side, e)) {
                 visibleEnemies.add(e);
+                if (e.isAbleCombatEffective() && e.retreatingFraction < 0.5f) {
+                    anyAbleVisibleEnemy = true;
+                }
+            }
+        }
+        // Item F: While able enemy divisions are still fighting on the field, exclude retreating ("unable") enemy
+        // divisions from standard battle-line fire distribution & strike plans (they are handled by General Chase).
+        if (anyAbleVisibleEnemy && myGroup.currentPhase != BattlePhase.GENERAL_CHASE) {
+            for (Iterator<DivisionState> it = visibleEnemies.iterator(); it.hasNext(); ) {
+                DivisionState e = it.next();
+                if (e.isUnableDivision || e.retreatingFraction >= 0.5f) {
+                    it.remove();
+                }
             }
         }
 
@@ -166,16 +180,20 @@ public class OtcBattlePlanner {
         StrikePlan plan = myGroup.strikePlan;
 
         if (plan != null) {
-            boolean targetValid = plan.target != null && plan.target.isCombatEffective()
+            boolean targetValid = plan.target != null && plan.target.isAbleCombatEffective()
                     && OtcAI.isDivisionVisibleToSide(engine, myGroup.side, plan.target);
+            boolean hasCarrierParticipant = false;
             for (Iterator<DivisionState> it = plan.participants.iterator(); it.hasNext(); ) {
                 DivisionState p = it.next();
-                if (!p.isCombatEffective()
+                if (!p.isAbleCombatEffective()
                         || p.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                         || (plan.committed && p.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE)) {
                     it.remove();
+                } else if (p.archetype != null && p.archetype.isCarrierArchetype()) {
+                    hasCarrierParticipant = true;
                 }
             }
+            float effStrikeWindow = hasCarrierParticipant ? 24f : STRIKE_WINDOW;
             if (!targetValid || plan.participants.isEmpty()) {
                 if (!plan.committed && plan.target != null) {
                     logOrder(engine, myGroup, "strike_abort", String.format(
@@ -185,7 +203,7 @@ public class OtcBattlePlanner {
                 }
                 endStrikePlan(myGroup, now);
                 plan = null;
-            } else if (plan.committed && now - plan.commitTime > STRIKE_WINDOW) {
+            } else if (plan.committed && now - plan.commitTime > effStrikeWindow) {
                 endStrikePlan(myGroup, now);
                 plan = null;
             } else if (!plan.committed && (now >= plan.strikeTime || allMarshalled(engine, myGroup, plan))) {
@@ -740,8 +758,19 @@ public class OtcBattlePlanner {
                     len = 1f;
                 }
                 float hold = Math.max(500f, main.standoffRange * 0.9f);
+                float stX = primaryPos.x + dx / len * hold;
+                float stY = primaryPos.y + dy / len * hold;
+                // Item D: If our fleet is outnumbered or balled up in a protective bastion, pull the Main Effort's
+                // fixing station slightly back toward the friendly map edge so our back is protected by the boundary
+                // and the attacker must advance into our concentrated frontal fire!
+                if (myGroup.forceRatio < 0.84f
+                        || myGroup.activeFleetWideFormation == FleetWideFormation.FLEET_PROTECTIVE_BASTION) {
+                    float halfH = BattlefieldFirepowerEvaluator.getMapHalfHeight(engine);
+                    float friendlyEdgeY = (myGroup.side == 0 ? -1f : 1f) * (halfH - 1550f);
+                    stY = stY * 0.72f + friendlyEdgeY * 0.28f;
+                }
                 main.otcOrder.hasStation = true;
-                main.otcOrder.station.set(primaryPos.x + dx / len * hold, primaryPos.y + dy / len * hold);
+                main.otcOrder.station.set(stX, stY);
             } else {
                 main.otcOrder.hasStation = false;
             }
@@ -895,10 +924,24 @@ public class OtcBattlePlanner {
                 }
             }
 
+            // Item D: Check map-edge clearance on port (+perp) vs starboard (-perp) of the target division.
+            // If one flank of the enemy division is pinched against a map edge (< 1050u clearance), avoid sending
+            // flankers into the pinched wall gap; instead swing on the open flank to pin the enemy against the map edge!
+            float portClearance = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
+                    engine, tPos, perpX, perpY, 200f);
+            float starboardClearance = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
+                    engine, tPos, -perpX, -perpY, 200f);
+            boolean portPinchedByWall = portClearance < 1050f && starboardClearance > portClearance + 450f;
+            boolean starboardPinchedByWall = starboardClearance < 1050f && portClearance > starboardClearance + 450f;
+
             for (DivisionState d : flankers) {
                 float previous = (d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target) ? d.otcOrder.flankSide : 0f;
                 float side;
-                if (previous != 0f) {
+                if (portPinchedByWall) {
+                    side = -1f; // port is pinched against map wall -> envelop from starboard to pin enemy into port wall
+                } else if (starboardPinchedByWall) {
+                    side = 1f;  // starboard is pinched against map wall -> envelop from port to pin enemy into starboard wall
+                } else if (previous != 0f) {
                     side = previous;
                 } else {
                     float natural = Math.signum((d.centroid.x - tPos.x) * perpX + (d.centroid.y - tPos.y) * perpY);

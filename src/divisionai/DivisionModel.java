@@ -449,6 +449,17 @@ public class DivisionModel {
         public float netSpaceControl;         // friendlySpaceSupport - hostileSpacePressure
         public boolean isStrongpoint;         // High mutual Space overlap in line of battle
         public boolean isWeakPoint;           // Exposed seam / low mutual Space overlap
+        public final float[] directionalSpaceInnerRadii = new float[TIME_DIRECTIONS];
+        public final float[] directionalSpaceDominatedRadii = new float[TIME_DIRECTIONS];
+        public final float[] directionalSpacePotentialRadii = new float[TIME_DIRECTIONS];
+        public boolean directionalSpaceInitialized = false;
+        public float edgeProximityPinch = 0f; // 0.0 in open center, up to 1.0 when pinched against map boundary
+
+        // "Unable" / retreating unit state (Item F)
+        public int ableMemberCount = 0;
+        public int retreatingMemberCount = 0;
+        public float retreatingFraction = 0f;
+        public boolean isUnableDivision = false;
 
         // Convergence Layer (AI / Threat / Abyssal & Alpha Core-commanded flagship decision-making)
         public boolean useConvergence = false;
@@ -521,6 +532,11 @@ public class DivisionModel {
             this.commander = commander;
         }
 
+        public static boolean isShipUnable(ShipAPI s) {
+            if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) return true;
+            return s.isRetreating() || s.isDirectRetreat();
+        }
+
         public List<ShipAPI> getAliveMembers() {
             List<ShipAPI> alive = new ArrayList<>(members.size());
             for (ShipAPI s : members) {
@@ -531,8 +547,22 @@ public class DivisionModel {
             return alive;
         }
 
+        public List<ShipAPI> getAbleMembers() {
+            List<ShipAPI> able = new ArrayList<>(members.size());
+            for (ShipAPI s : members) {
+                if (!isShipUnable(s)) {
+                    able.add(s);
+                }
+            }
+            return able;
+        }
+
         public boolean isCombatEffective() {
             return !getAliveMembers().isEmpty();
+        }
+
+        public boolean isAbleCombatEffective() {
+            return !isUnableDivision && !getAbleMembers().isEmpty();
         }
     }
 

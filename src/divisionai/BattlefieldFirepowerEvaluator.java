@@ -1762,6 +1762,12 @@ public class BattlefieldFirepowerEvaluator {
             // Deviation penalty from doctrinal preferred angle (keeps doctrinal geometry unless crossfire forces a shift)
             score -= Math.abs(offsetFraction) * 165f;
 
+            // Map-edge tactical awareness (Item D):
+            //  - Penalize getting wedged into a narrow edge trap when attacking/flanking,
+            //  - Reward defensive map-edge anchoring when outnumbered/pressured and the map edge is behind our division
+            //    (blocking rear encirclement and concentrating fire into a restricted frontal arc).
+            score += evaluateMapEdgeStationScore(engine, myDiv, arcCenter, cand, myDiv.localForceRatio < 0.85f);
+
             // Temporal hysteresis stickiness toward current stationPoint so station never flickers
             if (hasPrevStation) {
                 float distToPrev = distance(cand, myDiv.stationPoint);
@@ -1972,6 +1978,9 @@ public class BattlefieldFirepowerEvaluator {
             if (div.detachedStragglerIds.contains(s.getId()) && div.coreMemberCount >= 1) {
                 continue;
             }
+            if (DivisionState.isShipUnable(s) && div.ableMemberCount >= 1) {
+                continue;
+            }
             float w = ShipCapabilityProfile.resolveShipFpStrength(s) * (s == div.flagship ? 1.35f : 1.0f);
             float spd = Math.max(25f, s.getMaxSpeed());
             weightedSpeedSum += spd * w;
@@ -2076,18 +2085,33 @@ public class BattlefieldFirepowerEvaluator {
                 div.spaceInnerRadius + 220f,
                 2680f);
         float effectiveSpaceMass = 0.38f * div.totalFpStrength + 0.62f * ehpEquivalentStrength;
-        div.spaceDominanceWeight = Math.max(4f, (effectiveSpaceMass + totalFighterWings * 4.5f) * readiness);
+        float unableDiscount = div.isUnableDivision
+                ? 0.22f
+                : Math.max(0.25f, 1.0f - 0.72f * div.retreatingFraction);
+        div.spaceDominanceWeight = Math.max(2f, (effectiveSpaceMass + totalFighterWings * 4.5f) * readiness * unableDiscount);
+        if (div.isUnableDivision || div.retreatingFraction > 0.25f) {
+            float spaceShrink = Math.max(0.42f, 1.0f - 0.55f * div.retreatingFraction);
+            div.spaceInnerRadius *= spaceShrink;
+            div.spaceDominatedRadius *= spaceShrink;
+        }
 
         // Default effectiveTimeRadius & spacePotentialRadius before cross-group engagement reduction
         if (div.effectiveTimeRadius <= 1f) {
             div.timeFreedomFactor = 1.0f - clampVal(div.engagementLevel, 0f, 0.82f);
             div.effectiveTimeRadius = div.freeTimeRadius * div.timeFreedomFactor;
         }
-        float fpScale = clampVal((float) Math.sqrt(div.totalFpStrength / 38f), 0.55f, 1.35f);
+        float fpScale = clampVal((float) Math.sqrt(div.totalFpStrength / 38f), 0.55f, 1.35f) * unableDiscount;
         div.spacePotentialRadius = clampVal(
                 div.spaceDominatedRadius + div.effectiveTimeRadius * 0.42f * fpScale,
                 div.spaceDominatedRadius + 180f,
                 4100f);
+        if (!div.directionalSpaceInitialized) {
+            for (int s = 0; s < DivisionState.TIME_DIRECTIONS; s++) {
+                div.directionalSpaceInnerRadii[s] = div.spaceInnerRadius;
+                div.directionalSpaceDominatedRadii[s] = div.spaceDominatedRadius;
+                div.directionalSpacePotentialRadii[s] = div.spacePotentialRadius;
+            }
+        }
     }
 
     /**
@@ -2130,12 +2154,14 @@ public class BattlefieldFirepowerEvaluator {
         for (DivisionState div : myGroup.divisions) {
             if (!div.isCombatEffective()) continue;
 
-            // 1. Friendly Space mutual support from sibling divisions
+            // 1. Friendly Space mutual support from sibling divisions (excluding retreating/unable divisions)
             float friendlySupport = 0f;
             for (DivisionState peer : myGroup.divisions) {
-                if (peer == null || peer == div || !peer.isCombatEffective()) continue;
+                if (peer == null || peer == div || !peer.isAbleCombatEffective()) continue;
                 float d = distance(div.centroid, peer.centroid);
-                float maxSupportDist = peer.spaceDominatedRadius + div.spaceInnerRadius;
+                float bearingToDiv = (float) Math.toDegrees(Math.atan2(div.centroid.y - peer.centroid.y, div.centroid.x - peer.centroid.x));
+                float peerDomR = getDirectionalSpaceDominatedRadius(peer, bearingToDiv);
+                float maxSupportDist = peerDomR + div.spaceInnerRadius;
                 if (d < maxSupportDist) {
                     float ov = clampVal(1.0f - (d / Math.max(300f, maxSupportDist)), 0f, 1f);
                     friendlySupport += ov * peer.spaceDominanceWeight;
@@ -2151,11 +2177,14 @@ public class BattlefieldFirepowerEvaluator {
                     if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
                     Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
                     float d = distance(div.centroid, ePos);
-                    float sumTimeAndEnemySpace = div.freeTimeRadius * 0.72f + eDiv.spaceDominatedRadius;
+                    float bearingFromEnemy = (float) Math.toDegrees(Math.atan2(div.centroid.y - ePos.y, div.centroid.x - ePos.x));
+                    float eDomR = getDirectionalSpaceDominatedRadius(eDiv, bearingFromEnemy);
+                    float eInR = getDirectionalSpaceInnerRadius(eDiv, bearingFromEnemy);
+                    float sumTimeAndEnemySpace = div.freeTimeRadius * 0.72f + eDomR;
                     if (d < sumTimeAndEnemySpace) {
                         float ov = clampVal(
-                                1.0f - (d - eDiv.spaceInnerRadius * 0.6f)
-                                        / Math.max(350f, sumTimeAndEnemySpace - eDiv.spaceInnerRadius * 0.6f),
+                                1.0f - (d - eInR * 0.6f)
+                                        / Math.max(350f, sumTimeAndEnemySpace - eInR * 0.6f),
                                 0f,
                                 1f);
                         enemySpaceOverlap += ov * eDiv.spaceDominanceWeight;
@@ -2165,7 +2194,12 @@ public class BattlefieldFirepowerEvaluator {
             div.hostileSpacePressure = enemySpaceOverlap;
             div.netSpaceControl = (friendlySupport + div.spaceDominanceWeight * 0.65f) - enemySpaceOverlap;
 
-            // 3. Engagement Level = function of Enemy Space overlap + Enemy Firepower overlap + close flux load
+            // 2b. Map-Edge Proximity Pinch (Item D):
+            //     A division close to a map edge or corner has fewer maneuver directions available; if enemy pressure
+            //     is also present, the map boundary pinches its overall Time freedom.
+            div.edgeProximityPinch = computeEdgeProximityPinch(engine, div.centroid, div.freeTimeRadius);
+
+            // 3. Engagement Level = function of Enemy Space overlap + Enemy Firepower overlap + close flux load + map-edge pinch
             float refStrength = Math.max(16f, div.totalFpStrength * 1.25f);
             float spaceEngagement = clampVal(enemySpaceOverlap / refStrength, 0f, 0.62f);
             float firepowerEngagement = clampVal(
@@ -2174,33 +2208,42 @@ public class BattlefieldFirepowerEvaluator {
                     0f,
                     0.62f);
             float fluxEngagement = clampVal(div.avgFluxLevel * 0.26f, 0f, 0.22f);
+            float edgePinchTerm = div.edgeProximityPinch * (0.14f + 0.26f * Math.max(spaceEngagement, firepowerEngagement));
             float rawEngagement = clampVal(
                     Math.max(spaceEngagement, firepowerEngagement)
                             + 0.38f * Math.min(spaceEngagement, firepowerEngagement)
-                            + fluxEngagement,
+                            + fluxEngagement
+                            + edgePinchTerm,
                     0f,
-                    0.82f);
+                    0.85f);
 
             if (div.engagementLevel <= 0.001f) {
                 div.engagementLevel = rawEngagement;
             } else {
                 div.engagementLevel = div.engagementLevel * 0.60f + rawEngagement * 0.40f;
             }
-            div.timeFreedomFactor = 1.0f - clampVal(div.engagementLevel, 0f, 0.82f);
+            div.timeFreedomFactor = 1.0f - clampVal(div.engagementLevel, 0f, 0.85f);
             div.effectiveTimeRadius = div.freeTimeRadius * div.timeFreedomFactor;
 
             // 4. Space Potential Radius is a function of effective Time and Firepower
-            float fpScale = clampVal((float) Math.sqrt(div.totalFpStrength / 38f), 0.55f, 1.35f);
+            float unableDiscount = div.isUnableDivision
+                    ? 0.22f
+                    : Math.max(0.25f, 1.0f - 0.72f * div.retreatingFraction);
+            float fpScale = clampVal((float) Math.sqrt(div.totalFpStrength / 38f), 0.55f, 1.35f) * unableDiscount;
             div.spacePotentialRadius = clampVal(
                     div.spaceDominatedRadius + div.effectiveTimeRadius * 0.42f * fpScale,
                     div.spaceDominatedRadius + 180f,
                     4100f);
 
             // 4b. Directional Engagement Pinch across 24 polar sectors (15 deg each):
-            //     A division engaged on a given bearing is strongly pinched in the direction of enemy contact and
-            //     Enemy Space, while retaining much greater Time freedom to slide sideways (laterally) or fall back
-            //     away from the fighting (further aided by Friendly Space and pinched by any flanking Enemy Space).
+            //     A division engaged on a given bearing is strongly pinched in the direction of enemy contact,
+            //     Enemy Space, and Map Edges, while retaining much greater Time freedom to slide sideways or fall back.
             computeDirectionalTimeEnvelope(engine, div, myGroup, enemyGroup, refStrength, fluxEngagement);
+
+            // 4c. Directional, Non-Circular, Pinchable Space Envelope across 24 polar sectors (Items D & E):
+            //     Space is shaped by formation & weapon-arc anisotropy, directionally pinched by opposing Enemy Space
+            //     and Firepower, bolstered along friendly seams, and pinched against the combat map edges!
+            computeDirectionalSpaceEnvelope(engine, div, myGroup, enemyGroup, refStrength);
 
             // 5. Strongpoint vs Weak Point classification
             div.isStrongpoint = (friendlySupport >= Math.max(24f, div.totalFpStrength * 0.58f))
@@ -2223,9 +2266,15 @@ public class BattlefieldFirepowerEvaluator {
                         distance(div.centroid, visEnemy) / Math.max(65f, div.weightedTimeSpeed * div.timeFreedomFactor * 1.4f),
                         1.5f,
                         8.0f);
-                div.convergenceFocalPoint.set(
-                        visEnemy.x + focusEnemy.velocity.x * lookahead * 0.65f,
-                        visEnemy.y + focusEnemy.velocity.y * lookahead * 0.65f);
+                float fx = visEnemy.x + focusEnemy.velocity.x * lookahead * 0.65f;
+                float fy = visEnemy.y + focusEnemy.velocity.y * lookahead * 0.65f;
+                if (engine != null) {
+                    float maxW = Math.max(1500f, getMapHalfWidth(engine) - 350f);
+                    float maxH = Math.max(1500f, getMapHalfHeight(engine) - 350f);
+                    fx = clampVal(fx, -maxW, maxW);
+                    fy = clampVal(fy, -maxH, maxH);
+                }
+                div.convergenceFocalPoint.set(fx, fy);
             } else {
                 div.convergenceScore = 0f;
                 div.convergenceFocalPoint.set(div.stationPoint);
@@ -2355,7 +2404,17 @@ public class BattlefieldFirepowerEvaluator {
                 dirPinch -= clampVal(externalNetSpace / Math.max(24f, refStrength * 1.65f), 0f, 0.16f);
             }
 
-            rawDirEng[s] = clampVal(dirPinch, 0.0f, 0.84f);
+            // 2b. Map-Edge Directional Pinch (Item D):
+            //     When the map boundary is closer than freeR * 1.18 in direction (ux, uy), the map wall directly
+            //     pinches Time projection along this ray so Time cannot project past the battlefield edge.
+            float edgeDist = computeDirectionalBoundaryClearance(engine, div.centroid, ux, uy, 140f);
+            if (edgeDist < freeR * 1.18f) {
+                float pinchedR = pinchRadiusByBoundary(freeR, edgeDist);
+                float boundaryImpliedEng = clampVal(1.0f - (pinchedR / Math.max(100f, freeR)), 0.0f, 0.92f);
+                dirPinch = Math.max(dirPinch, boundaryImpliedEng);
+            }
+
+            rawDirEng[s] = clampVal(dirPinch, 0.0f, 0.90f);
         }
 
         // 3. Circular 3-tap angular smoothing + temporal EMA so the polar Time contour is smooth and organic
@@ -2363,15 +2422,390 @@ public class BattlefieldFirepowerEvaluator {
             int prev = (s + nDirs - 1) % nDirs;
             int next = (s + 1) % nDirs;
             float smoothedAng = 0.24f * rawDirEng[prev] + 0.52f * rawDirEng[s] + 0.24f * rawDirEng[next];
-            smoothedAng = clampVal(smoothedAng, 0.0f, 0.84f);
+            smoothedAng = clampVal(smoothedAng, 0.0f, 0.90f);
             if (!div.directionalTimeInitialized) {
                 div.directionalEngagement[s] = smoothedAng;
             } else {
                 div.directionalEngagement[s] = div.directionalEngagement[s] * 0.55f + smoothedAng * 0.45f;
             }
-            div.directionalTimeRadii[s] = freeR * (1.0f - clampVal(div.directionalEngagement[s], 0.0f, 0.84f));
+            float unpinchedR = freeR * (1.0f - clampVal(div.directionalEngagement[s], 0.0f, 0.90f));
+            float angleDeg = s * (360f / nDirs);
+            double rad = Math.toRadians(angleDeg);
+            float edgeDist = computeDirectionalBoundaryClearance(
+                    engine, div.centroid, (float) Math.cos(rad), (float) Math.sin(rad), 120f);
+            div.directionalTimeRadii[s] = pinchRadiusByBoundary(unpinchedR, edgeDist);
         }
         div.directionalTimeInitialized = true;
+    }
+
+    /**
+     * Computes the 24-sector Directional, Non-Circular, Pinchable Space (Zone of Control) envelope for {@code div}
+     * across all three tiers (Inner Directly Dominated, Mid Dominated Nearby, Outer Potentially Dominated):
+     *   - Anisotropic baseline shape: shaped by the division's active formation geometry (e.g. Line Abreast broadside/front
+     *     projection vs Line Ahead axial elongation vs Semicircle dome), actual member distribution around the centroid,
+     *     and directional weapon-arc reach from member firepower roses.
+     *   - Directional Enemy Space & Firepower Pinch: sectors facing overlapping Enemy Space or heavy incoming Firepower
+     *     are compressed/pinched inward, while sectors linking up with adjacent Friendly Space are bolstered.
+     *   - Map-Edge Boundary Pinch: all three Space tiers are pinched by the combat map boundaries along every sector ray.
+     */
+    public static void computeDirectionalSpaceEnvelope(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup,
+            float refStrength) {
+        if (div == null) return;
+        int nDirs = DivisionState.TIME_DIRECTIONS;
+        float baseInner = Math.max(220f, div.spaceInnerRadius);
+        float baseDom = Math.max(baseInner + 140f, div.spaceDominatedRadius);
+        float basePot = Math.max(baseDom + 140f, div.spacePotentialRadius);
+
+        float fwdX = div.formationHeadingInitialized ? div.formationHeadingX : 0f;
+        float fwdY = div.formationHeadingInitialized ? div.formationHeadingY : (div.side == 0 ? 1f : -1f);
+        float fLen = (float) Math.sqrt(fwdX * fwdX + fwdY * fwdY);
+        if (fLen > 1e-4f) {
+            fwdX /= fLen;
+            fwdY /= fLen;
+        } else {
+            fwdX = 0f;
+            fwdY = (div.side == 0) ? 1f : -1f;
+        }
+        float rightX = fwdY;
+        float rightY = -fwdX;
+
+        PermanentDivisionManager.DivisionFormation fm = div.activeFormation != null
+                ? div.activeFormation
+                : (div.doctrinalFormation != null ? div.doctrinalFormation : PermanentDivisionManager.DivisionFormation.LINE_ABREAST);
+
+        List<ShipAPI> alive = div.getAliveMembers();
+        float[] rawIn = new float[nDirs];
+        float[] rawDom = new float[nDirs];
+        float[] rawPot = new float[nDirs];
+
+        for (int s = 0; s < nDirs; s++) {
+            float angleDeg = s * (360f / nDirs);
+            double rad = Math.toRadians(angleDeg);
+            float ux = (float) Math.cos(rad);
+            float uy = (float) Math.sin(rad);
+
+            // 1. Formation & Hull Orientation Anisotropy (Space is not a perfect circle!)
+            float cosFwd = ux * fwdX + uy * fwdY;
+            float cosRight = ux * rightX + uy * rightY;
+            float formShape = 1.0f;
+            switch (fm) {
+                case LINE_ABREAST:
+                    // Wide lateral footprint + strong forward gunline projection, shallower astern
+                    formShape = 0.90f + 0.16f * (cosRight * cosRight) + (cosFwd >= 0f ? 0.14f * cosFwd : -0.14f * (-cosFwd));
+                    break;
+                case LINE_AHEAD:
+                    // Elongated along the column axis, narrower on the beam
+                    formShape = 0.86f + 0.24f * (cosFwd * cosFwd);
+                    break;
+                case FORWARD_WEDGE:
+                case FORWARD_SEMICIRCLE:
+                    // Concentrated forward spearhead / dome, tapered rear
+                    formShape = 0.92f + (cosFwd >= 0f ? 0.22f * cosFwd : -0.16f * (-cosFwd));
+                    break;
+                case REVERSE_WEDGE:
+                case REVERSE_SEMICIRCLE:
+                    // Concave pocket opening forward with extended flank horns
+                    formShape = 0.90f + 0.18f * (cosRight * cosRight) + (cosFwd >= 0f ? 0.10f * cosFwd : -0.12f * (-cosFwd));
+                    break;
+                case ECHELON_LEFT: {
+                    float diag = 0.7071f * (cosFwd - cosRight);
+                    formShape = 0.90f + 0.20f * (diag * diag) + (cosFwd >= 0f ? 0.08f * cosFwd : -0.08f * (-cosFwd));
+                    break;
+                }
+                case ECHELON_RIGHT: {
+                    float diag = 0.7071f * (cosFwd + cosRight);
+                    formShape = 0.90f + 0.20f * (diag * diag) + (cosFwd >= 0f ? 0.08f * cosFwd : -0.08f * (-cosFwd));
+                    break;
+                }
+                default:
+                    // Even in Circle/Protective Circle, forward hemisphere where shields/weapons orient is slightly fuller
+                    formShape = 0.95f + 0.09f * cosFwd;
+                    break;
+            }
+
+            // 1b. Member hull projection & directional weapon-rose reach along sector angleDeg
+            float maxMemberProj = 0f;
+            float roseReachSum = 0f;
+            float roseWeightSum = 0f;
+            for (int mIdx = 0; mIdx < alive.size(); mIdx++) {
+                ShipAPI m = alive.get(mIdx);
+                if (m == null || (div.detachedStragglerIds.contains(m.getId()) && div.coreMemberCount >= 1)) continue;
+                float proj = (m.getLocation().x - div.centroid.x) * ux + (m.getLocation().y - div.centroid.y) * uy;
+                if (proj > maxMemberProj) {
+                    maxMemberProj = proj;
+                }
+                ShipFirepowerRose rose = rosesByShipId.get(m.getId());
+                if (rose != null && rose.maxGeneralRange > 50f) {
+                    float w = ShipCapabilityProfile.resolveShipFpStrength(m);
+                    float relAngle = normalizeAngle360(angleDeg - rose.smoothedFacingDeg);
+                    float secRange = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relAngle);
+                    float ratio = clampVal(secRange / Math.max(250f, rose.maxGeneralRange), 0.55f, 1.15f);
+                    roseReachSum += ratio * w;
+                    roseWeightSum += w;
+                }
+            }
+            float memberReachBoost = clampVal(maxMemberProj / Math.max(350f, baseInner), 0f, 0.22f);
+            float weaponArcFactor = (roseWeightSum > 0f) ? (roseReachSum / roseWeightSum) : 1.0f;
+            float sectorAnisotropy = clampVal(formShape * (0.78f + 0.22f * weaponArcFactor) + memberReachBoost * 0.5f, 0.72f, 1.26f);
+
+            // 2. Directional Pinching by Opposing Enemy Space & Enemy Firepower (and bolstering by Friendly Space)
+            float enemyPinch = 0f;
+            if (enemyGroup != null) {
+                for (DivisionState eDiv : enemyGroup.divisions) {
+                    if (eDiv == null || !eDiv.isCombatEffective()) continue;
+                    if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
+                    Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
+                    float dx = ePos.x - div.centroid.x;
+                    float dy = ePos.y - div.centroid.y;
+                    float d = (float) Math.sqrt(dx * dx + dy * dy);
+                    float eDomR = Math.max(650f, eDiv.spaceDominatedRadius);
+                    float maxDist = basePot + eDomR;
+                    if (d < maxDist && d > 1f) {
+                        float cosAlign = (dx * ux + dy * uy) / d;
+                        if (cosAlign > 0.05f) {
+                            float overlap = clampVal(1.0f - (d / Math.max(400f, maxDist)), 0f, 1f);
+                            float weightRatio = eDiv.spaceDominanceWeight
+                                    / Math.max(8f, div.spaceDominanceWeight + eDiv.spaceDominanceWeight * 0.85f);
+                            enemyPinch += overlap * weightRatio * (cosAlign * cosAlign) * 0.58f;
+                        }
+                    }
+                }
+            }
+
+            float friendlyBolster = 0f;
+            if (myGroup != null) {
+                for (DivisionState peer : myGroup.divisions) {
+                    if (peer == null || peer == div || !peer.isAbleCombatEffective()) continue;
+                    float dx = peer.centroid.x - div.centroid.x;
+                    float dy = peer.centroid.y - div.centroid.y;
+                    float d = (float) Math.sqrt(dx * dx + dy * dy);
+                    float maxDist = baseDom + peer.spaceDominatedRadius;
+                    if (d < maxDist && d > 1f) {
+                        float cosAlign = (dx * ux + dy * uy) / d;
+                        if (cosAlign > 0.15f) {
+                            float overlap = clampVal(1.0f - (d / Math.max(400f, maxDist)), 0f, 1f);
+                            friendlyBolster += overlap * (cosAlign * cosAlign) * 0.14f;
+                        }
+                    }
+                }
+            }
+
+            float netPinchMult = clampVal(1.0f - clampVal(enemyPinch, 0f, 0.52f) + clampVal(friendlyBolster, 0f, 0.14f), 0.46f, 1.14f);
+            float innerPinchMult = clampVal(1.0f - clampVal(enemyPinch * 0.55f, 0f, 0.34f) + clampVal(friendlyBolster * 0.5f, 0f, 0.08f), 0.62f, 1.12f);
+
+            // Couple Potential Space to directional Time freedom in this sector so pinned sectors cannot project Potential Space
+            float dirTimeR = div.directionalTimeInitialized ? div.directionalTimeRadii[s] : div.effectiveTimeRadius;
+            float timeRatio = clampVal(dirTimeR / Math.max(250f, div.freeTimeRadius), 0.20f, 1.05f);
+
+            float secIn = baseInner * sectorAnisotropy * innerPinchMult;
+            float secDom = Math.max(secIn + 110f, baseDom * sectorAnisotropy * netPinchMult);
+            float secPot = Math.max(secDom + 110f, secDom + (basePot - baseDom) * sectorAnisotropy * netPinchMult * (0.45f + 0.55f * timeRatio));
+
+            rawIn[s] = secIn;
+            rawDom[s] = secDom;
+            rawPot[s] = secPot;
+        }
+
+        // 3. Circular 3-tap angular smoothing + temporal EMA + Map-Edge Boundary Pinching
+        for (int s = 0; s < nDirs; s++) {
+            int prev = (s + nDirs - 1) % nDirs;
+            int next = (s + 1) % nDirs;
+            float smIn = 0.24f * rawIn[prev] + 0.52f * rawIn[s] + 0.24f * rawIn[next];
+            float smDom = 0.24f * rawDom[prev] + 0.52f * rawDom[s] + 0.24f * rawDom[next];
+            float smPot = 0.24f * rawPot[prev] + 0.52f * rawPot[s] + 0.24f * rawPot[next];
+
+            float angleDeg = s * (360f / nDirs);
+            double rad = Math.toRadians(angleDeg);
+            float edgeDist = computeDirectionalBoundaryClearance(
+                    engine, div.centroid, (float) Math.cos(rad), (float) Math.sin(rad), 110f);
+
+            smIn = pinchRadiusByBoundary(smIn, Math.max(60f, edgeDist - 40f));
+            smDom = Math.max(smIn + 25f, pinchRadiusByBoundary(smDom, Math.max(85f, edgeDist - 20f)));
+            smPot = Math.max(smDom + 25f, pinchRadiusByBoundary(smPot, edgeDist));
+
+            if (!div.directionalSpaceInitialized) {
+                div.directionalSpaceInnerRadii[s] = smIn;
+                div.directionalSpaceDominatedRadii[s] = smDom;
+                div.directionalSpacePotentialRadii[s] = smPot;
+            } else {
+                div.directionalSpaceInnerRadii[s] = div.directionalSpaceInnerRadii[s] * 0.55f + smIn * 0.45f;
+                div.directionalSpaceDominatedRadii[s] = div.directionalSpaceDominatedRadii[s] * 0.55f + smDom * 0.45f;
+                div.directionalSpacePotentialRadii[s] = div.directionalSpacePotentialRadii[s] * 0.55f + smPot * 0.45f;
+            }
+        }
+        div.directionalSpaceInitialized = true;
+    }
+
+    public static float getDirectionalSpaceInnerRadius(DivisionState div, float worldAngleDeg) {
+        if (div == null) return 0f;
+        if (!div.directionalSpaceInitialized) {
+            return Math.max(100f, div.spaceInnerRadius);
+        }
+        return sampleDirectionalDivisionArray(div.directionalSpaceInnerRadii, worldAngleDeg);
+    }
+
+    public static float getDirectionalSpaceDominatedRadius(DivisionState div, float worldAngleDeg) {
+        if (div == null) return 0f;
+        if (!div.directionalSpaceInitialized) {
+            return Math.max(200f, div.spaceDominatedRadius);
+        }
+        return sampleDirectionalDivisionArray(div.directionalSpaceDominatedRadii, worldAngleDeg);
+    }
+
+    public static float getDirectionalSpacePotentialRadius(DivisionState div, float worldAngleDeg) {
+        if (div == null) return 0f;
+        if (!div.directionalSpaceInitialized) {
+            return Math.max(300f, div.spacePotentialRadius);
+        }
+        return sampleDirectionalDivisionArray(div.directionalSpacePotentialRadii, worldAngleDeg);
+    }
+
+    private static float sampleDirectionalDivisionArray(float[] arr, float worldAngleDeg) {
+        int nDirs = DivisionState.TIME_DIRECTIONS;
+        float norm = normalizeAngle360(worldAngleDeg);
+        float exactIdx = norm / (360f / nDirs);
+        int i0 = ((int) Math.floor(exactIdx)) % nDirs;
+        int i1 = (i0 + 1) % nDirs;
+        float frac = exactIdx - (float) Math.floor(exactIdx);
+        float w = 0.5f * (1.0f - (float) Math.cos(frac * Math.PI));
+        return arr[i0] * (1.0f - w) + arr[i1] * w;
+    }
+
+    public static float getMapHalfWidth(CombatEngineAPI engine) {
+        if (engine == null || engine.getMapWidth() <= 100f) return 9000f;
+        return engine.getMapWidth() * 0.5f;
+    }
+
+    public static float getMapHalfHeight(CombatEngineAPI engine) {
+        if (engine == null || engine.getMapHeight() <= 100f) return 9000f;
+        return engine.getMapHeight() * 0.5f;
+    }
+
+    /**
+     * Exact ray distance from {@code pos} along unit direction {@code (ux, uy)} to the combat map boundary
+     * (inset by {@code margin}).
+     */
+    public static float computeDirectionalBoundaryClearance(
+            CombatEngineAPI engine,
+            Vector2f pos,
+            float ux,
+            float uy,
+            float margin) {
+        if (pos == null) return 99999f;
+        float halfW = Math.max(1200f, getMapHalfWidth(engine) - margin);
+        float halfH = Math.max(1200f, getMapHalfHeight(engine) - margin);
+        float tx = 99999f;
+        if (ux > 1e-4f) {
+            tx = (halfW - pos.x) / ux;
+        } else if (ux < -1e-4f) {
+            tx = (-halfW - pos.x) / ux;
+        }
+        float ty = 99999f;
+        if (uy > 1e-4f) {
+            ty = (halfH - pos.y) / uy;
+        } else if (uy < -1e-4f) {
+            ty = (-halfH - pos.y) / uy;
+        }
+        return Math.max(40f, Math.min(tx, ty));
+    }
+
+    /**
+     * Smoothly pinches an unconstrained radius {@code radius} against directional map-edge clearance {@code edgeClearance}
+     * so Time, Space, Firepower, and Convergence envelopes compress organically against the map walls and never spill past.
+     */
+    public static float pinchRadiusByBoundary(float radius, float edgeClearance) {
+        if (radius <= 1f) return 0f;
+        if (edgeClearance >= radius * 1.35f) return radius;
+        float effEdge = Math.max(35f, edgeClearance);
+        float scaledR = radius * 0.82f;
+        float softPinch = (radius * effEdge) / (float) Math.sqrt(scaledR * scaledR + effEdge * effEdge);
+        return Math.min(effEdge, softPinch);
+    }
+
+    /**
+     * Returns [0..1] measuring how strongly {@code pos} is pinched against the nearest map edge or corner
+     * relative to {@code referenceRadius}.
+     */
+    public static float computeEdgeProximityPinch(CombatEngineAPI engine, Vector2f pos, float referenceRadius) {
+        if (pos == null) return 0f;
+        float halfW = getMapHalfWidth(engine);
+        float halfH = getMapHalfHeight(engine);
+        float clearX = Math.max(0f, halfW - Math.abs(pos.x));
+        float clearY = Math.max(0f, halfH - Math.abs(pos.y));
+        float ref = Math.max(900f, referenceRadius * 0.85f);
+        float pinchX = clearX < ref ? (1.0f - clearX / ref) : 0f;
+        float pinchY = clearY < ref ? (1.0f - clearY / ref) : 0f;
+        // Corner pinch is stronger than a single edge pinch because two orthogonal escape axes are blocked
+        return clampVal(Math.max(pinchX, pinchY) + 0.45f * Math.min(pinchX, pinchY), 0f, 1.0f);
+    }
+
+    /**
+     * Evaluates the tactical value of map edges at candidate station {@code cand} (Item D):
+     *   - When outnumbered / defensive ({@code defensivePosture == true}), anchoring with a map edge behind our division
+     *     (at 850u..2100u clearance, with the enemy inward toward the map center) is a SAFE ZONE because the map edge
+     *     blocks rear flanking/encirclement and allows a balled-up fleet to concentrate fire in a narrow forward arc!
+     *   - Conversely, getting wedged between an enemy division and a map edge on the offensive (< 850u from the wall
+     *     or with the enemy blocking our inward escape) is heavily penalized.
+     */
+    public static float evaluateMapEdgeStationScore(
+            CombatEngineAPI engine,
+            DivisionState myDiv,
+            Vector2f enemyFocusPos,
+            Vector2f cand,
+            boolean defensivePosture) {
+        if (cand == null) return 0f;
+        float halfW = getMapHalfWidth(engine);
+        float halfH = getMapHalfHeight(engine);
+        float clearX = halfW - Math.abs(cand.x);
+        float clearY = halfH - Math.abs(cand.y);
+        float minClear = Math.min(clearX, clearY);
+
+        // Hard safety margin: never hug closer than 650u to the raw map boundary
+        if (minClear < 650f) {
+            return -(650f - minClear) * 1.15f;
+        }
+        if (minClear > 2400f) {
+            return 0f;
+        }
+
+        // Outward normal pointing toward the nearest map wall
+        float wallNx = 0f;
+        float wallNy = 0f;
+        if (clearX < clearY) {
+            wallNx = cand.x >= 0f ? 1f : -1f;
+        } else {
+            wallNy = cand.y >= 0f ? 1f : -1f;
+        }
+
+        float enemyDotWall = 0f;
+        if (enemyFocusPos != null) {
+            float edx = enemyFocusPos.x - cand.x;
+            float edy = enemyFocusPos.y - cand.y;
+            float eLen = (float) Math.sqrt(edx * edx + edy * edy);
+            if (eLen > 1f) {
+                // Negative when enemy is toward map center and the map wall is BEHIND our candidate station
+                enemyDotWall = (edx * wallNx + edy * wallNy) / eLen;
+            }
+        }
+
+        if (defensivePosture && enemyDotWall <= -0.20f) {
+            // Safe defensive bastion zone: back to the map edge (900u..2000u clearance), facing inward toward the attacker!
+            float sweetSpot = 1.0f - Math.abs(minClear - 1350f) / 1050f;
+            return Math.max(0f, sweetSpot) * (-enemyDotWall) * 260f;
+        }
+
+        // If enemy is between us and the map center (enemyDotWall > 0.15f) or we are flanking into a tight wall gap (< 1250u),
+        // penalize getting pinched against the map edge!
+        if (minClear < 1350f) {
+            float trapFactor = (1350f - minClear) / 700f;
+            float trappedByEnemyMult = (enemyDotWall < -0.15f) ? 1.35f : 0.75f;
+            return -trapFactor * 195f * trappedByEnemyMult;
+        }
+        return 0f;
     }
 
     /**
@@ -2411,11 +2845,15 @@ public class BattlefieldFirepowerEvaluator {
             for (DivisionState d : myGroup.divisions) {
                 if (d == null || !d.isCombatEffective()) continue;
                 float dist = distance(point, d.centroid);
-                if (dist < d.spacePotentialRadius) {
-                    float w = (dist <= d.spaceInnerRadius) ? 1.0f
-                            : (dist <= d.spaceDominatedRadius
-                            ? (0.55f + 0.45f * (1f - (dist - d.spaceInnerRadius) / Math.max(100f, d.spaceDominatedRadius - d.spaceInnerRadius)))
-                            : (0.55f * (1f - (dist - d.spaceDominatedRadius) / Math.max(100f, d.spacePotentialRadius - d.spaceDominatedRadius))));
+                float bearing = (float) Math.toDegrees(Math.atan2(point.y - d.centroid.y, point.x - d.centroid.x));
+                float inR = getDirectionalSpaceInnerRadius(d, bearing);
+                float domR = getDirectionalSpaceDominatedRadius(d, bearing);
+                float potR = getDirectionalSpacePotentialRadius(d, bearing);
+                if (dist < potR) {
+                    float w = (dist <= inR) ? 1.0f
+                            : (dist <= domR
+                            ? (0.55f + 0.45f * (1f - (dist - inR) / Math.max(100f, domR - inR)))
+                            : (0.55f * (1f - (dist - domR) / Math.max(100f, potR - domR))));
                     friendlySpace += d.spaceDominanceWeight * Math.max(0f, w);
                 }
                 // Airborne Strike Craft squadrons also project Friendly Space at their squadron location
@@ -2440,10 +2878,11 @@ public class BattlefieldFirepowerEvaluator {
                 if (!OtcAI.isDivisionVisibleToSide(engine, observerSide, e)) continue;
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, observerSide, e);
                 float dist = distance(point, ePos);
-                float potR = Math.max(1200f, e.spacePotentialRadius);
-                float domR = Math.max(850f, e.spaceDominatedRadius);
-                float inR = Math.max(450f, e.spaceInnerRadius);
-                float domW = Math.max(10f, e.spaceDominanceWeight);
+                float bearing = (float) Math.toDegrees(Math.atan2(point.y - ePos.y, point.x - ePos.x));
+                float potR = Math.max(950f, getDirectionalSpacePotentialRadius(e, bearing));
+                float domR = Math.max(680f, getDirectionalSpaceDominatedRadius(e, bearing));
+                float inR = Math.max(380f, getDirectionalSpaceInnerRadius(e, bearing));
+                float domW = Math.max(4f, e.spaceDominanceWeight);
                 if (dist < potR) {
                     float w = (dist <= inR) ? 1.0f
                             : (dist <= domR
@@ -2506,16 +2945,24 @@ public class BattlefieldFirepowerEvaluator {
         Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myDiv.side, enemyDiv);
         float dist = distance(myDiv.centroid, ePos);
 
-        // 1. Temporal Reachability Coincidence (how cleanly myDiv's effectiveTimeRadius + weapon/strike-craft reach covers ePos)
+        // 1. Temporal Reachability Coincidence (how cleanly myDiv's directional effectiveTimeRadius + weapon/strike-craft reach covers ePos)
+        float bearingToEnemy = (float) Math.toDegrees(Math.atan2(ePos.y - myDiv.centroid.y, ePos.x - myDiv.centroid.x));
+        float dirTimeReach = getDirectionalTimeRadius(myDiv, bearingToEnemy);
         float strikeCraftReachBonus = myDiv.hasCarrierCapability ? 650f : 0f;
-        float reachHorizon = Math.max(900f, myDiv.effectiveTimeRadius + myDiv.avgEngageRange * 0.75f + strikeCraftReachBonus);
+        float reachHorizon = Math.max(900f, dirTimeReach + myDiv.avgEngageRange * 0.75f + strikeCraftReachBonus);
         float timeCoincidence = clampVal(1.35f - (dist / Math.max(600f, reachHorizon)), 0.15f, 1.35f);
 
-        // 2. Target Pinning & Space Seam Vulnerability (enemy pinned in Time + isolated in Space; carriers also exploit low-PD targets)
-        float enemyPinnedBonus = 1.0f + enemyDiv.engagementLevel * 0.85f;
+        // 2. Target Pinning, Map-Edge Compression & Space Seam Vulnerability (Items D, E, F)
+        float enemyEdgePinch = computeEdgeProximityPinch(engine, ePos, enemyDiv.freeTimeRadius);
+        float enemyPinnedBonus = 1.0f + enemyDiv.engagementLevel * 0.85f + enemyEdgePinch * 0.32f;
         float seamVulnerability = enemyDiv.isWeakPoint ? 1.38f : (enemyDiv.isStrongpoint ? 0.74f : 1.05f);
         if (myDiv.hasCarrierCapability && !enemyDiv.isScreenCapable) {
             seamVulnerability *= 1.18f;
+        }
+        // Discount retreating ("unable") enemy divisions while able enemy divisions remain on the field
+        float unableTargetMult = 1.0f;
+        if (enemyDiv.isUnableDivision || enemyDiv.retreatingFraction >= 0.5f) {
+            unableTargetMult = (myGroup != null && myGroup.currentPhase == DivisionModel.BattlePhase.GENERAL_CHASE) ? 0.85f : 0.35f;
         }
 
         // 3. Firepower / Flux Collapse Multiplier
@@ -2527,7 +2974,7 @@ public class BattlefieldFirepowerEvaluator {
         if (myGroup != null) {
             float myBearing = (float) Math.toDegrees(Math.atan2(myDiv.centroid.y - ePos.y, myDiv.centroid.x - ePos.x));
             for (DivisionState peer : myGroup.divisions) {
-                if (peer == null || peer == myDiv || !peer.isCombatEffective()) continue;
+                if (peer == null || peer == myDiv || !peer.isAbleCombatEffective()) continue;
                 if (peer.targetEnemyDivision == enemyDiv || peer == myGroup.mainEffortDivision) {
                     float peerBearing = (float) Math.toDegrees(Math.atan2(peer.centroid.y - ePos.y, peer.centroid.x - ePos.x));
                     float angDiff = Math.abs(shortestAngleDiffDeg(myBearing, peerBearing));
@@ -2540,7 +2987,8 @@ public class BattlefieldFirepowerEvaluator {
 
         // Multiplicative phase-space product (strictly stronger than linear sum when all 3 align!)
         float baseValue = OtcAI.getVisibleFpForSide(engine, myDiv.side, enemyDiv) * 9.0f + blindSpot * 0.8f;
-        return baseValue * timeCoincidence * enemyPinnedBonus * seamVulnerability * fluxCollapseMult * Math.min(1.75f, pincerSynergy);
+        return baseValue * timeCoincidence * enemyPinnedBonus * seamVulnerability * fluxCollapseMult
+                * Math.min(1.75f, pincerSynergy) * unableTargetMult;
     }
 
     /**
@@ -2615,16 +3063,22 @@ public class BattlefieldFirepowerEvaluator {
                 }
             }
 
-            // Time reachability: prefer stations inside myDiv's effectiveTimeRadius
+            // Time reachability: prefer stations inside myDiv's directional effectiveTimeRadius
             float distFromDiv = distance(cand, myDiv.centroid);
-            float timePenalty = (distFromDiv <= myDiv.effectiveTimeRadius)
+            float bearingFromDiv = (float) Math.toDegrees(Math.atan2(cand.y - myDiv.centroid.y, cand.x - myDiv.centroid.x));
+            float dirTimeR = getDirectionalTimeRadius(myDiv, bearingFromDiv);
+            float timePenalty = (distFromDiv <= dirTimeR)
                     ? (distFromDiv * 0.05f)
-                    : (myDiv.effectiveTimeRadius * 0.05f + (distFromDiv - myDiv.effectiveTimeRadius) * 0.22f);
+                    : (dirTimeR * 0.05f + (distFromDiv - dirTimeR) * 0.22f);
+
+            boolean defensivePosture = (myGroup != null && myGroup.forceRatio < 0.85f) || myDiv.localForceRatio < 0.82f;
+            float edgeTacticalScore = evaluateMapEdgeStationScore(engine, myDiv, arcCenter, cand, defensivePosture);
 
             float score = blindSpot * 1.45f
                     + crossfireSynergy
                     + netSpace * 1.85f
                     + fpEval.friendlyShortDot * 0.16f
+                    + edgeTacticalScore
                     - fpEval.effectiveDanger * 0.68f
                     - fpEval.cordonIndex * 640f
                     - timePenalty
@@ -3006,7 +3460,8 @@ public class BattlefieldFirepowerEvaluator {
     private static boolean hasAnyUninitializedDivisionTimeSpace(BattleGroupState group) {
         if (group == null) return false;
         for (DivisionState d : group.divisions) {
-            if (d != null && d.isCombatEffective() && (d.freeTimeRadius <= 1f || !d.directionalTimeInitialized)) {
+            if (d != null && d.isCombatEffective()
+                    && (d.freeTimeRadius <= 1f || !d.directionalTimeInitialized || !d.directionalSpaceInitialized)) {
                 return true;
             }
         }
@@ -3223,23 +3678,23 @@ public class BattlefieldFirepowerEvaluator {
             }
 
             if (isCircleVisibleOnScreen(cx, cy, potRadPx + 16f, screenW, screenH)) {
-                // Tier 3 (Outer): Potentially Dominated Space given Time to maneuver (faintest outer halo)
-                drawIncreasinglyTransparentCircle(cx, cy, potRadPx, r, g, b, 0.11f * fade, 36);
-                drawCircleOutline(cx, cy, potRadPx, r, g, b, 0.22f * fade, 1.1f, 36, true);
+                // Tier 3 (Outer): Potentially Dominated Space given Time to maneuver (directional, non-circular, map-edge pinched)
+                drawDirectionalSpaceTierGradient(cx, cy, div, 2, scale, r, g, b, 0.11f * fade);
+                drawDirectionalSpaceTierOutline(cx, cy, div, 2, scale, 1.0f, r, g, b, 0.22f * fade, 1.1f, true);
 
-                // Tier 2 (Middle): Dominated Nearby Space
-                drawIncreasinglyTransparentCircle(cx, cy, domRadPx, r, g, b, 0.16f * fade, 36);
-                drawCircleOutline(cx, cy, domRadPx, r, g, b, 0.38f * fade, 1.4f, 36, false);
+                // Tier 2 (Middle): Dominated Nearby Space (directional, non-circular, map-edge pinched)
+                drawDirectionalSpaceTierGradient(cx, cy, div, 1, scale, r, g, b, 0.16f * fade);
+                drawDirectionalSpaceTierOutline(cx, cy, div, 1, scale, 1.0f, r, g, b, 0.38f * fade, 1.4f, false);
 
-                // Tier 1 (Inner Core): Directly Dominated Up Close Space
-                drawIncreasinglyTransparentCircle(cx, cy, inRadPx, r, g, b, 0.20f * fade, 36);
-                drawCircleOutline(cx, cy, inRadPx, r, g, b, 0.52f * fade, 1.6f, 36, false);
+                // Tier 1 (Inner Core): Directly Dominated Up Close Space (directional, non-circular, map-edge pinched)
+                drawDirectionalSpaceTierGradient(cx, cy, div, 0, scale, r, g, b, 0.20f * fade);
+                drawDirectionalSpaceTierOutline(cx, cy, div, 0, scale, 1.0f, r, g, b, 0.52f * fade, 1.6f, false);
 
                 // Highlight Strongpoint (bastion) or Weak Point (seam) on the inner Space perimeter
                 if (div.isStrongpoint) {
-                    drawCircleOutline(cx, cy, inRadPx * 0.75f, 0.45f, 0.98f, 0.88f, 0.55f * fade, 1.8f, 24, false);
+                    drawDirectionalSpaceTierOutline(cx, cy, div, 0, scale, 0.75f, 0.45f, 0.98f, 0.88f, 0.55f * fade, 1.8f, false);
                 } else if (div.isWeakPoint) {
-                    drawCircleOutline(cx, cy, inRadPx * 0.82f, 1.00f, 0.75f, 0.22f, 0.60f * fade, 1.8f, 24, true);
+                    drawDirectionalSpaceTierOutline(cx, cy, div, 0, scale, 0.82f, 1.00f, 0.75f, 0.22f, 0.60f * fade, 1.8f, true);
                 }
             }
 
@@ -3306,11 +3761,20 @@ public class BattlefieldFirepowerEvaluator {
             float activeBoost = (group.useConvergence || div.useConvergence) ? 1.18f : 0.85f;
             int divSegs = DivisionAISettings.isTsfcHighGraphics() ? 48 : 36;
             if (isCircleVisibleOnScreen(cx, cy, radPx + 16f, screenW, screenH)) {
-                drawIncreasinglyTransparentCircle(cx, cy, radPx, r, g, b, 0.18f * fade * activeBoost, divSegs);
+                // Directional & map-edge-pinched Convergence envelope
+                drawDirectionalConvergenceEnvelope(engine, cx, cy, cWorld, div, scale, r, g, b, 0.18f * fade * activeBoost, 0.52f * fade * activeBoost);
 
-                // Render the iconic Convergence battle glyph: an inscribed triangle inside an inscribed square inside a circle
-                drawCircleOutline(cx, cy, radPx, r, g, b, 0.52f * fade * activeBoost, 1.6f, divSegs, false);
-                float sqHalf = radPx * 0.70710678f; // inscribed square half-side = R / sqrt(2)
+                // Render the iconic Convergence battle glyph: an inscribed triangle inside an inscribed square inside the pinched envelope
+                float minEdgeClear = Math.min(
+                        computeDirectionalBoundaryClearance(engine, cWorld, 1f, 0f, 110f),
+                        Math.min(
+                                computeDirectionalBoundaryClearance(engine, cWorld, -1f, 0f, 110f),
+                                Math.min(
+                                        computeDirectionalBoundaryClearance(engine, cWorld, 0f, 1f, 110f),
+                                        computeDirectionalBoundaryClearance(engine, cWorld, 0f, -1f, 110f))));
+                float glyphWorldR = pinchRadiusByBoundary(convWorldRad, minEdgeClear);
+                float glyphRadPx = Math.max(18f, glyphWorldR * scale);
+                float sqHalf = glyphRadPx * 0.70710678f; // inscribed square half-side = R / sqrt(2)
                 GL11.glLineWidth(1.35f);
                 GL11.glColor4f(r, g, b, 0.42f * fade * activeBoost);
                 GL11.glBegin(GL11.GL_LINE_LOOP);
@@ -3373,6 +3837,147 @@ public class BattlefieldFirepowerEvaluator {
                 }
             }
         }
+    }
+
+    private static void populateDirectionalSpaceScratchCoords(float cx, float cy, DivisionState div, int tier, float scale) {
+        boolean init = div.directionalSpaceInitialized;
+        float fallbackWorldR = (tier == 0)
+                ? Math.max(100f, div.spaceInnerRadius)
+                : ((tier == 1) ? Math.max(200f, div.spaceDominatedRadius) : Math.max(300f, div.spacePotentialRadius));
+        float[] src = (tier == 0)
+                ? div.directionalSpaceInnerRadii
+                : ((tier == 1) ? div.directionalSpaceDominatedRadii : div.directionalSpacePotentialRadii);
+        for (int i = 0; i < 48; i++) {
+            float worldR;
+            if (!init || src == null) {
+                worldR = fallbackWorldR;
+            } else {
+                int s0 = i >> 1;
+                if ((i & 1) == 0) {
+                    worldR = src[s0];
+                } else {
+                    int s1 = (s0 + 1) % DivisionState.TIME_DIRECTIONS;
+                    worldR = 0.5f * (src[s0] + src[s1]);
+                }
+            }
+            float outerRadPx = Math.max(12f, worldR * scale);
+            float midRadPx = outerRadPx * 0.55f;
+            float cos = UNIT_COS_48[i];
+            float sin = UNIT_SIN_48[i];
+            SCRATCH_TIME_OUTER_X[i] = cx + cos * outerRadPx;
+            SCRATCH_TIME_OUTER_Y[i] = cy + sin * outerRadPx;
+            SCRATCH_TIME_MID_X[i] = cx + cos * midRadPx;
+            SCRATCH_TIME_MID_Y[i] = cy + sin * midRadPx;
+        }
+    }
+
+    private static void drawDirectionalSpaceTierGradient(
+            float cx,
+            float cy,
+            DivisionState div,
+            int tier,
+            float scale,
+            float r,
+            float g,
+            float b,
+            float centerAlpha) {
+        if (div == null || scale <= 1e-5f || centerAlpha <= 0.002f) return;
+        populateDirectionalSpaceScratchCoords(cx, cy, div, tier, scale);
+        float midAlpha = centerAlpha * 0.48f;
+
+        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+        GL11.glColor4f(r, g, b, centerAlpha);
+        GL11.glVertex2f(cx, cy);
+        GL11.glColor4f(r, g, b, midAlpha);
+        for (int i = 0; i <= 48; i++) {
+            int idx = (i == 48) ? 0 : i;
+            GL11.glVertex2f(SCRATCH_TIME_MID_X[idx], SCRATCH_TIME_MID_Y[idx]);
+        }
+        GL11.glEnd();
+
+        GL11.glBegin(GL11.GL_QUAD_STRIP);
+        for (int i = 0; i <= 48; i++) {
+            int idx = (i == 48) ? 0 : i;
+            GL11.glColor4f(r, g, b, midAlpha);
+            GL11.glVertex2f(SCRATCH_TIME_MID_X[idx], SCRATCH_TIME_MID_Y[idx]);
+            GL11.glColor4f(r, g, b, 0.0f);
+            GL11.glVertex2f(SCRATCH_TIME_OUTER_X[idx], SCRATCH_TIME_OUTER_Y[idx]);
+        }
+        GL11.glEnd();
+    }
+
+    private static void drawDirectionalSpaceTierOutline(
+            float cx,
+            float cy,
+            DivisionState div,
+            int tier,
+            float scale,
+            float radScale,
+            float r,
+            float g,
+            float b,
+            float alpha,
+            float lineWidth,
+            boolean dashed) {
+        if (div == null || scale <= 1e-5f || alpha <= 0.002f) return;
+        populateDirectionalSpaceScratchCoords(cx, cy, div, tier, scale);
+        drawDirectionalTimeOutline(cx, cy, div, scale, radScale, r, g, b, alpha, lineWidth, 48, dashed);
+    }
+
+    private static void drawDirectionalConvergenceEnvelope(
+            CombatEngineAPI engine,
+            float cx,
+            float cy,
+            Vector2f cWorld,
+            DivisionState div,
+            float scale,
+            float r,
+            float g,
+            float b,
+            float centerAlpha,
+            float outlineAlpha) {
+        if (div == null || scale <= 1e-5f) return;
+        float weaponPart = 0.24f * Math.max(500f, div.avgEngageRange);
+        for (int i = 0; i < 48; i++) {
+            float deg = i * (360f / 48f);
+            float tR = getDirectionalTimeRadius(div, deg);
+            float sR = getDirectionalSpaceDominatedRadius(div, deg);
+            float worldR = 0.38f * tR + 0.38f * sR + weaponPart;
+            float cos = UNIT_COS_48[i];
+            float sin = UNIT_SIN_48[i];
+            if (cWorld != null) {
+                float edgeDist = computeDirectionalBoundaryClearance(engine, cWorld, cos, sin, 110f);
+                worldR = pinchRadiusByBoundary(worldR, edgeDist);
+            }
+            float outerRadPx = Math.max(16f, worldR * scale);
+            float midRadPx = outerRadPx * 0.55f;
+            SCRATCH_TIME_OUTER_X[i] = cx + cos * outerRadPx;
+            SCRATCH_TIME_OUTER_Y[i] = cy + sin * outerRadPx;
+            SCRATCH_TIME_MID_X[i] = cx + cos * midRadPx;
+            SCRATCH_TIME_MID_Y[i] = cy + sin * midRadPx;
+        }
+        float midAlpha = centerAlpha * 0.48f;
+        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+        GL11.glColor4f(r, g, b, centerAlpha);
+        GL11.glVertex2f(cx, cy);
+        GL11.glColor4f(r, g, b, midAlpha);
+        for (int i = 0; i <= 48; i++) {
+            int idx = (i == 48) ? 0 : i;
+            GL11.glVertex2f(SCRATCH_TIME_MID_X[idx], SCRATCH_TIME_MID_Y[idx]);
+        }
+        GL11.glEnd();
+
+        GL11.glBegin(GL11.GL_QUAD_STRIP);
+        for (int i = 0; i <= 48; i++) {
+            int idx = (i == 48) ? 0 : i;
+            GL11.glColor4f(r, g, b, midAlpha);
+            GL11.glVertex2f(SCRATCH_TIME_MID_X[idx], SCRATCH_TIME_MID_Y[idx]);
+            GL11.glColor4f(r, g, b, 0.0f);
+            GL11.glVertex2f(SCRATCH_TIME_OUTER_X[idx], SCRATCH_TIME_OUTER_Y[idx]);
+        }
+        GL11.glEnd();
+
+        drawDirectionalTimeOutline(cx, cy, div, scale, 1.0f, r, g, b, outlineAlpha, 1.6f, 48, false);
     }
 
     private static void drawIncreasinglyTransparentCircle(
@@ -3580,6 +4185,23 @@ public class BattlefieldFirepowerEvaluator {
             float rAlpha = (alphaReachPx > 2f && alphaIntensity > 0.05f)
                     ? Math.max(baseShipRadPx * 0.6f, Math.min(Math.max(rSust, alphaReachPx) * 1.04f, alphaReachPx * (0.36f + 0.56f * (float) Math.sqrt(Math.min(1f, alphaIntensity)))))
                     : baseShipRadPx * 0.25f;
+
+            // Map-Edge Pinching for Firepower Roses (Item D):
+            // Pinch rSust, rShort, rAlpha, and pdReachPx against the combat map boundary along ray (cos, sin)
+            float edgeClearWorld = computeDirectionalBoundaryClearance(lastTimeSpaceConvEngine, ship.getLocation(), cos, sin, 90f);
+            float edgeClearPx = Math.max(baseShipRadPx, edgeClearWorld * scale);
+            if (rSust > edgeClearPx * 0.72f) {
+                rSust = Math.max(baseShipRadPx * 0.45f, pinchRadiusByBoundary(rSust, edgeClearPx));
+            }
+            if (rShort > edgeClearPx * 0.72f) {
+                rShort = Math.max(baseShipRadPx * 0.35f, Math.min(rSust, pinchRadiusByBoundary(rShort, edgeClearPx)));
+            }
+            if (rAlpha > edgeClearPx * 0.72f) {
+                rAlpha = Math.max(baseShipRadPx * 0.25f, Math.min(Math.max(rSust, edgeClearPx), pinchRadiusByBoundary(rAlpha, edgeClearPx)));
+            }
+            if (pdReachPx > edgeClearPx * 0.72f) {
+                pdReachPx = pinchRadiusByBoundary(pdReachPx, edgeClearPx);
+            }
 
             sustX[i] = cx + cos * rSust;
             sustY[i] = cy + sin * rSust;
@@ -4527,11 +5149,16 @@ public class BattlefieldFirepowerEvaluator {
         List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
         if (wings == null || wings.isEmpty()) return;
 
-        // When carrier is pulling back fighters (Regroup / Marshaling), its strike craft are returning or held on deck
-        boolean carrierPullingBack = carrier.isPullBackFighters()
-                || (div != null && (div.currentIntent == DivisionModel.DivisionIntentType.MARSHAL_FOR_STRIKE
-                || div.currentIntent == DivisionModel.DivisionIntentType.HOLD_IN_RESERVE
-                || div.currentIntent == DivisionModel.DivisionIntentType.CLOSE_UP
+        // When carrier is pulling back fighters (Hold in Reserve / Retreat / Venting), its strike craft are returning or held on deck.
+        // Note: During MARSHAL_FOR_STRIKE or Coordinated Stage 1/2, airborne wings assembling at the marshal point are part
+        // of an active/staging Voidstrike and must NOT be discarded as returning!
+        boolean stagingOrStriking = div != null
+                && div.targetEnemyDivision != null
+                && (div.currentIntent == DivisionModel.DivisionIntentType.MARSHAL_FOR_STRIKE
+                || div.voidstrikeStage == 1
+                || div.voidstrikeStage == 2);
+        boolean carrierPullingBack = (carrier.isPullBackFighters() && !stagingOrStriking)
+                || (div != null && (div.currentIntent == DivisionModel.DivisionIntentType.HOLD_IN_RESERVE
                 || div.currentIntent == DivisionModel.DivisionIntentType.BREAK_OFF_AND_RETIRE
                 || div.currentIntent == DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT));
         if (carrierPullingBack) {

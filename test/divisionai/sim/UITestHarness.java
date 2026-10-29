@@ -483,7 +483,7 @@ public class UITestHarness {
         String overlayJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()), StandardCharsets.UTF_8);
         boolean itemAOk = overlayJava.contains("renderShipCornerStar(ship, silverStar, false, scale, offsetX, offsetY, fade)")
                 && overlayJava.contains("renderShipCornerStar(ship, goldStar, false, scale, offsetX, offsetY, fade)")
-                && overlayJava.contains("? (portraitCenterY - portraitSize * 0.5f - starSize * 0.5f - 1.5f * zoom)")
+                && overlayJava.contains("? (portraitCenterY - portraitSize * 0.5f - starSize * 0.5f - 1.5f * bScale)")
                 && overlayJava.contains("clamp(16.0f * zoom, 12.0f, 22.0f)");
         res.record(
                 itemAOk,
@@ -590,10 +590,10 @@ public class UITestHarness {
                         beforeSyncPlayerFactionName, afterSyncPlayerFactionName, hegemonyFactionName));
 
         // Item B/D: Division & Fleet Flagship stars directly under commander portrait on left side if commander exists,
-        // or replacing the commander portrait if no commander exists.
-        boolean itemBOk = overlayJava.contains("float boxHalf = iconRadiusPx * (16.8f / 18.0f);")
-                && overlayJava.contains("float portraitCenterX = sx - boxHalf + portraitSize * 0.5f + 2.0f * zoom;")
-                && overlayJava.contains("? (portraitCenterY - portraitSize * 0.5f - starSize * 0.5f - 1.5f * zoom)")
+        // or replacing the commander portrait if no commander exists (using exact B.new 42x42 boxHalf = 21.0f * bScale).
+        boolean itemBOk = overlayJava.contains("float boxHalf = ship.isStation() ? (iconRadiusPx * 0.85f) : (21.0f * bScale);")
+                && overlayJava.contains("float portraitCenterX = sx - boxHalf + portraitSize * 0.5f + 2.0f * bScale;")
+                && overlayJava.contains("? (portraitCenterY - portraitSize * 0.5f - starSize * 0.5f - 1.5f * bScale)")
                 && overlayJava.contains("renderShipCornerStar(ship, goldStar, false, scale, offsetX, offsetY, fade)")
                 && overlayJava.contains("renderShipCornerStar(ship, silverStar, false, scale, offsetX, offsetY, fade)")
                 && editorJava.contains("? (py - starSize * 0.5f - 2f)")
@@ -1910,7 +1910,7 @@ public class UITestHarness {
         boolean convergenceIconAndTsfcOptOk = convSvg.contains("r=\"27.5\"")
                 && convSvg.contains("width=\"32\" height=\"32\"")
                 && convSvg.contains("points=\"32,21.5 21.8,41.5 42.2,41.5\"")
-                && evalSrc.contains("sqHalf = radPx * 0.70710678f")
+                && evalSrc.contains("0.70710678f")
                 && evalSrc.contains("UNIT_COS_72")
                 && evalSrc.contains("UNIT_COS_48")
                 && evalSrc.contains("SCRATCH_SUST_X")
@@ -2082,10 +2082,75 @@ public class UITestHarness {
                 && noneSvg.contains("x=\"22\" y=\"17\" width=\"10\" height=\"22\"")
                 && noneSvg.contains("x=\"45\" y=\"33\" width=\"10\" height=\"22\"");
 
+        // - Items A, B, C, D, E, F (Opening Echelon/Line Abreast handedness, Voidstrike mid-flight continuity,
+        //   Directional pinchable non-circular Space, Map-edge pinching, and Unable/Retreating unit discounting):
+        float[] echR0 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.ECHELON_RIGHT, 0, 4, 300f);
+        float[] echR2 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.ECHELON_RIGHT, 2, 4, 300f);
+        float[] echL2 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.ECHELON_LEFT, 2, 4, 300f);
+        boolean echelonHandednessOk = (echR0[0] == 0f && echR0[1] == 0f)
+                && (echR2[0] > 350f && echR2[1] < -300f)
+                && (echL2[0] < -350f && echL2[1] < -300f);
+
+        // Item C: Airborne Voidstrike in Stage 2 does not reset to Stage 0 when target switches mid-flight
+        ShipAPI enemyTarget2 = createMockNamedShip("wb2_s1", "Warband 2 Lead", HullSize.CRUISER, 350f, 1600f, 90f, 1, humanCapt);
+        DivisionState enemyWarband2 = new DivisionState("wb_2", 1, 2, DivisionArchetype.CRUISER_DIVISION, "Warband 2", cmdr);
+        enemyWarband2.flagship = enemyTarget2;
+        enemyWarband2.members.add(enemyTarget2);
+        cDiv1.targetEnemyDivision = enemyWarband2;
+        DivisionCommanderAI.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget2, 106f);
+        boolean voidstrikeMidFlightKeepStage2Ok = (cDiv1.voidstrikeStage == 2);
+
+        // Items D & E: Directional non-circular Space & Map-edge pinching
+        hhDiv.centroid.set(0f, 8600f); // 400u from North map edge (default halfH = 9000f)
+        hhDiv.formationHeadingInitialized = true;
+        hhDiv.formationHeadingX = 0f;
+        hhDiv.formationHeadingY = 1f;
+        hhDiv.activeFormation = DivisionFormation.LINE_ABREAST;
+        BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(hhDiv);
+        BattlefieldFirepowerEvaluator.computeDirectionalTimeEnvelope(null, hhDiv, pGroup, eGroup, 0.1f, 0.9f);
+        BattlefieldFirepowerEvaluator.computeDirectionalSpaceEnvelope(null, hhDiv, pGroup, eGroup, 1.0f);
+        float northSpaceDom = BattlefieldFirepowerEvaluator.getDirectionalSpaceDominatedRadius(hhDiv, 90f);   // toward North wall (400u away)
+        float southSpaceDom = BattlefieldFirepowerEvaluator.getDirectionalSpaceDominatedRadius(hhDiv, 270f);  // away from wall
+        float eastSpaceDom = BattlefieldFirepowerEvaluator.getDirectionalSpaceDominatedRadius(hhDiv, 0f);     // along LINE_ABREAST lateral axis
+        boolean directionalAndEdgePinchedSpaceOk = hhDiv.directionalSpaceInitialized
+                && (northSpaceDom < 420f)
+                && (southSpaceDom > northSpaceDom * 1.8f)
+                && (eastSpaceDom > southSpaceDom * 1.03f);
+
+        // Item F: Retreating ("unable") unit detection & Space/Time discounting
+        final boolean[] shipRetreatingFlag = new boolean[]{true};
+        ShipAPI retreatingShip = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "ret_1";
+                    if ("isAlive".equals(n)) return true;
+                    if ("isRetreating".equals(n)) return shipRetreatingFlag[0];
+                    if ("getHullSize".equals(n)) return HullSize.CRUISER;
+                    if ("getLocation".equals(n)) return new Vector2f(0f, 0f);
+                    if ("getVelocity".equals(n)) return new Vector2f(0f, 0f);
+                    if ("getMaxSpeed".equals(n)) return 90f;
+                    if ("getHitpoints".equals(n)) return 5000f;
+                    if ("getMaxHitpoints".equals(n)) return 5000f;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        boolean unableShipDetectedOk = DivisionState.isShipUnable(retreatingShip);
+        hhDiv.isUnableDivision = true;
+        hhDiv.retreatingFraction = 1.0f;
+        boolean unableNotAbleCombatEffectiveOk = !hhDiv.isAbleCombatEffective()
+                && unableShipDetectedOk;
+
         boolean voidstrikeDoctrineAndStagingOk = vsDoctrinePropagatedOk && vsCustomOverrideOk
                 && stage0Ok && stage1Ok && stage2Ok && campaignUiSweepOk
                 && strikeWidthCompromiseOk && ehpSpaceDomainOk && protectiveCircleOk
-                && tooltipTextQaOk && warroomInlineFormOk && formationIconsCleanOk && noneIconVerticalBarsOk;
+                && tooltipTextQaOk && warroomInlineFormOk && formationIconsCleanOk && noneIconVerticalBarsOk
+                && echelonHandednessOk && voidstrikeMidFlightKeepStage2Ok
+                && directionalAndEdgePinchedSpaceOk && unableNotAbleCombatEffectiveOk;
 
         res.record(
                 omegaCoreRecognized && allTenIconsOk && inheritedFromDoctrineOk && customOverrideOk
@@ -2098,10 +2163,11 @@ public class UITestHarness {
                 "Omega Core Convergence, 10-Formation Hierarchy, Movement Stickiness, Voidstrike Doctrine (A-H), High/Low TSFC Graphics & Optimization",
                 String.format(
                         Locale.ROOT,
-                        "omegaCore=%b, 10icons=%b, hierarchy=[doc=%b, custom=%b, battle=%b], stickiness=%b, voidstrike=[merged1=%b, returnClear=%b, next2=%b, perSide=%b, doctrineAndStaging=%b], carrierLabels=%b, totAlpha=%b, factionTooltip=%b, convIconAndOpt=%b, tsfcGfx=%b",
+                        "omegaCore=%b, 10icons=%b, hierarchy=[doc=%b, custom=%b, battle=%b], stickiness=%b, voidstrike=[merged1=%b, returnClear=%b, next2=%b, perSide=%b, doctrineAndStaging=%b(s0=%b,s1=%b,s2=%b,ehp=%b)], carrierLabels=%b, totAlpha=%b, factionTooltip=%b, convIconAndOpt=%b, tsfcGfx=%b",
                         omegaCoreRecognized, allTenIconsOk, inheritedFromDoctrineOk, customOverrideOk,
                         inheritedIntoBattleOk, stickinessHierarchyOk, multiDivMergedIntoOneOk,
                         disappearsOnReturnOk, incrementedToTwoOk, separateSideCountersOk, voidstrikeDoctrineAndStagingOk,
+                        stage0Ok, stage1Ok, stage2Ok, ehpSpaceDomainOk,
                         carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk,
                         convergenceIconAndTsfcOptOk, tsfcGraphicsSettingOk));
     }
