@@ -97,19 +97,70 @@ public class DivisionDeploymentDialogOrganizer {
     private MethodHandle listGetScrollerHandle;
 
     private MethodHandle scrollerSetContentSizeHandle;
+    private MethodHandle scrollerSetShowGridHandle;
     private MethodHandle scrollerPackHandle;
     private MethodHandle scrollerClampOffsetHandle;
     private MethodHandle posRecomputeHandle;
+    private MethodHandle compSetOpacityHandle;
+    private MethodHandle panelSetSizeHandle;
+    private MethodHandle listSetColsFieldHandle;
+    private MethodHandle gridSetColsFieldHandle;
 
     private MethodHandle iconGetO0OOHandle;
     private MethodHandle o0ooSetColorsHandle;
     private MethodHandle iconSetDeployStateHandle;
     private MethodHandle iconSetDeployTextHandle;
 
+    public static final class IndexedMemberList extends ArrayList<FleetMemberAPI> {
+        private final Map<Integer, FleetMemberAPI> slotToMember = new LinkedHashMap<>();
+        private final Map<String, Integer> memberIdToSlot = new LinkedHashMap<>();
+
+        public IndexedMemberList() {
+            super();
+        }
+
+        public IndexedMemberList(java.util.Collection<? extends FleetMemberAPI> c) {
+            super(c);
+        }
+
+        public void clearSlotMapping() {
+            slotToMember.clear();
+            memberIdToSlot.clear();
+        }
+
+        public void recordSlotMapping(int slotIndex, FleetMemberAPI member) {
+            if (member != null) {
+                slotToMember.put(slotIndex, member);
+                if (member.getId() != null) {
+                    memberIdToSlot.put(member.getId(), slotIndex);
+                }
+            }
+        }
+
+        public FleetMemberAPI getMemberAtSlot(int slotIndex) {
+            return slotToMember.get(slotIndex);
+        }
+
+        public int getSlotForMember(FleetMemberAPI member) {
+            if (member == null || member.getId() == null) return -1;
+            Integer slot = memberIdToSlot.get(member.getId());
+            return slot != null ? slot : -1;
+        }
+
+        public Map<Integer, FleetMemberAPI> getSlotToMemberMap() {
+            return java.util.Collections.unmodifiableMap(slotToMember);
+        }
+    }
+
     private Object lastFddInstance = null;
     private String lastReservesSignature = "";
     private final Map<String, MemberIconEntry> cachedEntriesForActiveFdd = new LinkedHashMap<>();
     private CustomPanelAPI activeFleetCommandPanel = null;
+    private IndexedMemberList lastIndexedReserveMembers = new IndexedMemberList();
+
+    public IndexedMemberList getLastIndexedReserveMembers() {
+        return lastIndexedReserveMembers;
+    }
 
     private BattleGroupState playerGroup;
     private BattleGroupState enemyGroup;
@@ -249,6 +300,37 @@ public class DivisionDeploymentDialogOrganizer {
                     scrollerClass,
                     "setContentSize",
                     MethodType.methodType(void.class, float.class, float.class));
+            try {
+                this.scrollerSetShowGridHandle = lookup.findVirtual(
+                        scrollerClass,
+                        "setShowGrid",
+                        MethodType.methodType(void.class, float.class, float.class, boolean.class));
+            } catch (Throwable ignored) {
+            }
+            try {
+                this.compSetOpacityHandle = lookup.findVirtual(
+                        uiCompBaseClass,
+                        "setOpacity",
+                        MethodType.methodType(void.class, float.class));
+            } catch (Throwable ignored) {
+            }
+            try {
+                this.panelSetSizeHandle = lookup.findVirtual(
+                        panelClass,
+                        "setSize",
+                        MethodType.methodType(posClass, float.class, float.class));
+            } catch (Throwable ignored) {
+            }
+            try {
+                MethodHandles.Lookup vLookup = MethodHandles.privateLookupIn(scrollingListClass, lookup);
+                this.listSetColsFieldHandle = vLookup.findSetter(scrollingListClass, "do.do$return", int.class);
+            } catch (Throwable ignored) {
+            }
+            try {
+                MethodHandles.Lookup sLookup = MethodHandles.privateLookupIn(shipGridClass, lookup);
+                this.gridSetColsFieldHandle = sLookup.findSetter(shipGridClass, "O\u00f60o00", int.class);
+            } catch (Throwable ignored) {
+            }
             this.scrollerPackHandle = lookup.findVirtual(
                     scrollerClass,
                     "pack",
@@ -446,11 +528,41 @@ public class DivisionDeploymentDialogOrganizer {
                 PositionAPI depPos = ((UIComponentAPI) deployedGrid).getPosition();
                 if (depPos != null) {
                     depPos.setSize(targetGridW, depPos.getHeight());
+                    if (panelSetSizeHandle != null) {
+                        try {
+                            panelSetSizeHandle.invoke(deployedGrid, targetGridW, depPos.getHeight());
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                }
+                if (gridSetColsFieldHandle != null) {
+                    try {
+                        gridSetColsFieldHandle.invoke(deployedGrid, maxColsForScreen);
+                    } catch (Throwable ignored) {
+                    }
                 }
                 reflowGridItemsToColumns(deployedGrid, maxColsForScreen);
             }
 
             resPos.setSize(targetGridW, targetResH);
+            if (panelSetSizeHandle != null) {
+                try {
+                    panelSetSizeHandle.invoke(reservesGrid, targetGridW, targetResH);
+                } catch (Throwable ignored) {
+                }
+            }
+            if (gridSetColsFieldHandle != null) {
+                try {
+                    gridSetColsFieldHandle.invoke(reservesGrid, maxColsForScreen);
+                } catch (Throwable ignored) {
+                }
+            }
+            if (listSetColsFieldHandle != null) {
+                try {
+                    listSetColsFieldHandle.invoke(scrollingList, maxColsForScreen);
+                } catch (Throwable ignored) {
+                }
+            }
 
             List<UIComponentAPI> children = (List<UIComponentAPI>) panelGetChildrenCopyHandle.invoke(innerPanel);
             for (UIComponentAPI child : children) {
@@ -459,8 +571,8 @@ public class DivisionDeploymentDialogOrganizer {
                 if (cp == null) continue;
                 if (Math.abs(cp.getWidth() - oldInnerW) <= 6f) {
                     cp.setSize(targetInnerW, cp.getHeight());
-                } else if (Math.abs(cp.getWidth() - (10f * itemW + 4f)) <= 8f) {
-                    cp.setSize(maxColsForScreen * itemW + 4f, cp.getHeight());
+                } else if (Math.abs(cp.getWidth() - (10f * itemW + 4f)) <= 16f) {
+                    cp.setSize(targetGridW, cp.getHeight());
                 }
             }
 
@@ -624,11 +736,19 @@ public class DivisionDeploymentDialogOrganizer {
                 }
             }
             // Requirement A: Clear the visual ScrollingList of deployedGrid so no ships render in the top section
+            try {
+                compSetOpacityHandle.invoke(deployedGrid, 0f);
+            } catch (Throwable ignored) {
+            }
             Object deployedScrollingList = gridGetListHandle.invoke(deployedGrid);
             if (deployedScrollingList != null) {
                 listClearHandle.invoke(deployedScrollingList, false);
                 Object depScroller = listGetScrollerHandle.invoke(deployedScrollingList);
                 if (depScroller != null) {
+                    try {
+                        scrollerSetShowGridHandle.invoke(depScroller, 0f, 0f, false);
+                    } catch (Throwable ignored) {
+                    }
                     scrollerSetContentSizeHandle.invoke(depScroller, 0f, 0f);
                     scrollerPackHandle.invoke(depScroller);
                 }
@@ -669,6 +789,7 @@ public class DivisionDeploymentDialogOrganizer {
         //    list of non-empty Permanent Divisions
         Set<String> placedMemberIds = new HashSet<>();
         List<FleetMemberAPI> orderedReserveMembers = new ArrayList<>(reserveMembersList.size());
+        IndexedMemberList indexedReserveMembers = new IndexedMemberList();
 
         // Clear the ScrollingList UI items (while keeping scroll position)
         listClearHandle.invoke(scrollingList, false);
@@ -733,6 +854,7 @@ public class DivisionDeploymentDialogOrganizer {
                     divFm,
                     isFlagshipDiv,
                     divEntries,
+                    indexedReserveMembers,
                     currentSlotIndex,
                     totalCols,
                     labelCols,
@@ -762,6 +884,7 @@ public class DivisionDeploymentDialogOrganizer {
                     null,
                     false,
                     unassignedEntries,
+                    indexedReserveMembers,
                     currentSlotIndex,
                     totalCols,
                     labelCols,
@@ -774,12 +897,18 @@ public class DivisionDeploymentDialogOrganizer {
         int totalRows = (currentSlotIndex + totalCols - 1) / totalCols;
         Object scroller = listGetScrollerHandle.invoke(scrollingList);
         if (scroller != null) {
+            try {
+                scrollerSetShowGridHandle.invoke(scroller, itemW, itemH, false);
+            } catch (Throwable ignored) {
+            }
             scrollerSetContentSizeHandle.invoke(scroller, totalCols * itemW, totalRows * itemH);
             scrollerPackHandle.invoke(scroller);
             scrollerClampOffsetHandle.invoke(scroller);
         }
 
         // 5. Sync reserveMembersList order to match the division row order (only undeployed reserve ships!)
+        indexedReserveMembers.addAll(orderedReserveMembers);
+        this.lastIndexedReserveMembers = indexedReserveMembers;
         reserveMembersList.clear();
         reserveMembersList.addAll(orderedReserveMembers);
     }
@@ -792,6 +921,7 @@ public class DivisionDeploymentDialogOrganizer {
             PermanentDivisionManager.DivisionFormation divFm,
             boolean isFlagshipDiv,
             List<MemberIconEntry> entries,
+            IndexedMemberList indexedReserveMembers,
             int currentSlotIndex,
             int totalCols,
             int labelCols,
@@ -853,6 +983,9 @@ public class DivisionDeploymentDialogOrganizer {
                 int slotCol = currentSlotIndex % totalCols;
                 int slotRow = currentSlotIndex / totalCols;
                 listAddItemHandle.invoke(scrollingList, entry.button, entry.icon);
+                if (indexedReserveMembers != null && !entry.isAlreadyDeployed) {
+                    indexedReserveMembers.recordSlotMapping(currentSlotIndex, entry.member);
+                }
                 if (entry.button instanceof UIComponentAPI) {
                     PositionAPI bp = ((UIComponentAPI) entry.button).getPosition();
                     if (bp != null) {
@@ -983,17 +1116,14 @@ public class DivisionDeploymentDialogOrganizer {
                     float iconSize = 12f;
                     float iconCx = pos.getX() + 11.5f;
                     float iconCy = pos.getY() + pos.getHeight() - iconCenterTopY;
-                    com.fs.starfarer.api.graphics.SpriteAPI sprite = FleetDoctrineDialog.loadFormationSpriteSafe(
-                            divFm.getSettingsIconKey(isFlagshipDiv),
-                            divFm.getSpritePath(isFlagshipDiv));
-                    if (sprite != null) {
-                        sprite.setSize(iconSize, iconSize);
-                        sprite.setColor(Color.WHITE);
-                        sprite.setAlphaMult(0.95f * alphaMult);
-                        sprite.renderAtCenter(iconCx, iconCy);
-                    }
-                    FleetDoctrineDialog.renderFormationSquareBorder(
-                            iconCx, iconCy, iconSize, isFlagshipDiv, 0.95f * alphaMult);
+                    FleetDoctrineDialog.renderFormationIcon(
+                            divFm,
+                            iconCx,
+                            iconCy,
+                            iconSize,
+                            Color.WHITE,
+                            0.95f * alphaMult,
+                            isFlagshipDiv);
                 }
             }
 
@@ -1027,27 +1157,26 @@ public class DivisionDeploymentDialogOrganizer {
         // Pre-initialize non-zero label widths before setText() so Starsector's label never word-wraps spaces into newlines
         PositionAPI p1 = card.addComponent((UIComponentAPI) line1Label);
         PositionAPI p2 = card.addComponent((UIComponentAPI) line2Label);
-        float initLabelW = Math.max(160f, cardW * 2f);
-        p1.setSize(initLabelW, 13f).inTL(0f, 0f);
-        p2.setSize(initLabelW, 13f).inTL(0f, 0f);
+        float boxW1 = Math.max(20f, cardW - line1LeftX - 1f);
+        float boxW2 = Math.max(20f, cardW - line2LeftX - 1f);
+        p1.setSize(boxW1, 13f).inTL(line1LeftX, 3f);
+        p2.setSize(boxW2, 13f).inTL(line2LeftX, 16f);
 
         if (!isTwoLineTitle) {
             String l1 = lines.length > 0 ? lines[0] : "";
-            float safeW1 = Math.max(maxLine1W, CampaignFleetTooltipOrganizer.measureLineWidth(l1, line1Label) + 20f);
-            p1.setSize(safeW1, 14f).inTL(line1LeftX, 9f);
+            l1 = CampaignFleetTooltipOrganizer.fitSingleLineToWidth(l1, line1Label, boxW1 - 3f);
+            p1.setSize(boxW1, 14f).inTL(line1LeftX, 9f);
             line1Label.setText(l1);
 
-            p2.setSize(safeW1, 0f).inTL(line2LeftX, 0f);
+            p2.setSize(boxW2, 0f).inTL(line2LeftX, 0f);
             line2Label.setText("");
         } else {
-            String l1 = lines[0];
-            String l2 = lines[1];
-            float safeW1 = Math.max(maxLine1W, CampaignFleetTooltipOrganizer.measureLineWidth(l1, line1Label) + 20f);
-            p1.setSize(safeW1, 13f).inTL(line1LeftX, 3f);
+            String l1 = CampaignFleetTooltipOrganizer.fitSingleLineToWidth(lines[0], line1Label, boxW1 - 3f);
+            String l2 = CampaignFleetTooltipOrganizer.fitSingleLineToWidth(lines[1], line2Label, boxW2 - 3f);
+            p1.setSize(boxW1, 13f).inTL(line1LeftX, 3f);
             line1Label.setText(l1);
 
-            float safeW2 = Math.max(maxLine2W, CampaignFleetTooltipOrganizer.measureLineWidth(l2, line2Label) + 20f);
-            p2.setSize(safeW2, 13f).inTL(line2LeftX, 16f);
+            p2.setSize(boxW2, 13f).inTL(line2LeftX, 16f);
             line2Label.setText(l2);
         }
 
@@ -1429,12 +1558,19 @@ public class DivisionDeploymentDialogOrganizer {
                 ? ((UIComponentAPI) deployedGrid).getPosition()
                 : null;
 
+        PositionAPI innerPos = innerPanel.getPosition();
         float panelW = (resPos != null && resPos.getWidth() > 100f)
                 ? resPos.getWidth()
-                : (innerPanel.getPosition() != null ? innerPanel.getPosition().getWidth() - 22f : 824f);
+                : (innerPos != null ? innerPos.getWidth() - 22f : 824f);
         float panelH = (depPos != null && depPos.getHeight() > 60f)
-                ? (depPos.getHeight() + 18f)
-                : 148f;
+                ? depPos.getHeight()
+                : 174f;
+        float leftOff = (resPos != null && innerPos != null)
+                ? Math.max(0f, resPos.getX() - innerPos.getX())
+                : 10f;
+        float topOff = (depPos != null && innerPos != null)
+                ? Math.max(0f, (innerPos.getY() + innerPos.getHeight()) - (depPos.getY() + depPos.getHeight()))
+                : 10f;
 
         CustomPanelAPI fcPanel = createFleetCommandPanel(
                 engine,
@@ -1446,7 +1582,7 @@ public class DivisionDeploymentDialogOrganizer {
         activeFleetCommandPanel = fcPanel;
         PositionAPI fcPos = innerPanel.addComponent(fcPanel);
         if (fcPos != null) {
-            fcPos.setSize(panelW, panelH).inTL(0f, 4f);
+            fcPos.setSize(panelW, panelH).inTL(leftOff, topOff);
         }
     }
 
@@ -1501,14 +1637,14 @@ public class DivisionDeploymentDialogOrganizer {
         final String portraitSpritePath = candidatePortrait;
 
         final float topBarH = 20f;
-        final float portraitH = Math.max(82f, Math.min(112f, height - topBarH - 16f));
+        final float portraitH = Math.max(82f, Math.min(96f, height - topBarH - 22f));
         final float portraitW = isAlphaCore
-                ? Math.min(196f, portraitH * ALPHA_CORE_PORTRAIT_STRETCH_ASPECT)
+                ? Math.min(156f, portraitH * ALPHA_CORE_PORTRAIT_STRETCH_ASPECT)
                 : portraitH;
         final float portraitX = 12f;
-        final float leftSectionW = Math.min(width * 0.50f, Math.max(410f, portraitX + portraitW + 275f));
-        final float rightSectionX = leftSectionW + 10f;
-        final float rightSectionW = Math.max(260f, width - rightSectionX - 10f);
+        final float leftSectionW = Math.round(width * 0.50f);
+        final float rightSectionX = leftSectionW + 8f;
+        final float rightSectionW = Math.max(260f, width - rightSectionX - 6f);
 
         final CustomPanelAPI[] panelRef = new CustomPanelAPI[1];
 
@@ -1684,10 +1820,21 @@ public class DivisionDeploymentDialogOrganizer {
                 try {
                     SpriteAPI portraitSprite = Global.getSettings().getSprite(portraitSpritePath);
                     if (portraitSprite != null) {
+                        float prevW = portraitSprite.getWidth();
+                        float prevH = portraitSprite.getHeight();
+                        float prevCx = portraitSprite.getCenterX();
+                        float prevCy = portraitSprite.getCenterY();
+                        Color prevColor = portraitSprite.getColor();
+                        float prevAlpha = portraitSprite.getAlphaMult();
                         portraitSprite.setSize(portraitW, portraitH);
+                        portraitSprite.setCenter(portraitW * 0.5f, portraitH * 0.5f);
                         portraitSprite.setColor(Color.WHITE);
                         portraitSprite.setAlphaMult(0.96f * alphaMult);
                         portraitSprite.renderAtCenter(pCenterX, pCenterY);
+                        portraitSprite.setSize(prevW, prevH);
+                        portraitSprite.setCenter(prevCx, prevCy);
+                        if (prevColor != null) portraitSprite.setColor(prevColor);
+                        portraitSprite.setAlphaMult(prevAlpha);
                     }
                 } catch (Throwable ignored) {
                 }
@@ -1722,6 +1869,11 @@ public class DivisionDeploymentDialogOrganizer {
                 GL11.glEnd();
 
                 GL11.glPopAttrib();
+            }
+
+            @Override
+            public void advance(float amount) {
+                updateDynamicTelemetryAndJitter();
             }
 
             private void updateDynamicTelemetryAndJitter() {
@@ -1814,42 +1966,50 @@ public class DivisionDeploymentDialogOrganizer {
                         ? "DECISIVE BRAWL"
                         : (eng >= 0.38f ? "GENERAL ENGAGEMENT" : (eng >= 0.12f ? "SKIRMISH CONTACT" : (depCount > 0 ? "MANEUVER / APPROACH" : "PRE-DEPLOYMENT")));
 
-                engagementDomainLabel.setText(String.format(
+                float rightTextMaxW = Math.max(180f, rightSectionW - 20f);
+                String engLine = String.format(
                         Locale.ROOT,
-                        "ENGAGEMENT LEVEL: %.0f%% [%s]  |  Phase: %s",
+                        "ENGAGEMENT: %.0f%% [%s] | %s",
                         eng * 100f,
                         engStateTag,
-                        phaseName));
+                        phaseName);
+                engagementDomainLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                        engLine, engagementDomainLabel, rightTextMaxW));
 
                 float forceRatio = (playerGroup != null && playerGroup.totalEnemyStrength > 1f)
                         ? playerGroup.forceRatio
                         : 1.00f;
-                commitmentDomainLabel.setText(String.format(
+                String comLine = String.format(
                         Locale.ROOT,
-                        "FORCE & DP: Deployed %d (%.0f DP) | Queued +%d (+%.0f DP) | Reserve %d (%.0f DP) | Ratio %.2fx",
-                        depCount, depDp, selCount, selDp, resCount, resDp, forceRatio));
+                        "FORCE & DP: Dep %d (%.0f) | Sel +%d (+%.0f) | Res %d (%.0f) | %.2fx",
+                        depCount, depDp, selCount, selDp, resCount, resDp, forceRatio);
+                commitmentDomainLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                        comLine, commitmentDomainLabel, rightTextMaxW));
 
                 String mainEffName = (playerGroup != null && playerGroup.mainEffortDivision != null)
                         ? playerGroup.mainEffortDivision.displayName
                         : (totalDivSpecs > 0 ? PermanentDivisionManager.getNonEmptyPermanentDivisions().get(0).name : "Unassigned");
-                cohesionDomainLabel.setText(String.format(
+                String cohLine = String.format(
                         Locale.ROOT,
-                        "COHESION & C2: %.0f%% Readiness | Divisions %d/%d Active | Main Effort: %s",
+                        "COHESION: %.0f%% Ready | Divs %d/%d | Main: %s",
                         coh * 100f,
                         activeDivCount,
                         Math.max(activeDivCount, totalDivSpecs),
-                        mainEffName));
+                        mainEffName);
+                cohesionDomainLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                        cohLine, cohesionDomainLabel, rightTextMaxW));
 
                 PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
                 PermanentDivisionManager.FleetWideFormation fw = (playerGroup != null && playerGroup.activeFleetWideFormation != null)
                         ? playerGroup.activeFleetWideFormation
                         : doc.getFleetWideFormation();
                 String directive = (depCount == 0)
-                        ? String.format(Locale.ROOT, "DIRECTIVE: Deploy divisions in %s (%s authority).",
-                        fw.displayName, doc.getOtcAuthority().shortName)
-                        : String.format(Locale.ROOT, "DIRECTIVE: %s active on %s — maintain %s cohesion.",
+                        ? String.format(Locale.ROOT, "DIRECTIVE: Deploy in %s (%s auth).",
+                        fw.shortName, doc.getOtcAuthority().shortName)
+                        : String.format(Locale.ROOT, "DIRECTIVE: %s on %s - hold %s.",
                         phaseName, mainEffName, fw.shortName);
-                directiveDomainLabel.setText(directive);
+                directiveDomainLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                        directive, directiveDomainLabel, rightTextMaxW));
             }
         };
 
@@ -1864,7 +2024,7 @@ public class DivisionDeploymentDialogOrganizer {
                 .setSize(width - 20f, 16f)
                 .inTL(10f, 2f);
 
-        float maxLeftTextW = Math.max(180f, leftSectionW - textLeftX - 8f);
+        float maxLeftTextW = Math.max(160f, leftSectionW - textLeftX - 6f);
         if (isAlphaCore) {
             String prefix = "ORDO COGITATOR/";
             String masterWord = "MASTER";
@@ -1875,20 +2035,22 @@ public class DivisionDeploymentDialogOrganizer {
             PositionAPI pMas = panel.addComponent((UIComponentAPI) cogMasterLabel);
             PositionAPI pSuf = panel.addComponent((UIComponentAPI) cogSuffixLabel);
 
-            pPre.setSize(320f, 16f).inTL(textLeftX, titleTopY);
+            pPre.setSize(maxLeftTextW, 16f).inTL(textLeftX, titleTopY);
             cogPrefixLabel.setText(prefix);
             float preW = CampaignFleetTooltipOrganizer.measureLineWidth(prefix, cogPrefixLabel);
 
-            pGhost.setSize(160f, 16f).inTL(textLeftX + preW, titleTopY);
+            float remAfterPre = Math.max(40f, maxLeftTextW - preW);
+            pGhost.setSize(remAfterPre, 16f).inTL(textLeftX + preW, titleTopY);
             cogMasterGhostLabel.setText(masterWord);
 
-            pMas.setSize(160f, 16f).inTL(textLeftX + preW, titleTopY);
+            pMas.setSize(remAfterPre, 16f).inTL(textLeftX + preW, titleTopY);
             cogMasterLabel.setText(masterWord);
             float masW = CampaignFleetTooltipOrganizer.measureLineWidth(masterWord, cogMasterLabel);
 
+            float remAfterMas = Math.max(40f, maxLeftTextW - preW - masW - 2f);
             String fittedSuffix = CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                    suffix, cogSuffixLabel, Math.max(80f, maxLeftTextW - preW - masW));
-            pSuf.setSize(Math.max(160f, maxLeftTextW), 16f).inTL(textLeftX + preW + masW + 1f, titleTopY);
+                    suffix, cogSuffixLabel, remAfterMas - 4f);
+            pSuf.setSize(remAfterMas, 16f).inTL(textLeftX + preW + masW + 1f, titleTopY);
             cogSuffixLabel.setText(fittedSuffix);
 
             masterBasePos[0] = textLeftX + preW;
@@ -1898,47 +2060,50 @@ public class DivisionDeploymentDialogOrganizer {
         } else {
             String fullTitle = formatFleetCommandOtcTitle(commanderName, flagshipName, false);
             PositionAPI pTitle = panel.addComponent((UIComponentAPI) otcStandardTitleLabel);
-            pTitle.setSize(Math.max(260f, maxLeftTextW + 40f), 16f).inTL(textLeftX, titleTopY);
+            pTitle.setSize(maxLeftTextW, 16f).inTL(textLeftX, titleTopY);
             otcStandardTitleLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                    fullTitle, otcStandardTitleLabel, maxLeftTextW));
+                    fullTitle, otcStandardTitleLabel, maxLeftTextW - 4f));
         }
 
         PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
         String personalityDesc = isAlphaCore
-                ? "Alpha-Level Sentient Cogitator (Convergence)"
+                ? "Alpha Cogitator (Convergence)"
                 : (playerGroup != null && playerGroup.otc != null ? playerGroup.otc.personalityId.toUpperCase(Locale.ROOT) : "STEADY");
 
         String sub1 = String.format(Locale.ROOT, "Flagship: %s (%s)", flagshipName, hullClassName);
-        String sub2 = String.format(Locale.ROOT, "Command Profile: %s  |  Authority: %s",
+        String sub2 = String.format(Locale.ROOT, "Profile: %s | Auth: %s",
                 personalityDesc, doc.getOtcAuthority().shortName);
-        String sub3 = String.format(Locale.ROOT, "Fleet Formation: %s  |  Setpiece: %s",
-                doc.getFleetWideFormation().displayName, doc.getMultiDivisionSetpiece().displayName);
-        String sub4 = String.format(Locale.ROOT, "Deployment Protocol: %s",
+        String sub3 = String.format(Locale.ROOT, "Formation: %s | Setpiece: %s",
+                doc.getFleetWideFormation().shortName, doc.getMultiDivisionSetpiece().shortName);
+        String sub4 = String.format(Locale.ROOT, "Protocol: %s",
                 doc.isDeployInFleetFormation() ? "Zoom-In Formation Entry (Active)" : "Standard Line Entry");
 
-        panel.addComponent((UIComponentAPI) leftSub1Label).setSize(maxLeftTextW + 30f, 14f).inTL(textLeftX, titleTopY + 22f);
-        leftSub1Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub1, leftSub1Label, maxLeftTextW));
+        panel.addComponent((UIComponentAPI) leftSub1Label).setSize(maxLeftTextW, 14f).inTL(textLeftX, titleTopY + 22f);
+        leftSub1Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub1, leftSub1Label, maxLeftTextW - 4f));
 
-        panel.addComponent((UIComponentAPI) leftSub2Label).setSize(maxLeftTextW + 30f, 14f).inTL(textLeftX, titleTopY + 40f);
-        leftSub2Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub2, leftSub2Label, maxLeftTextW));
+        panel.addComponent((UIComponentAPI) leftSub2Label).setSize(maxLeftTextW, 14f).inTL(textLeftX, titleTopY + 40f);
+        leftSub2Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub2, leftSub2Label, maxLeftTextW - 4f));
 
-        panel.addComponent((UIComponentAPI) leftSub3Label).setSize(maxLeftTextW + 30f, 14f).inTL(textLeftX, titleTopY + 58f);
-        leftSub3Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub3, leftSub3Label, maxLeftTextW));
+        panel.addComponent((UIComponentAPI) leftSub3Label).setSize(maxLeftTextW, 14f).inTL(textLeftX, titleTopY + 58f);
+        leftSub3Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub3, leftSub3Label, maxLeftTextW - 4f));
 
-        panel.addComponent((UIComponentAPI) leftSub4Label).setSize(maxLeftTextW + 30f, 14f).inTL(textLeftX, titleTopY + 76f);
-        leftSub4Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub4, leftSub4Label, maxLeftTextW));
+        panel.addComponent((UIComponentAPI) leftSub4Label).setSize(maxLeftTextW, 14f).inTL(textLeftX, titleTopY + 76f);
+        leftSub4Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub4, leftSub4Label, maxLeftTextW - 4f));
 
         // Position Right-Side Fleet Status Panel Labels
         float rightLabelX = rightSectionX + 8f;
-        float rightMaxW = Math.max(200f, rightSectionW - 16f);
+        float rightMaxW = Math.max(180f, rightSectionW - 16f);
 
-        panel.addComponent((UIComponentAPI) statusHeaderLabel).setSize(rightMaxW + 20f, 14f).inTL(rightLabelX, topBarH + 5f);
-        statusHeaderLabel.setText("FLEET-LEVEL STATUS & TACTICAL DOMAINS");
+        panel.addComponent((UIComponentAPI) statusHeaderLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 5f);
+        statusHeaderLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                "FLEET-LEVEL STATUS & TACTICAL DOMAINS", statusHeaderLabel, rightMaxW - 4f));
 
-        panel.addComponent((UIComponentAPI) engagementDomainLabel).setSize(rightMaxW + 40f, 14f).inTL(rightLabelX, topBarH + 21f);
-        panel.addComponent((UIComponentAPI) commitmentDomainLabel).setSize(rightMaxW + 40f, 14f).inTL(rightLabelX, topBarH + 53f);
-        panel.addComponent((UIComponentAPI) cohesionDomainLabel).setSize(rightMaxW + 40f, 14f).inTL(rightLabelX, topBarH + 85f);
-        panel.addComponent((UIComponentAPI) directiveDomainLabel).setSize(rightMaxW + 40f, 14f).inTL(rightLabelX, topBarH + 112f);
+        panel.addComponent((UIComponentAPI) engagementDomainLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 21f);
+        panel.addComponent((UIComponentAPI) commitmentDomainLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 53f);
+        panel.addComponent((UIComponentAPI) cohesionDomainLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 85f);
+        panel.addComponent((UIComponentAPI) directiveDomainLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 112f);
+
+        fcPlugin.advance(0f);
 
         return panel;
     }

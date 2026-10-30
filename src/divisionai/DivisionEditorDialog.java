@@ -427,7 +427,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET ORGANIZATION", baseColor);
         header.addPara(
-                "Selected: %s  ·  Drag / Right-Click: Assign or Unassign  ·  Left-Click: Set Flagship",
+                "Selected: %s  |  Drag / Right-Click: Assign or Unassign  |  Left-Click: Set Flagship",
                 4f,
                 highlight,
                 selectedDivName);
@@ -523,7 +523,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         TooltipMakerAPI leftCol = container.createUIElement(leftWidth, bodyHeight, true);
         leftCol.addSectionHeading(
-                "Divisions (" + divisions.size() + " Active · " + assignedCount + " Ships)",
+                "Divisions (" + divisions.size() + " Active | " + assignedCount + " Ships)",
+                baseColor,
+                darkColor,
                 Alignment.MID,
                 4f);
 
@@ -562,7 +564,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         // 3. Right Column: Unassigned Combat Hulls Pool (DropTargetZone with targetDivisionId == null)
         TooltipMakerAPI rightCol = container.createUIElement(rightWidth, bodyHeight, true);
         String poolHeading = "Unassigned Ships (" + unassigned.size() + ")";
-        rightCol.addSectionHeading(poolHeading, Alignment.MID, 4f);
+        rightCol.addSectionHeading(poolHeading, baseColor, darkColor, Alignment.MID, 4f);
 
         if (unassigned.isEmpty()) {
             rightCol.addPara(
@@ -678,8 +680,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI topUi = cardPanel.createUIElement(cardWidth - 8f, 60f, false);
 
         String selectAct = "SELECT_DIV:" + spec.id;
-        String selectLabel = spec.name + "  ·  " + spec.archetype.shortPrefix
-                + String.format(Locale.ROOT, "  (%d/%d · %.0f DP)", members.size(), PermanentDivisionManager.MAX_DIVISION_SIZE, totalDp);
+        String selectLabel = spec.name + "  |  " + spec.archetype.shortPrefix
+                + String.format(Locale.ROOT, "  (%d/%d | %.0f DP)", members.size(), PermanentDivisionManager.MAX_DIVISION_SIZE, totalDp);
         ButtonAPI bSelect = registerButton(
                 topUi.addButton(
                         selectLabel,
@@ -739,7 +741,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         String cmdrDesc = truncateText(rawCmdrDesc, 26);
 
         LabelAPI sub1 = topUi.addPara(
-                "%s  ·  %s  ·  %s  ·  %su / %su  ·  %s -> %s",
+                "%s  |  %s  |  %s  |  %su / %su  |  %s -> %s",
                 2f,
                 isSelected ? positive : gray,
                 cmdrDesc,
@@ -784,7 +786,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         if (members.isEmpty()) {
             TooltipMakerAPI emptyUi = cardPanel.createUIElement(cardWidth - 16f, 44f, false);
             emptyUi.addPara(
-                    "Empty division — drag or right-click ships from the right panel to assign.",
+                    "Empty division - drag or right-click ships from the right panel to assign.",
                     gray,
                     10f);
             emptyUi.setHeightSoFar(44f);
@@ -867,7 +869,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         navUi.setTitleOrbitronLarge();
         LabelAPI titleLbl = navUi.addTitle(
-                spec.name.toUpperCase(Locale.ROOT) + " — " + spec.archetype.shortPrefix.toUpperCase(Locale.ROOT),
+                spec.name.toUpperCase(Locale.ROOT) + " - " + spec.archetype.shortPrefix.toUpperCase(Locale.ROOT),
                 highlight);
         titleLbl.getPosition().inTL(198f, 3f);
 
@@ -1005,7 +1007,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         top.addCustom(archRow, 4f);
 
         top.addPara(
-                "%s — %s",
+                "%s - %s",
                 3f,
                 positive,
                 spec.doctrine.displayName,
@@ -1284,16 +1286,18 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         // Visual Ship Icon Bay in Deep Division Editor
         leftCol.addSectionHeading(
                 "Assigned Ships (" + divMembers.size() + "/" + PermanentDivisionManager.MAX_DIVISION_SIZE + ")",
+                baseColor,
+                darkColor,
                 Alignment.MID,
                 8f);
         leftCol.addPara(
-                "Left-Click: Flagship  ·  Right-Click / Drag: Unassign",
+                "Left-Click: Flagship  |  Right-Click / Drag: Unassign",
                 gray,
                 3f);
 
         if (divMembers.isEmpty()) {
             leftCol.addPara(
-                    "Empty division — drag or right-click ships from the right panel.",
+                    "Empty division - drag or right-click ships from the right panel.",
                     gray,
                     8f);
         } else {
@@ -1320,6 +1324,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rightCol = container.createUIElement(colWidth, bodyHeight, true);
         rightCol.addSectionHeading(
                 "Unassigned Ships (" + unassigned.size() + ")",
+                baseColor,
+                darkColor,
                 Alignment.MID,
                 4f);
 
@@ -1336,7 +1342,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     false);
         }
 
-        rightCol.addSectionHeading("Other Divisions", Alignment.MID, 10f);
+        rightCol.addSectionHeading("Other Divisions", baseColor, darkColor, Alignment.MID, 10f);
         boolean anyOther = false;
         for (PermanentDivisionSpec other : allDivs) {
             if (other.id.equals(spec.id)) continue;
@@ -1344,7 +1350,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             if (otherMembers.isEmpty()) continue;
             anyOther = true;
             rightCol.addPara(
-                    other.name + " · " + other.archetype.shortPrefix + " (" + otherMembers.size() + ")",
+                    other.name + " | " + other.archetype.shortPrefix + " (" + otherMembers.size() + ")",
                     highlight,
                     5f);
             addInteractiveShipGrid(
@@ -1621,7 +1627,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         // Text overlay labels inside the tile (top badge: FLAG/DP, left portrait level, bottom label: hull name)
         TooltipMakerAPI textUi = tilePanel.createUIElement(width, height, false);
-        String topBadge = (isFlagship ? "★FLAG " : "")
+        String topBadge = (isFlagship ? "*FLAG " : "")
                 + String.format(Locale.ROOT, "%.0fDP", member.getDeploymentPointsCost());
         LabelAPI topLbl = textUi.addPara(topBadge, isFlagship ? highlight : positive, 0f);
         topLbl.getPosition().inTL(3f, 2f);
@@ -1668,15 +1674,19 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             if (sprite == null) return;
             float origW = sprite.getWidth();
             float origH = sprite.getHeight();
+            float origCx = sprite.getCenterX();
+            float origCy = sprite.getCenterY();
             Color oldColor = sprite.getColor();
             float oldAngle = sprite.getAngle();
 
             sprite.setSize(drawW, drawH);
+            sprite.setCenter(drawW * 0.5f, drawH * 0.5f);
             sprite.setAngle(0f);
             sprite.setColor(new Color(255, 255, 255, Math.max(0, Math.min(255, Math.round(alpha * 255f)))));
             sprite.renderAtCenter(centerX, centerY);
 
             sprite.setSize(origW, origH);
+            sprite.setCenter(origCx, origCy);
             sprite.setAngle(oldAngle);
             if (oldColor != null) {
                 sprite.setColor(oldColor);
@@ -1703,6 +1713,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             float origW = sprite.getWidth();
             float origH = sprite.getHeight();
             if (origW <= 0f || origH <= 0f) return;
+            float origCx = sprite.getCenterX();
+            float origCy = sprite.getCenterY();
 
             float scale = Math.min(maxW / origW, maxH / origH);
             scale = Math.min(scale, 0.85f);
@@ -1713,11 +1725,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             float oldAngle = sprite.getAngle();
 
             sprite.setSize(drawW, drawH);
+            sprite.setCenter(drawW * 0.5f, drawH * 0.5f);
             sprite.setAngle(0f);
             sprite.setColor(new Color(255, 255, 255, Math.max(0, Math.min(255, Math.round(alpha * 255f)))));
             sprite.renderAtCenter(centerX, centerY);
 
             sprite.setSize(origW, origH);
+            sprite.setCenter(origCx, origCy);
             sprite.setAngle(oldAngle);
             if (oldColor != null) {
                 sprite.setColor(oldColor);
@@ -2772,7 +2786,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         if ("CLEAR_ALL_DIVS".equals(cmd)) {
             pendingConfirmAction = "EXEC_CLEAR_ALL_DIVS";
-            pendingConfirmTitle = "DELETE ALL DIVISIONS — ARE YOU SURE?";
+            pendingConfirmTitle = "DELETE ALL DIVISIONS - ARE YOU SURE?";
             pendingConfirmMessage = "Are you sure you want to delete all permanent divisions in your fleet? All ships will return to the unassigned fleet pool.";
             pendingConfirmYesLabel = "Yes, Delete All";
             rebuildContent();
@@ -2787,7 +2801,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         if ("AUTO_ASSIGN".equals(cmd)) {
             pendingConfirmAction = "EXEC_AUTO_ASSIGN";
-            pendingConfirmTitle = "AUTO-ASSIGN SHIPS — ARE YOU SURE?";
+            pendingConfirmTitle = "AUTO-ASSIGN SHIPS - ARE YOU SURE?";
             pendingConfirmMessage = "Are you sure you want to automatically assign unassigned fleet ships to divisions based on your Fleet Doctrine?";
             pendingConfirmYesLabel = "Yes, Auto-Assign";
             rebuildContent();
@@ -2800,7 +2814,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         if ("RESET_AUTO".equals(cmd)) {
             pendingConfirmAction = "EXEC_RESET_AUTO";
-            pendingConfirmTitle = "RESET & AUTO-FORM — ARE YOU SURE?";
+            pendingConfirmTitle = "RESET & AUTO-FORM - ARE YOU SURE?";
             pendingConfirmMessage = "Are you sure you want to clear existing divisions and auto-form new divisions across your fleet?";
             pendingConfirmYesLabel = "Yes, Reset & Auto-Form";
             rebuildContent();
@@ -2823,7 +2837,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             PermanentDivisionSpec delSpec = PermanentDivisionManager.getDivisionById(delId);
             String divName = delSpec != null ? delSpec.name : delId;
             pendingConfirmAction = "EXEC_DELETE_DIV:" + delId;
-            pendingConfirmTitle = "DELETE DIVISION — ARE YOU SURE?";
+            pendingConfirmTitle = "DELETE DIVISION - ARE YOU SURE?";
             pendingConfirmMessage = "Are you sure you want to delete division \"" + divName + "\"? Its ships will return to the unassigned fleet pool.";
             pendingConfirmYesLabel = "Yes, Delete Division";
             rebuildContent();

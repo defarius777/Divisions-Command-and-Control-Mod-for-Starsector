@@ -105,6 +105,7 @@ public class UITestHarness {
         auditChatterVerbosityModes(res);
         auditTimeSpaceConvergenceAndAlphaCoreTakeover(res);
         auditNavalFormationsAndOmegaCores(res);
+        StarsectorUISimulator.runOneToOneStarsectorUISimulation(res);
 
         // Audit Battle Screen right-side Time, Space, and Firepower square-bordered icon buttons
         // (all 3 active, OFF by default, textless "Full Assault"/"Full Retreat" square-bordered style, Command View gated)

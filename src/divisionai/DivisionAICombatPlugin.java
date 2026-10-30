@@ -158,6 +158,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
             return;
         }
+
+        float now = engine.getTotalElapsedTime(false);
+
+        // Immediately intercept newly deployed ship waves on their first frame (even while paused right after closing
+        // the deployment dialog) so they form divisions and zoom into battle in formation immediately
+        interceptNewlyDeployedWaves(now);
+
         if (engine.isPaused()) {
             if (musicController != null && initializedBattle) {
                 BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
@@ -167,11 +174,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
             return;
         }
-
-        float now = engine.getTotalElapsedTime(false);
-
-        // Immediately intercept newly deployed ship waves on their first frame so they zoom into battle in formation
-        interceptNewlyDeployedWaves(now);
 
         divisionTimer += amount;
         otcTimer += amount;
@@ -347,7 +349,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             if (!DivisionAutoFormer.isEligibleCombatHull(s)) continue;
             String id = s.getId();
             if (id == null) continue;
-            if (s.getFullTimeDeployed() > 0.55f) continue;
+            if (s.getFullTimeDeployed() > 1.25f) continue;
             if (s.getOwner() == 0) {
                 if (s.isAlly()) {
                     if (alliedAiGroup != null && !alliedAiGroup.formationSpawnHijackedShipIds.contains(id)) {

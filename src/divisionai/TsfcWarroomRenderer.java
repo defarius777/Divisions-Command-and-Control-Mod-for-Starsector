@@ -1417,17 +1417,21 @@ public class TsfcWarroomRenderer {
                         float scale = Math.min(maxW / origW, maxH / origH);
                         float drawW = origW * scale;
                         float drawH = origH * scale;
+                        float prevCx = sprite.getCenterX();
+                        float prevCy = sprite.getCenterY();
                         float prevAngle = sprite.getAngle();
                         float prevAlpha = sprite.getAlphaMult();
                         Color prevColor = sprite.getColor();
 
                         sprite.setSize(drawW, drawH);
+                        sprite.setCenter(drawW * 0.5f, drawH * 0.5f);
                         sprite.setAngle(0f);
                         sprite.setColor(Color.WHITE);
                         sprite.setAlphaMult(alphaMult);
                         sprite.renderAtCenter(centerX, centerY);
 
                         sprite.setSize(origW, origH);
+                        sprite.setCenter(prevCx, prevCy);
                         sprite.setAngle(prevAngle);
                         if (prevColor != null) sprite.setColor(prevColor);
                         sprite.setAlphaMult(prevAlpha);

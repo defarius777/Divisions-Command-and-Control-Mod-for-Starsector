@@ -2779,7 +2779,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 ? " [" + div.activeSetpieceAttack.shortName.toUpperCase(Locale.ROOT) + "]"
                 : "";
         if (f != null) {
-            return String.format(Locale.ROOT, "%s · %s%s - %d%%", intentShort, f.shortName.toUpperCase(Locale.ROOT), spTag, fluxPct);
+            return String.format(Locale.ROOT, "%s | %s%s - %d%%", intentShort, f.shortName.toUpperCase(Locale.ROOT), spTag, fluxPct);
         }
         return String.format(Locale.ROOT, "%s%s - %d%%", intentShort, spTag, fluxPct);
     }

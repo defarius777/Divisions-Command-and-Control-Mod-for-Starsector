@@ -515,7 +515,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
                 String dtTitle = String.format(
                         Locale.ROOT,
-                        "%s  ·  %s  ·  %s  ·  %du / %du / %du  ·  %s -> %s",
+                        "%s  |  %s  |  %s  |  %du / %du / %du  |  %s -> %s",
                         dt.displayName.toUpperCase(Locale.ROOT),
                         currLineStation.displayName,
                         currFormation.shortName,
@@ -771,7 +771,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 int currMax = doctrine.getMax(cat);
 
                 String secTitle = String.format(
-                        "%s  (%d – %d ships)",
+                        "%s  (%d - %d ships)",
                         cat.displayName.toUpperCase(Locale.ROOT),
                         currMin,
                         currMax);
@@ -2061,15 +2061,21 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             if (sprite != null) {
                 float prevW = sprite.getWidth();
                 float prevH = sprite.getHeight();
+                float prevCx = sprite.getCenterX();
+                float prevCy = sprite.getCenterY();
                 Color prevColor = sprite.getColor();
                 float prevAlpha = sprite.getAlphaMult();
-                float innerSize = drawSquareBorder ? Math.max(8f, size - 2f) : size;
+                float innerSize = (float) Math.round(drawSquareBorder ? Math.max(8f, size - 2f) : size);
+                float snapX = (float) Math.round(centerX - innerSize * 0.5f);
+                float snapY = (float) Math.round(centerY - innerSize * 0.5f);
                 sprite.setSize(innerSize, innerSize);
+                sprite.setCenter(innerSize * 0.5f, innerSize * 0.5f);
                 // Render formation icons in their native metallic silver or flagship gold gradient (Color.WHITE)
                 sprite.setColor(Color.WHITE);
                 sprite.setAlphaMult(alphaMult);
-                sprite.renderAtCenter(centerX, centerY);
+                sprite.render(snapX, snapY);
                 sprite.setSize(prevW, prevH);
+                sprite.setCenter(prevCx, prevCy);
                 if (prevColor != null) {
                     sprite.setColor(prevColor);
                 }
