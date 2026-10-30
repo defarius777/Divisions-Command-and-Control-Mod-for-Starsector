@@ -761,6 +761,24 @@ public class OtcAI {
         }
         if (active.isEmpty()) return;
 
+        if (myGroup.mainEffortDivision == null) {
+            DivisionState bestMain = null;
+            float bestFp = -1f;
+            for (DivisionState d : active) {
+                if (d.archetype != null && (d.archetype.isCarrierArchetype() || d.archetype == DivisionArchetype.SERVICE_GROUP)) {
+                    continue;
+                }
+                if (d.totalFpStrength > bestFp) {
+                    bestFp = d.totalFpStrength;
+                    bestMain = d;
+                }
+            }
+            if (bestMain == null && !active.isEmpty()) {
+                bestMain = active.get(0);
+            }
+            myGroup.mainEffortDivision = bestMain;
+        }
+
         PermanentDivisionManager.FleetWideFormation configured = myGroup.fleetWideFormation != null
                 ? myGroup.fleetWideFormation
                 : PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO;
@@ -768,15 +786,22 @@ public class OtcAI {
         if (configured == PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO) {
             boolean hasCarrier = false;
             int fastFlankers = 0;
+            int heavyLineDivs = 0;
             for (DivisionState d : active) {
                 if (d.archetype != null && d.archetype.isCarrierArchetype()) hasCarrier = true;
                 if (d.isFastFlanker) fastFlankers++;
+                if (d.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                        || d.archetype == DivisionArchetype.CRUISER_DIVISION
+                        || d.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
+                    heavyLineDivs++;
+                }
             }
             if (hasCarrier && myGroup.forceRatio < 0.92f) {
                 resolved = PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION;
             } else if (myGroup.useConvergence && fastFlankers >= 2) {
                 resolved = PermanentDivisionManager.FleetWideFormation.CRESCENT_HORNS;
-            } else if (myGroup.forceRatio >= 1.28f && active.size() >= 3) {
+            } else if ((myGroup.forceRatio >= 1.22f && active.size() >= 3)
+                    || (heavyLineDivs >= 2 && myGroup.forceRatio >= 1.05f && active.size() >= 3)) {
                 resolved = PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
             } else if (myGroup.forceRatio < 0.80f && active.size() >= 3) {
                 resolved = PermanentDivisionManager.FleetWideFormation.REFUSED_FLANK_OBLIQUE;
@@ -830,39 +855,53 @@ public class OtcAI {
                     : rawInterval;
             float fwd = 0f;
             float lat = 0f;
+            int rankIdx = 0;
+            int wingSide = 0;
             switch (resolved) {
                 case GRAND_COLUMN_IN_DEPTH: {
                     fwd = ((nCombat - 1) * 0.5f - i) * 650f;
                     lat = (i == 0) ? 0f : ((i % 2 == 1) ? -160f : 160f);
+                    rankIdx = i;
+                    wingSide = (i == 0) ? 0 : ((i % 2 == 1) ? -1 : 1);
                     break;
                 }
                 case GRAND_WEDGE_SPEARHEAD: {
                     if (i == 0) {
-                        fwd = 380f;
+                        fwd = 420f;
                         lat = 0f;
+                        rankIdx = 0;
+                        wingSide = 0;
                     } else {
                         int wingRank = (i + 1) / 2;
-                        float side = (i % 2 == 1) ? -1f : 1f;
-                        fwd = 380f - wingRank * 440f;
+                        int side = (i % 2 == 1) ? -1 : 1;
+                        fwd = 420f - wingRank * 480f;
                         lat = side * wingRank * interval * 0.88f;
+                        rankIdx = wingRank;
+                        wingSide = side;
                     }
                     break;
                 }
                 case REFUSED_FLANK_OBLIQUE: {
                     float centered = i - (nCombat - 1) * 0.5f;
                     lat = centered * interval * 0.85f;
-                    fwd = 340f - i * 310f;
+                    fwd = 360f - i * 340f;
+                    rankIdx = i;
+                    wingSide = (i == 0) ? 0 : 1;
                     break;
                 }
                 case CRESCENT_HORNS: {
                     if (i == 0) {
                         fwd = -80f;
                         lat = 0f;
+                        rankIdx = 0;
+                        wingSide = 0;
                     } else {
                         int wingRank = (i + 1) / 2;
-                        float side = (i % 2 == 1) ? -1f : 1f;
+                        int side = (i % 2 == 1) ? -1 : 1;
                         fwd = -60f + Math.min(260f, wingRank * 110f);
                         lat = side * wingRank * interval * 0.82f;
+                        rankIdx = wingRank;
+                        wingSide = side;
                     }
                     break;
                 }
@@ -871,6 +910,8 @@ public class OtcAI {
                     float centered = i - (nCombat - 1) * 0.5f;
                     fwd = (rank == 0) ? 240f : -380f;
                     lat = centered * interval * 0.78f;
+                    rankIdx = rank;
+                    wingSide = (centered < -0.05f) ? -1 : ((centered > 0.05f) ? 1 : 0);
                     break;
                 }
                 case FLEET_PROTECTIVE_BASTION: {
@@ -880,6 +921,8 @@ public class OtcAI {
                     float radius = Math.max(780f, interval * 0.82f);
                     fwd = (float) Math.cos(angle) * radius;
                     lat = (float) Math.sin(angle) * radius;
+                    rankIdx = 0;
+                    wingSide = (lat < -50f) ? -1 : ((lat > 50f) ? 1 : 0);
                     break;
                 }
                 case GRAND_LINE_ABREAST:
@@ -888,16 +931,22 @@ public class OtcAI {
                     float centered;
                     if (i == 0) {
                         centered = 0f;
+                        rankIdx = 0;
+                        wingSide = 0;
                     } else {
                         int wingRank = (i + 1) / 2;
-                        float side = (i % 2 == 1) ? -1f : 1f;
+                        int side = (i % 2 == 1) ? -1 : 1;
                         centered = side * wingRank;
+                        rankIdx = wingRank;
+                        wingSide = side;
                     }
                     fwd = (i == 0) ? 90f : 0f;
                     lat = centered * interval * 0.90f;
                     break;
                 }
             }
+            d.fleetFormationRank = rankIdx;
+            d.fleetFormationWingSide = wingSide;
             d.fleetFormationOffset.set(axisX * fwd + perpX * lat, axisY * fwd + perpY * lat);
             d.hasFleetFormationOffset = true;
         }
@@ -911,9 +960,309 @@ public class OtcAI {
                     ? -120f
                     : -880f;
             float lat = centered * interval * 0.75f;
+            d.fleetFormationRank = 2;
+            d.fleetFormationWingSide = (centered < -0.05f) ? -1 : ((centered > 0.05f) ? 1 : 0);
             d.fleetFormationOffset.set(axisX * fwd + perpX * lat, axisY * fwd + perpY * lat);
             d.hasFleetFormationOffset = true;
         }
+    }
+
+    /**
+     * Formation-Aware Combat Deployment Hijack (built on top of vanilla CombatFleetManager.deploy as a failsafe):
+     * Rearranges newly spawned deployment waves into their Fleet-Wide and Intra-Division formations at the map
+     * entry zone and synchronizes their travel-drive burn durations so entire fleets and divisions zoom into
+     * the battlefield already in formation (modulated by Fleet Doctrine, OTC personality, Division personality,
+     * and Division settings). If any error occurs, restores the exact vanilla deployment state.
+     */
+    public static void hijackNewlyDeployedWaveIntoFormation(
+            CombatEngineAPI engine,
+            BattleGroupState group,
+            BattleGroupState enemyGroup,
+            List<ShipAPI> newlyDeployedShips,
+            float now) {
+        if (engine == null || group == null || newlyDeployedShips == null || newlyDeployedShips.isEmpty()) {
+            return;
+        }
+        for (ShipAPI s : newlyDeployedShips) {
+            if (s != null && s.getId() != null) {
+                group.formationSpawnHijackedShipIds.add(s.getId());
+            }
+        }
+        if (!group.deployInFleetFormation || group.divisions.isEmpty()) {
+            return;
+        }
+
+        // Snapshot vanilla deployment state for failsafe restoration
+        final int count = newlyDeployedShips.size();
+        final float[] backupLocX = new float[count];
+        final float[] backupLocY = new float[count];
+        final float[] backupVelX = new float[count];
+        final float[] backupVelY = new float[count];
+        final float[] backupFacing = new float[count];
+        for (int i = 0; i < count; i++) {
+            ShipAPI s = newlyDeployedShips.get(i);
+            if (s != null) {
+                backupLocX[i] = s.getLocation().x;
+                backupLocY[i] = s.getLocation().y;
+                backupVelX[i] = s.getVelocity().x;
+                backupVelY[i] = s.getVelocity().y;
+                backupFacing[i] = s.getFacing();
+            }
+        }
+
+        try {
+            updateFleetWideFormationGeometry(engine, group, enemyGroup);
+
+            // Partition newly deployed ships by division
+            List<DivisionState> deployingDivs = new ArrayList<>();
+            java.util.Map<DivisionState, List<ShipAPI>> waveShipsByDiv = new java.util.LinkedHashMap<>();
+            float waveSumX = 0f;
+            float waveSumY = 0f;
+            float waveWeight = 0f;
+            float frontmostEntryY = (group.side == 0) ? -Float.MAX_VALUE : Float.MAX_VALUE;
+            boolean anyTravelDriveActive = false;
+
+            for (ShipAPI s : newlyDeployedShips) {
+                if (s == null || !s.isAlive() || s.isFighter()) continue;
+                DivisionState d = group.shipIdToDivision.get(s.getId());
+                if (d == null) continue;
+                List<ShipAPI> list = waveShipsByDiv.get(d);
+                if (list == null) {
+                    list = new ArrayList<>();
+                    waveShipsByDiv.put(d, list);
+                    deployingDivs.add(d);
+                }
+                list.add(s);
+                float w = Math.max(1f, ShipCapabilityProfile.resolveShipFpStrength(s));
+                waveSumX += s.getLocation().x * w;
+                waveSumY += s.getLocation().y * w;
+                waveWeight += w;
+                if (group.side == 0) {
+                    if (s.getLocation().y > frontmostEntryY) frontmostEntryY = s.getLocation().y;
+                } else {
+                    if (s.getLocation().y < frontmostEntryY) frontmostEntryY = s.getLocation().y;
+                }
+                if (s.getTravelDrive() != null && s.getTravelDrive().isActive()) {
+                    anyTravelDriveActive = true;
+                }
+            }
+
+            if (deployingDivs.isEmpty() || waveWeight <= 0f) {
+                return;
+            }
+
+            float waveCenterX = waveSumX / waveWeight;
+            float waveAverageY = waveSumY / waveWeight;
+            float mapW = Math.max(8000f, engine.getMapWidth());
+            float mapH = Math.max(8000f, engine.getMapHeight());
+            float maxAbsX = mapW * 0.42f;
+            float maxAbsY = mapH * 0.42f;
+            float fwdDirY = (group.side == 0) ? 1f : -1f;
+
+            // Compute average fleetFormationOffset across the divisions in this wave so a single or partial
+            // wave stays centered on its entry centroid while preserving multi-division relative offsets
+            float avgOffsetX = 0f;
+            float avgOffsetY = 0f;
+            for (DivisionState d : deployingDivs) {
+                avgOffsetX += d.fleetFormationOffset.x;
+                avgOffsetY += d.fleetFormationOffset.y;
+            }
+            avgOffsetX /= deployingDivs.size();
+            avgOffsetY /= deployingDivs.size();
+
+            // Modulate fleet-wide formation cohesion by OTC personality & authority
+            float otcStrictness = (group.otc != null) ? group.otc.stationKeepingStrictness : 1.0f;
+            float otcAggression = (group.otc != null) ? group.otc.aggressionBias : 1.0f;
+            float authorityScale = (group.authority == PermanentDivisionManager.OtcAuthority.POSITIVE_CONTROL)
+                    ? 0.92f
+                    : (group.authority == PermanentDivisionManager.OtcAuthority.COMMAND_BY_NEGATION ? 1.12f : 1.0f);
+            float otcCohesionScale = authorityScale * Math.max(0.82f, Math.min(1.22f, 2.0f - otcStrictness));
+
+            // Compute synchronized base travel-drive burn duration from vanilla stop line (~2000u inside map edge)
+            float vanillaStopLineY = (group.side == 0)
+                    ? (-mapH * 0.5f + 2150f)
+                    : (mapH * 0.5f - 2150f);
+            float travelDistToStopLine = (group.side == 0)
+                    ? (vanillaStopLineY - frontmostEntryY)
+                    : (frontmostEntryY - vanillaStopLineY);
+            float baseWaveBurnDur = Math.max(1.30f, Math.min(4.20f, travelDistToStopLine / 600f));
+            float otcBurnBonus = (otcAggression - 1.0f) * 0.45f;
+
+            Set<ShipAPI> unplacedWaveShips = new HashSet<>();
+            for (List<ShipAPI> divShips : waveShipsByDiv.values()) {
+                for (ShipAPI s : divShips) {
+                    if (s != null && !(s == engine.getPlayerShip() && !engine.isUIAutopilotOn())) {
+                        unplacedWaveShips.add(s);
+                    }
+                }
+            }
+
+            for (DivisionState div : deployingDivs) {
+                List<ShipAPI> divWaveShips = waveShipsByDiv.get(div);
+                if (divWaveShips == null || divWaveShips.isEmpty()) continue;
+
+                // Ensure wing-matched or doctrinal intra-division formation is resolved
+                DivisionCommanderAI.evaluateAndUpdateDivisionFormation(engine, div, group, now);
+
+                float relFleetX = (deployingDivs.size() >= 2)
+                        ? (div.fleetFormationOffset.x - avgOffsetX) * otcCohesionScale
+                        : 0f;
+                float relFleetY = (deployingDivs.size() >= 2)
+                        ? (div.fleetFormationOffset.y - avgOffsetY) * otcCohesionScale
+                        : 0f;
+
+                // Division LineStation modulation (VAN pushes forward, REAR holds back)
+                float lineStationBiasY = 0f;
+                float lineStationBurnDelta = 0f;
+                if (div.lineStation == PermanentDivisionManager.LineStation.VAN) {
+                    lineStationBiasY = fwdDirY * 150f;
+                    lineStationBurnDelta = 0.22f;
+                } else if (div.lineStation == PermanentDivisionManager.LineStation.REAR
+                        || (div.archetype != null && div.archetype.isCarrierArchetype())) {
+                    lineStationBiasY = -fwdDirY * 220f;
+                    lineStationBurnDelta = -0.26f;
+                }
+
+                float divAnchorX = Math.max(-maxAbsX, Math.min(maxAbsX, waveCenterX + relFleetX));
+                float divAnchorY = anyTravelDriveActive
+                        ? (waveAverageY + relFleetY + lineStationBiasY)
+                        : Math.max(-maxAbsY, Math.min(maxAbsY, waveAverageY + relFleetY + lineStationBiasY));
+
+                // Orient entry vector (straight onto battlefield, or subtly angled <= 18 deg toward opening objective for fast units)
+                float initHx = 0f;
+                float initHy = fwdDirY;
+                boolean isHeavyOrCarrier = div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                        || (div.archetype != null && div.archetype.isCarrierArchetype());
+                DivisionMissionType openMission = DivisionCommanderAI.resolveActiveMission(div, now);
+                if (!isHeavyOrCarrier
+                        && openMission != DivisionMissionType.RESERVE
+                        && engine.getObjectives() != null
+                        && !engine.getObjectives().isEmpty()) {
+                    BattleObjectiveAPI nearestObj = null;
+                    float bestObjDist = Float.MAX_VALUE;
+                    for (BattleObjectiveAPI obj : engine.getObjectives()) {
+                        if (obj == null || obj.getOwner() == group.side) continue;
+                        float odx = obj.getLocation().x - divAnchorX;
+                        float ody = obj.getLocation().y - divAnchorY;
+                        float d = (float) Math.sqrt(odx * odx + ody * ody);
+                        if (d < bestObjDist) {
+                            bestObjDist = d;
+                            nearestObj = obj;
+                        }
+                    }
+                    if (nearestObj != null && bestObjDist > 250f) {
+                        float odx = nearestObj.getLocation().x - divAnchorX;
+                        float ody = nearestObj.getLocation().y - divAnchorY;
+                        float oLen = (float) Math.sqrt(odx * odx + ody * ody);
+                        if (oLen > 1f) {
+                            // Blend up to 30% lateral angle during travel-drive entry so the division zooms in smoothly
+                            float rawHx = odx / oLen;
+                            float rawHy = ody / oLen;
+                            initHx = anyTravelDriveActive ? (rawHx * 0.30f) : rawHx;
+                            initHy = anyTravelDriveActive ? (fwdDirY * 0.95f) : rawHy;
+                            float norm = (float) Math.sqrt(initHx * initHx + initHy * initHy);
+                            if (norm > 0.01f) {
+                                initHx /= norm;
+                                initHy /= norm;
+                            }
+                        }
+                    }
+                }
+
+                div.formationHeadingX = initHx;
+                div.formationHeadingY = initHy;
+                div.formationHeadingInitialized = true;
+                float initFacingDeg = (float) Math.toDegrees(Math.atan2(initHy, initHx));
+                if (initFacingDeg < 0f) initFacingDeg += 360f;
+
+                PermanentDivisionManager.DivisionFormation fm = div.activeFormation != null
+                        ? div.activeFormation
+                        : (div.doctrinalFormation != null ? div.doctrinalFormation : PermanentDivisionManager.DivisionFormation.LINE_ABREAST);
+
+                // Division personality & division settings modulate intra-division spacing and jitter
+                float divStrictness = (div.commander != null) ? div.commander.stationKeepingStrictness : 1.0f;
+                float divAggression = (div.commander != null) ? div.commander.aggressionBias : 1.0f;
+                float combinedStrictness = 0.5f * (otcStrictness + divStrictness);
+                float looseness = Math.max(0f, 1.12f - combinedStrictness);
+                float effectiveSpacing = Math.max(210f, div.stationSpacing * Math.max(0.78f, Math.min(1.30f, div.stationKeepingMult * (1.85f - 0.85f * divStrictness))));
+                float divSyncBurnDur = Math.max(1.10f, Math.min(4.60f,
+                        baseWaveBurnDur + otcBurnBonus + (divAggression - 1.0f) * 0.30f + lineStationBurnDelta));
+
+                for (int i = 0; i < divWaveShips.size(); i++) {
+                    ShipAPI s = divWaveShips.get(i);
+                    if (s == null || (s == engine.getPlayerShip() && !engine.isUIAutopilotOn())) {
+                        continue;
+                    }
+                    Vector2f slot = DivisionCommanderAI.computeFormationSlotPositionForAnchor(
+                            fm, i, divWaveShips, s, divAnchorX, divAnchorY, initHx, initHy, effectiveSpacing);
+
+                    // Deterministic personality jitter (near-zero for disciplined/Alpha Core, looser for reckless/pirate)
+                    int hash = (s.getId() != null) ? s.getId().hashCode() : (i * 7919);
+                    float jx = (((hash & 0xFF) / 127.5f) - 1.0f) * 95f * looseness;
+                    float jy = ((((hash >> 8) & 0xFF) / 127.5f) - 1.0f) * 75f * looseness;
+                    float burnJitter = ((((hash >> 16) & 0xFF) / 127.5f) - 1.0f) * 0.22f * looseness;
+
+                    float targetX = Math.max(-maxAbsX, Math.min(maxAbsX, slot.x + jx));
+                    float targetY = anyTravelDriveActive
+                            ? (slot.y + jy)
+                            : Math.max(-maxAbsY, Math.min(maxAbsY, slot.y + jy));
+
+                    unplacedWaveShips.remove(s);
+                    Vector2f safePos = resolveSafeDeploymentPosition(engine, s, targetX, targetY, maxAbsX, unplacedWaveShips);
+                    if (!Float.isNaN(safePos.x) && !Float.isNaN(safePos.y)) {
+                        s.getLocation().set(safePos.x, safePos.y);
+                        s.setFacing(initFacingDeg);
+                        if (anyTravelDriveActive && s.getTravelDrive() != null && s.getTravelDrive().isActive()) {
+                            float spd = Math.max(60f, s.getMaxSpeed() * 2f);
+                            s.getVelocity().set(initHx * spd, initHy * spd);
+                            float finalBurn = Math.max(0.85f, Math.min(4.80f, divSyncBurnDur + burnJitter));
+                            s.turnOnTravelDrive(finalBurn);
+                        }
+                    }
+                }
+
+                float postBurnX = Math.max(-maxAbsX, Math.min(maxAbsX, divAnchorX + (anyTravelDriveActive ? initHx * 600f * divSyncBurnDur : 0f)));
+                float postBurnY = Math.max(-maxAbsY, Math.min(maxAbsY, divAnchorY + (anyTravelDriveActive ? initHy * 600f * divSyncBurnDur : 0f)));
+                div.stationPoint.set(postBurnX, postBurnY);
+                div.centroid.set(divAnchorX, divAnchorY);
+                div.initialDeploymentMarshalled = true;
+            }
+            group.initialDeploymentDone = true;
+        } catch (Throwable t) {
+            // Vanilla failsafe: restore exact vanilla deployment positions, velocities, and facings
+            for (int i = 0; i < count; i++) {
+                ShipAPI s = newlyDeployedShips.get(i);
+                if (s != null && s.isAlive()) {
+                    s.getLocation().set(backupLocX[i], backupLocY[i]);
+                    s.getVelocity().set(backupVelX[i], backupVelY[i]);
+                    s.setFacing(backupFacing[i]);
+                }
+            }
+        }
+    }
+
+    private static Vector2f resolveSafeDeploymentPosition(
+            CombatEngineAPI engine,
+            ShipAPI movingShip,
+            float desiredX,
+            float desiredY,
+            float maxAbsX,
+            Set<ShipAPI> unplacedGroupShips) {
+        if (isDeploymentSlotClear(engine, movingShip, desiredX, desiredY, unplacedGroupShips)) {
+            return new Vector2f(desiredX, desiredY);
+        }
+        float step = Math.max(95f, movingShip.getCollisionRadius() * 1.15f);
+        for (int ring = 1; ring <= 6; ring++) {
+            for (int k = 0; k < 8; k++) {
+                double ang = (Math.PI * 0.25) * k;
+                float cx = Math.max(-maxAbsX, Math.min(maxAbsX, desiredX + (float) Math.cos(ang) * step * ring));
+                float cy = desiredY + (float) Math.sin(ang) * step * ring;
+                if (isDeploymentSlotClear(engine, movingShip, cx, cy, unplacedGroupShips)) {
+                    return new Vector2f(cx, cy);
+                }
+            }
+        }
+        return new Vector2f(desiredX, desiredY);
     }
 
     /**

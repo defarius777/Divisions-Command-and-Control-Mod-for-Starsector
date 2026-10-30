@@ -396,6 +396,8 @@ public class DivisionModel {
         public final Vector2f setpiecePassTarget = new Vector2f();
         public final Vector2f fleetFormationOffset = new Vector2f();
         public boolean hasFleetFormationOffset = false;
+        public int fleetFormationRank = 0;
+        public int fleetFormationWingSide = 0; // -1 = port wing, 0 = center/apex spearhead, +1 = starboard wing
         public boolean initialDeploymentMarshalled = false;
 
         // Dynamic telemetry updated every evaluation tick
@@ -628,6 +630,7 @@ public class DivisionModel {
                 PermanentDivisionManager.MultiDivisionSetpiece.NONE;
         public boolean deployInFleetFormation = true;
         public boolean initialDeploymentDone = false;
+        public final Set<String> formationSpawnHijackedShipIds = new HashSet<>();
         public final Set<PermanentDivisionManager.OtcPlay> plays =
                 EnumSet.of(
                         PermanentDivisionManager.OtcPlay.LINE_AND_FIRE_DISTRIBUTION,

@@ -740,14 +740,19 @@ public class OtcBattlePlanner {
         DivisionState primary = myGroup.primaryThreatEnemyDivision;
         if (primary != null && !visibleEnemies.contains(primary)) primary = null;
 
-        // Main Effort fixes the primary threat
+        // Main Effort fixes the primary threat (or leads the spearhead in GRAND_WEDGE_SPEARHEAD / REFUSED_FLANK_OBLIQUE)
+        boolean wedgeOrOblique = (myGroup.activeFleetWideFormation == FleetWideFormation.GRAND_WEDGE_SPEARHEAD
+                || myGroup.activeFleetWideFormation == FleetWideFormation.REFUSED_FLANK_OBLIQUE)
+                && active.size() >= 3;
         DivisionState main = myGroup.mainEffortDivision;
         if (main != null && main.isCombatEffective() && !tasked.contains(main) && primary != null) {
             Vector2f primaryPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, primary);
             boolean newOrder = !(main.otcOrder.type == OtcOrderType.FORM_LINE && main.otcOrder.targetEnemy == primary);
             main.otcOrder.set(OtcOrderType.FORM_LINE, primary, null, 0f, expires,
                     "OTC: Main Effort, form the line on \"" + primary.displayName + "\"");
-            if (myGroup.authority == OtcAuthority.POSITIVE_CONTROL
+            if (wedgeOrOblique && myGroup.authority != OtcAuthority.COMMAND_BY_NEGATION) {
+                main.otcOrder.orderedFormation = DivisionFormation.FORWARD_WEDGE;
+            } else if (myGroup.authority == OtcAuthority.POSITIVE_CONTROL
                     && (main.doctrinalFormation == null || main.doctrinalFormation == DivisionFormation.NONE)) {
                 main.otcOrder.orderedFormation = DivisionFormation.LINE_ABREAST;
             }
@@ -761,6 +766,9 @@ public class OtcBattlePlanner {
                     len = 1f;
                 }
                 float hold = Math.max(500f, main.standoffRange * 0.9f);
+                if (wedgeOrOblique && myGroup.forceRatio >= 1.12f) {
+                    hold = Math.max(400f, hold * 0.78f);
+                }
                 // Explicit Fleet Engagement OTC adaptation: if vanguard/light divisions are in violent contact
                 // (engagedDivisionCount >= 1) while the heavy Main Effort is still uncommitted (!mainEffortEngaged),
                 // tighten the Main Effort's fixing station by 22% so the battleships rapidly close into gun range
@@ -857,6 +865,32 @@ public class OtcBattlePlanner {
 
             d.otcOrder.set(OtcOrderType.ENGAGE_ASSIGNED, best, null, 0f, expires, "OTC: fire distribution, engage \"" + best.displayName + "\"");
             d.otcOrder.hasStation = false;
+            if (wedgeOrOblique
+                    && myGroup.authority.allowsPositioning()
+                    && d.hasFleetFormationOffset
+                    && main != null
+                    && main.hasFleetFormationOffset
+                    && !d.isFastFlanker
+                    && !d.archetype.isCarrierArchetype()
+                    && d.archetype != DivisionArchetype.SERVICE_GROUP
+                    && DivisionCommanderAI.resolveActiveMission(d, now) != DivisionMissionType.ENVELOPMENT
+                    && DivisionCommanderAI.resolveActiveMission(d, now) != DivisionMissionType.SCOUTING) {
+                Vector2f bPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, best);
+                float distToTarget = distance(d.centroid, bPos);
+                if (d.fleetFormationWingSide < 0) {
+                    d.otcOrder.orderedFormation = DivisionFormation.ECHELON_LEFT;
+                } else if (d.fleetFormationWingSide > 0) {
+                    d.otcOrder.orderedFormation = DivisionFormation.ECHELON_RIGHT;
+                }
+                if (best == primary && distToTarget > Math.max(950f, d.standoffRange * 1.08f)) {
+                    float anchorX = main.otcOrder.hasStation ? main.otcOrder.station.x : main.centroid.x;
+                    float anchorY = main.otcOrder.hasStation ? main.otcOrder.station.y : main.centroid.y;
+                    float relX = d.fleetFormationOffset.x - main.fleetFormationOffset.x;
+                    float relY = d.fleetFormationOffset.y - main.fleetFormationOffset.y;
+                    d.otcOrder.hasStation = true;
+                    d.otcOrder.station.set(anchorX + relX, anchorY + relY);
+                }
+            }
             tasked.add(d);
             allocationOut.put(d, best);
             float weight = d.archetype.isCarrierArchetype() ? 0.5f : 1f;

@@ -583,7 +583,7 @@ public final class FactionFleetDoctrines {
                 cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
                 cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
                 cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                cfg.setFleetWideFormation(FleetWideFormation.GRAND_LINE_ABREAST);
+                cfg.setFleetWideFormation(FleetWideFormation.GRAND_WEDGE_SPEARHEAD);
                 cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.HAMMER_AND_ANVIL);
 
                 configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,

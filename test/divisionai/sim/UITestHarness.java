@@ -260,6 +260,79 @@ public class UITestHarness {
                 layoutClean && totalRowsUsed == 4,
                 "Deployment grid multi-row division wrapping aligns on 14-column boundaries without overlap",
                 "groupSizes=[4, 15, 5] -> totalRows=" + totalRowsUsed + ", totalSlots=" + slotIdx);
+
+        // Verify Deployment Screen Overhaul (Items A-E), Deep Wedge Echeloning & Formation-Aware Deployment Hijack
+        String stdOtcTitle = DivisionDeploymentDialogOrganizer.formatFleetCommandOtcTitle(
+                "Admiral Kanta", "HSS Bismark", false);
+        String alphaOtcTitle = DivisionDeploymentDialogOrganizer.formatFleetCommandOtcTitle(
+                "Alpha Core", "tts radiant", true);
+        boolean titlesOk = "Officer in Tactical Command: Admiral Kanta".equals(stdOtcTitle)
+                && "ORDO COGITATOR/MASTER: TTS RADIANT".equals(alphaOtcTitle)
+                && DivisionDeploymentDialogOrganizer.ALPHA_CORE_PORTRAIT_STRETCH_ASPECT >= 1.65f
+                && Math.abs(DivisionDeploymentDialogOrganizer.MASTER_JITTER_PERIOD_SECONDS - 0.50f) < 1e-4f;
+
+        float[] jit0 = DivisionDeploymentDialogOrganizer.computeMasterJitterOffset(0.20);
+        float[] jit1 = DivisionDeploymentDialogOrganizer.computeMasterJitterOffset(0.70);
+        float[] jit2 = DivisionDeploymentDialogOrganizer.computeMasterJitterOffset(1.20);
+        boolean jitterChangesEveryHalfSec = (Math.abs(jit0[0]) > 0.1f || Math.abs(jit0[1]) > 0.1f)
+                && (Math.abs(jit0[0] - jit1[0]) > 0.05f || Math.abs(jit0[1] - jit1[1]) > 0.05f
+                || Math.abs(jit1[0] - jit2[0]) > 0.05f || Math.abs(jit1[1] - jit2[1]) > 0.05f);
+
+        // Verify Hegemony Grand Wedge Spearhead & wing-matched intra-division echeloning + Deployment Hijack
+        PermanentDivisionManager.FleetDoctrineConfig hegDoc = FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null);
+        boolean hegUsesGrandWedge = (hegDoc.getFleetWideFormation() == PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD);
+
+        DivisionModel.CommanderProfile testCmdr = new DivisionModel.CommanderProfile(null, "steady");
+        DivisionModel.BattleGroupState wedgeGroup = new DivisionModel.BattleGroupState(0, testCmdr);
+        wedgeGroup.fleetWideFormation = PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
+        DivisionModel.DivisionState dApex = new DivisionModel.DivisionState("w_apex", 0, 1, DivisionModel.DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. I", testCmdr);
+        DivisionModel.DivisionState dPort = new DivisionModel.DivisionState("w_port", 0, 2, DivisionModel.DivisionArchetype.CRUISER_DIVISION, "Cruiser Div. I", testCmdr);
+        DivisionModel.DivisionState dStbd = new DivisionModel.DivisionState("w_stbd", 0, 3, DivisionModel.DivisionArchetype.CRUISER_DIVISION, "Cruiser Div. II", testCmdr);
+        wedgeGroup.divisions.add(dApex);
+        wedgeGroup.divisions.add(dPort);
+        wedgeGroup.divisions.add(dStbd);
+        wedgeGroup.mainEffortDivision = dApex;
+
+        SimArena wedgeArena = new SimArena("Wedge Hijack Check", "Test", wedgeGroup, new DivisionModel.BattleGroupState(1, testCmdr));
+        SimArena.SimShipState sApex1 = wedgeArena.addShip(dApex, "wa1", "Onslaught", "Onslaught", com.fs.starfarer.api.combat.ShipAPI.HullSize.CAPITAL_SHIP, -300f, -4500f, 55f, 1300f, 0, 0);
+        SimArena.SimShipState sApex2 = wedgeArena.addShip(dApex, "wa2", "Dominator", "Dominator", com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, -100f, -4500f, 65f, 1200f, 0, 0);
+        SimArena.SimShipState sPort1 = wedgeArena.addShip(dPort, "wp1", "Eagle", "Eagle", com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 100f, -4500f, 70f, 1200f, 0, 0);
+        SimArena.SimShipState sPort2 = wedgeArena.addShip(dPort, "wp2", "Falcon", "Falcon", com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 250f, -4500f, 80f, 1150f, 0, 0);
+        SimArena.SimShipState sStbd1 = wedgeArena.addShip(dStbd, "ws1", "Eagle", "Eagle", com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 400f, -4500f, 70f, 1200f, 0, 0);
+        SimArena.SimShipState sStbd2 = wedgeArena.addShip(dStbd, "ws2", "Falcon", "Falcon", com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 550f, -4500f, 80f, 1150f, 0, 0);
+        for (DivisionModel.DivisionState d : wedgeGroup.divisions) {
+            for (com.fs.starfarer.api.combat.ShipAPI s : d.members) {
+                wedgeGroup.shipIdToDivision.put(s.getId(), d);
+            }
+        }
+        divisionai.OtcAI.updateTelemetry(wedgeArena.engineProxy, wedgeGroup);
+        List<com.fs.starfarer.api.combat.ShipAPI> wave = new ArrayList<>();
+        wave.add(sApex1.proxy);
+        wave.add(sApex2.proxy);
+        wave.add(sPort1.proxy);
+        wave.add(sPort2.proxy);
+        wave.add(sStbd1.proxy);
+        wave.add(sStbd2.proxy);
+        divisionai.OtcAI.hijackNewlyDeployedWaveIntoFormation(wedgeArena.engineProxy, wedgeGroup, null, wave, 0.1f);
+        divisionai.OtcAI.updateTelemetry(wedgeArena.engineProxy, wedgeGroup);
+
+        boolean wedgeFormationsOk = (dApex.activeFormation == PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE)
+                && (dPort.activeFormation == PermanentDivisionManager.DivisionFormation.ECHELON_LEFT)
+                && (dStbd.activeFormation == PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT)
+                && (dApex.centroid.y > dPort.centroid.y + 200f)
+                && (dApex.centroid.y > dStbd.centroid.y + 200f)
+                && (dPort.centroid.x < dApex.centroid.x - 200f)
+                && (dStbd.centroid.x > dApex.centroid.x + 200f);
+
+        res.record(
+                titlesOk && jitterChangesEveryHalfSec && hegUsesGrandWedge && wedgeFormationsOk,
+                "Deployment Screen Fleet Command (A-E), ORDO COGITATOR/MASTER 0.5s jitter, and Formation Deployment Hijack verified",
+                String.format(Locale.ROOT,
+                        "std='%s', alpha='%s', stretch=%.2fx, jitter0.5s=%b, hegWedge=%b, hijackFormations=[%s,%s,%s], apexLeadY=%.0fu",
+                        stdOtcTitle, alphaOtcTitle, DivisionDeploymentDialogOrganizer.ALPHA_CORE_PORTRAIT_STRETCH_ASPECT,
+                        jitterChangesEveryHalfSec, hegUsesGrandWedge,
+                        dApex.activeFormation, dPort.activeFormation, dStbd.activeFormation,
+                        dApex.centroid.y - dPort.centroid.y));
     }
 
     private static void auditFleetDoctrineWindowAndOtcLayout(UIAuditResult res) throws Exception {

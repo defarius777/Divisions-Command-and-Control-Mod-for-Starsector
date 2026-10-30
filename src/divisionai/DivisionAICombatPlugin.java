@@ -106,10 +106,40 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
         tacticalOverlay.ensureAttachedToWarroomUI();
 
+        if (!initializedBattle) {
+            CommanderProfile playerCmdr = DivisionAutoFormer.resolveOtc(engine, 0);
+            CommanderProfile alliedAiCmdr = DivisionAutoFormer.resolveAlliedAiOtc(engine, null);
+            CommanderProfile enemyCmdr = DivisionAutoFormer.resolveOtc(engine, 1);
+
+            playerGroup = new BattleGroupState(0, playerCmdr);
+            alliedAiGroup = new BattleGroupState(0, alliedAiCmdr);
+            alliedAiGroup.isAlliedAi = true;
+            enemyGroup = new BattleGroupState(1, enemyCmdr);
+
+            // Player OTC orchestration comes from Fleet Doctrine; Allied AI and Enemy battle groups use the Hybrid defaults
+            PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
+            playerGroup.authority = doctrine.getOtcAuthority();
+            playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
+            playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
+            playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
+            playerGroup.plays.clear();
+            playerGroup.plays.addAll(doctrine.getEnabledPlays());
+
+            playerGroup.missionContext = DivisionAutoFormer.detectMissionContext(engine, 0);
+            alliedAiGroup.missionContext = playerGroup.missionContext;
+            enemyGroup.missionContext = DivisionAutoFormer.detectMissionContext(engine, 1);
+
+            tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
+            initializedBattle = true;
+            LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, plays=%s",
+                    playerGroup.authority.shortName, playerGroup.plays));
+        }
+
         if (deploymentOrganizer == null) {
             deploymentOrganizer = new DivisionDeploymentDialogOrganizer();
         }
         // Organize the Deployment Window even while the combat engine is paused during deployment
+        deploymentOrganizer.setBattleContext(playerGroup, enemyGroup, musicController);
         deploymentOrganizer.advance(engine);
 
         if (initializedBattle) {
@@ -140,34 +170,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         float now = engine.getTotalElapsedTime(false);
 
-        if (!initializedBattle) {
-            CommanderProfile playerCmdr = DivisionAutoFormer.resolveOtc(engine, 0);
-            CommanderProfile alliedAiCmdr = DivisionAutoFormer.resolveAlliedAiOtc(engine, null);
-            CommanderProfile enemyCmdr = DivisionAutoFormer.resolveOtc(engine, 1);
-
-            playerGroup = new BattleGroupState(0, playerCmdr);
-            alliedAiGroup = new BattleGroupState(0, alliedAiCmdr);
-            alliedAiGroup.isAlliedAi = true;
-            enemyGroup = new BattleGroupState(1, enemyCmdr);
-
-            // Player OTC orchestration comes from Fleet Doctrine; Allied AI and Enemy battle groups use the Hybrid defaults
-            PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
-            playerGroup.authority = doctrine.getOtcAuthority();
-            playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
-            playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
-            playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
-            playerGroup.plays.clear();
-            playerGroup.plays.addAll(doctrine.getEnabledPlays());
-
-            playerGroup.missionContext = DivisionAutoFormer.detectMissionContext(engine, 0);
-            alliedAiGroup.missionContext = playerGroup.missionContext;
-            enemyGroup.missionContext = DivisionAutoFormer.detectMissionContext(engine, 1);
-
-            tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
-            initializedBattle = true;
-            LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, plays=%s",
-                    playerGroup.authority.shortName, playerGroup.plays));
-        }
+        // Immediately intercept newly deployed ship waves on their first frame so they zoom into battle in formation
+        interceptNewlyDeployedWaves(now);
 
         divisionTimer += amount;
         otcTimer += amount;
@@ -326,6 +330,111 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         // Maintain HUD status on the player flagship ONLY if the player fleet has at least 1 active division
         maintainPlayerHudStatus();
+    }
+
+    /**
+     * Detects any newly deployed combat ships on their first unpaused frame and invokes
+     * {@link OtcAI#hijackNewlyDeployedWaveIntoFormation} so fleets and divisions enter the battlefield
+     * under travel drive already formed up in their Fleet-Wide and Intra-Division formations.
+     */
+    private void interceptNewlyDeployedWaves(float now) {
+        if (engine == null || engine.getShips() == null) return;
+        List<ShipAPI> newPlayerWave = null;
+        List<ShipAPI> newAlliedWave = null;
+        List<ShipAPI> newEnemyWave = null;
+
+        for (ShipAPI s : engine.getShips()) {
+            if (!DivisionAutoFormer.isEligibleCombatHull(s)) continue;
+            String id = s.getId();
+            if (id == null) continue;
+            if (s.getFullTimeDeployed() > 0.55f) continue;
+            if (s.getOwner() == 0) {
+                if (s.isAlly()) {
+                    if (alliedAiGroup != null && !alliedAiGroup.formationSpawnHijackedShipIds.contains(id)) {
+                        if (newAlliedWave == null) newAlliedWave = new ArrayList<>();
+                        newAlliedWave.add(s);
+                    }
+                } else {
+                    if (playerGroup != null && !playerGroup.formationSpawnHijackedShipIds.contains(id)) {
+                        if (newPlayerWave == null) newPlayerWave = new ArrayList<>();
+                        newPlayerWave.add(s);
+                    }
+                }
+            } else if (s.getOwner() == 1) {
+                if (enemyGroup != null && !enemyGroup.formationSpawnHijackedShipIds.contains(id)) {
+                    if (newEnemyWave == null) newEnemyWave = new ArrayList<>();
+                    newEnemyWave.add(s);
+                }
+            }
+        }
+
+        if (newPlayerWave == null && newAlliedWave == null && newEnemyWave == null) {
+            return;
+        }
+
+        List<ShipAPI> playerHulls = new ArrayList<>();
+        List<ShipAPI> alliedAiHulls = new ArrayList<>();
+        List<ShipAPI> enemyHulls = new ArrayList<>();
+        for (ShipAPI s : engine.getShips()) {
+            if (!DivisionAutoFormer.isEligibleCombatHull(s)) continue;
+            if (s.getOwner() == 0) {
+                if (s.isAlly()) alliedAiHulls.add(s);
+                else playerHulls.add(s);
+            } else if (s.getOwner() == 1) {
+                enemyHulls.add(s);
+            }
+        }
+
+        if (newPlayerWave != null && playerGroup != null) {
+            List<DivisionState> formed = DivisionAutoFormer.syncPlayerPermanentDivisionsOnly(engine, playerGroup, playerHulls);
+            for (DivisionState d : formed) {
+                DivisionCombatLog.logDivisionFormed(engine, d, now);
+            }
+            if (!playerGroup.divisions.isEmpty()) {
+                OtcAI.updateTelemetry(engine, playerGroup);
+                OtcAI.hijackNewlyDeployedWaveIntoFormation(engine, playerGroup, enemyGroup, newPlayerWave, now);
+                OtcAI.updateTelemetry(engine, playerGroup);
+            } else {
+                for (ShipAPI s : newPlayerWave) {
+                    if (s != null && s.getId() != null) playerGroup.formationSpawnHijackedShipIds.add(s.getId());
+                }
+            }
+        }
+
+        if (newAlliedWave != null && alliedAiGroup != null) {
+            if (!alliedAiHulls.isEmpty() && !loggedAlliedAiOtcInit) {
+                alliedAiGroup.otc = DivisionAutoFormer.resolveAlliedAiOtc(engine, alliedAiHulls);
+            }
+            List<DivisionState> formed = DivisionAutoFormer.syncDivisionsForSide(engine, alliedAiGroup, alliedAiHulls);
+            for (DivisionState d : formed) {
+                DivisionCombatLog.logDivisionFormed(engine, d, now);
+            }
+            if (!alliedAiGroup.divisions.isEmpty()) {
+                OtcAI.updateTelemetry(engine, alliedAiGroup);
+                OtcAI.hijackNewlyDeployedWaveIntoFormation(engine, alliedAiGroup, enemyGroup, newAlliedWave, now);
+                OtcAI.updateTelemetry(engine, alliedAiGroup);
+            } else {
+                for (ShipAPI s : newAlliedWave) {
+                    if (s != null && s.getId() != null) alliedAiGroup.formationSpawnHijackedShipIds.add(s.getId());
+                }
+            }
+        }
+
+        if (newEnemyWave != null && enemyGroup != null) {
+            List<DivisionState> formed = DivisionAutoFormer.syncDivisionsForSide(engine, enemyGroup, enemyHulls);
+            for (DivisionState d : formed) {
+                DivisionCombatLog.logDivisionFormed(engine, d, now);
+            }
+            if (!enemyGroup.divisions.isEmpty()) {
+                OtcAI.updateTelemetry(engine, enemyGroup);
+                OtcAI.hijackNewlyDeployedWaveIntoFormation(engine, enemyGroup, playerGroup, newEnemyWave, now);
+                OtcAI.updateTelemetry(engine, enemyGroup);
+            } else {
+                for (ShipAPI s : newEnemyWave) {
+                    if (s != null && s.getId() != null) enemyGroup.formationSpawnHijackedShipIds.add(s.getId());
+                }
+            }
+        }
     }
 
     /**

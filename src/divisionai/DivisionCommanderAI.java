@@ -207,6 +207,21 @@ public class DivisionCommanderAI {
                             ? DivisionFormation.REVERSE_SEMICIRCLE
                             : DivisionFormation.FORWARD_WEDGE;
                 }
+            } else if (myGroup != null
+                    && (myGroup.activeFleetWideFormation == PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD
+                    || myGroup.activeFleetWideFormation == PermanentDivisionManager.FleetWideFormation.REFUSED_FLANK_OBLIQUE)
+                    && aliveCount >= 2
+                    && div.archetype != null
+                    && !div.archetype.isCarrierArchetype()
+                    && div.archetype != DivisionArchetype.SERVICE_GROUP
+                    && (base == DivisionFormation.LINE_ABREAST || base == DivisionFormation.FORWARD_WEDGE)) {
+                if (div == myGroup.mainEffortDivision || div.fleetFormationWingSide == 0) {
+                    desired = DivisionFormation.FORWARD_WEDGE;
+                } else if (div.fleetFormationWingSide < 0) {
+                    desired = DivisionFormation.ECHELON_LEFT;
+                } else {
+                    desired = DivisionFormation.ECHELON_RIGHT;
+                }
             }
         }
 
@@ -1345,7 +1360,11 @@ public class DivisionCommanderAI {
                 }
                 break;
             case CLOSE_AND_ENGAGE:
-                if (enemyTrackable) {
+                if (div.otcOrder.isActive(now)
+                        && div.otcOrder.hasStation
+                        && div.otcOrder.type == DivisionModel.OtcOrderType.ENGAGE_ASSIGNED) {
+                    div.stationPoint.set(div.otcOrder.station);
+                } else if (enemyTrackable) {
                     computeStandoffStation(engine, div, enemy, div.stationPoint);
                 }
                 break;
@@ -1401,9 +1420,9 @@ public class DivisionCommanderAI {
                 break;
         }
 
-        // Opening Advance Cohesion Pacing: while the Main Effort (Battleship/Cruiser core) is still marching into
-        // initial contact (now < 35s and Main Effort not yet engaged), prevent faster escort/missile/cruiser divisions
-        // from sprinting >320u ahead of the Main Effort along the battle axis and getting defeated in detail.
+        // Opening Advance & Deep-Wedge Echelon Cohesion Pacing: while the Main Effort (Battleship/Cruiser core) is still
+        // marching into initial contact (now < 35s and Main Effort not yet engaged), maintain fleet-wide echelon depth
+        // behind the Main Effort apex so wing divisions do not flatten or sprint ahead of the spearhead.
         if (now < 35f
                 && myGroup != null
                 && myGroup.mainEffortDivision != null
@@ -1414,10 +1433,20 @@ public class DivisionCommanderAI {
                 || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX
                 || div.currentIntent == DivisionIntentType.HARASSING_MISSILE_ATTACK)) {
             float mainY = myGroup.mainEffortDivision.centroid.y;
+            boolean deepWedgeActive = (myGroup.activeFleetWideFormation == PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD
+                    || myGroup.activeFleetWideFormation == PermanentDivisionManager.FleetWideFormation.REFUSED_FLANK_OBLIQUE)
+                    && myGroup.divisions.size() >= 3
+                    && !div.isFastFlanker
+                    && div.hasFleetFormationOffset
+                    && myGroup.mainEffortDivision.hasFleetFormationOffset;
+            float relY = deepWedgeActive
+                    ? (div.fleetFormationOffset.y - myGroup.mainEffortDivision.fleetFormationOffset.y)
+                    : 0f;
+            float leadAllowance = deepWedgeActive ? (relY + (div.side == 0 ? 140f : -140f)) : (div.side == 0 ? 320f : -320f);
             if (div.side == 0) {
-                div.stationPoint.y = Math.min(div.stationPoint.y, mainY + 320f);
+                div.stationPoint.y = Math.min(div.stationPoint.y, mainY + leadAllowance);
             } else {
-                div.stationPoint.y = Math.max(div.stationPoint.y, mainY - 320f);
+                div.stationPoint.y = Math.max(div.stationPoint.y, mainY + leadAllowance);
             }
         }
 
