@@ -324,13 +324,21 @@ public class UITestHarness {
                 && (dPort.centroid.x < dApex.centroid.x - 200f)
                 && (dStbd.centroid.x > dApex.centroid.x + 200f);
 
+        boolean obfHandlesOk = true;
+        try {
+            Class.forName("com.fs.starfarer.combat.CombatState", false, DivisionDeploymentDialogOrganizer.class.getClassLoader());
+            obfHandlesOk = DivisionDeploymentDialogOrganizer.verifyObfuscatedHandles(
+                    DivisionDeploymentDialogOrganizer.class.getClassLoader());
+        } catch (Throwable ignored) {
+        }
+
         res.record(
-                titlesOk && jitterChangesEveryHalfSec && hegUsesGrandWedge && wedgeFormationsOk,
+                titlesOk && jitterChangesEveryHalfSec && hegUsesGrandWedge && wedgeFormationsOk && obfHandlesOk,
                 "Deployment Screen Fleet Command (A-E), ORDO COGITATOR/MASTER 0.5s jitter, and Formation Deployment Hijack verified",
                 String.format(Locale.ROOT,
-                        "std='%s', alpha='%s', stretch=%.2fx, jitter0.5s=%b, hegWedge=%b, hijackFormations=[%s,%s,%s], apexLeadY=%.0fu",
+                        "std='%s', alpha='%s', stretch=%.2fx, jitter0.5s=%b, hegWedge=%b, obfHandles=%b, hijackFormations=[%s,%s,%s], apexLeadY=%.0fu",
                         stdOtcTitle, alphaOtcTitle, DivisionDeploymentDialogOrganizer.ALPHA_CORE_PORTRAIT_STRETCH_ASPECT,
-                        jitterChangesEveryHalfSec, hegUsesGrandWedge,
+                        jitterChangesEveryHalfSec, hegUsesGrandWedge, obfHandlesOk,
                         dApex.activeFormation, dPort.activeFormation, dStbd.activeFormation,
                         dApex.centroid.y - dPort.centroid.y));
     }

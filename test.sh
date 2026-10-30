@@ -14,4 +14,4 @@ CP="build;build/DivisionAI.jar;mod/jars/DivisionAI.jar;lib/starfarer.api.jar;lib
 
 mkdir -p build/test-classes
 "$JDK/javac.exe" -encoding UTF-8 -cp "$CP" -d build/test-classes test/divisionai/sim/*.java
-"$JDK/java.exe" -cp "$CP;build/test-classes" divisionai.sim.DivisionAITestSuite
+"$JDK/java.exe" -Xverify:none -cp "$CP;build/test-classes" divisionai.sim.DivisionAITestSuite

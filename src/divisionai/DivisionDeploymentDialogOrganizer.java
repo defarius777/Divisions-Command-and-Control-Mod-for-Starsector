@@ -76,8 +76,6 @@ public class DivisionDeploymentDialogOrganizer {
     private MethodHandle isShowingDeploymentDialogHandle;
     private MethodHandle getWidgetPanelHandle;
     private MethodHandle panelGetChildrenCopyHandle;
-    private MethodHandle panelAddComponentHandle;
-    private MethodHandle panelRemoveComponentHandle;
     private MethodHandle fddGetInnerPanelHandle;
     private MethodHandle fddSizeToInnerHandle;
     private MethodHandle fddGetOwnerIdHandle;
@@ -126,10 +124,28 @@ public class DivisionDeploymentDialogOrganizer {
         this.musicController = musicController;
     }
 
+    public static boolean verifyObfuscatedHandles(ClassLoader cl) {
+        try {
+            Class<?> combatStateClass = Class.forName("com.fs.starfarer.combat.CombatState", false, cl);
+            DivisionDeploymentDialogOrganizer org = new DivisionDeploymentDialogOrganizer();
+            org.ensureHandlesForClass(cl, combatStateClass);
+            return org.handlesResolved && !org.handlesFailed
+                    && org.iconGetO0OOHandle != null
+                    && org.o0ooSetColorsHandle != null
+                    && org.iconSetDeployStateHandle != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private void ensureHandles(Object combatUi) {
         if (handlesResolved || handlesFailed || combatUi == null) return;
+        ensureHandlesForClass(combatUi.getClass().getClassLoader(), combatUi.getClass());
+    }
+
+    private void ensureHandlesForClass(ClassLoader cl, Class<?> combatUiClass) {
+        if (handlesResolved || handlesFailed || cl == null || combatUiClass == null) return;
         try {
-            ClassLoader cl = combatUi.getClass().getClassLoader();
             MethodHandles.Lookup lookup = MethodHandles.lookup();
 
             Class<?> panelClass = Class.forName("com.fs.starfarer.ui.interfacenew", false, cl);
@@ -146,25 +162,17 @@ public class DivisionDeploymentDialogOrganizer {
             this.shipGridClass = Class.forName("com.fs.starfarer.campaign.ui.S", false, cl);
 
             this.isShowingDeploymentDialogHandle = lookup.findVirtual(
-                    combatUi.getClass(),
+                    combatUiClass,
                     "isShowingDeploymentDialog",
                     MethodType.methodType(boolean.class));
             this.getWidgetPanelHandle = lookup.findVirtual(
-                    combatUi.getClass(),
+                    combatUiClass,
                     "getWidgetPanel",
                     MethodType.methodType(panelClass));
             this.panelGetChildrenCopyHandle = lookup.findVirtual(
                     panelClass,
                     "getChildrenCopy",
                     MethodType.methodType(List.class));
-            this.panelAddComponentHandle = lookup.findVirtual(
-                    panelClass,
-                    "addComponent",
-                    MethodType.methodType(posClass, uiCompBaseClass));
-            this.panelRemoveComponentHandle = lookup.findVirtual(
-                    panelClass,
-                    "removeComponent",
-                    MethodType.methodType(void.class, uiCompBaseClass));
 
             this.fddGetInnerPanelHandle = lookup.findVirtual(
                     fddClass,
@@ -527,13 +535,13 @@ public class DivisionDeploymentDialogOrganizer {
                 LabelAPI lbl = (LabelAPI) child;
                 String txt = lbl.getText();
                 if (txt != null) {
-                    String lower = txt.toLowerCase(Locale.ROOT);
-                    if (lower.contains("deployed") || lower.contains("no ships") || lower.contains("no allied")) {
+                    String lower = txt.trim().toLowerCase(Locale.ROOT);
+                    if (lower.contains("no ships deployed")
+                            || lower.contains("no allied ships deployed")
+                            || lower.equals("deployed ships")) {
                         lbl.setText("");
                         lbl.setOpacity(0f);
                     }
-                } else {
-                    lbl.setOpacity(0f);
                 }
             }
         }
@@ -1406,11 +1414,11 @@ public class DivisionDeploymentDialogOrganizer {
             Object reservesGrid,
             List<FleetMemberAPI> deployedMembers,
             List<FleetMemberAPI> reserveMembers) throws Throwable {
-        if (innerPanel == null || panelAddComponentHandle == null) return;
+        if (innerPanel == null) return;
 
-        if (activeFleetCommandPanel != null && panelRemoveComponentHandle != null) {
+        if (activeFleetCommandPanel != null) {
             try {
-                panelRemoveComponentHandle.invoke(innerPanel, activeFleetCommandPanel);
+                innerPanel.removeComponent(activeFleetCommandPanel);
             } catch (Throwable ignored) {
             }
             activeFleetCommandPanel = null;
@@ -1436,7 +1444,7 @@ public class DivisionDeploymentDialogOrganizer {
                 deployedMembers,
                 reserveMembers);
         activeFleetCommandPanel = fcPanel;
-        PositionAPI fcPos = (PositionAPI) panelAddComponentHandle.invoke(innerPanel, fcPanel);
+        PositionAPI fcPos = innerPanel.addComponent(fcPanel);
         if (fcPos != null) {
             fcPos.setSize(panelW, panelH).inTL(0f, 4f);
         }
