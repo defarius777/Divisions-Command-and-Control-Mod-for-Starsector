@@ -224,7 +224,7 @@ public class TsfcWarroomRenderer {
         GL11.glPopAttrib();
     }
 
-    static boolean hasAnyUninitializedDivisionTimeSpace(CombatEngineAPI engine, BattleGroupState group) {
+    public static boolean hasAnyUninitializedDivisionTimeSpace(CombatEngineAPI engine, BattleGroupState group) {
         if (group == null) return false;
         List<DivisionState> allDivs = getDivisionsAndStationBastionsForRendering(engine, group);
         for (DivisionState d : allDivs) {

@@ -38,6 +38,7 @@ import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
+import divisionai.TsfcWarroomRenderer;
 import org.lwjgl.util.vector.Vector2f;
 
 import javax.imageio.ImageIO;
@@ -58,6 +59,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -1034,6 +1036,177 @@ public class UITestHarness {
                 String.format(Locale.ROOT,
                         "droplets=%d, selfIntersections=%d, uncontainedShips=%d, inwardGashes=%d, badTriangulations=%d, popTailPx=%.1f->%.1f, sheet=%s",
                         totalDropletsAudited, totalSelfIntersections, uncontainedShips, inwardGashViolations, badTriangulations, stage3TailReachPx, stage4TailReachPx, qaOut.getPath()));
+
+        auditLateCombatWarroomPerformanceAndStateIntegrity(res);
+    }
+
+    private static void auditLateCombatWarroomPerformanceAndStateIntegrity(UIAuditResult res) {
+        auditLateCombatWarroomPerformanceAndStateIntegrity(res, false);
+    }
+
+    public static void auditLateCombatWarroomPerformanceAndStateIntegrityAfterUISim(UIAuditResult res) {
+        auditLateCombatWarroomPerformanceAndStateIntegrity(res, true);
+    }
+
+    private static void auditLateCombatWarroomPerformanceAndStateIntegrity(UIAuditResult res, boolean checkLabelCache) {
+        DivisionTacticalMapOverlay perfOv = new DivisionTacticalMapOverlay(null);
+        CommanderProfile pCmdr = new CommanderProfile(null, "Alpha Core");
+        BattleGroupState perfPGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState perfEGroup = new BattleGroupState(1, pCmdr);
+        Random rng = new Random(42L);
+        List<DivisionState> allPerfDivs = new ArrayList<>();
+        for (int d = 0; d < 9; d++) {
+            DivisionState pDiv = new DivisionState("perf_p_div_" + d, 0, d + 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div " + (d + 1), pCmdr);
+            perfPGroup.divisions.add(pDiv);
+            allPerfDivs.add(pDiv);
+            DivisionState eDiv = new DivisionState("perf_e_div_" + d, 1, d + 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Div " + (d + 1), pCmdr);
+            perfEGroup.divisions.add(eDiv);
+            allPerfDivs.add(eDiv);
+            float baseX = (d - 4) * 520f;
+            float baseY = -200f + (d % 3) * 180f;
+            float eBaseX = (d - 4) * 500f + 60f;
+            float eBaseY = -100f + (d % 3) * 180f;
+            for (int s = 0; s < 6; s++) {
+                float sx = baseX + (s - 2.5f) * 290f + (rng.nextFloat() - 0.5f) * 80f;
+                float sy = baseY + (s % 2) * 260f + (rng.nextFloat() - 0.5f) * 80f;
+                ShipAPI pShip = createMockDropletShip("perf_p_" + d + "_" + s, HullSize.CRUISER, sx, sy);
+                pDiv.members.add(pShip);
+                if (s == 0) pDiv.flagship = pShip;
+                float ex = eBaseX + (s - 2.5f) * 290f + (rng.nextFloat() - 0.5f) * 80f;
+                float ey = eBaseY + (s % 2) * 260f + (rng.nextFloat() - 0.5f) * 80f;
+                ShipAPI eShip = createMockDropletShip("perf_e_" + d + "_" + s, HullSize.CRUISER, ex, ey);
+                eDiv.members.add(eShip);
+                if (s == 0) eDiv.flagship = eShip;
+            }
+        }
+
+        float perfScale = 0.085f;
+        float perfOffsetX = 960f;
+        float perfOffsetY = 540f;
+        List<List<Vector2f>> perfPConvs = new ArrayList<>();
+        List<List<Vector2f>> perfEConvs = new ArrayList<>();
+        int perfMaxVerts = 0;
+        int perfPolyCount = 0;
+        boolean perfGeomIntegrity = true;
+        long perfGeomNs = 0L;
+        long perfStageSdfNs = 0L;
+        long perfStageTriNs = 0L;
+        long perfStageClipNs = 0L;
+        String worstDropInfo = "";
+        int perfFrames = 10;
+        for (int f = 0; f < perfFrames; f++) {
+            perfPConvs.clear();
+            perfEConvs.clear();
+            long startNs = System.nanoTime();
+            for (DivisionState div : allPerfDivs) {
+                List<List<ShipAPI>> droplets = perfOv.clusterDivisionMembersSticky(div, div.members);
+                for (List<ShipAPI> drop : droplets) {
+                    long stage0 = System.nanoTime();
+                    List<Vector2f> conv = perfOv.buildFluidDropletPolygonScreen(div, drop, div.members, perfScale, perfOffsetX, perfOffsetY);
+                    Vector2f cent = DivisionTacticalMapOverlay.computePolygonCentroid(conv);
+                    List<Vector2f> disp = perfOv.applyMetaballNeckPinchScreen(div, conv, cent, drop, div.members, perfScale, perfOffsetX, perfOffsetY);
+                    long stage1 = System.nanoTime();
+                    perfStageSdfNs += (stage1 - stage0);
+                    List<int[]> tris = DivisionTacticalMapOverlay.triangulatePolygonCCW(disp);
+                    long stage2 = System.nanoTime();
+                    perfStageTriNs += (stage2 - stage1);
+                    if (disp.size() > perfMaxVerts) perfMaxVerts = disp.size();
+                    perfPolyCount++;
+                    if (tris.size() != disp.size() - 2
+                            || DivisionTacticalMapOverlay.countPolygonSelfIntersections(disp) > 0
+                            || DivisionTacticalMapOverlay.computePolygonArea(disp) < 50f) {
+                        perfGeomIntegrity = false;
+                    }
+                    for (ShipAPI s : drop) {
+                        float sx = s.getLocation().x * perfScale + perfOffsetX;
+                        float sy = s.getLocation().y * perfScale + perfOffsetY;
+                        if (!DivisionTacticalMapOverlay.isPointInsidePolygon(disp, sx, sy)) {
+                            perfGeomIntegrity = false;
+                        }
+                    }
+                    if (div.side == 0) perfPConvs.add(conv); else perfEConvs.add(conv);
+                    if (f == perfFrames - 1) {
+                        float minBx = Float.MAX_VALUE;
+                        float maxBx = -Float.MAX_VALUE;
+                        float minBy = Float.MAX_VALUE;
+                        float maxBy = -Float.MAX_VALUE;
+                        for (ShipAPI s : drop) {
+                            float sx = s.getLocation().x * perfScale + perfOffsetX;
+                            float sy = s.getLocation().y * perfScale + perfOffsetY;
+                            if (sx < minBx) minBx = sx;
+                            if (sx > maxBx) maxBx = sx;
+                            if (sy < minBy) minBy = sy;
+                            if (sy > maxBy) maxBy = sy;
+                        }
+                        worstDropInfo += String.format(Locale.ROOT,
+                                "  [%s] drop=%d ships, span=(%.1f x %.1f)px, convV=%d, dispV=%d, tris=%d%n",
+                                div.id, drop.size(), maxBx - minBx, maxBy - minBy, conv.size(), disp.size(), tris.size());
+                    }
+                }
+            }
+            long clipStart = System.nanoTime();
+            for (List<Vector2f> a : perfPConvs) {
+                for (List<Vector2f> b : perfEConvs) {
+                    List<Vector2f> inter = DivisionTacticalMapOverlay.clipConvexPolygon(a, b);
+                    if (inter.size() >= 3 && DivisionTacticalMapOverlay.computePolygonArea(inter) >= 380f) {
+                        for (int k = -12; k <= 12; k++) {
+                            DivisionTacticalMapOverlay.clipPolygonToDiagonalSlab(inter, k * 24f, k * 24f + 12f);
+                        }
+                    }
+                }
+            }
+            perfStageClipNs += (System.nanoTime() - clipStart);
+            perfGeomNs += (System.nanoTime() - startNs);
+        }
+        float perfGeomMsPerFrame = perfGeomNs / 1e6f / perfFrames;
+        System.out.printf("WARROOM PERF: total=%.2f ms/frame | SDF=%.2f ms, Tri=%.2f ms, Clip=%.2f ms, polys=%d, maxVerts=%d%n%s",
+                perfGeomMsPerFrame,
+                perfStageSdfNs / 1e6f / perfFrames,
+                perfStageTriNs / 1e6f / perfFrames,
+                perfStageClipNs / 1e6f / perfFrames,
+                perfPolyCount / perfFrames,
+                perfMaxVerts,
+                worstDropInfo);
+        boolean perfFastEnough = perfGeomMsPerFrame < 24.0f;
+        boolean perfVertexBounded = perfMaxVerts <= 88;
+        res.record(
+                perfFastEnough && perfVertexBounded && perfGeomIntegrity,
+                "Warroom Late-Combat 18-Division Performance & Geometry Integrity Gate",
+                String.format(Locale.ROOT,
+                        "geomMsPerFrame=%.2f (must<24ms), maxVerts=%d (must<=88), selfIntersections/uncontainedShips=%s",
+                        perfGeomMsPerFrame, perfMaxVerts, perfGeomIntegrity));
+
+        // State integrity: a division that lost its last ship must NOT trigger per-frame unthrottled TSFC re-evaluation
+        BattleGroupState destroyedGroup = new BattleGroupState(0, pCmdr);
+        DivisionState destroyedDiv = new DivisionState("destroyed_div", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Destroyed Div", pCmdr);
+        destroyedDiv.members.clear();
+        destroyedGroup.divisions.add(destroyedDiv);
+        BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(destroyedDiv);
+        boolean destroyedTsfcInitialized = destroyedDiv.directionalSpaceInitialized;
+        boolean noUninitThrottleBypass = !TsfcWarroomRenderer.hasAnyUninitializedDivisionTimeSpace(null, destroyedGroup);
+        res.record(
+                destroyedTsfcInitialized && noUninitThrottleBypass,
+                "Warroom TSFC Destroyed-Division Throttle & State Integrity",
+                String.format(Locale.ROOT,
+                        "directionalSpaceInitialized=%s, hasAnyUninitializedDivisionTimeSpace=%s (must be false)",
+                        destroyedTsfcInitialized, !noUninitThrottleBypass));
+
+        // Label cache: flux-varying intent badges must reuse a single per-division LabelAPI instead of creating new instances every 1%
+        if (checkLabelCache) {
+            int labelCacheBefore = perfOv.getCachedLabelCountForTest();
+            for (int flux = 0; flux <= 100; flux++) {
+                perfOv.getOrCreateIntentBadgeForTest("intent_div_1", false, "ENGAGE | LINE - " + flux + "%");
+                perfOv.getOrCreateIntentBadgeForTest("intent_div_2", false, "PRESS HOME - " + flux + "%");
+            }
+            int labelCacheAfter = perfOv.getCachedLabelCountForTest();
+            boolean labelCacheStable = (labelCacheAfter - labelCacheBefore) == 2;
+            res.record(
+                    labelCacheStable,
+                    "Warroom Intent-Badge Label Cache Stability",
+                    String.format(Locale.ROOT,
+                            "cacheDelta=%d across 202 flux updates (must be exactly 2, no per-flux-percent LabelAPI leak)",
+                            labelCacheAfter - labelCacheBefore));
+        }
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {

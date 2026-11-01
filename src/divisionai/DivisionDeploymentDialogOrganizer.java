@@ -24,10 +24,10 @@ import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import org.apache.log4j.Logger;
 import org.lwjgl.opengl.GL11;
 
-import java.awt.Color;
-import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
+import java.awt.Color;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -66,6 +66,36 @@ public class DivisionDeploymentDialogOrganizer {
     private static final Color GOLDEN_SQUARE_COLOR = new Color(255, 215, 45, 255);
     private static final Color GOLDEN_SQUARE_SPOTLIGHT = new Color(255, 228, 95, 255);
     private static final Color DEFAULT_RESERVE_GRID_COLOR = new Color(148, 255, 178, 255);
+
+    private static MethodHandle fontPathGetterHandle = null;
+    private static boolean fontPathHandleFailed = false;
+
+    public static String getLabelFontPath(LabelAPI lbl) {
+        if (lbl == null || fontPathHandleFailed) return null;
+        if (fontPathGetterHandle == null) {
+            try {
+                fontPathGetterHandle = MethodHandles.lookup().findVirtual(
+                        lbl.getClass(), "getFont", MethodType.methodType(String.class));
+            } catch (Throwable t) {
+                fontPathHandleFailed = true;
+                return null;
+            }
+        }
+        try {
+            Object val = fontPathGetterHandle.invoke(lbl);
+            return val != null ? val.toString() : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static void assertCoolTacticalFonts(LabelAPI lbl) {
+        String path = getLabelFontPath(lbl);
+        if (path == null) return;
+        if (path.contains("insignia") || path.contains("default")) {
+            throw new IllegalStateException("Deployment Screen uses comic-style font: " + path);
+        }
+    }
 
     private boolean handlesResolved = false;
     private boolean handlesFailed = false;
@@ -1040,11 +1070,11 @@ public class DivisionDeploymentDialogOrganizer {
         Color btnBase = isDivisionRow ? DIV_BTN_BASE_COLOR : UNASSIGNED_BTN_BASE;
         Color btnDark = isDivisionRow ? DIV_BTN_DARK_COLOR : UNASSIGNED_BTN_DARK;
 
-        LabelAPI line1Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
+        LabelAPI line1Label = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
         line1Label.setColor(titleColor);
         line1Label.setAlignment(Alignment.LMID);
 
-        LabelAPI line2Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
+        LabelAPI line2Label = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
         line2Label.setColor(titleColor);
         line2Label.setAlignment(Alignment.LMID);
 
@@ -1659,7 +1689,7 @@ public class DivisionDeploymentDialogOrganizer {
 
         final LabelAPI headerBannerLabel = Global.getSettings().createLabel("FLEET COMMAND", Fonts.ORBITRON_12);
         headerBannerLabel.setColor(isAlphaCore ? new Color(110, 235, 255, 255) : new Color(255, 215, 80, 255));
-        final LabelAPI otcStandardTitleLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_16);
+        final LabelAPI otcStandardTitleLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_20AA);
         otcStandardTitleLabel.setColor(new Color(255, 222, 90, 255));
         final LabelAPI cogPrefixLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
         cogPrefixLabel.setColor(new Color(120, 235, 255, 255));
@@ -1667,27 +1697,42 @@ public class DivisionDeploymentDialogOrganizer {
         cogMasterGhostLabel.setColor(new Color(255, 65, 95, 170));
         final LabelAPI cogMasterLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
         cogMasterLabel.setColor(new Color(235, 252, 255, 255));
-        final LabelAPI cogSuffixLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_16);
+        final LabelAPI cogSuffixLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_20AA);
         cogSuffixLabel.setColor(new Color(150, 238, 255, 255));
-        final LabelAPI flagshipLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        final LabelAPI flagshipLabel = Global.getSettings().createLabel("", Fonts.GROUP_NUM_FONT);
         flagshipLabel.setColor(new Color(215, 230, 242, 245));
-        final LabelAPI profileLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        final LabelAPI profileLabel = Global.getSettings().createLabel("", Fonts.GROUP_NUM_FONT);
         profileLabel.setColor(new Color(175, 215, 235, 240));
         final LabelAPI selectorHeaderLabel = Global.getSettings().createLabel(
                 preBattle ? "FLEET FORMATION" : "FLEET STATUS", Fonts.ORBITRON_12);
         selectorHeaderLabel.setColor(new Color(255, 215, 80, 255));
         selectorHeaderLabel.setAlignment(Alignment.MID);
-        final LabelAPI formationNameLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_16);
+        final LabelAPI formationNameLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_20AA);
         formationNameLabel.setColor(new Color(235, 245, 255, 255));
         formationNameLabel.setAlignment(preBattle ? Alignment.MID : Alignment.LMID);
-        final LabelAPI engagementLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        final LabelAPI engagementLabel = Global.getSettings().createLabel("", Fonts.GROUP_NUM_FONT);
         engagementLabel.setColor(new Color(235, 245, 255, 255));
-        final LabelAPI commitmentLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        final LabelAPI commitmentLabel = Global.getSettings().createLabel("", Fonts.GROUP_NUM_FONT);
         commitmentLabel.setColor(new Color(225, 238, 248, 250));
-        final LabelAPI cohesionLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        final LabelAPI cohesionLabel = Global.getSettings().createLabel("", Fonts.GROUP_NUM_FONT);
         cohesionLabel.setColor(new Color(215, 240, 248, 245));
-        final LabelAPI phaseLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        final LabelAPI phaseLabel = Global.getSettings().createLabel("", "graphics/fonts/victor14.fnt");
         phaseLabel.setColor(new Color(145, 225, 245, 235));
+
+        assertCoolTacticalFonts(headerBannerLabel);
+        assertCoolTacticalFonts(otcStandardTitleLabel);
+        assertCoolTacticalFonts(cogPrefixLabel);
+        assertCoolTacticalFonts(cogMasterGhostLabel);
+        assertCoolTacticalFonts(cogMasterLabel);
+        assertCoolTacticalFonts(cogSuffixLabel);
+        assertCoolTacticalFonts(flagshipLabel);
+        assertCoolTacticalFonts(profileLabel);
+        assertCoolTacticalFonts(selectorHeaderLabel);
+        assertCoolTacticalFonts(formationNameLabel);
+        assertCoolTacticalFonts(engagementLabel);
+        assertCoolTacticalFonts(commitmentLabel);
+        assertCoolTacticalFonts(cohesionLabel);
+        assertCoolTacticalFonts(phaseLabel);
 
         BaseCustomUIPanelPlugin fcPlugin = new BaseCustomUIPanelPlugin() {
             private void updateSelectorText() {
@@ -1765,11 +1810,17 @@ public class DivisionDeploymentDialogOrganizer {
                 String engState = (eng >= 0.70f) ? "Decisive brawl"
                         : (eng >= 0.38f ? "General engagement"
                         : (eng >= 0.12f ? "Skirmish contact" : "Maneuver"));
-                engagementLabel.setText(String.format(Locale.ROOT, "ENGAGEMENT %.0f%% - %s", eng * 100f, engState));
-                commitmentLabel.setText(String.format(Locale.ROOT, "COMMITTED %.0f%% (%d / %.0f DP)",
-                        liveCommitmentRatio[0] * 100f, depCount, depDp));
-                cohesionLabel.setText(String.format(Locale.ROOT, "COHESION %.0f%% | Divisions %d/%d",
-                        coh * 100f, activeDivCount, Math.max(activeDivCount, totalDivSpecs)));
+                engagementLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                        String.format(Locale.ROOT, "ENGAGEMENT %.0f%% - %s", eng * 100f, engState),
+                        engagementLabel, rightSectionW - 20f));
+                commitmentLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                        String.format(Locale.ROOT, "COMMITTED %.0f%% (%d / %.0f DP)",
+                                liveCommitmentRatio[0] * 100f, depCount, depDp),
+                        commitmentLabel, rightSectionW - 20f));
+                cohesionLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                        String.format(Locale.ROOT, "COHESION %.0f%% | Divisions %d/%d",
+                                coh * 100f, activeDivCount, Math.max(activeDivCount, totalDivSpecs)),
+                        cohesionLabel, rightSectionW - 20f));
                 phaseLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
                         "PHASE: " + phaseName, phaseLabel, rightSectionW - 20f));
             }
@@ -1945,7 +1996,7 @@ public class DivisionDeploymentDialogOrganizer {
                         ? playerGroup.activeFleetWideFormation
                         : PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation();
                 if (preBattle) {
-                    renderFleetFormationIcon(fw, rx + rw * 0.5f, y + h - 108f, 86f, alphaMult);
+                    renderFleetFormationIcon(fw, rx + rw * 0.5f, y + h - 110f, 86f, alphaMult);
                 } else {
                     renderFleetFormationIcon(fw, rx + rw - 30f, y + h - topBarH - 29f, 38f, alphaMult);
                 }
@@ -2013,13 +2064,13 @@ public class DivisionDeploymentDialogOrganizer {
 
         if (!preBattle) {
             panel.addComponent((UIComponentAPI) engagementLabel)
-                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 58f);
+                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 55f);
             panel.addComponent((UIComponentAPI) commitmentLabel)
-                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 86f);
+                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 83f);
             panel.addComponent((UIComponentAPI) cohesionLabel)
-                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 114f);
+                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 111f);
             panel.addComponent((UIComponentAPI) phaseLabel)
-                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 122f);
+                    .setSize(rightMaxW, 13f).inTL(rightLabelX, topBarH + 133f);
         } else {
             TooltipMakerAPI buttons = panel.createUIElement(width, height, false);
             Color base = new Color(245, 200, 65);

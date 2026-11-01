@@ -715,6 +715,7 @@ public class StarsectorUISimulator {
                             midBattleDeploymentOk,
                             fleetDoctrineDialogOk,
                             divisionEditorDialogOk));
+            UITestHarness.auditLateCombatWarroomPerformanceAndStateIntegrityAfterUISim(res);
         } catch (Throwable t) {
             t.printStackTrace(System.out);
             res.record(false, "1:1 Starsector Obfuscated UI Simulation", "Exception: " + t);
@@ -982,6 +983,11 @@ public class StarsectorUISimulator {
                 System.out.println("FAIL non-ascii fcLabel: " + txt);
                 return false;
             }
+            String fontPath = DivisionDeploymentDialogOrganizer.getLabelFontPath(lbl);
+            if (fontPath != null && (fontPath.contains("insignia") || fontPath.contains("default"))) {
+                System.out.println("FAIL fcLabel uses comic-style font: '" + txt + "' font=" + fontPath);
+                return false;
+            }
             PositionAPI lp = lbl.getPosition();
             if (lp == null) continue;
             // Must fit within fleetCommandPanel bounds
@@ -1000,6 +1006,19 @@ public class StarsectorUISimulator {
             if (renderedW > lp.getWidth() + 2f) {
                 System.out.println("FAIL fcLabel renderedW > width: '" + txt + "' renderedW=" + renderedW + " w=" + lp.getWidth());
                 return false;
+            }
+            // Must not vertically collide with any other distinct label in fcPanel
+            for (LabelAPI other : fcLabels) {
+                if (other == lbl) continue;
+                String oTxt = other.getText();
+                if (oTxt == null || oTxt.isEmpty()) continue;
+                if ("MASTER".equals(txt) && "MASTER".equals(oTxt)) continue; // intentional ghost chromatic shadow
+                PositionAPI op = other.getPosition();
+                if (op == null) continue;
+                if (Math.abs(lp.getX() - op.getX()) < 4f && lp.getY() < op.getY() + op.getHeight() && lp.getY() + lp.getHeight() > op.getY()) {
+                    System.out.println("FAIL fcLabel overlap: '" + txt + "' overlaps '" + oTxt + "'");
+                    return false;
+                }
             }
         }
 

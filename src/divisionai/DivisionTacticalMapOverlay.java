@@ -82,6 +82,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final float maxX;
         final float minY;
         final float maxY;
+        List<Vector2f> clipHullScreen;
         final float cr;
         final float cg;
         final float cb;
@@ -143,6 +144,19 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private final Map<String, Set<String>> stickyConnectedPairsByDivId = new HashMap<>();
     private final Map<String, Float> smoothedBondOpennessByPairKey = new HashMap<>();
     private final Map<String, Float> smoothedMeniscusReachByPairKey = new HashMap<>();
+
+    // Warroom render-frame geometry cache (eliminates all Marching-Squares / Ear-Clipping / Overlap-Stripe work
+    // on paused frames and caps live combat recomputation to ~20 Hz while preserving full render smoothness)
+    private final List<RenderedDivisionPolygon> cachedRenderedPolys = new ArrayList<>();
+    private CombatEngineAPI cachedPolyEngine = null;
+    private BattleGroupState cachedPolyPlayerGroup = null;
+    private BattleGroupState cachedPolyAlliedGroup = null;
+    private BattleGroupState cachedPolyEnemyGroup = null;
+    private boolean cachedPolyPaused = false;
+    private float cachedPolyNow = -1000f;
+    private float cachedPolyScale = Float.NaN;
+    private float cachedPolyOffsetX = Float.NaN;
+    private float cachedPolyOffsetY = Float.NaN;
 
     private boolean attachedToWarroom = false;
     private boolean loggedHookFailure = false;
@@ -320,15 +334,45 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
-        List<RenderedDivisionPolygon> renderedPolys = new ArrayList<>();
-        if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
-            collectDivisionPolygons(playerGroup, false, null, scale, offsetX, offsetY, renderedPolys);
-        }
-        if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
-            collectDivisionPolygons(alliedAiGroup, false, null, scale, offsetX, offsetY, renderedPolys);
-        }
-        if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
-            collectDivisionPolygons(enemyGroup, true, playerFog, scale, offsetX, offsetY, renderedPolys);
+        // Reuse computed division metaball polygons and overlap stripes across render frames when paused
+        // (zero geometry cost while the Warroom map is paused/static) or within a ~20 Hz live-combat refresh window.
+        boolean paused = engine.isPaused();
+        float now = engine.getTotalElapsedTime(false);
+        boolean transformUnchanged = cachedPolyEngine == engine
+                && cachedPolyPlayerGroup == playerGroup
+                && cachedPolyAlliedGroup == alliedAiGroup
+                && cachedPolyEnemyGroup == enemyGroup
+                && Float.compare(cachedPolyScale, scale) == 0
+                && Float.compare(cachedPolyOffsetX, offsetX) == 0
+                && Float.compare(cachedPolyOffsetY, offsetY) == 0
+                && cachedPolyPaused == paused
+                && !cachedRenderedPolys.isEmpty();
+        boolean reuseGeometry = transformUnchanged
+                && (paused || Math.abs(now - cachedPolyNow) < 0.05f);
+        List<RenderedDivisionPolygon> renderedPolys;
+        if (reuseGeometry) {
+            renderedPolys = cachedRenderedPolys;
+        } else {
+            renderedPolys = cachedRenderedPolys;
+            renderedPolys.clear();
+            if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
+                collectDivisionPolygons(playerGroup, false, null, scale, offsetX, offsetY, renderedPolys);
+            }
+            if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
+                collectDivisionPolygons(alliedAiGroup, false, null, scale, offsetX, offsetY, renderedPolys);
+            }
+            if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
+                collectDivisionPolygons(enemyGroup, true, playerFog, scale, offsetX, offsetY, renderedPolys);
+            }
+            cachedPolyEngine = engine;
+            cachedPolyPlayerGroup = playerGroup;
+            cachedPolyAlliedGroup = alliedAiGroup;
+            cachedPolyEnemyGroup = enemyGroup;
+            cachedPolyPaused = paused;
+            cachedPolyNow = now;
+            cachedPolyScale = scale;
+            cachedPolyOffsetX = offsetX;
+            cachedPolyOffsetY = offsetY;
         }
 
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
@@ -879,7 +923,48 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         List<Vector2f> smoothed = chaikinSmoothClosed(hull);
         smoothed = chaikinSmoothClosed(smoothed);
-        return smoothed;
+        return simplifyContourForTriangulation(smoothed, 0.55f, 80);
+    }
+
+    /**
+     * Removes near-collinear contour vertices (perpendicular deviation < tolerancePx) and evenly decimates
+     * oversized contours down to maxVerts. This preserves the smooth metaball water-droplet silhouette while
+     * bounding ear-clipping triangulation to O(80^2) instead of O(240^2) on stretched late-combat divisions.
+     */
+    public static List<Vector2f> simplifyContourForTriangulation(List<Vector2f> poly, float tolerancePx, int maxVerts) {
+        if (poly == null || poly.size() <= 6) return poly;
+        int n = poly.size();
+        List<Vector2f> simplified = new ArrayList<>(Math.min(n, maxVerts));
+        for (int i = 0; i < n; i++) {
+            Vector2f prev = poly.get((i + n - 1) % n);
+            Vector2f curr = poly.get(i);
+            Vector2f next = poly.get((i + 1) % n);
+            float dx = next.x - prev.x;
+            float dy = next.y - prev.y;
+            float lenSq = dx * dx + dy * dy;
+            float devSq;
+            if (lenSq < 1e-6f) {
+                devSq = 0f;
+            } else {
+                float t = clamp(((curr.x - prev.x) * dx + (curr.y - prev.y) * dy) / lenSq, 0f, 1f);
+                float qx = prev.x + dx * t;
+                float qy = prev.y + dy * t;
+                devSq = (curr.x - qx) * (curr.x - qx) + (curr.y - qy) * (curr.y - qy);
+            }
+            if (devSq >= tolerancePx * tolerancePx) {
+                simplified.add(curr);
+            }
+        }
+        if (simplified.size() < 3) simplified = new ArrayList<>(poly);
+        if (simplified.size() > maxVerts) {
+            List<Vector2f> reduced = new ArrayList<>(maxVerts);
+            int m = simplified.size();
+            for (int k = 0; k < maxVerts; k++) {
+                reduced.add(simplified.get((int) ((long) k * m / maxVerts)));
+            }
+            simplified = reduced;
+        }
+        return simplified;
     }
 
     public List<Vector2f> applyMetaballNeckPinchScreen(
@@ -1086,7 +1171,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         }
         float maxSpan = Math.max(maxX - minX, maxY - minY);
-        float stepPx = clamp(maxSpan / 52f, 2.8f, 5.5f);
+        // Keep Marching Squares grid resolution bounded (~52 cells) even when ships and carrier fighter wings
+        // stretch across the map. Capping stepPx at 5.5f caused 104x104 = 10,920 SDF evaluations per division!
+        float stepPx = Math.max(3.0f, maxSpan / 52f);
 
         float minWaistPx = Math.max(3.0f, stepPx * 0.84f);
         List<List<Vector2f>> loops = traceMetaballContoursMarchingSquares(
@@ -1105,7 +1192,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 bestLoop = retryLoop;
             }
         }
-        return bestLoop != null ? bestLoop : loops.get(0);
+        List<Vector2f> chosen = (bestLoop != null) ? bestLoop : loops.get(0);
+        return simplifyContourForTriangulation(chosen, 0.55f, 80);
     }
 
     private static List<Vector2f> selectBestContainingLoop(
@@ -1181,6 +1269,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float aby = by - ay;
                 float lenSq = abx * abx + aby * aby;
                 if (lenSq < 1e-3f) continue;
+                // AABB fast-reject: the hourglass bridge can never influence a point lying outside
+                // its capsule's padded screen-space bounding box (saves millions of SDF sqrt/axis ops)
+                float maxShoulderR = Math.max(ra, rb) * 1.15f + 12f;
+                float bbMinX = Math.min(ax, bx) - maxShoulderR;
+                float bbMaxX = Math.max(ax, bx) + maxShoulderR;
+                if (x < bbMinX || x > bbMaxX) continue;
+                float bbMinY = Math.min(ay, by) - maxShoulderR;
+                float bbMaxY = Math.max(ay, by) + maxShoulderR;
+                if (y < bbMinY || y > bbMaxY) continue;
                 float len = (float) Math.sqrt(lenSq);
                 float ux = abx / len;
                 float uy = aby / len;
@@ -1484,7 +1581,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
         return loops;
     }
-
     private static long msEdgeId(int r, int c, int type) {
         return ((long) type << 28) | ((long) r << 14) | (long) c;
     }
@@ -1874,7 +1970,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     continue;
                 }
 
-                List<Vector2f> intersection = clipConvexPolygon(a.polyScreen, b.polyScreen);
+                // Sutherland-Hodgman requires convex clipPoly. Use the convex hull of both metaball contours;
+                // the actual ship-footprint overlap check above prevents any phantom stripes in concave bays.
+                List<Vector2f> clipHullA = a.clipHullScreen;
+                List<Vector2f> clipHullB = b.clipHullScreen;
+                if (clipHullA == null || clipHullB == null) {
+                    clipHullA = computeConvexHullCCW(a.polyScreen);
+                    clipHullB = computeConvexHullCCW(b.polyScreen);
+                    a.clipHullScreen = clipHullA;
+                    b.clipHullScreen = clipHullB;
+                }
+                List<Vector2f> intersection = clipConvexPolygon(clipHullA, clipHullB);
                 if (intersection.size() < 3 || computePolygonArea(intersection) < 380f) {
                     continue;
                 }
@@ -2240,7 +2346,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             String intentTag = (nomCat == DivisionNomenclature.NomenclatureCategory.ABYSSAL_ERROR)
                     ? "ERROR"
                     : buildCompactIntentTag(div);
-            LabelAPI subLabel = getOrCreateLabel(intentTag, null, false, rp.isAlliedAi, true);
+            LabelAPI subLabel = getOrCreateLabel(
+                    intentTag, "INTENT_SUB:" + div.id, false, rp.isAlliedAi, true);
             if (subLabel != null) {
                 float subW = subLabel.computeTextWidth(intentTag);
                 float subH = subLabel.computeTextHeight(intentTag);
@@ -2838,6 +2945,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             label.setText(text);
         }
         return label;
+    }
+
+    // Lightweight test-only accessors (no reflection; used by UITestHarness to verify cache stability)
+    public int getCachedLabelCountForTest() {
+        return labelCache.size();
+    }
+
+    public void getOrCreateIntentBadgeForTest(String divId, boolean isAlliedAi, String intentTag) {
+        getOrCreateLabel(intentTag, "INTENT_SUB:" + divId, false, isAlliedAi, true);
     }
 
     private static ShipAPI resolveActiveFlagship(DivisionState div, List<ShipAPI> alive) {

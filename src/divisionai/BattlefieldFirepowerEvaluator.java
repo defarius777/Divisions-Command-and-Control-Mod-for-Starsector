@@ -2698,6 +2698,10 @@ public class BattlefieldFirepowerEvaluator {
             div.spaceDominatedRadius = 0f;
             div.spacePotentialRadius = 0f;
             div.spaceDominanceWeight = 0f;
+            // A wiped-out / all-reserve division is a terminal TSFC state: mark its directional fields
+            // initialized so the Warroom renderer never bypasses the cross-group re-evaluation throttle.
+            div.directionalTimeInitialized = true;
+            div.directionalSpaceInitialized = true;
             return;
         }
 
