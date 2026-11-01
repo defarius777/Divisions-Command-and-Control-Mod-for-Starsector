@@ -576,6 +576,16 @@ public class OtcAI {
                 ? 1.25f
                 : (myGroup.totalFriendlyStrength / estimatedEnemyFleetFp);
 
+        // If this side's OTC is disabled due to flagship destruction (120s for overall commander, 30s for lower/no station),
+        // suspend OTC phase changes, battle-plan retasking, and independent fleet signals until command is restored.
+        if (DivisionOtcCommandManager.isOtcDisabled(myGroup, now)) {
+            return;
+        }
+        if (myGroup.otcDisabledWarningActive) {
+            myGroup.otcDisabledWarningActive = false;
+            DivisionOtcCommandManager.onOtcRestored(engine, myGroup, now);
+        }
+
         int activeDivCount = 0;
         DivisionState endangeredDiv = null;
         float worstLocalRatio = Float.MAX_VALUE;
@@ -1637,6 +1647,15 @@ public class OtcAI {
             }
         }
 
+        float maxFwdOffset = 0f;
+        for (DivisionState d : battleGroup.divisions) {
+            if (d == null || !d.isCombatEffective()) continue;
+            float fwdOff = d.fleetFormationOffset.y * fwdDirY;
+            if (fwdOff > maxFwdOffset) {
+                maxFwdOffset = fwdOff;
+            }
+        }
+
         for (DivisionState div : battleGroup.divisions) {
             if (div == null || !div.isCombatEffective() || div.initialDeploymentMarshalled) continue;
             float nearestEnemy = (enemyGroup != null) ? distanceToNearestEnemyDivision(engine, div, enemyGroup) : 99999f;
@@ -1645,7 +1664,7 @@ public class OtcAI {
                 continue;
             }
             float targetCenterX = battleGroup.fleetCentroid.x + div.fleetFormationOffset.x;
-            float targetCenterY = battleGroup.fleetCentroid.y + div.fleetFormationOffset.y;
+            float targetCenterY = battleGroup.fleetCentroid.y + div.fleetFormationOffset.y - maxFwdOffset * fwdDirY;
             targetCenterX = Math.max(-maxAbsX, Math.min(maxAbsX, targetCenterX));
             targetCenterY = Math.max(-maxAbsY, Math.min(maxAbsY, targetCenterY));
 

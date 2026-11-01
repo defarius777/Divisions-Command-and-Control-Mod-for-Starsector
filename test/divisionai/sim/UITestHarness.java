@@ -1206,7 +1206,196 @@ public class UITestHarness {
                     String.format(Locale.ROOT,
                             "cacheDelta=%d across 202 flux updates (must be exactly 2, no per-flux-percent LabelAPI leak)",
                             labelCacheAfter - labelCacheBefore));
+
+            auditOtcReassignmentFlagshipBlackoutAndBattleSummary(res);
         }
+    }
+
+    private static void auditOtcReassignmentFlagshipBlackoutAndBattleSummary(UIAuditResult res) {
+        final List<String> hudMessages = new ArrayList<>();
+        final CombatUIAPI mockUi = (CombatUIAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatUIAPI.class},
+                (p, m, a) -> {
+                    if ("addMessage".equals(m.getName()) && a != null) {
+                        StringBuilder sb = new StringBuilder();
+                        for (Object o : a) {
+                            if (o instanceof String) {
+                                sb.append((String) o);
+                            } else if (o instanceof Object[]) {
+                                for (Object sub : (Object[]) o) {
+                                    if (sub instanceof String) sb.append((String) sub);
+                                }
+                            }
+                        }
+                        hudMessages.add(sb.toString());
+                    }
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+
+        final com.fs.starfarer.api.combat.MutableStat cpStat = new com.fs.starfarer.api.combat.MutableStat(8f);
+        final com.fs.starfarer.api.combat.CombatTaskManagerAPI mockTm =
+                (com.fs.starfarer.api.combat.CombatTaskManagerAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatTaskManagerAPI.class},
+                        (p, m, a) -> {
+                            if ("getCommandPointsStat".equals(m.getName())) return cpStat;
+                            if ("getCommandPointsLeft".equals(m.getName())) return Math.max(0, (int) cpStat.getModifiedValue());
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == float.class) return 0f;
+                            if (m.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        final com.fs.starfarer.api.combat.CombatFleetManagerAPI mockFm =
+                (com.fs.starfarer.api.combat.CombatFleetManagerAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatFleetManagerAPI.class},
+                        (p, m, a) -> {
+                            if ("getTaskManager".equals(m.getName())) return mockTm;
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == float.class) return 0f;
+                            if (m.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        final float[] nowRef = new float[]{10f};
+        final CombatEngineAPI mockEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    if ("getCombatUI".equals(m.getName())) return mockUi;
+                    if ("getFleetManager".equals(m.getName())) return mockFm;
+                    if ("getTotalElapsedTime".equals(m.getName())) return nowRef[0];
+                    if ("getWinningSideId".equals(m.getName())) return 0;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+
+        // 1. Mid-battle 75% max CP cost (8 max CP -> 6 CP cost), insufficient CP rejection, and 0 CP Alpha Core Convergence transfer
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        CommanderProfile baseCmdr = new CommanderProfile(null, "Admiral Vance");
+        BattleGroupState pGroup = new BattleGroupState(0, baseCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, new CommanderProfile(null, "Enemy Admiral"));
+
+        divisionai.DivisionOtcCommandManager.OtcCandidate humanCand =
+                new divisionai.DivisionOtcCommandManager.OtcCandidate(null, null, "Division Leader", true, false);
+        divisionai.DivisionOtcCommandManager.OtcCandidate alphaCand =
+                new divisionai.DivisionOtcCommandManager.OtcCandidate(null, null, "Alpha Core Vessel", false, true);
+
+        int expectedCost = divisionai.DivisionOtcCommandManager.getOtcReassignmentCommandPointCost(mockEngine);
+        boolean midBattleHumanOk = (expectedCost == 6)
+                && divisionai.DivisionOtcCommandManager.applyPlayerOtcCandidate(mockEngine, pGroup, humanCand, false, nowRef[0])
+                && divisionai.DivisionOtcCommandManager.getPlayerCommandPointsLeft(mockEngine) == 2;
+        // Second human change mid-battle with only 2 CP left (needs 6 CP) must be rejected
+        boolean rejectedWhenLowCp = !divisionai.DivisionOtcCommandManager.applyPlayerOtcCandidate(mockEngine, pGroup, humanCand, false, nowRef[0])
+                && divisionai.DivisionOtcCommandManager.getPlayerCommandPointsLeft(mockEngine) == 2;
+        // Convergence transfer to Alpha Core ship costs 0 CP even when only 2 CP remain
+        boolean alphaTransferFreeOk = divisionai.DivisionOtcCommandManager.applyPlayerOtcCandidate(mockEngine, pGroup, alphaCand, false, nowRef[0])
+                && divisionai.DivisionOtcCommandManager.getPlayerCommandPointsLeft(mockEngine) == 2
+                && pGroup.useConvergence;
+
+        // 2. Flagship destruction: overall commander (120s blackout) vs lower/no station commander (30s blackout) + enemy flagship alert
+        final boolean[] overallAlive = new boolean[]{true};
+        final com.fs.starfarer.api.characters.PersonAPI nonDefaultOfficer =
+                (com.fs.starfarer.api.characters.PersonAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.characters.PersonAPI.class},
+                        (p, m, a) -> {
+                            if ("isDefault".equals(m.getName())) return false;
+                            if ("getNameString".equals(m.getName())) return "Fleet Admiral";
+                            if (m.getReturnType() == boolean.class) return false;
+                            return null;
+                        });
+        final com.fs.starfarer.api.fleet.FleetMemberAPI overallMember =
+                (com.fs.starfarer.api.fleet.FleetMemberAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                        (p, m, a) -> {
+                            if ("isFlagship".equals(m.getName())) return true;
+                            if ("getId".equals(m.getName())) return "overall_flag_member";
+                            if (m.getReturnType() == boolean.class) return false;
+                            return null;
+                        });
+        ShipAPI overallFlagship = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    if ("getId".equals(m.getName())) return "overall_flag_ship";
+                    if ("getName".equals(m.getName())) return "HSS Sovereign";
+                    if ("isAlive".equals(m.getName())) return overallAlive[0];
+                    if ("isHulk".equals(m.getName())) return !overallAlive[0];
+                    if ("getCaptain".equals(m.getName())) return nonDefaultOfficer;
+                    if ("getFleetMember".equals(m.getName())) return overallMember;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+
+        BattleGroupState pGroupLoss = new BattleGroupState(0, baseCmdr);
+        pGroupLoss.activeFleetFlagship = overallFlagship;
+        overallAlive[0] = false;
+        nowRef[0] = 20f;
+        divisionai.DivisionOtcCommandManager.checkGroupFlagshipLoss(mockEngine, pGroupLoss, nowRef[0], true);
+        boolean overallBlackout120sOk = Math.abs(divisionai.DivisionOtcCommandManager.getOtcDisabledSecondsRemaining(pGroupLoss, nowRef[0]) - 120f) < 0.01f
+                && divisionai.DivisionOtcCommandManager.isOtcDisabled(pGroupLoss, 139f)
+                && !divisionai.DivisionOtcCommandManager.isOtcDisabled(pGroupLoss, 141f);
+
+        // Lower/no station flagship (successor flagship after overall commander lost, or default captain) -> 30s blackout
+        final boolean[] lowerAlive = new boolean[]{false};
+        ShipAPI lowerFlagship = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    if ("getId".equals(m.getName())) return "lower_flag_ship";
+                    if ("getName".equals(m.getName())) return "HSS Reliant";
+                    if ("isAlive".equals(m.getName())) return lowerAlive[0];
+                    if ("isHulk".equals(m.getName())) return !lowerAlive[0];
+                    if ("getCaptain".equals(m.getName())) return null;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        BattleGroupState eGroupLoss = new BattleGroupState(1, new CommanderProfile(null, "Enemy OTC"));
+        eGroupLoss.activeFleetFlagship = lowerFlagship;
+        nowRef[0] = 50f;
+        divisionai.DivisionOtcCommandManager.checkGroupFlagshipLoss(mockEngine, eGroupLoss, nowRef[0], true);
+        boolean lowerBlackout30sOk = Math.abs(divisionai.DivisionOtcCommandManager.getOtcDisabledSecondsRemaining(eGroupLoss, nowRef[0]) - 30f) < 0.01f
+                && divisionai.DivisionOtcCommandManager.isOtcDisabled(eGroupLoss, 79f)
+                && !divisionai.DivisionOtcCommandManager.isOtcDisabled(eGroupLoss, 81f);
+
+        boolean sawFriendlyWarning = false;
+        boolean sawEnemyWarning = false;
+        for (String msg : hudMessages) {
+            if (msg.contains("HSS Sovereign") && msg.contains("2 minutes (120s)")) sawFriendlyWarning = true;
+            if (msg.contains("Enemy flagship") && msg.contains("HSS Reliant") && msg.contains("30 seconds")) sawEnemyWarning = true;
+        }
+
+        // 3. End-of-battle summary telemetry + obfuscated combat MethodHandle check
+        List<String> sink = new ArrayList<>();
+        DivisionCombatLog.simLogSink = sink;
+        divisionai.DivisionAICombatPlugin.logBattleSummary(mockEngine, pGroupLoss, eGroupLoss);
+        DivisionCombatLog.simLogSink = null;
+        boolean battleSummaryLogged = !sink.isEmpty() && sink.get(0).contains("[DivisionAI] BATTLE SUMMARY:");
+        boolean combatHandlesVerified = DivisionCommanderAI.verifyCombatObfuscatedHandles(UITestHarness.class.getClassLoader());
+
+        res.record(
+                midBattleHumanOk && rejectedWhenLowCp && alphaTransferFreeOk
+                        && overallBlackout120sOk && lowerBlackout30sOk
+                        && sawFriendlyWarning && sawEnemyWarning
+                        && battleSummaryLogged && combatHandlesVerified,
+                "OTC Reassignment (75% CP / Alpha Core Free & Lock), Flagship Blackout (120s vs 30s), HUD Warnings & Battle Summary",
+                String.format(Locale.ROOT,
+                        "cp75=%b, lowCpReject=%b, alphaFree=%b, blackout120s=%b, blackout30s=%b, hudWarn=[friendly=%b,enemy=%b], summary=%b, combatHandles=%b",
+                        midBattleHumanOk, rejectedWhenLowCp, alphaTransferFreeOk,
+                        overallBlackout120sOk, lowerBlackout30sOk,
+                        sawFriendlyWarning, sawEnemyWarning,
+                        battleSummaryLogged, combatHandlesVerified));
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {

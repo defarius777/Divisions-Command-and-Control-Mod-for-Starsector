@@ -758,6 +758,18 @@ public class DivisionModel {
         public Boolean forceConvergenceOverride = null;
         public ShipAPI activeFleetFlagship = null;
 
+        // Player OTC reassignment / command disruption
+        /** Ship id explicitly selected as the player's OTC vessel (survives across battles until flagship dies). */
+        public String preferredOtcShipId = null;
+        /** True when the currently active OTC was explicitly chosen by the player. */
+        public boolean otcManuallyAssigned = false;
+        /** Combat time until which this side's OTC command is disabled (flagship destruction). */
+        public float otcDisabledUntilTime = -100f;
+        /** True while the player's OTC disabled countdown is actively running. */
+        public boolean otcDisabledWarningActive = false;
+        /** Last player OTC reassignment time (prevents multi-click charge stacking). */
+        public float lastOtcReassignmentTime = -100f;
+
         public float lastOtcEvaluationTime = -100f;
         public float lastOtcSignalLogTime = -100f;
         public String lastOtcSignalSignature = "";

@@ -62,6 +62,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private boolean loggedEnemyOtcInit = false;
     private boolean preRenderHookAttached = false;
     private CombatEngineAPI preRenderHookEngine = null;
+    private boolean loggedBattleSummary = false;
+    private final java.util.Set<String> loggedObfuscatedHookFailures = new java.util.HashSet<>();
 
     @Override
     public void init(CombatEngineAPI engine) {
@@ -72,6 +74,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.loggedEnemyOtcInit = false;
         this.divisionTimer = 0f;
         this.otcTimer = 0f;
+        this.loggedBattleSummary = false;
+        this.loggedObfuscatedHookFailures.clear();
         this.passiveContactGroups.clear();
         this.passiveEnemyContactGroups.clear();
         this.side0OpposingView = null;
@@ -80,6 +84,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.deploymentOrganizer = new DivisionDeploymentDialogOrganizer();
         this.musicController = new DynamicBattleMusicController();
         BattlefieldFirepowerEvaluator.resetForNewBattle();
+        DivisionOtcCommandManager.resetForNewBattle();
         if (engine != null) {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
         }
@@ -223,6 +228,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
 
         if (engine.isCombatOver()) {
+            if (!loggedBattleSummary) {
+                loggedBattleSummary = true;
+                logBattleSummary(engine, playerGroup, enemyGroup);
+            }
             if (musicController != null) {
                 BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
                         ? side0OpposingView
@@ -233,6 +242,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
 
         float now = engine.getTotalElapsedTime(false);
+
+        // Flagship-loss command disruption (120s for fleet commander, 30s for lower-rank / no-rank)
+        DivisionOtcCommandManager.updateFlagshipLossCommandDisruption(
+                engine, playerGroup, alliedAiGroup, enemyGroup, now);
 
         // Immediately intercept newly deployed ship waves on their first frame (even while paused right after closing
         // the deployment dialog) so they form divisions and zoom into battle in formation immediately
@@ -463,7 +476,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 try {
                     mhExecuteAdds = MethodHandles.lookup().findVirtual(
                             engine.getClass(), "executeAdds", MethodType.methodType(void.class));
-                } catch (Throwable ignored) {
+                } catch (Throwable t) {
+                    if (engine.getClass().getName().startsWith("com.fs.starfarer.combat.")) {
+                        LOG.warn("[DivisionAI] Obfuscated CombatEngine.executeAdds MethodHandle resolution failed: " + t);
+                    }
                 }
             }
             if (mhExecuteAdds != null) {
@@ -771,14 +787,97 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     false);
         }
 
-        engine.maintainStatusForPlayerShip(
-                HUD_STATUS_KEY_OTC,
-                "graphics/icons/hullsys/reserve_deployment.png",
-                "OTC Phase: " + playerGroup.currentPhase.displayName,
-                String.format("Force Ratio %.2fx | Engaged %.0f%% | %d Divs",
-                        playerGroup.forceRatio,
-                        playerGroup.smoothedEngagementLevel * 100f,
-                        playerGroup.divisions.size()),
-                false);
+        float now = engine.getTotalElapsedTime(false);
+        if (DivisionOtcCommandManager.isOtcDisabled(playerGroup, now)) {
+            float rem = DivisionOtcCommandManager.getOtcDisabledSecondsRemaining(playerGroup, now);
+            engine.maintainStatusForPlayerShip(
+                    HUD_STATUS_KEY_OTC,
+                    "graphics/icons/hullsys/reserve_deployment.png",
+                    "OTC DISRUPTED (FLAGSHIP LOST)",
+                    String.format("Command channel restoring in %.0fs", rem),
+                    true);
+        } else {
+            engine.maintainStatusForPlayerShip(
+                    HUD_STATUS_KEY_OTC,
+                    "graphics/icons/hullsys/reserve_deployment.png",
+                    "OTC Phase: " + playerGroup.currentPhase.displayName,
+                    String.format("Force Ratio %.2fx | Engaged %.0f%% | %d Divs",
+                            playerGroup.forceRatio,
+                            playerGroup.smoothedEngagementLevel * 100f,
+                            playerGroup.divisions.size()),
+                    false);
+        }
+    }
+
+    /**
+     * Logs a structured one-line end-of-battle summary to starsector.log when combat concludes.
+     */
+    public static void logBattleSummary(
+            CombatEngineAPI engine,
+            BattleGroupState playerGroup,
+            BattleGroupState enemyGroup) {
+        if (engine == null) return;
+        try {
+            float duration = engine.getTotalElapsedTime(false);
+            int winSide = -1;
+            try {
+                winSide = engine.getWinningSideId();
+            } catch (Throwable ignored) {
+            }
+            float pDeployedDp = sumFleetMemberDp(engine, 0, "deployed");
+            float pDestroyedDp = sumFleetMemberDp(engine, 0, "destroyed");
+            float pRetreatedDp = sumFleetMemberDp(engine, 0, "retreated");
+            float eDeployedDp = sumFleetMemberDp(engine, 1, "deployed");
+            float eDestroyedDp = sumFleetMemberDp(engine, 1, "destroyed");
+            float eRetreatedDp = sumFleetMemberDp(engine, 1, "retreated");
+
+            String outcome = (winSide == 0)
+                    ? "PLAYER_VICTORY"
+                    : (winSide == 1 ? "ENEMY_VICTORY" : (eDestroyedDp > pDestroyedDp ? "PLAYER_ADVANTAGE" : "DISENGAGE_OR_DRAW"));
+            String pAuth = (playerGroup != null && playerGroup.authority != null) ? playerGroup.authority.shortName : "Vanilla";
+            boolean pConv = (playerGroup != null && playerGroup.useConvergence);
+            String pForm = (playerGroup != null && playerGroup.activeFleetWideFormation != null)
+                    ? playerGroup.activeFleetWideFormation.displayName
+                    : "None";
+            int pDivs = (playerGroup != null) ? playerGroup.divisions.size() : 0;
+            int eDivs = (enemyGroup != null) ? enemyGroup.divisions.size() : 0;
+            String eFaction = (enemyGroup != null && enemyGroup.factionId != null) ? enemyGroup.factionId : "unknown";
+
+            String line = String.format(
+                    java.util.Locale.ROOT,
+                    "[DivisionAI] BATTLE SUMMARY: outcome=%s duration=%.1fs | Player(divs=%d, auth=%s, conv=%b, form=%s, survDP=%.0f, lostDP=%.0f, retDP=%.0f) vs Enemy(faction=%s, divs=%d, survDP=%.0f, lostDP=%.0f, retDP=%.0f)",
+                    outcome,
+                    duration,
+                    pDivs, pAuth, pConv, pForm, pDeployedDp, pDestroyedDp, pRetreatedDp,
+                    eFaction, eDivs, eDeployedDp, eDestroyedDp, eRetreatedDp);
+            LOG.info(line);
+            if (DivisionCombatLog.simLogSink != null) {
+                DivisionCombatLog.simLogSink.add(line);
+            }
+        } catch (Throwable t) {
+            LOG.warn("[DivisionAI] Failed to emit battle summary: " + t);
+        }
+    }
+
+    private static float sumFleetMemberDp(CombatEngineAPI engine, int side, String bucket) {
+        if (engine == null) return 0f;
+        try {
+            CombatFleetManagerAPI fm = engine.getFleetManager(side);
+            if (fm == null) return 0f;
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> list = null;
+            if ("deployed".equals(bucket)) list = fm.getDeployedCopy();
+            else if ("destroyed".equals(bucket)) list = fm.getDestroyedCopy();
+            else if ("retreated".equals(bucket)) list = fm.getRetreatedCopy();
+            if (list == null) return 0f;
+            float sum = 0f;
+            for (com.fs.starfarer.api.fleet.FleetMemberAPI m : list) {
+                if (m != null && !m.isFighterWing()) {
+                    sum += m.getDeploymentPointsCost();
+                }
+            }
+            return sum;
+        } catch (Throwable ignored) {
+            return 0f;
+        }
     }
 }

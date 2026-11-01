@@ -147,6 +147,41 @@ public class StarsectorUISimulator {
         @Override public com.fs.starfarer.campaign.Faction getFaction(String id) { return simFaction; }
     }
 
+    public static class SimPerson extends com.fs.starfarer.rpg.Person {
+        public String nameStr;
+        public FullName fullName;
+        public String portrait;
+        public boolean aiCore;
+        public String aiCoreId;
+
+        public static SimPerson create(String first, String last, String portrait, boolean aiCore, String aiCoreId) throws Exception {
+            SimPerson p = allocateWithoutConstructor(SimPerson.class);
+            p.nameStr = first + " " + last;
+            p.fullName = new FullName(first, last, FullName.Gender.ANY);
+            p.portrait = portrait;
+            p.aiCore = aiCore;
+            p.aiCoreId = aiCoreId;
+            return p;
+        }
+
+        @Override public String getNameString() { return nameStr; }
+        @Override public FullName getName() { return fullName; }
+        @Override public String getPortraitSprite() { return portrait; }
+        @Override public boolean isDefault() { return false; }
+        @Override public boolean isAICore() { return aiCore; }
+        @Override public String getAICoreId() { return aiCoreId; }
+        @Override public com.fs.starfarer.api.characters.PersonalityAPI getPersonalityAPI() {
+            return (com.fs.starfarer.api.characters.PersonalityAPI) Proxy.newProxyInstance(
+                    StarsectorUISimulator.class.getClassLoader(),
+                    new Class<?>[]{com.fs.starfarer.api.characters.PersonalityAPI.class},
+                    (p, m, a) -> {
+                        if ("getId".equals(m.getName())) return aiCore ? "fearless" : "steady";
+                        if ("getDisplayName".equals(m.getName())) return aiCore ? "Fearless" : "Steady";
+                        return null;
+                    });
+        }
+    }
+
     public static class SimFleetMember extends FleetMember {
         public String simId;
         public String simShipName;
@@ -178,7 +213,7 @@ public class StarsectorUISimulator {
             m.simCaptain = captain;
             for (Field f : FleetMember.class.getDeclaredFields()) {
                 f.setAccessible(true);
-                if (f.getType() == PersonAPI.class) {
+                if (PersonAPI.class.isAssignableFrom(f.getType()) && captain instanceof com.fs.starfarer.rpg.Person) {
                     f.set(m, captain);
                 } else if (f.getType() == com.fs.starfarer.api.fleet.FleetMemberType.class) {
                     f.set(m, com.fs.starfarer.api.fleet.FleetMemberType.SHIP);
@@ -207,6 +242,9 @@ public class StarsectorUISimulator {
         @Override public boolean canBeDeployedForCombat() { return true; }
         @Override public g getHullSpec() { return simHullSpec; }
         @Override public String getHullId() { return simHullSpec != null ? simHullSpec.getHullId() : "onslaught"; }
+        @Override public com.fs.starfarer.rpg.Person getCaptain() {
+            return (simCaptain instanceof com.fs.starfarer.rpg.Person) ? (com.fs.starfarer.rpg.Person) simCaptain : null;
+        }
     }
 
     private static String stripJsonComments(String raw) {
@@ -652,34 +690,8 @@ public class StarsectorUISimulator {
                 }
             }
 
-            PersonAPI humanCmdr = (PersonAPI) Proxy.newProxyInstance(
-                    StarsectorUISimulator.class.getClassLoader(),
-                    new Class<?>[]{PersonAPI.class},
-                    (p, m, a) -> {
-                        String n = m.getName();
-                        if ("getNameString".equals(n)) return "Admiral Vance";
-                        if ("getName".equals(n)) return new FullName("Admiral", "Vance", FullName.Gender.MALE);
-                        if ("getPortraitSprite".equals(n)) return "graphics/portraits/portrait_hegemony01.png";
-                        if ("isDefault".equals(n)) return false;
-                        if ("isAICore".equals(n)) return false;
-                        if (m.getReturnType() == boolean.class) return false;
-                        return null;
-                    });
-
-            PersonAPI alphaCoreCmdr = (PersonAPI) Proxy.newProxyInstance(
-                    StarsectorUISimulator.class.getClassLoader(),
-                    new Class<?>[]{PersonAPI.class},
-                    (p, m, a) -> {
-                        String n = m.getName();
-                        if ("getNameString".equals(n)) return "Alpha Core";
-                        if ("getName".equals(n)) return new FullName("Alpha", "Core", FullName.Gender.ANY);
-                        if ("getPortraitSprite".equals(n)) return "graphics/portraits/portrait_ai2b.png";
-                        if ("isDefault".equals(n)) return false;
-                        if ("isAICore".equals(n)) return true;
-                        if ("getAICoreId".equals(n)) return "alpha_core";
-                        if (m.getReturnType() == boolean.class) return false;
-                        return null;
-                    });
+            PersonAPI humanCmdr = SimPerson.create("Admiral", "Vance", "graphics/portraits/portrait_hegemony01.png", false, null);
+            PersonAPI alphaCoreCmdr = SimPerson.create("Alpha", "Core", "graphics/portraits/portrait_ai2b.png", true, "alpha_core");
 
             boolean stdDeploymentOk = simulateDeploymentWindow1To1(hullSpec, humanCmdr, false, true);
             boolean alphaDeploymentOk = simulateDeploymentWindow1To1(hullSpec, alphaCoreCmdr, true, true);
@@ -736,10 +748,14 @@ public class StarsectorUISimulator {
             boolean expectAlphaCore,
             boolean preBattle) throws Throwable {
 
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        final PersonAPI div2Cmdr = SimPerson.create("Captain", "Kael", "graphics/portraits/portrait_hegemony02.png", false, null);
+        final PersonAPI indepCmdr = SimPerson.create("Commander", "Sera", "graphics/portraits/portrait_hegemony03.png", false, null);
         final List<FleetMember> allMembers = new ArrayList<>();
         final List<FleetMember> deployedMembers = new ArrayList<>();
         final List<FleetMember> reserveMembers = new ArrayList<>();
         for (int i = 0; i < 16; i++) {
+            PersonAPI cap = (i == 0) ? flagshipCaptain : (i == 6 ? div2Cmdr : (i == 11 ? indepCmdr : null));
             SimFleetMember m = SimFleetMember.create(
                     "sim_ship_" + i,
                     i == 0 ? "HSS Invictus" : ("HSS Vanguard " + i),
@@ -747,7 +763,7 @@ public class StarsectorUISimulator {
                     i == 0,
                     i < 6 ? HullSize.CAPITAL_SHIP : HullSize.CRUISER,
                     hullSpec,
-                    i == 0 ? flagshipCaptain : null);
+                    cap);
             allMembers.add(m);
             if (!preBattle && i < 2) deployedMembers.add(m);
             else reserveMembers.add(m);
@@ -958,14 +974,66 @@ public class StarsectorUISimulator {
                 }
             }
         }
-        if (preBattle && fcButtons.size() != 3) {
-            System.out.println("FAIL fleet formation selector buttons: " + fcButtons.size());
+        if (preBattle && fcButtons.size() != 4) {
+            System.out.println("FAIL fleet formation + OTC change buttons: " + fcButtons.size());
             return false;
         }
-        if (!preBattle && (fcButtons.size() != 0 || !sawEngagement || !sawCohesion)) {
+        if (!preBattle && (fcButtons.size() != 1 || !sawEngagement || !sawCohesion)) {
             System.out.println("FAIL post-deployment live status: buttons=" + fcButtons.size()
                     + ", engagement=" + sawEngagement + ", cohesion=" + sawCohesion);
             return false;
+        }
+        ButtonAPI changeOtcButton = null;
+        for (ButtonAPI btn : fcButtons) {
+            if ("Change".equals(btn.getText())) {
+                changeOtcButton = btn;
+            }
+        }
+        if (changeOtcButton == null) {
+            System.out.println("FAIL missing 'Change' button under OTC portrait");
+            return false;
+        }
+        if (expectAlphaCore && changeOtcButton.isEnabled()) {
+            System.out.println("FAIL 'Change' button must be disabled when OTC is an Alpha Core");
+            return false;
+        }
+        if (!expectAlphaCore && !changeOtcButton.isEnabled()) {
+            System.out.println("FAIL 'Change' button must be enabled for human OTC");
+            return false;
+        }
+        PositionAPI chPos = changeOtcButton.getPosition();
+        float portraitBottomY = fcPos.getY() + fcPos.getHeight() - 26f - 92f;
+        if (chPos == null
+                || Math.abs(chPos.getX() - (fcPos.getX() + 12f)) > 2f
+                || (chPos.getY() + chPos.getHeight()) > portraitBottomY + 1f
+                || chPos.getY() < fcPos.getY() + 2f) {
+            System.out.println("FAIL 'Change' button not positioned directly under OTC portrait: chPos="
+                    + (chPos == null ? "null" : (chPos.getX() + "," + chPos.getY() + "," + chPos.getWidth() + "," + chPos.getHeight()))
+                    + " portraitBottomY=" + portraitBottomY);
+            return false;
+        }
+        if (!expectAlphaCore) {
+            changeOtcButton.setChecked(true);
+            fcPanel.advance(0.1f);
+            String newOtcId = divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup);
+            if (!"sim_ship_6".equals(newOtcId)) {
+                System.out.println("FAIL clicking 'Change' did not cycle OTC to division 2 leader sim_ship_6: got " + newOtcId);
+                return false;
+            }
+            changeOtcButton.setChecked(true);
+            fcPanel.advance(0.1f);
+            String thirdOtcId = divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup);
+            if (!"sim_ship_11".equals(thirdOtcId)) {
+                System.out.println("FAIL second 'Change' click did not cycle OTC to independent commander sim_ship_11: got " + thirdOtcId);
+                return false;
+            }
+            changeOtcButton.setChecked(true);
+            fcPanel.advance(0.1f);
+            String backToFirstId = divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup);
+            if (!"sim_ship_0".equals(backToFirstId)) {
+                System.out.println("FAIL third 'Change' click did not wrap OTC back to sim_ship_0: got " + backToFirstId);
+                return false;
+            }
         }
         if (expectAlphaCore && (alphaMasterLabel == null || alphaShipLineLabel == null
                 || alphaShipLineLabel.getPosition().getY() >= alphaMasterLabel.getPosition().getY() - 10f)) {

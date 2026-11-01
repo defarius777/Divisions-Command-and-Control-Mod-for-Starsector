@@ -211,8 +211,9 @@ public class ShipCapabilityProfile {
         }
 
         // Battlecarriers (e.g. Legion, Odyssey, or capitals with COMBAT hint / heavy gun batteries) default to Battle Divisions, not Carrier Divisions
-        boolean isBattlecarrier = (bays > 0) && (hints.contains(ShipTypeHints.COMBAT)
-                || (this.hullSize == HullSize.CAPITAL_SHIP && bays <= 2 && (opSum - purePdSum) >= 20f));
+        boolean isBattlecarrier = (bays > 0) && this.hullSize == HullSize.CAPITAL_SHIP
+                && (hints.contains(ShipTypeHints.COMBAT)
+                || (bays <= 2 && (opSum - purePdSum) >= 20f));
         this.isDedicatedCarrier = !isBattlecarrier
                 && ((bays >= 1 && hints.contains(ShipTypeHints.CARRIER)) || (bays >= 2));
 

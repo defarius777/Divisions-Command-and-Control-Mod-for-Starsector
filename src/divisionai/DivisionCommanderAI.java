@@ -31,6 +31,7 @@ import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.SquadronFormation;
 import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
 import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
+import org.apache.log4j.Logger;
 import org.lwjgl.util.vector.Vector2f;
 
 import java.lang.invoke.MethodHandle;
@@ -38,28 +39,9 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.List;
 
-/**
- * Mid-level Division Commander AI:
- *  - Evaluates each division's capabilities, local overmatch, cohesion, flux pressure,
- *    OTC phase, and the division's Battle Group tasking.
- *  - Selects concrete single-division and cross-division tactics:
- *      * Harassing torpedo attack ("Destroyer Div 1" -> "Enemy Destroyer Div 4")
- *      * Time-on-target coordinated strike (OTC strike plans: stage, then commit together)
- *      * Strike-then-withdraw to reserve
- *      * Monotype division screening another division ("Destroyer Div 1" screening "Battle Div 2")
- *      * Relief of an endangered friendly division
- *      * Flux/hull rotation to reserve
- *      * Bounded pursuit & cohesion keeping
- *  - Honors Battle Group taskings according to the OTC's authority (Hybrid, Central Planning,
- *    Mission-Type Tactics, Target Coordination Only).
- *  - Commits to a chosen intent for the commander's commitment time unless an urgent trigger fires,
- *    while maneuver anchors keep tracking their targets every tick.
- *  - Logs intent transitions into the combat HUD log via DivisionCombatLog.
- *  - Executes intents cooperatively via ShipwideAIFlags without overriding player flagship
- *    or explicit player single-ship orders.
- */
 public class DivisionCommanderAI {
 
+    private static final Logger LOG = Logger.getLogger(DivisionCommanderAI.class);
     static final float STRIKE_WINDOW_DURATION = 14.0f;
     static final float FLAG_TTL = 0.85f;
 
@@ -1132,7 +1114,7 @@ public class DivisionCommanderAI {
                         alphaTarget.displayName, reason, now);
             }
             if (strikeCooldownElapsed && div.avgFluxLevel < 0.48f
-                    && (targetCollapsing || (div.localForceRatio >= 0.85f && div.localEnemyStrength >= 12f))) {
+                    && (targetCollapsing || (now >= 18f && div.localForceRatio >= 1.15f && div.localEnemyStrength >= 12f))) {
                 Vector2f visTargetPos = OtcAI.getVisibleCentroidForSide(engine, div.side, alphaTarget);
                 div.targetEnemyDivision = alphaTarget;
                 div.stationPoint.set(visTargetPos);
@@ -1534,9 +1516,8 @@ public class DivisionCommanderAI {
                         && !(div.archetype.isMissileArchetype() && div.hasMissileStrikeCapability && div.usableStrikeAmmoCount > 0))
                         || !div.hasMissileStrikeCapability
                         || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
-                    boolean targetCollapsingExec = target.avgFluxLevel >= 0.58f || target.avgHullLevel < 0.58f
-                            || target.totalFpStrength < 40f;
-                    if (targetCollapsingExec || div.localForceRatio >= 0.90f) {
+                    boolean targetCollapsingExec = target.avgFluxLevel >= 0.58f || target.avgHullLevel < 0.58f;
+                    if (targetCollapsingExec || (now >= 18f && div.localEnemyStrength >= 12f && div.localForceRatio >= 1.15f)) {
                         div.currentIntent = DivisionIntentType.TOT_ALPHA_STRIKE;
                         div.stationPoint.set(OtcAI.getVisibleCentroidForSide(engine, div.side, target));
                     } else {
@@ -1934,18 +1915,19 @@ public class DivisionCommanderAI {
         // 1,000u ahead of the Battleships and Cruisers into 20 enemy guns alone, and release Cruiser wing depth pacing
         // as soon as the enemy is within 1,750u so all heavy guns enter range simultaneously!
         if (!fullAssault
-                && now < 30f
+                && now < 36f
                 && myGroup != null
                 && myGroup.mainEffortDivision != null
                 && myGroup.mainEffortDivision != div
                 && myGroup.mainEffortDivision.isCombatEffective()
                 && myGroup.mainEffortDivision.inRangeFirepowerScore <= 0f
-                && myGroup.mainEffortDivision.localEnemyStrength < 10f
                 && (div.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE
                 || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX
+                || div.currentIntent == DivisionIntentType.PRESS_HOME
                 || div.currentIntent == DivisionIntentType.HARASSING_MISSILE_ATTACK
                 || div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
                 || div.currentIntent == DivisionIntentType.TOT_MISSILE_STRIKE
+                || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
                 || div.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION)) {
             float mainY = myGroup.mainEffortDivision.centroid.y;
             boolean enemyStillFarFromMain = true;
@@ -2015,6 +1997,9 @@ public class DivisionCommanderAI {
             case FORM_LINE_AND_FIX:
             case PRESS_HOME:
             case TAKE_AND_HOLD:
+            case TOT_ALPHA_STRIKE:
+            case TOT_MISSILE_STRIKE:
+            case HARASSING_MISSILE_ATTACK:
                 break;
             default:
                 return;
@@ -2836,7 +2821,18 @@ public class DivisionCommanderAI {
                         // Close into effective all-guns range (~680u-840u) without over-diving into 5x enemy guns
                         float allGunsCloseRange = Math.max(640f, Math.min(840f, div.avgEngageRange * 0.78f));
                         if (distToEnemy > allGunsCloseRange && lowFluxForAlphaPush) {
-                            flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, focusEnemyShip.getLocation());
+                            Vector2f eLoc = focusEnemyShip.getLocation();
+                            float sdx = ship.getLocation().x - eLoc.x;
+                            float sdy = ship.getLocation().y - eLoc.y;
+                            float slen = (float) Math.sqrt(sdx * sdx + sdy * sdy);
+                            if (slen > 1f) {
+                                Vector2f bandPt = new Vector2f(
+                                        eLoc.x + (sdx / slen) * allGunsCloseRange,
+                                        eLoc.y + (sdy / slen) * allGunsCloseRange);
+                                flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, bandPt);
+                            } else {
+                                flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, eLoc);
+                            }
                         }
                         if (distToEnemy > 1650f && distance(ship.getLocation(), slotPos) > dressTol * 1.25f) {
                             flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
@@ -3230,9 +3226,36 @@ public class DivisionCommanderAI {
                     obfTaskManagerClass,
                     "clearAssignedOrders",
                     MethodType.methodType(void.class, obfDeployedMemberClass));
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
             hasDirectOrdersHandle = null;
             clearAssignedOrdersHandle = null;
+            if (tmObj != null && tmObj.getClass().getName().startsWith("com.fs.starfarer.combat.")) {
+                LOG.warn("[DivisionAI] Obfuscated CombatTaskManager MethodHandle resolution failed: " + t);
+            }
+        }
+    }
+
+    public static boolean verifyCombatObfuscatedHandles(ClassLoader cl) {
+        if (cl == null) cl = DivisionCommanderAI.class.getClassLoader();
+        try {
+            Class<?> shipCls = Class.forName("com.fs.starfarer.combat.entities.Ship", false, cl);
+            Class<?> fmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager", false, cl);
+            Class<?> tmCls = Class.forName("com.fs.starfarer.combat.tasks.CombatTaskManager", false, cl);
+            Class<?> dfmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager$O0", false, cl);
+            Class<?> basicAiCls = Class.forName("com.fs.starfarer.combat.ai.BasicShipAI", false, cl);
+            Class<?> wrapperCls = Class.forName("com.fs.starfarer.combat.entities.Ship$ShipAIWrapper", false, cl);
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            lookup.findVirtual(fmCls, "getDeployedFleetMember", MethodType.methodType(dfmCls, shipCls));
+            lookup.findVirtual(tmCls, "hasDirectOrders", MethodType.methodType(boolean.class, dfmCls));
+            lookup.findVirtual(tmCls, "clearAssignedOrders", MethodType.methodType(void.class, dfmCls));
+            lookup.findVirtual(wrapperCls, "getAI", MethodType.methodType(ShipAIPlugin.class));
+            lookup.findVirtual(basicAiCls, "setTargetOverride", MethodType.methodType(void.class, shipCls));
+            return true;
+        } catch (ClassNotFoundException ignored) {
+            return false;
+        } catch (Throwable t) {
+            LOG.warn("[DivisionAI] Combat obfuscated MethodHandle verification failed: " + t);
+            return false;
         }
     }
 
@@ -3509,8 +3532,11 @@ public class DivisionCommanderAI {
                         basicShipAiClass,
                         "setTargetOverride",
                         MethodType.methodType(void.class, obfShipClass));
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
                 setTargetOverrideHandle = null;
+                if (ai != null && ai.getClass().getName().startsWith("com.fs.starfarer.combat.")) {
+                    LOG.warn("[DivisionAI] Obfuscated BasicShipAI.setTargetOverride MethodHandle resolution failed: " + t);
+                }
             }
         }
 

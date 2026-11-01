@@ -729,6 +729,20 @@ public class BattlefieldFirepowerEvaluator {
                 && !playerConvergenceFlagshipOverride.isExpired()) {
             return playerConvergenceFlagshipOverride;
         }
+        if (isPlayerGroup && group.preferredOtcShipId != null && !group.preferredOtcShipId.isEmpty() && engine != null) {
+            List<ShipAPI> allShips = engine.getShips();
+            if (allShips != null) {
+                for (ShipAPI s : allShips) {
+                    if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                    if (s.getOwner() != 0 || s.isAlly()) continue;
+                    String mId = (s.getFleetMember() != null) ? s.getFleetMember().getId() : null;
+                    if (group.preferredOtcShipId.equals(s.getId())
+                            || (mId != null && group.preferredOtcShipId.equals(mId))) {
+                        return s;
+                    }
+                }
+            }
+        }
         if (engine != null) {
             if (isPlayerGroup) {
                 ShipAPI playerPiloted = engine.getPlayerShip();
@@ -832,9 +846,12 @@ public class BattlefieldFirepowerEvaluator {
      */
     public static void updateConvergenceCommandStates(CombatEngineAPI engine, BattleGroupState group) {
         if (group == null) return;
+        float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
+        DivisionOtcCommandManager.checkGroupFlagshipLoss(engine, group, now, !group.isAlliedAi);
         if (group.forceConvergenceOverride != null) {
             boolean forced = group.forceConvergenceOverride;
             group.useConvergence = forced;
+            group.activeFleetFlagship = resolveActiveFleetFlagship(engine, group);
             for (DivisionState div : group.divisions) {
                 div.useConvergence = forced && !div.getAliveMembers().isEmpty();
             }
@@ -958,6 +975,8 @@ public class BattlefieldFirepowerEvaluator {
         askedAlphaCoreShipIds.add(aiShip.getId());
         convergenceOverlayVisible = true;
         if (activePlayerGroupRef != null) {
+            activePlayerGroupRef.otcDisabledUntilTime = -100f;
+            activePlayerGroupRef.otcDisabledWarningActive = false;
             updateConvergenceCommandStates(engine, activePlayerGroupRef);
             DivisionCombatLog.logOtcOrder(
                     engine,
