@@ -138,13 +138,16 @@ public class DivisionAutoFormer {
             }
         });
 
-        // Inherit campaign Permanent Divisions ONLY; any player ships not in a permanent division
-        // remain unassigned and run vanilla Starsector combat AI.
+        // Inherit campaign Permanent Divisions ONLY; if none exist at all (e.g. standalone Missions without a
+        // campaign fleet), auto-form divisions so the player's fleet still deploys in formation.
         playerGroup.nomenclatureCategory = DivisionNomenclature.getPlayerNomenclatureCategory();
         PermanentDivisionManager.applyPermanentDivisionsInCombat(
                 playerGroup,
                 unassigned,
                 newlyCreated);
+        if (playerGroup.divisions.isEmpty() && PermanentDivisionManager.getPermanentDivisions().isEmpty()) {
+            return syncDivisionsForSide(engine, playerGroup, playerShips);
+        }
 
         return newlyCreated;
     }
@@ -221,10 +224,27 @@ public class DivisionAutoFormer {
         });
 
         // 1. Inherit campaign-sorted divisions from any instanced NPC CampaignFleetAPI first!
-        unassigned = FactionFleetDoctrines.applyCampaignNpcDivisionsInCombat(
+        // Any ship that belongs to an instanced NPC CampaignFleetAPI but was NOT placed in a division by
+        // ensureFleetDivisionsSorted (due to the fleet's Organization Rating) is an intentionally independent
+        // ship and must remain unassigned in combat!
+        List<ShipCapabilityProfile> campaignIndependentOrLeftover = FactionFleetDoctrines.applyCampaignNpcDivisionsInCombat(
                 battleGroup,
                 unassigned,
                 newlyCreated);
+
+        List<ShipCapabilityProfile> nonCampaignUnassigned = new ArrayList<>();
+        for (ShipCapabilityProfile prof : campaignIndependentOrLeftover) {
+            if (prof == null || prof.ship == null) continue;
+            com.fs.starfarer.api.fleet.FleetMemberAPI fm = prof.ship.getFleetMember();
+            com.fs.starfarer.api.campaign.CampaignFleetAPI srcFleet =
+                    (fm != null && fm.getFleetData() != null) ? fm.getFleetData().getFleet() : null;
+            if (srcFleet != null && !srcFleet.isPlayerFleet()) {
+                // Intentionally independent ship from a campaign NPC fleet — leave unassigned!
+                continue;
+            }
+            nonCampaignUnassigned.add(prof);
+        }
+        unassigned = nonCampaignUnassigned;
 
         if (!unassigned.isEmpty() && !battleGroup.divisions.isEmpty()) {
             List<ShipCapabilityProfile> remaining = new ArrayList<>();

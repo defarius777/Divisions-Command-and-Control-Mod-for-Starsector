@@ -147,7 +147,9 @@ public class DivisionModel {
         LAUNCH_ALPHA_STRIKE("launch an alpha strike on", "launching alpha strike on", "Alpha Strike ->"),
         FORM_LINE_AND_FIX("form the line and fix", "fixing", "Fix ->"),
         MARSHAL_FOR_STRIKE("proceed to the marshal point to strike", "marshalling to strike", "Marshal ->"),
-        GIVE_GENERAL_CHASE("give general chase to", "chasing", "Chase ->");
+        GIVE_GENERAL_CHASE("give general chase to", "chasing", "Chase ->"),
+        TRADE_SPACE_FOR_TIME("trade space for time against", "trading space for time on", "Kiting <-"),
+        FEIGNED_RETREAT("feign retreat to draw in", "feigning retreat from", "Lure <-");
 
         public final String verbPhrase;
         public final String mediumPhrase;
@@ -172,7 +174,29 @@ public class DivisionModel {
         EXECUTE_STRIKE,    // strike time reached: everyone commits onto the shared focus target
         REINFORCE,          // the one division sent to relieve the current crisis
         HOLD_RESERVE,     // stay in battlegroup reserve until committed
-        GENERAL_CHASE            // exploit: pursue a broken enemy division within the pursuit leash
+        GENERAL_CHASE,           // exploit: pursue a broken enemy division within the pursuit leash
+        TACTICAL_RETREAT,        // Item E: offset space centroid by (dx, dy) to trade space for time without losing gun uptime
+        FEIGN_RETREAT_TRAP       // Item F: deliberate bait withdrawal that springs a synchronized alpha strike on pursuers
+    }
+
+    /**
+     * Coarse fleet-wide general signals that the OTC can hoist for friendly independent ships
+     * (ships without a Division Commander, intra-division formation slots, or division target links).
+     */
+    public enum FleetIndependentCommand {
+        NONE("No Independent Ships"),
+        RALLY_ON_FLEET_CENTER("Signal: Rally on Fleet Center"),
+        ENGAGE_PRIMARY_SECTOR("Signal: Advance on Primary Threat Sector"),
+        REINFORCE_THREATENED_SECTOR("Signal: Rally to Threatened Sector"),
+        PRESS_COORDINATED_STRIKE("Signal: Press Fleet Strike"),
+        GENERAL_RETREAT_RALLY("Signal: General Recall to Reserve"),
+        FULL_ASSAULT_CHARGE("Signal: General Chase / Full Assault");
+
+        public final String displayName;
+
+        FleetIndependentCommand(String displayName) {
+            this.displayName = displayName;
+        }
     }
 
     /**
@@ -242,6 +266,7 @@ public class DivisionModel {
         public final Map<String, PermanentDivisionManager.DivisionSetpieceAttack> participantSetpieces = new HashMap<>();
         public final Map<String, PermanentDivisionManager.DivisionFormation> participantFormations = new HashMap<>();
         public float createdTime;
+        public float lastTargetVisibleTime;
         public float strikeTime;
         public boolean committed;
         public float commitTime = -100f;
@@ -332,7 +357,32 @@ public class DivisionModel {
     }
 
     /**
-     * Runtime state of a single division on either side.
+     * T-S-F-C Tactical Zone classification for any point or ship position on the battlefield.
+     */
+    public enum TacticalZoneType {
+        SAFE_ZONE("Safe Zone"),
+        OVERMATCH_BAND("Overmatch Band"),
+        ENGAGEMENT_ZONE("Engagement Zone"),
+        KILL_ZONE("Kill Zone");
+
+        public final String displayName;
+
+        TacticalZoneType(String displayName) {
+            this.displayName = displayName;
+        }
+    }
+
+    /**
+     * Intra-division rank-relief state for individual ships within a fighting division.
+     */
+    public enum ShipRankState {
+        FRONT_ENGAGEMENT,
+        RELIEF_SAFE,
+        RETURNING_FRONT
+    }
+
+    /**
+     * runtime state of a single division on either side.
      */
     public static class DivisionState {
         public final String id;
@@ -433,6 +483,14 @@ public class DivisionModel {
         public float activeWeaponFiringRatio = 0f;
         public float violentContactIntensity = 0f;
         public float engagedFpMass = 0f;
+        // Live weapon firepower & effective-firepower-in-range uptime (Items A, B, C)
+        public float liveFirepowerScore = 0f;         // Current ready weapon firepower (discounts reloading/disabled/empty mounts; phase ships keep latent threat)
+        public float maxFirepowerScore = 0f;          // Unreloaded / uninjured peak firepower capacity
+        public float weaponReadinessRatio = 1.0f;     // liveFirepowerScore / max(1, maxFirepowerScore)
+        public float inRangeFirepowerScore = 0f;      // Friendly weapon firepower currently in range & arc of visible enemies
+        public float firepowerInRangeUptime = 0f;     // Smoothed ratio of live firepower currently bearing in range (0..1)
+        public float incomingInRangeFirepower = 0f;   // Hostile weapon firepower currently in range & arc of this division
+        public float firepowerExchangeRatio = 1.0f;   // (inRangeFirepowerScore + 15) / (incomingInRangeFirepower + 15)
 
         // Time Layer (Mobility horizon & Directional Engagement Level / Fixing)
         public static final int TIME_DIRECTIONS = 24;
@@ -483,6 +541,14 @@ public class DivisionModel {
         public boolean hasRouteWaypoint = false;
         public float routeSkirtSide = 0f;
         public final Map<String, Float> stragglerSkirtSideByShipId = new HashMap<>();
+        // Persistent intra-division station-keeping slot assignment (shipId -> slot index 0..n-1)
+        public final Map<String, Integer> assignedSlotByShipId = new HashMap<>();
+        public PermanentDivisionManager.DivisionFormation lastSlotAssignedFormation = null;
+        public int lastSlotAssignedCount = 0;
+        // Tracks wings that already completed a Voidstrike sortie against the current target so non-returning
+        // fighter escorts do not keep an eternal Voidstrike alive after the strike wave culminates
+        public final Set<String> culminatedVoidstrikeWingKeys = new HashSet<>();
+        public String culminatedVoidstrikeTargetKey = null;
 
         public AssignmentTargetAPI activeWaypoint;
         public AssignmentInfo activeAssignment;
@@ -494,6 +560,8 @@ public class DivisionModel {
         public float strikeCommittedTimestamp = -100f;
         public float lastBreakOffTimestamp = -100f;
         public boolean isDesignatedReserve = false;
+        /** True while the division is executing a player Command Window objective order (outranks OTC tasking). */
+        public boolean underDirectObjectiveOrder = false;
         public boolean isDesignatedMainEffort = false;
 
         // Battle Group orchestration & intent commitment
@@ -522,7 +590,50 @@ public class DivisionModel {
         public int voidstrikeStage = 2;
         public float voidstrikeStageStartTime = -999f;
         public String voidstrikeLastTargetKey = null;
+        public boolean voidstrikeEgressActive = false;
+        /**
+         * Voidstrike number of this division's current strike sortie (0 = none). A division keeps ONE number for the
+         * whole sortie (launch -> culmination/egress), so wing retargets, fog flicker or cluster splits re-attach to it
+         * instead of burning fresh numbers. Cleared when egress begins.
+         */
+        public int activeVoidstrikeSortieNumber = 0;
         public final Vector2f voidstrikeMarshalPoint = new Vector2f(0f, 0f);
+
+        // Item E (Trade Space for Time / Tactical Retreat) & Item F (Feigned Retreat & Trap Suspicion)
+        public final Vector2f spaceOffsetVector = new Vector2f(0f, 0f);
+        public float tradeSpaceStartTime = -100f;
+        public float lastTradeSpaceEndTime = -100f;
+        public int feignedRetreatStage = 0; // 0 = inactive, 1 = bait withdrawal, 2 = spring alpha-strike trap
+        public float feignedRetreatStartTime = -100f;
+        public float lastFeignedRetreatEndTime = -100f;
+        public float closingSpeedToEnemy = 0f;
+        public float enemyFeignedRetreatSuspicion = 0f;
+
+        // T-S-F-C Engagement Zone & Safe Zone Hierarchy + Intra-Division Double-Line Rank Relief
+        public final Map<String, ShipRankState> shipRankStateByShipId = new HashMap<>();
+        public final Map<String, TacticalZoneType> shipZoneTypeByShipId = new HashMap<>();
+        public final Map<String, Integer> assignedReliefSlotByShipId = new HashMap<>();
+        /** True when this division has compressed its frontage and added a rear relief rank (defensive or offensive depth). */
+        public boolean inDoubleLineRelief = false;
+        public int engagementZoneShipCount = 0;
+        public int safeZoneShipCount = 0;
+        public float engagementZoneFp = 0f;
+        public float reliefRankDepth = 460f;
+        public final Vector2f safeZonePoint = new Vector2f(0f, 0f);
+        public TacticalZoneType currentDivisionZone = TacticalZoneType.SAFE_ZONE;
+        /** +1 = offensive depth column (spearhead through a narrow gap), -1 = defensive rank relief (venting), 0 = none. */
+        public int depthFormationMode = 0;
+        /** Cantabrian Circle (offensive / defensive) on CIRCLE / PROTECTIVE_CIRCLE formations. */
+        public boolean cantabrianCircleActive = false;
+        public boolean cantabrianOffensive = false;
+        public float cantabrianPhase = 0f;
+        // Inter-division Mutual Cover & Fleet Line-Passing state
+        public DivisionState coveringFriendDivision = null;
+        public boolean isCoveringFriend = false;
+        public boolean underCoverByFriend = false;
+        public boolean linePassActive = false;
+        public float linePassUntil = -100f;
+        public int fleetBattleSequenceStage = 0; // 0 = none, 1 = Trade Space for Time, 2 = Feigned Retreat lure, 3 = Alpha Strike counter
 
         public DivisionState(
                 String id,
@@ -592,6 +703,8 @@ public class DivisionModel {
 
         public final Vector2f fleetCentroid = new Vector2f();
         public final Vector2f reserveStation = new Vector2f();
+        public final Vector2f fleetSafeCorridorCenter = new Vector2f();
+        public final Vector2f fleetEngagementZoneCenter = new Vector2f();
         public float totalFriendlyStrength;
         public float totalEnemyStrength;
         public float forceRatio = 1.0f;
@@ -603,6 +716,40 @@ public class DivisionModel {
         public float smoothedEngagementLevel = 0f;
         public int engagedDivisionCount = 0;
         public boolean mainEffortEngaged = false;
+        public float fleetLiveFirepower = 0f;
+        public float fleetInRangeFirepower = 0f;
+        public float fleetFirepowerUptime = 0f;
+
+        // Item D: Awareness of Friendly Independent Ships (disposition, centroid, velocity, FP, and org ratio)
+        public final List<ShipAPI> friendlyIndependentShips = new ArrayList<>();
+        public final Vector2f independentCentroid = new Vector2f(0f, 0f);
+        public final Vector2f independentVelocity = new Vector2f(0f, 0f);
+        public final Vector2f independentProjectedCentroid = new Vector2f(0f, 0f);
+        public float friendlyIndependentFp = 0f;
+        public float friendlyIndependentLiveFirepower = 0f;
+        public float friendlyIndependentEhp = 0f;
+        public float organizationRatio = 1.0f;
+        /** Simple fleet-wide general signal issued by the OTC to all friendly independent ships. */
+        public FleetIndependentCommand activeIndependentCommand = FleetIndependentCommand.NONE;
+        public final Vector2f fleetIndependentCommandPoint = new Vector2f(0f, 0f);
+        public final Vector2f fleetIndependentCarrierPoint = new Vector2f(0f, 0f);
+        public float lastIndependentCommandUpdateTime = -100f;
+
+        // Item E & F: Fleet-Wide Trade Space for Time & Feigned Retreat state
+        public final Vector2f fleetSpaceOffsetVector = new Vector2f(0f, 0f);
+        public boolean fleetTradeSpaceActive = false;
+        public float fleetTradeSpaceUntil = -100f;
+        public boolean fleetFeignedRetreatActive = false;
+        public int fleetFeignedRetreatStage = 0; // 0 = inactive, 1 = lure, 2 = spring alpha strike
+        public float fleetFeignedRetreatStartTime = -100f;
+        public float lastFleetFeignedRetreatEndTime = -100f;
+        public DivisionState feignedRetreatBaitDivision = null;
+        public DivisionState feignedRetreatTargetEnemy = null;
+        // Fleet-Wide Engage -> Trade Space -> Feigned Retreat -> Alpha Strike battle-sequence state
+        public int fleetBattleSequenceStage = 0;
+        public float fleetBattleSequenceStartTime = -100f;
+        public float lastFleetBattleSequenceEndTime = -100f;
+        public final Map<String, DivisionState> linePassCovererByDivisionId = new HashMap<>();
 
         public DivisionState mainEffortDivision;
         public DivisionState reserveDivision;

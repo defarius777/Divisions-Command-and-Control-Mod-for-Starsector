@@ -84,6 +84,11 @@ public class DivisionCombatLog {
         return new Color(155, 165, 175);
     }
 
+    public static void logVoidstrikeCulminated(int side, int number, String reason, float now) {
+        String sideName = side == 0 ? "Player" : (side == 1 ? "Enemy" : "Allied");
+        emitLogLine(now, "[DivisionAI] " + sideName + " Voidstrike " + number + " culminated (" + reason + "); strike craft egress.");
+    }
+
     public static void logDivisionFormed(CombatEngineAPI engine, DivisionState div, float now) {
         if (div == null) return;
         List<ShipAPI> alive = div.getAliveMembers();

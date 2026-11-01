@@ -1465,7 +1465,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         final CustomPanelAPI[] panelRef = new CustomPanelAPI[1];
         CustomPanelAPI tilePanel = Global.getSettings().createCustom(width, height, new BaseCustomUIPanelPlugin() {
             @Override
-            public void render(float alphaMult) {
+            public void renderBelow(float alphaMult) {
                 CustomPanelAPI selfPanel = panelRef[0];
                 if (selfPanel == null) return;
                 PositionAPI p = selfPanel.getPosition();
@@ -1580,13 +1580,15 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     GL11.glVertex2f(px, py + portraitBoxSize);
                     GL11.glEnd();
 
-                    // Dark backing quad behind the top-right level text inside the portrait box (Fleet screen style)
+                    // Soft backing behind the top-right level text inside the portrait box (Fleet screen style).
+                    // Drawn in renderBelow() so the level label (a child element) renders ON TOP of it; in render()
+                    // this quad was painted over the label and showed up as an opaque black square.
                     if (showCommanderLevel) {
                         float badgeW = commanderLevel >= 10 ? 13f : 9f;
                         float badgeH = 10f;
                         float bx = px + portraitBoxSize - badgeW;
                         float by = py + portraitBoxSize - badgeH;
-                        GL11.glColor4f(0.0f, 0.0f, 0.0f, 0.82f * effAlpha);
+                        GL11.glColor4f(0.0f, 0.0f, 0.0f, 0.45f * effAlpha);
                         GL11.glBegin(GL11.GL_QUADS);
                         GL11.glVertex2f(bx, by);
                         GL11.glVertex2f(px + portraitBoxSize, by);

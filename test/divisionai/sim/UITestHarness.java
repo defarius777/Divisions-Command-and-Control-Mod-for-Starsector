@@ -23,6 +23,7 @@ import divisionai.DivisionNomenclature.PlayerNamingPreset;
 import divisionai.DivisionTacticalMapOverlay;
 import divisionai.DynamicBattleMusicController;
 import divisionai.FactionFleetDoctrines;
+import divisionai.FactionLibrary;
 import divisionai.FleetDoctrineDialog;
 import divisionai.PermanentDivisionManager;
 import divisionai.PermanentDivisionManager.AutoAssignCapability;
@@ -2361,7 +2362,8 @@ public class UITestHarness {
                 && abyProf != null && abyProf.silent && abyProf.getAmbienceBottomLayer().files.contains("battle_ambience_01.ogg") && abyProf.getPrimaryBattleTrackLayer() == null
                 && defProf.getPrimaryBattleTrackLayer().computeTargetVolume(0.18f, false) == 0f
                 && defProf.getPrimaryBattleTrackLayer().computeTargetVolume(0.30f, true) > 0.24f
-                && defProf.getPrimaryBattleTrackLayer().computeTargetVolume(0.85f, true) >= 0.99f;
+                && defProf.getPrimaryBattleTrackLayer().computeTargetVolume(0.85f, true) >= 0.99f
+                && DynamicBattleMusicController.verifyAudioHandles();
 
         // Verify Station Time & Space Bastion Projection (Issue C) & Battle Music Fade-Out / Cessation (Issues D & E):
         ShipAPI mockStation = (ShipAPI) Proxy.newProxyInstance(
@@ -2544,6 +2546,42 @@ public class UITestHarness {
         boolean taskFStrikeCraftSpaceOk = evalSrc.contains("float wingInnerBonus = 0f;")
                 && cDiv1.spaceInnerRadius >= 380f
                 && cDiv1.spaceDominatedRadius > cDiv1.spaceInnerRadius + 220f;
+
+        // Verify FactionLibrary Organization Ratings (0%/25%/50%/80%/90%/100%), HIGH fallback for unknown factions,
+        // and Non-War Fleet (Merchant/Smuggler/Scavenger) nomenclature & rating adaptation:
+        boolean factionLibRatingsOk = FactionLibrary.OrganizationRating.NONE.fraction == 0.00f
+                && FactionLibrary.OrganizationRating.LOW.fraction == 0.25f
+                && FactionLibrary.OrganizationRating.AVERAGE.fraction == 0.50f
+                && FactionLibrary.OrganizationRating.HIGH.fraction == 0.80f
+                && FactionLibrary.OrganizationRating.VERY_HIGH.fraction == 0.90f
+                && FactionLibrary.OrganizationRating.PERFECT.fraction == 1.00f
+                && FactionLibrary.resolveFactionOrganizationRating("unknown_submod_faction_xyz") == FactionLibrary.OrganizationRating.HIGH
+                && FactionLibrary.resolveFactionOrganizationRating("pirates") == FactionLibrary.OrganizationRating.LOW
+                && FactionLibrary.resolveFactionOrganizationRating("independent") == FactionLibrary.OrganizationRating.AVERAGE
+                && FactionLibrary.resolveFactionOrganizationRating("persean") == FactionLibrary.OrganizationRating.HIGH
+                && FactionLibrary.resolveFactionOrganizationRating("hegemony") == FactionLibrary.OrganizationRating.VERY_HIGH
+                && FactionLibrary.resolveFactionOrganizationRating("remnant") == FactionLibrary.OrganizationRating.PERFECT
+                && FactionLibrary.resolveFactionOrganizationRating("hegemony", FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY) == FactionLibrary.OrganizationRating.AVERAGE;
+        String hegMerchConvoyName = DivisionNomenclature.formatFactionDivisionName(
+                "hegemony", DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL,
+                DivisionArchetype.SERVICE_GROUP, 1, null, 0L, FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY);
+        String triMerchConvoyName = DivisionNomenclature.formatFactionDivisionName(
+                "tritachyon", DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL,
+                DivisionArchetype.SERVICE_GROUP, 1, null, 0L, FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY);
+        String indMerchConvoyName = DivisionNomenclature.formatFactionDivisionName(
+                "independent", DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL,
+                DivisionArchetype.SERVICE_GROUP, 1, null, 12345L, FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY);
+        String unkMerchConvoyName = DivisionNomenclature.formatFactionDivisionName(
+                "unknown_submod_faction_xyz", DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL,
+                DivisionArchetype.SERVICE_GROUP, 1, null, 0L, FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY);
+        boolean merchantNomenclatureOk = "Chartered Convoy 1".equals(hegMerchConvoyName)
+                && "Commercial Caravan 1".equals(triMerchConvoyName)
+                && "Merchant Convoy 1".equals(unkMerchConvoyName)
+                && !indMerchConvoyName.toLowerCase(Locale.ROOT).contains("service group")
+                && (indMerchConvoyName.contains("Convoy") || indMerchConvoyName.contains("Flotilla")
+                || indMerchConvoyName.contains("Group") || indMerchConvoyName.contains("Caravan"))
+                && new File("mod/data/config/division_faction_library.json").isFile();
+        taskFStrikeCraftSpaceOk = taskFStrikeCraftSpaceOk && factionLibRatingsOk && merchantNomenclatureOk;
 
         formationIconsCleanOk = formationIconsCleanOk && flagshipDivRankOk
                 && twoFrigateDivsBelowThresholdOk && fourFrigateDivsCrossThresholdOk

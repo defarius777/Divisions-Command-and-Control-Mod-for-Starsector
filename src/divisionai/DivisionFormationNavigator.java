@@ -16,6 +16,7 @@ import divisionai.DivisionModel.OtcOrder;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
+import divisionai.DivisionModel.ShipRankState;
 import divisionai.DivisionModel.StrikePlan;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
@@ -171,32 +172,43 @@ public class DivisionFormationNavigator {
             }
         }
 
+        boolean divisionInEntryTravelDrive = false;
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI m = alive.get(i);
+            if (m != null && m.getFullTimeDeployed() < 8.5f && m.getTravelDrive() != null && m.getTravelDrive().isActive()) {
+                divisionInEntryTravelDrive = true;
+                break;
+            }
+        }
+
         float desiredFwdX = 0f;
         float desiredFwdY = (div.side == 0) ? 1f : -1f;
-        if (div.targetEnemyDivision != null) {
-            Vector2f visEnemy = OtcAI.getVisibleCentroidForSide(engine, div.side, div.targetEnemyDivision);
-            float dx = visEnemy.x - div.centroid.x;
-            float dy = visEnemy.y - div.centroid.y;
-            float len = (float) Math.sqrt(dx * dx + dy * dy);
-            if (len > 1f) {
-                desiredFwdX = dx / len;
-                desiredFwdY = dy / len;
-            }
-        } else if (div.centroid != null && rawCenter != null) {
-            // When advancing on an objective or station before enemy contact, orient formation heading along the march vector
-            float dx = rawCenter.x - div.centroid.x;
-            float dy = rawCenter.y - div.centroid.y;
-            float len = (float) Math.sqrt(dx * dx + dy * dy);
-            if (len > 220f) {
-                desiredFwdX = dx / len;
-                desiredFwdY = dy / len;
+        if (!divisionInEntryTravelDrive) {
+            if (div.targetEnemyDivision != null) {
+                Vector2f visEnemy = OtcAI.getVisibleCentroidForSide(engine, div.side, div.targetEnemyDivision);
+                float dx = visEnemy.x - div.centroid.x;
+                float dy = visEnemy.y - div.centroid.y;
+                float len = (float) Math.sqrt(dx * dx + dy * dy);
+                if (len > 1f) {
+                    desiredFwdX = dx / len;
+                    desiredFwdY = dy / len;
+                }
+            } else if (div.centroid != null && rawCenter != null) {
+                // When advancing on an objective or station before enemy contact, orient formation heading along the march vector
+                float dx = rawCenter.x - div.centroid.x;
+                float dy = rawCenter.y - div.centroid.y;
+                float len = (float) Math.sqrt(dx * dx + dy * dy);
+                if (len > 220f) {
+                    desiredFwdX = dx / len;
+                    desiredFwdY = dy / len;
+                }
             }
         }
 
         // Smoothly wheel the division's formation heading so the line wheels as a cohesive naval unit.
         // Item A: Use a faster wheel rate (0.50) when marching out of combat toward an opening objective so
         // Line Abreast and Echelon Right immediately align perpendicular/echeloned to the march vector!
-        if (!div.formationHeadingInitialized) {
+        if (!div.formationHeadingInitialized || divisionInEntryTravelDrive) {
             div.formationHeadingX = desiredFwdX;
             div.formationHeadingY = desiredFwdY;
             div.formationHeadingInitialized = true;
@@ -234,24 +246,38 @@ public class DivisionFormationNavigator {
             }
         }
 
-        float anchorX = centerX + fwdX * stationDepthBias;
-        float anchorY = centerY + fwdY * stationDepthBias;
+        float anchorX = divisionInEntryTravelDrive && div.centroid != null
+                ? div.centroid.x
+                : (centerX + fwdX * stationDepthBias);
+        float anchorY = divisionInEntryTravelDrive && div.centroid != null
+                ? (div.centroid.y + fwdY * 1800f)
+                : (centerY + fwdY * stationDepthBias);
 
         int n = Math.max(1, alive.size());
         float[] slotLx = new float[n];
         float[] slotLy = new float[n];
+        float sumSlotLx = 0f;
+        float sumSlotLy = 0f;
+        for (int k = 0; k < n; k++) {
+            float[] local = computeLocalFormationOffset(formation, k, n, effectiveSlotSpacing);
+            slotLx[k] = local[0];
+            slotLy[k] = local[1];
+            sumSlotLx += local[0];
+            sumSlotLy += local[1];
+        }
+        float meanSlotLx = sumSlotLx / n;
+        float meanSlotLy = sumSlotLy / n;
+
         Vector2f[] worldSlots = new Vector2f[n];
-        // Also compute true formation slots anchored on the division's current centroid so greedy wingman-to-slot
-        // matching uses the ships' actual lateral positions rather than a carriage 1950u ahead!
+        // Also compute zero-centered formation slots anchored on the division's current centroid so greedy
+        // wingman-to-slot matching and rank-dressing use the formation's true centroid offsets (essential for
+        // REVERSE_SEMICIRCLE and REVERSE_WEDGE where all raw slotLy values are negative!).
         float curCenterX = (div.centroid != null) ? div.centroid.x : anchorX;
         float curCenterY = (div.centroid != null) ? div.centroid.y : anchorY;
         Vector2f[] currentCentroidSlots = new Vector2f[n];
         for (int k = 0; k < n; k++) {
-            float[] local = computeLocalFormationOffset(formation, k, n, effectiveSlotSpacing);
-            float lx = local[0];
-            float ly = local[1];
-            slotLx[k] = lx;
-            slotLy[k] = ly;
+            float lx = slotLx[k];
+            float ly = slotLy[k];
             worldSlots[k] = new Vector2f(
                     anchorX + latX * lx + fwdX * ly,
                     anchorY + latY * lx + fwdY * ly);
@@ -274,7 +300,98 @@ public class DivisionFormationNavigator {
         }
 
         int assignedSlotIdx = 0;
-        if (formation == DivisionFormation.PROTECTIVE_CIRCLE && n > 1) {
+        boolean shipInSafeReliefRank = false;
+        boolean isCircularFormation = (formation == DivisionFormation.CIRCLE
+                || formation == DivisionFormation.PROTECTIVE_CIRCLE);
+        // Intra-Division Formation Rank & Depth:
+        // Defensive: compress frontage and add a rear relief rank (front ships cover high-flux ships venting).
+        // Offensive: spearhead a deep 1-2 wide column through a narrow enemy gap so rear ships keep firing over the front.
+        if (!closingUp
+                && div.inDoubleLineRelief
+                && !isCircularFormation
+                && n >= 2
+                && div.engagementZoneShipCount >= 1
+                && div.safeZoneShipCount >= 1
+                && div.engagementZoneShipCount + div.safeZoneShipCount == n) {
+            int frontCount = div.engagementZoneShipCount;
+            int reliefCount = div.safeZoneShipCount;
+            float reliefDepth = Math.max(440f, div.reliefRankDepth);
+            for (int fIdx = 0; fIdx < frontCount; fIdx++) {
+                float[] local = computeLocalFormationOffset(formation, fIdx, frontCount, effectiveSlotSpacing);
+                slotLx[fIdx] = local[0];
+                slotLy[fIdx] = local[1] + 35f;
+                worldSlots[fIdx] = new Vector2f(
+                        anchorX + latX * slotLx[fIdx] + fwdX * slotLy[fIdx],
+                        anchorY + latY * slotLx[fIdx] + fwdY * slotLy[fIdx]);
+            }
+            for (int rIdx = 0; rIdx < reliefCount; rIdx++) {
+                int slotK = frontCount + rIdx;
+                float rLat = (reliefCount == 1)
+                        ? 0f
+                        : ((rIdx - (reliefCount - 1) * 0.5f) * (effectiveSlotSpacing * 0.82f));
+                float rDepth = -reliefDepth;
+                slotLx[slotK] = rLat;
+                slotLy[slotK] = rDepth;
+                worldSlots[slotK] = new Vector2f(
+                        curCenterX + latX * rLat + fwdX * rDepth,
+                        curCenterY + latY * rLat + fwdY * rDepth);
+            }
+
+            boolean[] slotTaken = new boolean[n];
+            for (int i = 0; i < n; i++) {
+                ShipAPI s = alive.get(i);
+                ShipRankState rs = (s != null && s.getId() != null)
+                        ? div.shipRankStateByShipId.get(s.getId())
+                        : ShipRankState.FRONT_ENGAGEMENT;
+                boolean isRelief = (rs == ShipRankState.RELIEF_SAFE);
+                int startK = isRelief ? frontCount : 0;
+                int endK = isRelief ? n : frontCount;
+                int bestSlot = startK;
+                float bestDistSq = Float.MAX_VALUE;
+                for (int k = startK; k < endK; k++) {
+                    if (slotTaken[k]) continue;
+                    float dx = s.getLocation().x - worldSlots[k].x;
+                    float dy = s.getLocation().y - worldSlots[k].y;
+                    float dSq = dx * dx + dy * dy;
+                    if (dSq < bestDistSq) {
+                        bestDistSq = dSq;
+                        bestSlot = k;
+                    }
+                }
+                slotTaken[bestSlot] = true;
+                if (i == shipIdx) {
+                    assignedSlotIdx = bestSlot;
+                    shipInSafeReliefRank = isRelief;
+                }
+            }
+        } else if (!closingUp
+                && isCircularFormation
+                && div.cantabrianCircleActive
+                && n >= 3
+                && ship != null) {
+            // Cantabrian Circle (offensive / defensive): continuous orbit of the division's circle stations around
+            // the core anchor. Each ship advances along the tangent of the ring so the whole division keeps moving,
+            // firing outward (offensive) or trading places between the exposed outer arc and the safe inner arc (defensive).
+            Vector2f baseSlot = computeProtectiveOrCircularSlot(formation, shipIdx, alive, div, anchorX, anchorY, fwdX, fwdY, latX, latY, effectiveSlotSpacing);
+            float relX = baseSlot.x - curCenterX;
+            float relY = baseSlot.y - curCenterY;
+            float rLen = (float) Math.sqrt(relX * relX + relY * relY);
+            float cantX = baseSlot.x;
+            float cantY = baseSlot.y;
+            if (rLen > 40f) {
+                float phase = div.cantabrianPhase;
+                float cosP = (float) Math.cos(phase);
+                float sinP = (float) Math.sin(phase);
+                float rotX = relX * cosP - relY * sinP;
+                float rotY = relX * sinP + relY * cosP;
+                float tangSign = div.cantabrianOffensive ? 1f : -1f;
+                float tangentLead = effectiveSlotSpacing * 0.55f;
+                cantX = curCenterX + rotX - (rotY / rLen) * tangSign * tangentLead;
+                cantY = curCenterY + rotY + (rotX / rLen) * tangSign * tangentLead;
+            }
+            assignedSlotIdx = shipIdx;
+            worldSlots[assignedSlotIdx].set(cantX, cantY);
+        } else if (formation == DivisionFormation.PROTECTIVE_CIRCLE && n > 1) {
             // Protective Circle: assign the largest / carrier / flagship hulls to the inner core slots (0 .. coreCount-1)
             // and match smaller escort hulls (frigates/destroyers) to the outer protective circle slots (coreCount .. n-1).
             int coreCount = computeProtectiveCircleCoreCount(n);
@@ -333,30 +450,11 @@ public class DivisionFormationNavigator {
                 }
             }
         } else if (shipIdx != leadIdx && n > 1) {
-            boolean[] slotTaken = new boolean[n];
-            slotTaken[0] = true; // Slot 0 reserved for flagship
-            for (int i = 0; i < n; i++) {
-                if (i == leadIdx) continue;
-                ShipAPI s = alive.get(i);
-                int bestSlot = 1;
-                float bestDistSq = Float.MAX_VALUE;
-                for (int k = 1; k < n; k++) {
-                    if (slotTaken[k]) continue;
-                    float dx = s.getLocation().x - currentCentroidSlots[k].x;
-                    float dy = s.getLocation().y - currentCentroidSlots[k].y;
-                    float dSq = dx * dx + dy * dy;
-                    if (dSq < bestDistSq) {
-                        bestDistSq = dSq;
-                        bestSlot = k;
-                    }
-                }
-                slotTaken[bestSlot] = true;
-                if (i == shipIdx) {
-                    assignedSlotIdx = bestSlot;
-                    break;
-                }
-                }
-                }
+            // Persistent station-keeping assignment: a formation is a set of stations that ships hold; they only
+            // swap stations when the formation itself changes or a swap is clearly worth it (see resolvePersistentSlots).
+            int[] slotByShip = resolvePersistentSlots(div, alive, leadIdx, currentCentroidSlots, formation);
+            assignedSlotIdx = slotByShip[shipIdx];
+        }
 
                 float slotX = worldSlots[assignedSlotIdx].x;
                 float slotY = worldSlots[assignedSlotIdx].y;
@@ -371,6 +469,8 @@ public class DivisionFormationNavigator {
                 // proportional speed-matching zone around its true lateral lane so it dresses back/laterally into exact Line Abreast
                 // or Echelon Right while ships behind the rank burn at 100% speed to catch up!
                 if (!closingUp
+                && !shipInSafeReliefRank
+                && !div.inDoubleLineRelief
                 && formation != DivisionFormation.NONE
                 && n >= 2
                 && marchDist > 260f
@@ -386,22 +486,35 @@ public class DivisionFormationNavigator {
                 float refY = (refShip != null)
                 ? (refShip.getLocation().y * 0.55f + curCenterY * 0.45f)
                 : curCenterY;
-                float trueRankX = refX + latX * slotLx[assignedSlotIdx] + fwdX * slotLy[assignedSlotIdx];
-                float trueRankY = refY + latY * slotLx[assignedSlotIdx] + fwdY * slotLy[assignedSlotIdx];
+                // Subtract the reference point's own formation offset (leadIdx for refShip, meanSlot for curCenter)
+                // so a perfectly formed division in REVERSE_SEMICIRCLE, REVERSE_WEDGE, or ECHELON has zero error
+                // and NEVER places trueRank behind the ships!
+                float refOffLx = (refShip != null)
+                ? (slotLx[leadIdx] * 0.55f + meanSlotLx * 0.45f)
+                : meanSlotLx;
+                float refOffLy = (refShip != null)
+                ? (slotLy[leadIdx] * 0.55f + meanSlotLy * 0.45f)
+                : meanSlotLy;
+                float relSlotLx = slotLx[assignedSlotIdx] - refOffLx;
+                float relSlotLy = slotLy[assignedSlotIdx] - refOffLy;
+                float trueRankX = refX + latX * relSlotLx + fwdX * relSlotLy;
+                float trueRankY = refY + latY * relSlotLx + fwdY * relSlotLy;
 
                 float errX = ship.getLocation().x - trueRankX;
                 float errY = ship.getLocation().y - trueRankY;
                 float alongError = errX * fwdX + errY * fwdY;
                 float latError = Math.abs(errX * latX + errY * latY);
 
-                if (alongError > 25f) {
-                // Ship is ahead of its assigned rank (e.g. rear echelon ship in ECHELON_RIGHT or fast ship in LINE_ABREAST):
-                // Place its target along its true lateral lane at a throttled lead ahead of trueRank so it dresses into rank!
-                float dressLead = Math.max(45f, 340f - alongError * 0.75f - latError * 0.25f);
-                float dressedX = trueRankX + fwdX * dressLead;
-                float dressedY = trueRankY + fwdY * dressLead;
-                slotX = dressedX;
-                slotY = dressedY;
+                if (alongError > 45f) {
+                // Ship is ahead of its assigned rank: place its target along its true lateral lane, but ALWAYS keep the
+                // waypoint ahead of the ship itself along fwd (never behind the ship, which caused REVERSE_SEMICIRCLE
+                // divisions to reverse/stall in a corner!).
+                float aheadOfShipLead = Math.min(marchDist, Math.max(260f, 580f - alongError * 0.45f - latError * 0.20f));
+                float dressLead = alongError + aheadOfShipLead;
+                if (dressLead < marchDist) {
+                slotX = trueRankX + fwdX * dressLead;
+                slotY = trueRankY + fwdY * dressLead;
+                }
                 } else if (latError > 95f) {
                 // Ship is laterally out of its lane (e.g. wheeling into NW/NE objective): pull carriage closer along fwd
                 // so the lateral steering angle toward its lane is sharp (~30-45 deg) instead of diluted over 1950u!
@@ -431,6 +544,129 @@ public class DivisionFormationNavigator {
         }
 
         return new Vector2f(slotX, slotY);
+    }
+
+    private static Vector2f computeProtectiveOrCircularSlot(
+            DivisionFormation formation,
+            int shipIdx,
+            List<ShipAPI> alive,
+            divisionai.DivisionModel.DivisionState div,
+            float anchorX,
+            float anchorY,
+            float fwdX,
+            float fwdY,
+            float latX,
+            float latY,
+            float spacing) {
+        float[] local = computeLocalFormationOffset(formation, shipIdx, Math.max(1, alive.size()), spacing);
+        return new Vector2f(
+                anchorX + latX * local[0] + fwdX * local[1],
+                anchorY + latY * local[0] + fwdY * local[1]);
+    }
+
+    /** Minimum total-distance gain (su) required before two wingmen swap stations in an established formation. */
+    static final float SLOT_SWAP_GAIN_THRESHOLD = 380f;
+
+    /**
+     * Returns slot index per ship index in {@code alive} (slot 0 = flagship command slot). Assignments persist in
+     * {@link DivisionState#assignedSlotByShipId}. A full greedy re-solve happens only when the formation type,
+     * member count, or flagship changes (or a member has no valid stored slot). Otherwise only pairwise swaps that
+     * shorten the pair's combined distance to their stations by more than {@link #SLOT_SWAP_GAIN_THRESHOLD} occur.
+     */
+    static int[] resolvePersistentSlots(
+            DivisionState div,
+            List<ShipAPI> alive,
+            int leadIdx,
+            Vector2f[] slotPositions,
+            DivisionFormation formation) {
+        int n = alive.size();
+        int[] result = new int[n];
+        String flagId = (leadIdx >= 0 && leadIdx < n && alive.get(leadIdx) != null) ? alive.get(leadIdx).getId() : null;
+        boolean structuralChange = div.lastSlotAssignedFormation != formation
+                || div.lastSlotAssignedCount != n
+                || (flagId != null && !Integer.valueOf(0).equals(div.assignedSlotByShipId.get(flagId)));
+
+        boolean valid = !structuralChange;
+        if (valid) {
+            boolean[] seen = new boolean[n];
+            for (int i = 0; i < n; i++) {
+                ShipAPI s = alive.get(i);
+                Integer k = (s != null) ? div.assignedSlotByShipId.get(s.getId()) : null;
+                if (k == null || k < 0 || k >= n || seen[k] || (i == leadIdx) != (k == 0)) {
+                    valid = false;
+                    break;
+                }
+                seen[k] = true;
+                result[i] = k;
+            }
+        }
+
+        if (!valid) {
+            // Greedy nearest-station re-solve (flagship holds slot 0)
+            boolean[] slotTaken = new boolean[n];
+            slotTaken[0] = true;
+            result[leadIdx] = 0;
+            for (int i = 0; i < n; i++) {
+                if (i == leadIdx) continue;
+                ShipAPI s = alive.get(i);
+                int bestSlot = -1;
+                float bestDistSq = Float.MAX_VALUE;
+                for (int k = 1; k < n; k++) {
+                    if (slotTaken[k]) continue;
+                    float dx = s.getLocation().x - slotPositions[k].x;
+                    float dy = s.getLocation().y - slotPositions[k].y;
+                    float dSq = dx * dx + dy * dy;
+                    if (dSq < bestDistSq) {
+                        bestDistSq = dSq;
+                        bestSlot = k;
+                    }
+                }
+                if (bestSlot < 0) bestSlot = 0;
+                slotTaken[bestSlot] = true;
+                result[i] = bestSlot;
+            }
+        } else {
+            // Established formation: allow at most one clearly beneficial pairwise swap per evaluation
+            float bestGain = SLOT_SWAP_GAIN_THRESHOLD;
+            int swapA = -1;
+            int swapB = -1;
+            for (int a = 0; a < n; a++) {
+                if (a == leadIdx) continue;
+                for (int b = a + 1; b < n; b++) {
+                    if (b == leadIdx) continue;
+                    Vector2f pa = alive.get(a).getLocation();
+                    Vector2f pb = alive.get(b).getLocation();
+                    float cur = dist(pa, slotPositions[result[a]]) + dist(pb, slotPositions[result[b]]);
+                    float swapped = dist(pa, slotPositions[result[b]]) + dist(pb, slotPositions[result[a]]);
+                    float gain = cur - swapped;
+                    if (gain > bestGain) {
+                        bestGain = gain;
+                        swapA = a;
+                        swapB = b;
+                    }
+                }
+            }
+            if (swapA >= 0) {
+                int t = result[swapA];
+                result[swapA] = result[swapB];
+                result[swapB] = t;
+            }
+        }
+
+        div.assignedSlotByShipId.clear();
+        for (int i = 0; i < n; i++) {
+            ShipAPI s = alive.get(i);
+            if (s != null && s.getId() != null) div.assignedSlotByShipId.put(s.getId(), result[i]);
+        }
+        div.lastSlotAssignedFormation = formation;
+        div.lastSlotAssignedCount = n;
+        return result;
+    }
+
+    private static float dist(Vector2f a, Vector2f b) {
+        float dx = a.x - b.x;
+        float dy = a.y - b.y;
+        return (float) Math.sqrt(dx * dx + dy * dy);
     }
 
     /**
@@ -650,13 +886,17 @@ public class DivisionFormationNavigator {
             float backY = (div.side == 0) ? -standoff : standoff;
             outStation.set(visEnemyPos.x, visEnemyPos.y + backY);
         }
-        // Slide standoff station out of L/U crossfire overlaps and toward enemy blind spots / disunified arcs
-        if (div.useConvergence) {
-            BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
-                    engine, div, enemyDiv, null, null, visEnemyPos, outStation, 42f, outStation);
-        } else {
-            BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
-                    engine, div, enemyDiv, visEnemyPos, outStation, 36f, 5, outStation);
+        // Slide standoff station out of L/U crossfire overlaps only when actually inside a crossfire cordon
+        // (calling optimizeStationAlongArc on every tick during normal approach recursively rotates outStation
+        // 36 degrees per tick around visEnemyPos and makes divisions and carriers spiral into the enemy!).
+        if (!div.archetype.isCarrierArchetype() && div.crossfireCordonIndex >= 0.28f) {
+            if (div.useConvergence) {
+                BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
+                        engine, div, enemyDiv, null, null, visEnemyPos, outStation, 28f, outStation);
+            } else {
+                BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
+                        engine, div, enemyDiv, visEnemyPos, outStation, 24f, 5, outStation);
+            }
         }
     }
 

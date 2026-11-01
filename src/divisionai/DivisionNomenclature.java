@@ -322,18 +322,9 @@ public final class DivisionNomenclature {
      */
     public static NomenclatureCategory resolveCategoryForFactionId(String factionId) {
         if (factionId == null) return NomenclatureCategory.HUMAN_NAVAL;
-        String id = factionId.trim().toLowerCase(Locale.ROOT);
-        if ("dweller".equals(id) || "omega".equals(id) || "liminal".equals(id)
-                || id.contains("abyssal") || id.contains("dweller")) {
-            return NomenclatureCategory.ABYSSAL_ERROR;
-        }
-        if ("threat".equals(id) || id.contains("threat")
-                || "mess".equals(id) || "mess_remnant".equals(id) || "hmi_nightmare".equals(id)) {
-            return NomenclatureCategory.THREAT_SWARM;
-        }
-        if ("remnant".equals(id) || "remnants".equals(id) || "derelict".equals(id)
-                || "domres".equals(id) || "indevo_derelict".equals(id) || "indevo_converters".equals(id)) {
-            return NomenclatureCategory.POST_AI_WAR;
+        FactionLibrary.FactionAttributes attrs = FactionLibrary.getAttributesForFaction(factionId);
+        if (attrs != null && attrs.nomenclatureCategory != null) {
+            return attrs.nomenclatureCategory;
         }
         return NomenclatureCategory.HUMAN_NAVAL;
     }
@@ -680,6 +671,24 @@ public final class DivisionNomenclature {
             int sequenceNumber,
             com.fs.starfarer.api.characters.PersonAPI commander,
             long unitSeed) {
+        return formatFactionDivisionName(
+                factionId,
+                category,
+                archetype,
+                sequenceNumber,
+                commander,
+                unitSeed,
+                FactionLibrary.FleetRoleCategory.WAR_FLEET);
+    }
+
+    public static String formatFactionDivisionName(
+            String factionId,
+            NomenclatureCategory category,
+            DivisionArchetype archetype,
+            int sequenceNumber,
+            com.fs.starfarer.api.characters.PersonAPI commander,
+            long unitSeed,
+            FactionLibrary.FleetRoleCategory fleetRole) {
         if (category == NomenclatureCategory.ABYSSAL_ERROR) {
             return ABYSSAL_ERROR_TEXT;
         }
@@ -692,7 +701,11 @@ public final class DivisionNomenclature {
 
         String fId = factionId != null ? factionId.toLowerCase(Locale.ROOT) : "";
         int num = Math.max(1, sequenceNumber);
-        if ("player".equals(fId)) {
+        FactionLibrary.FleetRoleCategory effRole = fleetRole != null
+                ? fleetRole
+                : FactionLibrary.FleetRoleCategory.WAR_FLEET;
+
+        if ("player".equals(fId) && !effRole.isNonWarFleet()) {
             PlayerNamingConfig appliedCfg = getAppliedPlayerFactionNamingConfig();
             if (appliedCfg != null) {
                 return formatDivisionNameWithConfig(appliedCfg, archetype, num);
@@ -707,12 +720,43 @@ public final class DivisionNomenclature {
                 ^ (num * 0x9E3779B97F4A7C15L)
                 ^ (archetype != null ? (archetype.ordinal() + 1L) * 0xBF58476D1CE4E5B9L : 0L));
 
+        FactionLibrary.FactionAttributes attrs = FactionLibrary.getAttributesForFaction(fId);
+        if (attrs != null) {
+            if (attrs.namingStyle == FactionLibrary.FactionNamingStyle.POST_AI_WAR_UNKNOWN) {
+                return POST_AI_WAR_DIVISION_NAME;
+            }
+            if (attrs.namingStyle == FactionLibrary.FactionNamingStyle.THREAT_CORRUPTED) {
+                return formatCorruptedThreatText(archetype, num, System.currentTimeMillis() / 260L);
+            }
+            if (attrs.namingStyle == FactionLibrary.FactionNamingStyle.ABYSSAL_ERROR) {
+                return ABYSSAL_ERROR_TEXT;
+            }
+            if (attrs.namingStyle == FactionLibrary.FactionNamingStyle.CULTURAL_PIRATE_INDIE) {
+                return formatPirateOrIndependentDivisionName(fId, archetype, num, commander, seed, effRole, attrs);
+            }
+            if (attrs.namingStyle == FactionLibrary.FactionNamingStyle.CULTURAL_PERSEAN) {
+                return formatPerseanDivisionName(archetype, num, commander, seed, effRole, attrs);
+            }
+
+            String prefix = attrs.resolvePrefixFor(archetype, effRole);
+            if (!effRole.isNonWarFleet()
+                    && archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    && attrs.battleshipDotRoman
+                    && ("Battle Div".equals(prefix) || "Battle Div.".equals(prefix))) {
+                return "Battle Div. " + toRoman(num);
+            }
+            NumberingStyle style = (archetype == DivisionArchetype.BATTLESHIP_DIVISION && !effRole.isNonWarFleet() && attrs.battleshipNumbering != null)
+                    ? attrs.battleshipNumbering
+                    : attrs.defaultNumbering;
+            return applyNumbering(prefix, num, style);
+        }
+
         if (isPirateOrIndependentFaction(fId)) {
-            return formatPirateOrIndependentDivisionName(fId, archetype, num, commander, seed);
+            return formatPirateOrIndependentDivisionName(fId, archetype, num, commander, seed, effRole, null);
         }
         if ("persean".equals(fId) || "persean_league".equals(fId)
                 || "mayasura".equals(fId) || "mayasuran_guard".equals(fId)) {
-            return formatPerseanDivisionName(archetype, num, commander, seed);
+            return formatPerseanDivisionName(archetype, num, commander, seed, effRole, null);
         }
 
         // Standard Human Naval nomenclature: use Roman numerals for Battle Divisions ("Battle Div. I")
@@ -762,16 +806,41 @@ public final class DivisionNomenclature {
             DivisionArchetype archetype,
             int num,
             com.fs.starfarer.api.characters.PersonAPI commander,
-            long seed) {
+            long seed,
+            FactionLibrary.FleetRoleCategory fleetRole,
+            FactionLibrary.FactionAttributes attrs) {
 
-        int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 13)), PIRATE_INDIE_UNIT_NOUNS.length);
-        // For independents/mercenaries, slightly favor Flotilla/Group/Unit/Division/Pack/Fleet over Gang
-        if (!"pirates".equals(factionId) && "Gang".equals(PIRATE_INDIE_UNIT_NOUNS[nounIdx])) {
-            if (Math.floorMod((int) (seed >>> 29), 3) != 0) {
-                nounIdx = Math.floorMod(nounIdx + 1, PIRATE_INDIE_UNIT_NOUNS.length);
+        FactionLibrary.FleetRoleCategory effRole = fleetRole != null
+                ? fleetRole
+                : FactionLibrary.FleetRoleCategory.WAR_FLEET;
+        boolean isCivGroup = (archetype == DivisionArchetype.SERVICE_GROUP);
+
+        List<String> roleNouns = null;
+        if (attrs != null) {
+            if (effRole == FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY) {
+                roleNouns = isCivGroup ? attrs.merchantConvoyNouns : attrs.merchantEscortNouns;
+            } else if (effRole == FactionLibrary.FleetRoleCategory.SMUGGLER_RAIDER) {
+                roleNouns = isCivGroup ? attrs.smugglerConvoyNouns : attrs.smugglerEscortNouns;
+            } else if (effRole == FactionLibrary.FleetRoleCategory.SCAVENGER_EXPEDITION) {
+                roleNouns = isCivGroup ? attrs.scavengerConvoyNouns : attrs.scavengerEscortNouns;
             }
         }
-        String noun = PIRATE_INDIE_UNIT_NOUNS[nounIdx];
+
+        String noun;
+        if (roleNouns != null && !roleNouns.isEmpty()) {
+            int rIdx = Math.floorMod((int) (seed ^ (seed >>> 13)), roleNouns.size());
+            noun = roleNouns.get(rIdx);
+        } else if (effRole.isNonWarFleet() && attrs != null) {
+            noun = attrs.resolvePrefixFor(archetype, effRole);
+        } else {
+            int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 13)), PIRATE_INDIE_UNIT_NOUNS.length);
+            if (!"pirates".equals(factionId) && "Gang".equals(PIRATE_INDIE_UNIT_NOUNS[nounIdx])) {
+                if (Math.floorMod((int) (seed >>> 29), 3) != 0) {
+                    nounIdx = Math.floorMod(nounIdx + 1, PIRATE_INDIE_UNIT_NOUNS.length);
+                }
+            }
+            noun = PIRATE_INDIE_UNIT_NOUNS[nounIdx];
+        }
 
         String cmdFirst = null;
         String cmdLast = null;
@@ -781,29 +850,22 @@ public final class DivisionNomenclature {
         }
         boolean hasCommanderName = (cmdFirst != null && !cmdFirst.isEmpty()) || (cmdLast != null && !cmdLast.isEmpty());
 
-        // If a named commander leads this division, 55% chance for Pirates / 40% for Independents to name it after them
         int narcissismRoll = Math.floorMod((int) (seed >>> 19), 100);
-        int narcissismThreshold = "pirates".equals(factionId) ? 55 : 40;
+        int narcissismThreshold = (attrs != null && attrs.commanderPossessiveChance > 0)
+                ? attrs.commanderPossessiveChance
+                : ("pirates".equals(factionId) ? 55 : 40);
         if (hasCommanderName && narcissismRoll < narcissismThreshold) {
             String possessive = buildCommanderPossessive(cmdFirst, cmdLast, seed);
             int numStyleRoll = Math.floorMod((int) (seed >>> 27), 100);
             if (numStyleRoll < 42) {
-                // No number instantiated by chance, e.g. "Vega's Warband" or "James Vega's Pack"
                 return possessive + " " + noun;
             } else if (numStyleRoll < 82) {
-                // Ordinal + Noun, e.g. "James Vega's 17th Warband" or "Vega's 4th Flotilla"
                 return possessive + " " + toOrdinal(num) + " " + noun;
             } else {
-                // Roman + Noun, e.g. "Vega's XIV Warband"
                 return possessive + " " + toRoman(num) + " " + noun;
             }
         }
 
-        // Non-possessive cultural variants across the Sector:
-        // 0: "XIV Warband" (Roman prefix)
-        // 1: "Flotilla 18" (Noun + Arabic)
-        // 2: "17th Warband" (Ordinal prefix)
-        // 3: "Warband XIV" (Noun + Roman)
         int pattern = Math.floorMod((int) (seed >>> 35), 4);
         switch (pattern) {
             case 0:
@@ -822,10 +884,14 @@ public final class DivisionNomenclature {
             DivisionArchetype archetype,
             int num,
             com.fs.starfarer.api.characters.PersonAPI commander,
-            long seed) {
+            long seed,
+            FactionLibrary.FleetRoleCategory fleetRole,
+            FactionLibrary.FactionAttributes attrs) {
 
-        int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 11)), PERSEAN_UNIT_NOUNS.length);
-        String noun = PERSEAN_UNIT_NOUNS[nounIdx];
+        FactionLibrary.FleetRoleCategory effRole = fleetRole != null
+                ? fleetRole
+                : FactionLibrary.FleetRoleCategory.WAR_FLEET;
+        boolean isCivGroup = (archetype == DivisionArchetype.SERVICE_GROUP);
 
         String cmdFirst = null;
         String cmdLast = null;
@@ -835,10 +901,51 @@ public final class DivisionNomenclature {
         }
         boolean hasCommanderName = (cmdLast != null && !cmdLast.isEmpty()) || (cmdFirst != null && !cmdFirst.isEmpty());
 
-        // Persean League has less narcissism (~15% chance when led by a named commander)
+        if (effRole.isNonWarFleet()) {
+            List<String> roleNouns = null;
+            if (attrs != null) {
+                if (effRole == FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY) {
+                    roleNouns = isCivGroup ? attrs.merchantConvoyNouns : attrs.merchantEscortNouns;
+                } else if (effRole == FactionLibrary.FleetRoleCategory.SMUGGLER_RAIDER) {
+                    roleNouns = isCivGroup ? attrs.smugglerConvoyNouns : attrs.smugglerEscortNouns;
+                } else if (effRole == FactionLibrary.FleetRoleCategory.SCAVENGER_EXPEDITION) {
+                    roleNouns = isCivGroup ? attrs.scavengerConvoyNouns : attrs.scavengerEscortNouns;
+                }
+            }
+            String coreNoun;
+            if (roleNouns != null && !roleNouns.isEmpty()) {
+                int rIdx = Math.floorMod((int) (seed ^ (seed >>> 11)), roleNouns.size());
+                coreNoun = roleNouns.get(rIdx);
+            } else if (attrs != null) {
+                coreNoun = attrs.resolvePrefixFor(archetype, effRole);
+            } else {
+                coreNoun = isCivGroup ? "Merchant Flotilla" : "Convoy Escort";
+            }
+
+            int narcissismRoll = Math.floorMod((int) (seed >>> 21), 100);
+            if (hasCommanderName && narcissismRoll < 20) {
+                String owner = (cmdLast != null && !cmdLast.isEmpty()) ? (cmdLast + "'s") : (cmdFirst + "'s");
+                return owner + " " + coreNoun;
+            }
+            int numPattern = Math.floorMod((int) (seed >>> 37), 4);
+            switch (numPattern) {
+                case 0:
+                    return toRoman(num) + " " + coreNoun;
+                case 1:
+                    return coreNoun + " " + num;
+                case 2:
+                    return toOrdinal(num) + " " + coreNoun;
+                case 3:
+                default:
+                    return coreNoun + " " + toRoman(num);
+            }
+        }
+
+        int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 11)), PERSEAN_UNIT_NOUNS.length);
+        String noun = PERSEAN_UNIT_NOUNS[nounIdx];
+
         int narcissismRoll = Math.floorMod((int) (seed >>> 21), 100);
         if (hasCommanderName && narcissismRoll < 15) {
-            // Prefer surname or full name for Persean navarchs/Aristoi
             String owner = (cmdLast != null && !cmdLast.isEmpty()) ? (cmdLast + "'s") : (cmdFirst + "'s");
             if (Math.floorMod((int) (seed >>> 31), 3) == 0) {
                 return owner + " " + noun;
@@ -846,7 +953,6 @@ public final class DivisionNomenclature {
             return owner + " " + toOrdinal(num) + " " + noun;
         }
 
-        // Whether to include the tactical role prefix (e.g., "Battle", "Cruiser", "Destroyer") or just the state unit noun
         boolean includeRole = Math.floorMod((int) (seed >>> 17), 100) < 55;
         String roleWord = getShortRoleWord(archetype);
         String coreNoun = (includeRole && !noun.startsWith(roleWord)) ? (roleWord + " " + noun) : noun;
@@ -854,11 +960,6 @@ public final class DivisionNomenclature {
             coreNoun = "Battle Div.";
         }
 
-        // Diverse Persean polity numbering systems:
-        // 0: Roman prefix ("XIV Flotilla", "IV Cruiser Squadron")
-        // 1: Arabic suffix ("Flotilla 18", "Cruiser Squadron 4")
-        // 2: Ordinal prefix ("17th Flotilla", "3rd Battle Division")
-        // 3: Roman suffix ("Battle Div. I", "Flotilla XIV")
         int numPattern = Math.floorMod((int) (seed >>> 37), 4);
         switch (numPattern) {
             case 0:

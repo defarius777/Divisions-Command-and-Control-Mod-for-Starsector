@@ -445,6 +445,7 @@ public class DivisionAITestSuite {
             v1.fluxLevel = 0.82f;
             v2.fluxLevel = 0.82f;
             lpArena.runSimulation(1.0f);
+
             if (lpDiv.currentIntent == DivisionIntentType.PRESS_HOME) {
                 pressedHome = true;
                 if (v1.location.length() > 450f && v1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION)) {

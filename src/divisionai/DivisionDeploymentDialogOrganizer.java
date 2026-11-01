@@ -1812,6 +1812,25 @@ public class DivisionDeploymentDialogOrganizer {
                 float cohVal = Math.max(0f, Math.min(1f, liveCohesionRatio[0]));
                 renderStatusMeterBar(barLeftX, cohY, barW, barH, cohVal, new Color(85, 235, 145), alphaMult);
 
+                // Subtle interactive button frame behind leftSub3 (Fleet Formation selector)
+                float btnX = x + textLeftX - 3f;
+                float btnW = Math.max(120f, leftSectionW - textLeftX - 6f);
+                float btn3Y = y + h - (titleTopY + 58f) - 14f;
+                GL11.glColor4f(ar * 0.16f, ag * 0.22f, ab * 0.28f, 0.72f * alphaMult);
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(btnX, btn3Y);
+                GL11.glVertex2f(btnX + btnW, btn3Y);
+                GL11.glVertex2f(btnX + btnW, btn3Y + 15f);
+                GL11.glVertex2f(btnX, btn3Y + 15f);
+                GL11.glEnd();
+                GL11.glColor4f(ar, ag, ab, 0.55f * alphaMult);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(btnX, btn3Y);
+                GL11.glVertex2f(btnX + btnW, btn3Y);
+                GL11.glVertex2f(btnX + btnW, btn3Y + 15f);
+                GL11.glVertex2f(btnX, btn3Y + 15f);
+                GL11.glEnd();
+
                 GL11.glPopAttrib();
 
                 // 2. Render Commander Portrait (stretched-out Alpha Core face when isAlphaCore, or standard square)
@@ -1874,6 +1893,67 @@ public class DivisionDeploymentDialogOrganizer {
             @Override
             public void advance(float amount) {
                 updateDynamicTelemetryAndJitter();
+            }
+
+            @Override
+            public void processInput(List<com.fs.starfarer.api.input.InputEventAPI> events) {
+                if (events == null || events.isEmpty()) return;
+                CustomPanelAPI self = panelRef[0];
+                if (self == null || self.getPosition() == null) return;
+                PositionAPI pos = self.getPosition();
+                float px = pos.getX();
+                float py = pos.getY();
+                float ph = pos.getHeight();
+                float rowX0 = px + textLeftX - 4f;
+                float rowX1 = px + leftSectionW - 6f;
+                float row3Y0 = py + ph - (titleTopY + 58f) - 16f;
+                float row3Y1 = row3Y0 + 18f;
+                float row4Y0 = py + ph - (titleTopY + 76f) - 16f;
+                float row4Y1 = row4Y0 + 18f;
+
+                for (com.fs.starfarer.api.input.InputEventAPI ev : events) {
+                    if (ev == null || ev.isConsumed() || !ev.isMouseDownEvent()) continue;
+                    int btn = ev.getEventValue();
+                    if (btn != 0 && btn != 1) continue;
+                    float mx = ev.getX();
+                    float my = ev.getY();
+                    if (mx >= rowX0 && mx <= rowX1 && my >= row3Y0 && my <= row3Y1) {
+                        ev.consume();
+                        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+                        PermanentDivisionManager.FleetWideFormation[] vals = PermanentDivisionManager.FleetWideFormation.values();
+                        int cur = doc.getFleetWideFormation().ordinal();
+                        int nextIdx = (btn == 0) ? ((cur + 1) % vals.length) : ((cur - 1 + vals.length) % vals.length);
+                        PermanentDivisionManager.FleetWideFormation nextFm = vals[nextIdx];
+                        doc.setFleetWideFormation(nextFm);
+                        doc.setDeployInFleetFormation(true);
+                        if (playerGroup != null) {
+                            playerGroup.fleetWideFormation = nextFm;
+                            playerGroup.activeFleetWideFormation = nextFm;
+                            playerGroup.deployInFleetFormation = true;
+                        }
+                        autoHarmonizePermanentDivisionsToFleetFormation(nextFm);
+                        try {
+                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
+                        } catch (Throwable ignored) {
+                        }
+                        updateDynamicTelemetryAndJitter();
+                        break;
+                    } else if (mx >= rowX0 && mx <= rowX1 && my >= row4Y0 && my <= row4Y1) {
+                        ev.consume();
+                        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+                        boolean nextDeploy = !doc.isDeployInFleetFormation();
+                        doc.setDeployInFleetFormation(nextDeploy);
+                        if (playerGroup != null) {
+                            playerGroup.deployInFleetFormation = nextDeploy;
+                        }
+                        try {
+                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
+                        } catch (Throwable ignored) {
+                        }
+                        updateDynamicTelemetryAndJitter();
+                        break;
+                    }
+                }
             }
 
             private void updateDynamicTelemetryAndJitter() {
@@ -2003,6 +2083,13 @@ public class DivisionDeploymentDialogOrganizer {
                 PermanentDivisionManager.FleetWideFormation fw = (playerGroup != null && playerGroup.activeFleetWideFormation != null)
                         ? playerGroup.activeFleetWideFormation
                         : doc.getFleetWideFormation();
+                float leftMaxW = Math.max(160f, leftSectionW - textLeftX - 10f);
+                String liveSub3 = String.format(Locale.ROOT, "Formation: %s | Setpiece: %s",
+                        doc.getFleetWideFormation().shortName, doc.getMultiDivisionSetpiece().shortName);
+                leftSub3Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(liveSub3, leftSub3Label, leftMaxW));
+                String liveSub4 = String.format(Locale.ROOT, "Protocol: %s",
+                        doc.isDeployInFleetFormation() ? "Zoom-In Formation Entry (Active)" : "Standard Line Entry");
+                leftSub4Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(liveSub4, leftSub4Label, leftMaxW));
                 String directive = (depCount == 0)
                         ? String.format(Locale.ROOT, "DIRECTIVE: Deploy in %s (%s auth).",
                         fw.shortName, doc.getOtcAuthority().shortName)
@@ -2106,6 +2193,63 @@ public class DivisionDeploymentDialogOrganizer {
         fcPlugin.advance(0f);
 
         return panel;
+    }
+
+    /**
+     * Automatically harmonizes the player's PermanentDivisionSpecs (and any active combat divisions) with the
+     * selected Fleet-Wide Formation when the player cycles Fleet Formation in the Deployment Screen.
+     */
+    public static void autoHarmonizePermanentDivisionsToFleetFormation(
+            PermanentDivisionManager.FleetWideFormation fleetFm) {
+        if (fleetFm == null) return;
+        List<PermanentDivisionManager.PermanentDivisionSpec> specs =
+                PermanentDivisionManager.getNonEmptyPermanentDivisions();
+        int n = specs.size();
+        for (int i = 0; i < n; i++) {
+            PermanentDivisionManager.PermanentDivisionSpec spec = specs.get(i);
+            if (spec == null) continue;
+            int wingSide = (i == 0) ? 0 : ((i % 2 == 1) ? -1 : 1);
+            int rankIdx = (i == 0) ? 0 : ((i + 1) / 2);
+            switch (fleetFm) {
+                case GRAND_WEDGE_SPEARHEAD:
+                case REFUSED_FLANK_OBLIQUE:
+                    spec.customFormation = (i == 0)
+                            ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
+                            : (wingSide < 0
+                            ? PermanentDivisionManager.DivisionFormation.ECHELON_LEFT
+                            : PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT);
+                    break;
+                case CRESCENT_HORNS:
+                    spec.customFormation = (i == 0)
+                            ? PermanentDivisionManager.DivisionFormation.REVERSE_SEMICIRCLE
+                            : (wingSide < 0
+                            ? PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT
+                            : PermanentDivisionManager.DivisionFormation.ECHELON_LEFT);
+                    break;
+                case CHECKERBOARD_QUINCUNX:
+                    spec.customFormation = (rankIdx % 2 == 0)
+                            ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
+                            : PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+                    break;
+                case FLEET_PROTECTIVE_BASTION:
+                    spec.customFormation = (i == 0)
+                            ? PermanentDivisionManager.DivisionFormation.FORWARD_SEMICIRCLE
+                            : (wingSide < 0
+                            ? PermanentDivisionManager.DivisionFormation.ECHELON_LEFT
+                            : PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT);
+                    break;
+                case GRAND_COLUMN_IN_DEPTH:
+                    spec.customFormation = (i == 0)
+                            ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
+                            : PermanentDivisionManager.DivisionFormation.LINE_AHEAD;
+                    break;
+                case GRAND_LINE_ABREAST:
+                case DOCTRINAL_AUTO:
+                default:
+                    spec.customFormation = null;
+                    break;
+            }
+        }
     }
 
     private static void renderStatusMeterBar(

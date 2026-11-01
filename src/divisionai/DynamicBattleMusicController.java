@@ -311,6 +311,7 @@ public class DynamicBattleMusicController {
     private static MethodHandle mhStreamDescriptorInit;
     private static MethodHandle mhStreamDescriptorCreatePlayer;
     private static MethodHandle mhSoundOSetLoop;
+    private static MethodHandle mhSoundOFadeIn;
     private static MethodHandle mhSoundOStartPlay;
     private static MethodHandle mhSoundOAdvanceWithVol;
     private static MethodHandle mhSoundOStopAndRelease;
@@ -318,6 +319,7 @@ public class DynamicBattleMusicController {
     private static MethodHandle mhAlSourcef;
     private static MethodHandle mhAlSourcePause;
     private static MethodHandle mhAlSourcePlay;
+    private static MethodHandle mhAlGetError;
 
     // Track whether any combat music session suspended default music so campaign/title transitions can clean up safely
     private static volatile boolean globalCombatMusicSuspended = false;
@@ -626,18 +628,72 @@ public class DynamicBattleMusicController {
             List<WeaponAPI> weapons = s.getAllWeapons();
             if (weapons != null) {
                 for (WeaponAPI wp : weapons) {
-                    if (wp == null) continue;
-                    if (wp.isFiring() && !wp.hasAIHint(WeaponAPI.AIHints.PD_ONLY)) {
+                    if (wp == null || wp.isDecorative()) continue;
+                    if (wp.hasAIHint(WeaponAPI.AIHints.PD_ONLY)) continue;
+                    // isFiring() is only true for the discharge frames; missiles, long-cycle cannons, and burst
+                    // beams spend most of their engagement cycling, so a weapon on cooldown also counts as in action.
+                    if (wp.isFiring()
+                            || (wp.getCooldownRemaining() > 0.05f && wp.getCooldown() > 0f)
+                            || (wp.getType() == WeaponAPI.WeaponType.MISSILE && wp.getCooldownRemaining() > 0f)) {
                         firing = true;
                         break;
                     }
                 }
+            }
+            if (!firing) {
+                firing = hasWingsInAction(s);
             }
             if (firing) {
                 firingWeight += w;
             }
         }
         return totalWeight > 0f ? clamp01(firingWeight / totalWeight) : 0f;
+    }
+
+    static boolean isCombatOrder(DivisionModel.DivisionIntentType intent) {
+        if (intent == null) return false;
+        switch (intent) {
+            case CLOSE_AND_ENGAGE:
+            case PRESS_HOME:
+            case FORM_LINE_AND_FIX:
+            case HARASSING_MISSILE_ATTACK:
+            case TOT_MISSILE_STRIKE:
+            case TOT_ALPHA_STRIKE:
+            case WORK_FLANK:
+            case FLY_FIGHTER_SWEEP:
+            case FLY_CYCLIC_STRIKES:
+            case LAUNCH_DECKLOAD_STRIKE:
+            case LAUNCH_ALPHA_STRIKE:
+            case GIVE_GENERAL_CHASE:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** True when the carrier has launched fighters that are actively discharging weapons or attacking a target. */
+    static boolean hasWingsInAction(ShipAPI carrier) {
+        try {
+            if (carrier == null || carrier.getAllWings() == null) return false;
+            for (com.fs.starfarer.api.combat.FighterWingAPI wing : carrier.getAllWings()) {
+                if (wing == null) continue;
+                List<ShipAPI> members = wing.getWingMembers();
+                if (members == null) continue;
+                for (ShipAPI f : members) {
+                    if (f == null || !f.isAlive()) continue;
+                    if (f.getWing() != null && f.getWing().isReturning(f)) continue;
+                    List<WeaponAPI> fw = f.getAllWeapons();
+                    if (fw == null) continue;
+                    for (WeaponAPI w : fw) {
+                        if (w != null && !w.isDecorative() && (w.isFiring() || w.getCooldownRemaining() > 0.05f)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
     }
 
     /**
@@ -658,6 +714,11 @@ public class DynamicBattleMusicController {
         float enemyPresence = clamp01(div.localEnemyStrength / Math.max(10f, div.totalFpStrength * 0.60f));
         if (div.incomingShortDotThreat > 35f || activeFiringRatio > 0.25f) {
             enemyPresence = Math.max(enemyPresence, 0.72f);
+        }
+        // Long-range gunlines, missile boats, and carriers fight from outside the local evaluation radius: an active
+        // combat order with weapons/wings in action is contact even when no enemy hull is inside the local grid.
+        if (activeFiringRatio > 0.10f && isCombatOrder(div.currentIntent)) {
+            enemyPresence = Math.max(enemyPresence, 0.60f + 0.25f * activeFiringRatio);
         }
 
         // 2. Incoming weapon fire threat (Short-DoT & Alpha) relative to division mass
@@ -1179,25 +1240,26 @@ public class DynamicBattleMusicController {
                     layer.spec.randomStart);
         }
 
-        // Fallback to SoundPlayerAPI.playCustomMusic for Layer 0 only if standalone stream creation was unavailable
-        if (layer.standaloneStreamPlayer == null && layer.layerIndex == 0 && layer.chosenMusicSetId != null) {
+        // Fallback to SoundPlayerAPI.playCustomMusic if standalone stream creation was unavailable
+        if (layer.standaloneStreamPlayer == null && layer.chosenMusicSetId != null) {
             setNativeDynamicVolumeMultiplier(layer.getEffectiveVolume());
             try {
                 SoundPlayerAPI sp = Global.getSoundPlayer();
                 if (sp != null) {
-                    sp.playCustomMusic(0, 1, layer.chosenMusicSetId, true);
+                    sp.playCustomMusic(layer.layerIndex == 0 ? 0 : 1, 1, layer.chosenMusicSetId, true);
                 }
             } catch (Throwable ignored) {
             }
         }
 
         LOG.info(String.format(
-                "[DivisionAI] Dynamic Battle Music layer '%s' triggered at engagement=%.2f (threshold=%.2f, alwaysOn=%b, fadeOnPause=%b, files=%s)",
+                "[DivisionAI] Dynamic Battle Music layer '%s' triggered at engagement=%.2f (threshold=%.2f, alwaysOn=%b, fadeOnPause=%b, streamActive=%b, files=%s)",
                 layer.spec.id,
                 currentBattleEngagementLevel,
                 layer.spec.activationThreshold,
                 layer.spec.alwaysOn,
                 layer.spec.fadeOnPause,
+                layer.standaloneStreamPlayer != null,
                 layer.chosenFiles));
     }
 
@@ -1494,12 +1556,12 @@ public class DynamicBattleMusicController {
             Class<?> soundOClass = Class.forName("sound.O", false, cl);
             Class<?> streamDescClass = Class.forName("com.fs.starfarer.loading.int", false, cl);
 
-            // sound.H.?00000() -> singleton sound.H
+            // sound.H.\u00d200000() -> singleton sound.H
             mhSoundHGetInstance = lookup.findStatic(
-                    soundHClass, "\u003f00000", MethodType.methodType(soundHClass));
-            // sound.H.?00000() -> float masterMusicVolume (0..1)
+                    soundHClass, "\u00d200000", MethodType.methodType(soundHClass));
+            // sound.H.\u00d800000() -> float masterMusicVolume (0..1)
             mhSoundHGetMasterMusicVol = lookup.findVirtual(
-                    soundHClass, "\u003f00000", MethodType.methodType(float.class));
+                    soundHClass, "\u00d800000", MethodType.methodType(float.class));
             // sound.H.o00000(float) -> sets sound.H.class dynamic volume multiplier (0..1)
             mhSoundHSetDynamicVolMult = lookup.findVirtual(
                     soundHClass, "o00000", MethodType.methodType(void.class, float.class));
@@ -1518,8 +1580,11 @@ public class DynamicBattleMusicController {
             // sound.O methods for standalone multi-layer streaming
             mhSoundOSetLoop = lookup.findVirtual(
                     soundOClass, "super", MethodType.methodType(void.class, boolean.class));
+            // sound.O.\u00d500000(int fadeInSec) -> initializes fade state o.o00000 so internal gain multiplier reaches 1.0f
+            mhSoundOFadeIn = lookup.findVirtual(
+                    soundOClass, "\u00d500000", MethodType.methodType(void.class, int.class));
             mhSoundOStartPlay = lookup.findVirtual(
-                    soundOClass, "\u003f00000", MethodType.methodType(void.class, boolean.class));
+                    soundOClass, "\u00d200000", MethodType.methodType(void.class, boolean.class));
             mhSoundOAdvanceWithVol = lookup.findVirtual(
                     soundOClass, "String", MethodType.methodType(void.class, float.class));
             mhSoundOStopAndRelease = lookup.findVirtual(
@@ -1534,12 +1599,45 @@ public class DynamicBattleMusicController {
                     al10Class, "alSourcePause", MethodType.methodType(void.class, int.class));
             mhAlSourcePlay = lookup.findStatic(
                     al10Class, "alSourcePlay", MethodType.methodType(void.class, int.class));
-        } catch (Throwable ignored) {
-            // Safe no-op in headless test environments where fs.sound_obf.jar is not loaded
+            mhAlGetError = lookup.findStatic(
+                    al10Class, "alGetError", MethodType.methodType(int.class));
+        } catch (Throwable t) {
+            LOG.warn("[DivisionAI] Dynamic Battle Music audio handle initialization warning: " + t);
+        }
+    }
+
+    /** Verifies all obfuscated audio MethodHandles against the loaded Starsector runtime JARs. */
+    public static boolean verifyAudioHandles() {
+        ensureAudioHandlesInitialized();
+        return mhSoundHGetInstance != null
+                && mhSoundHGetMasterMusicVol != null
+                && mhSoundHSetDynamicVolMult != null
+                && mhSoundHStopCurrent != null
+                && mhStreamDescriptorCtor != null
+                && mhStreamDescriptorInit != null
+                && mhStreamDescriptorCreatePlayer != null
+                && mhSoundOSetLoop != null
+                && mhSoundOFadeIn != null
+                && mhSoundOStartPlay != null
+                && mhSoundOAdvanceWithVol != null
+                && mhSoundOStopAndRelease != null
+                && mhSoundOGetSourceId != null
+                && mhAlSourcef != null
+                && mhAlSourcePause != null
+                && mhAlSourcePlay != null
+                && mhAlGetError != null;
+    }
+
+    private static boolean isOpenAlContextActive() {
+        try {
+            return org.lwjgl.openal.AL.isCreated();
+        } catch (Throwable t) {
+            return false;
         }
     }
 
     private static float getMasterMusicVolumeSetting() {
+        if (!isOpenAlContextActive()) return 0.8f;
         ensureAudioHandlesInitialized();
         if (mhSoundHGetInstance == null || mhSoundHGetMasterMusicVol == null) return 0.8f;
         try {
@@ -1553,6 +1651,7 @@ public class DynamicBattleMusicController {
     }
 
     private static void setNativeDynamicVolumeMultiplier(float mult) {
+        if (!isOpenAlContextActive()) return;
         ensureAudioHandlesInitialized();
         if (mhSoundHGetInstance == null || mhSoundHSetDynamicVolMult == null) return;
         try {
@@ -1565,6 +1664,7 @@ public class DynamicBattleMusicController {
     }
 
     private static void stopCurrentNativeMusic(int fadeOutSec) {
+        if (!isOpenAlContextActive()) return;
         ensureAudioHandlesInitialized();
         if (mhSoundHGetInstance == null || mhSoundHStopCurrent == null) return;
         try {
@@ -1590,6 +1690,7 @@ public class DynamicBattleMusicController {
     }
 
     private static Object createStandaloneStreamPlayer(List<String> files, String source, boolean randomStart) {
+        if (!isOpenAlContextActive()) return null;
         ensureAudioHandlesInitialized();
         if (mhJsonObjFromStringCtor == null
                 || mhStreamDescriptorCtor == null
@@ -1613,18 +1714,72 @@ public class DynamicBattleMusicController {
                 }
                 sb.append("],\"randomStart\":").append(randomStart).append("}");
             }
-            Object descJson = mhJsonObjFromStringCtor.invoke(sb.toString());
-            Object desc = mhStreamDescriptorCtor.invoke(descJson);
-            mhStreamDescriptorInit.invoke(desc);
-            Object player = mhStreamDescriptorCreatePlayer.invoke(desc);
-            if (player != null) {
-                mhSoundOSetLoop.invoke(player, true);
-                mhSoundOStartPlay.invoke(player, true);
+            String json = sb.toString();
+            // sound.O.<init> samples alGetError() BEFORE alGenSources, so any stale error left on the OpenAL context
+            // by another subsystem (typically 40964 AL_INVALID_OPERATION) makes stream creation fail spuriously.
+            // Drain the sticky error state first, and retry once after re-draining.
+            Throwable lastFailure = null;
+            for (int attempt = 0; attempt < 2; attempt++) {
+                int drained = drainOpenAlErrors();
+                if (drained != 0 && attempt == 0) {
+                    LOG.info("[DivisionAI] Dynamic Battle Music cleared stale OpenAL error " + drained + " before stream creation");
+                }
+                try {
+                    Object descJson = mhJsonObjFromStringCtor.invoke(json);
+                    Object desc = mhStreamDescriptorCtor.invoke(descJson);
+                    Object player = mhStreamDescriptorCreatePlayer.invoke(desc);
+                    if (player != null) {
+                        int srcId = -1;
+                        try {
+                            if (mhSoundOGetSourceId != null) srcId = (int) mhSoundOGetSourceId.invoke(player);
+                        } catch (Throwable ignored) {
+                        }
+                        if (srcId < 0 && attempt == 0) {
+                            stopStandalonePlayerQuietly(player);
+                            continue;
+                        }
+                        mhSoundOSetLoop.invoke(player, true);
+                        if (mhSoundOFadeIn != null) {
+                            mhSoundOFadeIn.invoke(player, 0);
+                        }
+                        mhSoundOStartPlay.invoke(player, true);
+                        return player;
+                    }
+                } catch (Throwable t) {
+                    lastFailure = t;
+                }
             }
-            return player;
+            if (lastFailure != null) {
+                LOG.warn("[DivisionAI] Dynamic Battle Music stream creation failed for " + files + ": " + lastFailure);
+            }
+            return null;
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    /** Drains all pending OpenAL errors (bounded). Returns the first stale error code seen, or 0. */
+    private static int drainOpenAlErrors() {
+        if (mhAlGetError == null) return 0;
+        int first = 0;
+        try {
+            for (int i = 0; i < 8; i++) {
+                int err = (int) mhAlGetError.invokeExact();
+                if (err == 0) break;
+                if (first == 0) first = err;
+            }
+        } catch (Throwable ignored) {
+        }
+        return first;
+    }
+
+    private static void stopStandalonePlayerQuietly(Object player) {
+        if (player == null || mhSoundOStopAndRelease == null) return;
+        try {
+            mhSoundOStopAndRelease.invoke(player);
+        } catch (Throwable ignored) {
+        }
+        drainOpenAlErrors();
     }
 
     private static void advanceStandaloneStreamPlayer(Object player, float effectiveGain) {

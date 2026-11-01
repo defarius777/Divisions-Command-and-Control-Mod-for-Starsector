@@ -47,6 +47,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -71,6 +72,7 @@ public final class FactionFleetDoctrines {
     public static final String PERSISTENT_PLAYER_FACTION_DOCTRINE_KEY = "divisionai_player_faction_doctrine_v1";
     public static final String MEM_NPC_DIVISIONS_KEY = "$divisionai_npc_divisions_v1";
     public static final String MEM_NPC_SIGNATURE_KEY = "$divisionai_npc_sig_v1";
+    public static final String MEM_NPC_INDEPENDENT_IDS_KEY = "$divisionai_npc_indep_ids_v1";
 
     private static final Map<String, FleetDoctrineConfig> DOCTRINE_CACHE = new HashMap<>();
     private static FleetDoctrineConfig inMemoryAppliedPlayerFactionDoctrine = null;
@@ -163,6 +165,7 @@ public final class FactionFleetDoctrines {
             if (mem != null) {
                 mem.unset(MEM_NPC_DIVISIONS_KEY);
                 mem.unset(MEM_NPC_SIGNATURE_KEY);
+                mem.unset(MEM_NPC_INDEPENDENT_IDS_KEY);
             }
         }
 
@@ -1924,22 +1927,48 @@ public final class FactionFleetDoctrines {
 
         List<PermanentDivisionSpec> sorted;
         Object existingDivsObj = (mem != null) ? mem.get(MEM_NPC_DIVISIONS_KEY) : null;
+        Set<String> knownIndependentIds = new HashSet<>();
+        if (mem != null) {
+            Object rawIndep = mem.get(MEM_NPC_INDEPENDENT_IDS_KEY);
+            if (rawIndep instanceof Collection) {
+                for (Object o : (Collection<?>) rawIndep) {
+                    if (o instanceof String) knownIndependentIds.add((String) o);
+                }
+            }
+        }
+
         if (existingDivsObj instanceof List && !((List<?>) existingDivsObj).isEmpty()) {
-            // Sticky AI fleet divisions: preserve existing divisions across casualties, merges, and reinforcements
+            // Sticky AI fleet divisions: preserve existing divisions across casualties, recombine depleted
+            // remnants after attrition, keep known independent captains independent, and apply the fleet's
+            // Organization Rating quota to genuinely new reinforcement ships.
             sorted = updateStickyNpcFleetDivisions(
                     fleet,
                     (List<PermanentDivisionSpec>) existingDivsObj,
                     eligible,
+                    knownIndependentIds,
                     doctrine,
                     factionId,
                     nomCat);
         } else {
-            sorted = sortMembersByDoctrine(fleet, eligible, doctrine, factionId, nomCat);
+            // Initial fleet organization: select the organized subset per Organization Rating; record the rest as independent
+            List<FleetMemberAPI> organizedSubset = FactionLibrary.selectOrganizedFleetMembers(fleet, eligible, doctrine);
+            Set<String> orgIds = new HashSet<>();
+            for (FleetMemberAPI m : organizedSubset) {
+                if (m != null && m.getId() != null) orgIds.add(m.getId());
+            }
+            knownIndependentIds.clear();
+            for (FleetMemberAPI m : eligible) {
+                if (m != null && m.getId() != null && !orgIds.contains(m.getId())) {
+                    knownIndependentIds.add(m.getId());
+                }
+            }
+            sorted = sortMembersByDoctrine(fleet, organizedSubset, doctrine, factionId, nomCat);
         }
 
         if (mem != null) {
             mem.set(MEM_NPC_SIGNATURE_KEY, currentSig);
             mem.set(MEM_NPC_DIVISIONS_KEY, sorted);
+            mem.set(MEM_NPC_INDEPENDENT_IDS_KEY, new ArrayList<>(knownIndependentIds));
         }
         return sorted;
     }
@@ -2050,6 +2079,7 @@ public final class FactionFleetDoctrines {
             CampaignFleetAPI fleet,
             List<PermanentDivisionSpec> existingDivs,
             List<FleetMemberAPI> eligible,
+            Set<String> knownIndependentIds,
             FleetDoctrineConfig doctrine,
             String factionId,
             NomenclatureCategory nomCat) {
@@ -2114,7 +2144,8 @@ public final class FactionFleetDoctrines {
                         }
                         long uSeed = (oldRec != null && oldRec.unitSeed != 0L) ? oldRec.unitSeed : unitNum * 2654435761L;
                         spec.name = DivisionNomenclature.formatFactionDivisionName(
-                                factionId, nomCat, recalcArch, unitNum, flagCmdr, uSeed);
+                                factionId, nomCat, recalcArch, unitNum, flagCmdr, uSeed,
+                                FactionLibrary.resolveFleetRoleCategory(fleet));
                         if (oldRec != null) {
                             oldRec.archetype = recalcArch;
                             oldRec.bucketKey = DivisionNomenclature.resolvePrefixBucketKey(recalcArch);
@@ -2186,12 +2217,45 @@ public final class FactionFleetDoctrines {
             rec.flagshipMemberId = targetSpec.flagshipMemberId;
         }
 
-        // 3. Any remaining genuinely new ships: first top up under-strength divisions of matching archetype,
-        // then form/reactivate divisions for any leftover ships
-        List<FleetMemberAPI> remainingNew = new ArrayList<>();
+        // Prune destroyed ships from knownIndependentIds
+        if (knownIndependentIds != null) {
+            for (Iterator<String> it = knownIndependentIds.iterator(); it.hasNext(); ) {
+                String id = it.next();
+                if (!eligibleById.containsKey(id) || assignedMemberIds.contains(id)) {
+                    it.remove();
+                }
+            }
+        }
+
+        // 3. Any genuinely new reinforcement ships (neither already in a division nor previously marked independent):
+        // apply the fleet's Organization Rating so only that fraction of new arrivals join divisions while the
+        // rest become independent ships!
+        List<FleetMemberAPI> genuinelyNewArrivals = new ArrayList<>();
         for (FleetMemberAPI m : eligible) {
-            if (!assignedMemberIds.contains(m.getId())) {
-                remainingNew.add(m);
+            if (assignedMemberIds.contains(m.getId())) continue;
+            if (knownIndependentIds != null && knownIndependentIds.contains(m.getId())) continue;
+            genuinelyNewArrivals.add(m);
+        }
+
+        List<FleetMemberAPI> remainingNew = new ArrayList<>();
+        if (!genuinelyNewArrivals.isEmpty()) {
+            FactionLibrary.OrganizationRating rating = FactionLibrary.resolveEffectiveOrganizationRating(fleet);
+            int maxTotalOrganized = Math.round(eligible.size() * rating.fraction);
+            int allowedFromNew = Math.max(0, Math.min(
+                    genuinelyNewArrivals.size(),
+                    Math.max(Math.round(genuinelyNewArrivals.size() * rating.fraction), maxTotalOrganized - assignedMemberIds.size())));
+            if (rating == FactionLibrary.OrganizationRating.PERFECT) {
+                allowedFromNew = genuinelyNewArrivals.size();
+            } else if (rating == FactionLibrary.OrganizationRating.NONE) {
+                allowedFromNew = 0;
+            }
+            for (int idx = 0; idx < genuinelyNewArrivals.size(); idx++) {
+                FleetMemberAPI m = genuinelyNewArrivals.get(idx);
+                if (idx < allowedFromNew) {
+                    remainingNew.add(m);
+                } else if (knownIndependentIds != null && m.getId() != null) {
+                    knownIndependentIds.add(m.getId());
+                }
             }
         }
 
@@ -2233,8 +2297,148 @@ public final class FactionFleetDoctrines {
             }
         }
 
+        // 4. Post-Attrition Division Recombination:
+        //  (a) Same-archetype / same-hull-family consolidation: if two divisions of the same archetype (or compatible
+        //      hull class) have been depleted by attrition so that their combined ships fit within maxCap, the senior
+        //      (lower-numbered / earlier) division absorbs the junior division's survivors and deactivates the junior record.
+        for (int i = 0; i < retained.size(); i++) {
+            PermanentDivisionSpec senior = retained.get(i);
+            if (senior == null || senior.memberIds.isEmpty()) continue;
+            int maxCap = getMaxForArchetype(doctrine, senior.archetype);
+            for (int j = retained.size() - 1; j > i; j--) {
+                PermanentDivisionSpec junior = retained.get(j);
+                if (junior == null || junior.memberIds.isEmpty()) continue;
+                boolean sameOrCompatible = (senior.archetype == junior.archetype)
+                        || (senior.archetype != null && junior.archetype != null
+                        && senior.archetype.isCarrierArchetype() && junior.archetype.isCarrierArchetype()
+                        && senior.memberIds.size() + junior.memberIds.size() <= 3)
+                        || ((senior.memberIds.size() == 1 || junior.memberIds.size() == 1)
+                        && areArchetypesSameHullWeight(senior.archetype, junior.archetype));
+                if (sameOrCompatible && (senior.memberIds.size() + junior.memberIds.size()) <= maxCap) {
+                    for (String mId : junior.memberIds) {
+                        if (!senior.memberIds.contains(mId)) {
+                            senior.memberIds.add(mId);
+                        }
+                    }
+                    FactionDivisionRecord jRec = recordById.get(junior.id);
+                    if (jRec != null) {
+                        jRec.active = false;
+                        jRec.assignedFleetId = null;
+                        jRec.heldByStoryFleet = false;
+                        jRec.memberIds.clear();
+                        jRec.flagshipMemberId = null;
+                    }
+                    retained.remove(j);
+                    refreshNpcDivisionFlagship(senior, eligibleById);
+                    PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(senior, fleet);
+                    FactionDivisionRecord sRec = recordById.get(senior.id);
+                    if (sRec != null) {
+                        sRec.memberIds.clear();
+                        sRec.memberIds.addAll(senior.memberIds);
+                        sRec.flagshipMemberId = senior.flagshipMemberId;
+                    }
+                }
+            }
+        }
+
+        //  (b) Cross-class 1-ship remnant recombination: if attrition leaves >= 2 lone 1-ship remnant divisions across
+        //      different hull classes, recombine them into the senior survivor's division (or a composite Force / Carrier Group)
+        //      so organized survivors never sit in awkward 1-ship "divisions". If only a single lone 1-ship remnant exists
+        //      and the fleet has < 100% Organization Rating, dissolve that lone 1-ship division into independent ships.
+        List<PermanentDivisionSpec> singletons = new ArrayList<>();
+        for (PermanentDivisionSpec s : retained) {
+            if (s != null && s.memberIds.size() == 1) {
+                singletons.add(s);
+            }
+        }
+        if (singletons.size() >= 2) {
+            PermanentDivisionSpec anchor = singletons.get(0);
+            int maxMerge = Math.max(3, getMaxForArchetype(doctrine, anchor.archetype));
+            for (int k = 1; k < singletons.size(); k++) {
+                PermanentDivisionSpec rem = singletons.get(k);
+                if (anchor.memberIds.size() + rem.memberIds.size() > maxMerge) break;
+                for (String mId : rem.memberIds) {
+                    if (!anchor.memberIds.contains(mId)) {
+                        anchor.memberIds.add(mId);
+                    }
+                }
+                FactionDivisionRecord rRec = recordById.get(rem.id);
+                if (rRec != null) {
+                    rRec.active = false;
+                    rRec.assignedFleetId = null;
+                    rRec.heldByStoryFleet = false;
+                    rRec.memberIds.clear();
+                    rRec.flagshipMemberId = null;
+                }
+                retained.remove(rem);
+            }
+            refreshNpcDivisionFlagship(anchor, eligibleById);
+            PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(anchor, fleet);
+            FactionDivisionRecord aRec = recordById.get(anchor.id);
+            if (aRec != null) {
+                aRec.memberIds.clear();
+                aRec.memberIds.addAll(anchor.memberIds);
+                aRec.flagshipMemberId = anchor.flagshipMemberId;
+            }
+        } else if (singletons.size() == 1) {
+            PermanentDivisionSpec lone = singletons.get(0);
+            // Try merging the single lone survivor into any existing under-strength combat division in the fleet
+            PermanentDivisionSpec host = null;
+            for (PermanentDivisionSpec s : retained) {
+                if (s == null || s == lone) continue;
+                int cap = Math.max(3, getMaxForArchetype(doctrine, s.archetype));
+                if (s.memberIds.size() < cap) {
+                    host = s;
+                    break;
+                }
+            }
+            if (host != null) {
+                for (String mId : lone.memberIds) {
+                    if (!host.memberIds.contains(mId)) host.memberIds.add(mId);
+                }
+                FactionDivisionRecord lRec = recordById.get(lone.id);
+                if (lRec != null) {
+                    lRec.active = false;
+                    lRec.assignedFleetId = null;
+                    lRec.heldByStoryFleet = false;
+                    lRec.memberIds.clear();
+                    lRec.flagshipMemberId = null;
+                }
+                retained.remove(lone);
+                refreshNpcDivisionFlagship(host, eligibleById);
+                PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(host, fleet);
+                FactionDivisionRecord hRec = recordById.get(host.id);
+                if (hRec != null) {
+                    hRec.memberIds.clear();
+                    hRec.memberIds.addAll(host.memberIds);
+                    hRec.flagshipMemberId = host.flagshipMemberId;
+                }
+            }
+        }
+
         saveFactionDivisionTablesToPersistentData();
         return retained;
+    }
+
+    private static boolean areArchetypesSameHullWeight(DivisionArchetype a, DivisionArchetype b) {
+        if (a == null || b == null) return false;
+        if (a == b) return true;
+        boolean aCap = a == DivisionArchetype.BATTLESHIP_DIVISION || a == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
+        boolean bCap = b == DivisionArchetype.BATTLESHIP_DIVISION || b == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
+        if (aCap && bCap) return true;
+        boolean aCru = a == DivisionArchetype.CRUISER_DIVISION
+                || a == DivisionArchetype.MISSILE_CRUISER_DIVISION
+                || a == DivisionArchetype.STRIKE_CRUISER_DIVISION;
+        boolean bCru = b == DivisionArchetype.CRUISER_DIVISION
+                || b == DivisionArchetype.MISSILE_CRUISER_DIVISION
+                || b == DivisionArchetype.STRIKE_CRUISER_DIVISION;
+        if (aCru && bCru) return true;
+        boolean aDes = a == DivisionArchetype.DESTROYER_DIVISION || a == DivisionArchetype.MISSILE_DESTROYER_DIVISION;
+        boolean bDes = b == DivisionArchetype.DESTROYER_DIVISION || b == DivisionArchetype.MISSILE_DESTROYER_DIVISION;
+        if (aDes && bDes) return true;
+        boolean aFri = a == DivisionArchetype.FRIGATE_DIVISION || a == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+        boolean bFri = b == DivisionArchetype.FRIGATE_DIVISION || b == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+        return aFri && bFri;
     }
 
     private static int getMaxForArchetype(FleetDoctrineConfig doctrine, DivisionArchetype arch) {
@@ -2528,7 +2732,11 @@ public final class FactionFleetDoctrines {
             String flagshipMemberId) {
 
         String fId = (factionId != null && !factionId.isEmpty()) ? factionId.toLowerCase(Locale.ROOT) : "independent";
-        String bucketKey = DivisionNomenclature.resolvePrefixBucketKey(archetype);
+        FactionLibrary.FleetRoleCategory fleetRole = FactionLibrary.resolveFleetRoleCategory(fleet);
+        String baseBucket = DivisionNomenclature.resolvePrefixBucketKey(archetype);
+        String bucketKey = fleetRole.isNonWarFleet()
+                ? (fleetRole.id.toUpperCase(Locale.ROOT) + ":" + baseBucket)
+                : baseBucket;
         List<FactionDivisionRecord> table = getOrCreateFactionDivisionTable(fId);
         reconcileFactionTableLiveness(fId, table);
 
@@ -2604,7 +2812,8 @@ public final class FactionFleetDoctrines {
                 archetype,
                 chosen.unitNumber,
                 flagCommander,
-                chosen.unitSeed);
+                chosen.unitSeed,
+                fleetRole);
         return chosen;
     }
 

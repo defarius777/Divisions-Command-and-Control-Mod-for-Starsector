@@ -25,7 +25,10 @@ import com.fs.starfarer.api.ui.LabelAPI;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
+import divisionai.DivisionModel.DivisionIntentType;
 import divisionai.DivisionModel.DivisionState;
+import divisionai.DivisionModel.ShipRankState;
+import divisionai.DivisionModel.TacticalZoneType;
 import divisionai.DivisionNomenclature.NomenclatureCategory;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.util.vector.Vector2f;
@@ -198,6 +201,14 @@ public class BattlefieldFirepowerEvaluator {
         public final Vector2f visibleCenter = new Vector2f();
         public boolean visibleToPlayer = true;
         public float lastActiveTime = -100f;
+        public float createdTime = -100f;
+        public boolean reachedTarget = false;
+        public float reachedTargetTime = -100f;
+        public final Set<String> initialBomberWingKeys = new java.util.LinkedHashSet<>();
+        public int peakFighterCount = 0;
+        public boolean achievedCohesion = false;
+        public boolean targetIsolatedAtLaunch = false;
+        public String culminationReason = null;
 
         public VoidstrikeRecord(int side, int voidstrikeNumber, String targetKey) {
             this.side = side;
@@ -273,6 +284,14 @@ public class BattlefieldFirepowerEvaluator {
 
     public static FireClassification classifyWeaponFire(WeaponAPI w) {
         if (w == null) return FireClassification.GENERAL;
+        FireClassification cached = weaponFireClassCache.get(w);
+        if (cached != null) return cached;
+        FireClassification computed = computeWeaponFireClassUncached(w);
+        weaponFireClassCache.put(w, computed);
+        return computed;
+    }
+
+    private static FireClassification computeWeaponFireClassUncached(WeaponAPI w) {
         boolean isStrike = w.hasAIHint(AIHints.STRIKE);
         if (isStrike) return FireClassification.GENERAL;
 
@@ -474,10 +493,17 @@ public class BattlefieldFirepowerEvaluator {
         lastTimeSpaceConvUpdateTime = -100f;
         lastTimeSpaceConvDivCountSig = -1;
         lastVoidstrikeUpdateEngine = null;
+        VoidstrikeCoordinator.lastVoidstrikePlayerGroup = null;
+        VoidstrikeCoordinator.lastVoidstrikeAlliedGroup = null;
+        VoidstrikeCoordinator.lastVoidstrikeEnemyGroup = null;
         lastVoidstrikeUpdateTime = -100f;
         lastAlphaCoreCheckEngine = null;
         lastAlphaCoreCheckTime = -100f;
         cachedHasAlphaCoreInPlayerFleet = false;
+        weaponFireClassCache.clear();
+        weaponMaxDirectRangeCache.clear();
+        shipStaticWeaponProfileCache.clear();
+        shipStaticLiveMaxFpCache.clear();
     }
 
     public static void setActiveBattleGroups(
@@ -983,6 +1009,16 @@ public class BattlefieldFirepowerEvaluator {
         return rosesByShipId.get(ship.getId());
     }
 
+    public static int getRoseCount() {
+        return rosesByShipId.size();
+    }
+
+    // Per-weapon & per-ship static caches: WeaponSpec data (damage, DPS, arc, fire classification) is immutable during a battle.
+    private static final java.util.WeakHashMap<WeaponAPI, FireClassification> weaponFireClassCache = new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<ShipAPI, Float> weaponMaxDirectRangeCache = new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<ShipAPI, float[]> shipStaticWeaponProfileCache = new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<ShipAPI, Float> shipStaticLiveMaxFpCache = new java.util.WeakHashMap<>();
+
     public static boolean isEligibleFirepowerUnit(ShipAPI ship) {
         if (ship == null || !ship.isAlive() || ship.isHulk() || ship.isExpired()) return false;
         if (ship.isShuttlePod() || ship.isDrone()) return false;
@@ -1094,10 +1130,18 @@ public class BattlefieldFirepowerEvaluator {
         }
 
         float fluxLevel = ship.getFluxLevel();
+        boolean isPhaseShip = ship.isPhased()
+                || ship.getPhaseCloak() != null
+                || (ship.getShield() != null && ship.getShield().getType() == ShieldAPI.ShieldType.PHASE)
+                || (ship.getHullSpec() != null && ship.getHullSpec().getHints() != null
+                && ship.getHullSpec().getHints().contains(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.PHASE));
         float readiness;
         if (overloadedOrVenting && ovldVentRemaining > 0.6f) {
             // Instant temporal blind spot while overloaded or venting!
             readiness = 0.04f;
+        } else if (isPhaseShip && ship.isPhased()) {
+            // Item A: Phased ships are exempt from reload/cooldown suppression in threat grading (latent strike threat)
+            readiness = Math.max(0.75f, 1.0f - Math.max(0f, fluxLevel - 0.80f) * 1.2f);
         } else if (fluxLevel > 0.70f) {
             readiness = Math.max(0.28f, 1.0f - (fluxLevel - 0.70f) * 2.2f);
         } else {
@@ -1209,14 +1253,17 @@ public class BattlefieldFirepowerEvaluator {
                 }
 
                 float wAlpha = burstDmg * typeMult * (isStrike ? 1.65f : 1.0f);
-                // Cooldown gating on immediate alpha strike (0-2s window)
-                float cdRem = w.getCooldownRemaining();
-                if (cdRem > 2.2f) {
-                    wAlpha *= Math.max(0.25f, 1.0f - (cdRem - 2.2f) / 6.0f);
-                }
-
                 // Short DoT (4-6s tactical exchange window)
                 float wShortDot = (dps * 0.75f + (burstDmg / 4.5f) * 0.25f) * typeMult * (isStrike ? 1.25f : 1.0f);
+                // Item A: Reloading weapons produce smoothly discounted firepower score based on remaining cooldown,
+                // while phased ships are exempt so their latent uncloak burst threat is preserved.
+                float cdRem = w.getCooldownRemaining();
+                if (cdRem > 0.20f && !isPhaseShip) {
+                    float alphaReloadMult = clampVal(1.0f - (cdRem - 0.20f) / 4.8f, 0.12f, 1.0f);
+                    float shortReloadMult = clampVal(1.0f - Math.max(0f, cdRem - 0.65f) / 6.5f, 0.22f, 1.0f);
+                    wAlpha *= alphaReloadMult;
+                    wShortDot *= shortReloadMult;
+                }
 
                 // Sustained DoT (15-30s line battle window, clamped by ship flux dissipation & ammo endurance)
                 float ammoEndurance = 1.0f;
@@ -1661,6 +1708,664 @@ public class BattlefieldFirepowerEvaluator {
             div.smoothedDangerScore = div.smoothedDangerScore * 0.55f + dangerScore * 0.45f;
         } else {
             div.smoothedDangerScore = div.smoothedDangerScore * 0.80f + dangerScore * 0.20f;
+        }
+
+        // Items A, B & C: Compute live division firepower (discounting disabled/reloading/empty weapons, phase-exempt)
+        // and Effective-Firepower-in-Range Uptime (how much of our ready firepower actually has a visible enemy in range & arc
+        // vs how much enemy firepower currently has our ships in range & arc).
+        updateDivisionFirepowerUptimeTelemetry(engine, div);
+    }
+
+    /**
+     * Computes a ship's current live combat power (in FP-equivalent units) combining:
+     *  - Live ready weapon firepower (from its ShipFirepowerRose / weapon mounts, discounting disabled, empty,
+     *    and reloading weapons; phased ships are exempt from reload/cooldown suppression so their latent threat counts)
+     *  - Live Effective HP (Shield HP + Armor HP + Hull HP)
+     */
+    public static float computeEffectiveShipCombatPower(ShipAPI ship) {
+        if (ship == null || !ship.isAlive() || ship.isHulk()) return 0f;
+        float baseFp = ShipCapabilityProfile.resolveShipFpStrength(ship);
+        float readiness = Math.max(0.35f, ship.getHullLevel() * (1.15f - 0.5f * ship.getFluxLevel()));
+        float ehpStrength = computeShipEffectiveHp(ship) / 1600f;
+        float liveFp = computeShipLiveFirepowerScore(ship, false);
+        float maxFp = Math.max(5f, computeShipLiveFirepowerScore(ship, true));
+        // Item A: When all weapons are ready (or ship is phased), weaponReadinessMod = 1.0 (matching baseline FP calibration);
+        // when weapons are reloading, disabled, or out of ammo, weaponReadinessMod scales the firepower score down toward 0.12.
+        float weaponReadinessMod = clampVal(liveFp / maxFp, 0.12f, 1.0f);
+        float firepowerTerm = baseFp * readiness * weaponReadinessMod;
+        return 0.42f * firepowerTerm + 0.58f * ehpStrength;
+    }
+
+    /**
+     * Computes a ship's live or peak weapon firepower score across all non-decorative weapons and fighter wings.
+     * Reloading and disabled weapons produce less or zero firepower; phase ships are exempt from reload suppression.
+     */
+    public static float computeShipLiveFirepowerScore(ShipAPI ship, boolean maxCapacityOnly) {
+        if (ship == null || !ship.isAlive() || ship.isHulk()) return 0f;
+        boolean isPhaseShip = ship.isPhased()
+                || ship.getPhaseCloak() != null
+                || (ship.getShield() != null && ship.getShield().getType() == ShieldAPI.ShieldType.PHASE)
+                || (ship.getHullSpec() != null && ship.getHullSpec().getHints() != null
+                && ship.getHullSpec().getHints().contains(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.PHASE));
+
+        FluxTrackerAPI ft = ship.getFluxTracker();
+        boolean overloadedOrVenting = !maxCapacityOnly && ft != null && ft.isOverloadedOrVenting();
+        if (overloadedOrVenting) {
+            return 2f;
+        }
+        float fluxMult = 1.0f;
+        if (!maxCapacityOnly && !isPhaseShip && ship.getFluxLevel() > 0.72f) {
+            fluxMult = clampVal(1.0f - (ship.getFluxLevel() - 0.72f) * 2.4f, 0.22f, 1.0f);
+        }
+
+        float score = 0f;
+        List<WeaponAPI> weapons = ship.getAllWeapons();
+        if (weapons != null) {
+            for (int i = 0; i < weapons.size(); i++) {
+                WeaponAPI w = weapons.get(i);
+                if (!isUsableCombatWeapon(w)) continue;
+                if (w.isPermanentlyDisabled()) continue;
+                if (!maxCapacityOnly) {
+                    if (w.isDisabled()) continue;
+                    if (w.usesAmmo() && w.getAmmo() <= 0) continue;
+                }
+                float range = w.getRange();
+                if (range <= 50f) continue;
+
+                FireClassification fc = classifyWeaponFire(w);
+                float antiShipWeight = (fc == FireClassification.POINT_DEFENSE) ? 0.18f
+                        : (fc == FireClassification.HYBRID ? 0.85f : 1.0f);
+                boolean isStrike = w.hasAIHint(AIHints.STRIKE);
+                DerivedWeaponStatsAPI d = w.getDerivedStats();
+                float dps;
+                float burst;
+                if (d != null && (d.getDps() > 0f || d.getBurstDamage() > 0f || d.getSustainedDps() > 0f)) {
+                    burst = Math.max(d.getBurstDamage(), d.getDamagePerShot());
+                    dps = Math.max(d.getSustainedDps(), d.getDps() * 0.75f);
+                    if (dps <= 1f && burst > 0f) {
+                        dps = burst / Math.max(1f, w.getCooldown());
+                    }
+                } else {
+                    float szW = weaponSizeWeight(resolveEffectiveWeaponSize(w));
+                    burst = szW * 150f * (isStrike ? 2.0f : 1.0f);
+                    dps = szW * 85f * (isStrike ? 1.2f : 1.0f);
+                }
+
+                float wScore = (dps * 0.70f + (burst / 4.0f) * 0.30f) * antiShipWeight;
+                if (!maxCapacityOnly && !isPhaseShip) {
+                    float cdRem = w.getCooldownRemaining();
+                    if (cdRem > 0.20f) {
+                        float reloadMult = clampVal(1.0f - (cdRem - 0.20f) / 5.2f, 0.15f, 1.0f);
+                        wScore *= reloadMult;
+                    }
+                }
+                score += wScore * fluxMult;
+            }
+        }
+        int bays = ship.getNumFighterBays();
+        if (bays > 0) {
+            score += bays * 135f * fluxMult;
+        }
+        return Math.max(5f, score);
+    }
+
+    /**
+     * Computes how much of {@code attacker}'s ready firepower can currently bear on {@code target}
+     * (within weapon range and firing arc, graded against target shields vs armor).
+     */
+    public static float computeShipInRangeFirepowerAgainstTarget(ShipAPI attacker, ShipAPI target) {
+        if (attacker == null || target == null || !attacker.isAlive() || !target.isAlive()) return 0f;
+        FluxTrackerAPI ft = attacker.getFluxTracker();
+        if (ft != null && ft.isOverloadedOrVenting()) return 0f;
+
+        boolean isPhaseShip = attacker.isPhased()
+                || attacker.getPhaseCloak() != null
+                || (attacker.getShield() != null && attacker.getShield().getType() == ShieldAPI.ShieldType.PHASE);
+        float dist = distance(attacker.getLocation(), target.getLocation());
+        float bearing = normalizeAngle360((float) Math.toDegrees(Math.atan2(
+                target.getLocation().y - attacker.getLocation().y,
+                target.getLocation().x - attacker.getLocation().x)));
+
+        boolean targetShieldsActive = target.getShield() != null
+                && target.getShield().getType() != ShieldAPI.ShieldType.NONE
+                && target.getShield().getType() != ShieldAPI.ShieldType.PHASE
+                && (target.getFluxTracker() == null || !target.getFluxTracker().isOverloadedOrVenting())
+                && target.getFluxLevel() < 0.90f;
+
+        float inRangeScore = 0f;
+        List<WeaponAPI> weapons = attacker.getAllWeapons();
+        if (weapons != null) {
+            for (int i = 0; i < weapons.size(); i++) {
+                WeaponAPI w = weapons.get(i);
+                if (!isUsableCombatWeapon(w) || w.isDisabled() || w.isPermanentlyDisabled()) continue;
+                if (w.usesAmmo() && w.getAmmo() <= 0) continue;
+                float range = w.getRange();
+                if (range <= 50f || dist > range * 1.08f) continue;
+
+                float mountWorldFacing = normalizeAngle360(attacker.getFacing() + w.getArcFacing());
+                float rawArc = w.getArc() > 0f ? w.getArc() : 210f;
+                float offAxis = Math.abs(shortestAngleDiffDeg(mountWorldFacing, bearing));
+                if (offAxis > rawArc * 0.5f + 22f) continue;
+
+                FireClassification fc = classifyWeaponFire(w);
+                float antiShipWeight = (fc == FireClassification.POINT_DEFENSE) ? 0.18f
+                        : (fc == FireClassification.HYBRID ? 0.85f : 1.0f);
+                boolean isStrike = w.hasAIHint(AIHints.STRIKE);
+                // Direct gun/beam in-range uptime: long-range strike missiles (> 1300u) do not count as "already in gun range"
+                // until the ship has closed within direct gun envelope (~1300u), so strike divisions still marshal at standoff!
+                if (isStrike && dist > 1300f) continue;
+                DerivedWeaponStatsAPI d = w.getDerivedStats();
+                float dps;
+                float burst;
+                if (d != null && (d.getDps() > 0f || d.getBurstDamage() > 0f || d.getSustainedDps() > 0f)) {
+                    burst = Math.max(d.getBurstDamage(), d.getDamagePerShot());
+                    dps = Math.max(d.getSustainedDps(), d.getDps() * 0.75f);
+                    if (dps <= 1f && burst > 0f) {
+                        dps = burst / Math.max(1f, w.getCooldown());
+                    }
+                } else {
+                    float szW = weaponSizeWeight(resolveEffectiveWeaponSize(w));
+                    burst = szW * 150f * (isStrike ? 2.0f : 1.0f);
+                    dps = szW * 85f * (isStrike ? 1.2f : 1.0f);
+                }
+
+                // Item B: Grade weapon damage type against target defense state (shields up + flux headroom vs exposed armor/hull)
+                DamageType dt = w.getDamageType();
+                float defenseMatchMult = 1.0f;
+                if (dt == DamageType.KINETIC) {
+                    defenseMatchMult = targetShieldsActive ? 1.20f : 0.80f;
+                } else if (dt == DamageType.HIGH_EXPLOSIVE) {
+                    defenseMatchMult = targetShieldsActive ? 0.84f : 1.30f;
+                }
+
+                float wScore = (dps * 0.70f + (burst / 4.0f) * 0.30f) * antiShipWeight * defenseMatchMult;
+                if (!isPhaseShip) {
+                    float cdRem = w.getCooldownRemaining();
+                    if (cdRem > 0.20f) {
+                        wScore *= clampVal(1.0f - (cdRem - 0.20f) / 5.2f, 0.15f, 1.0f);
+                    }
+                }
+                inRangeScore += wScore;
+            }
+        }
+        int bays = attacker.getNumFighterBays();
+        if (bays > 0 && dist <= 3200f) {
+            inRangeScore += bays * 125f;
+        }
+        return inRangeScore;
+    }
+
+    private static void updateDivisionFirepowerUptimeTelemetry(CombatEngineAPI engine, DivisionState div) {
+        List<ShipAPI> alive = div.getAliveMembers();
+        if (alive.isEmpty()) {
+            div.liveFirepowerScore = 0f;
+            div.maxFirepowerScore = 0f;
+            div.weaponReadinessRatio = 0f;
+            div.inRangeFirepowerScore = 0f;
+            div.firepowerInRangeUptime = 0f;
+            div.incomingInRangeFirepower = 0f;
+            div.firepowerExchangeRatio = 1.0f;
+            return;
+        }
+
+        float sumLive = 0f;
+        float sumMax = 0f;
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI m = alive.get(i);
+            sumLive += computeShipLiveFirepowerScore(m, false);
+            sumMax += computeShipLiveFirepowerScore(m, true);
+        }
+        div.liveFirepowerScore = sumLive;
+        div.maxFirepowerScore = Math.max(sumLive, sumMax);
+        div.weaponReadinessRatio = clampVal(sumLive / Math.max(1f, div.maxFirepowerScore), 0.08f, 1.0f);
+
+        if (engine == null) return;
+        com.fs.starfarer.api.combat.CollisionGridAPI grid = engine.getAiGridShips();
+        if (grid == null) grid = engine.getShipGrid();
+        if (grid == null) return;
+
+        List<ShipAPI> nearbyEnemies = new ArrayList<>();
+        Iterator<Object> iter = grid.getCheckIterator(div.centroid, 6800f, 6800f);
+        while (iter != null && iter.hasNext()) {
+            Object obj = iter.next();
+            if (!(obj instanceof ShipAPI)) continue;
+            ShipAPI es = (ShipAPI) obj;
+            if (!DivisionAutoFormer.isEligibleCombatHull(es) || DivisionState.isShipUnable(es)) continue;
+            if (es.getOwner() == div.side) continue;
+            if (!OtcAI.isShipVisibleToSide(engine, div.side, es)) continue;
+            nearbyEnemies.add(es);
+        }
+
+        float sumInRangeOut = 0f;
+        float sumInRangeIn = 0f;
+        int numAlive = alive.size();
+        int numEnemies = nearbyEnemies.size();
+        float[] shipOutFp = new float[numAlive];
+        float[] shipInFp = new float[numAlive];
+        if (numEnemies > 0) {
+            // Compute each attacker->target pair's in-range firepower ONCE per tick (outFp[i][j] and inFp[j][i]).
+            // Each enemy splits its fire among the ships of ours it can reach, so a ship's expected incoming fire is
+            // sum_e(inFp(e->m) / targetsInReachOf(e)); comparable to its own single-target outgoing fire.
+            float[][] inFpPair = new float[numEnemies][numAlive];
+            int[] targetsInReach = new int[numEnemies];
+            for (int j = 0; j < numEnemies; j++) {
+                ShipAPI e = nearbyEnemies.get(j);
+                float[] row = inFpPair[j];
+                int c = 0;
+                float bestIn = 0f;
+                for (int i = 0; i < numAlive; i++) {
+                    float inFp = computeShipInRangeFirepowerAgainstTarget(e, alive.get(i));
+                    row[i] = inFp;
+                    if (inFp > 0f) c++;
+                    if (inFp > bestIn) bestIn = inFp;
+                }
+                targetsInReach[j] = Math.max(1, c);
+                sumInRangeIn += bestIn;
+            }
+            for (int i = 0; i < numAlive; i++) {
+                ShipAPI m = alive.get(i);
+                float bestOut = 0f;
+                float totalInOnShip = 0f;
+                for (int j = 0; j < numEnemies; j++) {
+                    ShipAPI e = nearbyEnemies.get(j);
+                    float outFp = computeShipInRangeFirepowerAgainstTarget(m, e);
+                    if (outFp > bestOut) bestOut = outFp;
+                    totalInOnShip += inFpPair[j][i] / targetsInReach[j];
+                }
+                shipOutFp[i] = bestOut;
+                shipInFp[i] = totalInOnShip;
+                sumInRangeOut += bestOut;
+            }
+        }
+
+        div.inRangeFirepowerScore = sumInRangeOut;
+        div.incomingInRangeFirepower = sumInRangeIn;
+        float instUptime = clampVal(sumInRangeOut / Math.max(1f, sumLive), 0f, 1f);
+        if (div.firepowerInRangeUptime <= 0.001f) {
+            div.firepowerInRangeUptime = instUptime;
+        } else {
+            div.firepowerInRangeUptime = div.firepowerInRangeUptime * 0.55f + instUptime * 0.45f;
+        }
+        div.firepowerExchangeRatio = (sumInRangeOut + 25f) / Math.max(25f, sumInRangeIn + 25f);
+
+        updateDivisionZonesAndRankRelief(div, alive, nearbyEnemies, shipOutFp, shipInFp);
+    }
+
+    public static boolean ZONE_DEBUG = false;
+    public static float zoneDbgN, zoneDbgIn, zoneDbgOut, zoneDbgCordon;
+
+    /** Longest non-missile, non-PD weapon range on {@code s} (0 when it has none). */
+    static float estimateMaxDirectWeaponRange(ShipAPI s) {
+        if (s == null || s.getAllWeapons() == null) return 0f;
+        Float cached = weaponMaxDirectRangeCache.get(s);
+        if (cached != null) return cached;
+        float best = 0f;
+        for (WeaponAPI w : s.getAllWeapons()) {
+            if (w == null || w.getType() == WeaponType.MISSILE) continue;
+            if (w.hasAIHint(AIHints.PD) && w.getSize() == WeaponSize.SMALL) continue;
+            if (w.getRange() > best) best = w.getRange();
+        }
+        weaponMaxDirectRangeCache.put(s, best);
+        return best;
+    }
+
+    /**
+     * Evaluates the T-S-F-C Tactical Zone (Safe Zone, Overmatch Band, Engagement Zone, Kill Zone) and
+     * Intra-Division Rank Relief state (FRONT_ENGAGEMENT vs RELIEF_SAFE) for each member of {@code div},
+     * plus samples the enemy firepower field behind {@code div} to find the exact safe relief-rank depth.
+     */
+    private static void updateDivisionZonesAndRankRelief(
+            DivisionState div,
+            List<ShipAPI> alive,
+            List<ShipAPI> nearbyEnemies,
+            float[] shipOutFp,
+            float[] shipInFp) {
+
+        if (alive == null || alive.isEmpty()) {
+            div.inDoubleLineRelief = false;
+            div.engagementZoneShipCount = 0;
+            div.safeZoneShipCount = 0;
+            div.engagementZoneFp = 0f;
+            return;
+        }
+
+        boolean inKillZoneCordon = div.crossfireCordonIndex >= 0.45f && div.localEnemyStrength >= 10f;
+        boolean fixingMission = div.isDesignatedMainEffort
+                || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX;
+        float enterReliefFlux = fixingMission ? 0.65f : 0.60f;
+        float enterReliefHardFlux = fixingMission ? 0.48f : 0.43f;
+        float exitReliefFlux = 0.26f;
+
+        int frontCount = 0;
+        int reliefCount = 0;
+        float frontFp = 0f;
+
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI m = alive.get(i);
+            if (m == null || m.getId() == null) continue;
+            String id = m.getId();
+            float outFp = shipOutFp[i];
+            float inFp = shipInFp[i];
+
+            if (ZONE_DEBUG && div.side == 0 && i == 0) {
+                zoneDbgN++; zoneDbgIn += inFp; zoneDbgOut += outFp; if (inKillZoneCordon) zoneDbgCordon++;
+            }
+            TacticalZoneType zone;
+            // Incoming is an upper bound (enemy fire on our other units is not excluded), so ratios are calibrated
+            // against the observed ~3:1 in:out baseline of an even exchange.
+            if (inKillZoneCordon || (inFp > 150f && inFp > outFp * 6.0f)) {
+                zone = TacticalZoneType.KILL_ZONE;
+            } else if (inFp <= 12f && outFp <= 10f) {
+                zone = TacticalZoneType.SAFE_ZONE;
+            } else if (outFp > 15f && inFp <= outFp * 1.2f) {
+                zone = TacticalZoneType.OVERMATCH_BAND;
+            } else {
+                zone = TacticalZoneType.ENGAGEMENT_ZONE;
+            }
+            div.shipZoneTypeByShipId.put(id, zone);
+
+            boolean ovlOrVent = m.getFluxTracker() != null && m.getFluxTracker().isOverloadedOrVenting();
+            float flux = m.getFluxLevel();
+            float hardFrac = (m.getFluxTracker() != null && m.getFluxTracker().getMaxFlux() > 1f)
+                    ? (m.getFluxTracker().getHardFlux() / m.getFluxTracker().getMaxFlux())
+                    : (flux * 0.55f);
+
+            ShipRankState prevState = div.shipRankStateByShipId.get(id);
+            ShipRankState nextState;
+            if (prevState == ShipRankState.RELIEF_SAFE) {
+                if (ovlOrVent || flux >= exitReliefFlux) {
+                    nextState = ShipRankState.RELIEF_SAFE;
+                } else {
+                    nextState = ShipRankState.FRONT_ENGAGEMENT;
+                }
+            } else {
+                boolean needsRelief = ovlOrVent
+                        || flux >= enterReliefFlux
+                        || hardFrac >= enterReliefHardFlux
+                        || (m.getHullLevel() < 0.50f && flux >= 0.42f);
+                nextState = needsRelief ? ShipRankState.RELIEF_SAFE : ShipRankState.FRONT_ENGAGEMENT;
+            }
+            div.shipRankStateByShipId.put(id, nextState);
+            if (nextState == ShipRankState.RELIEF_SAFE) {
+                reliefCount++;
+            } else {
+                frontCount++;
+                frontFp += ShipCapabilityProfile.resolveShipFpStrength(m);
+            }
+        }
+
+        div.engagementZoneShipCount = frontCount;
+        div.safeZoneShipCount = reliefCount;
+        div.engagementZoneFp = frontFp;
+
+        if (inKillZoneCordon) {
+            div.currentDivisionZone = TacticalZoneType.KILL_ZONE;
+        } else if (div.incomingInRangeFirepower <= 15f && div.inRangeFirepowerScore <= 12f) {
+            div.currentDivisionZone = TacticalZoneType.SAFE_ZONE;
+        } else if (div.inRangeFirepowerScore > 25f && div.incomingInRangeFirepower <= div.inRangeFirepowerScore * 0.45f) {
+            div.currentDivisionZone = TacticalZoneType.OVERMATCH_BAND;
+        } else {
+            div.currentDivisionZone = TacticalZoneType.ENGAGEMENT_ZONE;
+        }
+
+        // Minimum Front Rule for Defensive Rank Relief: keep a second rank as long as the division is not trapped
+        // in a 3-sided U-cordon Kill Zone AND at least half the division's ships (or >= 42% of its FP) remain healthy
+        // in the Front-Rank Engagement Zone. If more ships need relief than that allows, escalate to division rotation!
+        int n = alive.size();
+        boolean minFrontMaintained = frontCount >= Math.max(1, n / 2)
+                || (frontCount >= 1 && frontFp >= div.totalFpStrength * 0.42f);
+        boolean defensiveRankRelief = !inKillZoneCordon
+                && !div.archetype.isCarrierArchetype()
+                && div.archetype != DivisionArchetype.SERVICE_GROUP
+                && n >= 2
+                && reliefCount >= 1
+                && minFrontMaintained;
+
+        // Offensive Depth Column: when the division has local Space advantage (localForceRatio >= 1.30) and wants to
+        // spearhead through a narrow enemy gap, stack healthy ships 1-2 wide into a deep column (Line Ahead / Wedge)
+        // so the rear ships fire over the front instead of standing off to the side!
+        boolean offensiveDepthColumn = !inKillZoneCordon
+                && !div.archetype.isCarrierArchetype()
+                && div.archetype != DivisionArchetype.SERVICE_GROUP
+                && n >= 4
+                && reliefCount == 0
+                && div.localForceRatio >= 1.30f
+                && div.currentIntent == DivisionIntentType.PRESS_HOME
+                && div.avgFluxLevel < 0.42f;
+
+        div.inDoubleLineRelief = defensiveRankRelief || offensiveDepthColumn;
+        div.depthFormationMode = defensiveRankRelief ? -1 : (offensiveDepthColumn ? 1 : 0);
+
+        // Sample the enemy firepower field along the retreat axis (-fwd) to find the exact Relief-Rank Safe Zone depth
+        float retreatDirX = -div.formationHeadingX;
+        float retreatDirY = -div.formationHeadingY;
+        if (Math.abs(retreatDirX) < 0.01f && Math.abs(retreatDirY) < 0.01f) {
+            retreatDirX = 0f;
+            retreatDirY = (div.side == 0) ? -1f : 1f;
+        }
+        float chosenDepth = 480f;
+        if (!nearbyEnemies.isEmpty() && div.centroid != null) {
+            float[] sampleDepths = {420f, 520f, 620f, 720f};
+            for (int dIdx = 0; dIdx < sampleDepths.length; dIdx++) {
+                float candDepth = sampleDepths[dIdx];
+                float sx = div.centroid.x + retreatDirX * candDepth;
+                float sy = div.centroid.y + retreatDirY * candDepth;
+                float enemyFireAtSample = 0f;
+                for (int j = 0; j < nearbyEnemies.size(); j++) {
+                    ShipAPI e = nearbyEnemies.get(j);
+                    float eRange = estimateMaxDirectWeaponRange(e);
+                    if (eRange <= 100f) eRange = 1050f;
+                    float dx = sx - e.getLocation().x;
+                    float dy = sy - e.getLocation().y;
+                    if (dx * dx + dy * dy <= (eRange * 1.04f) * (eRange * 1.04f)) {
+                        enemyFireAtSample += computeShipLiveFirepowerScore(e, false);
+                    }
+                }
+                chosenDepth = candDepth;
+                if (enemyFireAtSample <= Math.max(15f, div.incomingInRangeFirepower * 0.12f)) {
+                    break;
+                }
+            }
+        }
+        div.reliefRankDepth = chosenDepth;
+        if (div.centroid != null) {
+            div.safeZonePoint.set(
+                    div.centroid.x + retreatDirX * chosenDepth,
+                    div.centroid.y + retreatDirY * chosenDepth);
+        }
+
+        // Cantabrian Circle (offensive / defensive) on circular formations:
+        // Offensive when locally overmatching (orbit & fire), defensive when venting / absorbing heavy fire
+        // (rotate exposed ships through the protected inner arc).
+        boolean circularFormation = div.activeFormation == PermanentDivisionManager.DivisionFormation.CIRCLE
+                || div.activeFormation == PermanentDivisionManager.DivisionFormation.PROTECTIVE_CIRCLE;
+        div.cantabrianCircleActive = circularFormation && n >= 3;
+        div.cantabrianOffensive = div.localForceRatio >= 1.05f && div.avgFluxLevel < 0.55f;
+        div.cantabrianPhase += (div.cantabrianOffensive ? 0.055f : -0.045f);
+        if (div.cantabrianPhase > 2f * Math.PI) div.cantabrianPhase -= 2f * Math.PI;
+        else if (div.cantabrianPhase < 0f) div.cantabrianPhase += 2f * Math.PI;
+    }
+
+    /**
+     * Item E ("Trade Space for Time" / "Tactical Retreat"):
+     * Computes an offset vector (dx, dy) from {@code div.centroid} (or the current engagement line) that shifts
+     * the unit's space centroid away from peak enemy firepower and L/U crossfire while keeping the unit at the outer
+     * edge of its own effective gun range (0.94x..1.05x avgEngageRange) so weapons continue firing during withdrawal.
+     */
+    public static void computeTradeSpaceForTimeOffset(
+            CombatEngineAPI engine,
+            DivisionState div,
+            DivisionState enemyDiv,
+            BattleGroupState myGroup,
+            Vector2f outOffset) {
+        if (outOffset == null) return;
+        outOffset.set(0f, 0f);
+        if (div == null) return;
+
+        Vector2f threatCenter = null;
+        float enemyRange = 1050f;
+        if (enemyDiv != null && enemyDiv.isCombatEffective()) {
+            threatCenter = OtcAI.getVisibleCentroidForSide(engine, div.side, enemyDiv);
+            enemyRange = Math.max(750f, enemyDiv.avgEngageRange);
+        } else if (myGroup != null && myGroup.primaryThreatEnemyDivision != null
+                && myGroup.primaryThreatEnemyDivision.isCombatEffective()) {
+            threatCenter = OtcAI.getVisibleCentroidForSide(engine, div.side, myGroup.primaryThreatEnemyDivision);
+            enemyRange = Math.max(750f, myGroup.primaryThreatEnemyDivision.avgEngageRange);
+        }
+        if (threatCenter == null) {
+            outOffset.set(0f, (div.side == 0 ? -420f : 420f));
+            return;
+        }
+
+        float dx = div.centroid.x - threatCenter.x;
+        float dy = div.centroid.y - threatCenter.y;
+        float dist = (float) Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1f) {
+            dx = 0f;
+            dy = (div.side == 0) ? -1f : 1f;
+            dist = 1f;
+        }
+        float awayX = dx / dist;
+        float awayY = dy / dist;
+        float latX = -awayY;
+        float latY = awayX;
+
+        // Target distance: step back to the outer band of our own gun envelope (or just outside short-range enemy alpha)
+        float myRange = Math.max(780f, div.avgEngageRange > 250f ? div.avgEngageRange : div.standoffRange);
+        float desiredKiteDist = Math.max(myRange * 0.96f, Math.min(myRange * 1.06f, enemyRange * 0.98f));
+        float radialStep = clampVal(desiredKiteDist - dist + 280f, 240f, 640f);
+
+        // Check rear and lateral boundary clearance so we never back straight into a map corner;
+        // if rear clearance is tight or we are in a crossfire cordon, slide laterally toward the open side!
+        float rearClear = computeDirectionalBoundaryClearance(engine, div.centroid, awayX, awayY, 150f);
+        float leftClear = computeDirectionalBoundaryClearance(engine, div.centroid, latX, latY, 150f);
+        float rightClear = computeDirectionalBoundaryClearance(engine, div.centroid, -latX, -latY, 150f);
+
+        float latSign = (leftClear >= rightClear) ? 1f : -1f;
+        if (myGroup != null && myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div) {
+            // Slide toward friendly Main Effort / independent mass for mutual fire support
+            Vector2f anchor = (myGroup.organizationRatio < 0.65f && myGroup.friendlyIndependentFp > 15f)
+                    ? myGroup.independentCentroid
+                    : myGroup.mainEffortDivision.centroid;
+            float toAnchor = (anchor.x - div.centroid.x) * latX + (anchor.y - div.centroid.y) * latY;
+            if (Math.abs(toAnchor) > 120f) {
+                latSign = Math.signum(toAnchor);
+            }
+        }
+
+        float latStep = (div.crossfireCordonIndex >= 0.28f) ? 310f : 175f;
+        if (rearClear < 900f) {
+            float pinch = clampVal((900f - rearClear) / 700f, 0f, 0.75f);
+            radialStep *= (1f - pinch * 0.65f);
+            latStep += pinch * 340f;
+        }
+        outOffset.set(awayX * radialStep + latX * latSign * latStep, awayY * radialStep + latY * latSign * latStep);
+    }
+
+    /**
+     * Item F ("Feigned Retreat"):
+     * Computes the Stage-1 bait withdrawal offset (dx, dy) that lures {@code enemyDiv} forward along a corridor
+     * flanked by {@code hammerDiv} (or by our own division's wings) so the enemy overextends into an alpha-strike kill zone.
+     */
+    public static void computeFeignedRetreatBaitOffset(
+            CombatEngineAPI engine,
+            DivisionState baitDiv,
+            DivisionState enemyDiv,
+            DivisionState hammerDiv,
+            BattleGroupState myGroup,
+            Vector2f outOffset) {
+        if (outOffset == null) return;
+        outOffset.set(0f, 0f);
+        if (baitDiv == null || enemyDiv == null) return;
+
+        Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, baitDiv.side, enemyDiv);
+        float dx = baitDiv.centroid.x - ePos.x;
+        float dy = baitDiv.centroid.y - ePos.y;
+        float dist = (float) Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1f) {
+            dx = 0f;
+            dy = (baitDiv.side == 0) ? -1f : 1f;
+            dist = 1f;
+        }
+        float awayX = dx / dist;
+        float awayY = dy / dist;
+        float latX = -awayY;
+        float latY = awayX;
+
+        // Pull back 420..560u while angling slightly away from hammerDiv so the enemy turns its side/stern to the hammer!
+        float lureDepth = 480f;
+        float latBias = 0f;
+        if (hammerDiv != null && hammerDiv != baitDiv && hammerDiv.isCombatEffective()) {
+            float hammerLat = (hammerDiv.centroid.x - baitDiv.centroid.x) * latX
+                    + (hammerDiv.centroid.y - baitDiv.centroid.y) * latY;
+            latBias = (hammerLat >= 0f ? -1f : 1f) * 210f;
+        }
+        outOffset.set(awayX * lureDepth + latX * latBias, awayY * lureDepth + latY * latBias);
+    }
+
+    /**
+     * Item F Defensive Counter:
+     * Evaluates visible enemy divisions for signs of a "Feigned Retreat" bait trap (an enemy unit moving away while
+     * still at low flux, high hull, and high weapon readiness, especially with a second enemy division nearby on the flank).
+     */
+    public static void updateEnemyFeignedRetreatSuspicion(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup) {
+        if (myGroup == null || enemyGroup == null || enemyGroup.divisions.isEmpty()) return;
+        Vector2f myRef = (myGroup.organizationRatio < 0.50f && myGroup.friendlyIndependentFp > 15f)
+                ? myGroup.independentCentroid
+                : myGroup.fleetCentroid;
+
+        for (int i = 0; i < enemyGroup.divisions.size(); i++) {
+            DivisionState eDiv = enemyGroup.divisions.get(i);
+            if (eDiv == null || !eDiv.isCombatEffective()) continue;
+
+            // Compute closing velocity of eDiv toward our reference centroid (+ = closing on us, - = moving away)
+            float toMyX = myRef.x - eDiv.centroid.x;
+            float toMyY = myRef.y - eDiv.centroid.y;
+            float toMyLen = (float) Math.sqrt(toMyX * toMyX + toMyY * toMyY);
+            float closingSpeed = 0f;
+            if (toMyLen > 1f) {
+                List<ShipAPI> eAlive = eDiv.getAliveMembers();
+                float vxSum = 0f;
+                float vySum = 0f;
+                int vCnt = 0;
+                for (int k = 0; k < eAlive.size(); k++) {
+                    ShipAPI es = eAlive.get(k);
+                    if (es != null && es.getVelocity() != null) {
+                        vxSum += es.getVelocity().x;
+                        vySum += es.getVelocity().y;
+                        vCnt++;
+                    }
+                }
+                if (vCnt > 0) {
+                    closingSpeed = ((vxSum / vCnt) * toMyX + (vySum / vCnt) * toMyY) / toMyLen;
+                }
+            }
+            eDiv.closingSpeedToEnemy = closingSpeed;
+
+            float suspicion = 0f;
+            // If an enemy division is withdrawing (closingSpeed < -28) despite low flux, healthy hull, and ready weapons,
+            // it is likely trading space or feigning retreat to bait us into an alpha strike!
+            if (closingSpeed < -28f
+                    && !eDiv.isUnableDivision
+                    && eDiv.avgFluxLevel < 0.46f
+                    && eDiv.avgHullLevel > 0.72f
+                    && eDiv.weaponReadinessRatio >= 0.62f) {
+                suspicion = 0.55f + clampVal((-closingSpeed - 28f) / 140f, 0f, 0.25f);
+                // Check if another combat-ready enemy division is lurking within 2100u to spring a crossfire ambush
+                for (int j = 0; j < enemyGroup.divisions.size(); j++) {
+                    if (i == j) continue;
+                    DivisionState lurker = enemyGroup.divisions.get(j);
+                    if (lurker == null || !lurker.isAbleCombatEffective()) continue;
+                    if (distance(eDiv.centroid, lurker.centroid) <= 2100f && lurker.avgFluxLevel < 0.55f) {
+                        suspicion = Math.min(1.0f, suspicion + 0.30f);
+                        break;
+                    }
+                }
+            }
+            eDiv.enemyFeignedRetreatSuspicion = eDiv.enemyFeignedRetreatSuspicion * 0.45f + suspicion * 0.55f;
         }
     }
 
@@ -2402,9 +3107,9 @@ public class BattlefieldFirepowerEvaluator {
                     if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
                     Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
                     float d = distance(div.centroid, ePos);
-                    float bearingFromEnemy = (float) Math.toDegrees(Math.atan2(div.centroid.y - ePos.y, div.centroid.x - ePos.x));
-                    float eDomR = getDirectionalSpaceDominatedRadius(eDiv, bearingFromEnemy);
-                    float eInR = getDirectionalSpaceInnerRadius(eDiv, bearingFromEnemy);
+                    // Symmetric base radii so whichever side evaluates first sees the same enemy space overlap as the other.
+                    float eDomR = Math.max(650f, eDiv.spaceDominatedRadius);
+                    float eInR = Math.max(380f, eDiv.spaceInnerRadius);
                     float sumTimeAndEnemySpace = div.freeTimeRadius * 0.72f + eDomR;
                     if (d < sumTimeAndEnemySpace) {
                         float ov = clampVal(
@@ -3249,8 +3954,11 @@ public class BattlefieldFirepowerEvaluator {
             unableTargetMult = (myGroup != null && myGroup.currentPhase == DivisionModel.BattlePhase.GENERAL_CHASE) ? 0.85f : 0.35f;
         }
 
-        // 3. Firepower / Flux Collapse Multiplier
-        float fluxCollapseMult = 1.0f + enemyDiv.avgFluxLevel * 1.45f + (1.0f - enemyDiv.avgHullLevel) * 0.90f;
+        // 3. Firepower / Flux Collapse Multiplier & Division Isolation (Defeat in Detail)
+        float fluxCollapseMult = 1.0f + enemyDiv.avgFluxLevel * 1.90f + (1.0f - enemyDiv.avgHullLevel) * 1.25f;
+        if (enemyDiv.stationKeepingRatio > 1.45f) {
+            fluxCollapseMult *= 1.55f;
+        }
         float blindSpot = evaluateBlindSpotAdvantage(engine, myDiv.side, enemyDiv, myDiv.centroid);
 
         // 4. Multi-Division Phase-Locked Orthogonal Convergence (reward ~90 deg L/U pincer angles & focus fire)
@@ -3276,11 +3984,14 @@ public class BattlefieldFirepowerEvaluator {
             }
         }
 
-        // Multiplicative phase-space product with bounded FP base so Weak Points & high-flux targets are prioritized
+        // Multiplicative phase-space product with bounded FP base so Weak Points & high-flux targets are prioritized.
+        // Proximity Gate: a rearward enemy division 3,200u away that happens to be flux-locked is NOT a closer,
+        // more dangerous target than the enemy main body already in gun range of our line!
+        float proximityGate = 0.55f + timeCoincidence * 0.85f;
         float visFp = OtcAI.getVisibleFpForSide(engine, myDiv.side, enemyDiv);
         float baseValue = Math.min(440f, 165f + visFp * 4.2f) + blindSpot * 0.95f;
-        return baseValue * timeCoincidence * enemyPinnedBonus * seamVulnerability * fluxCollapseMult
-                * Math.min(1.85f, pincerSynergy) * unableTargetMult;
+        return baseValue * enemyPinnedBonus * seamVulnerability * fluxCollapseMult
+                * Math.min(1.85f, pincerSynergy) * unableTargetMult / proximityGate;
     }
 
     /**

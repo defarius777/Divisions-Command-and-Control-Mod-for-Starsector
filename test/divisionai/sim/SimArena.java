@@ -3,14 +3,21 @@ package divisionai.sim;
 import com.fs.starfarer.api.combat.BattleObjectiveAPI;
 import com.fs.starfarer.api.combat.CollisionGridAPI;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
+import com.fs.starfarer.api.combat.CombatEntityAPI;
 import com.fs.starfarer.api.combat.FogOfWarAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import com.fs.starfarer.api.combat.ShipHullSpecAPI;
 import com.fs.starfarer.api.combat.ShipwideAIFlags;
 import com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags;
+import com.fs.starfarer.api.combat.DamageType;
+import com.fs.starfarer.api.combat.ShieldAPI;
+import com.fs.starfarer.api.combat.ShieldAPI.ShieldType;
+import com.fs.starfarer.api.combat.ShipSystemAPI;
 import com.fs.starfarer.api.combat.WeaponAPI;
 import com.fs.starfarer.api.combat.WeaponAPI.AIHints;
+import com.fs.starfarer.api.combat.WeaponAPI.DerivedWeaponStatsAPI;
+import com.fs.starfarer.api.combat.WeaponAPI.WeaponSize;
 import com.fs.starfarer.api.combat.WeaponAPI.WeaponType;
 import divisionai.DivisionCommanderAI;
 import divisionai.DivisionCombatLog;
@@ -42,6 +49,128 @@ import java.util.Locale;
  */
 public class SimArena {
 
+    public static class SimWeaponMount {
+        public final String id;
+        public final WeaponType type;
+        public final WeaponSize size;
+        public final DamageType damageType;
+        public final float range;
+        public final float arcDeg;
+        public final float arcFacingRelDeg;
+        public final float burstDamage;
+        public final float sustainedDps;
+        public final float fluxPerShot;
+        public final float cooldownDuration;
+        public float cooldownRemaining = 0f;
+        public final boolean usesAmmo;
+        public int maxAmmo;
+        public int ammo;
+        public final boolean isPd;
+        public final boolean isStrike;
+        public final boolean isHybridFlak;
+        public boolean disabled = false;
+        public float disabledTimer = 0f;
+        public WeaponAPI proxy;
+
+        public SimWeaponMount(
+                String id,
+                WeaponType type,
+                WeaponSize size,
+                DamageType damageType,
+                float range,
+                float arcDeg,
+                float arcFacingRelDeg,
+                float burstDamage,
+                float sustainedDps,
+                float fluxPerShot,
+                float cooldownDuration,
+                boolean usesAmmo,
+                int maxAmmo,
+                boolean isPd,
+                boolean isStrike,
+                boolean isHybridFlak) {
+            this.id = id;
+            this.type = type;
+            this.size = size;
+            this.damageType = damageType;
+            this.range = range;
+            this.arcDeg = arcDeg;
+            this.arcFacingRelDeg = arcFacingRelDeg;
+            this.burstDamage = burstDamage;
+            this.sustainedDps = sustainedDps;
+            this.fluxPerShot = fluxPerShot;
+            this.cooldownDuration = cooldownDuration;
+            this.usesAmmo = usesAmmo;
+            this.maxAmmo = maxAmmo;
+            this.ammo = maxAmmo;
+            this.isPd = isPd;
+            this.isStrike = isStrike;
+            this.isHybridFlak = isHybridFlak;
+            this.proxy = createWeaponProxy();
+        }
+
+        private WeaponAPI createWeaponProxy() {
+            final EnumSet<AIHints> hints = EnumSet.noneOf(AIHints.class);
+            if (isPd) {
+                hints.add(AIHints.PD);
+                if (!isHybridFlak) {
+                    hints.add(AIHints.PD_ONLY);
+                } else {
+                    hints.add(AIHints.PD_ALSO);
+                }
+            }
+            if (isStrike) {
+                hints.add(AIHints.STRIKE);
+            }
+            final DerivedWeaponStatsAPI derivedProxy = (DerivedWeaponStatsAPI) Proxy.newProxyInstance(
+                    DerivedWeaponStatsAPI.class.getClassLoader(),
+                    new Class<?>[]{DerivedWeaponStatsAPI.class},
+                    (dp, dm, da) -> {
+                        String dn = dm.getName();
+                        if ("getBurstDamage".equals(dn) || "getDamagePerShot".equals(dn)) return burstDamage;
+                        if ("getDps".equals(dn)) return Math.max(sustainedDps, burstDamage / Math.max(0.5f, cooldownDuration));
+                        if ("getSustainedDps".equals(dn)) return sustainedDps;
+                        if ("getFluxPerDam".equals(dn)) return fluxPerShot / Math.max(1f, burstDamage);
+                        if ("getSustainedFluxPerSecond".equals(dn)) return (fluxPerShot / Math.max(0.5f, cooldownDuration));
+                        Class<?> drt = dm.getReturnType();
+                        if (drt == boolean.class) return false;
+                        if (drt == int.class) return 0;
+                        if (drt == float.class) return 0f;
+                        return null;
+                    });
+
+            return (WeaponAPI) Proxy.newProxyInstance(
+                    WeaponAPI.class.getClassLoader(),
+                    new Class<?>[]{WeaponAPI.class},
+                    (p, m, a) -> {
+                        String n = m.getName();
+                        if ("getId".equals(n) || "getDisplayName".equals(n)) return id;
+                        if ("getRange".equals(n)) return range;
+                        if ("getArc".equals(n)) return arcDeg;
+                        if ("getArcFacing".equals(n)) return arcFacingRelDeg;
+                        if ("getType".equals(n)) return type;
+                        if ("getSize".equals(n)) return size;
+                        if ("getDamageType".equals(n)) return damageType;
+                        if ("getDerivedStats".equals(n)) return derivedProxy;
+                        if ("getCooldown".equals(n)) return cooldownDuration;
+                        if ("getCooldownRemaining".equals(n)) return cooldownRemaining;
+                        if ("getAIHints".equals(n)) return hints;
+                        if ("hasAIHint".equals(n)) return a != null && a.length > 0 && hints.contains(a[0]);
+                        if ("isDecorative".equals(n) || "isPermanentlyDisabled".equals(n)) return Boolean.FALSE;
+                        if ("isDisabled".equals(n)) return disabled || disabledTimer > 0f;
+                        if ("usesAmmo".equals(n)) return usesAmmo;
+                        if ("getAmmo".equals(n)) return usesAmmo ? ammo : Integer.MAX_VALUE;
+                        if ("getMaxAmmo".equals(n)) return usesAmmo ? maxAmmo : Integer.MAX_VALUE;
+                        if ("isFiring".equals(n)) return cooldownRemaining > Math.max(0.15f, cooldownDuration * 0.65f);
+                        Class<?> rt = m.getReturnType();
+                        if (rt == boolean.class) return false;
+                        if (rt == int.class) return 0;
+                        if (rt == float.class) return 0f;
+                        return null;
+                    });
+        }
+    }
+
     public static class SimShipState {
         public final String id;
         public final String name;
@@ -51,16 +180,35 @@ public class SimArena {
         public final Vector2f location = new Vector2f();
         public final Vector2f velocity = new Vector2f();
         public float facing = 90f;
+        public float angularVelocity = 0f;
         public float maxSpeed;
         public float accel;
         public float fluxLevel = 0.08f;
+        public float hardFluxFraction = 0.35f;
         public float hullLevel = 1.0f;
+        public float armorIntegrity = 1.0f;
+        public float armorRating = 800f;
+        public float shieldArc = 210f;
+        public float shieldFluxPerDam = 0.85f;
+        public boolean detailedCombatModel = false;
+        public boolean isPhaseShip = false;
+        public boolean phased = false;
+        public float phaseCloakCooldown = 0f;
+        public float maxHullHp = 6000f;
+        public float maxFluxCap = 5000f;
+        public float gunDps = 220f;
+        public float fluxDissipation = 260f;
+        public float pdStrength = 40f;
+        public float overloadTimer = 0f;
+        public float strikeCooldown = 0f;
         public float engageRange;
         public int strikeAmmo;
         public int fighterBays;
         public boolean alive = true;
+        public ShipAPI shipTarget = null;
         public final ShipwideAIFlags aiFlags = new ShipwideAIFlags();
         public final List<WeaponAPI> weapons = new ArrayList<>();
+        public final List<SimWeaponMount> weaponMounts = new ArrayList<>();
         public ShipAPI proxy;
 
         public SimShipState(
@@ -87,51 +235,67 @@ public class SimArena {
             this.engageRange = engageRange;
             this.strikeAmmo = strikeAmmo;
             this.fighterBays = fighterBays;
-            this.weapons.add(createMockGun(engageRange));
+            String hLower = hullName != null ? hullName.toLowerCase(Locale.ROOT) : "";
+            this.isPhaseShip = hLower.contains("shade") || hLower.contains("afflictor")
+                    || hLower.contains("harbinger") || hLower.contains("doom") || hLower.contains("gremlin");
+            switch (hullSize != null ? hullSize : HullSize.CRUISER) {
+                case CAPITAL_SHIP:
+                    this.maxHullHp = 22000f;
+                    this.maxFluxCap = 18500f;
+                    this.armorRating = 1550f;
+                    this.shieldArc = 220f;
+                    this.shieldFluxPerDam = 0.78f;
+                    this.gunDps = (fighterBays >= 2) ? 360f : 690f;
+                    this.fluxDissipation = 720f;
+                    this.pdStrength = 95f;
+                    break;
+                case CRUISER:
+                    this.maxHullHp = (fighterBays >= 2) ? 11000f : 12000f;
+                    this.maxFluxCap = (fighterBays >= 2) ? 8500f : 10200f;
+                    this.armorRating = (fighterBays >= 2) ? 880f : 1050f;
+                    this.shieldArc = 210f;
+                    this.shieldFluxPerDam = 0.84f;
+                    this.gunDps = (fighterBays >= 2) ? 210f : 420f;
+                    this.fluxDissipation = 430f;
+                    this.pdStrength = 60f;
+                    break;
+                case DESTROYER:
+                    this.maxHullHp = 6400f;
+                    this.maxFluxCap = 5400f;
+                    this.armorRating = 600f;
+                    this.shieldArc = 190f;
+                    this.shieldFluxPerDam = 0.90f;
+                    this.gunDps = (fighterBays >= 1) ? 140f : 250f;
+                    this.fluxDissipation = 250f;
+                    this.pdStrength = 48f;
+                    break;
+                case FRIGATE:
+                default:
+                    this.maxHullHp = 3300f;
+                    this.maxFluxCap = 2900f;
+                    this.armorRating = 320f;
+                    this.shieldArc = 180f;
+                    this.shieldFluxPerDam = 0.95f;
+                    this.gunDps = 150f;
+                    this.fluxDissipation = 155f;
+                    this.pdStrength = 28f;
+                    break;
+            }
+            this.weapons.add(createBaselineGun(engageRange));
             if (strikeAmmo > 0) {
-                this.weapons.add(createMockStrikeMissile(this));
+                this.weapons.add(createBaselineStrikeMissile(this));
             }
             this.proxy = createProxy();
         }
 
-        public void addDirectionalWeapon(
-                final float range,
-                final float arcDeg,
-                final float arcFacingRelDeg,
-                final boolean isPd,
-                final boolean isStrike) {
-            final EnumSet<AIHints> hints = EnumSet.noneOf(AIHints.class);
-            if (isPd) {
-                hints.add(AIHints.PD);
-                hints.add(AIHints.PD_ONLY);
-            }
-            if (isStrike) {
-                hints.add(AIHints.STRIKE);
-            }
-            this.weapons.add((WeaponAPI) Proxy.newProxyInstance(
-                    WeaponAPI.class.getClassLoader(),
-                    new Class<?>[]{WeaponAPI.class},
-                    (p, m, a) -> {
-                        String n = m.getName();
-                        if ("getRange".equals(n)) return range;
-                        if ("getArc".equals(n)) return arcDeg;
-                        if ("getArcFacing".equals(n)) return arcFacingRelDeg;
-                        if ("getType".equals(n)) return isStrike ? WeaponType.MISSILE : WeaponType.BALLISTIC;
-                        if ("getAIHints".equals(n)) return hints;
-                        if ("hasAIHint".equals(n)) return a != null && a.length > 0 && hints.contains(a[0]);
-                        if ("isDecorative".equals(n) || "isDisabled".equals(n) || "isPermanentlyDisabled".equals(n)
-                                || "usesAmmo".equals(n)) {
-                            return Boolean.FALSE;
-                        }
-                        Class<?> rt = m.getReturnType();
-                        if (rt == boolean.class) return false;
-                        if (rt == int.class) return 0;
-                        if (rt == float.class) return 0f;
-                        return null;
-                    }));
+        public void enableDetailedCombatModel() {
+            this.detailedCombatModel = true;
+            this.weapons.clear();
+            this.weaponMounts.clear();
+            populateDefaultWeaponGroups();
         }
 
-        private static WeaponAPI createMockGun(final float range) {
+        private static WeaponAPI createBaselineGun(final float range) {
             final EnumSet<AIHints> hints = EnumSet.noneOf(AIHints.class);
             return (WeaponAPI) Proxy.newProxyInstance(
                     WeaponAPI.class.getClassLoader(),
@@ -150,7 +314,7 @@ public class SimArena {
                     });
         }
 
-        private static WeaponAPI createMockStrikeMissile(final SimShipState shipState) {
+        private static WeaponAPI createBaselineStrikeMissile(final SimShipState shipState) {
             final EnumSet<AIHints> hints = EnumSet.of(AIHints.STRIKE);
             return (WeaponAPI) Proxy.newProxyInstance(
                     WeaponAPI.class.getClassLoader(),
@@ -174,6 +338,132 @@ public class SimArena {
                     });
         }
 
+        private void populateDefaultWeaponGroups() {
+            WeaponSize mainSize = (hullSize == HullSize.CAPITAL_SHIP) ? WeaponSize.LARGE
+                    : (hullSize == HullSize.CRUISER ? WeaponSize.MEDIUM
+                    : (hullSize == HullSize.DESTROYER ? WeaponSize.MEDIUM : WeaponSize.SMALL));
+            // 1. Primary Kinetic Battery (anti-shield, fast-cycling turret, 210-deg forward arc)
+            float kinDps = gunDps * 0.52f;
+            float kinCd = 1.4f;
+            float kinBurst = kinDps * kinCd;
+            addWeaponMount(new SimWeaponMount(
+                    id + "_kin",
+                    WeaponType.BALLISTIC,
+                    mainSize,
+                    DamageType.KINETIC,
+                    engageRange,
+                    220f,
+                    0f,
+                    kinBurst,
+                    kinDps,
+                    kinBurst * 0.46f,
+                    kinCd,
+                    false,
+                    0,
+                    false,
+                    false,
+                    false));
+
+            // 2. High-Explosive / Energy Heavy Battery (anti-armor, longer reload cycle so reload gating matters)
+            float heDps = gunDps * 0.48f;
+            float heCd = (hullSize == HullSize.CAPITAL_SHIP) ? 3.8f : (hullSize == HullSize.CRUISER ? 3.2f : 2.5f);
+            float heBurst = heDps * heCd * 1.12f;
+            addWeaponMount(new SimWeaponMount(
+                    id + "_he",
+                    WeaponType.BALLISTIC,
+                    mainSize,
+                    DamageType.HIGH_EXPLOSIVE,
+                    engageRange * 0.92f,
+                    170f,
+                    0f,
+                    heBurst,
+                    heDps,
+                    heBurst * 0.50f,
+                    heCd,
+                    false,
+                    0,
+                    false,
+                    false,
+                    false));
+
+            // 3. Strike Missile / Torpedo Racks (finite ammo, high alpha burst, 5.0s reload cooldown)
+            if (strikeAmmo > 0) {
+                float strikeBurst = 920f;
+                float strikeCd = 4.5f;
+                addWeaponMount(new SimWeaponMount(
+                        id + "_strike",
+                        WeaponType.MISSILE,
+                        WeaponSize.MEDIUM,
+                        DamageType.HIGH_EXPLOSIVE,
+                        1950f,
+                        110f,
+                        0f,
+                        strikeBurst,
+                        strikeBurst / strikeCd,
+                        0f,
+                        strikeCd,
+                        true,
+                        strikeAmmo,
+                        false,
+                        true,
+                        false));
+            }
+
+            // 4. Point-Defense / Flak Battery (360-deg coverage; capitals & cruisers mount hybrid flak)
+            boolean hybridFlak = (hullSize == HullSize.CAPITAL_SHIP || hullSize == HullSize.CRUISER);
+            addWeaponMount(new SimWeaponMount(
+                    id + "_pd",
+                    WeaponType.BALLISTIC,
+                    hybridFlak ? WeaponSize.MEDIUM : WeaponSize.SMALL,
+                    DamageType.FRAGMENTATION,
+                    hybridFlak ? 650f : 500f,
+                    360f,
+                    0f,
+                    pdStrength * 1.4f,
+                    pdStrength,
+                    pdStrength * 0.25f,
+                    1.0f,
+                    false,
+                    0,
+                    true,
+                    false,
+                    hybridFlak));
+        }
+
+        public void addWeaponMount(SimWeaponMount mount) {
+            this.weaponMounts.add(mount);
+            this.weapons.add(mount.proxy);
+        }
+
+        public void addDirectionalWeapon(
+                final float range,
+                final float arcDeg,
+                final float arcFacingRelDeg,
+                final boolean isPd,
+                final boolean isStrike) {
+            WeaponSize sz = isStrike ? WeaponSize.MEDIUM : (isPd ? WeaponSize.SMALL : WeaponSize.MEDIUM);
+            DamageType dt = isStrike ? DamageType.HIGH_EXPLOSIVE : (isPd ? DamageType.FRAGMENTATION : DamageType.KINETIC);
+            float dps = isPd ? 45f : (isStrike ? 180f : 140f);
+            float cd = isStrike ? 4.0f : 1.5f;
+            addWeaponMount(new SimWeaponMount(
+                    id + "_dir_" + weaponMounts.size(),
+                    isStrike ? WeaponType.MISSILE : WeaponType.BALLISTIC,
+                    sz,
+                    dt,
+                    range,
+                    arcDeg,
+                    arcFacingRelDeg,
+                    dps * cd,
+                    dps,
+                    dps * 0.4f,
+                    cd,
+                    false,
+                    0,
+                    isPd,
+                    isStrike,
+                    false));
+        }
+
         private ShipAPI createProxy() {
             final ShipHullSpecAPI hullSpec = (ShipHullSpecAPI) Proxy.newProxyInstance(
                     ShipHullSpecAPI.class.getClassLoader(),
@@ -181,14 +471,54 @@ public class SimArena {
                     (p, m, a) -> {
                         if ("getHullName".equals(m.getName()) || "getHullId".equals(m.getName())) return hullName;
                         if ("getHullSize".equals(m.getName())) return hullSize;
+                        if (detailedCombatModel && "getArmorRating".equals(m.getName())) return armorRating;
+                        if (detailedCombatModel && "getHitpoints".equals(m.getName())) return maxHullHp;
                         if ("getTags".equals(m.getName())) return Collections.emptyList();
-                        if ("getHints".equals(m.getName())) return EnumSet.noneOf(ShipHullSpecAPI.ShipTypeHints.class);
+                        if ("getHints".equals(m.getName())) {
+                            return isPhaseShip
+                                    ? EnumSet.of(ShipHullSpecAPI.ShipTypeHints.PHASE)
+                                    : EnumSet.noneOf(ShipHullSpecAPI.ShipTypeHints.class);
+                        }
                         Class<?> rt = m.getReturnType();
                         if (rt == boolean.class) return false;
                         if (rt == int.class) return 0;
                         if (rt == float.class) return 0f;
                         return null;
                     });
+
+            final ShieldAPI shieldProxy = (ShieldAPI) Proxy.newProxyInstance(
+                    ShieldAPI.class.getClassLoader(),
+                    new Class<?>[]{ShieldAPI.class},
+                    (sp, sm, sa) -> {
+                        String sn = sm.getName();
+                        if ("getType".equals(sn)) return isPhaseShip ? ShieldType.PHASE : ShieldType.OMNI;
+                        if ("isOn".equals(sn)) return !isPhaseShip && overloadTimer <= 0f;
+                        if ("isOff".equals(sn)) return isPhaseShip || overloadTimer > 0f;
+                        if ("getArc".equals(sn) || "getActiveArc".equals(sn)) return shieldArc;
+                        if ("getFacing".equals(sn)) return facing;
+                        if ("getFluxPerPointOfDamage".equals(sn)) return shieldFluxPerDam;
+                        Class<?> srt = sm.getReturnType();
+                        if (srt == boolean.class) return false;
+                        if (srt == int.class) return 0;
+                        if (srt == float.class) return 0f;
+                        return null;
+                    });
+
+            final ShipSystemAPI phaseProxy = isPhaseShip
+                    ? (ShipSystemAPI) Proxy.newProxyInstance(
+                    ShipSystemAPI.class.getClassLoader(),
+                    new Class<?>[]{ShipSystemAPI.class},
+                    (pp, pm, pa) -> {
+                        String pn = pm.getName();
+                        if ("getId".equals(pn)) return "phasecloak";
+                        if ("isActive".equals(pn) || "isOn".equals(pn)) return phased;
+                        Class<?> prt = pm.getReturnType();
+                        if (prt == boolean.class) return false;
+                        if (prt == int.class) return 0;
+                        if (prt == float.class) return 0f;
+                        return null;
+                    })
+                    : null;
 
             return (ShipAPI) Proxy.newProxyInstance(
                     ShipAPI.class.getClassLoader(),
@@ -201,16 +531,50 @@ public class SimArena {
                         if ("getOwner".equals(n)) return owner;
                         if ("isAlive".equals(n)) return alive;
                         if ("isHulk".equals(n)) return !alive;
-                        if ("isExpired".equals(n) || "isRetreating".equals(n) || "isFighter".equals(n)
-                                || "isDrone".equals(n) || "isStation".equals(n) || "isStationModule".equals(n)
-                                || "isAlly".equals(n) || "isPhased".equals(n)) {
+                        if ("isPhased".equals(n)) return detailedCombatModel && phased;
+                        if ("getShield".equals(n)) return detailedCombatModel ? shieldProxy : null;
+                        if ("getPhaseCloak".equals(n)) return detailedCombatModel ? phaseProxy : null;
+                        if (detailedCombatModel && "isFrigate".equals(n)) return hullSize == HullSize.FRIGATE;
+                        if (detailedCombatModel && "isDestroyer".equals(n)) return hullSize == HullSize.DESTROYER;
+                        if (detailedCombatModel && "isCruiser".equals(n)) return hullSize == HullSize.CRUISER;
+                        if (detailedCombatModel && "isCapital".equals(n)) return hullSize == HullSize.CAPITAL_SHIP;
+                        if ("isExpired".equals(n) || "isRetreating".equals(n) || "isDirectRetreat".equals(n)
+                                || "isFighter".equals(n) || "isDrone".equals(n) || "isStation".equals(n)
+                                || "isStationModule".equals(n) || "isAlly".equals(n) || "isShuttlePod".equals(n)) {
                             return Boolean.FALSE;
                         }
                         if ("getLocation".equals(n)) return location;
                         if ("getVelocity".equals(n)) return velocity;
                         if ("getFacing".equals(n)) return facing;
+                        if (detailedCombatModel && "getAngularVelocity".equals(n)) return angularVelocity;
                         if ("getFluxLevel".equals(n)) return fluxLevel;
                         if ("getHullLevel".equals(n)) return hullLevel;
+                        if (detailedCombatModel && "getHitpoints".equals(n)) return Math.max(0f, hullLevel * maxHullHp);
+                        if (detailedCombatModel && "getMaxHitpoints".equals(n)) return maxHullHp;
+                        if (detailedCombatModel && "getShipTarget".equals(n)) return shipTarget;
+                        if (detailedCombatModel && "setShipTarget".equals(n)) {
+                            shipTarget = (a != null && a.length > 0 && a[0] instanceof ShipAPI) ? (ShipAPI) a[0] : null;
+                            return null;
+                        }
+                        if (detailedCombatModel && "getFluxTracker".equals(n)) {
+                            return Proxy.newProxyInstance(
+                                    com.fs.starfarer.api.combat.FluxTrackerAPI.class.getClassLoader(),
+                                    new Class<?>[]{com.fs.starfarer.api.combat.FluxTrackerAPI.class},
+                                    (fp, fm, fa) -> {
+                                        String fn = fm.getName();
+                                        if ("isOverloadedOrVenting".equals(fn) || "isOverloaded".equals(fn)) return overloadTimer > 0f;
+                                        if ("getOverloadTimeRemaining".equals(fn)) return overloadTimer;
+                                        if ("getFluxLevel".equals(fn)) return fluxLevel;
+                                        if ("getMaxFlux".equals(fn)) return maxFluxCap;
+                                        if ("getCurrFlux".equals(fn)) return fluxLevel * maxFluxCap;
+                                        if ("getHardFlux".equals(fn)) return fluxLevel * maxFluxCap * hardFluxFraction;
+                                        Class<?> frt = fm.getReturnType();
+                                        if (frt == boolean.class) return false;
+                                        if (frt == float.class) return 0f;
+                                        if (frt == int.class) return 0;
+                                        return null;
+                                    });
+                        }
                         if ("getHullSize".equals(n)) return hullSize;
                         if ("getMaxSpeed".equals(n)) return maxSpeed;
                         if ("getAIFlags".equals(n)) return aiFlags;
@@ -266,6 +630,63 @@ public class SimArena {
     public BattleGroupState enemyGroup;
     public final CombatEngineAPI engineProxy;
     public final ScenarioRecording recording;
+    public boolean fogOfWarEnabled = false;
+    public float baseShipSightRadius = 3000f;
+    private final java.util.Map<Object, float[]> customFogRevealsSide0 = new java.util.LinkedHashMap<>();
+    private final java.util.Map<Object, float[]> customFogRevealsSide1 = new java.util.LinkedHashMap<>();
+
+    public void enableFogOfWar() {
+        this.fogOfWarEnabled = true;
+    }
+
+    public void clearCustomFogReveals() {
+        customFogRevealsSide0.clear();
+        customFogRevealsSide1.clear();
+    }
+
+    public boolean isPointVisibleToSide(int observerSide, float x, float y) {
+        if (!fogOfWarEnabled) return true;
+        if (observerSide != 0 && observerSide != 1) return true;
+        float sightSq = baseShipSightRadius * baseShipSightRadius;
+        for (int i = 0, n = ships.size(); i < n; i++) {
+            SimShipState s = ships.get(i);
+            if (!s.alive || s.owner != observerSide) continue;
+            float dx = x - s.location.x;
+            float dy = y - s.location.y;
+            if (dx * dx + dy * dy <= sightSq) {
+                return true;
+            }
+        }
+        for (int i = 0, n = objectives.size(); i < n; i++) {
+            BattleObjectiveAPI obj = objectives.get(i);
+            if (obj == null || obj.getOwner() != observerSide || obj.getLocation() == null) continue;
+            float dx = x - obj.getLocation().x;
+            float dy = y - obj.getLocation().y;
+            if (dx * dx + dy * dy <= 2000f * 2000f) {
+                return true;
+            }
+        }
+        java.util.Map<Object, float[]> reveals = (observerSide == 1) ? customFogRevealsSide1 : customFogRevealsSide0;
+        if (!reveals.isEmpty()) {
+            for (float[] r : reveals.values()) {
+                float dx = x - r[0];
+                float dy = y - r[1];
+                if (dx * dx + dy * dy <= r[2] * r[2]) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public boolean isEntityVisibleToSide(int observerSide, CombatEntityAPI entity) {
+        if (!fogOfWarEnabled) return true;
+        if (entity == null) return false;
+        if (entity.getOwner() == observerSide) return true;
+        Vector2f loc = entity.getLocation();
+        if (loc == null) return false;
+        return isPointVisibleToSide(observerSide, loc.x, loc.y);
+    }
 
     public SimArena(String title, String description, BattleGroupState playerGroup, BattleGroupState enemyGroup) {
         this.title = title;
@@ -320,15 +741,8 @@ public class SimArena {
                     return null;
                 });
 
-        final FogOfWarAPI fogProxy = (FogOfWarAPI) Proxy.newProxyInstance(
-                FogOfWarAPI.class.getClassLoader(),
-                new Class<?>[]{FogOfWarAPI.class},
-                (p, m, a) -> {
-                    if ("isVisible".equals(m.getName())) return Boolean.TRUE;
-                    Class<?> rt = m.getReturnType();
-                    if (rt == boolean.class) return true;
-                    return null;
-                });
+        final FogOfWarAPI fogProxy0 = createFogProxyForSide(0);
+        final FogOfWarAPI fogProxy1 = createFogProxyForSide(1);
 
         return (CombatEngineAPI) Proxy.newProxyInstance(
                 CombatEngineAPI.class.getClassLoader(),
@@ -346,13 +760,52 @@ public class SimArena {
                         return list;
                     }
                     if ("getAiGridShips".equals(n) || "getShipGrid".equals(n)) return gridProxy;
-                    if ("getFogOfWar".equals(n)) return fogProxy;
+                    if ("getFogOfWar".equals(n)) {
+                        int side = (a != null && a.length > 0 && a[0] instanceof Integer) ? (Integer) a[0] : 0;
+                        return (side == 1) ? fogProxy1 : fogProxy0;
+                    }
                     if ("getObjectives".equals(n)) return objectives;
                     if ("isUIAutopilotOn".equals(n)) return Boolean.TRUE;
                     Class<?> rt = m.getReturnType();
                     if (rt == boolean.class) return false;
                     if (rt == int.class) return 0;
                     if (rt == float.class) return 0f;
+                    return null;
+                });
+    }
+
+    private FogOfWarAPI createFogProxyForSide(final int side) {
+        return (FogOfWarAPI) Proxy.newProxyInstance(
+                FogOfWarAPI.class.getClassLoader(),
+                new Class<?>[]{FogOfWarAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getPlayerId".equals(n)) return side;
+                    if ("revealAroundPoint".equals(n) && a != null && a.length >= 4) {
+                        Object key = a[0] != null ? a[0] : p;
+                        float rx = ((Number) a[1]).floatValue();
+                        float ry = ((Number) a[2]).floatValue();
+                        float rad = ((Number) a[3]).floatValue();
+                        java.util.Map<Object, float[]> map = (side == 1) ? customFogRevealsSide1 : customFogRevealsSide0;
+                        map.put(key, new float[]{rx, ry, rad});
+                        return null;
+                    }
+                    if ("isVisible".equals(n) && a != null && a.length > 0) {
+                        if (!fogOfWarEnabled) return Boolean.TRUE;
+                        if (a.length == 2 && a[0] instanceof Number && a[1] instanceof Number) {
+                            return isPointVisibleToSide(side, ((Number) a[0]).floatValue(), ((Number) a[1]).floatValue());
+                        }
+                        if (a[0] instanceof Vector2f) {
+                            Vector2f v = (Vector2f) a[0];
+                            return v != null && isPointVisibleToSide(side, v.x, v.y);
+                        }
+                        if (a[0] instanceof CombatEntityAPI) {
+                            return isEntityVisibleToSide(side, (CombatEntityAPI) a[0]);
+                        }
+                        return Boolean.TRUE;
+                    }
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return true;
                     return null;
                 });
     }

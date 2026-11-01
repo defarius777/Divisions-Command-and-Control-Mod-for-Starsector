@@ -1,8 +1,11 @@
 package divisionai;
 
 import com.fs.starfarer.api.Global;
+import com.fs.starfarer.api.combat.BaseCombatLayeredRenderingPlugin;
 import com.fs.starfarer.api.combat.BaseEveryFrameCombatPlugin;
+import com.fs.starfarer.api.combat.CombatEngineLayers;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
+import com.fs.starfarer.api.combat.CombatFleetManagerAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ViewportAPI;
 import com.fs.starfarer.api.input.InputEventAPI;
@@ -12,7 +15,11 @@ import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionState;
 import org.apache.log4j.Logger;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 
 /**
@@ -42,8 +49,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private DivisionTacticalMapOverlay tacticalOverlay;
     private DivisionDeploymentDialogOrganizer deploymentOrganizer;
     private DynamicBattleMusicController musicController;
-    private DivisionState passiveContactGroup;
+    private final List<DivisionState> passiveContactGroups = new ArrayList<>();
+    private final List<DivisionState> passiveEnemyContactGroups = new ArrayList<>();
     private BattleGroupState side0OpposingView;
+    private BattleGroupState side1OpposingView;
 
     private float divisionTimer = 0f;
     private float otcTimer = 0f;
@@ -51,6 +60,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private boolean loggedPlayerOtcInit = false;
     private boolean loggedAlliedAiOtcInit = false;
     private boolean loggedEnemyOtcInit = false;
+    private boolean preRenderHookAttached = false;
+    private CombatEngineAPI preRenderHookEngine = null;
 
     @Override
     public void init(CombatEngineAPI engine) {
@@ -61,8 +72,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.loggedEnemyOtcInit = false;
         this.divisionTimer = 0f;
         this.otcTimer = 0f;
-        this.passiveContactGroup = null;
+        this.passiveContactGroups.clear();
+        this.passiveEnemyContactGroups.clear();
         this.side0OpposingView = null;
+        this.side1OpposingView = null;
         this.tacticalOverlay = new DivisionTacticalMapOverlay(engine);
         this.deploymentOrganizer = new DivisionDeploymentDialogOrganizer();
         this.musicController = new DynamicBattleMusicController();
@@ -70,6 +83,65 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (engine != null) {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
         }
+        this.preRenderHookAttached = false;
+        ensurePreRenderDeploymentHook();
+    }
+
+    /**
+     * Vanilla's deployment dialog spawns ships inside CombatState's widget-panel advance, which runs AFTER every
+     * EveryFrameCombatPlugin.advance on that frame and BEFORE the frame renders. A lowest-layer
+     * CombatLayeredRenderingPlugin renders before any ship sprite, so placing new waves here puts them in their
+     * doctrinal formation on the exact frame they first appear (no vanilla spawn grid is ever drawn).
+     */
+    private void ensurePreRenderDeploymentHook() {
+        if (engine == null) return;
+        if (preRenderHookAttached && preRenderHookEngine == engine) return;
+        try {
+            if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) return;
+        } catch (Throwable ignored) {
+            return;
+        }
+        final DivisionAICombatPlugin owner = this;
+        final CombatEngineAPI hookEngine = engine;
+        engine.addLayeredRenderingPlugin(new BaseCombatLayeredRenderingPlugin(CombatEngineLayers.BELOW_PLANETS) {
+            @Override
+            public EnumSet<CombatEngineLayers> getActiveLayers() {
+                return EnumSet.of(CombatEngineLayers.BELOW_PLANETS);
+            }
+
+            @Override
+            public float getRenderRadius() {
+                return 1.0e7f;
+            }
+
+            @Override
+            public boolean isExpired() {
+                return owner.engine != hookEngine;
+            }
+
+            @Override
+            public void render(CombatEngineLayers layer, com.fs.starfarer.api.combat.ViewportAPI viewport) {
+                owner.interceptBeforeRender();
+            }
+        });
+        preRenderHookAttached = true;
+        preRenderHookEngine = engine;
+    }
+
+    /** Runs the deployment-wave interception from render hooks (before ships are drawn). */
+    void interceptBeforeRender() {
+        try {
+            if (engine == null || !initializedBattle || engine.isCombatOver()) return;
+            interceptNewlyDeployedWaves(engine.getTotalElapsedTime(false));
+        } catch (Throwable t) {
+            LOG.warn("[DivisionAI] Pre-render deployment interception failed: " + t);
+        }
+    }
+
+    @Override
+    public void renderInWorldCoords(ViewportAPI viewport) {
+        // Fallback in case the layered hook could not be attached
+        interceptBeforeRender();
     }
 
     @Override
@@ -105,6 +177,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             tacticalOverlay.setEngine(engine);
         }
         tacticalOverlay.ensureAttachedToWarroomUI();
+        ensurePreRenderDeploymentHook();
 
         if (!initializedBattle) {
             CommanderProfile playerCmdr = DivisionAutoFormer.resolveOtc(engine, 0);
@@ -180,6 +253,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         if (divisionTimer >= DIVISION_EVAL_INTERVAL) {
             divisionTimer = 0f;
+            long tickStartNs = System.nanoTime();
+            long markSyncNs = 0L, markTelemetryNs = 0L, markViewNs = 0L, markOtcNs = 0L, markDivNs = 0L, markVoidNs = 0L;
 
             // 1. Partition eligible combat hulls into Player (!isAlly), Allied AI (isAlly), and Enemy (owner == 1)
             List<ShipAPI> playerHulls = new ArrayList<>();
@@ -217,6 +292,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     enemyGroup,
                     enemyHulls);
 
+            markSyncNs = System.nanoTime();
             boolean playerHasDivisions = !playerGroup.divisions.isEmpty();
             boolean alliedAiHasDivisions = !alliedAiGroup.divisions.isEmpty();
             boolean enemyHasDivisions = !enemyGroup.divisions.isEmpty();
@@ -269,50 +345,62 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             // 2. Update telemetry ONLY for active battlegroups
             if (playerHasDivisions) {
                 OtcAI.updateTelemetry(engine, playerGroup);
-                OtcAI.applyInitialFleetFormationDeployment(engine, playerGroup, enemyGroup, now);
-                OtcAI.updateTelemetry(engine, playerGroup);
+                boolean placedWave = OtcAI.applyInitialFleetFormationDeployment(engine, playerGroup, enemyGroup, now);
+                if (placedWave) {
+                    OtcAI.updateTelemetry(engine, playerGroup);
+                }
             }
             if (alliedAiHasDivisions) {
                 OtcAI.updateTelemetry(engine, alliedAiGroup);
-                OtcAI.applyInitialFleetFormationDeployment(engine, alliedAiGroup, enemyGroup, now);
-                OtcAI.updateTelemetry(engine, alliedAiGroup);
+                boolean placedWave = OtcAI.applyInitialFleetFormationDeployment(engine, alliedAiGroup, enemyGroup, now);
+                if (placedWave) {
+                    OtcAI.updateTelemetry(engine, alliedAiGroup);
+                }
             }
             if (enemyHasDivisions) {
                 OtcAI.updateTelemetry(engine, enemyGroup);
-                OtcAI.applyInitialFleetFormationDeployment(engine, enemyGroup, playerGroup, now);
-                OtcAI.updateTelemetry(engine, enemyGroup);
+                boolean placedWave = OtcAI.applyInitialFleetFormationDeployment(engine, enemyGroup, playerGroup, now);
+                if (placedWave) {
+                    OtcAI.updateTelemetry(engine, enemyGroup);
+                }
             }
+            markTelemetryNs = System.nanoTime();
 
-            // Build a passive Side-0 opposing threat view for enemyGroup so Enemy OTC/Division Commanders can still
-            // spot and fight unassigned player ships even when the player fleet has 0 divisions.
+            // Build passive opposing threat views for both sides so OTC/Division Commanders can always spot, fix,
+            // and hunt down independent/unassigned opposing ships (even when all enemy divisions are destroyed or
+            // when fighting a 0%-organization fleet)!
             BattleGroupState side0OpposingView = buildSide0OpposingViewForEnemy(playerHulls);
+            BattleGroupState side1OpposingView = buildSide1OpposingViewForPlayer(enemyHulls);
+            markViewNs = System.nanoTime();
 
             // 3. Run OTC strategy ONLY for battlegroups that have at least 1 division
             boolean anyNewDivs = !newPlayerDivs.isEmpty() || !newAlliedAiDivs.isEmpty() || !newEnemyDivs.isEmpty();
             if (otcTimer >= OTC_EVAL_INTERVAL || anyNewDivs) {
                 otcTimer = 0f;
-                if (playerHasDivisions) {
-                    OtcAI.evaluateOtcStrategy(engine, playerGroup, enemyGroup, now);
+                if (playerHasDivisions && !side1OpposingView.divisions.isEmpty()) {
+                    OtcAI.evaluateOtcStrategy(engine, playerGroup, side1OpposingView, now);
                 }
-                if (alliedAiHasDivisions) {
-                    OtcAI.evaluateOtcStrategy(engine, alliedAiGroup, enemyGroup, now);
+                if (alliedAiHasDivisions && !side1OpposingView.divisions.isEmpty()) {
+                    OtcAI.evaluateOtcStrategy(engine, alliedAiGroup, side1OpposingView, now);
                 }
                 if (enemyHasDivisions && !side0OpposingView.divisions.isEmpty()) {
                     OtcAI.evaluateOtcStrategy(engine, enemyGroup, side0OpposingView, now);
                 }
             }
 
+            markOtcNs = System.nanoTime();
             // 4. Run Division Commander tactical evaluation ONLY for battlegroups that have at least 1 division
             if (playerHasDivisions) {
-                DivisionCommanderAI.evaluateAndExecuteDivisions(engine, playerGroup, enemyGroup, now);
+                DivisionCommanderAI.evaluateAndExecuteDivisions(engine, playerGroup, side1OpposingView, now);
             }
             if (alliedAiHasDivisions) {
-                DivisionCommanderAI.evaluateAndExecuteDivisions(engine, alliedAiGroup, enemyGroup, now);
+                DivisionCommanderAI.evaluateAndExecuteDivisions(engine, alliedAiGroup, side1OpposingView, now);
             }
             if (enemyHasDivisions && !side0OpposingView.divisions.isEmpty()) {
                 DivisionCommanderAI.evaluateAndExecuteDivisions(engine, enemyGroup, side0OpposingView, now);
             }
 
+            markDivNs = System.nanoTime();
             // 5. Update active Voidstrike instantiation, multi-division merging, and return cleanup
             BattlefieldFirepowerEvaluator.updateVoidstrikes(
                     engine,
@@ -320,6 +408,22 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     alliedAiGroup,
                     enemyGroup,
                     now);
+            markVoidNs = System.nanoTime();
+            long totalMs = (markVoidNs - tickStartNs) / 1000000L;
+            if (totalMs >= 5L) {
+                LOG.info(String.format(
+                        "[DivisionAI] C2 tick %d ms (now=%.2fs): sync=%.1fms telemetry=%.1fms views=%.1fms otc=%.1fms divisions=%.1fms voidstrikes=%.1fms | divs=%d/%d/%d ships=%d roses=%d",
+                        totalMs, now,
+                        (markSyncNs - tickStartNs) / 1e6f,
+                        (markTelemetryNs - markSyncNs) / 1e6f,
+                        (markViewNs - markTelemetryNs) / 1e6f,
+                        (markOtcNs - markViewNs) / 1e6f,
+                        (markDivNs - markOtcNs) / 1e6f,
+                        (markVoidNs - markDivNs) / 1e6f,
+                        playerGroup.divisions.size(), alliedAiGroup.divisions.size(), enemyGroup.divisions.size(),
+                        engine.getShips() != null ? engine.getShips().size() : 0,
+                        BattlefieldFirepowerEvaluator.getRoseCount()));
+            }
         }
 
         // Advance dynamic engagement-driven battle music every frame
@@ -334,13 +438,49 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         maintainPlayerHudStatus();
     }
 
+    private static MethodHandle mhExecuteAdds;
+    private static boolean mhExecuteAddsResolved = false;
+
+    private static void flushPendingEngineAdds(CombatEngineAPI engine) {
+        if (engine == null) return;
+        try {
+            boolean hasUnaddedDeployed = false;
+            for (int side = 0; side <= 1; side++) {
+                CombatFleetManagerAPI fm = engine.getFleetManager(side);
+                if (fm == null || fm.getDeployedCopyDFM() == null) continue;
+                for (com.fs.starfarer.api.combat.DeployedFleetMemberAPI dfm : fm.getDeployedCopyDFM()) {
+                    if (dfm == null || dfm.isFighterWing()) continue;
+                    ShipAPI s = dfm.getShip();
+                    if (s != null && !s.isAlive() && !s.isHulk() && !s.isExpired() && s.getFullTimeDeployed() <= 5.0f) {
+                        hasUnaddedDeployed = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasUnaddedDeployed) return;
+            if (!mhExecuteAddsResolved) {
+                mhExecuteAddsResolved = true;
+                try {
+                    mhExecuteAdds = MethodHandles.lookup().findVirtual(
+                            engine.getClass(), "executeAdds", MethodType.methodType(void.class));
+                } catch (Throwable ignored) {
+                }
+            }
+            if (mhExecuteAdds != null) {
+                mhExecuteAdds.invoke(engine);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     /**
-     * Detects any newly deployed combat ships on their first unpaused frame and invokes
-     * {@link OtcAI#hijackNewlyDeployedWaveIntoFormation} so fleets and divisions enter the battlefield
+     * Detects any newly deployed combat ships on their first frame (including while paused right after clicking Deploy)
+     * and invokes {@link OtcAI#hijackNewlyDeployedWaveIntoFormation} so fleets and divisions enter the battlefield
      * under travel drive already formed up in their Fleet-Wide and Intra-Division formations.
      */
     private void interceptNewlyDeployedWaves(float now) {
         if (engine == null || engine.getShips() == null) return;
+        flushPendingEngineAdds(engine);
         List<ShipAPI> newPlayerWave = null;
         List<ShipAPI> newAlliedWave = null;
         List<ShipAPI> newEnemyWave = null;
@@ -349,7 +489,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             if (!DivisionAutoFormer.isEligibleCombatHull(s)) continue;
             String id = s.getId();
             if (id == null) continue;
-            if (s.getFullTimeDeployed() > 1.25f) continue;
+            // Vanilla CombatFleetManager.new pre-advances newly instantiated ships 10 x 0.2s = 2.0s at creation!
+            if (s.getFullTimeDeployed() > 5.0f) continue;
             if (s.getOwner() == 0) {
                 if (s.isAlly()) {
                     if (alliedAiGroup != null && !alliedAiGroup.formationSpawnHijackedShipIds.contains(id)) {
@@ -388,6 +529,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
 
         if (newPlayerWave != null && playerGroup != null) {
+            PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
+            if (doctrine != null) {
+                playerGroup.authority = doctrine.getOtcAuthority();
+                playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
+                playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
+                playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
+            }
             List<DivisionState> formed = DivisionAutoFormer.syncPlayerPermanentDivisionsOnly(engine, playerGroup, playerHulls);
             for (DivisionState d : formed) {
                 DivisionCombatLog.logDivisionFormed(engine, d, now);
@@ -397,6 +545,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 OtcAI.hijackNewlyDeployedWaveIntoFormation(engine, playerGroup, enemyGroup, newPlayerWave, now);
                 OtcAI.updateTelemetry(engine, playerGroup);
             } else {
+                // Divisions were just synced; ships with no division stay on vanilla AI
                 for (ShipAPI s : newPlayerWave) {
                     if (s != null && s.getId() != null) playerGroup.formationSpawnHijackedShipIds.add(s.getId());
                 }
@@ -416,6 +565,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 OtcAI.hijackNewlyDeployedWaveIntoFormation(engine, alliedAiGroup, enemyGroup, newAlliedWave, now);
                 OtcAI.updateTelemetry(engine, alliedAiGroup);
             } else {
+                // Divisions were just synced; ships with no division stay on vanilla AI
                 for (ShipAPI s : newAlliedWave) {
                     if (s != null && s.getId() != null) alliedAiGroup.formationSpawnHijackedShipIds.add(s.getId());
                 }
@@ -432,6 +582,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 OtcAI.hijackNewlyDeployedWaveIntoFormation(engine, enemyGroup, playerGroup, newEnemyWave, now);
                 OtcAI.updateTelemetry(engine, enemyGroup);
             } else {
+                // Divisions were just synced; ships with no division stay on vanilla AI
                 for (ShipAPI s : newEnemyWave) {
                     if (s != null && s.getId() != null) enemyGroup.formationSpawnHijackedShipIds.add(s.getId());
                 }
@@ -458,36 +609,21 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         List<ShipAPI> unassignedPlayerHulls = new ArrayList<>();
         for (ShipAPI s : playerHulls) {
-            if (s != null && s.isAlive() && !s.isHulk() && !playerGroup.shipIdToDivision.containsKey(s.getId())) {
+            if (s != null && s.isAlive() && !s.isHulk()
+                    && !playerGroup.shipIdToDivision.containsKey(s.getId())
+                    && OtcAI.isShipVisibleToSide(engine, 1, s)) {
                 unassignedPlayerHulls.add(s);
             }
         }
 
         if (!unassignedPlayerHulls.isEmpty()) {
-            ShipAPI lead = unassignedPlayerHulls.get(0);
-            float bestFp = -1f;
-            for (ShipAPI s : unassignedPlayerHulls) {
-                float fp = ShipCapabilityProfile.resolveShipFpStrength(s);
-                if (fp > bestFp) {
-                    bestFp = fp;
-                    lead = s;
-                }
-            }
-            // Reuse one contact-group object so enemy taskings and strike plans aimed at it stay stable across ticks
-            if (passiveContactGroup == null) {
-                CommanderProfile dummyCmdr = new CommanderProfile(lead.getCaptain(), "Player Fleet");
-                passiveContactGroup = new DivisionState(
-                        "unassigned_player_contacts",
-                        0,
-                        99,
-                        DivisionArchetype.CRUISER_DIVISION,
-                        "Player Unassigned Element",
-                        dummyCmdr);
-            }
-            passiveContactGroup.flagship = lead;
-            passiveContactGroup.members.clear();
-            passiveContactGroup.members.addAll(unassignedPlayerHulls);
-            view.divisions.add(passiveContactGroup);
+            populateSpatialContactClusters(
+                    unassignedPlayerHulls,
+                    passiveContactGroups,
+                    view,
+                    0,
+                    "unassigned_player_contacts_",
+                    "Player Unassigned ");
         }
 
         if (!view.divisions.isEmpty()) {
@@ -495,6 +631,122 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
         return view;
     }
+
+    /**
+     * Constructs a passive read-only opposing BattleGroupState for playerGroup & alliedAiGroup evaluation containing:
+     *  - All active divisions in enemyGroup
+     *  - A passive contact-tracking group for any independent/unassigned enemy ships (never issued orders, never rendered)
+     */
+    private BattleGroupState buildSide1OpposingViewForPlayer(List<ShipAPI> enemyHulls) {
+        if (side1OpposingView == null) {
+            side1OpposingView = new BattleGroupState(1, enemyGroup.otc);
+        }
+        BattleGroupState view = side1OpposingView;
+        view.otc = enemyGroup.otc;
+        view.missionContext = enemyGroup.missionContext;
+        view.divisions.clear();
+        view.shipIdToDivision.clear();
+        view.divisions.addAll(enemyGroup.divisions);
+        view.shipIdToDivision.putAll(enemyGroup.shipIdToDivision);
+
+        List<ShipAPI> unassignedEnemyHulls = new ArrayList<>();
+        for (ShipAPI s : enemyHulls) {
+            if (s != null && s.isAlive() && !s.isHulk()
+                    && !enemyGroup.shipIdToDivision.containsKey(s.getId())
+                    && OtcAI.isShipVisibleToSide(engine, 0, s)) {
+                unassignedEnemyHulls.add(s);
+            }
+        }
+
+        if (!unassignedEnemyHulls.isEmpty()) {
+            populateSpatialContactClusters(
+                    unassignedEnemyHulls,
+                    passiveEnemyContactGroups,
+                    view,
+                    1,
+                    "unassigned_enemy_contacts_",
+                    "Independent Contact ");
+        }
+
+        if (!view.divisions.isEmpty()) {
+            OtcAI.updateTelemetry(engine, view);
+        }
+        return view;
+    }
+
+    /**
+     * Groups unassigned/independent opposing ships into spatial contact clusters (up to 5 ships within 1200u)
+     * so OTC and Division Commanders perceive realistic local threat centroids and EHP rather than a single
+     * map-wide 20-ship mega-division.
+     */
+    public static void populateSpatialContactClusters(
+            List<ShipAPI> unassignedHulls,
+            List<DivisionState> pool,
+            BattleGroupState view,
+            int side,
+            String idPrefix,
+            String namePrefix) {
+        if (unassignedHulls == null || unassignedHulls.isEmpty()) return;
+        List<ShipAPI> remaining = new ArrayList<>(unassignedHulls);
+        int clusterIdx = 0;
+        while (!remaining.isEmpty()) {
+            // Seed cluster with the heaviest remaining ship
+            int bestSeedIdx = 0;
+            float bestFp = -1f;
+            for (int i = 0; i < remaining.size(); i++) {
+                ShipAPI s = remaining.get(i);
+                float fp = ShipCapabilityProfile.resolveShipFpStrength(s);
+                if (fp > bestFp) {
+                    bestFp = fp;
+                    bestSeedIdx = i;
+                }
+            }
+            ShipAPI lead = remaining.remove(bestSeedIdx);
+            List<ShipAPI> cluster = new ArrayList<>();
+            cluster.add(lead);
+
+            // Greedily add up to 4 nearest unassigned ships within 1200u of the seed ship
+            while (cluster.size() < 5 && !remaining.isEmpty()) {
+                int nearestIdx = -1;
+                float nearestDist = 1200f;
+                for (int i = 0; i < remaining.size(); i++) {
+                    ShipAPI cand = remaining.get(i);
+                    float dx = cand.getLocation().x - lead.getLocation().x;
+                    float dy = cand.getLocation().y - lead.getLocation().y;
+                    float d = (float) Math.sqrt(dx * dx + dy * dy);
+                    if (d <= nearestDist) {
+                        nearestDist = d;
+                        nearestIdx = i;
+                    }
+                }
+                if (nearestIdx < 0) break;
+                cluster.add(remaining.remove(nearestIdx));
+            }
+
+            while (pool.size() <= clusterIdx) {
+                int num = pool.size() + 1;
+                CommanderProfile dummyCmdr = new CommanderProfile(lead.getCaptain(), namePrefix + num);
+                pool.add(new DivisionState(
+                        idPrefix + num,
+                        side,
+                        90 + num,
+                        DivisionArchetype.CRUISER_DIVISION,
+                        namePrefix + num,
+                        dummyCmdr));
+            }
+            DivisionState contactDiv = pool.get(clusterIdx++);
+            contactDiv.flagship = lead;
+            contactDiv.members.clear();
+            contactDiv.members.addAll(cluster);
+            DivisionAutoFormer.recomputeDivisionCapabilities(contactDiv);
+            for (ShipAPI s : cluster) {
+                view.shipIdToDivision.put(s.getId(), contactDiv);
+            }
+            view.divisions.add(contactDiv);
+        }
+    }
+
+
 
     private void maintainPlayerHudStatus() {
         if (playerGroup == null || playerGroup.divisions.isEmpty()) {

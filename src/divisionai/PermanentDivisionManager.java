@@ -291,7 +291,7 @@ public class PermanentDivisionManager {
                 "Auto (Tactical)",
                 "Auto",
                 null,
-                "Commander selects setpiece pass dynamically from T-S-F-C."),
+                "Commander picks the setpiece pass to suit the situation."),
         NONE(
                 "None (Standard)",
                 "Std",
@@ -357,7 +357,7 @@ public class PermanentDivisionManager {
         AUTO_DOCTRINAL(
                 "Auto (Tactical)",
                 "Auto",
-                "OTC selects multi-division setpieces dynamically from T-S-F-C."),
+                "OTC picks a multi-division setpiece to suit the situation, or none."),
         NONE(
                 "None (Standard)",
                 "Std",
@@ -379,7 +379,7 @@ public class PermanentDivisionManager {
                 "Wave",
                 "Successive divisions execute timed Wedge Lance Charges along the same breach axis to crack enemy strongpoints."),
         CONVERGENCE_KILL_BOX(
-                "Convergence Kill-Box",
+                "Kill-Box",
                 "KillBox",
                 "Surrounds an isolated enemy division on multiple vectors with synchronized Salvo Passes and Voidstrikes.");
 
@@ -412,7 +412,7 @@ public class PermanentDivisionManager {
                 "Auto (Tactical Line)",
                 "Auto",
                 DivisionFormation.LINE_ABREAST,
-                "Divisions station by Van / Center / Rear doctrine and T-S-F-C geometry."),
+                "Divisions station by Van / Center / Rear doctrine and the battlefield geometry."),
         GRAND_LINE_ABREAST(
                 "Grand Line Abreast",
                 "G. Line",
@@ -2304,11 +2304,60 @@ public class PermanentDivisionManager {
         public Integer customVoidstrikeSquadronWidth = null;
         public DivisionSetpieceAttack customSetpieceAttack = null;
 
+        /**
+         * Members temporarily absent from the player fleet (disabled awaiting recovery, mid
+         * restoration / D-mod repair hull swap, loaned out by a mod script, etc.). Keyed by member
+         * id -> {fingerprint, sinceTimestamp}. They are re-attached automatically when the same id
+         * (or an unassigned ship with the same name + base hull) reappears, and only expire after
+         * DORMANT_MEMBER_EXPIRY_DAYS of continuous absence.
+         */
+        public Map<String, DormantMember> dormantMembers = new LinkedHashMap<>();
+
         public PermanentDivisionSpec(String id, String name, DivisionArchetype archetype) {
             this.id = id;
             this.name = name;
             this.archetype = archetype != null ? archetype : DivisionArchetype.CRUISER_DIVISION;
         }
+    }
+
+    public static class DormantMember {
+        public String fingerprint;
+        public long sinceTimestamp;
+        public int slotIndex;
+
+        public DormantMember(String fingerprint, long sinceTimestamp, int slotIndex) {
+            this.fingerprint = fingerprint;
+            this.sinceTimestamp = sinceTimestamp;
+            this.slotIndex = slotIndex;
+        }
+    }
+
+    /** Campaign days a missing member is remembered before it is considered permanently gone. */
+    static final float DORMANT_MEMBER_EXPIRY_DAYS = 90f;
+
+    static String memberFingerprint(FleetMemberAPI m) {
+        if (m == null) return null;
+        String name = m.getShipName();
+        String base = null;
+        ShipHullSpecAPI hs = m.getHullSpec();
+        if (hs != null) {
+            base = hs.getBaseHullId();
+            if (base == null || base.isEmpty()) base = hs.getHullId();
+            // D-mod hulls are "<base>_default_D" in vanilla and mods; strip so restore/damage keeps identity.
+            if (base != null && base.endsWith("_default_D")) base = base.substring(0, base.length() - "_default_D".length());
+        }
+        if (name == null || name.trim().isEmpty() || base == null) return null;
+        String trimmed = name.trim();
+        // Ignore fleet-prefix differences ("RDS Xilonen" vs "Xilonen").
+        int sp = trimmed.indexOf(' ');
+        if (sp >= 2 && sp <= 4) {
+            String head = trimmed.substring(0, sp);
+            if (head.equals(head.toUpperCase()) && !head.equals(head.toLowerCase())) {
+                trimmed = trimmed.substring(sp + 1).trim();
+            }
+        }
+        String n = trimmed.toLowerCase();
+        return n + "|" + base.toLowerCase();
     }
 
     public static VoidstrikeTargetObservance resolveEffectiveVoidstrikeObservance(
@@ -3285,6 +3334,7 @@ public class PermanentDivisionManager {
 
         PermanentDivisionSpec target = null;
         for (PermanentDivisionSpec spec : specs) {
+            if (spec.dormantMembers != null) spec.dormantMembers.remove(memberId);
             if (spec.memberIds.remove(memberId)) {
                 ensureValidFlagship(spec, fleet);
                 recalculateDivisionStandoffRangeFromGuns(spec, fleet);
@@ -3312,6 +3362,7 @@ public class PermanentDivisionManager {
         for (PermanentDivisionSpec spec : specs) {
             if (divisionId.equals(spec.id)) {
                 spec.memberIds.remove(memberId);
+                if (spec.dormantMembers != null) spec.dormantMembers.remove(memberId);
                 ensureValidFlagship(spec, fleet);
                 recalculateDivisionStandoffRangeFromGuns(spec, fleet);
                 break;
@@ -4364,18 +4415,101 @@ public class PermanentDivisionManager {
                 || size == HullSize.CAPITAL_SHIP;
     }
 
+    /**
+     * Never permanently drops a member just because it is missing from the fleet this instant.
+     * Disabled ships awaiting recovery, ships mid D-mod repair/restoration (vanilla refit restore,
+     * IndEvo Restoration Docks, SiC/ShipMastery/StarshipLegends scripts that swap hull specs or
+     * re-add the member) and post-battle dialogs all make a member transiently absent. Missing ids
+     * are moved to {@link PermanentDivisionSpec#dormantMembers} and restored to their old slot
+     * when the ship returns (same id, or an unassigned ship with the same name + base hull).
+     */
     private static void pruneRemovedFleetMembers(List<PermanentDivisionSpec> specs, CampaignFleetAPI fleet) {
         if (specs == null || fleet == null || fleet.getFleetData() == null) return;
         Map<String, FleetMemberAPI> currentById = mapFleetMembersById(fleet);
+        long nowTs = 0L;
+        SectorAPI sector = Global.getSector();
+        boolean haveClock = sector != null && sector.getClock() != null;
+        if (haveClock) nowTs = sector.getClock().getTimestamp();
+
+        Set<String> assignedEverywhere = new HashSet<>();
         for (PermanentDivisionSpec spec : specs) {
+            for (String id : spec.memberIds) {
+                if (currentById.containsKey(id)) assignedEverywhere.add(id);
+            }
+        }
+
+        for (PermanentDivisionSpec spec : specs) {
+            if (spec.dormantMembers == null) spec.dormantMembers = new LinkedHashMap<>();
+            // 1) Move missing members to dormant (keep fingerprint + slot for restoration).
             for (int i = spec.memberIds.size() - 1; i >= 0; i--) {
                 String mId = spec.memberIds.get(i);
                 if (!currentById.containsKey(mId)) {
                     spec.memberIds.remove(i);
+                    if (!spec.dormantMembers.containsKey(mId)) {
+                        String fp = lookupLastKnownFingerprint(mId);
+                        spec.dormantMembers.put(mId, new DormantMember(fp, nowTs, i));
+                        LOG.info("[DivisionAI] \"" + spec.name + "\": member " + mId
+                                + (fp != null ? " (" + fp + ")" : "")
+                                + " temporarily absent from fleet; holding its division slot.");
+                    }
                 }
             }
+            // 2) Restore dormant members that came back.
+            if (!spec.dormantMembers.isEmpty()) {
+                List<String> dormantIds = new ArrayList<>(spec.dormantMembers.keySet());
+                for (String dId : dormantIds) {
+                    DormantMember dm = spec.dormantMembers.get(dId);
+                    String restoredId = null;
+                    if (currentById.containsKey(dId) && !assignedEverywhere.contains(dId)) {
+                        restoredId = dId;
+                    } else if (dm != null && dm.fingerprint != null) {
+                        for (FleetMemberAPI m : currentById.values()) {
+                            if (assignedEverywhere.contains(m.getId())) continue;
+                            if (!isEligibleFleetMember(m)) continue;
+                            if (dm.fingerprint.equals(memberFingerprint(m))) {
+                                restoredId = m.getId();
+                                break;
+                            }
+                        }
+                    }
+                    if (restoredId != null) {
+                        spec.dormantMembers.remove(dId);
+                        if (spec.memberIds.size() < MAX_DIVISION_SIZE && !spec.memberIds.contains(restoredId)) {
+                            int slot = dm != null ? Math.max(0, Math.min(dm.slotIndex, spec.memberIds.size())) : spec.memberIds.size();
+                            spec.memberIds.add(slot, restoredId);
+                            assignedEverywhere.add(restoredId);
+                            if (dId.equals(spec.flagshipMemberId) || spec.flagshipMemberId == null) {
+                                spec.flagshipMemberId = restoredId;
+                            }
+                            LOG.info("[DivisionAI] \"" + spec.name + "\": restored member " + restoredId
+                                    + (restoredId.equals(dId) ? "" : " (was " + dId + ")") + " to its division.");
+                        }
+                    } else if (dm != null && haveClock && dm.sinceTimestamp != 0L
+                            && sector.getClock().getElapsedDaysSince(dm.sinceTimestamp) > DORMANT_MEMBER_EXPIRY_DAYS) {
+                        spec.dormantMembers.remove(dId);
+                    }
+                }
+            }
+            // Keep the previous flagship if it is merely dormant: ensureValidFlagship would pick a new one,
+            // and the restore step above re-promotes it on return.
             ensureValidFlagship(spec, fleet);
+            rememberFingerprints(spec, currentById);
         }
+    }
+
+    /** Last fingerprint seen per member id (session cache, also persisted with dormant entries). */
+    private static final Map<String, String> LAST_KNOWN_FINGERPRINT = new HashMap<>();
+
+    private static void rememberFingerprints(PermanentDivisionSpec spec, Map<String, FleetMemberAPI> currentById) {
+        for (String id : spec.memberIds) {
+            FleetMemberAPI m = currentById.get(id);
+            String fp = memberFingerprint(m);
+            if (fp != null) LAST_KNOWN_FINGERPRINT.put(id, fp);
+        }
+    }
+
+    private static String lookupLastKnownFingerprint(String memberId) {
+        return LAST_KNOWN_FINGERPRINT.get(memberId);
     }
 
     private static void ensureValidFlagship(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
@@ -4511,6 +4645,24 @@ public class PermanentDivisionManager {
                 spec.customSetpieceAttack = DivisionSetpieceAttack.fromId((String) cSetpiece, null);
             }
 
+            Object dormantObj = map.get("dormantMembers");
+            if (dormantObj instanceof List) {
+                for (Object d : (List<?>) dormantObj) {
+                    if (!(d instanceof Map)) continue;
+                    Map<?, ?> dmap = (Map<?, ?>) d;
+                    Object did = dmap.get("id");
+                    if (!(did instanceof String)) continue;
+                    Object dfp = dmap.get("fp");
+                    Object dts = dmap.get("since");
+                    Object dslot = dmap.get("slot");
+                    spec.dormantMembers.put((String) did, new DormantMember(
+                            dfp instanceof String ? (String) dfp : null,
+                            dts instanceof Number ? ((Number) dts).longValue() : 0L,
+                            dslot instanceof Number ? ((Number) dslot).intValue() : 99));
+                    if (dfp instanceof String) LAST_KNOWN_FINGERPRINT.put((String) did, (String) dfp);
+                }
+            }
+
             Object membersObj = map.get("memberIds");
             if (membersObj instanceof List) {
                 for (Object m : (List<?>) membersObj) {
@@ -4535,6 +4687,18 @@ public class PermanentDivisionManager {
             map.put("doctrine", spec.doctrine != null ? spec.doctrine.name() : DoctrineOption.ADAPTIVE.name());
             map.put("flagshipMemberId", spec.flagshipMemberId);
             map.put("memberIds", new ArrayList<>(spec.memberIds));
+            if (spec.dormantMembers != null && !spec.dormantMembers.isEmpty()) {
+                List<Map<String, Object>> dl = new ArrayList<>();
+                for (Map.Entry<String, DormantMember> e : spec.dormantMembers.entrySet()) {
+                    Map<String, Object> dm = new HashMap<>();
+                    dm.put("id", e.getKey());
+                    if (e.getValue().fingerprint != null) dm.put("fp", e.getValue().fingerprint);
+                    dm.put("since", Long.valueOf(e.getValue().sinceTimestamp));
+                    dm.put("slot", Integer.valueOf(e.getValue().slotIndex));
+                    dl.add(dm);
+                }
+                map.put("dormantMembers", dl);
+            }
             if (spec.customStationSpacing != null) map.put("customIntraSpacing", spec.customStationSpacing);
             if (spec.customDivisionInterval != null) map.put("customInterSpacing", spec.customDivisionInterval);
             if (spec.customStandoffRange != null) map.put("customLineStandoff", spec.customStandoffRange);
