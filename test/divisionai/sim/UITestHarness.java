@@ -268,7 +268,7 @@ public class UITestHarness {
                 "Admiral Kanta", "HSS Bismark", false);
         String alphaOtcTitle = DivisionDeploymentDialogOrganizer.formatFleetCommandOtcTitle(
                 "Alpha Core", "tts radiant", true);
-        boolean titlesOk = "Officer in Tactical Command: Admiral Kanta".equals(stdOtcTitle)
+        boolean titlesOk = "Admiral Kanta".equals(stdOtcTitle)
                 && "ORDO COGITATOR/MASTER: TTS RADIANT".equals(alphaOtcTitle)
                 && DivisionDeploymentDialogOrganizer.ALPHA_CORE_PORTRAIT_STRETCH_ASPECT >= 1.65f
                 && Math.abs(DivisionDeploymentDialogOrganizer.MASTER_JITTER_PERIOD_SECONDS - 0.50f) < 1e-4f;

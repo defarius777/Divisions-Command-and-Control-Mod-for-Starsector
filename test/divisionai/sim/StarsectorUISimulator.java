@@ -620,6 +620,25 @@ public class StarsectorUISimulator {
                 }
             }
 
+            // Fleet formation compass sprites (128px gold/navy full set)
+            boolean allFleetFormationSpritesOk = true;
+            int verifiedFleetSprites = 0;
+            for (PermanentDivisionManager.FleetWideFormation fw : PermanentDivisionManager.FleetWideFormation.values()) {
+                String path = DivisionDeploymentDialogOrganizer.getFleetFormationSpritePath(fw);
+                SpriteAPI sp = FleetDoctrineDialog.loadFormationSpriteSafe(null, path);
+                if (path == null || sp == null || sp.getTextureId() <= 0
+                        || sp.getWidth() != 128f || sp.getHeight() != 128f) {
+                    allFleetFormationSpritesOk = false;
+                } else {
+                    sp.setSize(96f, 96f);
+                    sp.setCenter(48f, 48f);
+                    if (Math.abs(sp.getCenterX() - 48f) > 0.01f || Math.abs(sp.getCenterY() - 48f) > 0.01f) {
+                        allFleetFormationSpritesOk = false;
+                    }
+                    verifiedFleetSprites++;
+                }
+            }
+
             // 2. Build 16 real SimFleetMembers & Campaign Sector persistent data for 1:1 UI simulation
             g hullSpec = allocateWithoutConstructor(g.class);
             for (Field f : g.class.getDeclaredFields()) {
@@ -662,8 +681,9 @@ public class StarsectorUISimulator {
                         return null;
                     });
 
-            boolean stdDeploymentOk = simulateDeploymentWindow1To1(hullSpec, humanCmdr, false);
-            boolean alphaDeploymentOk = simulateDeploymentWindow1To1(hullSpec, alphaCoreCmdr, true);
+            boolean stdDeploymentOk = simulateDeploymentWindow1To1(hullSpec, humanCmdr, false, true);
+            boolean alphaDeploymentOk = simulateDeploymentWindow1To1(hullSpec, alphaCoreCmdr, true, true);
+            boolean midBattleDeploymentOk = simulateDeploymentWindow1To1(hullSpec, humanCmdr, false, false);
 
             // 3. Simulate FleetDoctrineDialog 1:1 across all 3 tabs
             boolean fleetDoctrineDialogOk = simulateFleetDoctrineDialog1To1();
@@ -673,21 +693,26 @@ public class StarsectorUISimulator {
 
             boolean allSimOk = allFormationSpritesCenteredOk
                     && verifiedSprites == 22
+                    && allFleetFormationSpritesOk
+                    && verifiedFleetSprites == 8
                     && stdDeploymentOk
                     && alphaDeploymentOk
+                    && midBattleDeploymentOk
                     && fleetDoctrineDialogOk
                     && divisionEditorDialogOk;
 
             res.record(
                     allSimOk,
-                    "1:1 Starsector Obfuscated UI Simulation (oO0O Deployment Window, FleetDoctrineDialog, DivisionEditorDialog, .fnt Metrics & 22 Formation Sprites)",
+                    "1:1 Starsector Obfuscated UI Simulation (Deployment formation selector, campaign dialogs & 30 formation sprites)",
                     String.format(
                             Locale.ROOT,
-                            "sprites22=%b(%d), deployStd=%b, deployAlpha=%b, doctrineDialog=%b, editorDialog=%b",
-                            allFormationSpritesCenteredOk,
+                            "divisionSprites=%d, fleetSprites=%d(%b), deployStd=%b, deployAlpha=%b, deployMidBattle=%b, doctrineDialog=%b, editorDialog=%b",
                             verifiedSprites,
+                            verifiedFleetSprites,
+                            allFleetFormationSpritesOk,
                             stdDeploymentOk,
                             alphaDeploymentOk,
+                            midBattleDeploymentOk,
                             fleetDoctrineDialogOk,
                             divisionEditorDialogOk));
         } catch (Throwable t) {
@@ -707,7 +732,8 @@ public class StarsectorUISimulator {
     private static boolean simulateDeploymentWindow1To1(
             g hullSpec,
             final PersonAPI flagshipCaptain,
-            boolean expectAlphaCore) throws Throwable {
+            boolean expectAlphaCore,
+            boolean preBattle) throws Throwable {
 
         final List<FleetMember> allMembers = new ArrayList<>();
         final List<FleetMember> deployedMembers = new ArrayList<>();
@@ -722,7 +748,7 @@ public class StarsectorUISimulator {
                     hullSpec,
                     i == 0 ? flagshipCaptain : null);
             allMembers.add(m);
-            if (i < 2) deployedMembers.add(m);
+            if (!preBattle && i < 2) deployedMembers.add(m);
             else reserveMembers.add(m);
         }
 
@@ -902,8 +928,47 @@ public class StarsectorUISimulator {
         List<LabelAPI> fcLabels = new ArrayList<>();
         List<ButtonAPI> fcButtons = new ArrayList<>();
         collectLabelsAndButtonsRecursive(fcPanel, fcLabels, fcButtons);
-        if (fcLabels.size() < 9) {
+        if (fcLabels.size() < 6) {
             System.out.println("FAIL fcLabels size: " + fcLabels.size());
+            return false;
+        }
+
+        String[] bannedDeploymentReadout = {
+                "ENGAGEMENT:", "COHESION:", "DIRECTIVE:", "FORCE & DP",
+                "Protocol:", "Setpiece:", "TACTICAL DOMAINS", "TELEMETRY"
+        };
+        boolean sawEngagement = false;
+        boolean sawCohesion = false;
+        LabelAPI alphaMasterLabel = null;
+        LabelAPI alphaShipLineLabel = null;
+        for (LabelAPI lbl : fcLabels) {
+            String txt = lbl.getText();
+            if (txt == null) continue;
+            if (txt.startsWith("ENGAGEMENT")) sawEngagement = true;
+            if (txt.startsWith("COHESION")) sawCohesion = true;
+            if ("MASTER".equals(txt)) alphaMasterLabel = lbl;
+            if ("HSS INVICTUS".equals(txt)) alphaShipLineLabel = lbl;
+            if (preBattle) {
+                for (String banned : bannedDeploymentReadout) {
+                    if (txt.contains(banned)) {
+                        System.out.println("FAIL word-salad deployment label: " + txt);
+                        return false;
+                    }
+                }
+            }
+        }
+        if (preBattle && fcButtons.size() != 3) {
+            System.out.println("FAIL fleet formation selector buttons: " + fcButtons.size());
+            return false;
+        }
+        if (!preBattle && (fcButtons.size() != 0 || !sawEngagement || !sawCohesion)) {
+            System.out.println("FAIL post-deployment live status: buttons=" + fcButtons.size()
+                    + ", engagement=" + sawEngagement + ", cohesion=" + sawCohesion);
+            return false;
+        }
+        if (expectAlphaCore && (alphaMasterLabel == null || alphaShipLineLabel == null
+                || alphaShipLineLabel.getPosition().getY() >= alphaMasterLabel.getPosition().getY() - 10f)) {
+            System.out.println("FAIL Alpha Core OTC is not typeset as a separate two-line title");
             return false;
         }
 
@@ -925,7 +990,7 @@ public class StarsectorUISimulator {
                 return false;
             }
             // Left section labels (excluding top banner) must not cross divX into right section
-            boolean isTopBanner = txt.startsWith("FLEET COMMAND  //");
+            boolean isTopBanner = txt.startsWith("FLEET COMMAND");
             if (!isTopBanner && lp.getX() < divX && (lp.getX() + lp.getWidth()) > divX + 2f) {
                 System.out.println("FAIL fcLabel crosses divX: '" + txt + "' x=" + lp.getX() + " w=" + lp.getWidth() + " divX=" + divX);
                 return false;
@@ -936,6 +1001,63 @@ public class StarsectorUISimulator {
                 System.out.println("FAIL fcLabel renderedW > width: '" + txt + "' renderedW=" + renderedW + " w=" + lp.getWidth());
                 return false;
             }
+        }
+
+        // Exercise the real arrow buttons and formation-entry toggle through CustomPanelPlugin.advance
+        if (preBattle) {
+        PermanentDivisionManager.FleetWideFormation initialFw =
+                PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation();
+        ButtonAPI nextFormationButton = null;
+        ButtonAPI prevFormationButton = null;
+        ButtonAPI formationEntryButton = null;
+        for (ButtonAPI btn : fcButtons) {
+            if (">".equals(btn.getText())) nextFormationButton = btn;
+            if ("<".equals(btn.getText())) prevFormationButton = btn;
+            if (btn.getText() != null && btn.getText().startsWith("Formation entry:")) {
+                formationEntryButton = btn;
+            }
+        }
+        if (nextFormationButton == null || prevFormationButton == null || formationEntryButton == null) {
+            System.out.println("FAIL missing fleet formation arrow/entry buttons");
+            return false;
+        }
+        nextFormationButton.setChecked(true);
+        fcPanel.advance(0.1f);
+        PermanentDivisionManager.FleetWideFormation[] fwValues =
+                PermanentDivisionManager.FleetWideFormation.values();
+        PermanentDivisionManager.FleetWideFormation expectedFw =
+                fwValues[(initialFw.ordinal() + 1) % fwValues.length];
+        boolean formationLabelUpdated = false;
+        for (LabelAPI lbl : fcLabels) {
+            if (expectedFw.displayName.equals(lbl.getText())) formationLabelUpdated = true;
+        }
+        if (PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation() != expectedFw
+                || playerGroup.fleetWideFormation != expectedFw
+                || playerGroup.activeFleetWideFormation != expectedFw
+                || !formationLabelUpdated) {
+            System.out.println("FAIL next fleet formation button did not update doctrine/group/name: initial=" + initialFw
+                    + " expected=" + expectedFw
+                    + " doctrine=" + PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation()
+                    + " group=" + playerGroup.fleetWideFormation
+                    + " active=" + playerGroup.activeFleetWideFormation
+                    + " labelUpdated=" + formationLabelUpdated);
+            return false;
+        }
+        prevFormationButton.setChecked(true);
+        fcPanel.advance(0.1f);
+        if (PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation() != initialFw
+                || playerGroup.fleetWideFormation != initialFw) {
+            System.out.println("FAIL previous fleet formation button did not restore initial formation");
+            return false;
+        }
+        boolean entryBefore = PermanentDivisionManager.getFleetDoctrine().isDeployInFleetFormation();
+        formationEntryButton.setChecked(true);
+        fcPanel.advance(0.1f);
+        if (PermanentDivisionManager.getFleetDoctrine().isDeployInFleetFormation() == entryBefore
+                || playerGroup.deployInFleetFormation == entryBefore) {
+            System.out.println("FAIL formation entry toggle did not update doctrine/group");
+            return false;
+        }
         }
 
         // 3. Audit every division row header card in reservesGrid

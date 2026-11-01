@@ -1403,7 +1403,7 @@ public class DivisionDeploymentDialogOrganizer {
 
     /**
      * Formats the primary OTC commander title in the Fleet Command section (Requirements D & E):
-     *  - Standard OTC: "Officer in Tactical Command: [Commander Name]"
+     *  - Standard OTC: commander name only (the surrounding panel already establishes command).
      *  - Alpha Core-equipped Flagship: "ORDO COGITATOR/MASTER: <SHIP NAME IN ALL CAPS>"
      */
     public static String formatFleetCommandOtcTitle(
@@ -1419,7 +1419,7 @@ public class DivisionDeploymentDialogOrganizer {
         String name = (commanderName != null && !commanderName.trim().isEmpty())
                 ? commanderName.trim()
                 : "Fleet Commander";
-        return "Officer in Tactical Command: " + name;
+        return name;
     }
 
     /**
@@ -1440,14 +1440,14 @@ public class DivisionDeploymentDialogOrganizer {
         int hy = (int) ((h >>> 8) & 0xFF);
 
         // Non-zero step offset that changes every 0.5 seconds
-        float stepDx = ((hx % 2 == 0) ? 1f : -1f) * (1.4f + (hx / 255f) * 2.2f);
-        float stepDy = ((hy % 2 == 0) ? 1f : -1f) * (0.8f + (hy / 255f) * 1.6f);
+        float stepDx = ((hx % 2 == 0) ? 1f : -1f) * (0.55f + (hx / 255f) * 1.05f);
+        float stepDy = ((hy % 2 == 0) ? 1f : -1f) * (0.30f + (hy / 255f) * 0.75f);
 
         // Sharp high-frequency burst during the first 30% (150ms) of each 0.5s period
         if (phaseInBucket < 0.30) {
             long subTick = (long) Math.floor(elapsedRealSeconds * 60.0);
-            float oscX = ((subTick % 2L == 0L) ? 1f : -1f) * 2.2f;
-            float oscY = (((subTick / 2L) % 2L == 0L) ? 1f : -1f) * 1.3f;
+            float oscX = ((subTick % 2L == 0L) ? 1f : -1f) * 1.20f;
+            float oscY = (((subTick / 2L) % 2L == 0L) ? 1f : -1f) * 0.80f;
             return new float[]{stepDx + oscX, stepDy + oscY};
         }
         return new float[]{stepDx, stepDy};
@@ -1586,7 +1586,6 @@ public class DivisionDeploymentDialogOrganizer {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private CustomPanelAPI createFleetCommandPanel(
             final CombatEngineAPI engine,
             final Object fdd,
@@ -1595,6 +1594,7 @@ public class DivisionDeploymentDialogOrganizer {
             final List<FleetMemberAPI> deployedMembers,
             final List<FleetMemberAPI> reserveMembers) {
 
+        final boolean preBattle = deployedMembers == null || deployedMembers.isEmpty();
         final FleetMemberAPI flagshipMember = resolvePlayerFlagshipMember(deployedMembers, reserveMembers);
         final boolean isAlphaCore = isFlagshipAlphaCoreEquipped(engine, flagshipMember, playerGroup);
 
@@ -1631,9 +1631,7 @@ public class DivisionDeploymentDialogOrganizer {
                 && !resolvedPerson.getPortraitSprite().trim().isEmpty())
                 ? resolvedPerson.getPortraitSprite().trim()
                 : ALPHA_CORE_PORTRAIT_SPRITE;
-        if (isAlphaCore) {
-            candidatePortrait = ALPHA_CORE_PORTRAIT_SPRITE;
-        }
+        if (isAlphaCore) candidatePortrait = ALPHA_CORE_PORTRAIT_SPRITE;
         final String portraitSpritePath = candidatePortrait;
 
         final float topBarH = 20f;
@@ -1645,333 +1643,73 @@ public class DivisionDeploymentDialogOrganizer {
         final float leftSectionW = Math.round(width * 0.50f);
         final float rightSectionX = leftSectionW + 8f;
         final float rightSectionW = Math.max(260f, width - rightSectionX - 6f);
-
-        final CustomPanelAPI[] panelRef = new CustomPanelAPI[1];
-
-        // Create labels for Left Side (Commander Title & Doctrinal Telemetry)
-        final LabelAPI headerBannerLabel = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        headerBannerLabel.setColor(isAlphaCore ? new Color(110, 235, 255, 255) : new Color(255, 215, 80, 255));
-
-        final LabelAPI otcStandardTitleLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
-        otcStandardTitleLabel.setColor(new Color(255, 222, 90, 255));
-
-        final LabelAPI cogPrefixLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
-        cogPrefixLabel.setColor(new Color(120, 235, 255, 255));
-
-        final LabelAPI cogMasterGhostLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
-        cogMasterGhostLabel.setColor(new Color(255, 65, 95, 185));
-
-        final LabelAPI cogMasterLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
-        cogMasterLabel.setColor(new Color(235, 252, 255, 255));
-
-        final LabelAPI cogSuffixLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
-        cogSuffixLabel.setColor(new Color(120, 235, 255, 255));
-
-        final LabelAPI leftSub1Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        leftSub1Label.setColor(new Color(215, 230, 242, 245));
-
-        final LabelAPI leftSub2Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        leftSub2Label.setColor(new Color(175, 215, 235, 240));
-
-        final LabelAPI leftSub3Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        leftSub3Label.setColor(new Color(165, 205, 225, 235));
-
-        final LabelAPI leftSub4Label = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        leftSub4Label.setColor(new Color(130, 255, 175, 240));
-
-        // Create labels for Right Side (Fleet-Level Status Panel)
-        final LabelAPI statusHeaderLabel = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        statusHeaderLabel.setColor(new Color(255, 215, 80, 255));
-
-        final LabelAPI engagementDomainLabel = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        engagementDomainLabel.setColor(new Color(235, 245, 255, 255));
-
-        final LabelAPI commitmentDomainLabel = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        commitmentDomainLabel.setColor(new Color(220, 238, 250, 250));
-
-        final LabelAPI cohesionDomainLabel = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        cohesionDomainLabel.setColor(new Color(210, 235, 245, 245));
-
-        final LabelAPI directiveDomainLabel = Global.getSettings().createLabel("", Fonts.DEFAULT_SMALL);
-        directiveDomainLabel.setColor(new Color(135, 255, 175, 245));
-
         final float textLeftX = portraitX + portraitW + 12f;
-        final float titleTopY = topBarH + 6f;
+        final float titleTopY = topBarH + 10f;
+        final float maxLeftTextW = Math.max(160f, leftSectionW - textLeftX - 6f);
         final float[] masterBasePos = new float[]{textLeftX, titleTopY};
         final PositionAPI[] masterPosRef = new PositionAPI[1];
         final PositionAPI[] masterGhostPosRef = new PositionAPI[1];
-
-        // Live telemetry values updated each frame for OpenGL status bars
+        final CustomPanelAPI[] panelRef = new CustomPanelAPI[1];
+        final ButtonAPI[] prevButtonRef = new ButtonAPI[1];
+        final ButtonAPI[] nextButtonRef = new ButtonAPI[1];
+        final ButtonAPI[] entryButtonRef = new ButtonAPI[1];
         final float[] liveEngagementLevel = new float[]{0f};
         final float[] liveCommitmentRatio = new float[]{0f};
-        final float[] liveCohesionRatio = new float[]{1.0f};
+        final float[] liveCohesionRatio = new float[]{1f};
+
+        final LabelAPI headerBannerLabel = Global.getSettings().createLabel("FLEET COMMAND", Fonts.ORBITRON_12);
+        headerBannerLabel.setColor(isAlphaCore ? new Color(110, 235, 255, 255) : new Color(255, 215, 80, 255));
+        final LabelAPI otcStandardTitleLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_16);
+        otcStandardTitleLabel.setColor(new Color(255, 222, 90, 255));
+        final LabelAPI cogPrefixLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
+        cogPrefixLabel.setColor(new Color(120, 235, 255, 255));
+        final LabelAPI cogMasterGhostLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
+        cogMasterGhostLabel.setColor(new Color(255, 65, 95, 170));
+        final LabelAPI cogMasterLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
+        cogMasterLabel.setColor(new Color(235, 252, 255, 255));
+        final LabelAPI cogSuffixLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_16);
+        cogSuffixLabel.setColor(new Color(150, 238, 255, 255));
+        final LabelAPI flagshipLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        flagshipLabel.setColor(new Color(215, 230, 242, 245));
+        final LabelAPI profileLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        profileLabel.setColor(new Color(175, 215, 235, 240));
+        final LabelAPI selectorHeaderLabel = Global.getSettings().createLabel(
+                preBattle ? "FLEET FORMATION" : "FLEET STATUS", Fonts.ORBITRON_12);
+        selectorHeaderLabel.setColor(new Color(255, 215, 80, 255));
+        selectorHeaderLabel.setAlignment(Alignment.MID);
+        final LabelAPI formationNameLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_16);
+        formationNameLabel.setColor(new Color(235, 245, 255, 255));
+        formationNameLabel.setAlignment(preBattle ? Alignment.MID : Alignment.LMID);
+        final LabelAPI engagementLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        engagementLabel.setColor(new Color(235, 245, 255, 255));
+        final LabelAPI commitmentLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        commitmentLabel.setColor(new Color(225, 238, 248, 250));
+        final LabelAPI cohesionLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        cohesionLabel.setColor(new Color(215, 240, 248, 245));
+        final LabelAPI phaseLabel = Global.getSettings().createLabel("", Fonts.INSIGNIA_LARGE);
+        phaseLabel.setColor(new Color(145, 225, 245, 235));
 
         BaseCustomUIPanelPlugin fcPlugin = new BaseCustomUIPanelPlugin() {
-            @Override
-            public void renderBelow(float alphaMult) {
-                CustomPanelAPI self = panelRef[0];
-                if (self == null || self.getPosition() == null) return;
-                PositionAPI pos = self.getPosition();
-                float x = pos.getX();
-                float y = pos.getY();
-                float w = pos.getWidth();
-                float h = pos.getHeight();
-
-                updateDynamicTelemetryAndJitter();
-
-                Color themeAccent = isAlphaCore
-                        ? new Color(75, 220, 255)
-                        : new Color(245, 200, 65);
-                float ar = themeAccent.getRed() / 255f;
-                float ag = themeAccent.getGreen() / 255f;
-                float ab = themeAccent.getBlue() / 255f;
-
-                GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-                GL11.glDisable(GL11.GL_TEXTURE_2D);
-                GL11.glEnable(GL11.GL_BLEND);
-                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-
-                // 1. Main Fleet Command Bridge Backdrop
-                GL11.glColor4f(0.02f, 0.05f, 0.09f, 0.94f * alphaMult);
-                GL11.glBegin(GL11.GL_QUADS);
-                GL11.glVertex2f(x, y);
-                GL11.glVertex2f(x + w, y);
-                GL11.glVertex2f(x + w, y + h);
-                GL11.glVertex2f(x, y + h);
-                GL11.glEnd();
-
-                // Top Section Header Strip
-                GL11.glColor4f(ar * 0.22f, ag * 0.24f, ab * 0.28f, 0.90f * alphaMult);
-                GL11.glBegin(GL11.GL_QUADS);
-                GL11.glVertex2f(x + 1f, y + h - topBarH);
-                GL11.glVertex2f(x + w - 1f, y + h - topBarH);
-                GL11.glVertex2f(x + w - 1f, y + h - 1f);
-                GL11.glVertex2f(x + 1f, y + h - 1f);
-                GL11.glEnd();
-
-                // Outer Tactical Frame
-                GL11.glLineWidth(1.5f);
-                GL11.glColor4f(ar, ag, ab, 0.72f * alphaMult);
-                GL11.glBegin(GL11.GL_LINE_LOOP);
-                GL11.glVertex2f(x + 1f, y + 1f);
-                GL11.glVertex2f(x + w - 1f, y + 1f);
-                GL11.glVertex2f(x + w - 1f, y + h - 1f);
-                GL11.glVertex2f(x + 1f, y + h - 1f);
-                GL11.glEnd();
-
-                // Vertical divider between Left OTC Portrait/Command Block and Right Fleet Status Panel
-                float divX = x + leftSectionW;
-                GL11.glLineWidth(1.0f);
-                GL11.glColor4f(ar, ag, ab, 0.40f * alphaMult);
-                GL11.glBegin(GL11.GL_LINES);
-                GL11.glVertex2f(divX, y + 6f);
-                GL11.glVertex2f(divX, y + h - topBarH - 4f);
-                GL11.glEnd();
-
-                // Right Status Console Recessed Box
-                float rx = x + rightSectionX;
-                float ry = y + 6f;
-                float rw = rightSectionW;
-                float rh = h - topBarH - 10f;
-                GL11.glColor4f(0.01f, 0.03f, 0.06f, 0.85f * alphaMult);
-                GL11.glBegin(GL11.GL_QUADS);
-                GL11.glVertex2f(rx, ry);
-                GL11.glVertex2f(rx + rw, ry);
-                GL11.glVertex2f(rx + rw, ry + rh);
-                GL11.glVertex2f(rx, ry + rh);
-                GL11.glEnd();
-
-                GL11.glColor4f(ar, ag, ab, 0.32f * alphaMult);
-                GL11.glBegin(GL11.GL_LINE_LOOP);
-                GL11.glVertex2f(rx, ry);
-                GL11.glVertex2f(rx + rw, ry);
-                GL11.glVertex2f(rx + rw, ry + rh);
-                GL11.glVertex2f(rx, ry + rh);
-                GL11.glEnd();
-
-                // Render the 3 Live Fleet-Level Telemetry Bars inside the Right Status Panel
-                float barLeftX = rx + 8f;
-                float barW = Math.max(120f, rw - 16f);
-                float barH = 7f;
-
-                // Bar 1: Engagement Level (0-100%)
-                float engY = y + h - topBarH - 40f;
-                float engVal = Math.max(0f, Math.min(1f, liveEngagementLevel[0]));
-                Color engColor = (engVal >= 0.70f)
-                        ? new Color(255, 85, 70)
-                        : (engVal >= 0.35f ? new Color(255, 200, 65) : new Color(80, 220, 255));
-                renderStatusMeterBar(barLeftX, engY, barW, barH, engVal, engColor, alphaMult);
-
-                // Bar 2: Force & Deployment Commitment
-                float comY = y + h - topBarH - 72f;
-                float comVal = Math.max(0f, Math.min(1f, liveCommitmentRatio[0]));
-                renderStatusMeterBar(barLeftX, comY, barW, barH, comVal, new Color(255, 215, 55), alphaMult);
-
-                // Bar 3: Fleet Cohesion & Combat Readiness
-                float cohY = y + h - topBarH - 104f;
-                float cohVal = Math.max(0f, Math.min(1f, liveCohesionRatio[0]));
-                renderStatusMeterBar(barLeftX, cohY, barW, barH, cohVal, new Color(85, 235, 145), alphaMult);
-
-                // Subtle interactive button frame behind leftSub3 (Fleet Formation selector)
-                float btnX = x + textLeftX - 3f;
-                float btnW = Math.max(120f, leftSectionW - textLeftX - 6f);
-                float btn3Y = y + h - (titleTopY + 58f) - 14f;
-                GL11.glColor4f(ar * 0.16f, ag * 0.22f, ab * 0.28f, 0.72f * alphaMult);
-                GL11.glBegin(GL11.GL_QUADS);
-                GL11.glVertex2f(btnX, btn3Y);
-                GL11.glVertex2f(btnX + btnW, btn3Y);
-                GL11.glVertex2f(btnX + btnW, btn3Y + 15f);
-                GL11.glVertex2f(btnX, btn3Y + 15f);
-                GL11.glEnd();
-                GL11.glColor4f(ar, ag, ab, 0.55f * alphaMult);
-                GL11.glBegin(GL11.GL_LINE_LOOP);
-                GL11.glVertex2f(btnX, btn3Y);
-                GL11.glVertex2f(btnX + btnW, btn3Y);
-                GL11.glVertex2f(btnX + btnW, btn3Y + 15f);
-                GL11.glVertex2f(btnX, btn3Y + 15f);
-                GL11.glEnd();
-
-                GL11.glPopAttrib();
-
-                // 2. Render Commander Portrait (stretched-out Alpha Core face when isAlphaCore, or standard square)
-                float pCenterX = x + portraitX + portraitW * 0.5f;
-                float pCenterY = y + (h - topBarH) * 0.5f;
-                try {
-                    SpriteAPI portraitSprite = Global.getSettings().getSprite(portraitSpritePath);
-                    if (portraitSprite != null) {
-                        float prevW = portraitSprite.getWidth();
-                        float prevH = portraitSprite.getHeight();
-                        float prevCx = portraitSprite.getCenterX();
-                        float prevCy = portraitSprite.getCenterY();
-                        Color prevColor = portraitSprite.getColor();
-                        float prevAlpha = portraitSprite.getAlphaMult();
-                        portraitSprite.setSize(portraitW, portraitH);
-                        portraitSprite.setCenter(portraitW * 0.5f, portraitH * 0.5f);
-                        portraitSprite.setColor(Color.WHITE);
-                        portraitSprite.setAlphaMult(0.96f * alphaMult);
-                        portraitSprite.renderAtCenter(pCenterX, pCenterY);
-                        portraitSprite.setSize(prevW, prevH);
-                        portraitSprite.setCenter(prevCx, prevCy);
-                        if (prevColor != null) portraitSprite.setColor(prevColor);
-                        portraitSprite.setAlphaMult(prevAlpha);
-                    }
-                } catch (Throwable ignored) {
-                }
-
-                // Portrait Bezel & Scanlines
-                GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-                GL11.glDisable(GL11.GL_TEXTURE_2D);
-                GL11.glEnable(GL11.GL_BLEND);
-                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-
-                float px0 = pCenterX - portraitW * 0.5f;
-                float py0 = pCenterY - portraitH * 0.5f;
-                if (isAlphaCore) {
-                    // Subtle cogitator scanlines across stretched Alpha Core portrait
-                    GL11.glLineWidth(1.0f);
-                    GL11.glColor4f(0.30f, 0.90f, 1.0f, 0.14f * alphaMult);
-                    GL11.glBegin(GL11.GL_LINES);
-                    for (float sy = py0 + 4f; sy < py0 + portraitH - 2f; sy += 5f) {
-                        GL11.glVertex2f(px0 + 1f, sy);
-                        GL11.glVertex2f(px0 + portraitW - 1f, sy);
-                    }
-                    GL11.glEnd();
-                }
-
-                GL11.glLineWidth(2.0f);
-                GL11.glColor4f(ar, ag, ab, 0.92f * alphaMult);
-                GL11.glBegin(GL11.GL_LINE_LOOP);
-                GL11.glVertex2f(px0, py0);
-                GL11.glVertex2f(px0 + portraitW, py0);
-                GL11.glVertex2f(px0 + portraitW, py0 + portraitH);
-                GL11.glVertex2f(px0, py0 + portraitH);
-                GL11.glEnd();
-
-                GL11.glPopAttrib();
-            }
-
-            @Override
-            public void advance(float amount) {
-                updateDynamicTelemetryAndJitter();
-            }
-
-            @Override
-            public void processInput(List<com.fs.starfarer.api.input.InputEventAPI> events) {
-                if (events == null || events.isEmpty()) return;
-                CustomPanelAPI self = panelRef[0];
-                if (self == null || self.getPosition() == null) return;
-                PositionAPI pos = self.getPosition();
-                float px = pos.getX();
-                float py = pos.getY();
-                float ph = pos.getHeight();
-                float rowX0 = px + textLeftX - 4f;
-                float rowX1 = px + leftSectionW - 6f;
-                float row3Y0 = py + ph - (titleTopY + 58f) - 16f;
-                float row3Y1 = row3Y0 + 18f;
-                float row4Y0 = py + ph - (titleTopY + 76f) - 16f;
-                float row4Y1 = row4Y0 + 18f;
-
-                for (com.fs.starfarer.api.input.InputEventAPI ev : events) {
-                    if (ev == null || ev.isConsumed() || !ev.isMouseDownEvent()) continue;
-                    int btn = ev.getEventValue();
-                    if (btn != 0 && btn != 1) continue;
-                    float mx = ev.getX();
-                    float my = ev.getY();
-                    if (mx >= rowX0 && mx <= rowX1 && my >= row3Y0 && my <= row3Y1) {
-                        ev.consume();
-                        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
-                        PermanentDivisionManager.FleetWideFormation[] vals = PermanentDivisionManager.FleetWideFormation.values();
-                        int cur = doc.getFleetWideFormation().ordinal();
-                        int nextIdx = (btn == 0) ? ((cur + 1) % vals.length) : ((cur - 1 + vals.length) % vals.length);
-                        PermanentDivisionManager.FleetWideFormation nextFm = vals[nextIdx];
-                        doc.setFleetWideFormation(nextFm);
-                        doc.setDeployInFleetFormation(true);
-                        if (playerGroup != null) {
-                            playerGroup.fleetWideFormation = nextFm;
-                            playerGroup.activeFleetWideFormation = nextFm;
-                            playerGroup.deployInFleetFormation = true;
-                        }
-                        autoHarmonizePermanentDivisionsToFleetFormation(nextFm);
-                        try {
-                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
-                        } catch (Throwable ignored) {
-                        }
-                        updateDynamicTelemetryAndJitter();
-                        break;
-                    } else if (mx >= rowX0 && mx <= rowX1 && my >= row4Y0 && my <= row4Y1) {
-                        ev.consume();
-                        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
-                        boolean nextDeploy = !doc.isDeployInFleetFormation();
-                        doc.setDeployInFleetFormation(nextDeploy);
-                        if (playerGroup != null) {
-                            playerGroup.deployInFleetFormation = nextDeploy;
-                        }
-                        try {
-                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
-                        } catch (Throwable ignored) {
-                        }
-                        updateDynamicTelemetryAndJitter();
-                        break;
-                    }
+            private void updateSelectorText() {
+                PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+                PermanentDivisionManager.FleetWideFormation fw = (playerGroup != null
+                        && playerGroup.activeFleetWideFormation != null)
+                        ? playerGroup.activeFleetWideFormation
+                        : doc.getFleetWideFormation();
+                formationNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                        fw.displayName, formationNameLabel,
+                        preBattle ? rightSectionW - 92f : rightSectionW - 78f));
+                ButtonAPI entry = entryButtonRef[0];
+                if (preBattle && entry != null) {
+                    entry.setText("Formation entry: " + (doc.isDeployInFleetFormation() ? "On" : "Off"));
+                    if (doc.isDeployInFleetFormation()) entry.highlight();
+                    else entry.unhighlight();
                 }
             }
 
-            private void updateDynamicTelemetryAndJitter() {
-                // Requirement E: Update 0.5-second jitter on "MASTER" using real wall-clock seconds
-                if (isAlphaCore && masterPosRef[0] != null) {
-                    double realSec = System.nanoTime() * 1.0e-9;
-                    float[] jitter = computeMasterJitterOffset(realSec);
-                    masterPosRef[0].inTL(masterBasePos[0] + jitter[0], masterBasePos[1] + jitter[1]);
-                    if (masterGhostPosRef[0] != null) {
-                        masterGhostPosRef[0].inTL(masterBasePos[0] - jitter[0] * 1.25f, masterBasePos[1] - jitter[1]);
-                    }
-                }
-
-                // Compute live Fleet-Level Status Telemetry
+            private void updateLiveStatusText() {
                 float eng = 0f;
-                if (musicController != null) {
-                    eng = Math.max(eng, musicController.getCurrentBattleEngagementLevel());
-                }
+                if (musicController != null) eng = Math.max(eng, musicController.getCurrentBattleEngagementLevel());
                 if (playerGroup != null) {
                     eng = Math.max(eng, Math.max(playerGroup.smoothedEngagementLevel, playerGroup.fleetEngagementLevel));
                 }
@@ -2000,27 +1738,8 @@ public class DivisionDeploymentDialogOrganizer {
                         }
                     }
                 }
-                float selDp = 0f;
-                int selCount = 0;
-                try {
-                    if (fdd != null && fddGetSelectedHandle != null) {
-                        List<FleetMemberAPI> sel = (List<FleetMemberAPI>) fddGetSelectedHandle.invoke(fdd);
-                        if (sel != null) {
-                            for (FleetMemberAPI m : sel) {
-                                if (m != null) {
-                                    selCount++;
-                                    selDp += m.getDeploymentPointsCost();
-                                }
-                            }
-                        }
-                    }
-                } catch (Throwable ignored) {
-                }
+                liveCommitmentRatio[0] = Math.max(0f, Math.min(1f, depDp / Math.max(1f, depDp + resDp)));
 
-                float totalFleetDp = Math.max(1f, depDp + resDp);
-                liveCommitmentRatio[0] = Math.max(0f, Math.min(1f, (depDp + selDp) / totalFleetDp));
-
-                // Cohesion & Readiness across active divisions or fleet members
                 float coh = 1.0f;
                 int activeDivCount = (playerGroup != null) ? playerGroup.divisions.size() : 0;
                 int totalDivSpecs = PermanentDivisionManager.getNonEmptyPermanentDivisions().size();
@@ -2029,7 +1748,8 @@ public class DivisionDeploymentDialogOrganizer {
                     int cnt = 0;
                     for (DivisionState d : playerGroup.divisions) {
                         if (d != null && d.isCombatEffective()) {
-                            float dressScore = Math.max(0.25f, Math.min(1.0f, 1.25f - Math.max(0f, d.stationKeepingRatio - 0.65f) * 0.55f));
+                            float dressScore = Math.max(0.25f, Math.min(1.0f,
+                                    1.25f - Math.max(0f, d.stationKeepingRatio - 0.65f) * 0.55f));
                             float fluxReady = 1.0f - d.avgFluxLevel * 0.65f;
                             sumReady += 0.5f * (dressScore + fluxReady);
                             cnt++;
@@ -2041,158 +1761,405 @@ public class DivisionDeploymentDialogOrganizer {
 
                 String phaseName = (playerGroup != null && playerGroup.currentPhase != null)
                         ? playerGroup.currentPhase.displayName
-                        : "Pre-Battle Marshalling";
-                String engStateTag = (eng >= 0.70f)
-                        ? "DECISIVE BRAWL"
-                        : (eng >= 0.38f ? "GENERAL ENGAGEMENT" : (eng >= 0.12f ? "SKIRMISH CONTACT" : (depCount > 0 ? "MANEUVER / APPROACH" : "PRE-DEPLOYMENT")));
+                        : "Deployment";
+                String engState = (eng >= 0.70f) ? "Decisive brawl"
+                        : (eng >= 0.38f ? "General engagement"
+                        : (eng >= 0.12f ? "Skirmish contact" : "Maneuver"));
+                engagementLabel.setText(String.format(Locale.ROOT, "ENGAGEMENT %.0f%% - %s", eng * 100f, engState));
+                commitmentLabel.setText(String.format(Locale.ROOT, "COMMITTED %.0f%% (%d / %.0f DP)",
+                        liveCommitmentRatio[0] * 100f, depCount, depDp));
+                cohesionLabel.setText(String.format(Locale.ROOT, "COHESION %.0f%% | Divisions %d/%d",
+                        coh * 100f, activeDivCount, Math.max(activeDivCount, totalDivSpecs)));
+                phaseLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                        "PHASE: " + phaseName, phaseLabel, rightSectionW - 20f));
+            }
 
-                float rightTextMaxW = Math.max(180f, rightSectionW - 20f);
-                String engLine = String.format(
-                        Locale.ROOT,
-                        "ENGAGEMENT: %.0f%% [%s] | %s",
-                        eng * 100f,
-                        engStateTag,
-                        phaseName);
-                engagementDomainLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                        engLine, engagementDomainLabel, rightTextMaxW));
+            private void pollButtons() {
+                if (!preBattle) return;
+                ButtonAPI prev = prevButtonRef[0];
+                ButtonAPI next = nextButtonRef[0];
+                ButtonAPI entry = entryButtonRef[0];
+                if (prev != null && prev.isChecked()) {
+                    prev.setChecked(false);
+                    selectFleetFormation(playerGroup, -1);
+                }
+                if (next != null && next.isChecked()) {
+                    next.setChecked(false);
+                    selectFleetFormation(playerGroup, 1);
+                }
+                if (entry != null && entry.isChecked()) {
+                    entry.setChecked(false);
+                    PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+                    boolean enabled = !doc.isDeployInFleetFormation();
+                    PermanentDivisionManager.updateDeployInFleetFormation(enabled);
+                    if (playerGroup != null) playerGroup.deployInFleetFormation = enabled;
+                    playDeploymentButtonSound();
+                }
+                updateSelectorText();
+            }
 
-                float forceRatio = (playerGroup != null && playerGroup.totalEnemyStrength > 1f)
-                        ? playerGroup.forceRatio
-                        : 1.00f;
-                String comLine = String.format(
-                        Locale.ROOT,
-                        "FORCE & DP: Dep %d (%.0f) | Sel +%d (+%.0f) | Res %d (%.0f) | %.2fx",
-                        depCount, depDp, selCount, selDp, resCount, resDp, forceRatio);
-                commitmentDomainLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                        comLine, commitmentDomainLabel, rightTextMaxW));
+            @Override
+            public void advance(float amount) {
+                if (isAlphaCore && masterPosRef[0] != null) {
+                    float[] jitter = computeMasterJitterOffset(System.nanoTime() * 1.0e-9);
+                    masterPosRef[0].inTL(masterBasePos[0] + jitter[0], masterBasePos[1] + jitter[1]);
+                    if (masterGhostPosRef[0] != null) {
+                        masterGhostPosRef[0].inTL(
+                                masterBasePos[0] - jitter[0] * 0.75f,
+                                masterBasePos[1] - jitter[1] * 0.75f);
+                    }
+                }
+                pollButtons();
+                updateSelectorText();
+                if (!preBattle) updateLiveStatusText();
+            }
 
-                String mainEffName = (playerGroup != null && playerGroup.mainEffortDivision != null)
-                        ? playerGroup.mainEffortDivision.displayName
-                        : (totalDivSpecs > 0 ? PermanentDivisionManager.getNonEmptyPermanentDivisions().get(0).name : "Unassigned");
-                String cohLine = String.format(
-                        Locale.ROOT,
-                        "COHESION: %.0f%% Ready | Divs %d/%d | Main: %s",
-                        coh * 100f,
-                        activeDivCount,
-                        Math.max(activeDivCount, totalDivSpecs),
-                        mainEffName);
-                cohesionDomainLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                        cohLine, cohesionDomainLabel, rightTextMaxW));
+            @Override
+            public void renderBelow(float alphaMult) {
+                CustomPanelAPI self = panelRef[0];
+                if (self == null || self.getPosition() == null) return;
+                PositionAPI pos = self.getPosition();
+                float x = pos.getX();
+                float y = pos.getY();
+                float w = pos.getWidth();
+                float h = pos.getHeight();
+                Color themeAccent = isAlphaCore ? new Color(75, 220, 255) : new Color(245, 200, 65);
+                float ar = themeAccent.getRed() / 255f;
+                float ag = themeAccent.getGreen() / 255f;
+                float ab = themeAccent.getBlue() / 255f;
 
-                PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
-                PermanentDivisionManager.FleetWideFormation fw = (playerGroup != null && playerGroup.activeFleetWideFormation != null)
+                GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                GL11.glColor4f(0.02f, 0.05f, 0.09f, 0.94f * alphaMult);
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(x, y);
+                GL11.glVertex2f(x + w, y);
+                GL11.glVertex2f(x + w, y + h);
+                GL11.glVertex2f(x, y + h);
+                GL11.glEnd();
+                GL11.glColor4f(ar * 0.22f, ag * 0.24f, ab * 0.28f, 0.90f * alphaMult);
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(x + 1f, y + h - topBarH);
+                GL11.glVertex2f(x + w - 1f, y + h - topBarH);
+                GL11.glVertex2f(x + w - 1f, y + h - 1f);
+                GL11.glVertex2f(x + 1f, y + h - 1f);
+                GL11.glEnd();
+                GL11.glLineWidth(1.5f);
+                GL11.glColor4f(ar, ag, ab, 0.72f * alphaMult);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(x + 1f, y + 1f);
+                GL11.glVertex2f(x + w - 1f, y + 1f);
+                GL11.glVertex2f(x + w - 1f, y + h - 1f);
+                GL11.glVertex2f(x + 1f, y + h - 1f);
+                GL11.glEnd();
+                float divX = x + leftSectionW;
+                GL11.glLineWidth(1.0f);
+                GL11.glColor4f(ar, ag, ab, 0.40f * alphaMult);
+                GL11.glBegin(GL11.GL_LINES);
+                GL11.glVertex2f(divX, y + 6f);
+                GL11.glVertex2f(divX, y + h - topBarH - 4f);
+                GL11.glEnd();
+                float rx = x + rightSectionX;
+                float ry = y + 6f;
+                float rw = rightSectionW;
+                float rh = h - topBarH - 10f;
+                GL11.glColor4f(0.01f, 0.03f, 0.06f, 0.85f * alphaMult);
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(rx, ry);
+                GL11.glVertex2f(rx + rw, ry);
+                GL11.glVertex2f(rx + rw, ry + rh);
+                GL11.glVertex2f(rx, ry + rh);
+                GL11.glEnd();
+                GL11.glColor4f(ar, ag, ab, 0.32f * alphaMult);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(rx, ry);
+                GL11.glVertex2f(rx + rw, ry);
+                GL11.glVertex2f(rx + rw, ry + rh);
+                GL11.glVertex2f(rx, ry + rh);
+                GL11.glEnd();
+                if (!preBattle) {
+                    float barX = rx + 10f;
+                    float barW = rw - 20f;
+                    renderStatusMeterBar(barX, y + h - topBarH - 62f, barW, 7f,
+                            liveEngagementLevel[0], new Color(90, 215, 255), alphaMult);
+                    renderStatusMeterBar(barX, y + h - topBarH - 90f, barW, 7f,
+                            liveCommitmentRatio[0], new Color(255, 205, 65), alphaMult);
+                    renderStatusMeterBar(barX, y + h - topBarH - 118f, barW, 7f,
+                            liveCohesionRatio[0], new Color(90, 235, 150), alphaMult);
+                }
+                GL11.glPopAttrib();
+
+                float pCenterX = x + portraitX + portraitW * 0.5f;
+                float pCenterY = y + (h - topBarH) * 0.5f;
+                try {
+                    SpriteAPI portraitSprite = Global.getSettings().getSprite(portraitSpritePath);
+                    if (portraitSprite != null) {
+                        float prevW = portraitSprite.getWidth();
+                        float prevH = portraitSprite.getHeight();
+                        float prevCx = portraitSprite.getCenterX();
+                        float prevCy = portraitSprite.getCenterY();
+                        Color prevColor = portraitSprite.getColor();
+                        float prevAlpha = portraitSprite.getAlphaMult();
+                        portraitSprite.setSize(portraitW, portraitH);
+                        portraitSprite.setCenter(portraitW * 0.5f, portraitH * 0.5f);
+                        portraitSprite.setColor(Color.WHITE);
+                        portraitSprite.setAlphaMult(0.96f * alphaMult);
+                        portraitSprite.renderAtCenter(pCenterX, pCenterY);
+                        portraitSprite.setSize(prevW, prevH);
+                        portraitSprite.setCenter(prevCx, prevCy);
+                        if (prevColor != null) portraitSprite.setColor(prevColor);
+                        portraitSprite.setAlphaMult(prevAlpha);
+                    }
+                } catch (Throwable ignored) {
+                }
+                GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                float px0 = pCenterX - portraitW * 0.5f;
+                float py0 = pCenterY - portraitH * 0.5f;
+                if (isAlphaCore) {
+                    GL11.glLineWidth(1.0f);
+                    GL11.glColor4f(0.30f, 0.90f, 1.0f, 0.14f * alphaMult);
+                    GL11.glBegin(GL11.GL_LINES);
+                    for (float sy = py0 + 4f; sy < py0 + portraitH - 2f; sy += 5f) {
+                        GL11.glVertex2f(px0 + 1f, sy);
+                        GL11.glVertex2f(px0 + portraitW - 1f, sy);
+                    }
+                    GL11.glEnd();
+                }
+                GL11.glLineWidth(2.0f);
+                GL11.glColor4f(ar, ag, ab, 0.92f * alphaMult);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(px0, py0);
+                GL11.glVertex2f(px0 + portraitW, py0);
+                GL11.glVertex2f(px0 + portraitW, py0 + portraitH);
+                GL11.glVertex2f(px0, py0 + portraitH);
+                GL11.glEnd();
+                GL11.glPopAttrib();
+
+                PermanentDivisionManager.FleetWideFormation fw = (playerGroup != null
+                        && playerGroup.activeFleetWideFormation != null)
                         ? playerGroup.activeFleetWideFormation
-                        : doc.getFleetWideFormation();
-                float leftMaxW = Math.max(160f, leftSectionW - textLeftX - 10f);
-                String liveSub3 = String.format(Locale.ROOT, "Formation: %s | Setpiece: %s",
-                        doc.getFleetWideFormation().shortName, doc.getMultiDivisionSetpiece().shortName);
-                leftSub3Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(liveSub3, leftSub3Label, leftMaxW));
-                String liveSub4 = String.format(Locale.ROOT, "Protocol: %s",
-                        doc.isDeployInFleetFormation() ? "Zoom-In Formation Entry (Active)" : "Standard Line Entry");
-                leftSub4Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(liveSub4, leftSub4Label, leftMaxW));
-                String directive = (depCount == 0)
-                        ? String.format(Locale.ROOT, "DIRECTIVE: Deploy in %s (%s auth).",
-                        fw.shortName, doc.getOtcAuthority().shortName)
-                        : String.format(Locale.ROOT, "DIRECTIVE: %s on %s - hold %s.",
-                        phaseName, mainEffName, fw.shortName);
-                directiveDomainLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                        directive, directiveDomainLabel, rightTextMaxW));
+                        : PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation();
+                if (preBattle) {
+                    renderFleetFormationIcon(fw, rx + rw * 0.5f, y + h - 108f, 86f, alphaMult);
+                } else {
+                    renderFleetFormationIcon(fw, rx + rw - 30f, y + h - topBarH - 29f, 38f, alphaMult);
+                }
             }
         };
 
         CustomPanelAPI panel = Global.getSettings().createCustom(width, height, fcPlugin);
         panelRef[0] = panel;
+        panel.addComponent((UIComponentAPI) headerBannerLabel).setSize(width - 20f, 16f).inTL(10f, 2f);
 
-        // Populate static & initial text on labels
-        headerBannerLabel.setText(isAlphaCore
-                ? "FLEET COMMAND  //  ORDO COGITATOR CONVERGENCE NEXUS"
-                : "FLEET COMMAND  //  TACTICAL BRIDGE & FORCE TELEMETRY");
-        panel.addComponent((UIComponentAPI) headerBannerLabel)
-                .setSize(width - 20f, 16f)
-                .inTL(10f, 2f);
-
-        float maxLeftTextW = Math.max(160f, leftSectionW - textLeftX - 6f);
+        float flagshipTop = isAlphaCore ? titleTopY + 54f : titleTopY + 31f;
+        float profileTop = isAlphaCore ? titleTopY + 77f : titleTopY + 55f;
         if (isAlphaCore) {
             String prefix = "ORDO COGITATOR/";
             String masterWord = "MASTER";
-            String suffix = ": " + flagshipName.toUpperCase(Locale.ROOT);
-
+            String shipLine = flagshipName.toUpperCase(Locale.ROOT);
             PositionAPI pPre = panel.addComponent((UIComponentAPI) cogPrefixLabel);
             PositionAPI pGhost = panel.addComponent((UIComponentAPI) cogMasterGhostLabel);
             PositionAPI pMas = panel.addComponent((UIComponentAPI) cogMasterLabel);
             PositionAPI pSuf = panel.addComponent((UIComponentAPI) cogSuffixLabel);
-
-            pPre.setSize(maxLeftTextW, 16f).inTL(textLeftX, titleTopY);
+            pPre.setSize(maxLeftTextW, 15f).inTL(textLeftX, titleTopY);
             cogPrefixLabel.setText(prefix);
             float preW = CampaignFleetTooltipOrganizer.measureLineWidth(prefix, cogPrefixLabel);
-
             float remAfterPre = Math.max(40f, maxLeftTextW - preW);
-            pGhost.setSize(remAfterPre, 16f).inTL(textLeftX + preW, titleTopY);
+            pGhost.setSize(remAfterPre, 15f).inTL(textLeftX + preW, titleTopY);
             cogMasterGhostLabel.setText(masterWord);
-
-            pMas.setSize(remAfterPre, 16f).inTL(textLeftX + preW, titleTopY);
+            pMas.setSize(remAfterPre, 15f).inTL(textLeftX + preW, titleTopY);
             cogMasterLabel.setText(masterWord);
-            float masW = CampaignFleetTooltipOrganizer.measureLineWidth(masterWord, cogMasterLabel);
-
-            float remAfterMas = Math.max(40f, maxLeftTextW - preW - masW - 2f);
-            String fittedSuffix = CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                    suffix, cogSuffixLabel, remAfterMas - 4f);
-            pSuf.setSize(remAfterMas, 16f).inTL(textLeftX + preW + masW + 1f, titleTopY);
-            cogSuffixLabel.setText(fittedSuffix);
-
+            pSuf.setSize(maxLeftTextW, 20f).inTL(textLeftX, titleTopY + 24f);
+            cogSuffixLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                    shipLine, cogSuffixLabel, maxLeftTextW - 4f));
             masterBasePos[0] = textLeftX + preW;
             masterBasePos[1] = titleTopY;
             masterPosRef[0] = pMas;
             masterGhostPosRef[0] = pGhost;
         } else {
-            String fullTitle = formatFleetCommandOtcTitle(commanderName, flagshipName, false);
             PositionAPI pTitle = panel.addComponent((UIComponentAPI) otcStandardTitleLabel);
-            pTitle.setSize(maxLeftTextW, 16f).inTL(textLeftX, titleTopY);
+            pTitle.setSize(maxLeftTextW, 20f).inTL(textLeftX, titleTopY);
             otcStandardTitleLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                    fullTitle, otcStandardTitleLabel, maxLeftTextW - 4f));
+                    formatFleetCommandOtcTitle(commanderName, flagshipName, false),
+                    otcStandardTitleLabel, maxLeftTextW - 4f));
         }
 
         PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
-        String personalityDesc = isAlphaCore
-                ? "Alpha Cogitator (Convergence)"
-                : (playerGroup != null && playerGroup.otc != null ? playerGroup.otc.personalityId.toUpperCase(Locale.ROOT) : "STEADY");
+        String personality = isAlphaCore
+                ? "Alpha Core"
+                : (playerGroup != null && playerGroup.otc != null
+                ? playerGroup.otc.personalityId.toUpperCase(Locale.ROOT)
+                : "STEADY");
+        String flagshipLine = String.format(Locale.ROOT, "Flagship: %s (%s)", flagshipName, hullClassName);
+        String profileLine = String.format(Locale.ROOT, "OTC: %s | %s", personality, doc.getOtcAuthority().shortName);
+        panel.addComponent((UIComponentAPI) flagshipLabel).setSize(maxLeftTextW, 16f).inTL(textLeftX, flagshipTop);
+        flagshipLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                flagshipLine, flagshipLabel, maxLeftTextW - 4f));
+        panel.addComponent((UIComponentAPI) profileLabel).setSize(maxLeftTextW, 16f).inTL(textLeftX, profileTop);
+        profileLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                profileLine, profileLabel, maxLeftTextW - 4f));
 
-        String sub1 = String.format(Locale.ROOT, "Flagship: %s (%s)", flagshipName, hullClassName);
-        String sub2 = String.format(Locale.ROOT, "Profile: %s | Auth: %s",
-                personalityDesc, doc.getOtcAuthority().shortName);
-        String sub3 = String.format(Locale.ROOT, "Formation: %s | Setpiece: %s",
-                doc.getFleetWideFormation().shortName, doc.getMultiDivisionSetpiece().shortName);
-        String sub4 = String.format(Locale.ROOT, "Protocol: %s",
-                doc.isDeployInFleetFormation() ? "Zoom-In Formation Entry (Active)" : "Standard Line Entry");
-
-        panel.addComponent((UIComponentAPI) leftSub1Label).setSize(maxLeftTextW, 14f).inTL(textLeftX, titleTopY + 22f);
-        leftSub1Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub1, leftSub1Label, maxLeftTextW - 4f));
-
-        panel.addComponent((UIComponentAPI) leftSub2Label).setSize(maxLeftTextW, 14f).inTL(textLeftX, titleTopY + 40f);
-        leftSub2Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub2, leftSub2Label, maxLeftTextW - 4f));
-
-        panel.addComponent((UIComponentAPI) leftSub3Label).setSize(maxLeftTextW, 14f).inTL(textLeftX, titleTopY + 58f);
-        leftSub3Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub3, leftSub3Label, maxLeftTextW - 4f));
-
-        panel.addComponent((UIComponentAPI) leftSub4Label).setSize(maxLeftTextW, 14f).inTL(textLeftX, titleTopY + 76f);
-        leftSub4Label.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(sub4, leftSub4Label, maxLeftTextW - 4f));
-
-        // Position Right-Side Fleet Status Panel Labels
         float rightLabelX = rightSectionX + 8f;
         float rightMaxW = Math.max(180f, rightSectionW - 16f);
+        panel.addComponent((UIComponentAPI) selectorHeaderLabel).setSize(rightMaxW, 15f).inTL(rightLabelX, topBarH + 4f);
+        panel.addComponent((UIComponentAPI) formationNameLabel)
+                .setSize(preBattle ? rightSectionW - 84f : rightSectionW - 58f, 20f)
+                .inTL(preBattle ? rightSectionX + 42f : rightLabelX, topBarH + 25f);
 
-        panel.addComponent((UIComponentAPI) statusHeaderLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 5f);
-        statusHeaderLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                "FLEET-LEVEL STATUS & TACTICAL DOMAINS", statusHeaderLabel, rightMaxW - 4f));
-
-        panel.addComponent((UIComponentAPI) engagementDomainLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 21f);
-        panel.addComponent((UIComponentAPI) commitmentDomainLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 53f);
-        panel.addComponent((UIComponentAPI) cohesionDomainLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 85f);
-        panel.addComponent((UIComponentAPI) directiveDomainLabel).setSize(rightMaxW, 14f).inTL(rightLabelX, topBarH + 112f);
-
+        if (!preBattle) {
+            panel.addComponent((UIComponentAPI) engagementLabel)
+                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 58f);
+            panel.addComponent((UIComponentAPI) commitmentLabel)
+                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 86f);
+            panel.addComponent((UIComponentAPI) cohesionLabel)
+                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 114f);
+            panel.addComponent((UIComponentAPI) phaseLabel)
+                    .setSize(rightMaxW, 16f).inTL(rightLabelX, topBarH + 122f);
+        } else {
+            TooltipMakerAPI buttons = panel.createUIElement(width, height, false);
+            Color base = new Color(245, 200, 65);
+            Color dark = new Color(24, 34, 44);
+            prevButtonRef[0] = buttons.addButton("<", "FLEET_FORMATION_PREV", base, dark,
+                    Alignment.MID, CutStyle.ALL, 28f, 22f, 0f);
+            nextButtonRef[0] = buttons.addButton(">", "FLEET_FORMATION_NEXT", base, dark,
+                    Alignment.MID, CutStyle.ALL, 28f, 22f, 0f);
+            entryButtonRef[0] = buttons.addButton("Formation entry: On", "FLEET_FORMATION_ENTRY", base, dark,
+                    Alignment.MID, CutStyle.ALL, rightSectionW - 76f, 18f, 0f);
+            prevButtonRef[0].getPosition().inTL(rightSectionX + 8f, topBarH + 24f);
+            nextButtonRef[0].getPosition().inTL(rightSectionX + rightSectionW - 36f, topBarH + 24f);
+            entryButtonRef[0].getPosition().inTL(rightSectionX + 38f, height - 24f);
+            buttons.setHeightSoFar(height);
+            panel.addUIElement(buttons).inTL(0f, 0f);
+        }
         fcPlugin.advance(0f);
-
         return panel;
+    }
+
+    private static void renderStatusMeterBar(
+            float x,
+            float y,
+            float w,
+            float h,
+            float fillRatio,
+            Color barColor,
+            float alphaMult) {
+        float r = barColor.getRed() / 255f;
+        float g = barColor.getGreen() / 255f;
+        float b = barColor.getBlue() / 255f;
+        GL11.glColor4f(0.06f, 0.10f, 0.15f, 0.90f * alphaMult);
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glVertex2f(x, y);
+        GL11.glVertex2f(x + w, y);
+        GL11.glVertex2f(x + w, y + h);
+        GL11.glVertex2f(x, y + h);
+        GL11.glEnd();
+        float fillW = Math.max(0f, Math.min(w, w * fillRatio));
+        if (fillW > 0.5f) {
+            GL11.glColor4f(r, g, b, 0.88f * alphaMult);
+            GL11.glBegin(GL11.GL_QUADS);
+            GL11.glVertex2f(x + 1f, y + 1f);
+            GL11.glVertex2f(x + fillW, y + 1f);
+            GL11.glVertex2f(x + fillW, y + h - 1f);
+            GL11.glVertex2f(x + 1f, y + h - 1f);
+            GL11.glEnd();
+        }
+        GL11.glLineWidth(1.0f);
+        GL11.glColor4f(r, g, b, 0.48f * alphaMult);
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        GL11.glVertex2f(x, y);
+        GL11.glVertex2f(x + w, y);
+        GL11.glVertex2f(x + w, y + h);
+        GL11.glVertex2f(x, y + h);
+        GL11.glEnd();
+    }
+
+    public static void selectFleetFormation(BattleGroupState playerGroup, int direction) {
+        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+        PermanentDivisionManager.FleetWideFormation[] values = PermanentDivisionManager.FleetWideFormation.values();
+        int current = doc.getFleetWideFormation().ordinal();
+        int step = direction < 0 ? -1 : 1;
+        PermanentDivisionManager.FleetWideFormation next = values[(current + step + values.length) % values.length];
+        PermanentDivisionManager.updateFleetWideFormation(next);
+        PermanentDivisionManager.updateDeployInFleetFormation(true);
+        if (playerGroup != null) {
+            playerGroup.fleetWideFormation = next;
+            playerGroup.activeFleetWideFormation = next;
+            playerGroup.deployInFleetFormation = true;
+        }
+        autoHarmonizePermanentDivisionsToFleetFormation(next);
+        playDeploymentButtonSound();
+    }
+
+    private static void playDeploymentButtonSound() {
+        try {
+            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static String getFleetFormationSpritePath(PermanentDivisionManager.FleetWideFormation formation) {
+        if (formation == null) return null;
+        String icon;
+        switch (formation) {
+            case GRAND_LINE_ABREAST:
+                icon = "grand_line";
+                break;
+            case GRAND_COLUMN_IN_DEPTH:
+                icon = "grand_column";
+                break;
+            case GRAND_WEDGE_SPEARHEAD:
+                icon = "grand_wedge";
+                break;
+            case REFUSED_FLANK_OBLIQUE:
+                icon = "refused_right";
+                break;
+            case CRESCENT_HORNS:
+                icon = "crescent";
+                break;
+            case CHECKERBOARD_QUINCUNX:
+                icon = "quincunx";
+                break;
+            case FLEET_PROTECTIVE_BASTION:
+                icon = "bastion";
+                break;
+            case DOCTRINAL_AUTO:
+            default:
+                icon = "auto";
+                break;
+        }
+        return "graphics/icons/fleet_formations/fleet_formation_" + icon + ".png";
+    }
+
+    public static void renderFleetFormationIcon(
+            PermanentDivisionManager.FleetWideFormation formation,
+            float centerX,
+            float centerY,
+            float size,
+            float alphaMult) {
+        String path = getFleetFormationSpritePath(formation);
+        if (path == null) return;
+        SpriteAPI sprite = FleetDoctrineDialog.loadFormationSpriteSafe(null, path);
+        if (sprite == null) return;
+        float prevW = sprite.getWidth();
+        float prevH = sprite.getHeight();
+        float prevCx = sprite.getCenterX();
+        float prevCy = sprite.getCenterY();
+        float prevAlpha = sprite.getAlphaMult();
+        Color prevColor = sprite.getColor();
+        sprite.setSize(size, size);
+        sprite.setCenter(size * 0.5f, size * 0.5f);
+        sprite.setColor(Color.WHITE);
+        sprite.setAlphaMult(alphaMult);
+        sprite.renderAtCenter(Math.round(centerX), Math.round(centerY));
+        sprite.setSize(prevW, prevH);
+        sprite.setCenter(prevCx, prevCy);
+        sprite.setAlphaMult(prevAlpha);
+        if (prevColor != null) sprite.setColor(prevColor);
     }
 
     /**
@@ -2250,59 +2217,5 @@ public class DivisionDeploymentDialogOrganizer {
                     break;
             }
         }
-    }
-
-    private static void renderStatusMeterBar(
-            float x,
-            float y,
-            float w,
-            float h,
-            float fillRatio,
-            Color barColor,
-            float alphaMult) {
-        float r = barColor.getRed() / 255f;
-        float g = barColor.getGreen() / 255f;
-        float b = barColor.getBlue() / 255f;
-
-        // Track background
-        GL11.glColor4f(0.06f, 0.10f, 0.15f, 0.90f * alphaMult);
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2f(x, y);
-        GL11.glVertex2f(x + w, y);
-        GL11.glVertex2f(x + w, y + h);
-        GL11.glVertex2f(x, y + h);
-        GL11.glEnd();
-
-        // Filled bar
-        float fillW = Math.max(0f, Math.min(w, w * fillRatio));
-        if (fillW > 0.5f) {
-            GL11.glColor4f(r, g, b, 0.88f * alphaMult);
-            GL11.glBegin(GL11.GL_QUADS);
-            GL11.glVertex2f(x + 1f, y + 1f);
-            GL11.glVertex2f(x + fillW, y + 1f);
-            GL11.glVertex2f(x + fillW, y + h - 1f);
-            GL11.glVertex2f(x + 1f, y + h - 1f);
-            GL11.glEnd();
-        }
-
-        // Segment ticks (10% intervals)
-        GL11.glLineWidth(1.0f);
-        GL11.glColor4f(0.02f, 0.04f, 0.07f, 0.70f * alphaMult);
-        GL11.glBegin(GL11.GL_LINES);
-        for (int i = 1; i < 10; i++) {
-            float tx = x + (w * i) / 10f;
-            GL11.glVertex2f(tx, y);
-            GL11.glVertex2f(tx, y + h);
-        }
-        GL11.glEnd();
-
-        // Outer border
-        GL11.glColor4f(r, g, b, 0.48f * alphaMult);
-        GL11.glBegin(GL11.GL_LINE_LOOP);
-        GL11.glVertex2f(x, y);
-        GL11.glVertex2f(x + w, y);
-        GL11.glVertex2f(x + w, y + h);
-        GL11.glVertex2f(x, y + h);
-        GL11.glEnd();
     }
 }

@@ -1992,12 +1992,13 @@ public class DivisionCommanderAI {
     }
 
     /**
-     * Fleet-level station keeping: while advancing, engaging, or holding, every line division keeps its lateral slot
-     * in the fleet formation (fleetFormationOffset measured across the fleet's facing) relative to the Main Effort,
-     * instead of each division converging independently on its own target. Only the lateral component is enforced, so
-     * the depth/standoff chosen by each division's tactical station is preserved. Flankers, carriers, and chase are exempt.
+     * Fleet-wide advance station keeping: while advancing, engaging, or holding, line divisions keep BOTH their
+     * lateral slot and their forward/depth rank relative to the Main Effort. The strength of this formation pull is
+     * modulated by OTC authority, contact state, division movement stickiness, and the division commander's own
+     * station-keeping strictness. Scouts, envelopment flankers, carriers, service divisions, strike/chase/retreat
+     * taskings, line-passing coverers, and direct player objective orders remain autonomous.
      */
-    static void applyFleetLateralStationKeeping(
+    public static void applyFleetLateralStationKeeping(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
@@ -2007,6 +2008,8 @@ public class DivisionCommanderAI {
         if (main == null || main == div || !main.isCombatEffective() || !main.hasFleetFormationOffset) return;
         if (div.isFastFlanker || div.archetype == null || div.archetype.isCarrierArchetype()
                 || div.archetype == DivisionArchetype.SERVICE_GROUP) return;
+        if (div.isCoveringFriend || div.underDirectObjectiveOrder) return;
+        if (myGroup.authority == OtcAuthority.FIRE_DISTRIBUTION_ONLY) return;
         switch (div.currentIntent) {
             case CLOSE_AND_ENGAGE:
             case FORM_LINE_AND_FIX:
@@ -2020,8 +2023,8 @@ public class DivisionCommanderAI {
         if (mission == DivisionMissionType.ENVELOPMENT || mission == DivisionMissionType.SCOUTING) return;
 
         // Fleet facing: from fleet centroid toward the primary threat (fallback: straight ahead for this side)
-        float fx = 0f;
-        float fy = (div.side == 0) ? 1f : -1f;
+        float fwdX = 0f;
+        float fwdY = (div.side == 0) ? 1f : -1f;
         DivisionState threat = myGroup.primaryThreatEnemyDivision;
         if (threat != null && threat.isCombatEffective()) {
             Vector2f tPos = OtcAI.getVisibleCentroidForSide(engine, div.side, threat);
@@ -2029,32 +2032,63 @@ public class DivisionCommanderAI {
             float tdy = tPos.y - myGroup.fleetCentroid.y;
             float tl = (float) Math.sqrt(tdx * tdx + tdy * tdy);
             if (tl > 200f) {
-                fx = tdx / tl;
-                fy = tdy / tl;
+                fwdX = tdx / tl;
+                fwdY = tdy / tl;
             }
         }
-        float latX = fy;
-        float latY = -fx;
+        float latX = fwdY;
+        float latY = -fwdX;
         float relX = div.fleetFormationOffset.x - main.fleetFormationOffset.x;
         float relY = div.fleetFormationOffset.y - main.fleetFormationOffset.y;
         float desiredLat = relX * latX + relY * latY;
+        float desiredFwd = relX * fwdX + relY * fwdY;
         float mainLat = main.centroid.x * latX + main.centroid.y * latY;
+        float mainFwd = main.centroid.x * fwdX + main.centroid.y * fwdY;
         float curLat = div.stationPoint.x * latX + div.stationPoint.y * latY;
-        float err = (mainLat + desiredLat) - curLat;
-        // Item C: Once a division is in active gun contact (applying or receiving in-range firepower, or localEnemyStrength >= 6),
-        // heavily relax the fleet-wide lateral wing pull so ships keep their guns on the enemy in front of them instead of
-        // crabbing 1,400u sideways to dress a parade-ground wing coordinate!
+        float curFwd = div.stationPoint.x * fwdX + div.stationPoint.y * fwdY;
+        float latErr = (mainLat + desiredLat) - curLat;
+        float fwdErr = (mainFwd + desiredFwd) - curFwd;
+
         boolean inCombatContact = div.inRangeFirepowerScore > 0f
                 || div.incomingInRangeFirepower > 0f
                 || div.localEnemyStrength >= 6f;
-        float blendWeight = inCombatContact ? 0.15f : 0.70f;
-        float correction = err * blendWeight;
-        float maxCorrection = inCombatContact
-                ? 260f
+        float approachWeight;
+        float contactWeight;
+        switch (myGroup.authority) {
+            case POSITIVE_CONTROL:
+                approachWeight = 0.86f;
+                contactWeight = 0.54f;
+                break;
+            case COMMAND_BY_DIRECTION:
+                approachWeight = 0.70f;
+                contactWeight = 0.32f;
+                break;
+            case COMMAND_BY_NEGATION:
+                approachWeight = 0.32f;
+                contactWeight = 0.0f;
+                break;
+            case FIRE_DISTRIBUTION_ONLY:
+            default:
+                return;
+        }
+        float divStrictness = (div.commander != null) ? div.commander.stationKeepingStrictness : 1.0f;
+        float stationMult = Math.max(0.65f, div.stationKeepingMult);
+        float divisionAuthority = Math.max(0.45f, Math.min(1.30f,
+                (0.82f + divStrictness * 0.34f) / stationMult));
+        float weight = Math.max(0f, Math.min(0.92f,
+                (inCombatContact ? contactWeight : approachWeight) * divisionAuthority));
+        if (weight <= 0.01f) return;
+
+        float maxLatCorrection = inCombatContact
+                ? (myGroup.authority == OtcAuthority.POSITIVE_CONTROL ? 430f : 260f)
                 : Math.max(900f, Math.abs(desiredLat) + 600f);
-        correction = Math.max(-maxCorrection, Math.min(maxCorrection, correction));
-        div.stationPoint.x += latX * correction;
-        div.stationPoint.y += latY * correction;
+        float maxFwdCorrection = inCombatContact
+                ? (myGroup.authority == OtcAuthority.POSITIVE_CONTROL ? 520f : 300f)
+                : Math.max(950f, Math.abs(desiredFwd) + 650f);
+        float latCorrection = Math.max(-maxLatCorrection, Math.min(maxLatCorrection, latErr * weight));
+        float fwdCorrection = Math.max(-maxFwdCorrection, Math.min(maxFwdCorrection, fwdErr * weight));
+        div.stationPoint.x += latX * latCorrection + fwdX * fwdCorrection;
+        div.stationPoint.y += latY * latCorrection + fwdY * fwdCorrection;
     }
 
     /**

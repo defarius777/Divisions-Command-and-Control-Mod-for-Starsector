@@ -7,6 +7,7 @@ import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import divisionai.BattlefieldFirepowerEvaluator;
 import divisionai.BattlefieldFirepowerEvaluator.PointFirepowerEval;
 import divisionai.BattlefieldFirepowerEvaluator.ShipFirepowerRose;
+import divisionai.DivisionCommanderAI;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
@@ -69,6 +70,7 @@ public class DivisionAITestSuite {
         testDivisionWideFlankAndDoubleEnvelopment();
         testHighFluxLineRotationAndRelief();
         testTimeOnTargetCoordinatedStrike();
+        testFleetWideAdvanceFormationAndAuthority();
         testCulturalNomenclatureAndPrefixBuckets();
         testFluidDivisionPolygonsAndOverlapStriping();
         testWeaponArcFirepowerSpaceAndCordonAvoidance();
@@ -372,6 +374,72 @@ public class DivisionAITestSuite {
         check(marshaled && executedStrike,
                 "Strike division marshals and executes synchronized TOT_MISSILE_STRIKE",
                 "marshaled=" + marshaled + ", executedStrike=" + executedStrike);
+    }
+
+    /**
+     * Fleet-wide advance: Positive Control preserves both wedge depth and lateral spacing in contact;
+     * Command by Direction uses a softer pull; Command by Negation leaves contact to division initiative;
+     * Fire Distribution Only never repositions divisions after deployment.
+     */
+    private static void testFleetWideAdvanceFormationAndAuthority() {
+        System.out.println("\n--- Fleet-Wide Advance in Formation: Two-Axis Station Keeping & Authority ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState group = new BattleGroupState(0, pCmdr);
+        BattleGroupState enemyGroup = new BattleGroupState(1, eCmdr);
+        DivisionState main = new DivisionState("fw_main", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+        DivisionState wing = new DivisionState("fw_wing", 0, 2, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", pCmdr);
+        DivisionState enemy = new DivisionState("fw_enemy", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Div 1", eCmdr);
+        group.divisions.add(main);
+        group.divisions.add(wing);
+        enemyGroup.divisions.add(enemy);
+        SimArena arena = new SimArena("Fleet Advance Authority", "Test", group, enemyGroup);
+        arena.addShip(main, "fw_m1", "Onslaught", "Onslaught", HullSize.CAPITAL_SHIP, 0f, 0f, 55f, 1200f, 0, 0);
+        arena.addShip(wing, "fw_w1", "Eagle", "Eagle", HullSize.CRUISER, -700f, -500f, 70f, 1100f, 0, 0);
+        arena.addShip(enemy, "fw_e1", "Eagle", "Eagle", HullSize.CRUISER, 0f, 2000f, 70f, 1100f, 1, 0);
+        group.mainEffortDivision = main;
+        group.primaryThreatEnemyDivision = enemy;
+        group.fleetCentroid.set(0f, 0f);
+        main.centroid.set(0f, 0f);
+        main.fleetFormationOffset.set(0f, 420f);
+        main.hasFleetFormationOffset = true;
+        wing.centroid.set(-700f, -500f);
+        wing.fleetFormationOffset.set(-800f, -60f);
+        wing.hasFleetFormationOffset = true;
+        wing.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
+        wing.openingMission = DivisionMissionType.CLOSE_ACTION;
+        wing.mainMission = DivisionMissionType.CLOSE_ACTION;
+        wing.localEnemyStrength = 10f;
+        enemy.centroid.set(0f, 2000f);
+
+        group.authority = OtcAuthority.POSITIVE_CONTROL;
+        wing.stationPoint.set(0f, 1000f);
+        DivisionCommanderAI.applyFleetLateralStationKeeping(null, wing, group, 10f);
+        boolean positiveTwoAxis = wing.stationPoint.x < -300f && wing.stationPoint.y < 500f;
+        check(positiveTwoAxis,
+                "Positive Control preserves wedge lateral AND depth station during enemy contact",
+                String.format(Locale.ROOT, "station=(%.0f, %.0f), expected near (-800, -480)", wing.stationPoint.x, wing.stationPoint.y));
+
+        group.authority = OtcAuthority.COMMAND_BY_DIRECTION;
+        wing.stationPoint.set(0f, 1000f);
+        DivisionCommanderAI.applyFleetLateralStationKeeping(null, wing, group, 10f);
+        boolean directionSofter = wing.stationPoint.x < -150f && wing.stationPoint.x > -440f
+                && wing.stationPoint.y <= 705f && wing.stationPoint.y >= 650f;
+        check(directionSofter,
+                "Command by Direction applies a softer two-axis formation pull in contact",
+                String.format(Locale.ROOT, "station=(%.0f, %.0f)", wing.stationPoint.x, wing.stationPoint.y));
+
+        group.authority = OtcAuthority.COMMAND_BY_NEGATION;
+        wing.stationPoint.set(0f, 1000f);
+        DivisionCommanderAI.applyFleetLateralStationKeeping(null, wing, group, 10f);
+        boolean negationLocal = Math.abs(wing.stationPoint.x) < 1f && Math.abs(wing.stationPoint.y - 1000f) < 1f;
+        group.authority = OtcAuthority.FIRE_DISTRIBUTION_ONLY;
+        DivisionCommanderAI.applyFleetLateralStationKeeping(null, wing, group, 10f);
+        boolean fireOnlyLocal = Math.abs(wing.stationPoint.x) < 1f && Math.abs(wing.stationPoint.y - 1000f) < 1f;
+        check(negationLocal && fireOnlyLocal,
+                "Command by Negation and Fire Distribution Only leave contact maneuver to division authority",
+                String.format(Locale.ROOT, "negation=%b, fireOnly=%b, station=(%.0f, %.0f)",
+                        negationLocal, fireOnlyLocal, wing.stationPoint.x, wing.stationPoint.y));
     }
 
     /**

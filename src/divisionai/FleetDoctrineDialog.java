@@ -1323,6 +1323,25 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
+    private CustomPanelAPI createFleetFormationIconRow(
+            float rowWidth,
+            float rowHeight,
+            final FleetWideFormation formation) {
+        final CustomPanelAPI[] ref = new CustomPanelAPI[1];
+        BaseCustomUIPanelPlugin plugin = new BaseCustomUIPanelPlugin() {
+            @Override
+            public void renderBelow(float alphaMult) {
+                if (ref[0] == null || ref[0].getPosition() == null) return;
+                PositionAPI p = ref[0].getPosition();
+                DivisionDeploymentDialogOrganizer.renderFleetFormationIcon(
+                        formation, p.getX() + CONTROL_COL_X - 15f, p.getY() + rowHeight * 0.5f, 22f, alphaMult);
+            }
+        };
+        CustomPanelAPI panel = Global.getSettings().createCustom(rowWidth, rowHeight, plugin);
+        ref[0] = panel;
+        return panel;
+    }
+
     private void addFleetWideFormationDropdownRow(
             TooltipMakerAPI body,
             float rowWidth,
@@ -1336,7 +1355,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         String ddKey = "FLEET_WIDE_FORMATION_DD";
         boolean expanded = ddKey.equals(expandedDropdownKey);
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
+        CustomPanelAPI rowPanel = createFleetFormationIconRow(rowWidth, 30f, current);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
         rowUi.addPara("Fleet Formation:", 0f, baseColor).getPosition().inTL(6f, 6f);
 
@@ -1377,10 +1396,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
         bDep.getPosition().inTL(CONTROL_COL_X + 244f, 4f);
 
-        rowUi.addPara(current.summary, 0f, expanded ? activeValueColor : gray)
-                .getPosition()
-                .inTL(CONTROL_COL_X + 386f, 6f);
-
         rowUi.setHeightSoFar(30f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 3f);
@@ -1388,7 +1403,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         if (expanded) {
             for (FleetWideFormation option : FleetWideFormation.values()) {
                 boolean isCurrent = (option == current);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+                CustomPanelAPI optPanel = createFleetFormationIconRow(rowWidth, 28f, option);
                 TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 28f, false);
                 String selAct = "SET_FLEET_FORMATION:" + option.name();
                 ButtonAPI bOpt = registerButton(
@@ -1407,10 +1422,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     bOpt.highlight();
                 }
                 bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
-
-                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
-                        .getPosition()
-                        .inTL(CONTROL_COL_X + 252f, 5f);
 
                 optUi.setHeightSoFar(28f);
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
