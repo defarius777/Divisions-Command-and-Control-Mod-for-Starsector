@@ -1,34 +1,47 @@
 fieldID,fieldName,fieldType,defaultValue,secondaryValue,fieldDescription,minValue,maxValue,tab
-divai_chatterModeHeader,Combat Log Chatter Mode,Header,Combat Log Chatter Verbosity,,,,,
-divai_chatter_verbosity,Chatter Verbosity,Radio,Verbose,"Verbose, Standard, Minimal, OTC Only, Off","Controls how much C2 chatter is shown on the in-game HUD combat feed (starsector.log always records all verbose telemetry):
-- Verbose: All enabled signals with full tactical reason suffixes and opening division formation lines.
-- Standard: Concise 1-line messages (no parenthetical reason clutter), skips opening formation spam and routine re-targeting, and uses longer HUD cooldowns.
-- Minimal: Only OTC phase/order signals and critical friendly division plays (Time-on-Target strikes, crisis relief, hauling out to vent).
-- OTC Only: Only Battle Group Commander (OTC) phase and order signals; mutes individual division chatter on screen.
-- Off: Mutes all on-screen C2 HUD chatter.",,,
+divai_chatterModeHeader,Combat Log Chatter,Header,Combat Log Chatter,,,,,
+divai_chatter_verbosity,Chatter Verbosity,Radio,Minimal,"Verbose, Standard, Minimal, OTC Only, Off","Controls how much C2 chatter appears in the on-screen combat feed:
+- Verbose: All enabled signals with tactical reasons.
+- Standard: Concise 1-line signals; skips opening formation and routine re-targeting chatter.
+- Minimal: Only OTC orders and critical friendly plays (strikes, relief, venting).
+- OTC Only: Only fleet commander (OTC) phase and order signals.
+- Off: Mutes all on-screen C2 chatter.",,,
 ,,,,,,,,
-divai_friendlyHeader,Friendly Command Signals,Header,Friendly Command Signals in the Combat Log,,,,,
-divai_friendly_bg_chatter,Friendly OTC Signals,Boolean,true,,"Show the friendly Battle Group Commander's (Officer in Tactical Command) phase and order signals in the on-screen combat log. All events are still written to starsector.log.",,,
-divai_friendly_div_chatter,Friendly Division Signals,Boolean,true,,"Show friendly single-division intents in the on-screen combat log.",,,
-divai_friendly_multidiv_chatter,Friendly Multi-Division Signals,Boolean,true,,"Show friendly multi-division and cross-division intents (screening and reinforcing and time-on-target strikes) in the on-screen combat log.",,,
+divai_friendlyHeader,Friendly Chatter Signals,Header,Friendly Chatter Signals,,,,,
+divai_friendly_bg_chatter,Friendly OTC Signals,Boolean,true,,"Show friendly fleet commander (OTC) phase and order signals on screen.",,,
+divai_friendly_div_chatter,Friendly Division Signals,Boolean,true,,"Show friendly single-division maneuver intents on screen.",,,
+divai_friendly_multidiv_chatter,Friendly Multi-Division Signals,Boolean,true,,"Show friendly cross-division plays (screening, reinforcing, coordinated strikes) on screen.",,,
 ,,,,,,,,
-divai_enemyHeader,Enemy Command Signals,Header,Enemy Command Signals in the Combat Log,,,,,
-divai_enemy_bg_chatter,Enemy OTC Signals,Boolean,true,,"Show the enemy Battle Group Commander's (Officer in Tactical Command) phase and order signals in the on-screen combat log. All events are still written to starsector.log.",,,
-divai_enemy_div_chatter,Enemy Division Signals,Boolean,true,,"Show enemy single-division intents in the on-screen combat log.",,,
-divai_enemy_multidiv_chatter,Enemy Multi-Division Signals,Boolean,true,,"Show enemy multi-division and cross-division intents (screening and reinforcing and time-on-target strikes) in the on-screen combat log.",,,
+divai_enemyHeader,Enemy Chatter Signals,Header,Enemy Chatter Signals,,,,,
+divai_enemy_bg_chatter,Enemy OTC Signals,Boolean,false,,"Show enemy fleet commander (OTC) phase and order signals on screen.",,,
+divai_enemy_div_chatter,Enemy Division Signals,Boolean,false,,"Show enemy single-division maneuver intents on screen.",,,
+divai_enemy_multidiv_chatter,Enemy Multi-Division Signals,Boolean,false,,"Show enemy cross-division plays (screening, reinforcing, coordinated strikes) on screen.",,,
 ,,,,,,,,
-divai_overlayHeader,Tactical Map Overlay (Tab),Header,Tactical Map (Tab) Visualization,,,,,
-divai_show_tactical_overlay,Show Division Overlay on Tactical Map,Boolean,true,,"Project fluid division polygons and tactical intent waypoints on the Tactical Map (Tab).",,,
-divai_circle_alpha_pct,Division Polygon Opacity,Int,18,,"Base translucency of each division polygon on the Tactical Map (Tab).",5,50,
-divai_tsfc_graphics_quality,T-S-F-C Overlay Graphics Fidelity,Radio,High,"High, Low","Controls rendering fidelity for the Time and Space and Firepower and Convergence overlays on the Tactical Map (Tab):
-- High: Full-fidelity 72-step smooth polar firepower contours and 48-segment anti-aliased gradients and circles.
-- Low: Fast 48-step contours and reduced circle segment counts for maximum frame rate in massive battles.",,,
+divai_overlayHeader,Warroom & Tactical Map (Tab),Header,Warroom & Tactical Map (Tab),,,,,
+divai_show_tactical_overlay,Show Division Overlay,Boolean,true,,"Draw fluid division polygons and intent vectors on the Tactical Map (Tab).",,,
+divai_circle_alpha_pct,Division Polygon Opacity,Int,18,,"Fill opacity of division polygons on the Tactical Map (Tab).",5,50,
+divai_tsfc_graphics_quality,T-S-F-C Graphics Quality,Radio,High,"High, Low","Rendering quality for Time, Space, Firepower, and Convergence overlays:
+- High: Smooth polar contours and anti-aliased rings.
+- Low: Reduced segment counts for higher FPS in large battles.",,,
 ,,,,,,,,
-divai_musicHeader,Dynamic Battle Music Engine,Header,Dynamic Battle Music Engine,,,,,
-divai_enable_battle_music,Enable Dynamic Battle Music Engine,Boolean,true,,"Enables Division AI's layered dynamic combat music engine (continuous battle_ambience_01.ogg bottom layer + faction combat tracks with pause fade-out/resume). Disable to switch combat music control to vanilla Starsector default.",,,
-divai_battle_music_control,Combat Music Control Mode,Radio,Division AI Dynamic Music,"Division AI Dynamic Music, Vanilla Default","Select whether Division AI controls combat music and ambience or switches combat music control to vanilla Starsector default:
-- Division AI Dynamic Music: Continuous battle_ambience_01.ogg base layer with dynamic faction combat tracks and pause fade-out/resume.
-- Vanilla Default: Disables Division AI's music engine and hands full combat music control back to vanilla Starsector.",,,
+divai_musicHeader,Battle Music,Header,Battle Music,,,,,
+divai_enable_battle_music,Enable Dynamic Battle Music,Boolean,true,,"Enable layered combat music (ambient base layer plus dynamic faction combat tracks).",,,
+divai_battle_music_control,Combat Music Mode,Radio,Division AI Dynamic Music,"Division AI Dynamic Music, Vanilla Default","Choose between Division AI's dynamic combat music or vanilla Starsector combat music:
+- Division AI Dynamic Music: Continuous ambient base layer with dynamic faction combat tracks and pause fade-out.
+- Vanilla Default: Uses vanilla Starsector combat music.",,,
 ,,,,,,,,
-divai_sectorHeader,Sector Campaign Divisions,Header,Sector-Wide Division Lists,,,,,
-divai_reinit_sector_divisions,Reinitialize Sector-Wide Division Lists,Boolean,false,,"Reinitializes all NPC faction division record tables and re-sorts all instanced non-player fleets across the sector (Story/Special fleets prioritized first). Click once to arm 'Are you sure?', then click again to confirm.",,,
+divai_sectorHeader,Sector Divisions,Header,Sector Divisions,,,,,
+divai_reinit_sector_divisions,Reinitialize NPC Fleet Divisions,Boolean,false,,"Rebuild division tables and re-sort all non-player fleets in the sector. Click once to arm, then click again to confirm.",,,
+,,,,,,,,
+divai_fleetBattleSizeHeader,Fleet & Battle Size Limits,Header,Fleet & Battle Size Limits,,,,,
+divai_override_fleet_battle_size,Override Fleet & Battle Sizes,Boolean,false,,"When enabled, overrides Starsector's deployment point, ship, and officer limits using the sliders below.",,,
+divai_max_battle_size,Max Battle Deployment Points,Int,400,,"Maximum deployment points in battle (maxBattleSize).",100,2000,
+divai_min_battle_size,Min Battle Deployment Points,Int,200,,"Minimum deployment points floor in battle (minBattleSize).",50,1000,
+divai_max_ships_in_fleet,Max Ships (Player Fleet),Int,30,,"Maximum ships in the player fleet before supply penalties (maxShipsInFleet).",10,200,
+divai_max_ships_in_ai_fleet,Max Ships (AI Fleet),Int,30,,"Maximum ships in AI campaign fleets (maxShipsInAIFleet).",10,200,
+divai_max_officers_in_ai_fleet,Max Officers (AI Fleet),Int,15,,"Maximum officers in AI campaign fleets (maxOfficersInAIFleet).",5,60,
+divai_base_num_officers,Base Officers (Player Fleet),Int,8,,"Base officer limit in the player fleet before skills (baseNumOfficers).",4,50,
+,,,,,,,,
+divai_debugLoggingHeader,Debug Logging,Header,Debug Logging,,,,,
+divai_enable_debug_logging,Enable Debug Logging,Boolean,false,,"Write C2 orders, division intents, OTC succession, and battle summaries to starsector.log. Disable to silence file logging.",,,
+divai_verbose_ai_debug_logging,Extended AI Debug Trace,Boolean,false,,"Write detailed AI decision traces (overkill caps, center of gravity, formation consent, succession scores) to starsector.log.",,,

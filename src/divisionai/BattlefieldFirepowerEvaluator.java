@@ -166,10 +166,15 @@ public class BattlefieldFirepowerEvaluator {
     static ShipAPI playerConvergenceFlagshipOverride = null;
     static ShipAPI initialDefaultPlayerFlagship = null;
     static BattleGroupState initialDefaultFlagshipGroupRef = null;
+    static boolean initialPlayerOtcWasAlphaCore = false;
     static ShipAPI pendingCommsAlphaCoreShip = null;
     static final Set<String> askedAlphaCoreShipIds = new HashSet<>();
     static int urgentCommsPromptSequence = 0;
     static int activeCommsPhraseIndex = 0;
+
+    public static final float STICKY_ENEMY_VISIBILITY_GRACE_SECONDS = 2.75f;
+    static final Map<String, Float> enemyShipLastSeenTimeById = new HashMap<>();
+    static final Map<String, Vector2f> smoothedEnemyVisualCentroidByDivId = new HashMap<>();
 
     public static final int VOIDSTRIKE_SIDE_PLAYER = 0;
     public static final int VOIDSTRIKE_SIDE_ENEMY = 1;
@@ -473,8 +478,11 @@ public class BattlefieldFirepowerEvaluator {
         playerConvergenceFlagshipOverride = null;
         initialDefaultPlayerFlagship = null;
         initialDefaultFlagshipGroupRef = null;
+        initialPlayerOtcWasAlphaCore = false;
         pendingCommsAlphaCoreShip = null;
         askedAlphaCoreShipIds.clear();
+        enemyShipLastSeenTimeById.clear();
+        smoothedEnemyVisualCentroidByDivId.clear();
         urgentCommsPromptSequence = 0;
         activeCommsPhraseIndex = 0;
         activeVoidstrikes.clear();
@@ -571,12 +579,111 @@ public class BattlefieldFirepowerEvaluator {
         return playerConvergenceFlagshipOverride;
     }
 
+    public static void setPlayerConvergenceFlagshipOverride(ShipAPI ship) {
+        playerConvergenceFlagshipOverride = ship;
+    }
+
     public static ShipAPI getPendingCommsAlphaCoreShip() {
         return pendingCommsAlphaCoreShip;
     }
 
     public static Set<String> getAskedAlphaCoreShipIds() {
         return askedAlphaCoreShipIds;
+    }
+
+    public static void markInitialPlayerOtcAlphaCore(boolean isAlpha) {
+        initialPlayerOtcWasAlphaCore = isAlpha;
+    }
+
+    public static boolean wasInitialPlayerOtcAlphaCore() {
+        return initialPlayerOtcWasAlphaCore;
+    }
+
+    /**
+     * Sticky fog-of-war visibility for enemy ships on the Warroom & TSFC layers:
+     * once a living enemy ship is spotted by player sensors, it stays visually tracked for
+     * {@link #STICKY_ENEMY_VISIBILITY_GRACE_SECONDS} after brief sensor/nebula occlusion so
+     * enemy division bubbles and TSFC circles never flicker on/off from frame to frame.
+     */
+    public static boolean isEnemyShipVisibleSticky(CombatEngineAPI engine, ShipAPI ship, FogOfWarAPI playerFog) {
+        if (ship == null || !ship.isAlive() || ship.isHulk() || ship.isExpired()) return false;
+        if (playerFog == null) return true;
+        float now = (engine != null) ? engine.getTotalElapsedTime(true) : 0f;
+        String id = ship.getId();
+        if (playerFog.isVisible(ship)) {
+            if (id != null) {
+                enemyShipLastSeenTimeById.put(id, now);
+            }
+            return true;
+        }
+        if (id != null && engine != null) {
+            Float lastSeen = enemyShipLastSeenTimeById.get(id);
+            if (lastSeen != null && now >= lastSeen && (now - lastSeen) <= STICKY_ENEMY_VISIBILITY_GRACE_SECONDS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static float getEnemyShipStickyVisibilityAlpha(CombatEngineAPI engine, ShipAPI ship, FogOfWarAPI playerFog) {
+        if (ship == null || !ship.isAlive() || ship.isHulk() || ship.isExpired()) return 0f;
+        if (playerFog == null || playerFog.isVisible(ship)) {
+            if (ship.getId() != null && engine != null) {
+                enemyShipLastSeenTimeById.put(ship.getId(), engine.getTotalElapsedTime(true));
+            }
+            return 1.0f;
+        }
+        if (ship.getId() != null && engine != null) {
+            Float lastSeen = enemyShipLastSeenTimeById.get(ship.getId());
+            float now = engine.getTotalElapsedTime(true);
+            if (lastSeen != null && now >= lastSeen) {
+                float elapsed = now - lastSeen;
+                if (elapsed <= STICKY_ENEMY_VISIBILITY_GRACE_SECONDS) {
+                    float t = elapsed / STICKY_ENEMY_VISIBILITY_GRACE_SECONDS;
+                    return Math.max(0.35f, 1.0f - t * 0.60f);
+                }
+            }
+        }
+        return 0f;
+    }
+
+    public static boolean isEnemyDivisionVisibleSticky(CombatEngineAPI engine, DivisionState div, FogOfWarAPI playerFog) {
+        if (div == null) return false;
+        for (ShipAPI s : div.getAliveMembers()) {
+            if (isEnemyShipVisibleSticky(engine, s, playerFog)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static Vector2f getSmoothedVisibleCentroidForEnemyDivision(
+            CombatEngineAPI engine,
+            DivisionState div,
+            FogOfWarAPI playerFog) {
+        if (div == null) return new Vector2f(0f, 0f);
+        float sx = 0f;
+        float sy = 0f;
+        int count = 0;
+        for (ShipAPI s : div.getAliveMembers()) {
+            if (s != null && isEnemyShipVisibleSticky(engine, s, playerFog) && s.getLocation() != null) {
+                sx += s.getLocation().x;
+                sy += s.getLocation().y;
+                count++;
+            }
+        }
+        Vector2f raw = (count > 0)
+                ? new Vector2f(sx / count, sy / count)
+                : OtcAI.getVisibleCentroidForSide(engine, 0, div);
+        if (div.id == null) return raw;
+        Vector2f prev = smoothedEnemyVisualCentroidByDivId.get(div.id);
+        if (prev == null || distance(prev, raw) > 1200f) {
+            Vector2f copy = new Vector2f(raw.x, raw.y);
+            smoothedEnemyVisualCentroidByDivId.put(div.id, copy);
+            return copy;
+        }
+        prev.set(prev.x * 0.80f + raw.x * 0.20f, prev.y * 0.80f + raw.y * 0.20f);
+        return prev;
     }
 
     /**
@@ -610,14 +717,40 @@ public class BattlefieldFirepowerEvaluator {
     public static boolean isAlphaCoreControlledShip(ShipAPI ship) {
         if (ship == null) return false;
         if (isAlphaCoreOfficer(ship.getCaptain())) return true;
-        if (ship.getFleetMember() != null && isAlphaCoreOfficer(ship.getFleetMember().getCaptain())) {
+        if (ship.getFleetMember() != null && isAlphaCoreControlledMember(ship.getFleetMember())) {
             return true;
+        }
+        try {
+            if (ship.getVariant() != null && ship.getVariant().getHullMods() != null) {
+                for (String hm : ship.getVariant().getHullMods()) {
+                    if (hm == null) continue;
+                    String low = hm.toLowerCase(Locale.ROOT);
+                    if (low.contains("alpha_core") || low.contains("aicore_alpha")) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
         }
         return false;
     }
 
     public static boolean isAlphaCoreControlledMember(FleetMemberAPI member) {
-        return member != null && isAlphaCoreOfficer(member.getCaptain());
+        if (member == null) return false;
+        if (isAlphaCoreOfficer(member.getCaptain())) return true;
+        try {
+            if (member.getVariant() != null && member.getVariant().getHullMods() != null) {
+                for (String hm : member.getVariant().getHullMods()) {
+                    if (hm == null) continue;
+                    String low = hm.toLowerCase(Locale.ROOT);
+                    if (low.contains("alpha_core") || low.contains("aicore_alpha")) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
     }
 
     /**
@@ -628,15 +761,12 @@ public class BattlefieldFirepowerEvaluator {
     public static boolean hasAlphaCoreInPlayerFleet(CombatEngineAPI engine) {
         if (testForcePlayerHasAlphaCore) return true;
         if (engine != null) {
-            float now = engine.getTotalElapsedTime(true);
             int shipsSize = (engine.getShips() != null) ? engine.getShips().size() : 0;
             if (engine == lastAlphaCoreCheckEngine
-                    && shipsSize == lastAlphaCoreCheckShipsSize
-                    && Math.abs(now - lastAlphaCoreCheckTime) < 0.5f) {
+                    && shipsSize == lastAlphaCoreCheckShipsSize) {
                 return cachedHasAlphaCoreInPlayerFleet;
             }
             lastAlphaCoreCheckEngine = engine;
-            lastAlphaCoreCheckTime = now;
             lastAlphaCoreCheckShipsSize = shipsSize;
         }
         boolean found = computeHasAlphaCoreInPlayerFleetUncached(engine);
@@ -729,21 +859,93 @@ public class BattlefieldFirepowerEvaluator {
                 && !playerConvergenceFlagshipOverride.isExpired()) {
             return playerConvergenceFlagshipOverride;
         }
-        if (isPlayerGroup && group.preferredOtcShipId != null && !group.preferredOtcShipId.isEmpty() && engine != null) {
+        String prefId = isPlayerGroup ? DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(group) : null;
+        if (isPlayerGroup && prefId != null && !prefId.isEmpty() && engine != null) {
             List<ShipAPI> allShips = engine.getShips();
             if (allShips != null) {
                 for (ShipAPI s : allShips) {
                     if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
                     if (s.getOwner() != 0 || s.isAlly()) continue;
                     String mId = (s.getFleetMember() != null) ? s.getFleetMember().getId() : null;
-                    if (group.preferredOtcShipId.equals(s.getId())
-                            || (mId != null && group.preferredOtcShipId.equals(mId))) {
+                    if (prefId.equals(s.getId())
+                            || (mId != null && prefId.equals(mId))) {
                         return s;
                     }
                 }
             }
+            // If the explicitly designated or sticky OTC is sitting in reserves (undeployed), do not substitute another ship
+            if (DivisionOtcCommandManager.hasAutoOrExplicitPlayerOtcSelection(group)) {
+                try {
+                    if (engine.getFleetManager(0) != null && engine.getFleetManager(0).getReservesCopy() != null) {
+                        for (FleetMemberAPI rm : engine.getFleetManager(0).getReservesCopy()) {
+                            if (rm != null && prefId.equals(rm.getId())) {
+                                return null;
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            } else if (allShips != null) {
+                // Auto OTC fallback when ships deployed in a single frame before pre-battle selection ran
+                List<FleetMemberAPI> deployedPool = new ArrayList<>();
+                for (ShipAPI s : allShips) {
+                    if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                    if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
+                    if (s.getOwner() != 0 || s.isAlly()) continue;
+                    if (s.getFleetMember() != null) deployedPool.add(s.getFleetMember());
+                }
+                FleetMemberAPI autoBest = DivisionOtcCommandManager.selectLargestShipCommanderMember(deployedPool);
+                if (autoBest != null && autoBest.getId() != null) {
+                    DivisionOtcCommandManager.setAutoPreDeployPlayerOtcMemberId(group, autoBest.getId());
+                    for (ShipAPI s : allShips) {
+                        if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                        if (s.getOwner() != 0 || s.isAlly()) continue;
+                        if (s.getFleetMember() != null && autoBest.getId().equals(s.getFleetMember().getId())) {
+                            return s;
+                        }
+                    }
+                }
+            }
+        }
+        if (group.designatedSuccessorFlagship != null
+                && group.designatedSuccessorFlagship.isAlive()
+                && !group.designatedSuccessorFlagship.isHulk()
+                && !group.designatedSuccessorFlagship.isExpired()
+                && !DivisionOtcCommandManager.isShipRetreatedFromBattle(engine, group, group.designatedSuccessorFlagship)) {
+            return group.designatedSuccessorFlagship;
         }
         if (engine != null) {
+            List<ShipAPI> ships = engine.getShips();
+            if (ships != null) {
+                for (ShipAPI s : ships) {
+                    if (s != null && s.getId() != null
+                            && s.getOwner() == group.side && s.isAlly() == group.isAlliedAi
+                            && (s.isRetreating() || s.isDirectRetreat())) {
+                        group.formationSpawnHijackedShipIds.add("__retreating_" + s.getId());
+                    }
+                }
+            }
+            // If an Alpha Core ship was the designated campaign flagship (and player did not override OTC to a human),
+            // resolve that flagship before engine.getPlayerShip() (since a human player cannot manually pilot an
+            // automated Alpha Core ship without Neural Link, so engine.getPlayerShip() may be a subordinate human ship).
+            if (isPlayerGroup && ships != null) {
+                if (prefId == null || prefId.isEmpty()) {
+                    for (ShipAPI s : ships) {
+                        if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                        if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
+                        if (s.getOwner() != 0 || s.isAlly()) continue;
+                        if (s.getFleetMember() != null && s.getFleetMember().isFlagship() && isAlphaCoreControlledShip(s)) {
+                            return s;
+                        }
+                    }
+                }
+                if (initialPlayerOtcWasAlphaCore || (group.otc != null && isAlphaCoreOfficer(group.otc.person))) {
+                    ShipAPI bestAlpha = DivisionOtcCommandManager.findBestDeployedAlphaCoreSuccessor(engine, group, null);
+                    if (bestAlpha != null) {
+                        return bestAlpha;
+                    }
+                }
+            }
             if (isPlayerGroup) {
                 ShipAPI playerPiloted = engine.getPlayerShip();
                 if (playerPiloted != null
@@ -754,7 +956,6 @@ public class BattlefieldFirepowerEvaluator {
                     return playerPiloted;
                 }
             }
-            List<ShipAPI> ships = engine.getShips();
             if (ships != null) {
                 for (ShipAPI s : ships) {
                     if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
@@ -764,6 +965,22 @@ public class BattlefieldFirepowerEvaluator {
                         return s;
                     }
                 }
+            }
+        }
+        if (!isPlayerGroup) {
+            if (group.activeFleetFlagship != null
+                    && group.activeFleetFlagship.isAlive()
+                    && !group.activeFleetFlagship.isHulk()
+                    && !group.activeFleetFlagship.isExpired()
+                    && !group.activeFleetFlagship.isRetreating()
+                    && !group.activeFleetFlagship.isDirectRetreat()) {
+                return group.activeFleetFlagship;
+            }
+            ShipAPI hier = DivisionOtcCommandManager.selectSuccessorShipByHierarchy(engine, group, null, group.useConvergence);
+            if (hier != null) {
+                group.designatedSuccessorFlagship = hier;
+                group.activeFleetFlagship = hier;
+                return hier;
             }
         }
         if (isPlayerGroup) {
@@ -822,17 +1039,27 @@ public class BattlefieldFirepowerEvaluator {
         }
         ShipAPI bestFlag = null;
         float bestFp = -1f;
+        ShipAPI bestRetreatingFlag = null;
+        float bestRetreatingFp = -1f;
         for (DivisionState div : group.divisions) {
             List<ShipAPI> alive = div.getAliveMembers();
             if (alive.isEmpty()) continue;
             ShipAPI f = (div.flagship != null && alive.contains(div.flagship)) ? div.flagship : alive.get(0);
+            if (f != null && f.getId() != null && (f.isRetreating() || f.isDirectRetreat())) {
+                group.formationSpawnHijackedShipIds.add("__retreating_" + f.getId());
+            }
             float fp = ShipCapabilityProfile.resolveShipFpStrength(f);
-            if (fp > bestFp) {
+            if (f != null && (f.isRetreating() || f.isDirectRetreat())) {
+                if (fp > bestRetreatingFp) {
+                    bestRetreatingFp = fp;
+                    bestRetreatingFlag = f;
+                }
+            } else if (fp > bestFp) {
                 bestFp = fp;
                 bestFlag = f;
             }
         }
-        return bestFlag;
+        return bestFlag != null ? bestFlag : bestRetreatingFlag;
     }
 
     /**
@@ -847,27 +1074,52 @@ public class BattlefieldFirepowerEvaluator {
     public static void updateConvergenceCommandStates(CombatEngineAPI engine, BattleGroupState group) {
         if (group == null) return;
         float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
-        DivisionOtcCommandManager.checkGroupFlagshipLoss(engine, group, now, !group.isAlliedAi);
+        if (!group.isPassiveOpposingView) {
+            DivisionOtcCommandManager.checkGroupFlagshipLoss(engine, group, now, !group.isAlliedAi);
+        }
+        boolean otcInBlackout = !group.isPassiveOpposingView && DivisionOtcCommandManager.isOtcDisabled(group, now);
         if (group.forceConvergenceOverride != null) {
             boolean forced = group.forceConvergenceOverride;
             group.useConvergence = forced;
-            group.activeFleetFlagship = resolveActiveFleetFlagship(engine, group);
+            if (!otcInBlackout || group.activeFleetFlagship == null) {
+                group.activeFleetFlagship = resolveActiveFleetFlagship(engine, group);
+            }
             for (DivisionState div : group.divisions) {
                 div.useConvergence = forced && !div.getAliveMembers().isEmpty();
             }
             return;
         }
         boolean nonHuman = isNonHumanConvergenceGroup(group);
-        ShipAPI fleetFlag = resolveActiveFleetFlagship(engine, group);
+        ShipAPI fleetFlag = (!otcInBlackout || group.activeFleetFlagship == null)
+                ? resolveActiveFleetFlagship(engine, group)
+                : group.activeFleetFlagship;
         group.activeFleetFlagship = fleetFlag;
-        group.useConvergence = nonHuman || isAlphaCoreControlledShip(fleetFlag);
+        boolean playerInitialAlpha = (group.side == 0 && !group.isAlliedAi)
+                && (initialPlayerOtcWasAlphaCore || (group.otc != null && isAlphaCoreOfficer(group.otc.person)));
+        group.useConvergence = nonHuman || playerInitialAlpha || isAlphaCoreControlledShip(fleetFlag);
 
-        if (group.side == 0 && !group.isAlliedAi
-                && fleetFlag != null
-                && isAlphaCoreControlledShip(fleetFlag)
-                && fleetFlag.getCaptain() != null) {
-            if (group.otc == null || group.otc.person != fleetFlag.getCaptain()) {
-                group.otc = new CommanderProfile(fleetFlag.getCaptain(), formatAiShipName(fleetFlag));
+        if (group.side == 0 && !group.isAlliedAi && fleetFlag != null) {
+            if (isAlphaCoreControlledShip(fleetFlag)) {
+                if (fleetFlag.getCaptain() != null
+                        && (group.otc == null || group.otc.person != fleetFlag.getCaptain())) {
+                    group.otc = new CommanderProfile(fleetFlag.getCaptain(), formatAiShipName(fleetFlag));
+                }
+                if (!DivisionDeploymentDialogOrganizer.isPreBattleDeployment(engine, null)) {
+                    DivisionOtcCommandManager.lockPlayerAlphaCoreOtcInBattle(group);
+                }
+            } else {
+                PersonAPI resolvedCap = DivisionOtcCommandManager.resolveCandidatePerson(
+                        fleetFlag.getFleetMember(), fleetFlag);
+                if (resolvedCap != null && (group.otc == null || group.otc.person != resolvedCap)) {
+                    String cName = (resolvedCap.getNameString() != null && !resolvedCap.getNameString().trim().isEmpty())
+                            ? resolvedCap.getNameString().trim()
+                            : "Fleet Commander";
+                    group.otc = new CommanderProfile(resolvedCap, cName);
+                }
+            }
+            if (fleetFlag.getFleetMember() != null && fleetFlag.getFleetMember().getId() != null
+                    && (group.preferredOtcShipId == null || group.preferredOtcShipId.isEmpty())) {
+                DivisionOtcCommandManager.setAutoPreDeployPlayerOtcMemberId(group, fleetFlag.getFleetMember().getId());
             }
         }
 
@@ -881,8 +1133,16 @@ public class BattlefieldFirepowerEvaluator {
                     && playerConvergenceFlagshipOverride != null
                     && alive.contains(playerConvergenceFlagshipOverride)) {
                 div.flagship = playerConvergenceFlagshipOverride;
-            } else if (div.flagship == null || !alive.contains(div.flagship)) {
-                div.flagship = alive.get(0);
+            } else if (div.flagship == null
+                    || !alive.contains(div.flagship)
+                    || !div.flagship.isAlive()
+                    || div.flagship.isHulk()
+                    || div.flagship.isRetreating()
+                    || div.flagship.isDirectRetreat()) {
+                DivisionOtcCommandManager.resolveBestDivisionFlagshipSuccessor(div);
+                if (div.flagship == null || !alive.contains(div.flagship)) {
+                    div.flagship = alive.get(0);
+                }
             }
             div.useConvergence = nonHuman || isAlphaCoreControlledShip(div.flagship);
         }
@@ -894,6 +1154,16 @@ public class BattlefieldFirepowerEvaluator {
      * or if all deployed Alpha Core ships have already asked.
      */
     public static ShipAPI findNextUnaskedSubordinateAlphaCoreShip(CombatEngineAPI engine, BattleGroupState playerGroup) {
+        if (initialPlayerOtcWasAlphaCore) {
+            return null;
+        }
+        if (playerGroup != null && (playerGroup.useConvergence
+                || (playerGroup.otc != null && isAlphaCoreOfficer(playerGroup.otc.person)))) {
+            return null;
+        }
+        if (DivisionOtcCommandManager.isActivePlayerOtcAlphaCore(engine, null, playerGroup)) {
+            return null;
+        }
         ShipAPI currentFlag = resolveActiveFleetFlagship(engine, playerGroup);
         if (isAlphaCoreControlledShip(currentFlag)) {
             return null;
@@ -974,7 +1244,12 @@ public class BattlefieldFirepowerEvaluator {
         playerConvergenceFlagshipOverride = aiShip;
         askedAlphaCoreShipIds.add(aiShip.getId());
         convergenceOverlayVisible = true;
+        DivisionOtcCommandManager.lockPlayerAlphaCoreOtcInBattle(activePlayerGroupRef);
         if (activePlayerGroupRef != null) {
+            String mId = (aiShip.getFleetMember() != null && aiShip.getFleetMember().getId() != null)
+                    ? aiShip.getFleetMember().getId()
+                    : aiShip.getId();
+            DivisionOtcCommandManager.setPreferredPlayerOtcMemberId(activePlayerGroupRef, mId);
             activePlayerGroupRef.otcDisabledUntilTime = -100f;
             activePlayerGroupRef.otcDisabledWarningActive = false;
             updateConvergenceCommandStates(engine, activePlayerGroupRef);
@@ -2888,12 +3163,35 @@ public class BattlefieldFirepowerEvaluator {
      * belonging to {@code group} so stations project Time, Space, and Convergence without being issued mobile
      * maneuver orders or cluttering the map with mobile division callsigns.
      */
+    private static CombatEngineAPI lastStationBastionSyncEngine = null;
+    private static int lastStationBastionShipsSize = -1;
+    private static float lastStationBastionSyncTime = -1000f;
+    private static final Map<BattleGroupState, List<DivisionState>> cachedStationBastionsByGroup = new HashMap<>();
+
     public static List<DivisionState> syncAndGetStationBastionsForGroup(
             CombatEngineAPI engine,
             BattleGroupState group) {
         if (engine == null || group == null) return Collections.emptyList();
         List<ShipAPI> ships = engine.getShips();
         if (ships == null || ships.isEmpty()) return Collections.emptyList();
+
+        float now = engine.getTotalElapsedTime(false);
+        int shipsSize = ships.size();
+        if (engine == lastStationBastionSyncEngine
+                && shipsSize == lastStationBastionShipsSize
+                && Math.abs(now - lastStationBastionSyncTime) < 0.25f) {
+            List<DivisionState> cached = cachedStationBastionsByGroup.get(group);
+            if (cached != null) {
+                return cached;
+            }
+        } else if (engine != lastStationBastionSyncEngine
+                || shipsSize != lastStationBastionShipsSize
+                || Math.abs(now - lastStationBastionSyncTime) >= 0.25f) {
+            lastStationBastionSyncEngine = engine;
+            lastStationBastionShipsSize = shipsSize;
+            lastStationBastionSyncTime = now;
+            cachedStationBastionsByGroup.clear();
+        }
 
         List<DivisionState> bastions = new ArrayList<>();
         for (int i = 0; i < ships.size(); i++) {
@@ -3000,6 +3298,7 @@ public class BattlefieldFirepowerEvaluator {
             updateDivisionBaseTimeSpace(bastion);
             bastions.add(bastion);
         }
+        cachedStationBastionsByGroup.put(group, bastions);
         return bastions;
     }
 
@@ -3161,7 +3460,10 @@ public class BattlefieldFirepowerEvaluator {
                     0f,
                     0.62f);
             float fluxEngagement = clampVal(div.avgFluxLevel * 0.26f, 0f, 0.22f);
-            float edgePinchTerm = div.edgeProximityPinch * (0.14f + 0.26f * Math.max(spaceEngagement, firepowerEngagement));
+            float overmatchEdgeRelief = (div.localForceRatio >= 1.15f) ? 0.30f : 1.0f;
+            float edgePinchTerm = div.edgeProximityPinch
+                    * (0.14f + 0.26f * Math.max(spaceEngagement, firepowerEngagement))
+                    * overmatchEdgeRelief;
             float rawEngagement = clampVal(
                     Math.max(spaceEngagement, firepowerEngagement)
                             + 0.38f * Math.min(spaceEngagement, firepowerEngagement)
@@ -3366,12 +3668,37 @@ public class BattlefieldFirepowerEvaluator {
 
             // 2b. Map-Edge Directional Pinch (Item D):
             //     When the map boundary is closer than freeR * 1.18 in direction (ux, uy), the map wall directly
-            //     pinches Time projection along this ray so Time cannot project past the battlefield edge.
+            //     pinches Time projection along this ray — EXCEPT when a target enemy division is between us and
+            //     that boundary (or hugging the boundary), in which case our division has full tactical freedom to
+            //     close onto the cornered enemy without its TSFC being artificially squished!
             float edgeDist = computeDirectionalBoundaryClearance(engine, div.centroid, ux, uy, 140f);
             if (edgeDist < freeR * 1.18f) {
-                float pinchedR = pinchRadiusByBoundary(freeR, edgeDist);
-                float boundaryImpliedEng = clampVal(1.0f - (pinchedR / Math.max(100f, freeR)), 0.0f, 0.92f);
-                dirPinch = Math.max(dirPinch, boundaryImpliedEng);
+                boolean enemyInEdgeCorridor = false;
+                if (enemyGroup != null) {
+                    for (DivisionState eDiv : enemyGroup.divisions) {
+                        if (eDiv == null || !eDiv.isCombatEffective()) continue;
+                        if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
+                        Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
+                        float edx = ePos.x - div.centroid.x;
+                        float edy = ePos.y - div.centroid.y;
+                        float eDist = (float) Math.sqrt(edx * edx + edy * edy);
+                        if (eDist > 1f && eDist <= edgeDist + 280f) {
+                            float dot = (edx * ux + edy * uy) / eDist;
+                            if (dot >= 0.78f) {
+                                enemyInEdgeCorridor = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!enemyInEdgeCorridor) {
+                    float pinchedR = pinchRadiusByBoundary(freeR, edgeDist);
+                    float boundaryImpliedEng = clampVal(1.0f - (pinchedR / Math.max(100f, freeR)), 0.0f, 0.92f);
+                    if (div.localForceRatio >= 1.15f) {
+                        boundaryImpliedEng *= 0.45f;
+                    }
+                    dirPinch = Math.max(dirPinch, boundaryImpliedEng);
+                }
             }
 
             rawDirEng[s] = clampVal(dirPinch, 0.0f, 0.90f);
@@ -3392,8 +3719,10 @@ public class BattlefieldFirepowerEvaluator {
             float angleDeg = s * (360f / nDirs);
             double rad = Math.toRadians(angleDeg);
             float edgeDist = computeDirectionalBoundaryClearance(
-                    engine, div.centroid, (float) Math.cos(rad), (float) Math.sin(rad), 120f);
-            div.directionalTimeRadii[s] = pinchRadiusByBoundary(unpinchedR, edgeDist);
+                    engine, div.centroid, (float) Math.cos(rad), (float) Math.sin(rad), 80f);
+            div.directionalTimeRadii[s] = Math.max(
+                    pinchRadiusByBoundary(unpinchedR, edgeDist),
+                    Math.min(unpinchedR, edgeDist + 240f));
         }
         div.directionalTimeInitialized = true;
     }
@@ -3472,7 +3801,7 @@ public class BattlefieldFirepowerEvaluator {
                     break;
                 case REVERSE_WEDGE:
                 case REVERSE_SEMICIRCLE:
-                    // Concave pocket opening forward with extended flank horns
+                    // Concave pocket opening forward with extended flank wings
                     formShape = 0.90f + 0.18f * (cosRight * cosRight) + (cosFwd >= 0f ? 0.10f * cosFwd : -0.12f * (-cosFwd));
                     break;
                 case ECHELON_LEFT: {
@@ -3771,9 +4100,22 @@ public class BattlefieldFirepowerEvaluator {
         float clearY = halfH - Math.abs(cand.y);
         float minClear = Math.min(clearX, clearY);
 
-        // Hard safety margin: never hug closer than 650u to the raw map boundary
-        if (minClear < 650f) {
-            return -(650f - minClear) * 1.15f;
+        float enemyMinClear = 9999f;
+        float eLen = 0f;
+        if (enemyFocusPos != null) {
+            float eClearX = halfW - Math.abs(enemyFocusPos.x);
+            float eClearY = halfH - Math.abs(enemyFocusPos.y);
+            enemyMinClear = Math.min(eClearX, eClearY);
+            float edx = enemyFocusPos.x - cand.x;
+            float edy = enemyFocusPos.y - cand.y;
+            eLen = (float) Math.sqrt(edx * edx + edy * edy);
+        }
+        boolean enemyPinnedNearEdge = enemyMinClear < 1400f;
+        float hardFloor = enemyPinnedNearEdge ? 360f : 650f;
+
+        // Hard safety margin: allow closing to 360u when hunting an enemy pinned near the map boundary
+        if (minClear < hardFloor) {
+            return -(hardFloor - minClear) * 1.15f;
         }
         if (minClear > 2400f) {
             return 0f;
@@ -3789,20 +4131,30 @@ public class BattlefieldFirepowerEvaluator {
         }
 
         float enemyDotWall = 0f;
-        if (enemyFocusPos != null) {
+        if (enemyFocusPos != null && eLen > 1f) {
             float edx = enemyFocusPos.x - cand.x;
             float edy = enemyFocusPos.y - cand.y;
-            float eLen = (float) Math.sqrt(edx * edx + edy * edy);
-            if (eLen > 1f) {
-                // Negative when enemy is toward map center and the map wall is BEHIND our candidate station
-                enemyDotWall = (edx * wallNx + edy * wallNy) / eLen;
-            }
+            // Negative when enemy is toward map center and the map wall is BEHIND our candidate station
+            enemyDotWall = (edx * wallNx + edy * wallNy) / eLen;
         }
 
         if (defensivePosture && enemyDotWall <= -0.20f) {
             // Safe defensive bastion zone: back to the map edge (900u..2000u clearance), facing inward toward the attacker!
             float sweetSpot = 1.0f - Math.abs(minClear - 1350f) / 1050f;
             return Math.max(0f, sweetSpot) * (-enemyDotWall) * 260f;
+        }
+
+        // When the target enemy itself is pinned near the map edge (enemyPinnedNearEdge), do NOT repel our station
+        // 1,350u inward away from the enemy; instead reward stations that press the cornered enemy at gun range!
+        if (enemyPinnedNearEdge) {
+            float safeEdgeFloor = Math.max(380f, enemyMinClear - 180f);
+            if (minClear < safeEdgeFloor) {
+                return -(safeEdgeFloor - minClear) * 0.45f;
+            }
+            if (enemyDotWall >= -0.15f && eLen >= 420f && eLen <= 920f) {
+                return 135f;
+            }
+            return 0f;
         }
 
         // If enemy is between us and the map center (enemyDotWall > 0.15f) or we are flanking into a tight wall gap (< 1250u),

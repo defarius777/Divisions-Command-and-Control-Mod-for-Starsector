@@ -789,7 +789,7 @@ public class DivisionFormationNavigator {
                 return new float[]{lat, depth};
             }
             case REVERSE_SEMICIRCLE: {
-                // Concave crescent opening toward the enemy: flagship at the rear-center base (k=0), wingmen curving forward on both horns
+                // Concave crescent opening toward the enemy: flagship at the rear-center base (k=0), wingmen curving forward on both wings
                 int maxRank = Math.max(1, (n + 1) / 2);
                 float radius = Math.max(spacing * 0.85f, maxRank * spacing * 0.82f);
                 double maxAngle = Math.toRadians(70.0);
@@ -870,7 +870,17 @@ public class DivisionFormationNavigator {
                 && (div.localForceRatio < 0.95f
                 || div.effectiveHpRatio < 0.72f
                 || (enemyDiv.totalEffectiveHp > div.totalEffectiveHp * 1.35f && div.totalEffectiveHp > 100f));
-        if (outmatchedOrFragile && div.avgEngageRange > 250f) {
+        boolean targetCorneredOrAuxiliary = !div.archetype.isCarrierArchetype()
+                && !outmatchedOrFragile
+                && div.avgFluxLevel < 0.60f
+                && (enemyDiv.edgeProximityPinch >= 0.28f
+                || enemyDiv.isUnableDivision
+                || enemyDiv.retreatingFraction >= 0.35f
+                || enemyDiv.combatThreatWeight <= 0.60f);
+        if (targetCorneredOrAuxiliary) {
+            float refWeaponRange = (div.avgEngageRange > 250f) ? div.avgEngageRange : div.standoffRange;
+            standoff = Math.max(440f, Math.min(740f, refWeaponRange * 0.72f));
+        } else if (outmatchedOrFragile && div.avgEngageRange > 250f) {
             // Kite near the outer edge of our own gun envelope (never outside our own weapons!)
             standoff = Math.max(standoff, Math.min(1050f, div.avgEngageRange * 0.90f));
         } else if (lineStation == LineStation.VAN && !outmatchedOrFragile) {
@@ -978,9 +988,15 @@ public class DivisionFormationNavigator {
             Vector2f outStation,
             BattleGroupState myGroup) {
         Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, flankerDiv.side, enemyDiv);
-        float flankRadius = Math.max(
-                1250f,
-                flankerDiv.standoffRange + enemyDiv.spreadRadius * 0.55f + flankerDiv.stationSpacing * 0.65f);
+        float weaponRange = (flankerDiv.avgEngageRange > 250f) ? flankerDiv.avgEngageRange : flankerDiv.standoffRange;
+        boolean targetCorneredOrWeak = enemyDiv.edgeProximityPinch >= 0.25f
+                || enemyDiv.isUnableDivision
+                || enemyDiv.retreatingFraction >= 0.35f
+                || enemyDiv.combatThreatWeight <= 0.62f;
+        float flankRadius = targetCorneredOrWeak
+                ? Math.max(540f, Math.min(840f, weaponRange * 0.78f))
+                : Math.max(1250f, flankerDiv.standoffRange + enemyDiv.spreadRadius * 0.55f + flankerDiv.stationSpacing * 0.65f);
+        float mapClampMargin = (enemyDiv.edgeProximityPinch >= 0.22f) ? 360f : 650f;
 
         // Pincer: an OTC-assigned flank side is measured on the battlegroup's attack axis (fleet centre -> target),
         // so two flankers on opposite sides really do envelop the target from left and right.
@@ -1000,7 +1016,7 @@ public class DivisionFormationNavigator {
                 float relY = flankerDiv.centroid.y - visEnemyPos.y;
                 float relLen = (float) Math.sqrt(relX * relX + relY * relY);
                 float forwardDot = (relLen > 1f) ? ((relX * fwdX + relY * fwdY) / relLen) : -1f;
-                float lateralMult = (forwardDot < -0.15f) ? 1.28f : 1.0f;
+                float lateralMult = (forwardDot < -0.15f && !targetCorneredOrWeak) ? 1.28f : 1.0f;
                 float depthMult = (forwardDot < -0.15f) ? 0.15f : 0.32f;
                 outStation.set(
                         visEnemyPos.x + perpX * flankRadius * lateralMult * assignedSide + fwdX * flankRadius * depthMult,
@@ -1012,7 +1028,7 @@ public class DivisionFormationNavigator {
                     BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
                             engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 48f, 7, outStation);
                 }
-                clampToMapBounds(engine, outStation, 650f);
+                clampToMapBounds(engine, outStation, mapClampMargin);
                 return;
             }
         }
@@ -1024,10 +1040,12 @@ public class DivisionFormationNavigator {
             outStation.set(visEnemyPos);
             return;
         }
-        // Perpendicular offset to swing wide around the enemy division's flank, scaled by doctrinal standoff & spacing
+        // Perpendicular offset to swing around the enemy division's flank, scaled by weapon envelope
         float perpX = -dy / len;
         float perpY = dx / len;
-        float sideSign = (flankerDiv.divisionNumber % 2 == 1) ? 1f : -1f;
+        float sideSign = (flankerDiv.consentedWingSide != 0)
+                ? -flankerDiv.consentedWingSide
+                : ((flankerDiv.divisionNumber % 2 == 1) ? 1f : -1f);
         // Item D: Check map-edge clearance on both flanks of the enemy division so an autonomous flanker never
         // tries to squeeze into a pinched gap between the enemy and the map wall, and instead swings around the
         // open flank to pin the enemy against the map edge!
@@ -1048,7 +1066,7 @@ public class DivisionFormationNavigator {
             BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
                     engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 55f, 7, outStation);
         }
-        clampToMapBounds(engine, outStation, 650f);
+        clampToMapBounds(engine, outStation, mapClampMargin);
     }
 
     /**

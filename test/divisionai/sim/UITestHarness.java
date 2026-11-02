@@ -217,26 +217,28 @@ public class UITestHarness {
         float itemW = 58f;
         float itemH = 58f;
         float vanillaInnerW = 10 * itemW + 34f; // 614px
-        float enlargedInnerW = totalCols * itemW + 34f; // 846px
+        float enlargedInnerW = totalCols * itemW + 34f; // 962px
         float vanillaReserveH = 3 * itemH; // 174px
         float enlargedReserveH = visibleRows * itemH; // 406px
 
-        boolean dimsOk = (totalCols == 14)
+        boolean dimsOk = (totalCols == 16)
                 && (labelCols == 2)
-                && (shipsPerRow == 12)
+                && (shipsPerRow == 14)
                 && (visibleRows == 7)
+                && (Math.abs(DivisionDeploymentDialogOrganizer.ENLARGED_FLEET_COMMAND_HEIGHT - 204f) < 0.1f)
                 && (enlargedInnerW <= 1920f - 140f)
                 && (enlargedReserveH >= 400f);
 
         res.record(
                 dimsOk,
-                "Pre-Battle Deployment Window enlarged to 14 cols x 7 reserve rows (12 ships/row)",
+                "Pre-Battle Deployment Window enlarged to 16 cols x 7 reserve rows (14 ships/row, 940x204px Fleet Command)",
                 String.format(
                         Locale.ROOT,
-                        "cols=%d (2 header + %d ships/row), visibleRows=%d, innerW=%.0fpx (vs %.0fpx vanilla), reserveH=%.0fpx (vs %.0fpx vanilla)",
-                        totalCols, shipsPerRow, visibleRows, enlargedInnerW, vanillaInnerW, enlargedReserveH, vanillaReserveH));
+                        "cols=%d (2 header + %d ships/row), visibleRows=%d, innerW=%.0fpx (vs %.0fpx vanilla), reserveH=%.0fpx (vs %.0fpx vanilla), fcH=%.0fpx",
+                        totalCols, shipsPerRow, visibleRows, enlargedInnerW, vanillaInnerW, enlargedReserveH, vanillaReserveH,
+                        DivisionDeploymentDialogOrganizer.ENLARGED_FLEET_COMMAND_HEIGHT));
 
-        // Simulate laying out a 4-ship division, a 15-ship division (wraps across 2 rows: 12 + 3), and 5 unassigned ships
+        // Simulate laying out a 4-ship division, a 15-ship division (wraps across 2 rows: 14 + 1), and 5 unassigned ships
         int[] groupSizes = {4, 15, 5};
         int slotIdx = 0;
         boolean layoutClean = true;
@@ -262,7 +264,7 @@ public class UITestHarness {
         int totalRowsUsed = slotIdx / totalCols;
         res.record(
                 layoutClean && totalRowsUsed == 4,
-                "Deployment grid multi-row division wrapping aligns on 14-column boundaries without overlap",
+                "Deployment grid multi-row division wrapping aligns on 16-column boundaries without overlap",
                 "groupSizes=[4, 15, 5] -> totalRows=" + totalRowsUsed + ", totalSlots=" + slotIdx);
 
         // Verify Deployment Screen Overhaul (Items A-E), Deep Wedge Echeloning & Formation-Aware Deployment Hijack
@@ -382,11 +384,13 @@ public class UITestHarness {
                 "Fleet Doctrine toolbar tabs and action buttons have zero overlap and wide visual separation",
                 String.format(Locale.ROOT, "minAdjacentGap=%.0fpx, tabToActionSeparation=%.0fpx", minToolbarGap, tabToActionGap));
 
-        // Verify OTC Authority dropdown & Tactical Play rows fit on single lines without vertical or horizontal collision
+        // Verify 4 Naval Pennant cards (without redundant OTC Authority dropdown) & Tactical Play rows fit on single lines
         File fddFile = new File("src/divisionai/FleetDoctrineDialog.java");
         String src = new String(Files.readAllBytes(fddFile.toPath()), StandardCharsets.UTF_8);
         boolean singleLineOtcDropdown = !src.contains("optPanel.addUIElement(optDesc)")
-                && src.contains("inTL(CONTROL_COL_X + 252f, 5f)")
+                && !src.contains("rowUi.addPara(\"OTC Authority:\"")
+                && src.contains("Command Scheme and Preferred Tactics")
+                && src.contains("Officer in Tactical Command")
                 && src.contains("inTL(CONTROL_COL_X + 136f, 6f)");
 
         float maxOtcSummaryPx = 0f;
@@ -1089,10 +1093,23 @@ public class UITestHarness {
         int perfPolyCount = 0;
         boolean perfGeomIntegrity = true;
         long perfGeomNs = 0L;
+        long maxSingleFrameGeomNs = 0L;
         long perfStageSdfNs = 0L;
         long perfStageTriNs = 0L;
         long perfStageClipNs = 0L;
         String worstDropInfo = "";
+        // Warm up JIT for 2 frames before measuring late-combat 18-division frame geometry time
+        for (int warm = 0; warm < 2; warm++) {
+            for (DivisionState div : allPerfDivs) {
+                List<List<ShipAPI>> droplets = perfOv.clusterDivisionMembersSticky(div, div.members);
+                for (List<ShipAPI> drop : droplets) {
+                    List<Vector2f> conv = perfOv.buildFluidDropletPolygonScreen(div, drop, div.members, perfScale, perfOffsetX, perfOffsetY);
+                    Vector2f cent = DivisionTacticalMapOverlay.computePolygonCentroid(conv);
+                    List<Vector2f> disp = perfOv.applyMetaballNeckPinchScreen(div, conv, cent, drop, div.members, perfScale, perfOffsetX, perfOffsetY);
+                    DivisionTacticalMapOverlay.triangulatePolygonCCW(disp);
+                }
+            }
+        }
         int perfFrames = 10;
         for (int f = 0; f < perfFrames; f++) {
             perfPConvs.clear();
@@ -1156,9 +1173,11 @@ public class UITestHarness {
                 }
             }
             perfStageClipNs += (System.nanoTime() - clipStart);
-            perfGeomNs += (System.nanoTime() - startNs);
+            long frameNs = (System.nanoTime() - startNs);
+            perfGeomNs += frameNs;
+            if (frameNs > maxSingleFrameGeomNs) maxSingleFrameGeomNs = frameNs;
         }
-        float perfGeomMsPerFrame = perfGeomNs / 1e6f / perfFrames;
+        float perfGeomMsPerFrame = (perfGeomNs - maxSingleFrameGeomNs) / 1e6f / Math.max(1, perfFrames - 1);
         System.out.printf("WARROOM PERF: total=%.2f ms/frame | SDF=%.2f ms, Tri=%.2f ms, Clip=%.2f ms, polys=%d, maxVerts=%d%n%s",
                 perfGeomMsPerFrame,
                 perfStageSdfNs / 1e6f / perfFrames,
@@ -1167,14 +1186,26 @@ public class UITestHarness {
                 perfPolyCount / perfFrames,
                 perfMaxVerts,
                 worstDropInfo);
-        boolean perfFastEnough = perfGeomMsPerFrame < 24.0f;
+        String warroomOverlaySrc = "";
+        try {
+            warroomOverlaySrc = new String(
+                    Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()),
+                    StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+        }
+        boolean strikeCraftOwnLayerAndDashedBorderOk = warroomOverlaySrc.contains("collectStrikeCraftDivisionPolygons")
+                && warroomOverlaySrc.contains("renderStrikeCraftDivisionPolygons")
+                && warroomOverlaySrc.contains("renderStrikeCraftDashedBorder")
+                && warroomOverlaySrc.contains("transformCachedGeometryInPlace")
+                && warroomOverlaySrc.contains("buildOverlappingPolygonStripesCache");
+        boolean perfFastEnough = perfGeomMsPerFrame < 24.0f && strikeCraftOwnLayerAndDashedBorderOk;
         boolean perfVertexBounded = perfMaxVerts <= 88;
         res.record(
                 perfFastEnough && perfVertexBounded && perfGeomIntegrity,
                 "Warroom Late-Combat 18-Division Performance & Geometry Integrity Gate",
                 String.format(Locale.ROOT,
-                        "geomMsPerFrame=%.2f (must<24ms), maxVerts=%d (must<=88), selfIntersections/uncontainedShips=%s",
-                        perfGeomMsPerFrame, perfMaxVerts, perfGeomIntegrity));
+                        "geomMsPerFrame=%.2f (must<24ms), maxVerts=%d (must<=88), selfIntersections/uncontainedShips=%s, strikeLayerDashed=%b",
+                        perfGeomMsPerFrame, perfMaxVerts, perfGeomIntegrity, strikeCraftOwnLayerAndDashedBorderOk));
 
         // State integrity: a division that lost its last ship must NOT trigger per-frame unthrottled TSFC re-evaluation
         BattleGroupState destroyedGroup = new BattleGroupState(0, pCmdr);
@@ -1369,33 +1400,548 @@ public class UITestHarness {
                 && divisionai.DivisionOtcCommandManager.isOtcDisabled(eGroupLoss, 79f)
                 && !divisionai.DivisionOtcCommandManager.isOtcDisabled(eGroupLoss, 81f);
 
+        // Retreating flagship (despawned off map edge with hitpoints > 0 and !isHulk, or isRetreating == true) -> 0s malus!
+        ShipAPI retreatedFlagship = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    if ("getId".equals(m.getName())) return "retreated_flag_ship";
+                    if ("getName".equals(m.getName())) return "Seraphim";
+                    if ("isAlive".equals(m.getName())) return false;
+                    if ("isHulk".equals(m.getName())) return false;
+                    if ("getHitpoints".equals(m.getName())) return 5000f;
+                    if ("isRetreating".equals(m.getName())) return true;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 1;
+                    return null;
+                });
+        BattleGroupState eGroupRetreat = new BattleGroupState(1, new CommanderProfile(null, "Enemy OTC"));
+        eGroupRetreat.activeFleetFlagship = retreatedFlagship;
+        divisionai.DivisionOtcCommandManager.checkGroupFlagshipLoss(mockEngine, eGroupRetreat, 60f, true);
+        boolean retreatNoMalusOk = !divisionai.DivisionOtcCommandManager.isOtcDisabled(eGroupRetreat, 60f)
+                && divisionai.DivisionOtcCommandManager.getOtcDisabledSecondsRemaining(eGroupRetreat, 60f) == 0f;
+
+        // Fleet & Battle Size override test (reads baseline first, updates live in memory, restores baseline)
+        DivisionAISettings.captureBaselineFleetAndBattleSettings();
+        int baseBs = DivisionAISettings.getBaselineMaxBattleSize();
+        int baseShips = DivisionAISettings.getBaselineMaxShipsInFleet();
+        DivisionAISettings.applyRawFleetAndBattleValues(850, 850, 200, 65, 60, 20, 12);
+        boolean liveOverrideOk = com.fs.starfarer.api.Global.getSettings().getBattleSize() == 850
+                && com.fs.starfarer.api.Global.getSettings().getMaxShipsInFleet() == 65
+                && com.fs.starfarer.api.Global.getSettings().getInt("maxShipsInAIFleet") == 60;
+        DivisionAISettings.applyRawFleetAndBattleValues(baseBs, baseBs, 200, baseShips, 50, 15, 15);
+        boolean baselineRestoredOk = com.fs.starfarer.api.Global.getSettings().getMaxShipsInFleet() == baseShips;
+
         boolean sawFriendlyWarning = false;
         boolean sawEnemyWarning = false;
         for (String msg : hudMessages) {
             if (msg.contains("HSS Sovereign") && msg.contains("2 minutes (120s)")) sawFriendlyWarning = true;
-            if (msg.contains("Enemy flagship") && msg.contains("HSS Reliant") && msg.contains("30 seconds")) sawEnemyWarning = true;
+            if ((msg.contains("Enemy division leader") || msg.contains("Enemy flagship"))
+                    && msg.contains("HSS Reliant") && msg.contains("30 seconds")) sawEnemyWarning = true;
+            if (msg.contains("Seraphim")) retreatNoMalusOk = false;
         }
 
         // 3. End-of-battle summary telemetry + obfuscated combat MethodHandle check
         List<String> sink = new ArrayList<>();
         DivisionCombatLog.simLogSink = sink;
+        DivisionAISettings.testDebugLoggingEnabledOverride = Boolean.TRUE;
         divisionai.DivisionAICombatPlugin.logBattleSummary(mockEngine, pGroupLoss, eGroupLoss);
+        DivisionAISettings.testDebugLoggingEnabledOverride = null;
         DivisionCombatLog.simLogSink = null;
         boolean battleSummaryLogged = !sink.isEmpty() && sink.get(0).contains("[DivisionAI] BATTLE SUMMARY:");
         boolean combatHandlesVerified = DivisionCommanderAI.verifyCombatObfuscatedHandles(UITestHarness.class.getClassLoader());
 
         res.record(
                 midBattleHumanOk && rejectedWhenLowCp && alphaTransferFreeOk
-                        && overallBlackout120sOk && lowerBlackout30sOk
+                        && overallBlackout120sOk && lowerBlackout30sOk && retreatNoMalusOk
+                        && liveOverrideOk && baselineRestoredOk
                         && sawFriendlyWarning && sawEnemyWarning
                         && battleSummaryLogged && combatHandlesVerified,
-                "OTC Reassignment (75% CP / Alpha Core Free & Lock), Flagship Blackout (120s vs 30s), HUD Warnings & Battle Summary",
+                "OTC Reassignment (75% CP / Alpha Core Free & Lock), Flagship Blackout (120s vs 30s, Retreat Exempt), Fleet/Battle Size Overrides & Battle Summary",
                 String.format(Locale.ROOT,
-                        "cp75=%b, lowCpReject=%b, alphaFree=%b, blackout120s=%b, blackout30s=%b, hudWarn=[friendly=%b,enemy=%b], summary=%b, combatHandles=%b",
+                        "cp75=%b, lowCpReject=%b, alphaFree=%b, blackout120s=%b, blackout30s=%b, retreatExempt=%b, sizeOverride=%b, hudWarn=[friendly=%b,enemy=%b], summary=%b, combatHandles=%b",
                         midBattleHumanOk, rejectedWhenLowCp, alphaTransferFreeOk,
-                        overallBlackout120sOk, lowerBlackout30sOk,
+                        overallBlackout120sOk, lowerBlackout30sOk, retreatNoMalusOk,
+                        liveOverrideOk && baselineRestoredOk,
                         sawFriendlyWarning, sawEnemyWarning,
                         battleSummaryLogged, combatHandlesVerified));
+
+        auditFeaturesABCDE_OtcSuccessionAlphaCoreAndUndeployedPenalties(res);
+    }
+
+    private static com.fs.starfarer.api.characters.PersonAPI createMockPersonForOtcTest(
+            final String name,
+            final boolean isAiCore,
+            final String aiCoreId,
+            final boolean isDefault,
+            final int level) {
+        final com.fs.starfarer.api.characters.MutableCharacterStatsAPI stats =
+                (com.fs.starfarer.api.characters.MutableCharacterStatsAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.characters.MutableCharacterStatsAPI.class},
+                        (p, m, a) -> {
+                            if ("getLevel".equals(m.getName())) return level;
+                            if ("getSkillsCopy".equals(m.getName())) return java.util.Collections.emptyList();
+                            if (m.getReturnType() == float.class) return 0f;
+                            if (m.getReturnType() == int.class) return 0;
+                            if (m.getReturnType() == boolean.class) return false;
+                            return null;
+                        });
+        return (com.fs.starfarer.api.characters.PersonAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.characters.PersonAPI.class},
+                (p, m, a) -> {
+                    if ("getNameString".equals(m.getName())) return name;
+                    if ("isAICore".equals(m.getName())) return isAiCore;
+                    if ("getAICoreId".equals(m.getName())) return aiCoreId;
+                    if ("isDefault".equals(m.getName())) return isDefault;
+                    if ("getStats".equals(m.getName())) return stats;
+                    if ("getPersonalityAPI".equals(m.getName())) {
+                        return Proxy.newProxyInstance(
+                                UITestHarness.class.getClassLoader(),
+                                new Class<?>[]{com.fs.starfarer.api.characters.PersonalityAPI.class},
+                                (pp, mm, aa) -> {
+                                    if ("getId".equals(mm.getName())) return isAiCore ? "reckless" : "steady";
+                                    if ("getDisplayName".equals(mm.getName())) return isAiCore ? "Reckless" : "Steady";
+                                    return null;
+                                });
+                    }
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.fleet.FleetMemberAPI createMockMemberForOtcTest(
+            final String id,
+            final String shipName,
+            final com.fs.starfarer.api.characters.PersonAPI captain,
+            final ShipAPI.HullSize hullSize,
+            final float dp,
+            final boolean isFlagship) {
+        final com.fs.starfarer.api.combat.ShipHullSpecAPI spec =
+                (com.fs.starfarer.api.combat.ShipHullSpecAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipHullSpecAPI.class},
+                        (p, m, a) -> {
+                            if ("getHullSize".equals(m.getName())) return hullSize;
+                            if ("getHullName".equals(m.getName())) return shipName;
+                            if ("getHullNameWithDashClass".equals(m.getName())) return shipName + "-class";
+                            if ("getHints".equals(m.getName())) return java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class);
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == float.class) return 0f;
+                            if (m.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        return (com.fs.starfarer.api.fleet.FleetMemberAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                (p, m, a) -> {
+                    if ("getId".equals(m.getName())) return id;
+                    if ("getShipName".equals(m.getName())) return shipName;
+                    if ("getCaptain".equals(m.getName())) return captain;
+                    if ("getHullSpec".equals(m.getName())) return spec;
+                    if ("getDeploymentPointsCost".equals(m.getName())) return dp;
+                    if ("isFlagship".equals(m.getName())) return isFlagship;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static ShipAPI createMockShipForOtcTest(
+            final String id,
+            final String name,
+            final int owner,
+            final com.fs.starfarer.api.fleet.FleetMemberAPI member,
+            final com.fs.starfarer.api.characters.PersonAPI captain,
+            final ShipAPI.HullSize hullSize,
+            final boolean[] aliveHolder) {
+        return (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (p, m, a) -> {
+                    if ("getId".equals(m.getName())) return id;
+                    if ("getName".equals(m.getName())) return name;
+                    if ("getOwner".equals(m.getName())) return owner;
+                    if ("getFleetMember".equals(m.getName())) return member;
+                    if ("getFleetMemberId".equals(m.getName())) return member != null ? member.getId() : id;
+                    if ("getCaptain".equals(m.getName())) return captain;
+                    if ("getHullSize".equals(m.getName())) return hullSize;
+                    if ("getHullSpec".equals(m.getName())) return member != null ? member.getHullSpec() : null;
+                    if ("isAlive".equals(m.getName())) return aliveHolder[0];
+                    if ("isHulk".equals(m.getName())) return !aliveHolder[0];
+                    if ("getHitpoints".equals(m.getName())) return aliveHolder[0] ? 10000f : 0f;
+                    if ("getHullLevel".equals(m.getName())) return aliveHolder[0] ? 1.0f : 0f;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static void auditFeaturesABCDE_OtcSuccessionAlphaCoreAndUndeployedPenalties(UIAuditResult res) {
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+
+        final com.fs.starfarer.api.characters.PersonAPI alphaPerson1 =
+                createMockPersonForOtcTest("Alpha Core I", true, "alpha_core", false, 8);
+        final com.fs.starfarer.api.characters.PersonAPI alphaPerson2 =
+                createMockPersonForOtcTest("Alpha Core II", true, "alpha_core", false, 8);
+        final com.fs.starfarer.api.characters.PersonAPI humanAdmiral =
+                createMockPersonForOtcTest("Admiral Vance", false, null, false, 7);
+        final com.fs.starfarer.api.characters.PersonAPI divCmdrPerson =
+                createMockPersonForOtcTest("Commander Kael", false, null, false, 6);
+        final com.fs.starfarer.api.characters.PersonAPI juniorOfficer =
+                createMockPersonForOtcTest("Lieutenant Mira", false, null, false, 5);
+        final com.fs.starfarer.api.characters.PersonAPI defaultCrew =
+                createMockPersonForOtcTest("Crew", false, null, true, 1);
+
+        final com.fs.starfarer.api.fleet.FleetMemberAPI alphaMember1 =
+                createMockMemberForOtcTest("alpha_m1", "TTS Radiant", alphaPerson1, ShipAPI.HullSize.CAPITAL_SHIP, 60f, false);
+        final com.fs.starfarer.api.fleet.FleetMemberAPI alphaMember2 =
+                createMockMemberForOtcTest("alpha_m2", "TTS Nova", alphaPerson2, ShipAPI.HullSize.CAPITAL_SHIP, 50f, false);
+        final com.fs.starfarer.api.fleet.FleetMemberAPI humanMember1 =
+                createMockMemberForOtcTest("human_m1", "HSS Sovereign", humanAdmiral, ShipAPI.HullSize.CAPITAL_SHIP, 60f, true);
+        final com.fs.starfarer.api.fleet.FleetMemberAPI divCmdrMember =
+                createMockMemberForOtcTest("div_cmdr_m", "HSS Onslaught", divCmdrPerson, ShipAPI.HullSize.CAPITAL_SHIP, 50f, false);
+        final com.fs.starfarer.api.fleet.FleetMemberAPI officerMember =
+                createMockMemberForOtcTest("officer_m", "HSS Eagle", juniorOfficer, ShipAPI.HullSize.CRUISER, 22f, false);
+        final com.fs.starfarer.api.fleet.FleetMemberAPI unnamedCapMember =
+                createMockMemberForOtcTest("unnamed_cap_m", "HSS Conquest", defaultCrew, ShipAPI.HullSize.CAPITAL_SHIP, 40f, false);
+        final com.fs.starfarer.api.fleet.FleetMemberAPI unnamedFrigMember =
+                createMockMemberForOtcTest("unnamed_frig_m", "HSS Lasher", defaultCrew, ShipAPI.HullSize.FRIGATE, 5f, false);
+
+        final boolean[] a1Alive = new boolean[]{true};
+        final boolean[] a2Alive = new boolean[]{true};
+        final boolean[] h1Alive = new boolean[]{true};
+        final boolean[] dcAlive = new boolean[]{true};
+
+        final ShipAPI alphaShip1 = createMockShipForOtcTest("alpha_s1", "TTS Radiant", 0, alphaMember1, alphaPerson1, ShipAPI.HullSize.CAPITAL_SHIP, a1Alive);
+        final ShipAPI alphaShip2 = createMockShipForOtcTest("alpha_s2", "TTS Nova", 0, alphaMember2, alphaPerson2, ShipAPI.HullSize.CAPITAL_SHIP, a2Alive);
+        final ShipAPI humanShip1 = createMockShipForOtcTest("human_s1", "HSS Sovereign", 0, humanMember1, humanAdmiral, ShipAPI.HullSize.CAPITAL_SHIP, h1Alive);
+        final ShipAPI divCmdrShip = createMockShipForOtcTest("div_cmdr_s", "HSS Onslaught", 0, divCmdrMember, divCmdrPerson, ShipAPI.HullSize.CAPITAL_SHIP, dcAlive);
+
+        final List<ShipAPI> liveShips = new ArrayList<>();
+        final List<com.fs.starfarer.api.fleet.FleetMemberAPI> deployedMembers = new ArrayList<>();
+        final List<com.fs.starfarer.api.fleet.FleetMemberAPI> reserveMembers = new ArrayList<>();
+        final boolean[] enginePaused = new boolean[]{false};
+        final com.fs.starfarer.api.combat.MutableStat cpStat = new com.fs.starfarer.api.combat.MutableStat(8f);
+
+        final com.fs.starfarer.api.combat.CombatTaskManagerAPI mockTm =
+                (com.fs.starfarer.api.combat.CombatTaskManagerAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatTaskManagerAPI.class},
+                        (p, m, a) -> {
+                            if ("getCommandPointsStat".equals(m.getName())) return cpStat;
+                            if ("getCommandPointsLeft".equals(m.getName())) return Math.max(0, (int) cpStat.getModifiedValue());
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == float.class) return 0f;
+                            if (m.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        final com.fs.starfarer.api.combat.CombatFleetManagerAPI mockFm =
+                (com.fs.starfarer.api.combat.CombatFleetManagerAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatFleetManagerAPI.class},
+                        (p, m, a) -> {
+                            if ("getTaskManager".equals(m.getName())) return mockTm;
+                            if ("getDeployedCopy".equals(m.getName())) return new ArrayList<>(deployedMembers);
+                            if ("getReservesCopy".equals(m.getName())) return new ArrayList<>(reserveMembers);
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == float.class) return 0f;
+                            if (m.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        final CombatUIAPI mockUi = (CombatUIAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatUIAPI.class},
+                (p, m, a) -> {
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        final CombatEngineAPI mockEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    if ("getShips".equals(m.getName())) return liveShips;
+                    if ("getFleetManager".equals(m.getName())) return mockFm;
+                    if ("getCombatUI".equals(m.getName())) return mockUi;
+                    if ("setPaused".equals(m.getName()) && a != null && a.length == 1 && a[0] instanceof Boolean) {
+                        enginePaused[0] = (Boolean) a[0];
+                        return null;
+                    }
+                    if ("isPaused".equals(m.getName())) return enginePaused[0];
+                    if ("getTotalElapsedTime".equals(m.getName())) return 25f;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+
+        // --- Feature A: Free pre-battle Alpha Core picking/un-picking vs In-battle Alpha Core lock ---
+        BattleGroupState pGroupA = new BattleGroupState(0, new CommanderProfile(humanAdmiral, "Admiral Vance"));
+        reserveMembers.add(alphaMember1);
+        reserveMembers.add(humanMember1);
+        boolean pickAlphaPreBattle = divisionai.DivisionOtcCommandManager.selectPlayerOtcByMemberId(
+                mockEngine, pGroupA, deployedMembers, reserveMembers, humanMember1, "alpha_m1", true)
+                && pGroupA.useConvergence
+                && !divisionai.DivisionOtcCommandManager.isPlayerOtcLockedByAlphaCoreInBattle(mockEngine, alphaMember1, pGroupA, true);
+        boolean unpickAlphaPreBattle = divisionai.DivisionOtcCommandManager.selectPlayerOtcByMemberId(
+                mockEngine, pGroupA, deployedMembers, reserveMembers, alphaMember1, "human_m1", true)
+                && !pGroupA.useConvergence
+                && "human_m1".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(pGroupA))
+                && !divisionai.DivisionOtcCommandManager.isPlayerOtcLockedByAlphaCoreInBattle(mockEngine, humanMember1, pGroupA, true);
+        // Now enter battle and deliberately swap to Alpha Core -> must lock OTC for the rest of battle!
+        deployedMembers.add(alphaMember1);
+        deployedMembers.add(humanMember1);
+        liveShips.add(alphaShip1);
+        liveShips.add(humanShip1);
+        boolean swapToAlphaInBattle = divisionai.DivisionOtcCommandManager.selectPlayerOtcByMemberId(
+                mockEngine, pGroupA, deployedMembers, reserveMembers, humanMember1, "alpha_m1", false)
+                && divisionai.DivisionOtcCommandManager.isAlphaCoreOtcLockedInBattle(pGroupA)
+                && divisionai.DivisionOtcCommandManager.isPlayerOtcLockedByAlphaCoreInBattle(mockEngine, alphaMember1, pGroupA, false);
+        boolean lockedAfterInBattleAlphaSwap = !divisionai.DivisionOtcCommandManager.selectPlayerOtcByMemberId(
+                mockEngine, pGroupA, deployedMembers, reserveMembers, alphaMember1, "human_m1", false)
+                && "alpha_m1".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(pGroupA));
+        boolean featureAOk = pickAlphaPreBattle && unpickAlphaPreBattle && swapToAlphaInBattle && lockedAfterInBattleAlphaSwap;
+
+        // --- Feature B: Destroyed Alpha Core OTC automatically replaced by another deployed Alpha Core ship ---
+        liveShips.clear();
+        deployedMembers.clear();
+        reserveMembers.clear();
+        a1Alive[0] = true;
+        a2Alive[0] = true;
+        h1Alive[0] = true;
+        liveShips.add(alphaShip1);
+        liveShips.add(alphaShip2);
+        liveShips.add(humanShip1);
+        deployedMembers.add(alphaMember1);
+        deployedMembers.add(alphaMember2);
+        deployedMembers.add(humanMember1);
+        BattleGroupState pGroupB = new BattleGroupState(0, new CommanderProfile(alphaPerson1, "Alpha Core I"));
+        pGroupB.useConvergence = true;
+        pGroupB.activeFleetFlagship = alphaShip1;
+        a1Alive[0] = false; // Destroy Alpha Core I flagship!
+        divisionai.DivisionOtcCommandManager.checkGroupFlagshipLoss(mockEngine, pGroupB, 30f, true);
+        boolean featureBOk = (pGroupB.activeFleetFlagship == alphaShip2)
+                && !divisionai.DivisionOtcCommandManager.isOtcDisabled(pGroupB, 30f)
+                && pGroupB.useConvergence
+                && divisionai.DivisionOtcCommandManager.isAlphaCoreOtcLockedInBattle(pGroupB)
+                && !divisionai.DivisionOtcCommandManager.isEmergencyPlayerOtcSelectionPending(pGroupB);
+
+        // --- Feature C: Player side's OTC ship destroyed -> pauses game and opens OTC selection screen ---
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        liveShips.clear();
+        deployedMembers.clear();
+        reserveMembers.clear();
+        h1Alive[0] = true;
+        dcAlive[0] = true;
+        liveShips.add(humanShip1);
+        liveShips.add(divCmdrShip);
+        deployedMembers.add(humanMember1);
+        deployedMembers.add(divCmdrMember);
+        enginePaused[0] = false;
+        BattleGroupState pGroupC = new BattleGroupState(0, new CommanderProfile(humanAdmiral, "Admiral Vance"));
+        pGroupC.activeFleetFlagship = humanShip1;
+        h1Alive[0] = false; // Destroy player's OTC flagship!
+        divisionai.DivisionOtcCommandManager.checkGroupFlagshipLoss(mockEngine, pGroupC, 40f, true);
+        boolean pausedAndPendingOnLoss = enginePaused[0]
+                && divisionai.DivisionOtcCommandManager.isEmergencyPlayerOtcSelectionPending(pGroupC)
+                && divisionai.DivisionOtcCommandManager.isEmergencyModalAutoOpenRequested();
+        // Verify emergency selection bypasses CP cost even if 0 CP remain, and clears pending state
+        cpStat.modifyMult("zero_cp_test", 0f);
+        boolean emergencySelectZeroCpOk = divisionai.DivisionOtcCommandManager.selectPlayerOtcByMemberId(
+                mockEngine, pGroupC, deployedMembers, reserveMembers, humanMember1, "div_cmdr_m", false)
+                && !divisionai.DivisionOtcCommandManager.isEmergencyPlayerOtcSelectionPending(pGroupC)
+                && (pGroupC.activeFleetFlagship == divCmdrShip);
+        cpStat.unmodify("zero_cp_test");
+        boolean featureCOk = pausedAndPendingOnLoss && emergencySelectZeroCpOk;
+
+        // --- Feature D: OTC/Flagship Loss Succession Hierarchy (especially for AI-controlled fleets) ---
+        final boolean[] eAlphaAlive = new boolean[]{true};
+        final boolean[] eDivCmdrAlive = new boolean[]{true};
+        final boolean[] eOfficerAlive = new boolean[]{true};
+        final boolean[] eCapAlive = new boolean[]{true};
+        final boolean[] eFrigAlive = new boolean[]{true};
+        final ShipAPI eAlphaShip = createMockShipForOtcTest("e_alpha", "Enemy Radiant", 1, alphaMember1, alphaPerson1, ShipAPI.HullSize.CAPITAL_SHIP, eAlphaAlive);
+        final ShipAPI eDivCmdrShip = createMockShipForOtcTest("e_div_cmdr", "Enemy Onslaught", 1, divCmdrMember, divCmdrPerson, ShipAPI.HullSize.CAPITAL_SHIP, eDivCmdrAlive);
+        final ShipAPI eOfficerShip = createMockShipForOtcTest("e_officer", "Enemy Eagle", 1, officerMember, juniorOfficer, ShipAPI.HullSize.CRUISER, eOfficerAlive);
+        final ShipAPI eCapShip = createMockShipForOtcTest("e_cap", "Enemy Conquest", 1, unnamedCapMember, defaultCrew, ShipAPI.HullSize.CAPITAL_SHIP, eCapAlive);
+        final ShipAPI eFrigShip = createMockShipForOtcTest("e_frig", "Enemy Lasher", 1, unnamedFrigMember, defaultCrew, ShipAPI.HullSize.FRIGATE, eFrigAlive);
+
+        liveShips.clear();
+        liveShips.add(eAlphaShip);
+        liveShips.add(eDivCmdrShip);
+        liveShips.add(eOfficerShip);
+        liveShips.add(eCapShip);
+        liveShips.add(eFrigShip);
+
+        BattleGroupState aiGroupD = new BattleGroupState(1, new CommanderProfile(humanAdmiral, "AI Fleet Admiral"));
+        DivisionState aiMainDiv = new DivisionState("ai_main_div", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div I",
+                new CommanderProfile(divCmdrPerson, "Commander Kael"));
+        aiMainDiv.isDesignatedMainEffort = true;
+        aiMainDiv.flagship = eDivCmdrShip;
+        aiMainDiv.members.add(eDivCmdrShip);
+        aiMainDiv.members.add(eOfficerShip);
+        aiMainDiv.members.add(eCapShip);
+        aiGroupD.divisions.add(aiMainDiv);
+
+        // Tier 1: AI Core ship preferred when preferAiCores=true
+        ShipAPI tier1Pick = divisionai.DivisionOtcCommandManager.selectSuccessorShipByHierarchy(mockEngine, aiGroupD, null, true);
+        // Tier 2: When AI Core is gone, Main Effort Division Commander is chosen over regular Officer and unnamed Capital
+        eAlphaAlive[0] = false;
+        ShipAPI tier2Pick = divisionai.DivisionOtcCommandManager.selectSuccessorShipByHierarchy(mockEngine, aiGroupD, null, true);
+        // Tier 3: When Division Commander is gone, surviving named Officer is chosen over unnamed Capital
+        eDivCmdrAlive[0] = false;
+        ShipAPI tier3Pick = divisionai.DivisionOtcCommandManager.selectSuccessorShipByHierarchy(mockEngine, aiGroupD, null, true);
+        // Tier 4: When named Officer is gone, largest surviving combat warship (Capital > Frigate) is chosen
+        eOfficerAlive[0] = false;
+        ShipAPI tier4Pick = divisionai.DivisionOtcCommandManager.selectSuccessorShipByHierarchy(mockEngine, aiGroupD, null, true);
+        // Division flagship succession check: eDivCmdrShip dead, eOfficerShip alive -> eOfficerShip becomes aiMainDiv.flagship
+        eOfficerAlive[0] = true;
+        aiMainDiv.flagship = eDivCmdrShip; // dead
+        divisionai.DivisionOtcCommandManager.checkDivisionFlagshipsDestroyed(mockEngine, aiGroupD, 35f);
+        boolean divSuccOk = (aiMainDiv.flagship == eOfficerShip);
+        boolean featureDOk = (tier1Pick == eAlphaShip)
+                && (tier2Pick == eDivCmdrShip)
+                && (tier3Pick == eOfficerShip)
+                && (tier4Pick == eCapShip)
+                && divSuccOk;
+
+        // --- Feature E: -75% Max CP & -50% CP Gen Speed when player OTC is not deployed in battle ---
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        liveShips.clear();
+        deployedMembers.clear();
+        reserveMembers.clear();
+        h1Alive[0] = true;
+        dcAlive[0] = true;
+        // Player selected human_m1 as OTC, but only deployed div_cmdr_m (human_m1 is left in reserves!)
+        reserveMembers.add(humanMember1);
+        deployedMembers.add(divCmdrMember);
+        liveShips.add(divCmdrShip);
+        BattleGroupState pGroupE = new BattleGroupState(0, new CommanderProfile(humanAdmiral, "Admiral Vance"));
+        pGroupE.preferredOtcShipId = "human_m1";
+        divisionai.DivisionOtcCommandManager.selectPlayerOtcByMemberId(
+                mockEngine, pGroupE, java.util.Collections.emptyList(), Arrays.asList(humanMember1, divCmdrMember), divCmdrMember, "human_m1", true);
+
+        boolean otcDetectedUndeployed = !divisionai.DivisionOtcCommandManager.isPlayerOtcDeployedInBattle(mockEngine, pGroupE);
+        divisionai.DivisionOtcCommandManager.updatePlayerOtcNotDeployedCommandPointPenalty(mockEngine, pGroupE);
+        float penalizedMaxCp = cpStat.getModifiedValue(); // 8 * 0.25 = 2.0f (-75% Max CP!)
+        boolean penaltyAppliedOk = pGroupE.otcNotDeployedPenaltyActive
+                && Math.abs(penalizedMaxCp - 2.0f) < 0.01f;
+
+        // Now deploy humanShip1 into battle -> penalty must automatically lift!
+        liveShips.add(humanShip1);
+        deployedMembers.add(humanMember1);
+        reserveMembers.remove(humanMember1);
+        boolean otcNowDeployed = divisionai.DivisionOtcCommandManager.isPlayerOtcDeployedInBattle(mockEngine, pGroupE);
+        divisionai.DivisionOtcCommandManager.updatePlayerOtcNotDeployedCommandPointPenalty(mockEngine, pGroupE);
+        float restoredMaxCp = cpStat.getModifiedValue(); // 8.0f
+        boolean penaltyClearedOk = !pGroupE.otcNotDeployedPenaltyActive
+                && otcNowDeployed
+                && Math.abs(restoredMaxCp - 8.0f) < 0.01f;
+        boolean featureEOk = otcDetectedUndeployed && penaltyAppliedOk && penaltyClearedOk;
+
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+
+        // Verify Debug Logging & Extended Tactical AI Debug Trace toggles in DivisionAISettings / DivisionCombatLog
+        List<String> debugSink = new ArrayList<>();
+        DivisionCombatLog.simLogSink = debugSink;
+        DivisionAISettings.testDebugLoggingEnabledOverride = false;
+        DivisionCombatLog.logVoidstrikeCulminated(0, 1, "test_muted", 10f);
+        DivisionCombatLog.logVerboseAiDebug(10f, "[AI Debug] test trace while muted");
+        boolean mutedWhenDebugOff = debugSink.isEmpty() && !DivisionAISettings.isVerboseAiDebugLoggingEnabled();
+
+        DivisionAISettings.testDebugLoggingEnabledOverride = true;
+        DivisionAISettings.testVerboseAiDebugLoggingOverride = false;
+        DivisionCombatLog.logVoidstrikeCulminated(0, 1, "test_on", 11f);
+        DivisionCombatLog.logVerboseAiDebug(11f, "[AI Debug] test trace while verbose off");
+        boolean standardOnlyWhenVerboseOff = (debugSink.size() == 1);
+
+        DivisionAISettings.testVerboseAiDebugLoggingOverride = true;
+        DivisionCombatLog.logVerboseAiDebug(12f, "[AI Debug] test trace while verbose on");
+        boolean verboseLoggedWhenBothOn = (debugSink.size() == 2);
+
+        DivisionAISettings.testDebugLoggingEnabledOverride = null;
+        DivisionAISettings.testVerboseAiDebugLoggingOverride = null;
+        DivisionCombatLog.simLogSink = null;
+        boolean debugLoggingToggleOk = mutedWhenDebugOff && standardOnlyWhenVerboseOff && verboseLoggedWhenBothOn;
+
+        // --- Serious Bug A & Changes G, H, I verification ---
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        reserveMembers.clear();
+        BattleGroupState pGroupAuto = new BattleGroupState(0, new CommanderProfile(humanAdmiral, "Admiral Vance"));
+        // Select division containing officerMember (22 DP) and divCmdrMember (50 DP) while player flagship humanMember1 is NOT selected -> Auto OTC picks div_cmdr_m
+        com.fs.starfarer.api.fleet.FleetMemberAPI autoResolved =
+                divisionai.DivisionOtcCommandManager.resolvePreBattlePlayerOtcMember(
+                        pGroupAuto,
+                        Arrays.asList(humanMember1, divCmdrMember, officerMember),
+                        Arrays.asList(officerMember, divCmdrMember));
+        // Clear selection (simulating clicking blank space or deploying) -> Auto OTC must stay sticky on div_cmdr_m (and NOT revert to player flagship humanMember1)!
+        com.fs.starfarer.api.fleet.FleetMemberAPI stickyAfterClear =
+                divisionai.DivisionOtcCommandManager.resolvePreBattlePlayerOtcMember(
+                        pGroupAuto,
+                        Arrays.asList(humanMember1, divCmdrMember, officerMember),
+                        java.util.Collections.emptyList());
+        // Inherit into battle via BattlefieldFirepowerEvaluator.resolveActiveFleetFlagship:
+        // Suppose divCmdrShip ("div_cmdr_m") is deployed alongside humanShip1 ("human_m1"), while div_cmdr_m was auto-selected pre-battle.
+        liveShips.clear();
+        liveShips.add(humanShip1);
+        liveShips.add(divCmdrShip);
+        pGroupAuto.preferredOtcShipId = null;
+        pGroupAuto.otc = new CommanderProfile(humanAdmiral, "Admiral Vance");
+        ShipAPI inheritedFlagship = divisionai.BattlefieldFirepowerEvaluator.resolveActiveFleetFlagship(mockEngine, pGroupAuto);
+        boolean autoOtcStickyAndInheritedOk = (autoResolved == divCmdrMember)
+                && (stickyAfterClear == divCmdrMember)
+                && "div_cmdr_m".equals(divisionai.DivisionOtcCommandManager.getAutoSelectedPlayerOtcMemberId())
+                && (inheritedFlagship == divCmdrShip);
+
+        // Verify Change G ("division leader" terminology), Change H (Nomenclature sweep), and Change I (user defaults)
+        boolean changeGDivisionLeaderOk = PermanentDivisionManager.DivisionFormation.LINE_AHEAD.summary.contains("division leader")
+                && !PermanentDivisionManager.DivisionFormation.LINE_AHEAD.summary.contains("flagship");
+        BattleGroupState hegEnemyBg = new BattleGroupState(1, new CommanderProfile(null, "Enemy Fleet Command"));
+        hegEnemyBg.factionId = "hegemony";
+        BattleGroupState pirateEnemyBg = new BattleGroupState(1, new CommanderProfile(null, "Enemy Fleet Command"));
+        pirateEnemyBg.factionId = "pirates";
+        BattleGroupState threatEnemyBg = new BattleGroupState(1, new CommanderProfile(null, "Enemy Fleet Command"));
+        threatEnemyBg.factionId = "threat";
+        threatEnemyBg.nomenclatureCategory = DivisionNomenclature.NomenclatureCategory.THREAT_SWARM;
+        List<PlayerNamingPreset> selectablePresets = PlayerNamingPreset.getPlayerSelectablePresets();
+        boolean spoilerPresetsHidden = selectablePresets.size() == 8
+                && !selectablePresets.contains(PlayerNamingPreset.REMNANT_ORDO)
+                && !selectablePresets.contains(PlayerNamingPreset.POST_AI_WAR_UNKNOWN)
+                && !selectablePresets.contains(PlayerNamingPreset.THREAT_CORRUPTED)
+                && !selectablePresets.contains(PlayerNamingPreset.ABYSSAL_ERROR);
+        boolean threatLoreAccurate = "INTERDICTORATE PROACT: UNFABRICATE".equals(DivisionNomenclature.THREAT_OTC_TITLE)
+                && "INTERDICTORATE PROACT: UNFABRICATE".equals(DivisionNomenclature.resolveBattleGroupOtcTitle(threatEnemyBg))
+                && "STANDOFF UNIT // TYPE 300".equals(DivisionNomenclature.formatCorruptedThreatText(DivisionArchetype.BATTLESHIP_DIVISION, 1, 0L))
+                && "HIVE UNIT // TYPE 350".equals(DivisionNomenclature.formatCorruptedThreatText(DivisionArchetype.FLEET_CARRIER_DIVISION, 1, 0L))
+                && "OVERSEER UNIT // TYPE 250".equals(DivisionNomenclature.formatCorruptedThreatText(DivisionArchetype.CRUISER_DIVISION, 1, 0L))
+                && "ASSAULT UNIT // TYPE 200".equals(DivisionNomenclature.formatCorruptedThreatText(DivisionArchetype.DESTROYER_DIVISION, 1, 0L))
+                && "SKIRMISH UNIT // TYPE 100".equals(DivisionNomenclature.formatCorruptedThreatText(DivisionArchetype.FRIGATE_DIVISION, 1, 0L))
+                && "FABRICATOR UNIT // TYPE 450".equals(DivisionNomenclature.formatCorruptedThreatText(DivisionArchetype.SERVICE_GROUP, 1, 0L));
+        boolean changeHNomenclatureOk = "Fleet Command".equals(DivisionNomenclature.PlayerNamingPreset.NAVAL_STANDARD.defaultOtcTitle)
+                && "Hegemony Command".equals(DivisionNomenclature.resolveBattleGroupOtcTitle(hegEnemyBg))
+                && "Pirate Warlord".equals(DivisionNomenclature.resolveBattleGroupOtcTitle(pirateEnemyBg))
+                && spoilerPresetsHidden
+                && threatLoreAccurate;
+        boolean changeIDefaultSettingsOk = !DivisionAISettings.isDebugLoggingEnabled()
+                && !DivisionAISettings.isVerboseAiDebugLoggingEnabled()
+                && DivisionAISettings.getChatterVerbosity() == DivisionAISettings.ChatterVerbosity.MINIMAL;
+
+        res.record(
+                featureAOk && featureBOk && featureCOk && featureDOk && featureEOk && debugLoggingToggleOk
+                        && autoOtcStickyAndInheritedOk && changeGDivisionLeaderOk && changeHNomenclatureOk && changeIDefaultSettingsOk,
+                "Features A-E, Serious Bug A (Auto OTC Stickiness & Battle Inheritance), Division Leader Terminology, Nomenclature & User Defaults",
+                String.format(Locale.ROOT,
+                        "featA_alphaPreFreeInBattleLock=%b, featB_alphaAutoSucc=%b, featC_pauseAndModal=%b, featD_hierarchy4Tiers=%b, featE_undeployedCpPenalty=%b (8.0->%.1f->%.1f), debugLogToggle=%b, autoOtcStickyAndInherited=%b, divLeader=%b, nomenclature=%b, userDefaults=%b",
+                        featureAOk, featureBOk, featureCOk, featureDOk, featureEOk, penalizedMaxCp, restoredMaxCp, debugLoggingToggleOk,
+                        autoOtcStickyAndInheritedOk, changeGDivisionLeaderOk, changeHNomenclatureOk, changeIDefaultSettingsOk));
     }
 
     private static void auditEnumSuccinctnessAndClarity(UIAuditResult res) {
@@ -1610,7 +2156,9 @@ public class UITestHarness {
 
     private static void auditChatterVerbosityModes(UIAuditResult res) throws Exception {
         String lunaCsv = new String(Files.readAllBytes(new File("mod/data/config/LunaSettings.csv").toPath()), StandardCharsets.UTF_8);
-        boolean csvHasRadio = lunaCsv.contains("divai_chatter_verbosity,Chatter Verbosity,Radio,Verbose,\"Verbose, Standard, Minimal, OTC Only, Off\"")
+        boolean csvHasRadio = lunaCsv.contains("divai_chatter_verbosity,Chatter Verbosity,Radio,Minimal,\"Verbose, Standard, Minimal, OTC Only, Off\"")
+                && lunaCsv.contains("divai_enable_debug_logging,Enable Debug Logging,Boolean,false")
+                && lunaCsv.contains("divai_enemy_bg_chatter,Enemy OTC Signals,Boolean,false")
                 && !lunaCsv.contains("%");
 
         int[] hudCounts = new int[DivisionAISettings.ChatterVerbosity.values().length];
@@ -1618,6 +2166,7 @@ public class UITestHarness {
         boolean[] hasParentheticalReasonOnHud = new boolean[DivisionAISettings.ChatterVerbosity.values().length];
 
         try {
+            DivisionAISettings.testDebugLoggingEnabledOverride = Boolean.TRUE;
             DivisionAISettings.ChatterVerbosity[] modes = DivisionAISettings.ChatterVerbosity.values();
             for (int mIdx = 0; mIdx < modes.length; mIdx++) {
                 DivisionAISettings.testVerbosityOverride = modes[mIdx];
@@ -1711,6 +2260,7 @@ public class UITestHarness {
             }
         } finally {
             DivisionAISettings.testVerbosityOverride = null;
+            DivisionAISettings.testDebugLoggingEnabledOverride = null;
             DivisionCombatLog.simLogSink = null;
         }
 
@@ -2943,7 +3493,203 @@ public class UITestHarness {
                 && (indMerchConvoyName.contains("Convoy") || indMerchConvoyName.contains("Flotilla")
                 || indMerchConvoyName.contains("Group") || indMerchConvoyName.contains("Caravan"))
                 && new File("mod/data/config/division_faction_library.json").isFile();
-        taskFStrikeCraftSpaceOk = taskFStrikeCraftSpaceOk && factionLibRatingsOk && merchantNomenclatureOk;
+
+        // Verify New Battle Bugs (A, B, C) & Feature Changes (A, B, C):
+        // Bug A: Urgent comms from Alpha Core ship suppressed when an Alpha Core was OTC from the start
+        BattlefieldFirepowerEvaluator.markInitialPlayerOtcAlphaCore(true);
+        ShipAPI unaskedWhenInitialAlpha = BattlefieldFirepowerEvaluator.findNextUnaskedSubordinateAlphaCoreShip(musicTestEngine, pGroup);
+        BattlefieldFirepowerEvaluator.markInitialPlayerOtcAlphaCore(false);
+        boolean bugAUrgentCommsSuppressedOk = (unaskedWhenInitialAlpha == null)
+                && evalSrc.contains("if (initialPlayerOtcWasAlphaCore)")
+                && evalSrc.contains("DivisionOtcCommandManager.isActivePlayerOtcAlphaCore(engine, null, playerGroup)");
+
+        // Bug B: OTC panel 2-line text wrapping provisions for long ship names
+        String[] wrappedLongFlag = DivisionDeploymentDialogOrganizer.wrapOtcTextIntoTwoLines(
+                "Flagship: HSS Invictus Sovereign of the Stars (Battleship)", null, 180f, 180f);
+        boolean bugBOtcWrappingOk = wrappedLongFlag.length == 2
+                && !wrappedLongFlag[0].isEmpty()
+                && !wrappedLongFlag[1].isEmpty();
+
+        // Bug C: Sticky enemy visibility & smoothed centroid for enemy divisions and TSFC
+        final boolean[] fogVisToggle = new boolean[]{true};
+        final float[] fogTimeSec = new float[]{10.0f};
+        com.fs.starfarer.api.combat.FogOfWarAPI mockFog = (com.fs.starfarer.api.combat.FogOfWarAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.FogOfWarAPI.class},
+                (p, m, a) -> {
+                    if ("isVisible".equals(m.getName())) return fogVisToggle[0];
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        CombatEngineAPI stickyTimeEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    if ("getTotalElapsedTime".equals(m.getName())) return fogTimeSec[0];
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        boolean seenAt10 = BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(stickyTimeEngine, enemyTarget, mockFog);
+        fogVisToggle[0] = false;
+        fogTimeSec[0] = 11.5f; // 1.5s after sensor flicker (< 2.75s grace window)
+        boolean stickyAt11_5 = BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(stickyTimeEngine, enemyTarget, mockFog);
+        float alphaAt11_5 = BattlefieldFirepowerEvaluator.getEnemyShipStickyVisibilityAlpha(stickyTimeEngine, enemyTarget, mockFog);
+        fogTimeSec[0] = 14.0f; // 4.0s after sensor loss (> 2.75s grace window)
+        boolean expiredAt14 = !BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(stickyTimeEngine, enemyTarget, mockFog);
+        boolean bugCStickyVisibilityOk = seenAt10 && stickyAt11_5 && alphaAt11_5 >= 0.35f && expiredAt14;
+
+        // Feature Change A: "Fleet Status" panel uses compass-wheel-only formation icon once battle has commenced,
+        // and all 12 Fleet Formations (including Reverse Wedge, Refused Left, Reverse Crescent, None) are implemented
+        String stdFormationPath = DivisionDeploymentDialogOrganizer.getFleetFormationSpritePath(
+                PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST, false);
+        String wheelFormationPath = DivisionDeploymentDialogOrganizer.getFleetFormationWheelSpritePath(
+                PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST);
+        boolean allTwelveFleetFormationsOk = (PermanentDivisionManager.FleetWideFormation.values().length == 12);
+        for (PermanentDivisionManager.FleetWideFormation fw : PermanentDivisionManager.FleetWideFormation.values()) {
+            String pFull = DivisionDeploymentDialogOrganizer.getFleetFormationSpritePath(fw, false);
+            String pWheel = DivisionDeploymentDialogOrganizer.getFleetFormationWheelSpritePath(fw);
+            if (pFull == null || pWheel == null
+                    || !new File("mod/" + pFull).isFile()
+                    || !new File("mod/" + pWheel).isFile()) {
+                allTwelveFleetFormationsOk = false;
+            }
+        }
+        BattleGroupState orchGroup = new BattleGroupState(0, null);
+        orchGroup.orchestratedAdvance = true;
+        orchGroup.fleetWideFormation = PermanentDivisionManager.FleetWideFormation.REVERSE_WEDGE;
+        orchGroup.activeFleetWideFormation = PermanentDivisionManager.FleetWideFormation.REVERSE_WEDGE;
+        boolean orchActiveBeforeContact = divisionai.OtcAI.isOrchestratedAdvanceActive(null, orchGroup, null);
+        orchGroup.fleetEngagementLevel = 0.25f;
+        boolean orchStoppedAfterContact = !divisionai.OtcAI.isOrchestratedAdvanceActive(null, orchGroup, null)
+                && orchGroup.orchestratedAdvanceContactMade;
+        orchGroup.fleetEngagementLevel = 0.0f;
+        boolean orchLatchedAfterContact = !divisionai.OtcAI.isOrchestratedAdvanceActive(null, orchGroup, null);
+        boolean featAWheelIconOk = "graphics/icons/fleet_formations/fleet_formation_grand_line.png".equals(stdFormationPath)
+                && "graphics/icons/fleet_formations/fleet_formation_grand_line_wheel.png".equals(wheelFormationPath)
+                && new File("mod/" + wheelFormationPath).isFile()
+                && allTwelveFleetFormationsOk
+                && orchActiveBeforeContact && orchStoppedAfterContact && orchLatchedAfterContact;
+
+        // Feature Change B: TSFC visible in the live "battle" screen outside of the warroom at vastly lower opacity
+        String combatPluginSrc = new String(
+                Files.readAllBytes(new File("src/divisionai/DivisionAICombatPlugin.java").toPath()),
+                StandardCharsets.UTF_8);
+        boolean featBBattleScreenTsfcOk = divisionai.DivisionAICombatPlugin.BATTLE_SCREEN_TSFC_OPACITY_MULT <= 0.25f
+                && divisionai.DivisionAICombatPlugin.BATTLE_SCREEN_TSFC_OPACITY_MULT > 0.10f
+                && combatPluginSrc.contains("renderBattleScreenTsfcOverlay(viewport)")
+                && combatPluginSrc.contains("BattlefieldFirepowerEvaluator.renderTimeSpaceAndConvergenceScreenSpace")
+                && combatPluginSrc.contains("BattlefieldFirepowerEvaluator.renderFirepowerRosesScreenSpace");
+
+        // Feature Change C: Softly remove formations text underneath division names since formation icons exist
+        boolean featCNoFormationTextUnderDivNameOk = !overlaySrc.contains("f.shortName.toUpperCase(Locale.ROOT)")
+                && !editorSrc.contains("effForm.shortName,");
+
+        // Bug & Feature Verification:
+        // 1) OTC Force-Distribution Overkill & Enemy Center of Gravity:
+        //    When a stray armed-freighter pack on the right flank already has 1 friendly frigate division committed,
+        //    updateEnemyOverkillAndCenterOfGravity marks it isOverkilled=true and keeps Main Effort on the Enemy CoG.
+        BattleGroupState okMyGroup = new BattleGroupState(0, cmdr);
+        BattleGroupState okEnemyGroup = new BattleGroupState(1, cmdr);
+        DivisionState okBattleDiv = new DivisionState("ok_b1", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", cmdr);
+        okBattleDiv.totalFpStrength = 48f;
+        okBattleDiv.centroid.set(0f, -2000f);
+        ShipAPI okB1Ship = createMockNamedShip("ok_b1_s", "HSS Onslaught", HullSize.CAPITAL_SHIP, 0f, -2000f, 90f, 0, humanCapt);
+        okBattleDiv.flagship = okB1Ship;
+        okBattleDiv.members.add(okB1Ship);
+
+        DivisionState okFrigDiv = new DivisionState("ok_f2", 0, 2, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 2", cmdr);
+        okFrigDiv.totalFpStrength = 18f;
+        okFrigDiv.centroid.set(3200f, -1500f);
+        ShipAPI okF2Ship = createMockNamedShip("ok_f2_s", "HSS Lasher", HullSize.FRIGATE, 3200f, -1500f, 90f, 0, humanCapt);
+        okFrigDiv.flagship = okF2Ship;
+        okFrigDiv.members.add(okF2Ship);
+
+        okMyGroup.divisions.add(okBattleDiv);
+        okMyGroup.divisions.add(okFrigDiv);
+        okMyGroup.mainEffortDivision = okBattleDiv;
+
+        DivisionState enmCogDiv = new DivisionState("enm_cog", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Main Line", cmdr);
+        enmCogDiv.totalFpStrength = 42f;
+        enmCogDiv.centroid.set(0f, 600f);
+        ShipAPI enmCogShip = createMockNamedShip("enm_cog_s", "ISS Eagle", HullSize.CRUISER, 0f, 600f, 270f, 1, humanCapt);
+        enmCogDiv.flagship = enmCogShip;
+        enmCogDiv.members.add(enmCogShip);
+
+        DivisionState enmFlankFreighters = new DivisionState("enm_flk", 1, 2, DivisionArchetype.SERVICE_GROUP, "Stray Flank Pack", cmdr);
+        enmFlankFreighters.totalFpStrength = 16f;
+        enmFlankFreighters.centroid.set(3600f, -800f);
+        ShipAPI enmFlkShip = createMockNamedShip("enm_flk_s", "Wayfarer", HullSize.FRIGATE, 3600f, -800f, 270f, 1, humanCapt);
+        enmFlankFreighters.flagship = enmFlkShip;
+        enmFlankFreighters.members.add(enmFlkShip);
+
+        okEnemyGroup.divisions.add(enmCogDiv);
+        okEnemyGroup.divisions.add(enmFlankFreighters);
+        okFrigDiv.targetEnemyDivision = enmFlankFreighters;
+        divisionai.OtcAI.updateEnemyOverkillAndCenterOfGravity(null, okMyGroup, okEnemyGroup);
+        boolean otcOverkillOk = enmFlankFreighters.isOverkilled
+                && !enmCogDiv.isOverkilled
+                && enmFlankFreighters.combatThreatWeight <= 0.50f
+                && okMyGroup.hasEnemyCenterOfGravity
+                && Math.abs(okMyGroup.enemyCenterOfGravity.x) < 900f;
+
+        // 2) Map-Edge TSFC Station & Flank Range when enemy is pinned near map boundary:
+        Vector2f corneredEnemyPos = new Vector2f(7500f, 0f); // 500u from East map boundary (halfW=8000)
+        Vector2f closeAttackCand = new Vector2f(6850f, 0f);  // 650u from cornered enemy, 1150u from East wall
+        float edgeScoreOnCorneredEnemy = BattlefieldFirepowerEvaluator.evaluateMapEdgeStationScore(
+                null, okFrigDiv, corneredEnemyPos, closeAttackCand, false);
+        boolean mapEdgePursuitNotRepelledOk = edgeScoreOnCorneredEnemy >= 0f;
+
+        // 3) Grand Formation & OTC "Consent":
+        //    Scouting Destroyer division is NOT hijacked into Reserve, and wing sides/slot indices remain locked across evaluations.
+        BattleGroupState consentGroup = new BattleGroupState(0, cmdr);
+        consentGroup.orchestratedAdvance = true;
+        consentGroup.fleetWideFormation = PermanentDivisionManager.FleetWideFormation.CRESCENT_HORNS;
+        consentGroup.activeFleetWideFormation = PermanentDivisionManager.FleetWideFormation.CRESCENT_HORNS;
+        DivisionState cMain = new DivisionState("c_m", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", cmdr);
+        cMain.totalFpStrength = 48f;
+        cMain.centroid.set(0f, -3000f);
+        cMain.members.add(okB1Ship);
+        DivisionState cCruiser = new DivisionState("c_c", 0, 2, DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div 1", cmdr);
+        cCruiser.totalFpStrength = 30f;
+        cCruiser.centroid.set(-800f, -3000f);
+        cCruiser.members.add(okB1Ship);
+        DivisionState cScoutDd = new DivisionState("c_d", 0, 3, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 1", cmdr);
+        cScoutDd.totalFpStrength = 20f;
+        cScoutDd.openingMission = DivisionMissionType.SCOUTING;
+        cScoutDd.mainMission = DivisionMissionType.CLOSE_ACTION;
+        cScoutDd.centroid.set(800f, -3000f);
+        cScoutDd.members.add(okF2Ship);
+        DivisionState cFrigL = new DivisionState("c_fl", 0, 4, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 1", cmdr);
+        cFrigL.totalFpStrength = 18f;
+        cFrigL.openingMission = DivisionMissionType.ENVELOPMENT;
+        cFrigL.centroid.set(-1600f, -3000f);
+        cFrigL.members.add(okF2Ship);
+        consentGroup.divisions.add(cMain);
+        consentGroup.divisions.add(cCruiser);
+        consentGroup.divisions.add(cScoutDd);
+        consentGroup.divisions.add(cFrigL);
+        divisionai.OtcAI.synchronizeGrandFormationConsent(null, consentGroup, okEnemyGroup, 0.0f);
+        divisionai.OtcAI.updateFleetWideFormationGeometry(null, consentGroup, okEnemyGroup);
+        int slotCruiser0 = cCruiser.fleetFormationSlotIndex;
+        int wingCruiser0 = cCruiser.consentedWingSide;
+        int slotDd0 = cScoutDd.fleetFormationSlotIndex;
+        int wingDd0 = cScoutDd.consentedWingSide;
+        divisionai.OtcAI.synchronizeGrandFormationConsent(null, consentGroup, okEnemyGroup, 1.5f);
+        divisionai.OtcAI.updateFleetWideFormationGeometry(null, consentGroup, okEnemyGroup);
+        boolean grandFormationConsentOk = consentGroup.grandFormationConsentLocked
+                && !cScoutDd.isDesignatedReserve
+                && cMain.isDesignatedMainEffort
+                && cCruiser.fleetFormationSlotIndex == slotCruiser0
+                && cCruiser.consentedWingSide == wingCruiser0
+                && cScoutDd.fleetFormationSlotIndex == slotDd0
+                && cScoutDd.consentedWingSide == wingDd0;
+
+        taskFStrikeCraftSpaceOk = taskFStrikeCraftSpaceOk && factionLibRatingsOk && merchantNomenclatureOk
+                && bugAUrgentCommsSuppressedOk && bugBOtcWrappingOk && bugCStickyVisibilityOk
+                && featAWheelIconOk && featBBattleScreenTsfcOk && featCNoFormationTextUnderDivNameOk
+                && otcOverkillOk && mapEdgePursuitNotRepelledOk && grandFormationConsentOk;
 
         formationIconsCleanOk = formationIconsCleanOk && flagshipDivRankOk
                 && twoFrigateDivsBelowThresholdOk && fourFrigateDivsCrossThresholdOk

@@ -102,11 +102,15 @@ public class TsfcWarroomRenderer {
 
             boolean isEnemy = (s.getOwner() == 1);
             boolean isAlly = !isEnemy && s.isAlly();
-            if (isEnemy && playerFog != null && !playerFog.isVisible(s)) {
-                continue;
+            float roseFade = fade;
+            if (isEnemy && playerFog != null) {
+                if (!isEnemyShipVisibleSticky(engine, s, playerFog)) {
+                    continue;
+                }
+                roseFade *= getEnemyShipStickyVisibilityAlpha(engine, s, playerFog);
             }
 
-            renderSingleShipFirepowerRose(rose, s, isEnemy, isAlly, scale, offsetX, offsetY, fade);
+            renderSingleShipFirepowerRose(rose, s, isEnemy, isAlly, scale, offsetX, offsetY, roseFade);
         }
 
         // 2. Render L-Cordon / U-Cordon crossfire pocket indicators for divisions experiencing crossfire
@@ -117,8 +121,10 @@ public class TsfcWarroomRenderer {
         GL11.glPopMatrix();
         GL11.glPopAttrib();
 
-        // 3. Render compact L-CORDON / U-CORDON warning labels on divisions in crossfire
-        renderDivisionCordonLabels(engine, playerGroup, false, scale, offsetX, offsetY, fade);
+        // 3. Render compact L-CORDON / U-CORDON warning labels on divisions in crossfire (Warroom only)
+        if (fade > 0.35f) {
+            renderDivisionCordonLabels(engine, playerGroup, false, scale, offsetX, offsetY, fade);
+        }
     }
 
     static boolean isCircleVisibleOnScreen(float cx, float cy, float radPx, float screenW, float screenH) {
@@ -255,9 +261,10 @@ public class TsfcWarroomRenderer {
 
         for (DivisionState div : renderDivs) {
             if (!div.isCombatEffective()) continue;
-            if (isEnemy && !OtcAI.isDivisionVisibleToSide(engine, 0, div)) continue;
-            Vector2f cWorld = isEnemy ? OtcAI.getVisibleCentroidForSide(engine, 0, div) : div.centroid;
-            if (isEnemy && playerFog != null && !playerFog.isVisible(cWorld)) continue;
+            if (isEnemy && !isEnemyDivisionVisibleSticky(engine, div, playerFog)) continue;
+            Vector2f cWorld = isEnemy
+                    ? getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
+                    : div.centroid;
 
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
@@ -295,7 +302,7 @@ public class TsfcWarroomRenderer {
                 for (com.fs.starfarer.api.combat.FighterWingAPI wing : wings) {
                     ShipAPI wLead = resolveAliveWingLeader(wing);
                     if (wLead == null || distance(wLead.getLocation(), cWorld) <= 320f) continue;
-                    if (isEnemy && playerFog != null && !playerFog.isVisible(wLead)) continue;
+                    if (isEnemy && playerFog != null && !isEnemyShipVisibleSticky(engine, wLead, playerFog)) continue;
                     float wx = offsetX + wLead.getLocation().x * scale;
                     float wy = offsetY + wLead.getLocation().y * scale;
                     float wSpd = Math.max(180f, wLead.getMaxSpeed());
@@ -430,9 +437,10 @@ public class TsfcWarroomRenderer {
 
         for (DivisionState div : renderDivs) {
             if (!div.isCombatEffective()) continue;
-            if (isEnemy && !OtcAI.isDivisionVisibleToSide(engine, 0, div)) continue;
-            Vector2f cWorld = isEnemy ? OtcAI.getVisibleCentroidForSide(engine, 0, div) : div.centroid;
-            if (isEnemy && playerFog != null && !playerFog.isVisible(cWorld)) continue;
+            if (isEnemy && !isEnemyDivisionVisibleSticky(engine, div, playerFog)) continue;
+            Vector2f cWorld = isEnemy
+                    ? getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
+                    : div.centroid;
 
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
@@ -479,7 +487,7 @@ public class TsfcWarroomRenderer {
                 for (com.fs.starfarer.api.combat.FighterWingAPI wing : wings) {
                     ShipAPI wLead = resolveAliveWingLeader(wing);
                     if (wLead == null || distance(wLead.getLocation(), cWorld) <= 320f) continue;
-                    if (isEnemy && playerFog != null && !playerFog.isVisible(wLead)) continue;
+                    if (isEnemy && playerFog != null && !isEnemyShipVisibleSticky(engine, wLead, playerFog)) continue;
                     float wx = offsetX + wLead.getLocation().x * scale;
                     float wy = offsetY + wLead.getLocation().y * scale;
                     float wDomPx = Math.max(12f, 480f * scale);
@@ -510,9 +518,10 @@ public class TsfcWarroomRenderer {
 
         for (DivisionState div : renderDivs) {
             if (!div.isCombatEffective()) continue;
-            if (isEnemy && !OtcAI.isDivisionVisibleToSide(engine, 0, div)) continue;
-            Vector2f cWorld = isEnemy ? OtcAI.getVisibleCentroidForSide(engine, 0, div) : div.centroid;
-            if (isEnemy && playerFog != null && !playerFog.isVisible(cWorld)) continue;
+            if (isEnemy && !isEnemyDivisionVisibleSticky(engine, div, playerFog)) continue;
+            Vector2f cWorld = isEnemy
+                    ? getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
+                    : div.centroid;
 
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
@@ -588,7 +597,7 @@ public class TsfcWarroomRenderer {
                 for (com.fs.starfarer.api.combat.FighterWingAPI wing : wings) {
                     ShipAPI wLead = resolveAliveWingLeader(wing);
                     if (wLead == null || distance(wLead.getLocation(), cWorld) <= 320f) continue;
-                    if (isEnemy && playerFog != null && !playerFog.isVisible(wLead)) continue;
+                    if (isEnemy && playerFog != null && !isEnemyShipVisibleSticky(engine, wLead, playerFog)) continue;
                     float wx = offsetX + wLead.getLocation().x * scale;
                     float wy = offsetY + wLead.getLocation().y * scale;
                     float wRadPx = Math.max(12f, 380f * scale);
@@ -1083,10 +1092,11 @@ public class TsfcWarroomRenderer {
         for (DivisionState div : group.divisions) {
             if (!div.isCombatEffective()) continue;
             if (div.crossfireCordonIndex < 0.35f) continue;
-            if (isEnemy && !OtcAI.isDivisionVisibleToSide(engine, 0, div)) continue;
+            if (isEnemy && !isEnemyDivisionVisibleSticky(engine, div, playerFog)) continue;
 
-            Vector2f cWorld = isEnemy ? OtcAI.getVisibleCentroidForSide(engine, 0, div) : div.centroid;
-            if (isEnemy && playerFog != null && !playerFog.isVisible(cWorld)) continue;
+            Vector2f cWorld = isEnemy
+                    ? getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
+                    : div.centroid;
 
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
@@ -1640,6 +1650,8 @@ public class TsfcWarroomRenderer {
         }
     }
 
+    private static final Map<String, String> uiLabelLastTextCache = new HashMap<>();
+
     static void drawLabel(LabelAPI lbl, String text, float x, float y, float alpha) {
         if (lbl == null) return;
         float tw = lbl.computeTextWidth(text);
@@ -1655,8 +1667,10 @@ public class TsfcWarroomRenderer {
             if (lbl == null) {
                 lbl = Global.getSettings().createLabel(text, font);
                 uiLabelCache.put(key, lbl);
-            } else {
+                uiLabelLastTextCache.put(key, text);
+            } else if (!text.equals(uiLabelLastTextCache.get(key))) {
                 lbl.setText(text);
+                uiLabelLastTextCache.put(key, text);
             }
             lbl.setColor(color);
             return lbl;

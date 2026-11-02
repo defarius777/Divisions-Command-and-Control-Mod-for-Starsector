@@ -1334,7 +1334,8 @@ public final class FactionLibrary {
                 } catch (Throwable ignored) {
                 }
             }
-            if (rootJson == null && mhJsonObjFromStringCtor != null) {
+            if (rootJson == null && Global.getSettings() == null && mhJsonObjFromStringCtor != null) {
+                // Offline headless unit-test fallback only (never invoked inside the Starsector runtime)
                 File localFile = new File("mod/" + CONFIG_PATH);
                 if (!localFile.isFile()) {
                     localFile = new File(CONFIG_PATH);

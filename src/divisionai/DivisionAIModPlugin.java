@@ -18,6 +18,8 @@ public class DivisionAIModPlugin extends BaseModPlugin {
                     "[DivisionAI] Startup obfuscated MethodHandle check: ui=%b, combat=%b, audio=%b (graceful fallback active where false).",
                     uiOk, combatOk, audioOk));
         }
+        DivisionAISettings.captureBaselineFleetAndBattleSettings();
+        DivisionAISettings.applyFleetAndBattleSizeOverrides();
         Global.getLogger(DivisionAIModPlugin.class).info("Divisions: Command and Control v0.6.9 loaded: Campaign Permanent Divisions, Faction Division Record Tables, Cultural Nomenclature, Core-Cluster Cohesion & Wide-Arc Battlespace Routing active.");
     }
 
@@ -31,11 +33,13 @@ public class DivisionAIModPlugin extends BaseModPlugin {
 
     @Override
     public void onGameLoad(boolean newGame) {
+        DivisionAISettings.applyFleetAndBattleSizeOverrides();
         SectorAPI sector = Global.getSector();
         if (sector != null) {
             PermanentDivisionManager.ensureInitializedForPlayerFleet();
             PermanentDivisionManager.migrateAutoStandoffToGunRange();
             PermanentDivisionManager.migrateDivisionNamesToNavalTerms();
+            PermanentDivisionManager.migrateFleetWideFormationDefaultToAuto();
             FactionFleetDoctrines.onGameLoad(sector);
             DivisionAISettings.consumePendingReinitOnGameLoad();
             sector.removeTransientScriptsOfClass(DivisionFleetTabInjector.class);

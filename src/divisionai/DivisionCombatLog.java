@@ -30,9 +30,20 @@ public class DivisionCombatLog {
     public static List<String> simLogSink = null;
 
     private static void emitLogLine(float now, String text) {
-        LOG.info(text);
-        if (simLogSink != null) {
-            simLogSink.add(String.format(java.util.Locale.ROOT, "[t=%5.1fs] %s", Math.max(0f, now), text));
+        if (DivisionAISettings.isDebugLoggingEnabled()) {
+            LOG.info(text);
+            if (simLogSink != null) {
+                simLogSink.add(String.format(java.util.Locale.ROOT, "[t=%5.1fs] %s", Math.max(0f, now), text));
+            }
+        }
+    }
+
+    public static void logVerboseAiDebug(float now, String text) {
+        if (DivisionAISettings.isVerboseAiDebugLoggingEnabled()) {
+            LOG.info(text);
+            if (simLogSink != null) {
+                simLogSink.add(String.format(java.util.Locale.ROOT, "[t=%5.1fs] %s", Math.max(0f, now), text));
+            }
         }
     }
 
@@ -158,7 +169,7 @@ public class DivisionCombatLog {
         String sideTag = (div.side == 0)
                 ? (ship.isAlly() ? "Allied" : "Friendly")
                 : "Enemy";
-        LOG.info(String.format(
+        emitLogLine(0f, String.format(
                 "[C2] Reinforcement (%s): %s (%s) joined \"%s\" (now %d hulls)",
                 sideTag,
                 ship.getName(),
@@ -168,15 +179,8 @@ public class DivisionCombatLog {
     }
 
     private static String resolveOtcTag(BattleGroupState battleGroup) {
-        if (battleGroup == null) return "[OTC]";
-        String defaultTitle = (battleGroup.side == 0)
-                ? (battleGroup.isAlliedAi ? "Allied OTC" : "Player OTC")
-                : "Enemy OTC";
-        String title = DivisionNomenclature.resolveOtcCommanderTitle(
-                battleGroup.nomenclatureCategory,
-                battleGroup.side == 0 && !battleGroup.isAlliedAi,
-                battleGroup.isAlliedAi,
-                defaultTitle);
+        if (battleGroup == null) return "[Fleet Command]";
+        String title = DivisionNomenclature.resolveBattleGroupOtcTitle(battleGroup);
         return "[" + title + "]";
     }
 

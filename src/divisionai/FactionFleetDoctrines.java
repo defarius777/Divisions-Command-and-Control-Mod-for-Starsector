@@ -720,7 +720,7 @@ public final class FactionFleetDoctrines {
             case "tte": {
                 // Tri-Tachyon Corporation (plus High-Tech Expansion & Tri-Tac Expansion):
                 // Paragon fortress standoff anchor + Astral recall-bomber Alpha Strikes + Aurora/Fury/Medusa
-                // Strike Cruiser wolfpacks and Doom/Harbinger/Afflictor phase infiltrators in Cannae Envelopment.
+                // Strike Cruiser wolfpacks and Doom/Harbinger/Afflictor phase infiltrators in Double Envelopment.
                 cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
                 cfg.setOpeningDurationSeconds(40);
                 cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);

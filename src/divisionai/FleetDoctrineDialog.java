@@ -9,10 +9,13 @@ import com.fs.starfarer.api.ui.Alignment;
 import com.fs.starfarer.api.ui.ButtonAPI;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.CutStyle;
+import com.fs.starfarer.api.ui.Fonts;
+import com.fs.starfarer.api.ui.LabelAPI;
 import com.fs.starfarer.api.ui.PositionAPI;
 import com.fs.starfarer.api.ui.ScrollPanelAPI;
 import com.fs.starfarer.api.ui.TextFieldAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
+import com.fs.starfarer.api.ui.UIComponentAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.DivisionArchetype;
@@ -40,6 +43,7 @@ import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
 import java.awt.Color;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -202,6 +206,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             activeBodyScroller = null;
         }
         activeButtons.clear();
+        otcPennantBoxes.clear();
         prefixTextFields.clear();
         customOtcTitleField = null;
 
@@ -248,7 +253,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET DOCTRINE", baseColor);
         header.addPara(
-                "OTC command, division defaults, auto-assigner, hull limits (max %s/div), and nomenclature.",
+                "Officer in Tactical Command, division defaults, auto-assigner, hull limits (max %s/div), and nomenclature.",
                 3f,
                 highlight,
                 String.valueOf(PermanentDivisionManager.MAX_DIVISION_SIZE));
@@ -277,13 +282,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         ButtonAPI bTabOtc = registerButton(
                 tb.addButton(
-                        "OTC Command",
+                        "Command Scheme",
                         "TAB:OTC_COMMAND",
                         activeTab == ActiveTab.BATTLE_GROUP_COMMAND ? highlight : baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.TL_BR,
-                        126f,
+                        136f,
                         24f,
                         0f),
                 "TAB:OTC_COMMAND");
@@ -303,7 +308,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         0f),
                 "TAB:MODIFIERS");
         if (activeTab == ActiveTab.DIVISION_MODIFIERS) bTabMod.highlight();
-        bTabMod.getPosition().inTL(210f, 3f);
+        bTabMod.getPosition().inTL(220f, 3f);
 
         ButtonAPI bTabAuto = registerButton(
                 tb.addButton(
@@ -318,7 +323,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         0f),
                 "TAB:AUTO_ASSIGN");
         if (activeTab == ActiveTab.AUTO_ASSIGN_SCHEMES) bTabAuto.highlight();
-        bTabAuto.getPosition().inTL(358f, 3f);
+        bTabAuto.getPosition().inTL(368f, 3f);
 
         ButtonAPI bTabHull = registerButton(
                 tb.addButton(
@@ -333,7 +338,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         0f),
                 "TAB:HULLS");
         if (activeTab == ActiveTab.HULL_LIMITS) bTabHull.highlight();
-        bTabHull.getPosition().inTL(490f, 3f);
+        bTabHull.getPosition().inTL(500f, 3f);
 
         ButtonAPI bTabNaming = registerButton(
                 tb.addButton(
@@ -348,7 +353,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         0f),
                 "TAB:NAMING");
         if (activeTab == ActiveTab.NAMING_SCHEME) bTabNaming.highlight();
-        bTabNaming.getPosition().inTL(604f, 3f);
+        bTabNaming.getPosition().inTL(614f, 3f);
 
         String reinitLabel = lastReinitFleetCount >= 0
                 ? ("Reinitialized (" + lastReinitFleetCount + ")!")
@@ -439,7 +444,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.BATTLE_GROUP_COMMAND) {
             body.addSectionHeading(
-                    "OTC COMMAND & PLAYS",
+                    "Command Scheme and Preferred Tactics",
                     highlight,
                     darkColor,
                     Alignment.LMID,
@@ -458,7 +463,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     body,
                     bodyWidth - 16f,
                     doctrine.getFleetWideFormation(),
-                    doctrine.isDeployInFleetFormation(),
+                    doctrine.isOrchestratedAdvance(),
                     baseColor,
                     darkColor,
                     positive,
@@ -1069,7 +1074,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(presetRow, 3f);
 
         if (expanded) {
-            for (PlayerNamingPreset opt : PlayerNamingPreset.values()) {
+            for (PlayerNamingPreset opt : PlayerNamingPreset.getPlayerSelectablePresets()) {
                 boolean isCurrent = (opt == currentPreset);
                 CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
                 TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 28f, false);
@@ -1132,10 +1137,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         numRow.addUIElement(numUi).inTL(0f, 0f);
         body.addCustom(numRow, 4f);
 
-        // 3. Custom OTC Commander Title Row
+        // 3. Custom Officer in Tactical Command Title Row
         CustomPanelAPI otcTitleRow = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
         TooltipMakerAPI otcTitleUi = otcTitleRow.createUIElement(rowWidth, 30f, false);
-        otcTitleUi.addPara("Custom OTC Title:", 0f, baseColor).getPosition().inTL(6f, 6f);
+        otcTitleUi.addPara("Officer in Tactical Command:", 0f, baseColor).getPosition().inTL(6f, 6f);
         customOtcTitleField = otcTitleUi.addTextField(240f, 22f, "graphics/fonts/insignia15LTaa.fnt", 0f);
         customOtcTitleField.setText(namingCfg.getCustomOtcTitle());
         customOtcTitleField.getPosition().inTL(CONTROL_COL_X, 4f);
@@ -1144,9 +1149,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 currentPreset.category,
                 true,
                 false,
-                "Player OTC");
+                currentPreset.defaultOtcTitle);
         otcTitleUi.addPara(
-                "Active OTC Tag: [%s]",
+                "Active Officer in Tactical Command Tag: [%s]",
                 0f,
                 gray,
                 positive,
@@ -1247,80 +1252,198 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 4f);
     }
 
+    private static final class OtcPennantBoxRect {
+        final OtcAuthority authority;
+        final CustomPanelAPI hostPanel;
+        final float relX;
+        final float relY;
+        final float width;
+        final float height;
+
+        OtcPennantBoxRect(OtcAuthority authority, CustomPanelAPI hostPanel, float relX, float relY, float width, float height) {
+            this.authority = authority;
+            this.hostPanel = hostPanel;
+            this.relX = relX;
+            this.relY = relY;
+            this.width = width;
+            this.height = height;
+        }
+
+        boolean contains(float screenX, float screenY) {
+            if (hostPanel == null || hostPanel.getPosition() == null) return false;
+            PositionAPI p = hostPanel.getPosition();
+            float bx = p.getX() + relX;
+            float by = p.getY() + relY;
+            return screenX >= bx && screenX <= (bx + width) && screenY >= by && screenY <= (by + height);
+        }
+    }
+
+    private final List<OtcPennantBoxRect> otcPennantBoxes = new ArrayList<>();
+
+    public static void renderOtcAuthorityPennantBox(
+            OtcAuthority authority,
+            float boxX,
+            float boxY,
+            float boxW,
+            float boxH,
+            boolean isSelected,
+            boolean isHovered,
+            float alphaMult) {
+        if (authority == null) return;
+        float bx = (float) Math.round(boxX);
+        float by = (float) Math.round(boxY);
+        float bw = (float) Math.round(boxW);
+        float bh = (float) Math.round(boxH);
+
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+        // 1. Dark backing plate + subtle golden deployment wash when selected
+        if (isSelected) {
+            GL11.glColor4f(0.06f, 0.10f, 0.16f, 0.92f * alphaMult);
+        } else if (isHovered) {
+            GL11.glColor4f(0.07f, 0.12f, 0.20f, 0.88f * alphaMult);
+        } else {
+            GL11.glColor4f(0.03f, 0.06f, 0.10f, 0.84f * alphaMult);
+        }
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glVertex2f(bx, by);
+        GL11.glVertex2f(bx + bw, by);
+        GL11.glVertex2f(bx + bw, by + bh);
+        GL11.glVertex2f(bx, by + bh);
+        GL11.glEnd();
+
+        if (isSelected) {
+            GL11.glColor4f(1.0f, 0.84f, 0.16f, 0.11f * alphaMult);
+            GL11.glBegin(GL11.GL_QUADS);
+            GL11.glVertex2f(bx + 1f, by + 1f);
+            GL11.glVertex2f(bx + bw - 1f, by + 1f);
+            GL11.glVertex2f(bx + bw - 1f, by + bh - 1f);
+            GL11.glVertex2f(bx + 1f, by + bh - 1f);
+            GL11.glEnd();
+        }
+        GL11.glPopAttrib();
+
+        // 2. Render Naval Pennant sprite centered in box
+        try {
+            SpriteAPI sprite = loadFormationSpriteSafe(authority.getSettingsIconKey(), authority.getSpritePath());
+            if (sprite != null) {
+                float prevW = sprite.getWidth();
+                float prevH = sprite.getHeight();
+                float prevCx = sprite.getCenterX();
+                float prevCy = sprite.getCenterY();
+                Color prevColor = sprite.getColor();
+                float prevAlpha = sprite.getAlphaMult();
+                float drawSize = (float) Math.round(Math.max(16f, Math.min(bw, bh) - 6f));
+                float snapX = (float) Math.round(bx + (bw - drawSize) * 0.5f);
+                float snapY = (float) Math.round(by + (bh - drawSize) * 0.5f);
+                sprite.setSize(drawSize, drawSize);
+                sprite.setCenter(drawSize * 0.5f, drawSize * 0.5f);
+                sprite.setColor(Color.WHITE);
+                sprite.setAlphaMult((isSelected ? 1.0f : (isHovered ? 0.95f : 0.82f)) * alphaMult);
+                sprite.render(snapX, snapY);
+                sprite.setSize(prevW, prevH);
+                sprite.setCenter(prevCx, prevCy);
+                if (prevColor != null) {
+                    sprite.setColor(prevColor);
+                }
+                sprite.setAlphaMult(prevAlpha);
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // 3. Draw deployment-style double-lined golden box when selected, or slate border when unselected
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        if (isSelected) {
+            GL11.glLineWidth(2.0f);
+            GL11.glColor4f(1.0f, 0.85f, 0.18f, 0.96f * alphaMult);
+            GL11.glBegin(GL11.GL_LINE_LOOP);
+            GL11.glVertex2f(bx, by);
+            GL11.glVertex2f(bx + bw, by);
+            GL11.glVertex2f(bx + bw, by + bh);
+            GL11.glVertex2f(bx, by + bh);
+            GL11.glEnd();
+
+            if (bw > 8f && bh > 8f) {
+                GL11.glLineWidth(1.0f);
+                GL11.glColor4f(1.0f, 0.94f, 0.55f, 0.55f * alphaMult);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(bx + 2f, by + 2f);
+                GL11.glVertex2f(bx + bw - 2f, by + 2f);
+                GL11.glVertex2f(bx + bw - 2f, by + bh - 2f);
+                GL11.glVertex2f(bx + 2f, by + bh - 2f);
+                GL11.glEnd();
+            }
+        } else {
+            GL11.glLineWidth(isHovered ? 1.5f : 1.0f);
+            GL11.glColor4f(0.26f, 0.36f, 0.48f, (isHovered ? 0.88f : 0.48f) * alphaMult);
+            GL11.glBegin(GL11.GL_LINE_LOOP);
+            GL11.glVertex2f(bx, by);
+            GL11.glVertex2f(bx + bw, by);
+            GL11.glVertex2f(bx + bw, by + bh);
+            GL11.glVertex2f(bx, by + bh);
+            GL11.glEnd();
+        }
+        GL11.glPopAttrib();
+    }
+
     private void addAuthorityDropdownRow(
             TooltipMakerAPI body,
             float rowWidth,
-            OtcAuthority current,
+            final OtcAuthority current,
             Color baseColor,
             Color darkColor,
             Color activeValueColor,
             Color gray) {
 
-        boolean expanded = OTC_AUTHORITY_DROPDOWN_KEY.equals(expandedDropdownKey);
+        final OtcAuthority[] allAuths = OtcAuthority.values();
+        final float cardW = 168f;
+        final float cardH = 168f;
+        final float cardGap = 24f;
+        final float totalCardsW = allAuths.length * cardW + (allAuths.length - 1) * cardGap;
+        final float startX = Math.max(CONTROL_COL_X, Math.round((rowWidth - totalCardsW) * 0.5f));
+        final float bannerPanelH = 228f;
+        final CustomPanelAPI[] bannerRef = new CustomPanelAPI[1];
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
-        rowUi.addPara("OTC Authority:", 0f, baseColor).getPosition().inTL(6f, 6f);
-
-        String toggleAct = "TOGGLE_DD:" + OTC_AUTHORITY_DROPDOWN_KEY;
-        String btnText = (expanded ? "[^] " : "[v] ") + current.dropdownLabel;
-        ButtonAPI bToggle = registerButton(
-                rowUi.addButton(
-                        btnText,
-                        toggleAct,
-                        activeValueColor,
-                        darkColor,
-                        Alignment.LMID,
-                        CutStyle.TL_BR,
-                        236f,
-                        24f,
-                        0f),
-                toggleAct);
-        if (expanded) {
-            bToggle.highlight();
-        }
-        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
-
-        rowUi.addPara(current.summary, 0f, expanded ? activeValueColor : gray)
-                .getPosition()
-                .inTL(CONTROL_COL_X + 252f, 6f);
-
-        rowUi.setHeightSoFar(30f);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 3f);
-
-        if (expanded) {
-            for (OtcAuthority option : OtcAuthority.values()) {
-                boolean isCurrent = (option == current);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 28f, false);
-                String selAct = "SET_OTC_AUTH:" + option.name();
-                ButtonAPI bOpt = registerButton(
-                        optUi.addButton(
-                                (isCurrent ? "* " : "   ") + option.dropdownLabel,
-                                selAct,
-                                isCurrent ? activeValueColor : baseColor,
-                                darkColor,
-                                Alignment.LMID,
-                                CutStyle.ALL,
-                                224f,
-                                22f,
-                                0f),
-                        selAct);
-                if (isCurrent) {
-                    bOpt.highlight();
+        BaseCustomUIPanelPlugin bannerPlugin = new BaseCustomUIPanelPlugin() {
+            @Override
+            public void renderBelow(float alphaMult) {
+                if (bannerRef[0] == null || bannerRef[0].getPosition() == null) return;
+                PositionAPI p = bannerRef[0].getPosition();
+                float px = p.getX();
+                float py = p.getY();
+                float ph = p.getHeight();
+                float cardBottomY = py + ph - 6f - cardH;
+                for (int i = 0; i < allAuths.length; i++) {
+                    OtcAuthority auth = allAuths[i];
+                    float cx = px + startX + i * (cardW + cardGap);
+                    renderOtcAuthorityPennantBox(auth, cx, cardBottomY, cardW, cardH, auth == current, false, alphaMult);
                 }
-                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
-
-                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
-                        .getPosition()
-                        .inTL(CONTROL_COL_X + 252f, 5f);
-
-                optUi.setHeightSoFar(28f);
-                optPanel.addUIElement(optUi).inTL(0f, 0f);
-                body.addCustom(optPanel, 2f);
             }
+        };
+        CustomPanelAPI bannerPanel = Global.getSettings().createCustom(rowWidth, bannerPanelH, bannerPlugin);
+        bannerRef[0] = bannerPanel;
+        for (int i = 0; i < allAuths.length; i++) {
+            float relX = startX + i * (cardW + cardGap);
+            float relY = bannerPanelH - 6f - cardH;
+            otcPennantBoxes.add(new OtcPennantBoxRect(allAuths[i], bannerPanel, relX, relY, cardW, cardH));
         }
+        LabelAPI headerLbl = Global.getSettings().createLabel(current.dropdownLabel, Fonts.ORBITRON_20AA);
+        headerLbl.setColor(new Color(255, 222, 90, 255));
+        headerLbl.setAlignment(Alignment.MID);
+        bannerPanel.addComponent((UIComponentAPI) headerLbl).setSize(rowWidth - 20f, 22f).inTL(10f, 180f);
+
+        LabelAPI summaryLbl = Global.getSettings().createLabel(current.summary, Fonts.GROUP_NUM_FONT);
+        summaryLbl.setColor(new Color(195, 220, 240, 245));
+        summaryLbl.setAlignment(Alignment.MID);
+        bannerPanel.addComponent((UIComponentAPI) summaryLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 204f);
+
+        body.addCustom(bannerPanel, 4f);
     }
 
     private CustomPanelAPI createFleetFormationIconRow(
@@ -1334,7 +1457,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 if (ref[0] == null || ref[0].getPosition() == null) return;
                 PositionAPI p = ref[0].getPosition();
                 DivisionDeploymentDialogOrganizer.renderFleetFormationIcon(
-                        formation, p.getX() + CONTROL_COL_X - 15f, p.getY() + rowHeight * 0.5f, 22f, alphaMult);
+                        formation, p.getX() + CONTROL_COL_X - 18f, p.getY() + rowHeight * 0.5f, 28f, alphaMult, true);
             }
         };
         CustomPanelAPI panel = Global.getSettings().createCustom(rowWidth, rowHeight, plugin);
@@ -1378,16 +1501,16 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
         bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
 
-        String depAct = "SET_DEPLOY_IN_FORMATION:" + (deployInFormation ? "OFF" : "ON");
+        String depAct = "SET_ORCHESTRATED_ADVANCE:" + (deployInFormation ? "OFF" : "ON");
         ButtonAPI bDep = registerButton(
                 rowUi.addButton(
-                        "Spawn in Form: " + (deployInFormation ? "On" : "Off"),
+                        "Orchestrated Advance: " + (deployInFormation ? "On" : "Off"),
                         depAct,
                         deployInFormation ? activeValueColor : baseColor,
                         darkColor,
                         Alignment.MID,
                         CutStyle.ALL,
-                        132f,
+                        182f,
                         22f,
                         0f),
                 depAct);
@@ -1422,6 +1545,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     bOpt.highlight();
                 }
                 bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
+
+                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
+                        .getPosition()
+                        .inTL(CONTROL_COL_X + 252f, 5f);
 
                 optUi.setHeightSoFar(28f);
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
@@ -2628,8 +2755,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             FleetWideFormation fw = FleetWideFormation.fromId(cmd.substring("SET_FLEET_FORMATION:".length()), null);
             if (fw != null) {
                 PermanentDivisionManager.updateFleetWideFormation(fw);
+                DivisionDeploymentDialogOrganizer.autoHarmonizePermanentDivisionsToFleetFormation(fw);
             }
             expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_ORCHESTRATED_ADVANCE:")) {
+            boolean enabled = "ON".equals(cmd.substring("SET_ORCHESTRATED_ADVANCE:".length()));
+            PermanentDivisionManager.updateOrchestratedAdvance(enabled);
             rebuildContent();
             return;
         }
@@ -2971,6 +3105,21 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 event.consume();
                 close();
                 return;
+            }
+            if (event.isLMBDownEvent()) {
+                float ex = event.getX();
+                float ey = event.getY();
+                for (OtcPennantBoxRect box : otcPennantBoxes) {
+                    if (box != null && box.contains(ex, ey)) {
+                        event.consume();
+                        try {
+                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
+                        } catch (Throwable ignored) {
+                        }
+                        handleAction("SET_OTC_AUTH:" + box.authority.name());
+                        return;
+                    }
+                }
             }
             if (!event.isMouseUpEvent()) {
                 event.consume();

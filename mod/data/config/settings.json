@@ -1,5 +1,7 @@
 {
 	"divisionai_enableDynamicBattleMusic": true,
+	"divisionai_enableDebugLogging": false,
+	"divisionai_verboseAiDebugLogging": false,
 	"plugins": {
 		"divisionai_combat_plugin": "divisionai.DivisionAICombatPlugin"
 	},
@@ -38,7 +40,35 @@
 			"icon_formation_circle_gold": "graphics/icons/formations/icon_formation_circle_gold.png",
 			"icon_formation_protective_circle_gold": "graphics/icons/formations/icon_formation_protective_circle_gold.png",
 			"icon_formation_forward_semicircle_gold": "graphics/icons/formations/icon_formation_forward_semicircle_gold.png",
-			"icon_formation_reverse_semicircle_gold": "graphics/icons/formations/icon_formation_reverse_semicircle_gold.png"
+			"icon_formation_reverse_semicircle_gold": "graphics/icons/formations/icon_formation_reverse_semicircle_gold.png",
+			"fleet_formation_grand_line": "graphics/icons/fleet_formations/fleet_formation_grand_line.png",
+			"fleet_formation_grand_column": "graphics/icons/fleet_formations/fleet_formation_grand_column.png",
+			"fleet_formation_grand_wedge": "graphics/icons/fleet_formations/fleet_formation_grand_wedge.png",
+			"fleet_formation_refused_right": "graphics/icons/fleet_formations/fleet_formation_refused_right.png",
+			"fleet_formation_crescent": "graphics/icons/fleet_formations/fleet_formation_crescent.png",
+			"fleet_formation_quincunx": "graphics/icons/fleet_formations/fleet_formation_quincunx.png",
+			"fleet_formation_bastion": "graphics/icons/fleet_formations/fleet_formation_bastion.png",
+			"fleet_formation_auto": "graphics/icons/fleet_formations/fleet_formation_auto.png",
+			"fleet_formation_reverse_wedge": "graphics/icons/fleet_formations/fleet_formation_reverse_wedge.png",
+			"fleet_formation_refused_left": "graphics/icons/fleet_formations/fleet_formation_refused_left.png",
+			"fleet_formation_reverse_crescent": "graphics/icons/fleet_formations/fleet_formation_reverse_crescent.png",
+			"fleet_formation_none": "graphics/icons/fleet_formations/fleet_formation_none.png",
+			"fleet_formation_grand_line_wheel": "graphics/icons/fleet_formations/fleet_formation_grand_line_wheel.png",
+			"fleet_formation_grand_column_wheel": "graphics/icons/fleet_formations/fleet_formation_grand_column_wheel.png",
+			"fleet_formation_grand_wedge_wheel": "graphics/icons/fleet_formations/fleet_formation_grand_wedge_wheel.png",
+			"fleet_formation_refused_right_wheel": "graphics/icons/fleet_formations/fleet_formation_refused_right_wheel.png",
+			"fleet_formation_crescent_wheel": "graphics/icons/fleet_formations/fleet_formation_crescent_wheel.png",
+			"fleet_formation_quincunx_wheel": "graphics/icons/fleet_formations/fleet_formation_quincunx_wheel.png",
+			"fleet_formation_bastion_wheel": "graphics/icons/fleet_formations/fleet_formation_bastion_wheel.png",
+			"fleet_formation_auto_wheel": "graphics/icons/fleet_formations/fleet_formation_auto_wheel.png",
+			"fleet_formation_reverse_wedge_wheel": "graphics/icons/fleet_formations/fleet_formation_reverse_wedge_wheel.png",
+			"fleet_formation_refused_left_wheel": "graphics/icons/fleet_formations/fleet_formation_refused_left_wheel.png",
+			"fleet_formation_reverse_crescent_wheel": "graphics/icons/fleet_formations/fleet_formation_reverse_crescent_wheel.png",
+			"fleet_formation_none_wheel": "graphics/icons/fleet_formations/fleet_formation_none_wheel.png",
+			"otc_positive_control": "graphics/icons/otc_emblems/otc_positive_control.png",
+			"otc_command_by_direction": "graphics/icons/otc_emblems/otc_command_by_direction.png",
+			"otc_command_by_negation": "graphics/icons/otc_emblems/otc_command_by_negation.png",
+			"otc_fire_distribution_only": "graphics/icons/otc_emblems/otc_fire_distribution_only.png"
 		}
 	}
 }

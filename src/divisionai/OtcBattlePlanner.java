@@ -652,9 +652,11 @@ public class OtcBattlePlanner {
                     || d.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
                     || d.archetype == DivisionArchetype.FRIGATE_DIVISION
                     || d.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION);
-            if (isLightReinforcer && crisis.localEnemyStrength > 32f) {
+            if (isLightReinforcer && crisis.localEnemyStrength > 36f) {
                 float combinedRatio = (crisis.localFriendlyStrength + d.totalFpStrength) / Math.max(1f, crisis.localEnemyStrength);
-                if (combinedRatio < 0.52f || (crisis.crossfireCordonIndex >= 0.45f && combinedRatio < 0.68f)) {
+                float minCombined = (crisis.totalFpStrength >= 24f) ? 0.40f : 0.52f;
+                float minCordonCombined = (crisis.totalFpStrength >= 24f) ? 0.50f : 0.68f;
+                if (combinedRatio < minCombined || (crisis.crossfireCordonIndex >= 0.45f && combinedRatio < minCordonCombined)) {
                     continue;
                 }
             }
@@ -665,7 +667,9 @@ public class OtcBattlePlanner {
             if (isReserve && !majorCrisis) continue;
             // Time freedom bonus: prefer divisions whose effectiveTimeRadius can reach the crisis without being pinned
             float timeReachBonus = (dist <= d.effectiveTimeRadius ? 260f : 0f) + d.timeFreedomFactor * 180f;
-            float score = -dist * 0.15f - d.avgFluxLevel * 400f + timeReachBonus;
+            // Overkill relief bonus: strongly prefer detaching divisions currently piled onto an overkilled flank target
+            float overkillDetachBonus = (d.otcOrder.targetEnemy != null && d.otcOrder.targetEnemy.isOverkilled) ? 420f : 0f;
+            float score = -dist * 0.15f - d.avgFluxLevel * 400f + timeReachBonus + overkillDetachBonus;
             if (isReserve) score += 800f;
             if (d == myGroup.reinforcingDivision) score += 400f;
             if (d.isFastFlanker) score += 150f;
@@ -725,6 +729,11 @@ public class OtcBattlePlanner {
         if (broken.isEmpty()) return;
 
         int chasers = 0;
+        Map<DivisionState, Float> chaseFpByTarget = new HashMap<>();
+        for (DivisionState e : broken) {
+            chaseFpByTarget.put(e, e.committedFriendlyFpAgainst);
+        }
+        boolean otherEnemyActive = visibleEnemies.size() > 1;
         for (DivisionState d : active) {
             if (chasers >= 2) break;
             if (tasked.contains(d) || d == myGroup.mainEffortDivision) continue;
@@ -734,6 +743,13 @@ public class OtcBattlePlanner {
             DivisionState nearest = null;
             float nearestDist = Float.MAX_VALUE;
             for (DivisionState e : broken) {
+                float curFp = chaseFpByTarget.getOrDefault(e, 0f);
+                // OTC Overkill guard on General Chase: do not send multiple divisions to chase a broken flank pack
+                // that already has >= overkillCapFp committed while other enemy divisions remain active!
+                if (otherEnemyActive && curFp >= e.overkillCapFp
+                        && !(d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e)) {
+                    continue;
+                }
                 float dist = distance(d.centroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e));
                 if (d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e) {
                     dist -= 1000f;
@@ -754,6 +770,7 @@ public class OtcBattlePlanner {
                 d.otcOrder.orderedFormation = DivisionFormation.NONE;
             }
             tasked.add(d);
+            chaseFpByTarget.put(nearest, chaseFpByTarget.getOrDefault(nearest, 0f) + d.totalFpStrength);
             chasers++;
             if (newOrder) {
                 logOrder(engine, myGroup, "pursue:" + d.id + ">" + nearest.id, String.format(
@@ -803,10 +820,17 @@ public class OtcBattlePlanner {
         DivisionState primary = myGroup.primaryThreatEnemyDivision;
         if (primary != null && !visibleEnemies.contains(primary)) primary = null;
         for (DivisionState e : visibleEnemies) {
-            // Concentrate overwhelming overmatch (3.35x) into the Fleet Engagement Zone (primary frontline target)
-            // to achieve defeat-in-detail before splitting fire onto secondary contacts!
-            float mult = (e == primary) ? 3.35f : 1.40f;
-            neededFp.put(e, OtcAI.getVisibleFpForSide(engine, myGroup.side, e) * mult);
+            // Concentrate overwhelming overmatch into the primary threat (Enemy Center of Gravity),
+            // while scaling secondary/flank targets by their war-fighting threat weight (e.combatThreatWeight)
+            // and capping at e.overkillCapFp when multiple enemy divisions exist so we never pile 4 divisions
+            // onto stray armed freighters on a flank!
+            float threatW = Math.max(0.28f, e.combatThreatWeight);
+            float mult = (e == primary) ? 2.65f : 1.35f;
+            float rawNeed = OtcAI.getVisibleFpForSide(engine, myGroup.side, e) * threatW * mult;
+            if (visibleEnemies.size() >= 2 && e != primary) {
+                rawNeed = Math.min(rawNeed, e.overkillCapFp);
+            }
+            neededFp.put(e, Math.max(8f, rawNeed));
             assignedFp.put(e, 0f);
         }
         // Divisions already committed elsewhere still count toward the enemy they are engaging
@@ -822,7 +846,8 @@ public class OtcBattlePlanner {
         // When Full Assault is ordered, divisions no longer adhere to multi-division formations or standoff fixing lines.
         boolean wedgeOrOblique = !fullAssault
                 && (myGroup.activeFleetWideFormation == FleetWideFormation.GRAND_WEDGE_SPEARHEAD
-                || myGroup.activeFleetWideFormation == FleetWideFormation.REFUSED_FLANK_OBLIQUE)
+                || myGroup.activeFleetWideFormation == FleetWideFormation.REFUSED_FLANK_OBLIQUE
+                || myGroup.activeFleetWideFormation == FleetWideFormation.REFUSED_FLANK_LEFT)
                 && active.size() >= 3;
         DivisionState main = myGroup.mainEffortDivision;
         if (!fullAssault && main != null && main.isCombatEffective() && !tasked.contains(main) && primary != null) {
@@ -915,21 +940,69 @@ public class OtcBattlePlanner {
             }
         });
 
+        boolean orchestratedAdvanceActive = OtcAI.isOrchestratedAdvanceActive(engine, myGroup, null);
         for (DivisionState d : pool) {
             DivisionState best = null;
             float bestScore = -Float.MAX_VALUE;
             DivisionState previous = (d.otcOrder.type == OtcOrderType.ENGAGE_ASSIGNED || d.otcOrder.type == OtcOrderType.FLANK)
                     ? d.otcOrder.targetEnemy : null;
+
+            boolean anyOtherUnderCap = false;
+            if (visibleEnemies.size() >= 2) {
+                for (DivisionState otherE : visibleEnemies) {
+                    if (assignedFp.getOrDefault(otherE, 0f) < neededFp.getOrDefault(otherE, 10f)) {
+                        anyOtherUnderCap = true;
+                        break;
+                    }
+                }
+            }
+
             for (DivisionState e : visibleEnemies) {
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e);
                 float need = Math.max(4f, neededFp.get(e));
                 float have = assignedFp.get(e);
                 float dist = distance(d.centroid, ePos);
-                float visFp = OtcAI.getVisibleFpForSide(engine, myGroup.side, e);
+                float rawVisFp = OtcAI.getVisibleFpForSide(engine, myGroup.side, e);
+                float threatW = Math.max(0.28f, e.combatThreatWeight);
+                float visFp = rawVisFp * threatW;
+                boolean targetOverkilled = anyOtherUnderCap && (have >= need || e.isOverkilled);
+
                 float score = -dist * (dist > 1500f ? 0.62f : 0.48f);
-                if (e == previous && dist <= 2200f) score += 260f;
+                if (e == previous && dist <= 2200f && !targetOverkilled) score += 260f;
                 if (e == primary) score += (dist <= 2400f) ? 720f : 460f;
-                if (e.archetype == DivisionArchetype.SERVICE_GROUP) score -= 450f;
+                if (e.archetype == DivisionArchetype.SERVICE_GROUP || threatW <= 0.55f) score -= 480f;
+
+                // Enemy Center of Gravity bonus: weight force distribution toward the Enemy Center of Gravity
+                if (myGroup.hasEnemyCenterOfGravity && visibleEnemies.size() >= 2) {
+                    float distToCog = distance(ePos, myGroup.enemyCenterOfGravity);
+                    score += Math.max(-340f, 180f - distToCog * 0.14f);
+                }
+
+                // Beleaguered Friendly Line Relief: if a significant friendly division (e.g. Line Cruiser Div 1)
+                // is outnumbered in combat, strongly prioritize enemy divisions pressing that friendly division!
+                for (DivisionState friendDiv : active) {
+                    if (friendDiv == null || friendDiv == d || !friendDiv.isAbleCombatEffective()) continue;
+                    if (friendDiv.totalFpStrength >= 18f
+                            && friendDiv.localEnemyStrength >= 12f
+                            && friendDiv.localForceRatio < 0.90f) {
+                        float dFriend = distance(friendDiv.centroid, ePos);
+                        if (dFriend <= 2050f) {
+                            float urgency = Math.min(1.6f, Math.max(0.4f, 1.15f - friendDiv.localForceRatio));
+                            score += (2050f - dFriend) * 0.32f * urgency;
+                        }
+                    }
+                }
+
+                // Grand Formation Wing Consent: match Port/Starboard wing divisions to enemy contacts on their consented wing
+                if (d.consentedWingSide != 0 && visibleEnemies.size() >= 2) {
+                    float latSide = Math.signum(ePos.x - myGroup.fleetCentroid.x);
+                    if (latSide == d.consentedWingSide) {
+                        score += 240f;
+                    } else if (latSide == -d.consentedWingSide && e != primary) {
+                        score -= 280f;
+                    }
+                }
+
                 // Item D: Align fire distribution with friendly independent ships when organizationRatio < 0.75
                 if (myGroup.friendlyIndependentFp >= 12f && myGroup.organizationRatio < 0.75f) {
                     float dIndep = distance(myGroup.independentProjectedCentroid, ePos);
@@ -943,16 +1016,16 @@ public class OtcBattlePlanner {
                 }
 
                 // Defeat-in-Detail: reward isolated & collapsing targets so our heavy divisions focus them down
-                if (e.divisionNumber < 90 && e.stationKeepingRatio > 1.45f) {
+                if (e.divisionNumber < 90 && e.stationKeepingRatio > 1.45f && threatW >= 0.65f) {
                     score += 220f;
                 }
                 if (visFp >= 18f) {
                     score += e.avgFluxLevel * 280f + (1.0f - e.avgHullLevel) * 260f;
                 }
 
-                // Prevent heavy battleline divisions (Battleships/Cruisers) from being baited away by tiny light screens
-                if (d.totalFpStrength >= 32f && visFp < 20f && e != primary) {
-                    score -= 420f;
+                // Prevent heavy/medium divisions & carriers from being baited away by stray freighters or tiny light screens
+                if ((d.totalFpStrength >= 20f || d.archetype.isCarrierArchetype()) && visFp < 18f && e != primary && anyOtherUnderCap) {
+                    score -= 560f;
                 } else if (d.totalFpStrength >= 32f && visFp >= 28f) {
                     score += Math.min(280f, visFp * 3.5f);
                 }
@@ -971,7 +1044,12 @@ public class OtcBattlePlanner {
                 }
 
                 if (have < need) {
-                    score += 250f;
+                    score += 280f;
+                } else if (anyOtherUnderCap) {
+                    // OTC Overkill Force-Distribution Cap: once an enemy contact has sufficient friendly FP assigned
+                    // and other enemy divisions remain below cap, strongly redirect remaining divisions to the CoG!
+                    float overRatio = have / Math.max(1f, need);
+                    score -= 1450f + 650f * (overRatio - 1f);
                 } else {
                     float overAllocPenalty = (visibleEnemies.size() >= 3) ? 160f : 320f;
                     score -= overAllocPenalty * (have / need - 1f);
@@ -985,7 +1063,7 @@ public class OtcBattlePlanner {
 
             d.otcOrder.set(OtcOrderType.ENGAGE_ASSIGNED, best, null, 0f, expires, "OTC: fire distribution, engage \"" + best.displayName + "\"");
             d.otcOrder.hasStation = false;
-            if (wedgeOrOblique
+            if ((wedgeOrOblique || orchestratedAdvanceActive)
                     && myGroup.authority.allowsPositioning()
                     && d.hasFleetFormationOffset
                     && main != null
@@ -997,14 +1075,16 @@ public class OtcBattlePlanner {
                     && DivisionCommanderAI.resolveActiveMission(d, now) != DivisionMissionType.SCOUTING) {
                 Vector2f bPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, best);
                 float distToTarget = distance(d.centroid, bPos);
-                if (d.fleetFormationWingSide < 0) {
-                    d.otcOrder.orderedFormation = DivisionFormation.ECHELON_LEFT;
-                } else if (d.fleetFormationWingSide > 0) {
-                    d.otcOrder.orderedFormation = DivisionFormation.ECHELON_RIGHT;
+                if (wedgeOrOblique) {
+                    if (d.fleetFormationWingSide < 0) {
+                        d.otcOrder.orderedFormation = DivisionFormation.ECHELON_LEFT;
+                    } else if (d.fleetFormationWingSide > 0) {
+                        d.otcOrder.orderedFormation = DivisionFormation.ECHELON_RIGHT;
+                    }
                 }
-                if (best == primary
+                if ((best == primary || orchestratedAdvanceActive)
                         && myGroup.engagedDivisionCount == 0
-                        && distToTarget > Math.max(1850f, d.standoffRange * 1.85f)) {
+                        && distToTarget > Math.max(1650f, d.standoffRange * 1.55f)) {
                     float anchorX = main.otcOrder.hasStation ? main.otcOrder.station.x : main.centroid.x;
                     float anchorY = main.otcOrder.hasStation ? main.otcOrder.station.y : main.centroid.y;
                     float relX = d.fleetFormationOffset.x - main.fleetFormationOffset.x;
@@ -1050,16 +1130,29 @@ public class OtcBattlePlanner {
 
             DivisionState target = allocation.get(d);
             if (target == null) target = primary;
-            // Keep existing flank target sticky unless it is no longer combat-effective or a new target is >1400u closer
+            // Keep existing flank target sticky unless it is no longer combat-effective, is overkilled while
+            // another target was allocated by distributeFire, or a new target is >1400u closer
             if (d.otcOrder.type == OtcOrderType.FLANK
                     && d.otcOrder.targetEnemy != null
                     && d.otcOrder.targetEnemy.isCombatEffective()
                     && OtcAI.isDivisionVisibleToSide(engine, myGroup.side, d.otcOrder.targetEnemy)) {
-                if (target == null || distance(d.centroid, d.otcOrder.targetEnemy.centroid) <= distance(d.centroid, target.centroid) + 1400f) {
-                    target = d.otcOrder.targetEnemy;
+                DivisionState prevTarget = d.otcOrder.targetEnemy;
+                boolean prevOverkilled = prevTarget.isOverkilled && target != null && target != prevTarget && !target.isOverkilled;
+                if (!prevOverkilled
+                        && (target == null || distance(d.centroid, prevTarget.centroid) <= distance(d.centroid, target.centroid) + 1400f)) {
+                    target = prevTarget;
                 }
             }
             if (target == null || !target.isCombatEffective()) continue;
+            // OTC Overkill cap on flankers: a low-threat auxiliary/flank pack (< 22 effective FP) needs at most 1 flanker
+            // when primary threat is a different active enemy division!
+            List<DivisionState> existingForTarget = flankersByTarget.get(target);
+            float targetEffFp = OtcAI.getVisibleFpForSide(engine, myGroup.side, target) * Math.max(0.28f, target.combatThreatWeight);
+            if (existingForTarget != null && !existingForTarget.isEmpty()
+                    && target != primary && primary != null && primary.isCombatEffective()
+                    && (targetEffFp < 22f || target.isOverkilled)) {
+                target = primary;
+            }
             List<DivisionState> list = flankersByTarget.get(target);
             if (list == null) {
                 list = new ArrayList<>();
@@ -1120,7 +1213,15 @@ public class OtcBattlePlanner {
                 } else if (previous != 0f) {
                     side = previous;
                 } else {
-                    float natural = Math.signum((d.centroid.x - tPos.x) * perpX + (d.centroid.y - tPos.y) * perpY);
+                    // Consent: prefer the division's consented Grand Formation wing side so Port Wing flankers
+                    // envelop the port flank (+1) and Starboard Wing flankers envelop the starboard flank (-1)
+                    // without crossing the fleet's battleline!
+                    float natural;
+                    if (d.consentedWingSide != 0) {
+                        natural = (d.consentedWingSide < 0) ? 1f : -1f;
+                    } else {
+                        natural = Math.signum((d.centroid.x - tPos.x) * perpX + (d.centroid.y - tPos.y) * perpY);
+                    }
                     if (natural == 0f) natural = 1f;
                     side = natural;
                     // Balance newly assigned flankers across port and starboard

@@ -390,7 +390,7 @@ public class DivisionModel {
         public final int divisionNumber;
         public final DivisionArchetype archetype;
         public final String displayName;
-        public final CommanderProfile commander;
+        public CommanderProfile commander;
         public DivisionNomenclature.NomenclatureCategory nomenclatureCategory =
                 DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL;
 
@@ -448,7 +448,15 @@ public class DivisionModel {
         public boolean hasFleetFormationOffset = false;
         public int fleetFormationRank = 0;
         public int fleetFormationWingSide = 0; // -1 = port wing, 0 = center/apex spearhead, +1 = starboard wing
+        public int fleetFormationSlotIndex = -1;
+        public int consentedWingSide = 0; // Persistent wing side (-1 port, 0 center, +1 starboard) under OTC/Grand Formation Consent
         public boolean initialDeploymentMarshalled = false;
+
+        // OTC Force-Distribution Overkill & Combat Threat Weight telemetry
+        public float combatThreatWeight = 1.0f; // [0.25..1.0] discounts stray freighters/auxiliaries relative to warships
+        public float committedFriendlyFpAgainst = 0f;
+        public float overkillCapFp = 0f;
+        public boolean isOverkilled = false;
 
         // Dynamic telemetry updated every evaluation tick
         public final Vector2f centroid = new Vector2f();
@@ -690,6 +698,7 @@ public class DivisionModel {
     public static class BattleGroupState {
         public final int side;
         public boolean isAlliedAi = false;
+        public boolean isPassiveOpposingView = false;
         public CommanderProfile otc;
         public DivisionNomenclature.NomenclatureCategory nomenclatureCategory =
                 DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL;
@@ -769,6 +778,16 @@ public class DivisionModel {
         public boolean otcDisabledWarningActive = false;
         /** Last player OTC reassignment time (prevents multi-click charge stacking). */
         public float lastOtcReassignmentTime = -100f;
+        /** True once an Alpha Core assumes OTC during battle (deliberate swap, Convergence takeover, or deployed start). */
+        public boolean alphaCoreOtcLockedInBattle = false;
+        /** True when the player's OTC ship is destroyed and the game pauses to show the OTC selection screen. */
+        public boolean emergencyOtcSelectionPending = false;
+        /** Successor flagship chosen by the OTC/Flagship loss succession hierarchy. */
+        public ShipAPI designatedSuccessorFlagship = null;
+        /** Number of OTC/Flagship successions that have occurred on this side during battle. */
+        public int successionCount = 0;
+        /** True when the player side's designated OTC ship is not deployed in battle (-75% max CP, -50% CP regen). */
+        public boolean otcNotDeployedPenaltyActive = false;
 
         public float lastOtcEvaluationTime = -100f;
         public float lastOtcSignalLogTime = -100f;
@@ -782,13 +801,19 @@ public class DivisionModel {
         public PermanentDivisionManager.FleetWideFormation fleetWideFormation =
                 PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO;
         public PermanentDivisionManager.FleetWideFormation activeFleetWideFormation =
-                PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST;
+                PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO;
         public PermanentDivisionManager.MultiDivisionSetpiece multiDivisionSetpieceDoctrine =
                 PermanentDivisionManager.MultiDivisionSetpiece.AUTO_DOCTRINAL;
         public PermanentDivisionManager.MultiDivisionSetpiece activeMultiDivisionSetpiece =
                 PermanentDivisionManager.MultiDivisionSetpiece.NONE;
         public boolean deployInFleetFormation = true;
+        public boolean orchestratedAdvance = true;
+        public boolean orchestratedAdvanceContactMade = false;
         public boolean initialDeploymentDone = false;
+        public boolean grandFormationConsentLocked = false;
+        public int consentedDivisionCount = 0;
+        public final Vector2f enemyCenterOfGravity = new Vector2f();
+        public boolean hasEnemyCenterOfGravity = false;
         public final Set<String> formationSpawnHijackedShipIds = new HashSet<>();
         public final Set<PermanentDivisionManager.OtcPlay> plays =
                 EnumSet.of(

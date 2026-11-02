@@ -658,22 +658,50 @@ public class StarsectorUISimulator {
                 }
             }
 
-            // Fleet formation compass sprites (128px gold/navy full set)
+            // Fleet formation compass sprites (128px gold/navy full set + 8 compass-wheel-only mid-battle sprites)
             boolean allFleetFormationSpritesOk = true;
             int verifiedFleetSprites = 0;
             for (PermanentDivisionManager.FleetWideFormation fw : PermanentDivisionManager.FleetWideFormation.values()) {
-                String path = DivisionDeploymentDialogOrganizer.getFleetFormationSpritePath(fw);
+                String path = DivisionDeploymentDialogOrganizer.getFleetFormationSpritePath(fw, false);
+                String wheelPath = DivisionDeploymentDialogOrganizer.getFleetFormationWheelSpritePath(fw);
                 SpriteAPI sp = FleetDoctrineDialog.loadFormationSpriteSafe(null, path);
+                SpriteAPI wheelSp = FleetDoctrineDialog.loadFormationSpriteSafe(null, wheelPath);
                 if (path == null || sp == null || sp.getTextureId() <= 0
-                        || sp.getWidth() != 128f || sp.getHeight() != 128f) {
+                        || sp.getWidth() != 128f || sp.getHeight() != 128f
+                        || wheelPath == null || !wheelPath.endsWith("_wheel.png")
+                        || wheelSp == null || wheelSp.getTextureId() <= 0
+                        || wheelSp.getWidth() != 128f || wheelSp.getHeight() != 128f) {
                     allFleetFormationSpritesOk = false;
                 } else {
                     sp.setSize(96f, 96f);
                     sp.setCenter(48f, 48f);
-                    if (Math.abs(sp.getCenterX() - 48f) > 0.01f || Math.abs(sp.getCenterY() - 48f) > 0.01f) {
+                    wheelSp.setSize(38f, 38f);
+                    wheelSp.setCenter(19f, 19f);
+                    if (Math.abs(sp.getCenterX() - 48f) > 0.01f || Math.abs(sp.getCenterY() - 48f) > 0.01f
+                            || Math.abs(wheelSp.getCenterX() - 19f) > 0.01f || Math.abs(wheelSp.getCenterY() - 19f) > 0.01f) {
                         allFleetFormationSpritesOk = false;
                     }
                     verifiedFleetSprites++;
+                }
+            }
+
+            // OTC Command Style Naval Pennant sprites (4 dark-navy 256x256 pennants)
+            boolean allOtcPennantSpritesOk = true;
+            int verifiedOtcPennantSprites = 0;
+            for (PermanentDivisionManager.OtcAuthority auth : PermanentDivisionManager.OtcAuthority.values()) {
+                SpriteAPI pSp = FleetDoctrineDialog.loadFormationSpriteSafe(
+                        auth.getSettingsIconKey(), auth.getSpritePath());
+                if (pSp == null || pSp.getTextureId() <= 0 || pSp.getWidth() != 256f || pSp.getHeight() != 256f) {
+                    allOtcPennantSpritesOk = false;
+                } else {
+                    pSp.setSize(96f, 96f);
+                    pSp.setCenter(48f, 48f);
+                    if (Math.abs(pSp.getCenterX() - 48f) > 0.01f || Math.abs(pSp.getCenterY() - 48f) > 0.01f) {
+                        allOtcPennantSpritesOk = false;
+                    }
+                    pSp.setSize(256f, 256f);
+                    pSp.setCenter(128f, 128f);
+                    verifiedOtcPennantSprites++;
                 }
             }
 
@@ -706,7 +734,9 @@ public class StarsectorUISimulator {
             boolean allSimOk = allFormationSpritesCenteredOk
                     && verifiedSprites == 22
                     && allFleetFormationSpritesOk
-                    && verifiedFleetSprites == 8
+                    && verifiedFleetSprites == 12
+                    && allOtcPennantSpritesOk
+                    && verifiedOtcPennantSprites == 4
                     && stdDeploymentOk
                     && alphaDeploymentOk
                     && midBattleDeploymentOk
@@ -749,16 +779,17 @@ public class StarsectorUISimulator {
             boolean preBattle) throws Throwable {
 
         divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        final PersonAPI subDiv1Cmdr = SimPerson.create("Lieutenant", "Mira", "graphics/portraits/portrait_hegemony04.png", false, null);
         final PersonAPI div2Cmdr = SimPerson.create("Captain", "Kael", "graphics/portraits/portrait_hegemony02.png", false, null);
         final PersonAPI indepCmdr = SimPerson.create("Commander", "Sera", "graphics/portraits/portrait_hegemony03.png", false, null);
         final List<FleetMember> allMembers = new ArrayList<>();
         final List<FleetMember> deployedMembers = new ArrayList<>();
         final List<FleetMember> reserveMembers = new ArrayList<>();
         for (int i = 0; i < 16; i++) {
-            PersonAPI cap = (i == 0) ? flagshipCaptain : (i == 6 ? div2Cmdr : (i == 11 ? indepCmdr : null));
+            PersonAPI cap = (i == 0) ? flagshipCaptain : (i == 2 ? subDiv1Cmdr : (i == 6 ? div2Cmdr : (i == 11 ? indepCmdr : null)));
             SimFleetMember m = SimFleetMember.create(
                     "sim_ship_" + i,
-                    i == 0 ? "HSS Invictus" : ("HSS Vanguard " + i),
+                    i == 0 ? "HSS Invictus Sovereign of the Stars" : ("HSS Vanguard " + i),
                     i < 6 ? 40f : 20f,
                     i == 0,
                     i < 6 ? HullSize.CAPITAL_SHIP : HullSize.CRUISER,
@@ -813,6 +844,10 @@ public class StarsectorUISimulator {
                     if (m.getReturnType() == boolean.class) return false;
                     return null;
                 });
+        try {
+            com.fs.starfarer.campaign.CampaignEngine.getInstance();
+        } catch (Throwable ignored) {
+        }
         Global.setSector(sector);
 
         PermanentDivisionSpec div1 = new PermanentDivisionSpec("div_1", "Battle Div 1", DivisionArchetype.BATTLESHIP_DIVISION);
@@ -822,7 +857,9 @@ public class StarsectorUISimulator {
 
         PermanentDivisionSpec div2 = new PermanentDivisionSpec("div_2", "Missile Battleship Division 1", DivisionArchetype.MISSILE_BATTLESHIP_DIVISION);
         div2.customFormation = DivisionFormation.LINE_AHEAD;
-        div2.flagshipMemberId = "sim_ship_6";
+        // Feature A test: div2's division flagship (sim_ship_7) has no Officer (cap == null), while sim_ship_6 has Captain Kael.
+        // Officerless division flagship sim_ship_7 must NOT appear in the player's OTC Selection Window options (winButtons stays 5, not 6).
+        div2.flagshipMemberId = "sim_ship_7";
         for (int i = 6; i < 11; i++) div2.memberIds.add("sim_ship_" + i);
 
         Method saveSpecsM = PermanentDivisionManager.class.getDeclaredMethod("saveSpecsToPersistentData", Map.class, List.class);
@@ -906,13 +943,14 @@ public class StarsectorUISimulator {
 
         DivisionDeploymentDialogOrganizer organizer = new DivisionDeploymentDialogOrganizer();
         organizer.setBattleContext(playerGroup, enemyGroup, new DynamicBattleMusicController());
+        Global.setSector(sector);
         organizer.advance(proxyEngine);
         innerPanel.advance(0.1f);
 
         // Verify enlarged dimensions and zero overlap between fleetCommandPanel, sep1, and reservesGrid
         PositionAPI resPos = reservesGrid.getPosition();
         PositionAPI sep1Pos = sep1.getPosition();
-        if (Math.abs(resPos.getWidth() - 824f) > 3f || Math.abs(resPos.getHeight() - 406f) > 3f) {
+        if (Math.abs(resPos.getWidth() - 940f) > 3f || Math.abs(resPos.getHeight() - 406f) > 3f) {
             System.out.println("FAIL resPos size: " + resPos.getWidth() + "x" + resPos.getHeight());
             return false;
         }
@@ -929,6 +967,10 @@ public class StarsectorUISimulator {
         }
 
         PositionAPI fcPos = fcPanel.getPosition();
+        if (Math.abs(fcPos.getWidth() - 940f) > 3f || Math.abs(fcPos.getHeight() - 204f) > 3f) {
+            System.out.println("FAIL fcPos size: " + fcPos.getWidth() + "x" + fcPos.getHeight());
+            return false;
+        }
         // 1. fleetCommandPanel must align horizontally with reservesGrid and sit strictly above sep1 and reservesGrid
         boolean fcAlignedAndAboveSeparator = Math.abs(fcPos.getX() - resPos.getX()) <= 2f
                 && Math.abs(fcPos.getWidth() - resPos.getWidth()) <= 2f
@@ -964,7 +1006,7 @@ public class StarsectorUISimulator {
             if (txt.startsWith("ENGAGEMENT")) sawEngagement = true;
             if (txt.startsWith("COHESION")) sawCohesion = true;
             if ("MASTER".equals(txt)) alphaMasterLabel = lbl;
-            if ("HSS INVICTUS".equals(txt)) alphaShipLineLabel = lbl;
+            if (txt.startsWith("HSS INVICTUS")) alphaShipLineLabel = lbl;
             if (preBattle) {
                 for (String banned : bannedDeploymentReadout) {
                     if (txt.contains(banned)) {
@@ -974,10 +1016,12 @@ public class StarsectorUISimulator {
                 }
             }
         }
-        if (preBattle && fcButtons.size() != 4) {
-            System.out.println("FAIL fleet formation + OTC change buttons: " + fcButtons.size());
+        if (preBattle && fcButtons.size() != 6) {
+            System.out.println("FAIL command style + fleet formation + OTC change buttons: " + fcButtons.size());
             return false;
         }
+        // Verify groupSizes=[4, 15, 5] in UITestHarness still matches, and in StarsectorUISimulator div3 is rendered in reservesGrid
+        // while div3's officerless leader (sim_ship_12) is excluded from OTC Selection Window (still 1 Close + 4 officer cards = 5 buttons!)
         if (!preBattle && (fcButtons.size() != 1 || !sawEngagement || !sawCohesion)) {
             System.out.println("FAIL post-deployment live status: buttons=" + fcButtons.size()
                     + ", engagement=" + sawEngagement + ", cohesion=" + sawCohesion);
@@ -993,12 +1037,12 @@ public class StarsectorUISimulator {
             System.out.println("FAIL missing 'Change' button under OTC portrait");
             return false;
         }
-        if (expectAlphaCore && changeOtcButton.isEnabled()) {
-            System.out.println("FAIL 'Change' button must be disabled when OTC is an Alpha Core");
+        if (expectAlphaCore && !preBattle && changeOtcButton.isEnabled()) {
+            System.out.println("FAIL 'Change' button must be disabled mid-battle when OTC is an Alpha Core");
             return false;
         }
-        if (!expectAlphaCore && !changeOtcButton.isEnabled()) {
-            System.out.println("FAIL 'Change' button must be enabled for human OTC");
+        if ((preBattle || !expectAlphaCore) && !changeOtcButton.isEnabled()) {
+            System.out.println("FAIL 'Change' button must be enabled pre-battle (even for Alpha Core) and for human OTC");
             return false;
         }
         PositionAPI chPos = changeOtcButton.getPosition();
@@ -1012,26 +1056,176 @@ public class StarsectorUISimulator {
                     + " portraitBottomY=" + portraitBottomY);
             return false;
         }
-        if (!expectAlphaCore) {
+        if (preBattle) {
+            // Verify pre-battle default player OTC -> largest selected ship commander (sticky when selection clears!) -> sticky player ship -> sticky explicit choice
+            if (!expectAlphaCore) {
+                if (!"sim_ship_0".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup))) {
+                    System.out.println("FAIL Pre-battle OTC must default to player ship sim_ship_0 when nothing is selected");
+                    return false;
+                }
+                // Click Cruiser sim_ship_11 (20 DP, Commander Sera) to deploy -> OTC auto-switches to sim_ship_11
+                fdd.selectedMembers.add(allMembers.get(11));
+                fcPanel.advance(0.1f);
+                if (!"sim_ship_11".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup))) {
+                    System.out.println("FAIL Pre-battle OTC did not auto-switch to Cruiser commander sim_ship_11: got "
+                            + divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup));
+                    return false;
+                }
+                // Serious Bug A regression check: clearing fdd.selectedMembers (e.g. clicking blank space or deploying) MUST keep sim_ship_11 sticky!
+                fdd.selectedMembers.clear();
+                fcPanel.advance(0.1f);
+                if (!"sim_ship_11".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup))
+                        || !"sim_ship_11".equals(divisionai.DivisionOtcCommandManager.getAutoSelectedPlayerOtcMemberId())) {
+                    System.out.println("FAIL Serious Bug A: Auto-selected OTC sim_ship_11 was NOT sticky when selection cleared! got "
+                            + divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup));
+                    return false;
+                }
+                // Click Capital sim_ship_2 (40 DP, Lieutenant Mira) + Cruiser sim_ship_11 -> OTC auto-switches to largest ship sim_ship_2
+                fdd.selectedMembers.add(allMembers.get(11));
+                fdd.selectedMembers.add(allMembers.get(2));
+                fcPanel.advance(0.1f);
+                if (!"sim_ship_2".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup))) {
+                    System.out.println("FAIL Pre-battle OTC did not auto-switch to largest selected ship commander sim_ship_2: got "
+                            + divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup));
+                    return false;
+                }
+                // Clear selection again -> sim_ship_2 remains sticky!
+                fdd.selectedMembers.clear();
+                fcPanel.advance(0.1f);
+                if (!"sim_ship_2".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup))) {
+                    System.out.println("FAIL Serious Bug A: Auto-selected largest OTC sim_ship_2 was NOT sticky when selection cleared!");
+                    return false;
+                }
+                // Click player ship sim_ship_0 to deploy -> OTC becomes sticky on player character sim_ship_0!
+                fdd.selectedMembers.add(allMembers.get(0));
+                fcPanel.advance(0.1f);
+                if (!"sim_ship_0".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup))
+                        || !divisionai.DivisionOtcCommandManager.isPlayerShipStickyOtcActive()) {
+                    System.out.println("FAIL Pre-battle OTC did not switch to player ship sim_ship_0 when chosen to deploy");
+                    return false;
+                }
+                // Even if player ship is unselected from fdd.selectedMembers while other ships remain selected, player OTC stays sticky!
+                fdd.selectedMembers.remove(allMembers.get(0));
+                fcPanel.advance(0.1f);
+                if (!"sim_ship_0".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup))) {
+                    System.out.println("FAIL Pre-battle player OTC was not sticky after player ship was chosen to deploy");
+                    return false;
+                }
+                fdd.selectedMembers.clear();
+                fcPanel.advance(0.1f);
+            }
             changeOtcButton.setChecked(true);
+            fcPanel.advance(0.1f);
+            // Simulate CombatState calling organizer.advance(engine) on subsequent frames while OTC window is open
+            // (regression test for Bug B: must never swap deployedGrid/reservesGrid or clear reservesGrid icons!)
+            organizer.advance(proxyEngine);
+            for (FleetMember m : reserveMembers) {
+                if (reservesGrid.getIconForMember(m) == null) {
+                    System.out.println("FAIL Bug B regression: reservesGrid.getIconForMember(" + m.getId() + ") became null while OTC window open!");
+                    return false;
+                }
+            }
+            CustomPanelAPI otcWin = organizer.getActiveOtcSelectorPanel();
+            if (!organizer.isOtcSelectorWindowOpen() || otcWin == null) {
+                System.out.println("FAIL clicking 'Change' did not open OTC Commander Selection Window");
+                return false;
+            }
+            List<LabelAPI> winLabels = new ArrayList<>();
+            List<ButtonAPI> winButtons = new ArrayList<>();
+            collectLabelsAndButtonsRecursive(otcWin, winLabels, winButtons);
+            // Expect 1 'Close' button + 4 commander card buttons (sim_ship_0 flagship, sim_ship_2 subordinate in div_1,
+            // sim_ship_6 div_2 leader, sim_ship_11 unassigned commander)
+            if (winButtons.size() != 5) {
+                System.out.println("FAIL OTC Selection Window button count: got " + winButtons.size() + " expected 5");
+                return false;
+            }
+            boolean sawPersonalityLabel = false;
+            boolean sawUndeployedWarningHeader = false;
+            for (LabelAPI wl : winLabels) {
+                String wTxt = wl.getText();
+                if (wTxt == null || wTxt.isEmpty()) continue;
+                if (wTxt.contains("Personality:")) {
+                    System.out.println("FAIL Feature B: redundant 'Personality:' prefix must be removed from commander cards: " + wTxt);
+                    return false;
+                }
+                if ("Steady".equals(wTxt) || "Alpha Core".equals(wTxt) || "Aggressive".equals(wTxt) || "Reckless".equals(wTxt)) {
+                    sawPersonalityLabel = true;
+                }
+                if (wTxt.contains("-75% Max CP")) {
+                    sawUndeployedWarningHeader = true;
+                }
+                if (!isPurePrintableAscii(wTxt)) {
+                    System.out.println("FAIL non-ascii label in OTC Selection Window: " + wTxt);
+                    return false;
+                }
+                PositionAPI wlp = wl.getPosition();
+                if (wlp != null && wl.computeTextWidth(wTxt) > wlp.getWidth() + 2f) {
+                    System.out.println("FAIL OTC Selection Window label overflow: '" + wTxt + "' textW=" + wl.computeTextWidth(wTxt) + " w=" + wlp.getWidth());
+                    return false;
+                }
+            }
+            if (!sawPersonalityLabel) {
+                System.out.println("FAIL Change D: OTC Selection Window cards missing commander personality description");
+                return false;
+            }
+            if (!sawUndeployedWarningHeader) {
+                System.out.println("FAIL Feature E: OTC Selection Window missing undeployed OTC -75% Max CP warning");
+                return false;
+            }
+            // Select the non-flagship subordinate commander in Division 1 (sim_ship_2, Lieutenant Mira)
+            // Works even when expectAlphaCore == true (Feature A: player may freely un-pick Alpha Core before battle!)
+            ButtonAPI subSelectBtn = winButtons.get(2); // index 0 = Close, 1 = sim_ship_0 (Active OTC), 2 = sim_ship_2 (Select)
+            if (!"Select".equals(subSelectBtn.getText()) || !subSelectBtn.isEnabled()) {
+                System.out.println("FAIL subordinate commander Select button invalid: " + subSelectBtn.getText());
+                return false;
+            }
+            subSelectBtn.setChecked(true);
             fcPanel.advance(0.1f);
             String newOtcId = divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup);
-            if (!"sim_ship_6".equals(newOtcId)) {
-                System.out.println("FAIL clicking 'Change' did not cycle OTC to division 2 leader sim_ship_6: got " + newOtcId);
+            if (!"sim_ship_2".equals(newOtcId) || organizer.isOtcSelectorWindowOpen()) {
+                System.out.println("FAIL selecting subordinate commander sim_ship_2 in OTC Window: got " + newOtcId
+                        + " windowOpen=" + organizer.isOtcSelectorWindowOpen());
                 return false;
             }
-            changeOtcButton.setChecked(true);
-            fcPanel.advance(0.1f);
-            String thirdOtcId = divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup);
-            if (!"sim_ship_11".equals(thirdOtcId)) {
-                System.out.println("FAIL second 'Change' click did not cycle OTC to independent commander sim_ship_11: got " + thirdOtcId);
+            if (!expectAlphaCore) {
+                // Verify explicit player choice sim_ship_2 is now sticky even when player ship sim_ship_0 is clicked to deploy!
+                fdd.selectedMembers.add(allMembers.get(0));
+                fdd.selectedMembers.add(allMembers.get(11));
+                fcPanel.advance(0.1f);
+                if (!"sim_ship_2".equals(divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup))) {
+                    System.out.println("FAIL explicit player OTC choice sim_ship_2 was not sticky when clicking divisions/player ship to deploy");
+                    return false;
+                }
+                fdd.selectedMembers.clear();
+                fcPanel.advance(0.1f);
+            }
+            if (expectAlphaCore && playerGroup.useConvergence) {
+                System.out.println("FAIL Feature A: un-picking Alpha Core before battle did not clear playerGroup.useConvergence");
                 return false;
             }
+            // Re-open the OTC Selection Window and restore sim_ship_0 (re-picking Alpha Core if expectAlphaCore == true)
             changeOtcButton.setChecked(true);
             fcPanel.advance(0.1f);
+            CustomPanelAPI otcWin2 = organizer.getActiveOtcSelectorPanel();
+            List<LabelAPI> winLabels2 = new ArrayList<>();
+            List<ButtonAPI> winButtons2 = new ArrayList<>();
+            collectLabelsAndButtonsRecursive(otcWin2, winLabels2, winButtons2);
+            winButtons2.get(1).setChecked(true); // sim_ship_0
+            fcPanel.advance(0.1f);
+            organizer.advance(proxyEngine);
+            for (FleetMember m : reserveMembers) {
+                if (reservesGrid.getIconForMember(m) == null) {
+                    System.out.println("FAIL Bug B regression: reservesGrid.getIconForMember(" + m.getId() + ") null after closing OTC window!");
+                    return false;
+                }
+            }
             String backToFirstId = divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(playerGroup);
-            if (!"sim_ship_0".equals(backToFirstId)) {
-                System.out.println("FAIL third 'Change' click did not wrap OTC back to sim_ship_0: got " + backToFirstId);
+            if (!"sim_ship_0".equals(backToFirstId) || organizer.isOtcSelectorWindowOpen()) {
+                System.out.println("FAIL selecting sim_ship_0 in OTC Window did not restore initial OTC: got " + backToFirstId);
+                return false;
+            }
+            if (expectAlphaCore && !playerGroup.useConvergence) {
+                System.out.println("FAIL Feature A: re-picking Alpha Core before battle did not restore playerGroup.useConvergence");
                 return false;
             }
         }
@@ -1043,7 +1237,7 @@ public class StarsectorUISimulator {
 
         float fcX = fcPos.getX();
         float fcW = fcPos.getWidth();
-        float divX = fcX + Math.round(fcW * 0.50f);
+        float divX = fcX + Math.round(fcW * 0.46f);
         for (LabelAPI lbl : fcLabels) {
             String txt = lbl.getText();
             if (txt == null || txt.isEmpty()) continue;
@@ -1090,28 +1284,82 @@ public class StarsectorUISimulator {
             }
         }
 
-        // Exercise the real arrow buttons and formation-entry toggle through CustomPanelPlugin.advance
+        // Exercise the real arrow buttons and Orchestrated Advance toggle through CustomPanelPlugin.advance
         if (preBattle) {
         PermanentDivisionManager.FleetWideFormation initialFw =
                 PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation();
-        ButtonAPI nextFormationButton = null;
-        ButtonAPI prevFormationButton = null;
-        ButtonAPI formationEntryButton = null;
-        for (ButtonAPI btn : fcButtons) {
-            if (">".equals(btn.getText())) nextFormationButton = btn;
-            if ("<".equals(btn.getText())) prevFormationButton = btn;
-            if (btn.getText() != null && btn.getText().startsWith("Formation entry:")) {
-                formationEntryButton = btn;
+        if (initialFw != PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO) {
+            System.out.println("FAIL Bug A regression: initial fleet formation should be DOCTRINAL_AUTO, got " + initialFw);
+            return false;
+        }
+        boolean autoShownFirst = false;
+        for (LabelAPI lbl : fcLabels) {
+            if (PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO.displayName.equals(lbl.getText())) {
+                autoShownFirst = true;
             }
         }
-        if (nextFormationButton == null || prevFormationButton == null || formationEntryButton == null) {
-            System.out.println("FAIL missing fleet formation arrow/entry buttons");
+        if (!autoShownFirst) {
+            System.out.println("FAIL Bug A regression: 'Auto' not shown first when entering battle!");
+            return false;
+        }
+        ButtonAPI nextFormationButton = null;
+        ButtonAPI prevFormationButton = null;
+        ButtonAPI nextAuthButton = null;
+        ButtonAPI prevAuthButton = null;
+        ButtonAPI orchestratedAdvanceButton = null;
+        float cmdMidX = fcPos.getX() + Math.round(fcPos.getWidth() * 0.50f) + 8f + 195f;
+        for (ButtonAPI btn : fcButtons) {
+            PositionAPI bp = btn.getPosition();
+            boolean isAuthCol = bp != null && bp.getX() < cmdMidX;
+            if (">".equals(btn.getText())) {
+                if (isAuthCol) nextAuthButton = btn;
+                else nextFormationButton = btn;
+            }
+            if ("<".equals(btn.getText())) {
+                if (isAuthCol) prevAuthButton = btn;
+                else prevFormationButton = btn;
+            }
+            if (btn.getText() != null && btn.getText().startsWith("Orchestrated Advance:")) {
+                orchestratedAdvanceButton = btn;
+            }
+            if (btn.getText() != null && btn.getText().startsWith("Formation entry:")) {
+                System.out.println("FAIL Feature B: 'Formation entry' button should be removed!");
+                return false;
+            }
+        }
+        if (nextFormationButton == null || prevFormationButton == null
+                || nextAuthButton == null || prevAuthButton == null || orchestratedAdvanceButton == null) {
+            System.out.println("FAIL missing command style / fleet formation arrow / Orchestrated Advance buttons");
+            return false;
+        }
+        PermanentDivisionManager.OtcAuthority initialAuth =
+                PermanentDivisionManager.getFleetDoctrine().getOtcAuthority();
+        nextAuthButton.setChecked(true);
+        fcPanel.advance(0.1f);
+        PermanentDivisionManager.OtcAuthority[] authValues = PermanentDivisionManager.OtcAuthority.values();
+        PermanentDivisionManager.OtcAuthority expectedAuth =
+                authValues[(initialAuth.ordinal() + 1) % authValues.length];
+        if (PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() != expectedAuth
+                || playerGroup.authority != expectedAuth) {
+            System.out.println("FAIL pre-battle next command style button did not update doctrine/group authority: got "
+                    + PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() + " expected " + expectedAuth);
+            return false;
+        }
+        prevAuthButton.setChecked(true);
+        fcPanel.advance(0.1f);
+        if (PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() != initialAuth
+                || playerGroup.authority != initialAuth) {
+            System.out.println("FAIL pre-battle prev command style button did not restore initial authority");
             return false;
         }
         nextFormationButton.setChecked(true);
         fcPanel.advance(0.1f);
         PermanentDivisionManager.FleetWideFormation[] fwValues =
                 PermanentDivisionManager.FleetWideFormation.values();
+        if (fwValues.length != 12) {
+            System.out.println("FAIL Feature A: expected 12 FleetWideFormations, got " + fwValues.length);
+            return false;
+        }
         PermanentDivisionManager.FleetWideFormation expectedFw =
                 fwValues[(initialFw.ordinal() + 1) % fwValues.length];
         boolean formationLabelUpdated = false;
@@ -1122,7 +1370,7 @@ public class StarsectorUISimulator {
                 || playerGroup.fleetWideFormation != expectedFw
                 || playerGroup.activeFleetWideFormation != expectedFw
                 || !formationLabelUpdated) {
-            System.out.println("FAIL next fleet formation button did not update doctrine/group/name: initial=" + initialFw
+            System.out.println("FAIL next fleet formation button did not update doctrine/group/name on single click: initial=" + initialFw
                     + " expected=" + expectedFw
                     + " doctrine=" + PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation()
                     + " group=" + playerGroup.fleetWideFormation
@@ -1137,25 +1385,34 @@ public class StarsectorUISimulator {
             System.out.println("FAIL previous fleet formation button did not restore initial formation");
             return false;
         }
-        boolean entryBefore = PermanentDivisionManager.getFleetDoctrine().isDeployInFleetFormation();
-        formationEntryButton.setChecked(true);
+        boolean orchBefore = PermanentDivisionManager.getFleetDoctrine().isOrchestratedAdvance();
+        orchestratedAdvanceButton.setChecked(true);
         fcPanel.advance(0.1f);
-        if (PermanentDivisionManager.getFleetDoctrine().isDeployInFleetFormation() == entryBefore
-                || playerGroup.deployInFleetFormation == entryBefore) {
-            System.out.println("FAIL formation entry toggle did not update doctrine/group");
+        if (PermanentDivisionManager.getFleetDoctrine().isOrchestratedAdvance() == orchBefore
+                || playerGroup.orchestratedAdvance == orchBefore
+                || !PermanentDivisionManager.getFleetDoctrine().isDeployInFleetFormation()) {
+            System.out.println("FAIL Orchestrated Advance toggle did not update doctrine/group or disabled formation entry");
             return false;
         }
+        // Restore Orchestrated Advance to On
+        orchestratedAdvanceButton.setChecked(true);
+        fcPanel.advance(0.1f);
         }
 
         // 3. Audit every division row header card in reservesGrid
         v rList = reservesGrid.getList();
         List<c> items = rList.getItems();
-        if (items.size() != 42) {
-            System.out.println("FAIL items size: " + items.size());
+        if (items.size() != 48) {
+            System.out.println("FAIL items size: " + items.size()
+                    + " preBattle=" + preBattle
+                    + " expectAlpha=" + expectAlphaCore
+                    + " nonEmptyDivs=" + PermanentDivisionManager.getNonEmptyPermanentDivisions().size()
+                    + " reserveMembers=" + reserveMembers.size()
+                    + " gridMembers=" + reservesGrid.getMembers().size());
             return false;
         }
 
-        int[] headerSlots = new int[]{0, 14, 28};
+        int[] headerSlots = new int[]{0, 16, 32};
         float prevCardBottomY = Float.MAX_VALUE;
         for (int slotIdx : headerSlots) {
             c item = items.get(slotIdx);
@@ -1217,8 +1474,8 @@ public class StarsectorUISimulator {
             }
         }
 
-        // 4. Verify S.getButtonForMember, S.getIconForMember, 14-column grid sync, and IndexedMemberList click index mapping
-        if (rList.getColumns() != 14) {
+        // 4. Verify S.getButtonForMember, S.getIconForMember, 16-column grid sync, and IndexedMemberList click index mapping
+        if (rList.getColumns() != 16) {
             System.out.println("FAIL rList.getColumns(): " + rList.getColumns());
             return false;
         }
@@ -1277,9 +1534,18 @@ public class StarsectorUISimulator {
         DivisionEditorDialog dialog = new DivisionEditorDialog(hostCoreUI);
         dialog.show();
 
-        for (String cmd : new String[]{null, "EDIT:div_1", "BACK_TO_OVERVIEW"}) {
+        for (String cmd : new String[]{null, "SET_OTC_AUTH:POSITIVE_CONTROL", "SET_OTC_AUTH:COMMAND_BY_DIRECTION", "EDIT:div_1", "BACK_TO_OVERVIEW"}) {
             if (cmd != null) {
                 dialog.buttonPressed(cmd);
+                dialog.advance(0.1f);
+            }
+            if ("SET_OTC_AUTH:POSITIVE_CONTROL".equals(cmd)
+                    && PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() != PermanentDivisionManager.OtcAuthority.POSITIVE_CONTROL) {
+                return false;
+            }
+            if ("SET_OTC_AUTH:COMMAND_BY_DIRECTION".equals(cmd)
+                    && PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() != PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION) {
+                return false;
             }
             List<LabelAPI> labels = new ArrayList<>();
             List<ButtonAPI> buttons = new ArrayList<>();

@@ -40,6 +40,42 @@ public class DivisionAISettings {
     public static final String ENABLE_BATTLE_MUSIC_FIELD_ID = "divai_enable_battle_music";
     public static final String BATTLE_MUSIC_CONTROL_FIELD_ID = "divai_battle_music_control";
     public static final String SETTINGS_JSON_ENABLE_BATTLE_MUSIC_KEY = "divisionai_enableDynamicBattleMusic";
+    public static final String ENABLE_DEBUG_LOGGING_FIELD_ID = "divai_enable_debug_logging";
+    public static final String VERBOSE_AI_DEBUG_LOGGING_FIELD_ID = "divai_verbose_ai_debug_logging";
+    public static final String SETTINGS_JSON_ENABLE_DEBUG_LOGGING_KEY = "divisionai_enableDebugLogging";
+    public static final String SETTINGS_JSON_VERBOSE_AI_DEBUG_LOGGING_KEY = "divisionai_verboseAiDebugLogging";
+
+    /** Optional overrides used by headless unit tests (null in normal gameplay). */
+    public static Boolean testDebugLoggingEnabledOverride = null;
+    public static Boolean testVerboseAiDebugLoggingOverride = null;
+
+    public static final String OVERRIDE_FLEET_BATTLE_SIZE_FIELD_ID = "divai_override_fleet_battle_size";
+    public static final String MAX_BATTLE_SIZE_FIELD_ID = "divai_max_battle_size";
+    public static final String MIN_BATTLE_SIZE_FIELD_ID = "divai_min_battle_size";
+    public static final String MAX_SHIPS_IN_FLEET_FIELD_ID = "divai_max_ships_in_fleet";
+    public static final String MAX_SHIPS_IN_AI_FLEET_FIELD_ID = "divai_max_ships_in_ai_fleet";
+    public static final String MAX_OFFICERS_IN_AI_FLEET_FIELD_ID = "divai_max_officers_in_ai_fleet";
+    public static final String BASE_NUM_OFFICERS_FIELD_ID = "divai_base_num_officers";
+    private static final String FLEET_BATTLE_SEEDED_KEY = "divai_fleet_battle_seeded_v1";
+
+    private static boolean baselineSettingsCaptured = false;
+    private static int baselineBattleSize = 400;
+    private static int baselineMaxBattleSize = 400;
+    private static int baselineMinBattleSize = 200;
+    private static int baselineMaxShipsInFleet = 30;
+    private static int baselineMaxShipsInAIFleet = 30;
+    private static int baselineMaxOfficersInAIFleet = 15;
+    private static int baselineBaseNumOfficers = 8;
+    private static boolean overridesCurrentlyApplied = false;
+    private static int lastAppliedMaxBattleSize = -1;
+    private static int lastAppliedMinBattleSize = -1;
+    private static int lastAppliedMaxShipsInFleet = -1;
+    private static int lastAppliedMaxShipsInAIFleet = -1;
+    private static int lastAppliedMaxOfficersInAIFleet = -1;
+    private static int lastAppliedBaseNumOfficers = -1;
+    private static MethodHandle setBattleSizeStaticHandle = null;
+    private static MethodHandle setMaxShipsInFleetStaticHandle = null;
+    private static boolean starfarerSettingsHandlesResolved = false;
 
     public enum BattleMusicControlMode {
         MOD_DYNAMIC("Division AI Dynamic Music"),
@@ -108,7 +144,7 @@ public class DivisionAISettings {
         }
 
         public static ChatterVerbosity fromSettingString(String raw) {
-            if (raw == null) return VERBOSE;
+            if (raw == null) return MINIMAL;
             String trimmed = raw.trim();
             if ("Medium".equalsIgnoreCase(trimmed)) {
                 return STANDARD;
@@ -118,7 +154,7 @@ public class DivisionAISettings {
                     return v;
                 }
             }
-            return VERBOSE;
+            return MINIMAL;
         }
     }
 
@@ -153,54 +189,85 @@ public class DivisionAISettings {
     }
 
     private static boolean getBool(String key, boolean defaultVal) {
+        Object live = liveSettingOverrides.get(key);
+        if (live instanceof Boolean) return (Boolean) live;
         if (!isLunaLibEnabled()) return defaultVal;
         try {
-            syncAndPersistLunaSettings();
+            ensureSettingsCacheFresh();
+            Object cached = cachedLunaValues.get(key);
+            if (cached instanceof Boolean) return (Boolean) cached;
             Boolean val = LunaSettings.getBoolean(MOD_ID, key);
-            if (val != null) return val;
-            Object live = liveSettingOverrides.get(key);
-            if (live instanceof Boolean) return (Boolean) live;
+            if (val != null) {
+                cachedLunaValues.put(key, val);
+                return val;
+            }
+            cachedLunaValues.put(key, Boolean.valueOf(defaultVal));
             return defaultVal;
         } catch (Throwable t) {
-            Object live = liveSettingOverrides.get(key);
-            if (live instanceof Boolean) return (Boolean) live;
             return defaultVal;
         }
     }
 
     private static int getInt(String key, int defaultVal) {
+        Object live = liveSettingOverrides.get(key);
+        if (live instanceof Number) return ((Number) live).intValue();
         if (!isLunaLibEnabled()) return defaultVal;
         try {
-            syncAndPersistLunaSettings();
+            ensureSettingsCacheFresh();
+            Object cached = cachedLunaValues.get(key);
+            if (cached instanceof Number) return ((Number) cached).intValue();
             Integer val = LunaSettings.getInt(MOD_ID, key);
-            if (val != null) return val;
-            Object live = liveSettingOverrides.get(key);
-            if (live instanceof Number) return ((Number) live).intValue();
+            if (val != null) {
+                cachedLunaValues.put(key, val);
+                return val;
+            }
+            cachedLunaValues.put(key, Integer.valueOf(defaultVal));
             return defaultVal;
         } catch (Throwable t) {
-            Object live = liveSettingOverrides.get(key);
-            if (live instanceof Number) return ((Number) live).intValue();
             return defaultVal;
         }
     }
 
     private static String getString(String key, String defaultVal) {
+        Object live = liveSettingOverrides.get(key);
+        if (live instanceof String) return (String) live;
         if (!isLunaLibEnabled()) return defaultVal;
         try {
-            syncAndPersistLunaSettings();
+            ensureSettingsCacheFresh();
+            Object cached = cachedLunaValues.get(key);
+            if (cached instanceof String) return (String) cached;
             String val = LunaSettings.getString(MOD_ID, key);
-            if (val != null) return val;
-            Object live = liveSettingOverrides.get(key);
-            if (live instanceof String) return (String) live;
+            if (val != null) {
+                cachedLunaValues.put(key, val);
+                return val;
+            }
+            cachedLunaValues.put(key, defaultVal);
             return defaultVal;
         } catch (Throwable t) {
-            Object live = liveSettingOverrides.get(key);
-            if (live instanceof String) return (String) live;
             return defaultVal;
         }
     }
 
     private static final Map<String, Object> liveSettingOverrides = new HashMap<String, Object>();
+    private static final Map<String, Object> cachedLunaValues = new HashMap<String, Object>();
+    private static long lastSettingsCacheRefreshMs = 0L;
+    private static long lastLunaSyncPersistMs = 0L;
+
+    private static void ensureSettingsCacheFresh() {
+        long nowMs = System.currentTimeMillis();
+        if (nowMs - lastSettingsCacheRefreshMs < 250L && !cachedLunaValues.isEmpty()) {
+            return;
+        }
+        lastSettingsCacheRefreshMs = nowMs;
+        cachedLunaValues.clear();
+        // LunaLib's Mod Settings UI only exists on the Title Screen / Campaign map, never inside tactical combat
+        try {
+            if (Global.getCurrentState() != com.fs.starfarer.api.GameState.COMBAT) {
+                syncAndPersistLunaSettings();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
 
     /**
      * Works around two LunaLib Mod Settings quirks:
@@ -276,6 +343,11 @@ public class DivisionAISettings {
                     saveHandle.invoke(modJson);
                 } catch (Throwable ignored) {}
             }
+            if (anyChanged) {
+                cachedLunaValues.clear();
+                lastSettingsCacheRefreshMs = 0L;
+                applyFleetAndBattleSizeOverrides();
+            }
         } catch (Throwable ignored) {
         }
     }
@@ -285,6 +357,7 @@ public class DivisionAISettings {
         Object prevLive = liveSettingOverrides.get(fieldId);
         boolean changed = (prevLive == null) ? true : !prevLive.equals(newVal);
         liveSettingOverrides.put(fieldId, newVal);
+        cachedLunaValues.put(fieldId, newVal);
 
         if (modJson != null) {
             try {
@@ -313,7 +386,46 @@ public class DivisionAISettings {
         if (testVerbosityOverride != null) {
             return testVerbosityOverride;
         }
-        return ChatterVerbosity.fromSettingString(getString(CHATTER_VERBOSITY_FIELD_ID, ChatterVerbosity.VERBOSE.displayName));
+        return ChatterVerbosity.fromSettingString(getString(CHATTER_VERBOSITY_FIELD_ID, ChatterVerbosity.MINIMAL.displayName));
+    }
+
+    /**
+     * Returns true if debug/telemetry logging to starsector.log is enabled (default false).
+     * Controlled via LunaSettings 'divai_enable_debug_logging' or settings.json 'divisionai_enableDebugLogging'.
+     */
+    public static boolean isDebugLoggingEnabled() {
+        if (testDebugLoggingEnabledOverride != null) {
+            return testDebugLoggingEnabledOverride;
+        }
+        boolean defaultVal = false;
+        try {
+            if (Global.getSettings() != null) {
+                defaultVal = Global.getSettings().getBoolean(SETTINGS_JSON_ENABLE_DEBUG_LOGGING_KEY);
+            }
+        } catch (Throwable ignored) {
+        }
+        return getBool(ENABLE_DEBUG_LOGGING_FIELD_ID, defaultVal);
+    }
+
+    /**
+     * Returns true if extended tactical AI debug trace logging to starsector.log is enabled (default false).
+     * Requires isDebugLoggingEnabled() to also be true.
+     */
+    public static boolean isVerboseAiDebugLoggingEnabled() {
+        if (!isDebugLoggingEnabled()) {
+            return false;
+        }
+        if (testVerboseAiDebugLoggingOverride != null) {
+            return testVerboseAiDebugLoggingOverride;
+        }
+        boolean defaultVal = false;
+        try {
+            if (Global.getSettings() != null) {
+                defaultVal = Global.getSettings().getBoolean(SETTINGS_JSON_VERBOSE_AI_DEBUG_LOGGING_KEY);
+            }
+        } catch (Throwable ignored) {
+        }
+        return getBool(VERBOSE_AI_DEBUG_LOGGING_FIELD_ID, defaultVal);
     }
 
     public static boolean isCriticalDivisionIntent(DivisionIntentType intent) {
@@ -345,21 +457,24 @@ public class DivisionAISettings {
     }
 
     public static boolean isOtcSignalsEnabled(int side) {
+        if (side != 0 && testVerbosityOverride != null) return true;
         return (side == 0)
                 ? getBool("divai_friendly_bg_chatter", true)
-                : getBool("divai_enemy_bg_chatter", true);
+                : getBool("divai_enemy_bg_chatter", false);
     }
 
     public static boolean isDivisionSignalsEnabled(int side) {
+        if (side != 0 && testVerbosityOverride != null) return true;
         return (side == 0)
                 ? getBool("divai_friendly_div_chatter", true)
-                : getBool("divai_enemy_div_chatter", true);
+                : getBool("divai_enemy_div_chatter", false);
     }
 
     public static boolean isMultiDivisionSignalsEnabled(int side) {
+        if (side != 0 && testVerbosityOverride != null) return true;
         return (side == 0)
                 ? getBool("divai_friendly_multidiv_chatter", true)
-                : getBool("divai_enemy_multidiv_chatter", true);
+                : getBool("divai_enemy_multidiv_chatter", false);
     }
 
     public static boolean shouldShowIntentOnHud(int side, DivisionIntentType intent) {
@@ -490,6 +605,233 @@ public class DivisionAISettings {
         }
     }
 
+    private static void resolveStarfarerSettingsHandles() {
+        if (starfarerSettingsHandlesResolved) return;
+        starfarerSettingsHandlesResolved = true;
+        try {
+            ClassLoader cl = DivisionAISettings.class.getClassLoader();
+            Class<?> cls = Class.forName("com.fs.starfarer.settings.StarfarerSettings", false, cl);
+            setBattleSizeStaticHandle = MethodHandles.publicLookup().findStatic(
+                    cls, "new", MethodType.methodType(void.class, int.class));
+            MethodHandles.Lookup priv = MethodHandles.privateLookupIn(cls, MethodHandles.lookup());
+            setMaxShipsInFleetStaticHandle = priv.findStaticSetter(cls, "new.new", float.class);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Reads and snapshots the player's initial settings.json / SettingsAPI fleet & battle size values
+     * BEFORE any Mod Settings overrides are applied, and seeds the LunaLib sliders with the player's
+     * current values on first run.
+     */
+    public static void captureBaselineFleetAndBattleSettings() {
+        if (baselineSettingsCaptured) return;
+        if (Global.getSettings() == null) return;
+        try {
+            int bs = Global.getSettings().getBattleSize();
+            if (bs > 0) baselineBattleSize = bs;
+        } catch (Throwable ignored) {}
+        try {
+            int maxBs = Global.getSettings().getInt("maxBattleSize");
+            if (maxBs > 0) baselineMaxBattleSize = maxBs;
+        } catch (Throwable ignored) {}
+        try {
+            int minBs = Global.getSettings().getInt("minBattleSize");
+            if (minBs > 0) baselineMinBattleSize = minBs;
+        } catch (Throwable ignored) {}
+        try {
+            int maxShips = Global.getSettings().getMaxShipsInFleet();
+            if (maxShips <= 0) maxShips = Global.getSettings().getInt("maxShipsInFleet");
+            if (maxShips > 0) baselineMaxShipsInFleet = maxShips;
+        } catch (Throwable ignored) {}
+        try {
+            int maxAiShips = Global.getSettings().getInt("maxShipsInAIFleet");
+            if (maxAiShips > 0) baselineMaxShipsInAIFleet = maxAiShips;
+        } catch (Throwable ignored) {}
+        try {
+            int maxAiOff = Global.getSettings().getInt("maxOfficersInAIFleet");
+            if (maxAiOff > 0) baselineMaxOfficersInAIFleet = maxAiOff;
+        } catch (Throwable ignored) {}
+        try {
+            int baseOff = Global.getSettings().getInt("baseNumOfficers");
+            if (baseOff > 0) baselineBaseNumOfficers = baseOff;
+        } catch (Throwable ignored) {}
+        baselineSettingsCaptured = true;
+        seedLunaSettingsFromPlayerBaselineIfNeeded();
+    }
+
+    private static void seedLunaSettingsFromPlayerBaselineIfNeeded() {
+        if (!isLunaLibEnabled()) return;
+        try {
+            Map<String, ?> allSettings = LunaSettingsLoader.getSettings();
+            Object modJson = (allSettings != null) ? allSettings.get(MOD_ID) : null;
+            if (modJson == null) return;
+            MethodHandles.Lookup lookup = MethodHandles.publicLookup();
+            Class<?> jsonCls = modJson.getClass();
+            MethodHandle hasHandle = lookup.findVirtual(jsonCls, "has", MethodType.methodType(boolean.class, String.class));
+            boolean alreadySeeded = (boolean) hasHandle.invoke(modJson, FLEET_BATTLE_SEEDED_KEY);
+            if (alreadySeeded) return;
+
+            MethodHandle putHandle = lookup.findVirtual(
+                    jsonCls, "put", MethodType.methodType(jsonCls.getSuperclass(), String.class, Object.class));
+            int effectiveBattleSize = Math.max(baselineBattleSize, baselineMaxBattleSize);
+            putHandle.invoke(modJson, MAX_BATTLE_SIZE_FIELD_ID, Integer.valueOf(effectiveBattleSize));
+            putHandle.invoke(modJson, MIN_BATTLE_SIZE_FIELD_ID, Integer.valueOf(baselineMinBattleSize));
+            putHandle.invoke(modJson, MAX_SHIPS_IN_FLEET_FIELD_ID, Integer.valueOf(baselineMaxShipsInFleet));
+            putHandle.invoke(modJson, MAX_SHIPS_IN_AI_FLEET_FIELD_ID, Integer.valueOf(baselineMaxShipsInAIFleet));
+            putHandle.invoke(modJson, MAX_OFFICERS_IN_AI_FLEET_FIELD_ID, Integer.valueOf(baselineMaxOfficersInAIFleet));
+            putHandle.invoke(modJson, BASE_NUM_OFFICERS_FIELD_ID, Integer.valueOf(baselineBaseNumOfficers));
+            putHandle.invoke(modJson, FLEET_BATTLE_SEEDED_KEY, Boolean.TRUE);
+            MethodHandle saveHandle = lookup.findVirtual(jsonCls, "save", MethodType.methodType(void.class));
+            saveHandle.invoke(modJson);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static boolean isFleetAndBattleSizeOverrideEnabled() {
+        captureBaselineFleetAndBattleSettings();
+        return getBool(OVERRIDE_FLEET_BATTLE_SIZE_FIELD_ID, false);
+    }
+
+    public static int getMaxBattleSizeOverride() {
+        captureBaselineFleetAndBattleSettings();
+        return Math.max(50, getInt(MAX_BATTLE_SIZE_FIELD_ID, Math.max(baselineBattleSize, baselineMaxBattleSize)));
+    }
+
+    public static int getMinBattleSizeOverride() {
+        captureBaselineFleetAndBattleSettings();
+        return Math.max(50, getInt(MIN_BATTLE_SIZE_FIELD_ID, baselineMinBattleSize));
+    }
+
+    public static int getMaxShipsInPlayerFleetOverride() {
+        captureBaselineFleetAndBattleSettings();
+        return Math.max(1, getInt(MAX_SHIPS_IN_FLEET_FIELD_ID, baselineMaxShipsInFleet));
+    }
+
+    public static int getMaxShipsInAIFleetOverride() {
+        captureBaselineFleetAndBattleSettings();
+        return Math.max(1, getInt(MAX_SHIPS_IN_AI_FLEET_FIELD_ID, baselineMaxShipsInAIFleet));
+    }
+
+    public static int getMaxOfficersInAIFleetOverride() {
+        captureBaselineFleetAndBattleSettings();
+        return Math.max(1, getInt(MAX_OFFICERS_IN_AI_FLEET_FIELD_ID, baselineMaxOfficersInAIFleet));
+    }
+
+    public static int getBaseNumOfficersOverride() {
+        captureBaselineFleetAndBattleSettings();
+        return Math.max(1, getInt(BASE_NUM_OFFICERS_FIELD_ID, baselineBaseNumOfficers));
+    }
+
+    public static int getBaselineMaxBattleSize() {
+        captureBaselineFleetAndBattleSettings();
+        return baselineMaxBattleSize;
+    }
+
+    public static int getBaselineMaxShipsInFleet() {
+        captureBaselineFleetAndBattleSettings();
+        return baselineMaxShipsInFleet;
+    }
+
+    /**
+     * Applies (or restores) the player's Fleet & Battle Size overrides to Starsector's live SettingsAPI
+     * and StarfarerSettings static fields. Safe to call at startup, on game load, and mid-game whenever
+     * Mod Settings change.
+     */
+    public static void applyFleetAndBattleSizeOverrides() {
+        if (Global.getSettings() == null) return;
+        captureBaselineFleetAndBattleSettings();
+        boolean enabled = getBool(OVERRIDE_FLEET_BATTLE_SIZE_FIELD_ID, false);
+        if (!enabled) {
+            if (overridesCurrentlyApplied) {
+                overridesCurrentlyApplied = false;
+                applyRawFleetAndBattleValues(
+                        baselineBattleSize,
+                        baselineMaxBattleSize,
+                        baselineMinBattleSize,
+                        baselineMaxShipsInFleet,
+                        baselineMaxShipsInAIFleet,
+                        baselineMaxOfficersInAIFleet,
+                        baselineBaseNumOfficers);
+                lastAppliedMaxBattleSize = -1;
+                lastAppliedMinBattleSize = -1;
+                lastAppliedMaxShipsInFleet = -1;
+                lastAppliedMaxShipsInAIFleet = -1;
+                lastAppliedMaxOfficersInAIFleet = -1;
+                lastAppliedBaseNumOfficers = -1;
+            }
+            return;
+        }
+
+        int maxBs = getMaxBattleSizeOverride();
+        int minBs = Math.min(maxBs, getMinBattleSizeOverride());
+        int maxPlayerShips = getMaxShipsInPlayerFleetOverride();
+        int maxAiShips = getMaxShipsInAIFleetOverride();
+        int maxAiOfficers = getMaxOfficersInAIFleetOverride();
+        int baseOfficers = getBaseNumOfficersOverride();
+
+        if (overridesCurrentlyApplied
+                && maxBs == lastAppliedMaxBattleSize
+                && minBs == lastAppliedMinBattleSize
+                && maxPlayerShips == lastAppliedMaxShipsInFleet
+                && maxAiShips == lastAppliedMaxShipsInAIFleet
+                && maxAiOfficers == lastAppliedMaxOfficersInAIFleet
+                && baseOfficers == lastAppliedBaseNumOfficers) {
+            return;
+        }
+
+        overridesCurrentlyApplied = true;
+        lastAppliedMaxBattleSize = maxBs;
+        lastAppliedMinBattleSize = minBs;
+        lastAppliedMaxShipsInFleet = maxPlayerShips;
+        lastAppliedMaxShipsInAIFleet = maxAiShips;
+        lastAppliedMaxOfficersInAIFleet = maxAiOfficers;
+        lastAppliedBaseNumOfficers = baseOfficers;
+
+        applyRawFleetAndBattleValues(
+                maxBs,
+                maxBs,
+                minBs,
+                maxPlayerShips,
+                maxAiShips,
+                maxAiOfficers,
+                baseOfficers);
+    }
+
+    public static void applyRawFleetAndBattleValues(
+            int activeBattleSize,
+            int maxBattleSize,
+            int minBattleSize,
+            int maxShipsInFleet,
+            int maxShipsInAIFleet,
+            int maxOfficersInAIFleet,
+            int baseNumOfficers) {
+        if (Global.getSettings() == null) return;
+        resolveStarfarerSettingsHandles();
+        try {
+            Global.getSettings().setFloat("minBattleSize", Float.valueOf((float) minBattleSize));
+            Global.getSettings().setFloat("defaultBattleSize", Float.valueOf((float) activeBattleSize));
+            Global.getSettings().setFloat("maxBattleSize", Float.valueOf((float) maxBattleSize));
+            Global.getSettings().setFloat("maxShipsInFleet", Float.valueOf((float) maxShipsInFleet));
+            Global.getSettings().setFloat("maxShipsInAIFleet", Float.valueOf((float) maxShipsInAIFleet));
+            Global.getSettings().setFloat("maxOfficersInAIFleet", Float.valueOf((float) maxOfficersInAIFleet));
+            Global.getSettings().setFloat("baseNumOfficers", Float.valueOf((float) baseNumOfficers));
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (setBattleSizeStaticHandle != null) {
+                setBattleSizeStaticHandle.invokeExact(activeBattleSize);
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (setMaxShipsInFleetStaticHandle != null) {
+                setMaxShipsInFleetStaticHandle.invokeExact((float) maxShipsInFleet);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     /**
      * Drives the "Reinitialize Sector-Wide Division Lists" button inside LunaLib's Mod Settings
      * UI so clicking it once shows an "Are you sure? Click to Confirm" prompt, and clicking a
@@ -497,12 +839,16 @@ public class DivisionAISettings {
      */
     public static void advanceLunaSettingsReinitButton() {
         if (!isLunaLibEnabled()) return;
-        syncAndPersistLunaSettings();
         try {
             List<LunaUIBaseElement> elements = LunaSettingsUISettingsPanel.Companion.getAddedElements();
             if (elements == null || elements.isEmpty()) {
                 trackedReinitButton = null;
                 return;
+            }
+            long nowSyncMs = System.currentTimeMillis();
+            if (nowSyncMs - lastLunaSyncPersistMs >= 100L) {
+                lastLunaSyncPersistMs = nowSyncMs;
+                syncAndPersistLunaSettings();
             }
 
             LunaUIButton foundBtn = null;

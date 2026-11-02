@@ -18,6 +18,7 @@ import com.fs.starfarer.api.ui.PositionAPI;
 import com.fs.starfarer.api.ui.ScrollPanelAPI;
 import com.fs.starfarer.api.ui.TextFieldAPI;
 import com.fs.starfarer.api.ui.TooltipMakerAPI;
+import com.fs.starfarer.api.ui.UIComponentAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.DivisionArchetype;
@@ -29,6 +30,7 @@ import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.LineStation;
+import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import divisionai.PermanentDivisionManager.SquadronFormation;
 import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
@@ -220,6 +222,34 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
+    private static final class OtcPennantTile {
+        final OtcAuthority authority;
+        final CustomPanelAPI hostPanel;
+        final float relX;
+        final float relY;
+        final float width;
+        final float height;
+
+        OtcPennantTile(OtcAuthority authority, CustomPanelAPI hostPanel, float relX, float relY, float width, float height) {
+            this.authority = authority;
+            this.hostPanel = hostPanel;
+            this.relX = relX;
+            this.relY = relY;
+            this.width = width;
+            this.height = height;
+        }
+
+        boolean contains(float screenX, float screenY) {
+            if (hostPanel == null || hostPanel.getPosition() == null) return false;
+            PositionAPI p = hostPanel.getPosition();
+            float bx = p.getX() + relX;
+            float by = p.getY() + relY;
+            return screenX >= bx && screenX <= (bx + width) && screenY >= by && screenY <= (by + height);
+        }
+    }
+
+    private final List<OtcPennantTile> otcPennantTiles = new ArrayList<>();
+
     private void rebuildContent() {
         if (rootModalPanel == null) return;
         if (overviewLeftScroller != null) {
@@ -240,6 +270,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         activeButtons.clear();
         shipIconTiles.clear();
+        otcPennantTiles.clear();
         dropTargetZones.clear();
         pressedTile = null;
         isDraggingShip = false;
@@ -427,7 +458,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET ORGANIZATION", baseColor);
         header.addPara(
-                "Selected: %s  |  Drag / Right-Click: Assign or Unassign  |  Left-Click: Set Flagship",
+                "Selected: %s  |  Drag / Right-Click: Assign or Unassign  |  Left-Click: Set Division Leader",
                 4f,
                 highlight,
                 selectedDivName);
@@ -561,10 +592,17 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         overviewLeftScroller = leftCol.getExternalScroller();
         restoreScrollOffset(leftCol, overviewLeftScroller, bodyHeight, savedOverviewLeftScrollY);
 
-        // 3. Right Column: Unassigned Combat Hulls Pool (DropTargetZone with targetDivisionId == null)
+        // 3. Right Column: OTC Command Style Pennants + Unassigned Combat Hulls Pool (DropTargetZone with targetDivisionId == null)
         TooltipMakerAPI rightCol = container.createUIElement(rightWidth, bodyHeight, true);
+        FleetDoctrineConfig rightDocCfg = PermanentDivisionManager.getFleetDoctrine();
+        rightCol.addSectionHeading("OTC Command Style", baseColor, darkColor, Alignment.MID, 4f);
+        CustomPanelAPI otcPennantPanel = createOtcCommandStylePennantPanel(
+                rightWidth - 16f,
+                rightDocCfg.getOtcAuthority());
+        rightCol.addCustom(otcPennantPanel, 4f);
+
         String poolHeading = "Unassigned Ships (" + unassigned.size() + ")";
-        rightCol.addSectionHeading(poolHeading, baseColor, darkColor, Alignment.MID, 4f);
+        rightCol.addSectionHeading(poolHeading, baseColor, darkColor, Alignment.MID, 6f);
 
         if (unassigned.isEmpty()) {
             rightCol.addPara(
@@ -585,6 +623,85 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         overviewRightScroller = rightCol.getExternalScroller();
         restoreScrollOffset(rightCol, overviewRightScroller, bodyHeight, savedOverviewRightScrollY);
         dropTargetZones.add(new DropTargetZone(null, "Unassigned Fleet Pool", rightCol, null));
+    }
+
+    private CustomPanelAPI createOtcCommandStylePennantPanel(
+            float panelWidth,
+            final OtcAuthority currentAuthority) {
+        final OtcAuthority current = (currentAuthority != null)
+                ? currentAuthority
+                : OtcAuthority.COMMAND_BY_DIRECTION;
+        final OtcAuthority[] allAuths = OtcAuthority.values();
+        final float cardW = 104f;
+        final float cardH = 104f;
+        final float cardGap = 14f;
+        final float totalCardsW = allAuths.length * cardW + (allAuths.length - 1) * cardGap;
+        final float startX = Math.max(8f, Math.round((panelWidth - totalCardsW) * 0.5f));
+        final float panelHeight = 160f;
+        final CustomPanelAPI[] panelRef = new CustomPanelAPI[1];
+
+        BaseCustomUIPanelPlugin plugin = new BaseCustomUIPanelPlugin() {
+            @Override
+            public void renderBelow(float alphaMult) {
+                if (panelRef[0] == null || panelRef[0].getPosition() == null) return;
+                PositionAPI p = panelRef[0].getPosition();
+                float px = p.getX();
+                float py = p.getY();
+                float pw = p.getWidth();
+                float ph = p.getHeight();
+
+                GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+                GL11.glDisable(GL11.GL_TEXTURE_2D);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+                GL11.glColor4f(0.03f, 0.05f, 0.09f, 0.78f * alphaMult);
+                GL11.glBegin(GL11.GL_QUADS);
+                GL11.glVertex2f(px, py);
+                GL11.glVertex2f(px + pw, py);
+                GL11.glVertex2f(px + pw, py + ph);
+                GL11.glVertex2f(px, py + ph);
+                GL11.glEnd();
+                GL11.glLineWidth(1.2f);
+                GL11.glColor4f(0.22f, 0.34f, 0.46f, 0.55f * alphaMult);
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(px, py);
+                GL11.glVertex2f(px + pw, py);
+                GL11.glVertex2f(px + pw, py + ph);
+                GL11.glVertex2f(px, py + ph);
+                GL11.glEnd();
+                GL11.glPopAttrib();
+
+                float cardBottomY = py + ph - 6f - cardH;
+                for (int i = 0; i < allAuths.length; i++) {
+                    OtcAuthority auth = allAuths[i];
+                    float cx = px + startX + i * (cardW + cardGap);
+                    boolean hovered = (mouseX >= cx && mouseX <= cx + cardW
+                            && mouseY >= cardBottomY && mouseY <= cardBottomY + cardH);
+                    FleetDoctrineDialog.renderOtcAuthorityPennantBox(
+                            auth, cx, cardBottomY, cardW, cardH, auth == current, hovered, alphaMult);
+                }
+            }
+        };
+
+        CustomPanelAPI panel = Global.getSettings().createCustom(panelWidth, panelHeight, plugin);
+        panelRef[0] = panel;
+        for (int i = 0; i < allAuths.length; i++) {
+            float relX = startX + i * (cardW + cardGap);
+            float relY = panelHeight - 6f - cardH;
+            otcPennantTiles.add(new OtcPennantTile(allAuths[i], panel, relX, relY, cardW, cardH));
+        }
+
+        LabelAPI headerLbl = Global.getSettings().createLabel(current.dropdownLabel, Fonts.ORBITRON_20AA);
+        headerLbl.setColor(new Color(255, 222, 90, 255));
+        headerLbl.setAlignment(Alignment.MID);
+        panel.addComponent((UIComponentAPI) headerLbl).setSize(panelWidth - 16f, 22f).inTL(8f, 114f);
+
+        LabelAPI descLbl = Global.getSettings().createLabel(current.summary, Fonts.GROUP_NUM_FONT);
+        descLbl.setColor(new Color(195, 220, 240, 245));
+        descLbl.setAlignment(Alignment.MID);
+        panel.addComponent((UIComponentAPI) descLbl).setSize(panelWidth - 16f, 16f).inTL(8f, 138f);
+
+        return panel;
     }
 
     private CustomPanelAPI createDivisionCardPanel(
@@ -741,12 +858,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         String cmdrDesc = truncateText(rawCmdrDesc, 26);
 
         LabelAPI sub1 = topUi.addPara(
-                "%s  |  %s  |  %s  |  %su / %su  |  %s -> %s",
+                "%s  |  %s  |  %su / %su  |  %s -> %s",
                 2f,
                 isSelected ? positive : gray,
                 cmdrDesc,
                 effSpace.displayName,
-                effForm.shortName,
                 String.valueOf(effIntra),
                 String.valueOf(effStandoff),
                 effOpen.shortName,
@@ -1291,7 +1407,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 Alignment.MID,
                 8f);
         leftCol.addPara(
-                "Left-Click: Flagship  |  Right-Click / Drag: Unassign",
+                "Left-Click: Division Leader  |  Right-Click / Drag: Unassign",
                 gray,
                 3f);
 
@@ -1629,8 +1745,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         // Text overlay labels inside the tile (top badge: FLAG/DP, left portrait level, bottom label: hull name)
         TooltipMakerAPI textUi = tilePanel.createUIElement(width, height, false);
-        String topBadge = (isFlagship ? "*FLAG " : "")
-                + String.format(Locale.ROOT, "%.0fDP", member.getDeploymentPointsCost());
+        String topBadge = (isFlagship ? "*LDR " : "")
+                + String.format(Locale.ROOT, "%.0f DP", member.getDeploymentPointsCost());
         LabelAPI topLbl = textUi.addPara(topBadge, isFlagship ? highlight : positive, 0f);
         topLbl.getPosition().inTL(3f, 2f);
 
@@ -2911,6 +3027,16 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
+        if (cmd.startsWith("SET_OTC_AUTH:")) {
+            savePendingNameFieldIfAny();
+            String authName = cmd.substring("SET_OTC_AUTH:".length());
+            OtcAuthority auth = OtcAuthority.fromId(authName, null);
+            if (auth != null) {
+                PermanentDivisionManager.updateOtcAuthority(auth);
+            }
+            rebuildContent();
+            return;
+        }
         if (cmd.startsWith("SET_DOC:") && activeDivisionId != null) {
             savePendingNameFieldIfAny();
             String docName = cmd.substring("SET_DOC:".length());
@@ -3022,7 +3148,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 && hoveredShipTile.sourceDivisionId != null
                 && hoveredShipTile.sourceDivisionId.equals(pressedTile.sourceDivisionId)) {
             actionDesc = hoveredShipTile.isFlagship
-                    ? ("Drop -> Set Flagship (" + m.getHullSpec().getHullName() + ")")
+                    ? ("Drop -> Set Division Leader (" + m.getHullSpec().getHullName() + ")")
                     : ("Drop -> Swap with " + hoveredShipTile.member.getHullSpec().getHullName());
         } else if (hoveredZone != null) {
             actionDesc = (hoveredZone.targetDivisionId == null)
@@ -3097,6 +3223,19 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             if (event.isLMBDownEvent()) {
                 float ex = event.getX();
                 float ey = event.getY();
+                if (activeDivisionId == null) {
+                    for (OtcPennantTile pTile : otcPennantTiles) {
+                        if (pTile != null && pTile.contains(ex, ey)) {
+                            event.consume();
+                            try {
+                                Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
+                            } catch (Throwable ignored) {
+                            }
+                            handleAction("SET_OTC_AUTH:" + pTile.authority.name());
+                            return;
+                        }
+                    }
+                }
                 ShipIconTile lmbTile = findShipTileAt(ex, ey);
                 if (lmbTile != null && lmbTile.member != null) {
                     pressedTile = lmbTile;

@@ -6,7 +6,10 @@ logo/
 Flavor Study/
 reference_icons/
 logs/
+*.log
 tools/
 *.class
-.DS_Store
+.*
+!.gitignore
+*.iml
 Thumbs.db

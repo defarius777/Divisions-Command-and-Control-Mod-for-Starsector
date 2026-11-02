@@ -155,10 +155,50 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         BattlefieldFirepowerEvaluator.processInputEvents(engine, events);
     }
 
+    public static final float BATTLE_SCREEN_TSFC_OPACITY_MULT = 0.22f;
+
     @Override
     public void renderInUICoords(ViewportAPI viewport) {
-        // Tactical Map & Firepower Overlay render strictly inside the Command View Window (Tab)
-        // via DivisionTacticalMapOverlay attached to CombatState's warroom.
+        // Render TSFC (Time, Space, Firepower, Convergence) in the live Battle Screen (outside the Warroom)
+        // at vastly reduced opacity so a player manually piloting their ship can still read TSFC geometry.
+        renderBattleScreenTsfcOverlay(viewport);
+    }
+
+    public void renderBattleScreenTsfcOverlay(ViewportAPI viewport) {
+        if (engine == null || !initializedBattle || engine.isCombatOver() || viewport == null) {
+            return;
+        }
+        if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) {
+            return;
+        }
+        if (!BattlefieldFirepowerEvaluator.isTimeOverlayVisible()
+                && !BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
+                && !BattlefieldFirepowerEvaluator.isOverlayVisible()
+                && !BattlefieldFirepowerEvaluator.isConvergenceOverlayVisible()) {
+            return;
+        }
+        com.fs.starfarer.api.combat.CombatUIAPI ui = engine.getCombatUI();
+        if (ui != null && ui.isShowingDeploymentDialog()) {
+            return;
+        }
+        float cmdOpacity = (ui != null && ui.isShowingCommandUI()) ? ui.getCommandUIOpacity() : 0f;
+        if (cmdOpacity >= 0.95f) {
+            return;
+        }
+        float battleFade = BATTLE_SCREEN_TSFC_OPACITY_MULT * Math.max(0f, 1f - cmdOpacity);
+        if (battleFade <= 0.04f) {
+            return;
+        }
+        float offsetX = viewport.convertWorldXtoScreenX(0f);
+        float offsetY = viewport.convertWorldYtoScreenY(0f);
+        float scale = (viewport.convertWorldXtoScreenX(1000f) - offsetX) / 1000f;
+        if (scale <= 1e-5f) {
+            return;
+        }
+        BattlefieldFirepowerEvaluator.renderTimeSpaceAndConvergenceScreenSpace(
+                engine, scale, offsetX, offsetY, battleFade, playerGroup, alliedAiGroup, enemyGroup);
+        BattlefieldFirepowerEvaluator.renderFirepowerRosesScreenSpace(
+                engine, scale, offsetX, offsetY, battleFade, playerGroup, alliedAiGroup, enemyGroup);
     }
 
     @Override
@@ -200,6 +240,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
             playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
             playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
+            playerGroup.orchestratedAdvance = doctrine.isOrchestratedAdvance();
             playerGroup.plays.clear();
             playerGroup.plays.addAll(doctrine.getEnabledPlays());
 
@@ -209,8 +250,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
             initializedBattle = true;
-            LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, plays=%s",
-                    playerGroup.authority.shortName, playerGroup.plays));
+            if (DivisionAISettings.isDebugLoggingEnabled()) {
+                LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, plays=%s",
+                        playerGroup.authority.shortName, playerGroup.plays));
+            }
         }
 
         if (deploymentOrganizer == null) {
@@ -222,9 +265,12 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         if (initializedBattle) {
             tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
-            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, playerGroup);
-            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, alliedAiGroup);
-            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, enemyGroup);
+            if (!engine.isPaused()
+                    || (playerGroup != null && playerGroup.activeFleetFlagship == null && !playerGroup.divisions.isEmpty())) {
+                BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, playerGroup);
+                BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, alliedAiGroup);
+                BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, enemyGroup);
+            }
         }
 
         if (engine.isCombatOver()) {
@@ -244,8 +290,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         float now = engine.getTotalElapsedTime(false);
 
         // Flagship-loss command disruption (120s for fleet commander, 30s for lower-rank / no-rank)
-        DivisionOtcCommandManager.updateFlagshipLossCommandDisruption(
-                engine, playerGroup, alliedAiGroup, enemyGroup, now);
+        if (!engine.isPaused() || DivisionOtcCommandManager.isEmergencyModalAutoOpenRequested()) {
+            DivisionOtcCommandManager.updateFlagshipLossCommandDisruption(
+                    engine, playerGroup, alliedAiGroup, enemyGroup, now);
+            if (DivisionOtcCommandManager.isEmergencyModalAutoOpenRequested() && deploymentOrganizer != null) {
+                deploymentOrganizer.advance(engine);
+            }
+        }
 
         // Immediately intercept newly deployed ship waves on their first frame (even while paused right after closing
         // the deployment dialog) so they form divisions and zoom into battle in formation immediately
@@ -316,33 +367,39 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             if (playerHasDivisions && !loggedPlayerOtcInit) {
                 loggedPlayerOtcInit = true;
-                LOG.info(String.format(
-                        "[DivisionAI] Player Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], Convergence=%b, ActiveDivs=%d)",
-                        playerGroup.missionContext.displayName,
-                        playerGroup.otc.commanderName,
-                        playerGroup.otc.personalityId,
-                        playerGroup.useConvergence,
-                        playerGroup.divisions.size()));
+                if (DivisionAISettings.isDebugLoggingEnabled()) {
+                    LOG.info(String.format(
+                            "[DivisionAI] Player Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], Convergence=%b, ActiveDivs=%d)",
+                            playerGroup.missionContext.displayName,
+                            playerGroup.otc.commanderName,
+                            playerGroup.otc.personalityId,
+                            playerGroup.useConvergence,
+                            playerGroup.divisions.size()));
+                }
             }
             if (alliedAiHasDivisions && !loggedAlliedAiOtcInit) {
                 loggedAlliedAiOtcInit = true;
-                LOG.info(String.format(
-                        "[DivisionAI] Allied AI Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], Convergence=%b, ActiveDivs=%d)",
-                        alliedAiGroup.missionContext.displayName,
-                        alliedAiGroup.otc.commanderName,
-                        alliedAiGroup.otc.personalityId,
-                        alliedAiGroup.useConvergence,
-                        alliedAiGroup.divisions.size()));
+                if (DivisionAISettings.isDebugLoggingEnabled()) {
+                    LOG.info(String.format(
+                            "[DivisionAI] Allied AI Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], Convergence=%b, ActiveDivs=%d)",
+                            alliedAiGroup.missionContext.displayName,
+                            alliedAiGroup.otc.commanderName,
+                            alliedAiGroup.otc.personalityId,
+                            alliedAiGroup.useConvergence,
+                            alliedAiGroup.divisions.size()));
+                }
             }
             if (enemyHasDivisions && !loggedEnemyOtcInit) {
                 loggedEnemyOtcInit = true;
-                LOG.info(String.format(
-                        "[DivisionAI] Enemy Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], Convergence=%b, ActiveDivs=%d)",
-                        enemyGroup.missionContext.displayName,
-                        enemyGroup.otc.commanderName,
-                        enemyGroup.otc.personalityId,
-                        enemyGroup.useConvergence,
-                        enemyGroup.divisions.size()));
+                if (DivisionAISettings.isDebugLoggingEnabled()) {
+                    LOG.info(String.format(
+                            "[DivisionAI] Enemy Battle Group Commander (OTC) initialized (Mission=%s, Cmdr=%s [%s], Convergence=%b, ActiveDivs=%d)",
+                            enemyGroup.missionContext.displayName,
+                            enemyGroup.otc.commanderName,
+                            enemyGroup.otc.personalityId,
+                            enemyGroup.useConvergence,
+                            enemyGroup.divisions.size()));
+                }
             }
 
             for (DivisionState d : newPlayerDivs) {
@@ -390,13 +447,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             boolean anyNewDivs = !newPlayerDivs.isEmpty() || !newAlliedAiDivs.isEmpty() || !newEnemyDivs.isEmpty();
             if (otcTimer >= OTC_EVAL_INTERVAL || anyNewDivs) {
                 otcTimer = 0f;
-                if (playerHasDivisions && !side1OpposingView.divisions.isEmpty()) {
+                if (playerHasDivisions) {
                     OtcAI.evaluateOtcStrategy(engine, playerGroup, side1OpposingView, now);
                 }
-                if (alliedAiHasDivisions && !side1OpposingView.divisions.isEmpty()) {
+                if (alliedAiHasDivisions) {
                     OtcAI.evaluateOtcStrategy(engine, alliedAiGroup, side1OpposingView, now);
                 }
-                if (enemyHasDivisions && !side0OpposingView.divisions.isEmpty()) {
+                if (enemyHasDivisions && !enemyGroup.isPassiveOpposingView) {
                     OtcAI.evaluateOtcStrategy(engine, enemyGroup, side0OpposingView, now);
                 }
             }
@@ -551,6 +608,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
                 playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
                 playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
+                playerGroup.orchestratedAdvance = doctrine.isOrchestratedAdvance();
             }
             List<DivisionState> formed = DivisionAutoFormer.syncPlayerPermanentDivisionsOnly(engine, playerGroup, playerHulls);
             for (DivisionState d : formed) {
@@ -558,8 +616,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
             if (!playerGroup.divisions.isEmpty()) {
                 OtcAI.updateTelemetry(engine, playerGroup);
+                OtcAI.synchronizeGrandFormationConsent(engine, playerGroup, enemyGroup, now);
                 OtcAI.hijackNewlyDeployedWaveIntoFormation(engine, playerGroup, enemyGroup, newPlayerWave, now);
                 OtcAI.updateTelemetry(engine, playerGroup);
+                otcTimer = OTC_EVAL_INTERVAL;
             } else {
                 // Divisions were just synced; ships with no division stay on vanilla AI
                 for (ShipAPI s : newPlayerWave) {
@@ -578,8 +638,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
             if (!alliedAiGroup.divisions.isEmpty()) {
                 OtcAI.updateTelemetry(engine, alliedAiGroup);
+                OtcAI.synchronizeGrandFormationConsent(engine, alliedAiGroup, enemyGroup, now);
                 OtcAI.hijackNewlyDeployedWaveIntoFormation(engine, alliedAiGroup, enemyGroup, newAlliedWave, now);
                 OtcAI.updateTelemetry(engine, alliedAiGroup);
+                otcTimer = OTC_EVAL_INTERVAL;
             } else {
                 // Divisions were just synced; ships with no division stay on vanilla AI
                 for (ShipAPI s : newAlliedWave) {
@@ -595,8 +657,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
             if (!enemyGroup.divisions.isEmpty()) {
                 OtcAI.updateTelemetry(engine, enemyGroup);
+                OtcAI.synchronizeGrandFormationConsent(engine, enemyGroup, playerGroup, now);
                 OtcAI.hijackNewlyDeployedWaveIntoFormation(engine, enemyGroup, playerGroup, newEnemyWave, now);
                 OtcAI.updateTelemetry(engine, enemyGroup);
+                otcTimer = OTC_EVAL_INTERVAL;
             } else {
                 // Divisions were just synced; ships with no division stay on vanilla AI
                 for (ShipAPI s : newEnemyWave) {
@@ -615,8 +679,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private BattleGroupState buildSide0OpposingViewForEnemy(List<ShipAPI> playerHulls) {
         if (side0OpposingView == null) {
             side0OpposingView = new BattleGroupState(0, playerGroup.otc);
+            side0OpposingView.isPassiveOpposingView = true;
         }
         BattleGroupState view = side0OpposingView;
+        view.isPassiveOpposingView = true;
         view.otc = playerGroup.otc;
         view.missionContext = playerGroup.missionContext;
         view.divisions.clear();
@@ -656,8 +722,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private BattleGroupState buildSide1OpposingViewForPlayer(List<ShipAPI> enemyHulls) {
         if (side1OpposingView == null) {
             side1OpposingView = new BattleGroupState(1, enemyGroup.otc);
+            side1OpposingView.isPassiveOpposingView = true;
         }
         BattleGroupState view = side1OpposingView;
+        view.isPassiveOpposingView = true;
         view.otc = enemyGroup.otc;
         view.missionContext = enemyGroup.missionContext;
         view.divisions.clear();
@@ -850,9 +918,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     duration,
                     pDivs, pAuth, pConv, pForm, pDeployedDp, pDestroyedDp, pRetreatedDp,
                     eFaction, eDivs, eDeployedDp, eDestroyedDp, eRetreatedDp);
-            LOG.info(line);
-            if (DivisionCombatLog.simLogSink != null) {
-                DivisionCombatLog.simLogSink.add(line);
+            if (DivisionAISettings.isDebugLoggingEnabled()) {
+                LOG.info(line);
+                if (DivisionCombatLog.simLogSink != null) {
+                    DivisionCombatLog.simLogSink.add(line);
+                }
             }
         } catch (Throwable t) {
             LOG.warn("[DivisionAI] Failed to emit battle summary: " + t);

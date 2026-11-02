@@ -119,19 +119,19 @@ public class PermanentDivisionManager {
                 "Ahead",
                 "icon_formation_line_ahead",
                 "graphics/icons/formations/icon_formation_line_ahead.png",
-                "Single-file column following the flagship."),
+                "Single-file column following the division leader."),
         FORWARD_WEDGE(
                 "Forward Wedge",
                 "F. Wedge",
                 "icon_formation_forward_wedge",
                 "graphics/icons/formations/icon_formation_forward_wedge.png",
-                "Flagship leads at apex; wingmen stepped back."),
+                "Division leader at apex; wingmen stepped back."),
         REVERSE_WEDGE(
                 "Reverse Wedge",
                 "R. Wedge",
                 "icon_formation_reverse_wedge",
                 "graphics/icons/formations/icon_formation_reverse_wedge.png",
-                "Wingmen forward on shoulders; flagship at rear."),
+                "Wingmen forward on shoulders; division leader at rear."),
         ECHELON_LEFT(
                 "Echelon Left",
                 "Ech. L",
@@ -313,8 +313,8 @@ public class PermanentDivisionManager {
                 DivisionFormation.LINE_ABREAST,
                 "Advances as a locked Line Abreast wall to gun/missile range, unleashes a synchronized volley, and recoils."),
         HORNS_OF_THE_BULL(
-                "Semicircle Enveloping Horns",
-                "Horns",
+                "Semicircle Envelopment",
+                "Crescent",
                 DivisionFormation.FORWARD_SEMICIRCLE,
                 "Sweeps forward in a Forward Semicircle crescent to pocket the target inside a multi-angle crossfire."),
         ECHELON_STRIKE(
@@ -357,19 +357,19 @@ public class PermanentDivisionManager {
         AUTO_DOCTRINAL(
                 "Auto (Tactical)",
                 "Auto",
-                "OTC picks a multi-division setpiece to suit the situation, or none."),
+                "Officer in Tactical Command picks a multi-division setpiece to suit the situation, or none."),
         NONE(
                 "None (Standard)",
                 "Std",
-                "Standard OTC orchestration without multi-division setpieces."),
+                "Standard Officer in Tactical Command orchestration without multi-division setpieces."),
         HAMMER_AND_ANVIL(
                 "Hammer & Anvil",
                 "H&A",
                 "Anvil division fixes enemy front in Line Abreast while Hammer division drives a Wedge Lance Charge into their flank."),
         CANNAAE_DOUBLE_ENVELOPMENT(
-                "Double Envelopment (Cannae)",
-                "Cannae",
-                "Center fixes in Reverse Semicircle while Port and Starboard wings pinch both flanks in Echelon/Horns."),
+                "Double Envelopment",
+                "Double Env.",
+                "Center fixes in Reverse Semicircle while Port and Starboard wings pinch both flanks in Echelon and Semicircle."),
         CROSSING_THE_T_COLUMN(
                 "Grand Column Crossing the T",
                 "Cross-T",
@@ -409,10 +409,10 @@ public class PermanentDivisionManager {
      */
     public enum FleetWideFormation {
         DOCTRINAL_AUTO(
-                "Auto (Tactical Line)",
+                "Auto",
                 "Auto",
                 DivisionFormation.LINE_ABREAST,
-                "Divisions station by Van / Center / Rear doctrine and the battlefield geometry."),
+                "Officer in Tactical Command selects the fleet formation dynamically based on doctrine and the battlefield."),
         GRAND_LINE_ABREAST(
                 "Grand Line Abreast",
                 "G. Line",
@@ -428,16 +428,31 @@ public class PermanentDivisionManager {
                 "G. Wedge",
                 DivisionFormation.FORWARD_WEDGE,
                 "Main Effort division forms the forward apex with wing divisions stepped back on port and starboard quarters."),
+        REVERSE_WEDGE(
+                "Grand Reverse Wedge",
+                "R. Wedge",
+                DivisionFormation.REVERSE_WEDGE,
+                "Center division holds back at the pocket apex while wing divisions advance on both flanks to form a V-funnel."),
         REFUSED_FLANK_OBLIQUE(
-                "Refused Flank (Oblique)",
-                "Oblique",
+                "Refused Flank (Right)",
+                "Refused R",
                 DivisionFormation.ECHELON_RIGHT,
-                "Concentrates heavy and strike divisions on one reinforced wing in echelon while the refused wing holds standoff."),
+                "Concentrates heavy and strike divisions forward on the starboard wing in echelon while the port wing holds standoff."),
+        REFUSED_FLANK_LEFT(
+                "Refused Flank (Left)",
+                "Refused L",
+                DivisionFormation.ECHELON_LEFT,
+                "Concentrates heavy and strike divisions forward on the port wing in echelon while the starboard wing holds standoff."),
         CRESCENT_HORNS(
-                "Grand Crescent (Horns)",
+                "Grand Crescent",
                 "Crescent",
                 DivisionFormation.FORWARD_SEMICIRCLE,
-                "Center division holds back while port and starboard wing divisions advance forward as enveloping horns."),
+                "Center division holds back while port and starboard wing divisions curve forward to envelop both flanks."),
+        REVERSE_CRESCENT(
+                "Reverse Crescent",
+                "R. Crescent",
+                DivisionFormation.REVERSE_SEMICIRCLE,
+                "Center division bows forward in a convex arc while port and starboard wing divisions curve back to refuse both flanks."),
         CHECKERBOARD_QUINCUNX(
                 "Checkerboard (Quincunx)",
                 "Quincunx",
@@ -447,7 +462,12 @@ public class PermanentDivisionManager {
                 "Fleet Protective Bastion",
                 "Bastion",
                 DivisionFormation.PROTECTIVE_CIRCLE,
-                "Carriers and support divisions in the protected core ringed by frontline combat divisions around the perimeter.");
+                "Carriers and support divisions in the protected core ringed by frontline combat divisions around the perimeter."),
+        NONE(
+                "None (Independent)",
+                "None",
+                DivisionFormation.NONE,
+                "No fleet-wide formation; each division maneuvers independently along its own mission vector.");
 
         public final String displayName;
         public final String shortName;
@@ -676,7 +696,7 @@ public class PermanentDivisionManager {
         RESERVE(
                 "Reserve",
                 "Reserve",
-                "Hold astern until committed by the OTC.",
+                "Hold astern until committed by the Officer in Tactical Command.",
                 false,
                 LineStation.REAR),
 
@@ -1187,31 +1207,45 @@ public class PermanentDivisionManager {
      * configured Opening/Main Mission when it orchestrates the battle (selectable in the Fleet Doctrine window).
      */
     public enum OtcAuthority {
-        COMMAND_BY_DIRECTION(
-                "Command by Direction",
-                "Command by Direction",
-                "Assigns targets, stations, and flanks; commits reserves."),
         POSITIVE_CONTROL(
                 "Positive Control",
                 "Positive Control",
-                "OTC orders directly override division missions."),
+                "Officer in Tactical Command orders directly override division missions.",
+                "otc_positive_control"),
+        COMMAND_BY_DIRECTION(
+                "Command by Direction",
+                "Command by Direction",
+                "Assigns targets, stations, and flanks; commits reserves.",
+                "otc_command_by_direction"),
         COMMAND_BY_NEGATION(
                 "Command by Negation",
                 "Command by Negation",
-                "Sets focus targets; divisions act on local initiative."),
+                "Sets focus targets; divisions act on local initiative.",
+                "otc_command_by_negation"),
         FIRE_DISTRIBUTION_ONLY(
                 "Fire Distribution Only",
                 "Fire Distribution Only",
-                "Assigns targets and strikes without moving divisions.");
+                "Assigns targets and strikes without moving divisions.",
+                "otc_fire_distribution_only");
 
         public final String dropdownLabel;
         public final String shortName;
         public final String summary;
+        public final String iconKey;
 
-        OtcAuthority(String dropdownLabel, String shortName, String summary) {
+        OtcAuthority(String dropdownLabel, String shortName, String summary, String iconKey) {
             this.dropdownLabel = dropdownLabel;
             this.shortName = shortName;
             this.summary = summary;
+            this.iconKey = iconKey;
+        }
+
+        public String getSettingsIconKey() {
+            return iconKey;
+        }
+
+        public String getSpritePath() {
+            return "graphics/icons/otc_emblems/" + iconKey + ".png";
         }
 
         /** Whether the OTC may position divisions (anchors, flank sides) rather than only pick their targets. */
@@ -1340,6 +1374,7 @@ public class PermanentDivisionManager {
         private FleetWideFormation fleetWideFormation = FleetWideFormation.DOCTRINAL_AUTO;
         private MultiDivisionSetpiece multiDivisionSetpiece = MultiDivisionSetpiece.AUTO_DOCTRINAL;
         private boolean deployInFleetFormation = true;
+        private boolean orchestratedAdvance = true;
         private int openingDurationSeconds = 45;
 
         public FleetDoctrineConfig() {
@@ -1453,11 +1488,19 @@ public class PermanentDivisionManager {
         }
 
         public boolean isDeployInFleetFormation() {
-            return deployInFleetFormation;
+            return deployInFleetFormation && getFleetWideFormation() != FleetWideFormation.NONE;
         }
 
         public void setDeployInFleetFormation(boolean deployInFleetFormation) {
             this.deployInFleetFormation = deployInFleetFormation;
+        }
+
+        public boolean isOrchestratedAdvance() {
+            return orchestratedAdvance;
+        }
+
+        public void setOrchestratedAdvance(boolean orchestratedAdvance) {
+            this.orchestratedAdvance = orchestratedAdvance;
         }
 
         public static DivisionSetpieceAttack defaultSetpieceAttackFor(DoctrineDivisionType dt) {
@@ -1850,6 +1893,10 @@ public class PermanentDivisionManager {
             if (depFmObj instanceof Boolean) {
                 cfg.setDeployInFleetFormation((Boolean) depFmObj);
             }
+            Object orchAdvObj = map.get("bg_orchestrated_advance");
+            if (orchAdvObj instanceof Boolean) {
+                cfg.setOrchestratedAdvance((Boolean) orchAdvObj);
+            }
             for (OtcPlay play : OtcPlay.values()) {
                 Object playObj = getWithLegacyKey(map, "bg_play_", play.name(), play.legacyName());
                 if (playObj instanceof Boolean) {
@@ -1976,6 +2023,7 @@ public class PermanentDivisionManager {
         serialized.put("bg_fleet_formation", cfg.getFleetWideFormation().name());
         serialized.put("bg_multi_setpiece", cfg.getMultiDivisionSetpiece().name());
         serialized.put("bg_deploy_in_formation", cfg.isDeployInFleetFormation());
+        serialized.put("bg_orchestrated_advance", cfg.isOrchestratedAdvance());
         for (OtcPlay play : OtcPlay.values()) {
             serialized.put("bg_play_" + play.name(), cfg.isPlayEnabled(play));
         }
@@ -2019,6 +2067,25 @@ public class PermanentDivisionManager {
         SectorAPI sector = Global.getSector();
         if (sector == null || cfg == null) return;
         sector.getPersistentData().put(PERSISTENT_DOCTRINE_KEY, serializeDoctrineConfig(cfg));
+    }
+
+    /**
+     * One-time migration for saves created when GRAND_LINE_ABREAST was at ordinal 0 of FleetWideFormation,
+     * ensuring the player's default fleet formation starts on DOCTRINAL_AUTO ("Auto").
+     */
+    public static void migrateFleetWideFormationDefaultToAuto() {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || sector.getPersistentData() == null) return;
+        String migKey = "divisionai_migrated_fleet_formation_auto_v1";
+        if (Boolean.TRUE.equals(sector.getPersistentData().get(migKey))) {
+            return;
+        }
+        sector.getPersistentData().put(migKey, Boolean.TRUE);
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        if (cfg != null && cfg.getFleetWideFormation() == FleetWideFormation.GRAND_LINE_ABREAST) {
+            cfg.setFleetWideFormation(FleetWideFormation.DOCTRINAL_AUTO);
+            saveFleetDoctrine(cfg);
+        }
     }
 
     public static void updateFleetDoctrineLimit(DoctrineHullCategory cat, boolean isMin, int newValue) {
@@ -2199,6 +2266,12 @@ public class PermanentDivisionManager {
     public static void updateDeployInFleetFormation(boolean enabled) {
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setDeployInFleetFormation(enabled);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateOrchestratedAdvance(boolean enabled) {
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setOrchestratedAdvance(enabled);
         saveFleetDoctrine(cfg);
     }
 

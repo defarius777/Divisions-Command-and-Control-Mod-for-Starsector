@@ -76,7 +76,9 @@ public class DivisionAutoFormer {
                 commander = fm.getDefaultCommander();
             }
         }
-        String fallback = (side == 0) ? "Player OTC" : "OpFor OTC";
+        String fallback = (side == 0)
+                ? DivisionNomenclature.resolveOtcCommanderTitle(null, true, false, null)
+                : "Hostile Command";
         return new CommanderProfile(commander, fallback);
     }
 
@@ -102,7 +104,7 @@ public class DivisionAutoFormer {
                 commander = fm.getDefaultCommander();
             }
         }
-        return new CommanderProfile(commander, "Allied OTC");
+        return new CommanderProfile(commander, "Allied Command");
     }
 
     /**
@@ -197,6 +199,7 @@ public class DivisionAutoFormer {
             battleGroup.fleetWideFormation = fDoc.getFleetWideFormation();
             battleGroup.multiDivisionSetpieceDoctrine = fDoc.getMultiDivisionSetpiece();
             battleGroup.deployInFleetFormation = fDoc.isDeployInFleetFormation();
+            battleGroup.orchestratedAdvance = fDoc.isOrchestratedAdvance();
             battleGroup.plays.clear();
             battleGroup.plays.addAll(fDoc.getEnabledPlays());
         }

@@ -1,0 +1,11 @@
+{
+    "masterVersionFile": "https://raw.githubusercontent.com/defarius777/Divisions-Command-and-Control-Mod-for-Starsector/main/mod/division_ai.version",
+    "modName": "Divisions: Command and Control",
+    "modVersion": {
+        "major": 1,
+        "minor": 0,
+        "patch": 0
+    },
+    "starsectorVersion": "0.98a-RC8",
+    "directDownloadURL": "https://github.com/defarius777/Divisions-Command-and-Control-Mod-for-Starsector/releases/latest/download/DivisionAI.zip"
+}
