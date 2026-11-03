@@ -164,6 +164,9 @@ public final class FleetCommandPanel {
         DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(phaseLabel);
 
         BaseCustomUIPanelPlugin fcPlugin = new BaseCustomUIPanelPlugin() {
+            private String lastOtcLayoutKey = null;
+            private String lastSelectorLayoutKey = null;
+
             private void refreshOtcDisplay() {
                 FleetMemberAPI fm = organizer.resolvePlayerFlagshipMember(fdd, preBattle, deployedMembers, reserveMembers);
                 currentFlagshipRef[0] = fm;
@@ -226,6 +229,30 @@ public final class FleetCommandPanel {
                 portraitSpritePathRef[0] = candidatePortrait;
 
                 boolean otcDeployedOrSelected = organizer.isOtcMemberSelectedOrDeployed(engine, fdd, fm, deployedMembers);
+                PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+                float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
+                boolean disabledByAlpha = DivisionOtcCommandManager.isPlayerOtcLockedByAlphaCoreInBattle(
+                        engine, fm, playerGroup, preBattle);
+                boolean emergency = DivisionOtcCommandManager.isEmergencyPlayerOtcSelectionPending(playerGroup);
+                boolean disabledByDisruption = !preBattle && !emergency
+                        && playerGroup != null && DivisionOtcCommandManager.isOtcDisabled(playerGroup, now);
+                int disruptRemSec = (playerGroup != null && DivisionOtcCommandManager.isOtcDisabled(playerGroup, now))
+                        ? Math.round(DivisionOtcCommandManager.getOtcDisabledSecondsRemaining(playerGroup, now))
+                        : -1;
+                String layoutKey = (fm != null ? fm.getId() : "null")
+                        + "|" + alpha
+                        + "|" + otcDeployedOrSelected
+                        + "|" + commanderName
+                        + "|" + flagshipName
+                        + "|" + hullClassName
+                        + "|" + doc.getOtcAuthority().name()
+                        + "|" + disabledByAlpha
+                        + "|" + disabledByDisruption
+                        + "|" + disruptRemSec;
+                if (layoutKey.equals(lastOtcLayoutKey)) {
+                    return;
+                }
+                lastOtcLayoutKey = layoutKey;
                 if (!otcDeployedOrSelected) {
                     headerBannerLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
                             "FLEET COMMAND - OTC NOT DEPLOYED", headerBannerLabel, Math.max(180f, leftSectionW - 20f)));
@@ -309,7 +336,6 @@ public final class FleetCommandPanel {
                     }
                 }
 
-                PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
                 String personality;
                 if (alpha) {
                     personality = "Alpha Core";
@@ -332,7 +358,6 @@ public final class FleetCommandPanel {
                 String flagshipLine = alpha
                         ? hullClassName
                         : String.format(Locale.ROOT, "%s (%s)", flagshipName, hullClassName);
-                float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
                 String profileLine;
                 if (!otcDeployedOrSelected) {
                     profileLine = "Not Deployed: -75% Max CP, -50% Regen";
@@ -381,11 +406,6 @@ public final class FleetCommandPanel {
                 ButtonAPI changeBtn = changeOtcButtonRef[0];
                 if (changeBtn != null) {
                     changeBtn.getPosition().setSize(portraitWRef[0], 18f).inTL(portraitX, portraitTopY + portraitH + 5f);
-                    boolean disabledByAlpha = DivisionOtcCommandManager.isPlayerOtcLockedByAlphaCoreInBattle(
-                            engine, fm, playerGroup, preBattle);
-                    boolean emergency = DivisionOtcCommandManager.isEmergencyPlayerOtcSelectionPending(playerGroup);
-                    boolean disabledByDisruption = !preBattle && !emergency
-                            && playerGroup != null && DivisionOtcCommandManager.isOtcDisabled(playerGroup, now);
                     changeBtn.setEnabled(!disabledByAlpha && !disabledByDisruption);
                 }
             }
@@ -399,6 +419,11 @@ public final class FleetCommandPanel {
                     if (playerGroup != null) {
                         playerGroup.authority = auth;
                     }
+                    String selKey = "PRE|" + auth.name() + "|" + fw.name() + "|" + doc.isOrchestratedAdvance();
+                    if (selKey.equals(lastSelectorLayoutKey)) {
+                        return;
+                    }
+                    lastSelectorLayoutKey = selKey;
                     cmdStyleNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
                             auth.dropdownLabel, cmdStyleNameLabel, cmdColW - 64f));
                 } else {
@@ -407,6 +432,11 @@ public final class FleetCommandPanel {
                             && playerGroup.activeFleetWideFormation != PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO)
                             ? playerGroup.activeFleetWideFormation
                             : doc.getFleetWideFormation();
+                    String selKey = "LIVE|" + fw.name();
+                    if (selKey.equals(lastSelectorLayoutKey)) {
+                        return;
+                    }
+                    lastSelectorLayoutKey = selKey;
                 }
                 formationNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
                         fw.displayName, formationNameLabel,

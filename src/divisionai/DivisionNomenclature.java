@@ -362,6 +362,9 @@ public final class DivisionNomenclature {
     private DivisionNomenclature() {
     }
 
+    private static Object cachedPlayerNamingRawRef = null;
+    private static PlayerNamingConfig cachedPlayerNamingConfig = null;
+
     @SuppressWarnings("unchecked")
     public static PlayerNamingConfig getPlayerNamingConfig() {
         SectorAPI sector = Global.getSector();
@@ -371,19 +374,29 @@ public final class DivisionNomenclature {
         Map<String, Object> data = sector.getPersistentData();
         Object raw = data.get(PERSISTENT_PLAYER_NAMING_KEY);
         if (raw instanceof Map) {
-            return PlayerNamingConfig.fromPlainMap((Map<String, Object>) raw);
+            if (raw == cachedPlayerNamingRawRef && cachedPlayerNamingConfig != null) {
+                return cachedPlayerNamingConfig;
+            }
+            PlayerNamingConfig cfg = PlayerNamingConfig.fromPlainMap((Map<String, Object>) raw);
+            cachedPlayerNamingRawRef = raw;
+            cachedPlayerNamingConfig = cfg;
+            return cfg;
         }
         if (raw instanceof PlayerNamingConfig) {
             PlayerNamingConfig legacy = (PlayerNamingConfig) raw;
             Map<String, Object> plain = legacy.toPlainMap();
             data.put(PERSISTENT_PLAYER_NAMING_KEY, plain);
             legacy.backingMap = plain;
+            cachedPlayerNamingRawRef = plain;
+            cachedPlayerNamingConfig = legacy;
             return legacy;
         }
         PlayerNamingConfig fresh = new PlayerNamingConfig();
         Map<String, Object> plain = fresh.toPlainMap();
         fresh.backingMap = plain;
         data.put(PERSISTENT_PLAYER_NAMING_KEY, plain);
+        cachedPlayerNamingRawRef = plain;
+        cachedPlayerNamingConfig = fresh;
         return fresh;
     }
 

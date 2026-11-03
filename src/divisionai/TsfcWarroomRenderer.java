@@ -388,12 +388,9 @@ public class TsfcWarroomRenderer {
         boolean staleTime = engine != BattlefieldFirepowerEvaluator.lastTimeSpaceConvEngine
                 || divCountSig != BattlefieldFirepowerEvaluator.lastTimeSpaceConvDivCountSig
                 || Math.abs(now - BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime) >= 0.24f;
-        if (staleTime
-                || hasAnyUninitializedDivisionTimeSpace(engine, playerGroup)
-                || hasAnyUninitializedDivisionTimeSpace(engine, alliedAiGroup)
-                || hasAnyUninitializedDivisionTimeSpace(engine, enemyGroup)) {
+        if (staleTime) {
             if (playerGroup != null) {
-                for (DivisionState d : playerGroup.divisions) {
+                for (DivisionState d : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, playerGroup)) {
                     if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
                         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(d);
                     }
@@ -401,7 +398,7 @@ public class TsfcWarroomRenderer {
                 BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, playerGroup, enemyGroup);
             }
             if (alliedAiGroup != null) {
-                for (DivisionState d : alliedAiGroup.divisions) {
+                for (DivisionState d : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, alliedAiGroup)) {
                     if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
                         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(d);
                     }
@@ -409,7 +406,7 @@ public class TsfcWarroomRenderer {
                 BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, enemyGroup);
             }
             if (enemyGroup != null) {
-                for (DivisionState e : enemyGroup.divisions) {
+                for (DivisionState e : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, enemyGroup)) {
                     if (e.isCombatEffective() && e.freeTimeRadius <= 1f) {
                         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(e);
                     }

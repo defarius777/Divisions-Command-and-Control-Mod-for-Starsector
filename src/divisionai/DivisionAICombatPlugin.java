@@ -57,6 +57,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private float divisionTimer = 0f;
     private float otcTimer = 0f;
     private boolean initializedBattle = false;
+    private int lastConvStateSyncShipsCount = -1;
     private boolean loggedPlayerOtcInit = false;
     private boolean loggedAlliedAiOtcInit = false;
     private boolean loggedEnemyOtcInit = false;
@@ -69,6 +70,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     public void init(CombatEngineAPI engine) {
         this.engine = engine;
         this.initializedBattle = false;
+        this.lastConvStateSyncShipsCount = -1;
         this.loggedPlayerOtcInit = false;
         this.loggedAlliedAiOtcInit = false;
         this.loggedEnemyOtcInit = false;
@@ -267,8 +269,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         if (initializedBattle) {
             tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
-            if (!engine.isPaused()
-                    || (playerGroup != null && playerGroup.activeFleetFlagship == null && !playerGroup.divisions.isEmpty())) {
+            int currShipsCount = (engine.getShips() != null) ? engine.getShips().size() : 0;
+            if (currShipsCount != lastConvStateSyncShipsCount) {
+                lastConvStateSyncShipsCount = currShipsCount;
                 DivisionOtcCommandManager.updateConvergenceCommandStates(engine, playerGroup);
                 DivisionOtcCommandManager.updateConvergenceCommandStates(engine, alliedAiGroup);
                 DivisionOtcCommandManager.updateConvergenceCommandStates(engine, enemyGroup);
@@ -420,6 +423,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 boolean placedWave = OtcAI.applyInitialFleetFormationDeployment(engine, playerGroup, enemyGroup, now);
                 if (placedWave) {
                     OtcAI.updateTelemetry(engine, playerGroup);
+                    if (tacticalOverlay != null) tacticalOverlay.invalidateGeometryCache();
                 }
             }
             if (alliedAiHasDivisions) {
@@ -427,6 +431,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 boolean placedWave = OtcAI.applyInitialFleetFormationDeployment(engine, alliedAiGroup, enemyGroup, now);
                 if (placedWave) {
                     OtcAI.updateTelemetry(engine, alliedAiGroup);
+                    if (tacticalOverlay != null) tacticalOverlay.invalidateGeometryCache();
                 }
             }
             if (enemyHasDivisions) {
@@ -434,6 +439,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 boolean placedWave = OtcAI.applyInitialFleetFormationDeployment(engine, enemyGroup, playerGroup, now);
                 if (placedWave) {
                     OtcAI.updateTelemetry(engine, enemyGroup);
+                    if (tacticalOverlay != null) tacticalOverlay.invalidateGeometryCache();
                 }
             }
             markTelemetryNs = System.nanoTime();
@@ -519,8 +525,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             boolean hasUnaddedDeployed = false;
             for (int side = 0; side <= 1; side++) {
                 CombatFleetManagerAPI fm = engine.getFleetManager(side);
-                if (fm == null || fm.getDeployedCopyDFM() == null) continue;
-                for (com.fs.starfarer.api.combat.DeployedFleetMemberAPI dfm : fm.getDeployedCopyDFM()) {
+                if (fm == null) continue;
+                List<com.fs.starfarer.api.combat.DeployedFleetMemberAPI> deployedList = fm.getDeployedCopyDFM();
+                if (deployedList == null || deployedList.isEmpty()) continue;
+                for (int i = 0, n = deployedList.size(); i < n; i++) {
+                    com.fs.starfarer.api.combat.DeployedFleetMemberAPI dfm = deployedList.get(i);
                     if (dfm == null || dfm.isFighterWing()) continue;
                     ShipAPI s = dfm.getShip();
                     if (s != null && !s.isAlive() && !s.isHulk() && !s.isExpired() && s.getFullTimeDeployed() <= 5.0f) {
@@ -588,6 +597,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         if (newPlayerWave == null && newAlliedWave == null && newEnemyWave == null) {
             return;
+        }
+        if (tacticalOverlay != null) {
+            tacticalOverlay.invalidateGeometryCache();
         }
 
         List<ShipAPI> playerHulls = new ArrayList<>();

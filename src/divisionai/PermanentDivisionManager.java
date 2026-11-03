@@ -1847,17 +1847,28 @@ public class PermanentDivisionManager {
         }
     }
 
+    private static Object cachedDoctrineRawRef = null;
+    private static FleetDoctrineConfig cachedDoctrineConfig = null;
+    private static Object cachedSpecsRawRef = null;
+    private static int cachedSpecsFleetSig = 0;
+    private static List<PermanentDivisionSpec> cachedSpecsList = null;
+
     @SuppressWarnings("unchecked")
     public static FleetDoctrineConfig getFleetDoctrine() {
-        FleetDoctrineConfig cfg = new FleetDoctrineConfig();
         SectorAPI sector = Global.getSector();
-        if (sector == null) return cfg;
+        if (sector == null) return new FleetDoctrineConfig();
         Map<String, Object> pdata = sector.getPersistentData();
-        Object raw = pdata.get(PERSISTENT_DOCTRINE_KEY);
+        Object raw = pdata != null ? pdata.get(PERSISTENT_DOCTRINE_KEY) : null;
         if (raw instanceof Map) {
-            return deserializeDoctrineConfig((Map<String, Object>) raw);
+            if (raw == cachedDoctrineRawRef && cachedDoctrineConfig != null) {
+                return cachedDoctrineConfig;
+            }
+            FleetDoctrineConfig cfg = deserializeDoctrineConfig((Map<String, Object>) raw);
+            cachedDoctrineRawRef = raw;
+            cachedDoctrineConfig = cfg;
+            return cfg;
         }
-        return cfg;
+        return new FleetDoctrineConfig();
     }
 
     public static FleetDoctrineConfig deserializeDoctrineConfig(Map<String, Object> map) {
@@ -2066,7 +2077,11 @@ public class PermanentDivisionManager {
     public static void saveFleetDoctrine(FleetDoctrineConfig cfg) {
         SectorAPI sector = Global.getSector();
         if (sector == null || cfg == null) return;
-        sector.getPersistentData().put(PERSISTENT_DOCTRINE_KEY, serializeDoctrineConfig(cfg));
+        Map<String, Object> serialized = serializeDoctrineConfig(cfg);
+        sector.getPersistentData().put(PERSISTENT_DOCTRINE_KEY, serialized);
+        cachedDoctrineRawRef = serialized;
+        cachedDoctrineConfig = cfg;
+        cachedSpecsRawRef = null;
     }
 
     /**
@@ -3014,6 +3029,24 @@ public class PermanentDivisionManager {
      * ship IDs that are no longer in the player's fleet.
      * Never forcibly assigns player ships to divisions automatically.
      */
+    private static int computePlayerFleetSignature(CampaignFleetAPI fleet) {
+        if (fleet == null || fleet.getFleetData() == null) return 0;
+        List<FleetMemberAPI> members = fleet.getFleetData().getMembersListCopy();
+        if (members == null) return 0;
+        int h = members.size();
+        for (int i = 0, n = members.size(); i < n; i++) {
+            FleetMemberAPI m = members.get(i);
+            if (m == null) continue;
+            h = 31 * h + (m.getId() != null ? m.getId().hashCode() : i);
+            h = 31 * h + (m.isFlagship() ? 1 : 0);
+            h = 31 * h + (m.isMothballed() ? 2 : 0);
+            if (m.getCaptain() != null && m.getCaptain().getId() != null) {
+                h = 31 * h + m.getCaptain().getId().hashCode();
+            }
+        }
+        return h;
+    }
+
     public static List<PermanentDivisionSpec> ensureInitializedForPlayerFleet() {
         SectorAPI sector = Global.getSector();
         if (sector == null || sector.getPlayerFleet() == null) {
@@ -3022,6 +3055,11 @@ public class PermanentDivisionManager {
 
         CampaignFleetAPI playerFleet = sector.getPlayerFleet();
         Map<String, Object> pdata = sector.getPersistentData();
+        Object raw = pdata != null ? pdata.get(PERSISTENT_DIVISIONS_KEY) : null;
+        int fleetSig = computePlayerFleetSignature(playerFleet);
+        if (raw != null && raw == cachedSpecsRawRef && fleetSig == cachedSpecsFleetSig && cachedSpecsList != null) {
+            return new ArrayList<>(cachedSpecsList);
+        }
 
         List<PermanentDivisionSpec> specs = loadSpecsFromPersistentData(pdata);
         pruneRemovedFleetMembers(specs, playerFleet);
@@ -4701,7 +4739,12 @@ public class PermanentDivisionManager {
 
     private static void saveSpecsToPersistentData(Map<String, Object> pdata, List<PermanentDivisionSpec> specs) {
         if (pdata == null || specs == null) return;
-        pdata.put(PERSISTENT_DIVISIONS_KEY, serializeSpecList(specs));
+        List<Map<String, Object>> serialized = serializeSpecList(specs);
+        pdata.put(PERSISTENT_DIVISIONS_KEY, serialized);
+        cachedSpecsRawRef = serialized;
+        SectorAPI sector = Global.getSector();
+        cachedSpecsFleetSig = computePlayerFleetSignature(sector != null ? sector.getPlayerFleet() : null);
+        cachedSpecsList = new ArrayList<>(specs);
     }
 
     /**

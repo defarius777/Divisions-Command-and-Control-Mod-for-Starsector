@@ -177,6 +177,7 @@ public class DivisionDeploymentDialogOrganizer {
     }
 
     private Object lastFddInstance = null;
+    private int lastTargetColsForActiveFdd = 14;
     private Object cachedDeployedGridForActiveFdd = null;
     private Object cachedReservesGridForActiveFdd = null;
     private String lastReservesSignature = "";
@@ -510,12 +511,6 @@ public class DivisionDeploymentDialogOrganizer {
             }
             if (reservesGrid == null) return;
 
-            // 1. Enlarge the Deployment Window (wider 14-column layout + taller 7-row reserve viewport)
-            int targetCols = enlargeDeploymentDialogIfNeeded(activeFdd, innerPanel, deployedGrid, reservesGrid);
-
-            // Requirement A: Hide any "No ships deployed" / "Deployed ships" labels in the top section
-            hideVanillaDeployedSectionLabels(innerPanel);
-
             @SuppressWarnings("unchecked")
             List<FleetMemberAPI> deployedMembers = (deployedGrid != null)
                     ? (List<FleetMemberAPI>) gridGetMembersHandle.invoke(deployedGrid)
@@ -531,10 +526,20 @@ public class DivisionDeploymentDialogOrganizer {
             }
 
             List<PermanentDivisionSpec> nonEmptyDivisions = PermanentDivisionManager.getNonEmptyPermanentDivisions();
+            int targetCols = (activeFdd == lastFddInstance)
+                    ? lastTargetColsForActiveFdd
+                    : enlargeDeploymentDialogIfNeeded(activeFdd, innerPanel, deployedGrid, reservesGrid);
             String sig = buildMembersSignature(deployedMembers, reserveMembers, nonEmptyDivisions, targetCols);
             if (activeFdd == lastFddInstance && sig.equals(lastReservesSignature)) {
                 return;
             }
+
+            // 1. Enlarge the Deployment Window (wider 14-column layout + taller 7-row reserve viewport)
+            targetCols = enlargeDeploymentDialogIfNeeded(activeFdd, innerPanel, deployedGrid, reservesGrid);
+            lastTargetColsForActiveFdd = targetCols;
+
+            // Requirement A: Hide any "No ships deployed" / "Deployed ships" labels in the top section
+            hideVanillaDeployedSectionLabels(innerPanel);
 
             organizeReservesByDivisionRows(
                     activeFdd,

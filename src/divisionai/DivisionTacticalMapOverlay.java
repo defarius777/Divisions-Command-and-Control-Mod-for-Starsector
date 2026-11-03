@@ -230,9 +230,18 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private BattleGroupState cachedPolyEnemyGroup = null;
     private boolean cachedPolyPaused = false;
     private float cachedPolyNow = -1000f;
+    private int cachedPolySignature = 0;
+    private float lastLiveTranslateSimTime = -1000f;
     private float cachedPolyScale = Float.NaN;
     private float cachedPolyOffsetX = Float.NaN;
     private float cachedPolyOffsetY = Float.NaN;
+
+    public void invalidateGeometryCache() {
+        this.cachedPolyNow = -1000f;
+        this.cachedPolyPaused = false;
+        this.cachedPolySignature = 0;
+        this.lastLiveTranslateSimTime = -1000f;
+    }
 
     private boolean attachedToWarroom = false;
     private boolean loggedHookFailure = false;
@@ -365,11 +374,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         CombatUIAPI ui = engine.getCombatUI();
         if (ui == null || !ui.isShowingCommandUI()) {
+            cachedPolyPaused = false;
+            cachedPolyNow = -1000f;
             return;
         }
 
         float cmdOpacity = ui.getCommandUIOpacity();
         if (cmdOpacity <= 0.05f || alphaMult <= 0.05f) {
+            cachedPolyPaused = false;
+            cachedPolyNow = -1000f;
             return;
         }
 
@@ -378,6 +391,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             try {
                 boolean showingFeed = (boolean) isShowingVideoFeedHandle.invoke(warroomInstance);
                 if (showingFeed) {
+                    cachedPolyPaused = false;
+                    cachedPolyNow = -1000f;
                     return;
                 }
             } catch (Throwable ignored) {
@@ -415,14 +430,16 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         // ~12 Hz live-combat refresh window (translating/scaling vertices in-place during camera pans/zooms).
         boolean paused = engine.isPaused();
         float now = engine.getTotalElapsedTime(false);
+        int geomSignature = computeBattleGroupsGeometrySignature(
+                playerGroup, alliedAiGroup, enemyGroup, playerFog, paused);
         boolean sameContext = cachedPolyEngine == engine
                 && cachedPolyPlayerGroup == playerGroup
                 && cachedPolyAlliedGroup == alliedAiGroup
                 && cachedPolyEnemyGroup == enemyGroup
-                && cachedPolyPaused == paused
+                && cachedPolySignature == geomSignature
                 && (!cachedRenderedPolys.isEmpty() || !cachedStrikeCraftPolys.isEmpty());
         boolean reuseGeometry = sameContext
-                && (paused || Math.abs(now - cachedPolyNow) < 0.15f);
+                && (paused ? Math.abs(now - cachedPolyNow) < 1e-4f : Math.abs(now - cachedPolyNow) < 0.35f);
         List<RenderedDivisionPolygon> renderedPolys = cachedRenderedPolys;
         List<RenderedDivisionPolygon> strikeCraftPolys = cachedStrikeCraftPolys;
         if (reuseGeometry) {
@@ -434,13 +451,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 cachedPolyOffsetX = offsetX;
                 cachedPolyOffsetY = offsetY;
             }
-            if (!paused) {
+            if (!paused && Math.abs(now - lastLiveTranslateSimTime) > 1e-4f) {
                 translateCachedPolygonsByLiveShipMotion(renderedPolys, scale);
                 translateCachedPolygonsByLiveShipMotion(strikeCraftPolys, scale);
-                if (!cachedOverlapStripeBands.isEmpty()) {
-                    cachedOverlapStripeBands.clear();
-                    buildOverlappingPolygonStripesCache(renderedPolys, cachedOverlapStripeBands);
-                }
+                lastLiveTranslateSimTime = now;
             }
         } else {
             renderedPolys.clear();
@@ -470,6 +484,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             cachedPolyEnemyGroup = enemyGroup;
             cachedPolyPaused = paused;
             cachedPolyNow = now;
+            cachedPolySignature = geomSignature;
+            lastLiveTranslateSimTime = now;
             cachedPolyScale = scale;
             cachedPolyOffsetX = offsetX;
             cachedPolyOffsetY = offsetY;
@@ -804,6 +820,44 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             clusters.add(cluster);
         }
         return clusters;
+    }
+
+    private static int computeBattleGroupsGeometrySignature(
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup,
+            FogOfWarAPI playerFog,
+            boolean includeQuantizedPositions) {
+        int h = 17;
+        h = 31 * h + computeSingleGroupGeometrySignature(playerGroup, false, null, includeQuantizedPositions);
+        h = 31 * h + computeSingleGroupGeometrySignature(alliedAiGroup, false, null, includeQuantizedPositions);
+        h = 31 * h + computeSingleGroupGeometrySignature(enemyGroup, true, playerFog, includeQuantizedPositions);
+        return h;
+    }
+
+    private static int computeSingleGroupGeometrySignature(
+            BattleGroupState group,
+            boolean isEnemy,
+            FogOfWarAPI playerFog,
+            boolean includeQuantizedPositions) {
+        if (group == null || group.divisions.isEmpty()) return 0;
+        int h = group.divisions.size();
+        for (int i = 0, n = group.divisions.size(); i < n; i++) {
+            DivisionState div = group.divisions.get(i);
+            if (div == null) continue;
+            h = 31 * h + (div.id != null ? div.id.hashCode() : i);
+            for (int j = 0, m = div.members.size(); j < m; j++) {
+                ShipAPI s = div.members.get(j);
+                if (s == null || !s.isAlive() || s.isHulk() || s.isFighter()) continue;
+                if (isEnemy && !isEnemyShipVisibleOnCommandMap(s, playerFog)) continue;
+                h = 31 * h + (s.getId() != null ? s.getId().hashCode() : j);
+                if (includeQuantizedPositions && s.getLocation() != null) {
+                    h = 31 * h + ((int) (s.getLocation().x * 0.25f));
+                    h = 31 * h + ((int) (s.getLocation().y * 0.25f));
+                }
+            }
+        }
+        return h;
     }
 
     private void transformCachedGeometryInPlace(float newScale, float newOffsetX, float newOffsetY) {

@@ -4,6 +4,24 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.0.4b] — 2026-11-04
+
+### Fixed
+- **Stuck Division Circles at Fleet Instantiation (`Grand Wedge`) When Piloting Personally (`Tab` Warroom Map):**
+  - Fixed a bug where deploying while personally captaining a ship caused the Warroom (`Tab`) division circles to remain frozen at their initial `t = 0.0s` Grand Wedge instantiation locations for the rest of the battle.
+  - **Root cause:** At `t = 0.0s` during initial deployment, `DivisionTacticalMapOverlay.render` cached `cachedRenderedPolys` while `paused = true` (`cachedPolyPaused = true`, `cachedPolyNow = 0.0f`). When piloting a ship in the cockpit, `!ui.isShowingCommandUI()` is `true` while combat time `now` advances, and pressing `Tab` to open the Warroom pauses the combat engine (`paused = true`). Because `reuseGeometry = sameContext && (paused || Math.abs(now - cachedPolyNow) < 0.15f)` short-circuited on `paused == true` without checking `Math.abs(now - cachedPolyNow)` or ship position changes, the `t = 0.0s` cached geometry was reused whenever the Warroom was opened.
+  - **Fix:** `reuseGeometry` now requires `Math.abs(now - cachedPolyNow) < 1e-4f` when `paused` is `true` (and `< 0.35f` when unpaused), verifies a live `computeBattleGroupsGeometrySignature` hash (including quantized ship world positions while paused), and invalidates the geometry cache whenever the Warroom is closed or a new wave is formed/repositioned.
+
+### Performance
+- **Warroom (`Tab`) & Deployment Screen Lag Elimination:**
+  - Stopped rebuilding `buildOverlappingPolygonStripesCache` (O(N²) Sutherland-Hodgman clipping + diagonal slab slicing) on every intermediate 60 FPS frame during unpaused Warroom live translation; overlap stripes are now built on geometry refreshes and transformed in-place during pan/zoom.
+  - Cached `PermanentDivisionManager.getFleetDoctrine()`, `PermanentDivisionManager.ensureInitializedForPlayerFleet()`, and `DivisionNomenclature.getPlayerNamingConfig()` by persistent-map reference and fleet signature so Warroom and Deployment UI frames no longer re-deserialize maps, re-scan all fleet weapon slots to sort divisions, and re-serialize back to `PersistentData` on every call.
+  - Removed per-frame `hasAnyUninitializedDivisionTimeSpace` calls in `TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace` when `staleTime` is `false`.
+  - Gated `DivisionAICombatPlugin.advance` convergence command state sync by ship count outside the `0.50s` C2 tick so it no longer clones reserve lists (`getReservesCopy()`) every paused frame when the OTC ship is in reserves, and eliminated duplicate `getDeployedCopyDFM()` list clones in `flushPendingEngineAdds`.
+  - Moved `enlargeDeploymentDialogIfNeeded` and `hideVanillaDeployedSectionLabels` after the member signature check in `DivisionDeploymentDialogOrganizer.advance`, and cached layout keys in `FleetCommandPanel` so font-width binary searches (`wrapOtcTextIntoTwoLines` / `fitSingleLineToWidth`) only run when displayed text changes.
+
+---
+
 ## [v1.0.4] — 2026-11-03
 
 ### Fixed
