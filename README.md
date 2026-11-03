@@ -1,4 +1,4 @@
-# Divisions: Command and Control (`division_ai` v1.0.0)
+# Divisions: Command and Control (`division_ai` v1.0.1)
 
 Two-tier naval tactical Command & Control (C2) layer, Time / Space / Firepower / Convergence battlefield evaluation, campaign-layer Permanent Divisions, Faction Fleet Doctrines, Cultural Nomenclature, and Tactical Map Warroom visualization for Starsector `0.98a-RC8`.
 
