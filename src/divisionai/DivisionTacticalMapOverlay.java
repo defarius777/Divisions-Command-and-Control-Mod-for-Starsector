@@ -190,7 +190,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final boolean isBandA;
 
         CachedOverlapStripeBand(List<Vector2f> verts, float r, float g, float b, float alphaScale, boolean isBandA) {
-            this.verts = verts;
+            List<Vector2f> copy = new ArrayList<>(verts.size());
+            for (int i = 0, n = verts.size(); i < n; i++) {
+                Vector2f v = verts.get(i);
+                copy.add(new Vector2f(v.x, v.y));
+            }
+            this.verts = copy;
             this.r = r;
             this.g = g;
             this.b = b;
@@ -432,6 +437,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             if (!paused) {
                 translateCachedPolygonsByLiveShipMotion(renderedPolys, scale);
                 translateCachedPolygonsByLiveShipMotion(strikeCraftPolys, scale);
+                if (!cachedOverlapStripeBands.isEmpty()) {
+                    cachedOverlapStripeBands.clear();
+                    buildOverlappingPolygonStripesCache(renderedPolys, cachedOverlapStripeBands);
+                }
             }
         } else {
             renderedPolys.clear();
@@ -3329,8 +3338,16 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
 
     public static List<Vector2f> computeConvexHullCCW(List<Vector2f> pts) {
-        if (pts == null || pts.size() <= 3) {
-            return pts != null ? new ArrayList<>(pts) : Collections.emptyList();
+        if (pts == null || pts.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (pts.size() <= 3) {
+            List<Vector2f> copy = new ArrayList<>(pts.size());
+            for (int i = 0, n = pts.size(); i < n; i++) {
+                Vector2f p = pts.get(i);
+                copy.add(new Vector2f(p.x, p.y));
+            }
+            return copy;
         }
         List<Vector2f> sorted = new ArrayList<>(pts);
         Collections.sort(sorted, new Comparator<Vector2f>() {
@@ -3346,7 +3363,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             while (lower.size() >= 2 && cross(lower.get(lower.size() - 2), lower.get(lower.size() - 1), p) <= 0f) {
                 lower.remove(lower.size() - 1);
             }
-            lower.add(p);
+            lower.add(new Vector2f(p.x, p.y));
         }
 
         List<Vector2f> upper = new ArrayList<>(sorted.size());
@@ -3355,7 +3372,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             while (upper.size() >= 2 && cross(upper.get(upper.size() - 2), upper.get(upper.size() - 1), p) <= 0f) {
                 upper.remove(upper.size() - 1);
             }
-            upper.add(p);
+            upper.add(new Vector2f(p.x, p.y));
         }
 
         lower.remove(lower.size() - 1);
@@ -3476,7 +3493,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     if (!sInside) {
                         output.add(intersectEdge(s, e, sCross, eCross));
                     }
-                    output.add(e);
+                    output.add(new Vector2f(e.x, e.y));
                 } else if (sInside) {
                     output.add(intersectEdge(s, e, sCross, eCross));
                 }
@@ -3526,7 +3543,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (!sIn) {
                     out.add(intersectEdge(s, e, sU, eU));
                 }
-                out.add(e);
+                out.add(new Vector2f(e.x, e.y));
             } else if (sIn) {
                 out.add(intersectEdge(s, e, sU, eU));
             }

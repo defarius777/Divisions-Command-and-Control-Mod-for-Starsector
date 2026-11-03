@@ -4,6 +4,16 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.0.4] — 2026-11-03
+
+### Fixed
+- **Overlapping Division Polygon Camera-Pan Distortion Fix (`Tab` Warroom Map):**
+  - Fixed a bug where friendly and enemy division polygons overlapping one another would distort ("spazz out") when panning or zooming the Warroom camera — especially while paused.
+  - **Root cause:** When two opposing divisions overlapped, `buildOverlappingPolygonStripesCache` computed `a.clipHullScreen = computeConvexHullCCW(a.polyScreen)` and clipped `CachedOverlapStripeBand` vertices via `clipConvexPolygon` and `clipPolygonToDiagonalSlab`. Because those helpers reused existing `Vector2f` object references from `polyScreen` rather than allocating independent copies, `transformCachedGeometryInPlace` mutated shared `Vector2f` vertices 2–4 times per camera pan frame (accumulating indefinitely while paused).
+  - **Fix:** `computeConvexHullCCW`, `clipConvexPolygon`, `clipPolygonHalfPlaneDiag`, and `CachedOverlapStripeBand` now allocate independent `Vector2f` vertex instances with zero cross-list aliasing, and unpaused intermediate frames refresh overlap stripes after live ship-motion translation.
+
+---
+
 ## [v1.0.3] — 2026-11-03
 
 ### Fixed

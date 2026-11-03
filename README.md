@@ -1,4 +1,4 @@
-# Divisions: Command and Control (`division_ai` v1.0.3)
+# Divisions: Command and Control (`division_ai` v1.0.4)
 
 A two-tier naval Command & Control (C2) combat overhaul, campaign Fleet Organization & Fleet Doctrine system, Tactical Map Warroom (`Tab`) visualizer, and dynamic battle music controller for **Starsector `0.98a-RC8`**.
 
@@ -36,7 +36,7 @@ In vanilla Starsector, every ship fights for itself inside a small `1500–2200`
 
 ### Step 1: How to Install (or Update)
 1. Make sure you have **LazyLib** installed and enabled. (**LunaLib** is optional if you want an in-game settings menu).
-2. Download `DivisionAI-1.0.3.zip` from the Releases page.
+2. Download `DivisionAI-1.0.4.zip` from the Releases page.
 3. Extract the `DivisionAI` folder into your `Starsector/mods/` directory so that `Starsector/mods/DivisionAI/mod_info.json` exists.
 4. Check the box next to **Divisions: Command and Control** in the Starsector launcher and launch the game.
 
