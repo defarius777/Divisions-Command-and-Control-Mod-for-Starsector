@@ -514,7 +514,6 @@ public class BattlefieldFirepowerEvaluator {
         float dt = rose.initialized ? Math.max(0.05f, Math.min(2.0f, now - rose.lastUpdateTime)) : 0.5f;
         rose.lastUpdateTime = now;
 
-        // 1. Stabilize ship heading so StrafeTargetManeuverV2 +/-15 deg nose wobble does not whip arcs
         float rawFacing = normalizeAngle360(ship.getFacing());
         if (!rose.initialized) {
             rose.smoothedFacingDeg = rawFacing;
@@ -524,7 +523,6 @@ public class BattlefieldFirepowerEvaluator {
             rose.smoothedFacingDeg = normalizeAngle360(rose.smoothedFacingDeg + diff * headingAlpha);
         }
 
-        // 2. Compute ship-level live combat readiness (overload / venting / high hard-flux suppression)
         FluxTrackerAPI ft = ship.getFluxTracker();
         boolean overloadedOrVenting = false;
         float ovldVentRemaining = 0f;
@@ -541,10 +539,8 @@ public class BattlefieldFirepowerEvaluator {
                 && ship.getHullSpec().getHints().contains(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.PHASE));
         float readiness;
         if (overloadedOrVenting && ovldVentRemaining > 0.6f) {
-            // Instant temporal blind spot while overloaded or venting!
             readiness = 0.04f;
         } else if (isPhaseShip && ship.isPhased()) {
-            // Item A: Phased ships are exempt from reload/cooldown suppression in threat grading (latent strike threat)
             readiness = Math.max(0.75f, 1.0f - Math.max(0f, fluxLevel - 0.80f) * 1.2f);
         } else if (fluxLevel > 0.70f) {
             readiness = Math.max(0.28f, 1.0f - (fluxLevel - 0.70f) * 2.2f);
@@ -553,7 +549,6 @@ public class BattlefieldFirepowerEvaluator {
         }
         rose.liveReadinessMult = readiness;
 
-        // Estimate ship flux sustainability factor for Sustained DoT
         float shipDissipation = 250f;
         if (ship.getMutableStats() != null && ship.getMutableStats().getFluxDissipation() != null) {
             float d = ship.getMutableStats().getFluxDissipation().getModifiedValue();
@@ -589,164 +584,188 @@ public class BattlefieldFirepowerEvaluator {
         float[] rawPdRange = new float[NUM_SECTORS];
         float[] rawHybridRange = new float[NUM_SECTORS];
 
+        accumulateShipDirectWeaponSectors(
+                ship, weapons, isPhaseShip, readiness, shipFluxSustainability,
+                rawAlpha, rawShort, rawSustained, rawPd, rawHybrid,
+                rawGenRange, rawSustRangeWeightedSum, rawShortRangeWeightedSum, rawAlphaRangeWeightedSum,
+                rawPdRange, rawHybridRange);
+
+        accumulateShipFighterWingSectors(
+                rose, ship, readiness,
+                rawAlpha, rawShort, rawSustained, rawPd,
+                rawGenRange, rawSustRangeWeightedSum, rawShortRangeWeightedSum, rawAlphaRangeWeightedSum,
+                rawPdRange);
+
+        applySectorEmaAndUpdateRosePeaks(
+                rose, dt, overloadedOrVenting, ovldVentRemaining,
+                rawAlpha, rawShort, rawSustained, rawPd, rawHybrid,
+                rawGenRange, rawSustRangeWeightedSum, rawShortRangeWeightedSum, rawAlphaRangeWeightedSum,
+                rawPdRange, rawHybridRange);
+    }
+
+    private static void accumulateShipDirectWeaponSectors(
+            ShipAPI ship,
+            List<WeaponAPI> weapons,
+            boolean isPhaseShip,
+            float readiness,
+            float shipFluxSustainability,
+            float[] rawAlpha,
+            float[] rawShort,
+            float[] rawSustained,
+            float[] rawPd,
+            float[] rawHybrid,
+            float[] rawGenRange,
+            float[] rawSustRangeWeightedSum,
+            float[] rawShortRangeWeightedSum,
+            float[] rawAlphaRangeWeightedSum,
+            float[] rawPdRange,
+            float[] rawHybridRange) {
+        if (weapons == null || weapons.isEmpty()) return;
         float hullOmega = Math.abs(ship.getAngularVelocity());
+        for (WeaponAPI w : weapons) {
+            if (!isUsableCombatWeapon(w)) continue;
+            if (w.isDisabled() || w.isPermanentlyDisabled()) continue;
+            if (w.usesAmmo() && w.getAmmo() <= 0) continue;
 
-        if (weapons != null && !weapons.isEmpty()) {
-            for (WeaponAPI w : weapons) {
-                if (!isUsableCombatWeapon(w)) continue;
-                if (w.isDisabled() || w.isPermanentlyDisabled()) continue;
-                if (w.usesAmmo() && w.getAmmo() <= 0) continue;
+            float range = w.getRange();
+            if (range <= 50f) continue;
 
-                float range = w.getRange();
-                if (range <= 50f) continue;
+            boolean isStrike = w.hasAIHint(AIHints.STRIKE);
+            FireClassification fireClass = classifyWeaponFire(w);
 
-                boolean isStrike = w.hasAIHint(AIHints.STRIKE);
-                FireClassification fireClass = classifyWeaponFire(w);
+            float pdFrac;
+            float genFrac;
+            float hybridFrac;
+            if (fireClass == FireClassification.HYBRID) {
+                pdFrac = 0.90f;
+                genFrac = 0.85f;
+                hybridFrac = 1.0f;
+            } else if (fireClass == FireClassification.POINT_DEFENSE) {
+                pdFrac = 1.0f;
+                genFrac = 0.14f;
+                hybridFrac = 0.0f;
+            } else {
+                pdFrac = 0.0f;
+                genFrac = 1.0f;
+                hybridFrac = 0.0f;
+            }
 
-                float pdFrac;
-                float genFrac;
-                float hybridFrac;
-                if (fireClass == FireClassification.HYBRID) {
-                    // Hybrid weapons (Large/Medium Flak, Devastators, Dual Flak, HMG, Paladin PD, PD_ALSO guns)
-                    // are effective against BOTH ships (especially frigates/destroyers) AND strike craft!
-                    pdFrac = 0.90f;
-                    genFrac = 0.85f;
-                    hybridFrac = 1.0f;
-                } else if (fireClass == FireClassification.POINT_DEFENSE) {
-                    pdFrac = 1.0f;
-                    genFrac = 0.14f; // light close-in pressure against frigates
-                    hybridFrac = 0.0f;
-                } else {
-                    pdFrac = 0.0f;
-                    genFrac = 1.0f;
-                    hybridFrac = 0.0f;
+            float sizeW = weaponSizeWeight(resolveEffectiveWeaponSize(w));
+            DerivedWeaponStatsAPI derived = w.getDerivedStats();
+            float burstDmg;
+            float dps;
+            float sustDps;
+            if (derived != null && (derived.getDps() > 0f || derived.getBurstDamage() > 0f || derived.getDamagePerShot() > 0f)) {
+                burstDmg = Math.max(derived.getBurstDamage(), derived.getDamagePerShot());
+                dps = Math.max(derived.getDps(), derived.getSustainedDps());
+                sustDps = Math.max(derived.getSustainedDps(), dps * 0.60f);
+                if (dps <= 1f && burstDmg > 0f) {
+                    float cd = Math.max(0.5f, w.getCooldown());
+                    dps = burstDmg / Math.min(5f, cd);
+                    sustDps = burstDmg / Math.max(1f, cd);
                 }
+            } else {
+                float hullScale = (ship.getHullSize() == HullSize.CAPITAL_SHIP) ? 1.45f
+                        : (ship.getHullSize() == HullSize.CRUISER ? 1.20f : 1.0f);
+                burstDmg = sizeW * 150f * hullScale * (isStrike ? 2.2f : 1.0f);
+                dps = sizeW * 95f * hullScale * (isStrike ? 1.4f : 1.0f);
+                sustDps = sizeW * 75f * hullScale * (isStrike ? 0.55f : 1.0f);
+            }
 
-                float sizeW = weaponSizeWeight(resolveEffectiveWeaponSize(w));
-                DerivedWeaponStatsAPI derived = w.getDerivedStats();
-                float burstDmg;
-                float dps;
-                float sustDps;
-                if (derived != null && (derived.getDps() > 0f || derived.getBurstDamage() > 0f || derived.getDamagePerShot() > 0f)) {
-                    burstDmg = Math.max(derived.getBurstDamage(), derived.getDamagePerShot());
-                    dps = Math.max(derived.getDps(), derived.getSustainedDps());
-                    sustDps = Math.max(derived.getSustainedDps(), dps * 0.60f);
-                    if (dps <= 1f && burstDmg > 0f) {
-                        float cd = Math.max(0.5f, w.getCooldown());
-                        dps = burstDmg / Math.min(5f, cd);
-                        sustDps = burstDmg / Math.max(1f, cd);
+            DamageType dmgType = w.getDamageType();
+            float typeMult = 1.0f;
+            if (dmgType == DamageType.FRAGMENTATION && !isStrike) {
+                typeMult = (fireClass == FireClassification.HYBRID) ? 0.82f : 0.45f;
+            } else if (dmgType == DamageType.KINETIC || dmgType == DamageType.HIGH_EXPLOSIVE) {
+                typeMult = 1.12f;
+            }
+
+            float wAlpha = burstDmg * typeMult * (isStrike ? 1.65f : 1.0f);
+            float wShortDot = (dps * 0.75f + (burstDmg / 4.5f) * 0.25f) * typeMult * (isStrike ? 1.25f : 1.0f);
+            float cdRem = w.getCooldownRemaining();
+            if (cdRem > 0.20f && !isPhaseShip) {
+                float alphaReloadMult = clampVal(1.0f - (cdRem - 0.20f) / 4.8f, 0.12f, 1.0f);
+                float shortReloadMult = clampVal(1.0f - Math.max(0f, cdRem - 0.65f) / 6.5f, 0.22f, 1.0f);
+                wAlpha *= alphaReloadMult;
+                wShortDot *= shortReloadMult;
+            }
+
+            float ammoEndurance = 1.0f;
+            if (w.usesAmmo() && w.getAmmoPerSecond() <= 0f) {
+                ammoEndurance = Math.min(0.65f, Math.max(0.22f, w.getAmmo() / 16f));
+            }
+            float wSustainedDot = sustDps * typeMult * shipFluxSustainability * ammoEndurance;
+
+            float arcFacingRel = normalizeAngle360(w.getArcFacing());
+            float rawArc = w.getArc();
+            if (rawArc <= 0f) {
+                rawArc = isStrike ? 90f : 210f;
+            }
+
+            WeaponSlotAPI slot = w.getSlot();
+            boolean isTurret = (slot == null) || slot.isTurret();
+            float slewPad = Math.min(32f, hullOmega * 1.15f + (isTurret ? 14f : 8f));
+            float halfArc = Math.min(180f, rawArc * 0.5f + slewPad * 0.5f);
+            float shoulderWidth = 20f;
+
+            for (int s = 0; s < NUM_SECTORS; s++) {
+                float sectorCenterRel = s * SECTOR_DEG;
+                float angDist = Math.abs(shortestAngleDiffDeg(sectorCenterRel, arcFacingRel));
+                if (angDist > halfArc + shoulderWidth) continue;
+
+                float angularWeight = (angDist <= halfArc)
+                        ? 1.0f
+                        : (0.5f * (1.0f + (float) Math.cos(((angDist - halfArc) / shoulderWidth) * Math.PI)));
+
+                if (genFrac > 0f) {
+                    float gw = angularWeight * genFrac * readiness;
+                    float aContrib = wAlpha * gw;
+                    float shContrib = wShortDot * gw;
+                    float suContrib = wSustainedDot * gw;
+                    rawAlpha[s] += aContrib;
+                    rawShort[s] += shContrib;
+                    rawSustained[s] += suContrib;
+                    float effRange = range * (0.72f + 0.28f * angularWeight);
+                    rawAlphaRangeWeightedSum[s] += aContrib * effRange;
+                    rawShortRangeWeightedSum[s] += shContrib * effRange;
+                    rawSustRangeWeightedSum[s] += suContrib * effRange;
+                    if (effRange > rawGenRange[s]) {
+                        rawGenRange[s] = effRange;
                     }
-                } else {
-                    // Fallback for headless SimArena mock weapons
-                    float hullScale = (ship.getHullSize() == HullSize.CAPITAL_SHIP) ? 1.45f
-                            : (ship.getHullSize() == HullSize.CRUISER ? 1.20f : 1.0f);
-                    burstDmg = sizeW * 150f * hullScale * (isStrike ? 2.2f : 1.0f);
-                    dps = sizeW * 95f * hullScale * (isStrike ? 1.4f : 1.0f);
-                    sustDps = sizeW * 75f * hullScale * (isStrike ? 0.55f : 1.0f);
                 }
-
-                // Damage-type & Strike modifiers
-                DamageType dmgType = w.getDamageType();
-                float typeMult = 1.0f;
-                if (dmgType == DamageType.FRAGMENTATION && !isStrike) {
-                    // Hybrid Flak Cannons (Flak / Dual Flak) shred frigates, destroyers, and exposed hulls
-                    // far harder than light fragmentation PD!
-                    typeMult = (fireClass == FireClassification.HYBRID) ? 0.82f : 0.45f;
-                } else if (dmgType == DamageType.KINETIC || dmgType == DamageType.HIGH_EXPLOSIVE) {
-                    typeMult = 1.12f;
-                }
-
-                float wAlpha = burstDmg * typeMult * (isStrike ? 1.65f : 1.0f);
-                // Short DoT (4-6s tactical exchange window)
-                float wShortDot = (dps * 0.75f + (burstDmg / 4.5f) * 0.25f) * typeMult * (isStrike ? 1.25f : 1.0f);
-                // Item A: Reloading weapons produce smoothly discounted firepower score based on remaining cooldown,
-                // while phased ships are exempt so their latent uncloak burst threat is preserved.
-                float cdRem = w.getCooldownRemaining();
-                if (cdRem > 0.20f && !isPhaseShip) {
-                    float alphaReloadMult = clampVal(1.0f - (cdRem - 0.20f) / 4.8f, 0.12f, 1.0f);
-                    float shortReloadMult = clampVal(1.0f - Math.max(0f, cdRem - 0.65f) / 6.5f, 0.22f, 1.0f);
-                    wAlpha *= alphaReloadMult;
-                    wShortDot *= shortReloadMult;
-                }
-
-                // Sustained DoT (15-30s line battle window, clamped by ship flux dissipation & ammo endurance)
-                float ammoEndurance = 1.0f;
-                if (w.usesAmmo() && w.getAmmoPerSecond() <= 0f) {
-                    ammoEndurance = Math.min(0.65f, Math.max(0.22f, w.getAmmo() / 16f));
-                }
-                float wSustainedDot = sustDps * typeMult * shipFluxSustainability * ammoEndurance;
-
-                // Weapon arc geometry relative to ship facing
-                float arcFacingRel = normalizeAngle360(w.getArcFacing());
-                float rawArc = w.getArc();
-                if (rawArc <= 0f) {
-                    // Default forward+beam arc for mock weapons in SimArena
-                    rawArc = isStrike ? 90f : 210f;
-                }
-
-                WeaponSlotAPI slot = w.getSlot();
-                boolean isTurret = (slot == null) || slot.isTurret();
-                // Angular-velocity slew padding prevents sharp arc boundary flicker while ships turn/strafe
-                float slewPad = Math.min(32f, hullOmega * 1.15f + (isTurret ? 14f : 8f));
-                float halfArc = Math.min(180f, rawArc * 0.5f + slewPad * 0.5f);
-                float shoulderWidth = 20f; // smooth cosine taper outside halfArc
-
-                for (int s = 0; s < NUM_SECTORS; s++) {
-                    float sectorCenterRel = s * SECTOR_DEG;
-                    float angDist = Math.abs(shortestAngleDiffDeg(sectorCenterRel, arcFacingRel));
-                    if (angDist > halfArc + shoulderWidth) continue;
-
-                    float angularWeight;
-                    if (angDist <= halfArc) {
-                        angularWeight = 1.0f;
-                    } else {
-                        float u = (angDist - halfArc) / shoulderWidth;
-                        angularWeight = 0.5f * (1.0f + (float) Math.cos(u * Math.PI));
+                if (pdFrac > 0f) {
+                    float pw = angularWeight * pdFrac * readiness;
+                    rawPd[s] += (dps * 0.8f + burstDmg * 0.2f) * pw;
+                    float effPdRange = range * (0.75f + 0.25f * angularWeight);
+                    if (effPdRange > rawPdRange[s]) {
+                        rawPdRange[s] = effPdRange;
                     }
-
-                    if (genFrac > 0f) {
-                        float gw = angularWeight * genFrac * readiness;
-                        float aContrib = wAlpha * gw;
-                        float shContrib = wShortDot * gw;
-                        float suContrib = wSustainedDot * gw;
-                        rawAlpha[s] += aContrib;
-                        rawShort[s] += shContrib;
-                        rawSustained[s] += suContrib;
-                        float effRange = range * (0.72f + 0.28f * angularWeight);
-                        // Accumulate potential-damage-weighted range per horizon so a single low-damage
-                        // long-range plinker does not artificially inflate the main firepower envelope
-                        rawAlphaRangeWeightedSum[s] += aContrib * effRange;
-                        rawShortRangeWeightedSum[s] += shContrib * effRange;
-                        rawSustRangeWeightedSum[s] += suContrib * effRange;
-                        if (effRange > rawGenRange[s]) {
-                            rawGenRange[s] = effRange;
-                        }
-                    }
-                    if (pdFrac > 0f) {
-                        float pw = angularWeight * pdFrac * readiness;
-                        rawPd[s] += (dps * 0.8f + burstDmg * 0.2f) * pw;
-                        float effPdRange = range * (0.75f + 0.25f * angularWeight);
-                        if (effPdRange > rawPdRange[s]) {
-                            rawPdRange[s] = effPdRange;
-                        }
-                    }
-                    if (hybridFrac > 0f) {
-                        float hw = angularWeight * hybridFrac * readiness;
-                        rawHybrid[s] += (wShortDot * 0.75f + wAlpha * 0.25f) * hw;
-                        float effHybridRange = range * (0.76f + 0.24f * angularWeight);
-                        if (effHybridRange > rawHybridRange[s]) {
-                            rawHybridRange[s] = effHybridRange;
-                        }
+                }
+                if (hybridFrac > 0f) {
+                    float hw = angularWeight * hybridFrac * readiness;
+                    rawHybrid[s] += (wShortDot * 0.75f + wAlpha * 0.25f) * hw;
+                    float effHybridRange = range * (0.76f + 0.24f * angularWeight);
+                    if (effHybridRange > rawHybridRange[s]) {
+                        rawHybridRange[s] = effHybridRange;
                     }
                 }
             }
         }
+    }
 
-        // 2b. Include Strike Craft (FighterWingAPI) in Firepower Rose:
-        //     - If `ship` is an airborne fighter wing leader, aggregate the weapon firepower of its live wingmates
-        //       so the entire squadron's strike/interceptor firepower is represented on the squadron rose.
-        //     - If `ship` is a carrier / battlecarrier with fighter wings, project its wings' omnidirectional +
-        //       attack-vector strike/PD firepower on the carrier's Firepower Rose as well.
+    private static void accumulateShipFighterWingSectors(
+            ShipFirepowerRose rose,
+            ShipAPI ship,
+            float readiness,
+            float[] rawAlpha,
+            float[] rawShort,
+            float[] rawSustained,
+            float[] rawPd,
+            float[] rawGenRange,
+            float[] rawSustRangeWeightedSum,
+            float[] rawShortRangeWeightedSum,
+            float[] rawAlphaRangeWeightedSum,
+            float[] rawPdRange) {
         if (ship.isFighter() && ship.getWing() != null && ship.getWing().getWingMembers() != null) {
             List<ShipAPI> wingmates = ship.getWing().getWingMembers();
             int extraAlive = Math.max(0, wingmates.size() - 1);
@@ -805,7 +824,6 @@ public class BattlefieldFirepowerEvaluator {
                     for (int s = 0; s < NUM_SECTORS; s++) {
                         float sectorCenterRel = s * SECTOR_DEG;
                         float angDist = Math.abs(shortestAngleDiffDeg(sectorCenterRel, wingBearingRel));
-                        // 360-deg carrier strike envelope + directional concentration along wing sortie bearing
                         float dirBoost = (angDist <= 75f)
                                 ? (0.55f + 0.45f * (float) Math.cos((angDist / 75f) * (Math.PI * 0.5)))
                                 : 0.55f;
@@ -849,13 +867,24 @@ public class BattlefieldFirepowerEvaluator {
                 }
             }
         }
+    }
 
-        // Compute damage-weighted effective range per sector and horizon:
-        //  - Sustained range is weighted by wSustainedDot so the outer envelope reflects where sustained DPS actually lands
-        //  - Short DoT range is weighted by wShortDot (4-6s tactical exchange envelope)
-        //  - Alpha range is weighted by wAlpha (0-2s burst/torpedo salvo range)
-        //  - General range blends 72% potential-damage-weighted range + 28% max reach so a single weak long-range weapon
-        //    cannot bloat the entire sector envelope, while true long-range batteries still project their full reach.
+    private static void applySectorEmaAndUpdateRosePeaks(
+            ShipFirepowerRose rose,
+            float dt,
+            boolean overloadedOrVenting,
+            float ovldVentRemaining,
+            float[] rawAlpha,
+            float[] rawShort,
+            float[] rawSustained,
+            float[] rawPd,
+            float[] rawHybrid,
+            float[] rawGenRange,
+            float[] rawSustRangeWeightedSum,
+            float[] rawShortRangeWeightedSum,
+            float[] rawAlphaRangeWeightedSum,
+            float[] rawPdRange,
+            float[] rawHybridRange) {
         float[] rawSustRange = new float[NUM_SECTORS];
         float[] rawShortRange = new float[NUM_SECTORS];
         float[] rawAlphaRange = new float[NUM_SECTORS];
@@ -872,7 +901,6 @@ public class BattlefieldFirepowerEvaluator {
                     : rawShortRange[s];
         }
 
-        // 3. Apply Asymmetric Temporal EMA per sector (fast rise on threat, slow decay on wobble, fast drop on vent/overload)
         float alphaRise = Math.min(1.0f, dt / (TAU_RISE + dt));
         float alphaFall = (overloadedOrVenting && ovldVentRemaining > 0.6f)
                 ? Math.min(1.0f, dt / (TAU_VENT_DROP + dt))
@@ -929,8 +957,6 @@ public class BattlefieldFirepowerEvaluator {
         rose.maxGeneralRange = maxGenR;
         rose.maxPdRange = maxPdR;
         rose.maxHybridRange = maxHybR;
-        // Compute absolute potential-damage weight across all 3 horizons (Sustained + Short Burst + Alpha Salvo)
-        // so high-damage ships and torpedo boats visibly project heavier, denser firepower envelopes than light hulls
         float compositePotentialDmg = peakShort * 0.45f + peakSust * 0.30f + (peakAlpha * 0.35f) * 0.25f;
         rose.potentialDamageWeight = clampVal(0.38f + 0.62f * (float) Math.sqrt(compositePotentialDmg / 950f), 0.38f, 1.32f);
         rose.initialized = true;

@@ -412,7 +412,8 @@ public class UITestHarness {
     private static void auditV067FeaturesAndQAPass(UIAuditResult res) throws Exception {
         // A. Fleet UI button order & rename ("Fleet Doctrine" on top, "Fleet Organization" below)
         String injSrc = new String(Files.readAllBytes(new File("src/divisionai/DivisionFleetTabInjector.java").toPath()), StandardCharsets.UTF_8);
-        String edSrc = new String(Files.readAllBytes(new File("src/divisionai/DivisionEditorDialog.java").toPath()), StandardCharsets.UTF_8);
+        String edSrc = new String(Files.readAllBytes(new File("src/divisionai/DivisionEditorDialog.java").toPath()), StandardCharsets.UTF_8)
+                + "\n" + new String(Files.readAllBytes(new File("src/divisionai/DivisionConfigureSubscreen.java").toPath()), StandardCharsets.UTF_8);
         String docSrc = new String(Files.readAllBytes(new File("src/divisionai/FleetDoctrineDialog.java").toPath()), StandardCharsets.UTF_8);
 
         int docBtnIdx = injSrc.indexOf("\"Fleet Doctrine\"");
@@ -2025,7 +2026,10 @@ public class UITestHarness {
     private static void auditUISourceFilesAndButtonBudgets(UIAuditResult res) throws Exception {
         String[] uiFiles = {
                 "src/divisionai/DivisionDeploymentDialogOrganizer.java",
+                "src/divisionai/FleetCommandPanel.java",
+                "src/divisionai/OtcSelectionModalDialog.java",
                 "src/divisionai/DivisionEditorDialog.java",
+                "src/divisionai/DivisionConfigureSubscreen.java",
                 "src/divisionai/FleetDoctrineDialog.java",
                 "src/divisionai/CampaignFleetTooltipOrganizer.java",
                 "src/divisionai/DivisionTacticalMapOverlay.java"
@@ -2667,7 +2671,8 @@ public class UITestHarness {
         // 6. Verify Configure Division UI & Top-Layer Urgent Comms Modal render order
         String editorSrc = new String(
                 Files.readAllBytes(new File("src/divisionai/DivisionEditorDialog.java").toPath()),
-                StandardCharsets.UTF_8);
+                StandardCharsets.UTF_8)
+                + "\n" + new String(Files.readAllBytes(new File("src/divisionai/DivisionConfigureSubscreen.java").toPath()), StandardCharsets.UTF_8);
         String doctrineSrc = new String(
                 Files.readAllBytes(new File("src/divisionai/FleetDoctrineDialog.java").toPath()),
                 StandardCharsets.UTF_8);

@@ -50,284 +50,8 @@ public class OtcAI {
         float totalFriendlyFp = 0f;
 
         for (DivisionState div : battleGroup.divisions) {
-            List<ShipAPI> alive = div.getAliveMembers();
-            div.detachedStragglerIds.clear();
-            if (alive.isEmpty()) {
-                div.coreMemberCount = 0;
-                div.ableMemberCount = 0;
-                div.retreatingMemberCount = 0;
-                div.retreatingFraction = 0f;
-                div.isUnableDivision = true;
-                div.coreFpRatio = 1f;
-                div.localFriendlyStrength = 0f;
-                div.localEnemyStrength = 0f;
-                div.localForceRatio = 1f;
-                div.incomingAlphaThreat = 0f;
-                div.incomingShortDotThreat = 0f;
-                div.incomingSustainedDotThreat = 0f;
-                div.incomingPdThreat = 0f;
-                div.crossfireCordonIndex = 0f;
-                div.smoothedDangerScore = 0f;
-                div.activeWeaponFiringRatio = 0f;
-                div.violentContactIntensity = 0f;
-                div.engagedFpMass = 0f;
-                continue;
-            }
-
-            int ableCount = 0;
-            int retreatingCount = 0;
-            float ableWeightSum = 0f;
-            boolean[] shipUnable = new boolean[alive.size()];
-            for (int i = 0; i < alive.size(); i++) {
-                ShipAPI s = alive.get(i);
-                boolean unable = DivisionState.isShipUnable(s);
-                shipUnable[i] = unable;
-                if (unable) {
-                    retreatingCount++;
-                } else {
-                    ableCount++;
-                    ableWeightSum += ShipCapabilityProfile.resolveShipFpStrength(s);
-                }
-            }
-            div.ableMemberCount = ableCount;
-            div.retreatingMemberCount = retreatingCount;
-            div.retreatingFraction = (float) retreatingCount / Math.max(1, alive.size());
-            div.isUnableDivision = (ableCount == 0 || div.retreatingFraction >= 0.65f);
-
-            div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(
-                    div.archetype,
-                    Math.max(1, ableCount > 0 ? ableCount : alive.size()),
-                    div.stationSpacing,
-                    div.stationKeepingMult,
-                    div.commander.stationKeepingStrictness);
-
-            float sumX = 0f;
-            float sumY = 0f;
-            float sumVx = 0f;
-            float sumVy = 0f;
-            float weightSum = 0f;
-            float fluxSum = 0f;
-            float maxFlux = 0f;
-            float hullSum = 0f;
-            int strikeAmmo = 0;
-            boolean needsHelp = false;
-            ShipAPI helpShip = null;
-
-            float[] weights = new float[alive.size()];
-            for (int i = 0; i < alive.size(); i++) {
-                ShipAPI s = alive.get(i);
-                float baseW = ShipCapabilityProfile.resolveShipFpStrength(s);
-                // Discount retreating ("unable") ships when able ships remain so fleeing ships do not drag the division centroid
-                float w = (shipUnable[i] && ableCount > 0) ? (baseW * 0.12f) : baseW;
-                weights[i] = w;
-                if (shipUnable[i] && ableCount > 0) {
-                    div.detachedStragglerIds.add(s.getId());
-                }
-                sumX += s.getLocation().x * w;
-                sumY += s.getLocation().y * w;
-                sumVx += s.getVelocity().x * w;
-                sumVy += s.getVelocity().y * w;
-                weightSum += w;
-
-                float fl = s.getFluxLevel();
-                fluxSum += fl;
-                if (!shipUnable[i] && fl > maxFlux) maxFlux = fl;
-                hullSum += s.getHullLevel();
-
-                if (!shipUnable[i]) {
-                    ShipwideAIFlags flags = s.getAIFlags();
-                    if (flags != null && (flags.hasFlag(AIFlags.NEEDS_HELP) || flags.hasFlag(AIFlags.IN_CRITICAL_DPS_DANGER))) {
-                        needsHelp = true;
-                        helpShip = s;
-                    } else if (fl >= 0.84f || s.getHullLevel() <= 0.45f) {
-                        needsHelp = true;
-                        if (helpShip == null) helpShip = s;
-                    }
-                    strikeAmmo += countUsableStrikeAmmo(s);
-                }
-            }
-
-            float rawCenterX = sumX / Math.max(1f, weightSum);
-            float rawCenterY = sumY / Math.max(1f, weightSum);
-            float rawDistSqSum = 0f;
-            for (ShipAPI s : alive) {
-                float dx = s.getLocation().x - rawCenterX;
-                float dy = s.getLocation().y - rawCenterY;
-                rawDistSqSum += (dx * dx + dy * dy);
-            }
-            div.rawAllMemberSpreadRadius = (float) Math.sqrt(rawDistSqSum / alive.size());
-
-            // Identify Core Cluster vs. Detached Stragglers so 1-2 cut-off ships on the other side of the
-            // enemy battle line never drag div.centroid into the enemy line or freeze a formed core in CLOSE_UP.
-            float coreSumX = sumX;
-            float coreSumY = sumY;
-            float coreSumVx = sumVx;
-            float coreSumVy = sumVy;
-            float coreWeightSum = weightSum;
-            int coreCount = alive.size();
-
-            if (alive.size() >= 2) {
-                float neighborRadius = Math.max(820f, div.stationKeepingRadius * 1.45f);
-                float neighborRadiusSq = neighborRadius * neighborRadius;
-
-                int anchorIdx = 0;
-                float bestClusterScore = -1f;
-                for (int i = 0; i < alive.size(); i++) {
-                    ShipAPI si = alive.get(i);
-                    float score = weights[i] * (si == div.flagship ? 1.30f : 1.0f);
-                    for (int j = 0; j < alive.size(); j++) {
-                        if (i == j) continue;
-                        ShipAPI sj = alive.get(j);
-                        float dx = si.getLocation().x - sj.getLocation().x;
-                        float dy = si.getLocation().y - sj.getLocation().y;
-                        if ((dx * dx + dy * dy) <= neighborRadiusSq) {
-                            score += weights[j];
-                        }
-                    }
-                    if (score > bestClusterScore) {
-                        bestClusterScore = score;
-                        anchorIdx = i;
-                    }
-                }
-
-                // Single-linkage expansion from anchorIdx within neighborRadius (captures cohesive line-abreast formations)
-                boolean[] inCore = new boolean[alive.size()];
-                inCore[anchorIdx] = true;
-                boolean addedAny = true;
-                while (addedAny) {
-                    addedAny = false;
-                    for (int i = 0; i < alive.size(); i++) {
-                        if (inCore[i]) continue;
-                        ShipAPI si = alive.get(i);
-                        for (int j = 0; j < alive.size(); j++) {
-                            if (!inCore[j]) continue;
-                            ShipAPI sj = alive.get(j);
-                            float dx = si.getLocation().x - sj.getLocation().x;
-                            float dy = si.getLocation().y - sj.getLocation().y;
-                            if ((dx * dx + dy * dy) <= neighborRadiusSq) {
-                                inCore[i] = true;
-                                addedAny = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // Also include any ship within outlierCutoff of the preliminary core centroid
-                float prelimX = 0f;
-                float prelimY = 0f;
-                float prelimW = 0f;
-                for (int i = 0; i < alive.size(); i++) {
-                    if (inCore[i]) {
-                        prelimX += alive.get(i).getLocation().x * weights[i];
-                        prelimY += alive.get(i).getLocation().y * weights[i];
-                        prelimW += weights[i];
-                    }
-                }
-                if (prelimW > 0f) {
-                    prelimX /= prelimW;
-                    prelimY /= prelimW;
-                    float outlierCutoff = Math.max(1050f, div.stationKeepingRadius * 1.68f);
-                    float outlierCutoffSq = outlierCutoff * outlierCutoff;
-                    for (int i = 0; i < alive.size(); i++) {
-                        if (!inCore[i]) {
-                            float dx = alive.get(i).getLocation().x - prelimX;
-                            float dy = alive.get(i).getLocation().y - prelimY;
-                            if ((dx * dx + dy * dy) <= outlierCutoffSq) {
-                                inCore[i] = true;
-                            }
-                        }
-                    }
-                }
-
-                int candidateCoreCount = 0;
-                float candidateCoreWeight = 0f;
-                for (int i = 0; i < alive.size(); i++) {
-                    if (inCore[i]) {
-                        candidateCoreCount++;
-                        candidateCoreWeight += weights[i];
-                    }
-                }
-
-                boolean validMultiShipCore = alive.size() >= 3
-                        && candidateCoreCount >= 2
-                        && candidateCoreCount < alive.size()
-                        && (candidateCoreWeight >= weightSum * 0.50f || candidateCoreCount * 2 >= alive.size());
-                boolean validSingleShipCore = alive.size() >= 2
-                        && candidateCoreCount == 1
-                        && div.rawAllMemberSpreadRadius > Math.max(950f, div.stationKeepingRadius * 1.35f);
-
-                if (validMultiShipCore || validSingleShipCore) {
-                    coreSumX = 0f;
-                    coreSumY = 0f;
-                    coreSumVx = 0f;
-                    coreSumVy = 0f;
-                    coreWeightSum = 0f;
-                    coreCount = 0;
-                    for (int i = 0; i < alive.size(); i++) {
-                        ShipAPI s = alive.get(i);
-                        if (inCore[i]) {
-                            float w = weights[i];
-                            coreSumX += s.getLocation().x * w;
-                            coreSumY += s.getLocation().y * w;
-                            coreSumVx += s.getVelocity().x * w;
-                            coreSumVy += s.getVelocity().y * w;
-                            coreWeightSum += w;
-                            coreCount++;
-                        } else {
-                            div.detachedStragglerIds.add(s.getId());
-                        }
-                    }
-                }
-            }
-
-            div.coreMemberCount = coreCount;
-            div.coreFpRatio = coreWeightSum / Math.max(1f, weightSum);
-            div.centroid.set(coreSumX / Math.max(1f, coreWeightSum), coreSumY / Math.max(1f, coreWeightSum));
-            div.velocity.set(coreSumVx / Math.max(1f, coreWeightSum), coreSumVy / Math.max(1f, coreWeightSum));
-            div.avgFluxLevel = fluxSum / alive.size();
-            div.maxMemberFluxLevel = maxFlux;
-            div.avgHullLevel = hullSum / alive.size();
-            div.hasShipNeedingHelp = needsHelp;
-            div.shipNeedingHelp = helpShip;
-            div.usableStrikeAmmoCount = strikeAmmo;
-            div.totalFpStrength = (ableCount > 0) ? Math.max(1f, ableWeightSum) : Math.max(1f, weightSum * 0.25f);
-
-            // Compute RMS spread radius around the Core Cluster (excluding detached stragglers)
-            float coreDistSqSum = 0f;
-            int spreadSamples = 0;
-            for (ShipAPI s : alive) {
-                if (div.detachedStragglerIds.contains(s.getId())) continue;
-                float dx = s.getLocation().x - div.centroid.x;
-                float dy = s.getLocation().y - div.centroid.y;
-                coreDistSqSum += (dx * dx + dy * dy);
-                spreadSamples++;
-            }
-            div.spreadRadius = (spreadSamples > 0)
-                    ? (float) Math.sqrt(coreDistSqSum / spreadSamples)
-                    : div.rawAllMemberSpreadRadius;
-            div.stationKeepingRatio = div.spreadRadius / Math.max(300f, div.stationKeepingRadius);
-
-            // Spatial-grid local overmatch scan around division centroid (never O(N^2))
-            evaluateLocalForceRatioViaGrid(engine, div);
-
-            // Weapon-arc firepower-space & L/U crossfire cordon evaluation at division centroid
-            BattlefieldFirepowerEvaluator.updateDivisionFirepowerTelemetry(engine, div);
-            BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(div);
-            if (div.crossfireCordonIndex >= 0.32f && div.localEnemyStrength > 1f) {
-                // Weight effective local enemy pressure by L/U crossfire cordon amplification
-                float cordonMult = 1.0f + (div.crossfireCordonIndex - 0.20f) * 0.55f;
-                div.localEnemyStrength *= cordonMult;
-                div.localForceRatio = div.localFriendlyStrength / Math.max(1f, div.localEnemyStrength);
-            }
-
-            // Explicit division-level violent contact measurement (weapon discharge + incoming threat + flux/damage)
-            div.activeWeaponFiringRatio = DynamicBattleMusicController.computeDivisionActiveFiringRatio(div);
-            div.violentContactIntensity = DynamicBattleMusicController.computeDivisionViolentContactIntensity(
-                    div, div.activeWeaponFiringRatio);
-            div.engagedFpMass = div.totalFpStrength * div.violentContactIntensity;
-
-            if (!div.isUnableDivision) {
+            updateSingleDivisionTelemetry(engine, div);
+            if (!div.isUnableDivision && !div.getAliveMembers().isEmpty()) {
                 fleetWeightedX += div.centroid.x * div.totalFpStrength;
                 fleetWeightedY += div.centroid.y * div.totalFpStrength;
                 totalFriendlyFp += div.totalFpStrength;
@@ -357,9 +81,298 @@ public class OtcAI {
                 ? Math.min(1f, sumFleetInRangeFp / sumFleetLiveFp)
                 : 0f;
 
-        // Item D: Awareness of friendly independent ships (unassigned ships on our side fighting under individual ship AI).
-        // An organized fleet OTC directs the battle, whereas a disorganized fleet OTC takes into account the disposition
-        // (centroid, velocity, and combat mass) of its independent ships and acts accordingly!
+        updateIndependentShipsAndFleetCentroid(engine, battleGroup, fleetWeightedX, fleetWeightedY, totalFriendlyFp);
+        DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(battleGroup);
+        updateReserveAndEngagementCorridors(engine, battleGroup, frontlineWeightedX, frontlineWeightedY, frontlineFp);
+    }
+
+    private static void updateSingleDivisionTelemetry(CombatEngineAPI engine, DivisionState div) {
+        List<ShipAPI> alive = div.getAliveMembers();
+        div.detachedStragglerIds.clear();
+        if (alive.isEmpty()) {
+            div.coreMemberCount = 0;
+            div.ableMemberCount = 0;
+            div.retreatingMemberCount = 0;
+            div.retreatingFraction = 0f;
+            div.isUnableDivision = true;
+            div.coreFpRatio = 1f;
+            div.localFriendlyStrength = 0f;
+            div.localEnemyStrength = 0f;
+            div.localForceRatio = 1f;
+            div.incomingAlphaThreat = 0f;
+            div.incomingShortDotThreat = 0f;
+            div.incomingSustainedDotThreat = 0f;
+            div.incomingPdThreat = 0f;
+            div.crossfireCordonIndex = 0f;
+            div.smoothedDangerScore = 0f;
+            div.activeWeaponFiringRatio = 0f;
+            div.violentContactIntensity = 0f;
+            div.engagedFpMass = 0f;
+            return;
+        }
+
+        int ableCount = 0;
+        int retreatingCount = 0;
+        float ableWeightSum = 0f;
+        boolean[] shipUnable = new boolean[alive.size()];
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI s = alive.get(i);
+            boolean unable = DivisionState.isShipUnable(s);
+            shipUnable[i] = unable;
+            if (unable) {
+                retreatingCount++;
+            } else {
+                ableCount++;
+                ableWeightSum += ShipCapabilityProfile.resolveShipFpStrength(s);
+            }
+        }
+        div.ableMemberCount = ableCount;
+        div.retreatingMemberCount = retreatingCount;
+        div.retreatingFraction = (float) retreatingCount / Math.max(1, alive.size());
+        div.isUnableDivision = (ableCount == 0 || div.retreatingFraction >= 0.65f);
+
+        div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(
+                div.archetype,
+                Math.max(1, ableCount > 0 ? ableCount : alive.size()),
+                div.stationSpacing,
+                div.stationKeepingMult,
+                div.commander.stationKeepingStrictness);
+
+        float sumX = 0f;
+        float sumY = 0f;
+        float sumVx = 0f;
+        float sumVy = 0f;
+        float weightSum = 0f;
+        float fluxSum = 0f;
+        float maxFlux = 0f;
+        float hullSum = 0f;
+        int strikeAmmo = 0;
+        boolean needsHelp = false;
+        ShipAPI helpShip = null;
+
+        float[] weights = new float[alive.size()];
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI s = alive.get(i);
+            float baseW = ShipCapabilityProfile.resolveShipFpStrength(s);
+            float w = (shipUnable[i] && ableCount > 0) ? (baseW * 0.12f) : baseW;
+            weights[i] = w;
+            if (shipUnable[i] && ableCount > 0) {
+                div.detachedStragglerIds.add(s.getId());
+            }
+            sumX += s.getLocation().x * w;
+            sumY += s.getLocation().y * w;
+            sumVx += s.getVelocity().x * w;
+            sumVy += s.getVelocity().y * w;
+            weightSum += w;
+
+            float fl = s.getFluxLevel();
+            fluxSum += fl;
+            if (!shipUnable[i] && fl > maxFlux) maxFlux = fl;
+            hullSum += s.getHullLevel();
+
+            if (!shipUnable[i]) {
+                ShipwideAIFlags flags = s.getAIFlags();
+                if (flags != null && (flags.hasFlag(AIFlags.NEEDS_HELP) || flags.hasFlag(AIFlags.IN_CRITICAL_DPS_DANGER))) {
+                    needsHelp = true;
+                    helpShip = s;
+                } else if (fl >= 0.84f || s.getHullLevel() <= 0.45f) {
+                    needsHelp = true;
+                    if (helpShip == null) helpShip = s;
+                }
+                strikeAmmo += countUsableStrikeAmmo(s);
+            }
+        }
+
+        float rawCenterX = sumX / Math.max(1f, weightSum);
+        float rawCenterY = sumY / Math.max(1f, weightSum);
+        float rawDistSqSum = 0f;
+        for (ShipAPI s : alive) {
+            float dx = s.getLocation().x - rawCenterX;
+            float dy = s.getLocation().y - rawCenterY;
+            rawDistSqSum += (dx * dx + dy * dy);
+        }
+        div.rawAllMemberSpreadRadius = (float) Math.sqrt(rawDistSqSum / alive.size());
+
+        computeCoreClusterAndStragglers(div, alive, weights, sumX, sumY, sumVx, sumVy, weightSum);
+
+        div.avgFluxLevel = fluxSum / alive.size();
+        div.maxMemberFluxLevel = maxFlux;
+        div.avgHullLevel = hullSum / alive.size();
+        div.hasShipNeedingHelp = needsHelp;
+        div.shipNeedingHelp = helpShip;
+        div.usableStrikeAmmoCount = strikeAmmo;
+        div.totalFpStrength = (ableCount > 0) ? Math.max(1f, ableWeightSum) : Math.max(1f, weightSum * 0.25f);
+
+        float coreDistSqSum = 0f;
+        int spreadSamples = 0;
+        for (ShipAPI s : alive) {
+            if (div.detachedStragglerIds.contains(s.getId())) continue;
+            float dx = s.getLocation().x - div.centroid.x;
+            float dy = s.getLocation().y - div.centroid.y;
+            coreDistSqSum += (dx * dx + dy * dy);
+            spreadSamples++;
+        }
+        div.spreadRadius = (spreadSamples > 0)
+                ? (float) Math.sqrt(coreDistSqSum / spreadSamples)
+                : div.rawAllMemberSpreadRadius;
+        div.stationKeepingRatio = div.spreadRadius / Math.max(300f, div.stationKeepingRadius);
+
+        evaluateLocalForceRatioViaGrid(engine, div);
+        BattlefieldFirepowerEvaluator.updateDivisionFirepowerTelemetry(engine, div);
+        BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(div);
+        if (div.crossfireCordonIndex >= 0.32f && div.localEnemyStrength > 1f) {
+            float cordonMult = 1.0f + (div.crossfireCordonIndex - 0.20f) * 0.55f;
+            div.localEnemyStrength *= cordonMult;
+            div.localForceRatio = div.localFriendlyStrength / Math.max(1f, div.localEnemyStrength);
+        }
+
+        div.activeWeaponFiringRatio = DynamicBattleMusicController.computeDivisionActiveFiringRatio(div);
+        div.violentContactIntensity = DynamicBattleMusicController.computeDivisionViolentContactIntensity(
+                div, div.activeWeaponFiringRatio);
+        div.engagedFpMass = div.totalFpStrength * div.violentContactIntensity;
+    }
+
+    private static void computeCoreClusterAndStragglers(
+            DivisionState div,
+            List<ShipAPI> alive,
+            float[] weights,
+            float sumX,
+            float sumY,
+            float sumVx,
+            float sumVy,
+            float weightSum) {
+        float coreSumX = sumX;
+        float coreSumY = sumY;
+        float coreSumVx = sumVx;
+        float coreSumVy = sumVy;
+        float coreWeightSum = weightSum;
+        int coreCount = alive.size();
+
+        if (alive.size() >= 2) {
+            float neighborRadius = Math.max(820f, div.stationKeepingRadius * 1.45f);
+            float neighborRadiusSq = neighborRadius * neighborRadius;
+
+            int anchorIdx = 0;
+            float bestClusterScore = -1f;
+            for (int i = 0; i < alive.size(); i++) {
+                ShipAPI si = alive.get(i);
+                float score = weights[i] * (si == div.flagship ? 1.30f : 1.0f);
+                for (int j = 0; j < alive.size(); j++) {
+                    if (i == j) continue;
+                    ShipAPI sj = alive.get(j);
+                    float dx = si.getLocation().x - sj.getLocation().x;
+                    float dy = si.getLocation().y - sj.getLocation().y;
+                    if ((dx * dx + dy * dy) <= neighborRadiusSq) {
+                        score += weights[j];
+                    }
+                }
+                if (score > bestClusterScore) {
+                    bestClusterScore = score;
+                    anchorIdx = i;
+                }
+            }
+
+            boolean[] inCore = new boolean[alive.size()];
+            inCore[anchorIdx] = true;
+            boolean addedAny = true;
+            while (addedAny) {
+                addedAny = false;
+                for (int i = 0; i < alive.size(); i++) {
+                    if (inCore[i]) continue;
+                    ShipAPI si = alive.get(i);
+                    for (int j = 0; j < alive.size(); j++) {
+                        if (!inCore[j]) continue;
+                        ShipAPI sj = alive.get(j);
+                        float dx = si.getLocation().x - sj.getLocation().x;
+                        float dy = si.getLocation().y - sj.getLocation().y;
+                        if ((dx * dx + dy * dy) <= neighborRadiusSq) {
+                            inCore[i] = true;
+                            addedAny = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            float prelimX = 0f;
+            float prelimY = 0f;
+            float prelimW = 0f;
+            for (int i = 0; i < alive.size(); i++) {
+                if (inCore[i]) {
+                    prelimX += alive.get(i).getLocation().x * weights[i];
+                    prelimY += alive.get(i).getLocation().y * weights[i];
+                    prelimW += weights[i];
+                }
+            }
+            if (prelimW > 0f) {
+                prelimX /= prelimW;
+                prelimY /= prelimW;
+                float outlierCutoff = Math.max(1050f, div.stationKeepingRadius * 1.68f);
+                float outlierCutoffSq = outlierCutoff * outlierCutoff;
+                for (int i = 0; i < alive.size(); i++) {
+                    if (!inCore[i]) {
+                        float dx = alive.get(i).getLocation().x - prelimX;
+                        float dy = alive.get(i).getLocation().y - prelimY;
+                        if ((dx * dx + dy * dy) <= outlierCutoffSq) {
+                            inCore[i] = true;
+                        }
+                    }
+                }
+            }
+
+            int candidateCoreCount = 0;
+            float candidateCoreWeight = 0f;
+            for (int i = 0; i < alive.size(); i++) {
+                if (inCore[i]) {
+                    candidateCoreCount++;
+                    candidateCoreWeight += weights[i];
+                }
+            }
+
+            boolean validMultiShipCore = alive.size() >= 3
+                    && candidateCoreCount >= 2
+                    && candidateCoreCount < alive.size()
+                    && (candidateCoreWeight >= weightSum * 0.50f || candidateCoreCount * 2 >= alive.size());
+            boolean validSingleShipCore = alive.size() >= 2
+                    && candidateCoreCount == 1
+                    && div.rawAllMemberSpreadRadius > Math.max(950f, div.stationKeepingRadius * 1.35f);
+
+            if (validMultiShipCore || validSingleShipCore) {
+                coreSumX = 0f;
+                coreSumY = 0f;
+                coreSumVx = 0f;
+                coreSumVy = 0f;
+                coreWeightSum = 0f;
+                coreCount = 0;
+                for (int i = 0; i < alive.size(); i++) {
+                    ShipAPI s = alive.get(i);
+                    if (inCore[i]) {
+                        float w = weights[i];
+                        coreSumX += s.getLocation().x * w;
+                        coreSumY += s.getLocation().y * w;
+                        coreSumVx += s.getVelocity().x * w;
+                        coreSumVy += s.getVelocity().y * w;
+                        coreWeightSum += w;
+                        coreCount++;
+                    } else {
+                        div.detachedStragglerIds.add(s.getId());
+                    }
+                }
+            }
+        }
+
+        div.coreMemberCount = coreCount;
+        div.coreFpRatio = coreWeightSum / Math.max(1f, weightSum);
+        div.centroid.set(coreSumX / Math.max(1f, coreWeightSum), coreSumY / Math.max(1f, coreWeightSum));
+        div.velocity.set(coreSumVx / Math.max(1f, coreWeightSum), coreSumVy / Math.max(1f, coreWeightSum));
+    }
+
+    private static void updateIndependentShipsAndFleetCentroid(
+            CombatEngineAPI engine,
+            BattleGroupState battleGroup,
+            float fleetWeightedX,
+            float fleetWeightedY,
+            float totalFriendlyFp) {
         battleGroup.friendlyIndependentShips.clear();
         float indepFp = 0f;
         float indepLiveFp = 0f;
@@ -410,8 +423,6 @@ public class OtcAI {
         if (totalFriendlyFp > 0f) {
             float orgCenterX = fleetWeightedX / totalFriendlyFp;
             float orgCenterY = fleetWeightedY / totalFriendlyFp;
-            // In a disorganized fleet (organizationRatio < 0.65), blend fleetCentroid toward the independent swarm
-            // so the OTC's reference axis and mutual-support stations stay coupled to the independent ships' disposition.
             if (indepFp > 10f && battleGroup.organizationRatio < 0.65f) {
                 float indepBlend = Math.min(0.50f, (0.68f - battleGroup.organizationRatio) * 0.75f);
                 orgCenterX = orgCenterX * (1f - indepBlend) + battleGroup.independentCentroid.x * indepBlend;
@@ -421,13 +432,14 @@ public class OtcAI {
         } else if (indepFp > 0f) {
             battleGroup.fleetCentroid.set(battleGroup.independentCentroid);
         }
+    }
 
-        // Compute explicit mass-weighted fleet engagement telemetry across the entire battlegroup
-        DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(battleGroup);
-
-        // Anchor reserveStation 680u behind the engaged frontline centroid (close tactical support distance).
-        // Item D: When outnumbered / fighting retirement / in Fleet Protective Bastion, anchor the reserve station
-        // closer to the friendly map edge so a balled-up fleet uses the map edge as a safe rear-blocking zone!
+    private static void updateReserveAndEngagementCorridors(
+            CombatEngineAPI engine,
+            BattleGroupState battleGroup,
+            float frontlineWeightedX,
+            float frontlineWeightedY,
+            float frontlineFp) {
         float retreatDirY = (battleGroup.side == 0) ? -1f : 1f;
         float halfH = (engine != null && engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.5f) : 9000f;
         float maxEdgeY = halfH * 0.78f;
@@ -447,9 +459,6 @@ public class OtcAI {
             battleGroup.fleetEngagementZoneCenter.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y);
             battleGroup.fleetSafeCorridorCenter.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * 560f);
         }
-        // Consent: While Orchestrated Advance is active, anchor reserveStation directly to the reserve division's
-        // consented rear slot in the Grand Formation so the reserve marches cohesively with the fleet rather than
-        // pulling backward toward the map edge immediately after deployment.
         if (isOrchestratedAdvanceActive(engine, battleGroup, null)
                 && battleGroup.reserveDivision != null
                 && battleGroup.reserveDivision.hasFleetFormationOffset
@@ -1051,42 +1060,10 @@ public class OtcAI {
             return;
         }
         if (resolved == null || resolved == PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO) {
-            boolean hasCarrier = false;
-            int fastFlankers = 0;
-            int heavyLineDivs = 0;
-            for (DivisionState d : active) {
-                if (d.archetype != null && d.archetype.isCarrierArchetype()) hasCarrier = true;
-                if (d.isFastFlanker) fastFlankers++;
-                if (d.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                        || d.archetype == DivisionArchetype.CRUISER_DIVISION
-                        || d.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
-                    heavyLineDivs++;
-                }
-            }
-            if (hasCarrier && myGroup.forceRatio < 0.92f) {
-                resolved = PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION;
-            } else if (myGroup.organizationRatio < 0.55f) {
-                // Item D: A disorganized fleet OTC (< 55% organized) keeps its organized core in a compact line/wedge
-                // alongside its independent ships rather than spreading 1-2 divisions into a wide Grand Crescent.
-                resolved = (heavyLineDivs >= 1 && active.size() >= 2)
-                        ? PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD
-                        : PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST;
-            } else if (myGroup.useConvergence && fastFlankers >= 2 && active.size() >= 3) {
-                resolved = PermanentDivisionManager.FleetWideFormation.CRESCENT_HORNS;
-            } else if ((myGroup.forceRatio >= 1.22f && active.size() >= 3)
-                    || (heavyLineDivs >= 2 && myGroup.forceRatio >= 1.05f && active.size() >= 3)) {
-                resolved = PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
-            } else if (myGroup.forceRatio < 0.80f && active.size() >= 3) {
-                resolved = PermanentDivisionManager.FleetWideFormation.REFUSED_FLANK_OBLIQUE;
-            } else if (hasCarrier && active.size() >= 3) {
-                resolved = PermanentDivisionManager.FleetWideFormation.CHECKERBOARD_QUINCUNX;
-            } else {
-                resolved = PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST;
-            }
+            resolved = resolveDoctrinalAutoFleetFormation(myGroup, active);
         }
         myGroup.activeFleetWideFormation = resolved;
 
-        // Determine fleet advance axis (toward primary visible enemy or default +Y/-Y battle axis)
         float axisX = 0f;
         float axisY = (myGroup.side == 0) ? 1f : -1f;
         if (myGroup.primaryThreatEnemyDivision != null
@@ -1104,7 +1081,6 @@ public class OtcAI {
         float perpY = -axisX;
         float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
 
-        // Ensure Main Effort & Reserve are consented prior to computing Grand Formation slots
         if (myGroup.mainEffortDivision == null || !myGroup.mainEffortDivision.isAbleCombatEffective()) {
             synchronizeGrandFormationConsent(engine, myGroup, enemyGroup, now);
         }
@@ -1120,17 +1096,62 @@ public class OtcAI {
                 combatDivs.add(d);
             }
         }
-        // Put Main Effort first in combatDivs for spearhead/center indexing
         if (myGroup.mainEffortDivision != null && combatDivs.remove(myGroup.mainEffortDivision)) {
             combatDivs.add(0, myGroup.mainEffortDivision);
         }
 
-        // Grand Formation & OTC "Consent":
-        // Sort non-Main-Effort combatDivs by doctrinal role tier (Inner Line: Heavy/Screen -> Mid Wing: Destroyers ->
-        // Outer Wing: Fast Flankers / Envelopment / Scouts), and lock each division's wing side (-1 Port, +1 Starboard)
-        // and slot index so the OTC never shifts divisions across the fleet after deployment!
         orderCombatDivisionsByConsent(myGroup, combatDivs, perpX, perpY, now);
+        assignCombatDivisionsFleetFormationOffsets(engine, combatDivs, resolved, axisX, axisY, perpX, perpY);
+        assignSupportDivisionsFleetFormationOffsets(supportDivs, resolved, axisX, axisY, perpX, perpY);
+    }
 
+    private static PermanentDivisionManager.FleetWideFormation resolveDoctrinalAutoFleetFormation(
+            BattleGroupState myGroup,
+            List<DivisionState> active) {
+        boolean hasCarrier = false;
+        int fastFlankers = 0;
+        int heavyLineDivs = 0;
+        for (DivisionState d : active) {
+            if (d.archetype != null && d.archetype.isCarrierArchetype()) hasCarrier = true;
+            if (d.isFastFlanker) fastFlankers++;
+            if (d.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || d.archetype == DivisionArchetype.CRUISER_DIVISION
+                    || d.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
+                heavyLineDivs++;
+            }
+        }
+        if (hasCarrier && myGroup.forceRatio < 0.92f) {
+            return PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION;
+        }
+        if (myGroup.organizationRatio < 0.55f) {
+            return (heavyLineDivs >= 1 && active.size() >= 2)
+                    ? PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD
+                    : PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST;
+        }
+        if (myGroup.useConvergence && fastFlankers >= 2 && active.size() >= 3) {
+            return PermanentDivisionManager.FleetWideFormation.CRESCENT_HORNS;
+        }
+        if ((myGroup.forceRatio >= 1.22f && active.size() >= 3)
+                || (heavyLineDivs >= 2 && myGroup.forceRatio >= 1.05f && active.size() >= 3)) {
+            return PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
+        }
+        if (myGroup.forceRatio < 0.80f && active.size() >= 3) {
+            return PermanentDivisionManager.FleetWideFormation.REFUSED_FLANK_OBLIQUE;
+        }
+        if (hasCarrier && active.size() >= 3) {
+            return PermanentDivisionManager.FleetWideFormation.CHECKERBOARD_QUINCUNX;
+        }
+        return PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST;
+    }
+
+    private static void assignCombatDivisionsFleetFormationOffsets(
+            CombatEngineAPI engine,
+            List<DivisionState> combatDivs,
+            PermanentDivisionManager.FleetWideFormation resolved,
+            float axisX,
+            float axisY,
+            float perpX,
+            float perpY) {
         int nCombat = combatDivs.size();
         float maxSpanHalf = (engine != null && engine.getMapWidth() > 0f)
                 ? (engine.getMapWidth() * 0.36f)
@@ -1287,7 +1308,15 @@ public class OtcAI {
             d.fleetFormationOffset.set(axisX * fwd + perpX * lat, axisY * fwd + perpY * lat);
             d.hasFleetFormationOffset = true;
         }
+    }
 
+    private static void assignSupportDivisionsFleetFormationOffsets(
+            List<DivisionState> supportDivs,
+            PermanentDivisionManager.FleetWideFormation resolved,
+            float axisX,
+            float axisY,
+            float perpX,
+            float perpY) {
         int nSupport = supportDivs.size();
         for (int i = 0; i < nSupport; i++) {
             DivisionState d = supportDivs.get(i);
@@ -1617,7 +1646,6 @@ public class OtcAI {
             }
             return;
         }
-        // Divisions are synced immediately before this call; if none exist the caller marks the wave handled.
         if (group.divisions.isEmpty()) {
             return;
         }
@@ -1625,7 +1653,6 @@ public class OtcAI {
             if (s != null && s.getId() != null) group.formationSpawnHijackedShipIds.add(s.getId());
         }
 
-        // Snapshot vanilla deployment state for failsafe restoration
         final int count = newlyDeployedShips.size();
         final float[] backupLocX = new float[count];
         final float[] backupLocY = new float[count];
@@ -1646,7 +1673,6 @@ public class OtcAI {
         try {
             updateFleetWideFormationGeometry(engine, group, enemyGroup);
 
-            // Partition newly deployed ships by division
             List<DivisionState> deployingDivs = new ArrayList<>();
             java.util.Map<DivisionState, List<ShipAPI>> waveShipsByDiv = new java.util.LinkedHashMap<>();
             float waveSumX = 0f;
@@ -1692,8 +1718,6 @@ public class OtcAI {
             float maxAbsY = mapH * 0.42f;
             float fwdDirY = (group.side == 0) ? 1f : -1f;
 
-            // Compute average fleetFormationOffset across the divisions in this wave so a single or partial
-            // wave stays centered on its entry centroid while preserving multi-division relative offsets
             float avgOffsetX = 0f;
             float avgOffsetY = 0f;
             for (DivisionState d : deployingDivs) {
@@ -1703,7 +1727,6 @@ public class OtcAI {
             avgOffsetX /= deployingDivs.size();
             avgOffsetY /= deployingDivs.size();
 
-            // Modulate fleet-wide formation cohesion by OTC personality & authority
             float otcStrictness = (group.otc != null) ? group.otc.stationKeepingStrictness : 1.0f;
             float otcAggression = (group.otc != null) ? group.otc.aggressionBias : 1.0f;
             float authorityScale = (group.authority == PermanentDivisionManager.OtcAuthority.POSITIVE_CONTROL)
@@ -1711,14 +1734,9 @@ public class OtcAI {
                     : (group.authority == PermanentDivisionManager.OtcAuthority.COMMAND_BY_NEGATION ? 1.12f : 1.0f);
             float otcCohesionScale = authorityScale * Math.max(0.82f, Math.min(1.22f, 2.0f - otcStrictness));
 
-            // Anchor travel-drive deployment waves on frontmostEntryY (where Row 0 enters the map) rather than
-            // waveAverageY (which vanilla's 5-column row grid drags thousands of units off-map for large fleets),
-            // so the entire fleet forms up at the entry threshold and zooms onto the battlefield all at once!
             float entryBaseY = anyTravelDriveActive
                     ? (frontmostEntryY - fwdDirY * 160f)
                     : waveAverageY;
-
-            // Compute synchronized base travel-drive burn duration from vanilla stop line (~2000u inside map edge)
             float vanillaStopLineY = (group.side == 0)
                     ? (-mapH * 0.5f + 2150f)
                     : (mapH * 0.5f - 2150f);
@@ -1741,167 +1759,14 @@ public class OtcAI {
             for (DivisionState div : deployingDivs) {
                 List<ShipAPI> divWaveShips = waveShipsByDiv.get(div);
                 if (divWaveShips == null || divWaveShips.isEmpty()) continue;
-
-                // Ensure the division flagship is at index 0 of divWaveShips so it occupies Slot 0 (Command Slot)
-                if (div.flagship != null && divWaveShips.remove(div.flagship)) {
-                    divWaveShips.add(0, div.flagship);
-                }
-
-                // Ensure wing-matched or doctrinal intra-division formation is resolved immediately at deployment
-                DivisionCommanderAI.evaluateAndUpdateDivisionFormation(engine, div, group, now);
-
-                float relFleetX = (deployingDivs.size() >= 2)
-                        ? (div.fleetFormationOffset.x - avgOffsetX) * otcCohesionScale
-                        : 0f;
-                float relFleetY = (deployingDivs.size() >= 2)
-                        ? (div.fleetFormationOffset.y - avgOffsetY) * otcCohesionScale
-                        : 0f;
-
-                // Division LineStation modulation (VAN pushes forward, REAR holds back)
-                float lineStationBiasY = 0f;
-                if (div.lineStation == PermanentDivisionManager.LineStation.VAN) {
-                    lineStationBiasY = fwdDirY * 150f;
-                } else if (div.lineStation == PermanentDivisionManager.LineStation.REAR
-                        || (div.archetype != null && div.archetype.isCarrierArchetype())) {
-                    lineStationBiasY = -fwdDirY * 220f;
-                }
-
-                float divAnchorX = Math.max(-maxAbsX, Math.min(maxAbsX, waveCenterX + relFleetX));
-                float divAnchorY = anyTravelDriveActive
-                        ? (entryBaseY + relFleetY + lineStationBiasY)
-                        : Math.max(-maxAbsY, Math.min(maxAbsY, waveAverageY + relFleetY + lineStationBiasY));
-
-                // During Travel-Drive entry, orient every division straight along the battlefield entry axis (0, fwdDirY)
-                // so all divisions and ships zoom in together in crisp parallel lanes before wheeling onto objectives.
-                float initHx = 0f;
-                float initHy = fwdDirY;
-                boolean isHeavyOrCarrier = div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                        || (div.archetype != null && div.archetype.isCarrierArchetype());
-                DivisionMissionType openMission = DivisionCommanderAI.resolveActiveMission(div, now);
-                if (!anyTravelDriveActive
-                        && !isHeavyOrCarrier
-                        && openMission != DivisionMissionType.RESERVE
-                        && engine.getObjectives() != null
-                        && !engine.getObjectives().isEmpty()) {
-                    BattleObjectiveAPI nearestObj = null;
-                    float bestObjDist = Float.MAX_VALUE;
-                    for (BattleObjectiveAPI obj : engine.getObjectives()) {
-                        if (obj == null || obj.getOwner() == group.side) continue;
-                        float odx = obj.getLocation().x - divAnchorX;
-                        float ody = obj.getLocation().y - divAnchorY;
-                        float d = (float) Math.sqrt(odx * odx + ody * ody);
-                        if (d < bestObjDist) {
-                            bestObjDist = d;
-                            nearestObj = obj;
-                        }
-                    }
-                    if (nearestObj != null && bestObjDist > 250f) {
-                        float odx = nearestObj.getLocation().x - divAnchorX;
-                        float ody = nearestObj.getLocation().y - divAnchorY;
-                        float oLen = (float) Math.sqrt(odx * odx + ody * ody);
-                        if (oLen > 1f) {
-                            initHx = odx / oLen;
-                            initHy = ody / oLen;
-                        }
-                    }
-                }
-
-                div.formationHeadingX = initHx;
-                div.formationHeadingY = initHy;
-                div.formationHeadingInitialized = true;
-                float initFacingDeg = (float) Math.toDegrees(Math.atan2(initHy, initHx));
-                if (initFacingDeg < 0f) initFacingDeg += 360f;
-
-                PermanentDivisionManager.DivisionFormation fm = div.activeFormation != null
-                        ? div.activeFormation
-                        : (div.doctrinalFormation != null ? div.doctrinalFormation : PermanentDivisionManager.DivisionFormation.LINE_ABREAST);
-
-                // Division personality & division settings modulate intra-division spacing; keep jitter minimal so
-                // instantiated formations look crisp and orderly as the fleet zooms in.
-                float divStrictness = (div.commander != null) ? div.commander.stationKeepingStrictness : 1.0f;
-                float combinedStrictness = 0.5f * (otcStrictness + divStrictness);
-                float looseness = Math.max(0f, 1.05f - combinedStrictness) * 0.25f;
-                float effectiveSpacing = Math.max(210f, div.stationSpacing * Math.max(0.78f, Math.min(1.30f, div.stationKeepingMult * (1.85f - 0.85f * divStrictness))));
-                float divSyncBurnDur = syncFleetBurnDur;
-
-                div.assignedSlotByShipId.clear();
-                div.lastSlotAssignedFormation = fm;
-                div.lastSlotAssignedCount = divWaveShips.size();
-
-                for (int i = 0; i < divWaveShips.size(); i++) {
-                    ShipAPI s = divWaveShips.get(i);
-                    if (s == null) continue;
-                    if (s.getId() != null) {
-                        div.assignedSlotByShipId.put(s.getId(), i);
-                    }
-                    if (s == engine.getPlayerShip() && !engine.isUIAutopilotOn()) {
-                        continue;
-                    }
-                    Vector2f slot = DivisionFormationNavigator.computeFormationSlotPositionForAnchor(
-                            fm, i, divWaveShips, s, divAnchorX, divAnchorY, initHx, initHy, effectiveSpacing);
-
-                    // Subtle deterministic personality variation for non-strict commanders
-                    int hash = (s.getId() != null) ? s.getId().hashCode() : (i * 7919);
-                    float jx = (((hash & 0xFF) / 127.5f) - 1.0f) * 45f * looseness;
-                    float jy = ((((hash >> 8) & 0xFF) / 127.5f) - 1.0f) * 35f * looseness;
-
-                    float targetX = Math.max(-maxAbsX, Math.min(maxAbsX, slot.x + jx));
-                    float targetY = anyTravelDriveActive
-                            ? (slot.y + jy)
-                            : Math.max(-maxAbsY, Math.min(maxAbsY, slot.y + jy));
-
-                    unplacedWaveShips.remove(s);
-                    Vector2f safePos = resolveSafeDeploymentPosition(engine, s, targetX, targetY, maxAbsX, unplacedWaveShips);
-                    if (!Float.isNaN(safePos.x) && !Float.isNaN(safePos.y)) {
-                        float oldX = s.getLocation().x;
-                        float oldY = s.getLocation().y;
-                        float deltaX = safePos.x - oldX;
-                        float deltaY = safePos.y - oldY;
-                        s.getLocation().set(safePos.x, safePos.y);
-                        s.setFacing(initFacingDeg);
-                        if (anyTravelDriveActive && s.getTravelDrive() != null && s.getTravelDrive().isActive()) {
-                            float origSpeed = (float) Math.sqrt(
-                                    s.getVelocity().x * s.getVelocity().x + s.getVelocity().y * s.getVelocity().y);
-                            float spd = (origSpeed >= 250f && origSpeed <= 750f) ? origSpeed : 600f;
-                            s.getVelocity().set(initHx * spd, initHy * spd);
-                            s.turnOnTravelDrive(divSyncBurnDur);
-                        }
-                        // Translate any already-spawned child modules and fighter wings with their parent ship
-                        try {
-                            if (s.getChildModulesCopy() != null) {
-                                for (ShipAPI mod : s.getChildModulesCopy()) {
-                                    if (mod != null && mod.getLocation() != null) {
-                                        mod.getLocation().set(mod.getLocation().x + deltaX, mod.getLocation().y + deltaY);
-                                        mod.setFacing(initFacingDeg);
-                                    }
-                                }
-                            }
-                            if (s.getAllWings() != null) {
-                                for (com.fs.starfarer.api.combat.FighterWingAPI w : s.getAllWings()) {
-                                    if (w == null || w.getWingMembers() == null) continue;
-                                    for (ShipAPI fmShip : w.getWingMembers()) {
-                                        if (fmShip != null && fmShip.getLocation() != null) {
-                                            fmShip.getLocation().set(
-                                                    fmShip.getLocation().x + deltaX,
-                                                    fmShip.getLocation().y + deltaY);
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (Throwable ignored) {
-                        }
-                    }
-                }
-
-                float postBurnX = Math.max(-maxAbsX, Math.min(maxAbsX, divAnchorX + (anyTravelDriveActive ? initHx * 600f * divSyncBurnDur : 0f)));
-                float postBurnY = Math.max(-maxAbsY, Math.min(maxAbsY, divAnchorY + (anyTravelDriveActive ? initHy * 600f * divSyncBurnDur : 0f)));
-                div.stationPoint.set(postBurnX, postBurnY);
-                div.centroid.set(divAnchorX, divAnchorY);
-                div.initialDeploymentMarshalled = true;
+                placeDivisionWaveShipsInFormation(
+                        engine, group, div, divWaveShips, deployingDivs.size(),
+                        waveCenterX, waveAverageY, entryBaseY, avgOffsetX, avgOffsetY,
+                        otcStrictness, otcCohesionScale, syncFleetBurnDur,
+                        maxAbsX, maxAbsY, fwdDirY, anyTravelDriveActive, unplacedWaveShips, now);
             }
             group.initialDeploymentDone = true;
         } catch (Throwable t) {
-            // Vanilla failsafe: restore exact vanilla deployment positions, velocities, and facings
             for (int i = 0; i < count; i++) {
                 ShipAPI s = newlyDeployedShips.get(i);
                 if (s != null && s.getId() != null) group.formationSpawnHijackedShipIds.add(s.getId());
@@ -1911,6 +1776,180 @@ public class OtcAI {
                     s.setFacing(backupFacing[i]);
                 }
             }
+        }
+    }
+
+    private static void placeDivisionWaveShipsInFormation(
+            CombatEngineAPI engine,
+            BattleGroupState group,
+            DivisionState div,
+            List<ShipAPI> divWaveShips,
+            int totalDeployingDivs,
+            float waveCenterX,
+            float waveAverageY,
+            float entryBaseY,
+            float avgOffsetX,
+            float avgOffsetY,
+            float otcStrictness,
+            float otcCohesionScale,
+            float syncFleetBurnDur,
+            float maxAbsX,
+            float maxAbsY,
+            float fwdDirY,
+            boolean anyTravelDriveActive,
+            Set<ShipAPI> unplacedWaveShips,
+            float now) {
+        if (div.flagship != null && divWaveShips.remove(div.flagship)) {
+            divWaveShips.add(0, div.flagship);
+        }
+
+        DivisionCommanderAI.evaluateAndUpdateDivisionFormation(engine, div, group, now);
+
+        float relFleetX = (totalDeployingDivs >= 2)
+                ? (div.fleetFormationOffset.x - avgOffsetX) * otcCohesionScale
+                : 0f;
+        float relFleetY = (totalDeployingDivs >= 2)
+                ? (div.fleetFormationOffset.y - avgOffsetY) * otcCohesionScale
+                : 0f;
+
+        float lineStationBiasY = 0f;
+        if (div.lineStation == PermanentDivisionManager.LineStation.VAN) {
+            lineStationBiasY = fwdDirY * 150f;
+        } else if (div.lineStation == PermanentDivisionManager.LineStation.REAR
+                || (div.archetype != null && div.archetype.isCarrierArchetype())) {
+            lineStationBiasY = -fwdDirY * 220f;
+        }
+
+        float divAnchorX = Math.max(-maxAbsX, Math.min(maxAbsX, waveCenterX + relFleetX));
+        float divAnchorY = anyTravelDriveActive
+                ? (entryBaseY + relFleetY + lineStationBiasY)
+                : Math.max(-maxAbsY, Math.min(maxAbsY, waveAverageY + relFleetY + lineStationBiasY));
+
+        float initHx = 0f;
+        float initHy = fwdDirY;
+        boolean isHeavyOrCarrier = div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                || (div.archetype != null && div.archetype.isCarrierArchetype());
+        DivisionMissionType openMission = DivisionCommanderAI.resolveActiveMission(div, now);
+        if (!anyTravelDriveActive
+                && !isHeavyOrCarrier
+                && openMission != DivisionMissionType.RESERVE
+                && engine.getObjectives() != null
+                && !engine.getObjectives().isEmpty()) {
+            BattleObjectiveAPI nearestObj = null;
+            float bestObjDist = Float.MAX_VALUE;
+            for (BattleObjectiveAPI obj : engine.getObjectives()) {
+                if (obj == null || obj.getOwner() == group.side) continue;
+                float odx = obj.getLocation().x - divAnchorX;
+                float ody = obj.getLocation().y - divAnchorY;
+                float d = (float) Math.sqrt(odx * odx + ody * ody);
+                if (d < bestObjDist) {
+                    bestObjDist = d;
+                    nearestObj = obj;
+                }
+            }
+            if (nearestObj != null && bestObjDist > 250f) {
+                float odx = nearestObj.getLocation().x - divAnchorX;
+                float ody = nearestObj.getLocation().y - divAnchorY;
+                float oLen = (float) Math.sqrt(odx * odx + ody * ody);
+                if (oLen > 1f) {
+                    initHx = odx / oLen;
+                    initHy = ody / oLen;
+                }
+            }
+        }
+
+        div.formationHeadingX = initHx;
+        div.formationHeadingY = initHy;
+        div.formationHeadingInitialized = true;
+        float initFacingDeg = (float) Math.toDegrees(Math.atan2(initHy, initHx));
+        if (initFacingDeg < 0f) initFacingDeg += 360f;
+
+        PermanentDivisionManager.DivisionFormation fm = div.activeFormation != null
+                ? div.activeFormation
+                : (div.doctrinalFormation != null ? div.doctrinalFormation : PermanentDivisionManager.DivisionFormation.LINE_ABREAST);
+
+        float divStrictness = (div.commander != null) ? div.commander.stationKeepingStrictness : 1.0f;
+        float combinedStrictness = 0.5f * (otcStrictness + divStrictness);
+        float looseness = Math.max(0f, 1.05f - combinedStrictness) * 0.25f;
+        float effectiveSpacing = Math.max(210f, div.stationSpacing * Math.max(0.78f, Math.min(1.30f, div.stationKeepingMult * (1.85f - 0.85f * divStrictness))));
+
+        div.assignedSlotByShipId.clear();
+        div.lastSlotAssignedFormation = fm;
+        div.lastSlotAssignedCount = divWaveShips.size();
+
+        for (int i = 0; i < divWaveShips.size(); i++) {
+            ShipAPI s = divWaveShips.get(i);
+            if (s == null) continue;
+            if (s.getId() != null) {
+                div.assignedSlotByShipId.put(s.getId(), i);
+            }
+            if (s == engine.getPlayerShip() && !engine.isUIAutopilotOn()) {
+                continue;
+            }
+            Vector2f slot = DivisionFormationNavigator.computeFormationSlotPositionForAnchor(
+                    fm, i, divWaveShips, s, divAnchorX, divAnchorY, initHx, initHy, effectiveSpacing);
+
+            int hash = (s.getId() != null) ? s.getId().hashCode() : (i * 7919);
+            float jx = (((hash & 0xFF) / 127.5f) - 1.0f) * 45f * looseness;
+            float jy = ((((hash >> 8) & 0xFF) / 127.5f) - 1.0f) * 35f * looseness;
+
+            float targetX = Math.max(-maxAbsX, Math.min(maxAbsX, slot.x + jx));
+            float targetY = anyTravelDriveActive
+                    ? (slot.y + jy)
+                    : Math.max(-maxAbsY, Math.min(maxAbsY, slot.y + jy));
+
+            unplacedWaveShips.remove(s);
+            Vector2f safePos = resolveSafeDeploymentPosition(engine, s, targetX, targetY, maxAbsX, unplacedWaveShips);
+            if (!Float.isNaN(safePos.x) && !Float.isNaN(safePos.y)) {
+                float deltaX = safePos.x - s.getLocation().x;
+                float deltaY = safePos.y - s.getLocation().y;
+                s.getLocation().set(safePos.x, safePos.y);
+                s.setFacing(initFacingDeg);
+                if (anyTravelDriveActive && s.getTravelDrive() != null && s.getTravelDrive().isActive()) {
+                    float origSpeed = (float) Math.sqrt(
+                            s.getVelocity().x * s.getVelocity().x + s.getVelocity().y * s.getVelocity().y);
+                    float spd = (origSpeed >= 250f && origSpeed <= 750f) ? origSpeed : 600f;
+                    s.getVelocity().set(initHx * spd, initHy * spd);
+                    s.turnOnTravelDrive(syncFleetBurnDur);
+                }
+                translateSpawnedChildModulesAndWings(s, deltaX, deltaY, initFacingDeg);
+            }
+        }
+
+        float postBurnX = Math.max(-maxAbsX, Math.min(maxAbsX, divAnchorX + (anyTravelDriveActive ? initHx * 600f * syncFleetBurnDur : 0f)));
+        float postBurnY = Math.max(-maxAbsY, Math.min(maxAbsY, divAnchorY + (anyTravelDriveActive ? initHy * 600f * syncFleetBurnDur : 0f)));
+        div.stationPoint.set(postBurnX, postBurnY);
+        div.centroid.set(divAnchorX, divAnchorY);
+        div.initialDeploymentMarshalled = true;
+    }
+
+    private static void translateSpawnedChildModulesAndWings(
+            ShipAPI s,
+            float deltaX,
+            float deltaY,
+            float initFacingDeg) {
+        try {
+            if (s.getChildModulesCopy() != null) {
+                for (ShipAPI mod : s.getChildModulesCopy()) {
+                    if (mod != null && mod.getLocation() != null) {
+                        mod.getLocation().set(mod.getLocation().x + deltaX, mod.getLocation().y + deltaY);
+                        mod.setFacing(initFacingDeg);
+                    }
+                }
+            }
+            if (s.getAllWings() != null) {
+                for (com.fs.starfarer.api.combat.FighterWingAPI w : s.getAllWings()) {
+                    if (w == null || w.getWingMembers() == null) continue;
+                    for (ShipAPI fmShip : w.getWingMembers()) {
+                        if (fmShip != null && fmShip.getLocation() != null) {
+                            fmShip.getLocation().set(
+                                    fmShip.getLocation().x + deltaX,
+                                    fmShip.getLocation().y + deltaY);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
         }
     }
 
