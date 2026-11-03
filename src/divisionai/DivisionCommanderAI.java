@@ -2329,7 +2329,6 @@ public class DivisionCommanderAI {
             float now) {
 
         ShipAPI playerShip = engine.getPlayerShip();
-        boolean playerManualControl = (playerShip != null && !engine.isUIAutopilotOn());
 
         CombatFleetManagerAPI fm = engine.getFleetManager(div.side);
 
@@ -2354,10 +2353,12 @@ public class DivisionCommanderAI {
 
             // Release strike craft we held back for staging once the division is no longer staging
             if (div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE && div.fighterPullbackShipIds.remove(ship.getId())) {
-                ship.setPullBackFighters(false);
+                if (!OtcAI.isPlayerManuallyPiloting(engine, ship)) {
+                    ship.setPullBackFighters(false);
+                }
             }
 
-            if (playerManualControl && ship == playerShip) {
+            if (OtcAI.isPlayerManuallyPiloting(engine, ship)) {
                 continue;
             }
             CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(ship.isAlly()) : null;
@@ -3672,7 +3673,11 @@ public class DivisionCommanderAI {
                 || currTarget.isHulk()
                 || convLock
                 || distFocus + 250f < distance(ship.getLocation(), currTarget.getLocation());
-        if (preferFocus) {
+        CombatEngineAPI engine = com.fs.starfarer.api.Global.getCombatEngine();
+        boolean isPlayerShip = (engine != null && ship == engine.getPlayerShip());
+        // Never overwrite the human player's R-key target reticle (ship.setShipTarget) on engine.getPlayerShip(),
+        // even when Autopilot is enabled (since players frequently use R to aim manual missile groups or inspect flux).
+        if (preferFocus && !isPlayerShip) {
             ship.setShipTarget(focusEnemyShip);
         }
         if (distFocus <= 2200f && (preferFocus || distFocus <= distance(ship.getLocation(), currTarget.getLocation()) + 450f)) {

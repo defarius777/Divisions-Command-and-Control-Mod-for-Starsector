@@ -877,6 +877,23 @@ public class OtcAI {
      * per-slot formation geometry, fine double-line rank relief, and division focus-fire target links),
      * independent ships receive only blanket fleet-wide posture signals along their own lanes.
      */
+    /**
+     * Returns true when {@code ship} is the player's currently piloted ship under manual helm control
+     * (Autopilot OFF).
+     *
+     * Note on Starsector engine quirk: in {@code com.fs.starfarer.combat.CombatEngine.isUIAutopilotOn()},
+     * vanilla Starsector returns {@code !combatUI.isAutopilotOn()} (inverted: true when manual control is active,
+     * false when autopilot is active), whereas {@code CombatUI.setAutopilot(boolean)} sets
+     * {@code playerShip.setShipAI(null)} during manual control and attaches a non-null {@code ShipAIPlugin}
+     * when autopilot is enabled. Checking {@code ship.getShipAI() == null} reliably detects manual player control.
+     */
+    public static boolean isPlayerManuallyPiloting(CombatEngineAPI engine, ShipAPI ship) {
+        if (engine == null || ship == null || ship != engine.getPlayerShip()) {
+            return false;
+        }
+        return ship.getShipAI() == null;
+    }
+
     public static void applyFleetIndependentCommands(
             CombatEngineAPI engine,
             BattleGroupState myGroup,
@@ -894,7 +911,7 @@ public class OtcAI {
         float fwdDirY = (myGroup.side == 0) ? 1f : -1f;
         for (ShipAPI s : myGroup.friendlyIndependentShips) {
             if (s == null || !s.isAlive() || divMembers.contains(s)) continue;
-            if (engine != null && s == engine.getPlayerShip() && !engine.isUIAutopilotOn()) continue;
+            if (isPlayerManuallyPiloting(engine, s)) continue;
             ShipwideAIFlags flags = s.getAIFlags();
             if (flags == null) continue;
 

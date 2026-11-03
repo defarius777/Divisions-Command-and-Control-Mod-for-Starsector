@@ -1,4 +1,4 @@
-# Divisions: Command and Control (`division_ai` v1.0.2)
+# Divisions: Command and Control (`division_ai` v1.0.3)
 
 A two-tier naval Command & Control (C2) combat overhaul, campaign Fleet Organization & Fleet Doctrine system, Tactical Map Warroom (`Tab`) visualizer, and dynamic battle music controller for **Starsector `0.98a-RC8`**.
 
@@ -36,7 +36,7 @@ In vanilla Starsector, every ship fights for itself inside a small `1500–2200`
 
 ### Step 1: How to Install (or Update)
 1. Make sure you have **LazyLib** installed and enabled. (**LunaLib** is optional if you want an in-game settings menu).
-2. Download `DivisionAI-1.0.2.zip` from the Releases page.
+2. Download `DivisionAI-1.0.3.zip` from the Releases page.
 3. Extract the `DivisionAI` folder into your `Starsector/mods/` directory so that `Starsector/mods/DivisionAI/mod_info.json` exists.
 4. Check the box next to **Divisions: Command and Control** in the Starsector launcher and launch the game.
 
@@ -114,9 +114,12 @@ During combat, press **`Tab`** to open the Command Window (Tactical Map):
 - **Tweaking On-Screen Combat Chatter (`LunaLib`):**
   - If you have **LunaLib** installed, open **Mod Settings -> Divisions: Command and Control** to adjust combat chatter verbosity (`Minimal` by default, or `Standard`, `Verbose`, `OTC Only`, `Off`), toggle overlays, or adjust division polygon opacity.
 - **Compatibility Notes:**
+  - **All Faction Mods, Ship Packs, Weapon Packs & Nexerelin:** 100% compatible (139 vanilla and modded factions have built-in cultural naming & fleet doctrines; unknown factions are dynamically profiled).
   - **Ship AI Mods (e.g., *AI Tweaks*):** Compatible! This mod steers divisions using vanilla `ShipwideAIFlags` and never overwrites custom `ShipAIPlugin` implementations.
-  - **Officer Cap Mods (e.g., *Officer Extension*):** Compatible.
+  - **Arma Armatura (*WingCom*):** Compatible! `VoidstrikeCoordinator` automatically skips player-piloted strikecraft and officer-assigned WingCom wings so Stage 1 Voidstrike marshalling never tethers them.
+  - **RTS Assist:** Leave ships you wish to manually micro with RTS Assist in your **Unassigned Ships** pool (or assign them an explicit vanilla task-manager order) so Division AI yields control.
   - **Other Deployment Screen Overhauls (*Pre-Battle Deployment Orders*, *CustomDeployment*):** Do not enable alongside this mod's deployment organizer, as both modify the pre-battle deployment screen.
+- **Changelog:** See [CHANGELOG.md](CHANGELOG.md) for full release history.
 - **Can I Add or Remove This Mod Mid-Save?**
   - **Yes.** You can add it to an existing campaign at any time. Campaign division data is stored in persistent sector data using plain Java lists and maps (`ArrayList`, `HashMap`, `String`) with **zero custom class serialization** in `campaign.xml`, so removing the mod will not brick your save.
 

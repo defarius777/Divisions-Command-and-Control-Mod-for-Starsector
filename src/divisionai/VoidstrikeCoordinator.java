@@ -656,6 +656,12 @@ public class VoidstrikeCoordinator {
             for (int cIdx = 0; cIdx < wingMembers.size(); cIdx++) {
                 ShipAPI fighter = wingMembers.get(cIdx);
                 if (fighter == null || !fighter.isAlive() || fighter.isHulk()) continue;
+                // Respect player-piloted strikecraft (e.g. Arma Armatura neural transfer) and WingCom officer-piloted craft
+                if (fighter.getShipAI() == null
+                        || (Global.getCombatEngine() != null && fighter == Global.getCombatEngine().getPlayerShip())
+                        || (fighter.getCaptain() != null && !fighter.getCaptain().isDefault())) {
+                    continue;
+                }
                 ShipwideAIFlags fFlags = fighter.getAIFlags();
                 if (fFlags == null) continue;
 
