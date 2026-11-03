@@ -684,11 +684,23 @@ public class DivisionModel {
         }
 
         public boolean isCombatEffective() {
-            return !getAliveMembers().isEmpty();
+            for (int i = 0, n = members.size(); i < n; i++) {
+                ShipAPI s = members.get(i);
+                if (s != null && s.isAlive() && !s.isHulk() && !s.isExpired()) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public boolean isAbleCombatEffective() {
-            return !isUnableDivision && !getAbleMembers().isEmpty();
+            if (isUnableDivision) return false;
+            for (int i = 0, n = members.size(); i < n; i++) {
+                if (!isShipUnable(members.get(i))) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 

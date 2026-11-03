@@ -385,13 +385,13 @@ public class TsfcWarroomRenderer {
         int divCountSig = ((playerGroup != null ? playerGroup.divisions.size() : 0) << 16)
                 ^ ((alliedAiGroup != null ? alliedAiGroup.divisions.size() : 0) << 8)
                 ^ (enemyGroup != null ? enemyGroup.divisions.size() : 0);
-        boolean needsUninitBase = hasAnyUninitializedDivisionTimeSpace(engine, playerGroup)
-                || hasAnyUninitializedDivisionTimeSpace(engine, alliedAiGroup)
-                || hasAnyUninitializedDivisionTimeSpace(engine, enemyGroup);
-        if (needsUninitBase
-                || engine != BattlefieldFirepowerEvaluator.lastTimeSpaceConvEngine
+        boolean staleTime = engine != BattlefieldFirepowerEvaluator.lastTimeSpaceConvEngine
                 || divCountSig != BattlefieldFirepowerEvaluator.lastTimeSpaceConvDivCountSig
-                || Math.abs(now - BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime) >= 0.24f) {
+                || Math.abs(now - BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime) >= 0.24f;
+        if (staleTime
+                || hasAnyUninitializedDivisionTimeSpace(engine, playerGroup)
+                || hasAnyUninitializedDivisionTimeSpace(engine, alliedAiGroup)
+                || hasAnyUninitializedDivisionTimeSpace(engine, enemyGroup)) {
             if (playerGroup != null) {
                 for (DivisionState d : playerGroup.divisions) {
                     if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {

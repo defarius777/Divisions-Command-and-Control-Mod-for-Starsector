@@ -80,6 +80,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final Vector2f centerScreen;            // Droplet entity center in screen pixels
         float labelX;                           // De-conflicted label X in screen pixels
         float labelY;                           // De-conflicted label Y in screen pixels
+        float lastWorldCenterX;
+        float lastWorldCenterY;
         float minX;
         float maxX;
         float minY;
@@ -142,6 +144,22 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             this.cg = cg;
             this.cb = cb;
             this.cohesionAlphaMult = cohesionAlphaMult;
+            if (hullMembers != null && !hullMembers.isEmpty()) {
+                float wx = 0f, wy = 0f;
+                int cnt = 0;
+                for (int i = 0, n = hullMembers.size(); i < n; i++) {
+                    ShipAPI s = hullMembers.get(i);
+                    if (s != null && s.getLocation() != null) {
+                        wx += s.getLocation().x;
+                        wy += s.getLocation().y;
+                        cnt++;
+                    }
+                }
+                if (cnt > 0) {
+                    this.lastWorldCenterX = wx / cnt;
+                    this.lastWorldCenterY = wy / cnt;
+                }
+            }
             recomputeBounds();
         }
 
@@ -399,7 +417,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 && cachedPolyPaused == paused
                 && (!cachedRenderedPolys.isEmpty() || !cachedStrikeCraftPolys.isEmpty());
         boolean reuseGeometry = sameContext
-                && (paused || Math.abs(now - cachedPolyNow) < 0.08f);
+                && (paused || Math.abs(now - cachedPolyNow) < 0.15f);
         List<RenderedDivisionPolygon> renderedPolys = cachedRenderedPolys;
         List<RenderedDivisionPolygon> strikeCraftPolys = cachedStrikeCraftPolys;
         if (reuseGeometry) {
@@ -410,6 +428,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 cachedPolyScale = scale;
                 cachedPolyOffsetX = offsetX;
                 cachedPolyOffsetY = offsetY;
+            }
+            if (!paused) {
+                translateCachedPolygonsByLiveShipMotion(renderedPolys, scale);
+                translateCachedPolygonsByLiveShipMotion(strikeCraftPolys, scale);
             }
         } else {
             renderedPolys.clear();
@@ -597,28 +619,27 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         : (prevCoh * 0.84f + targetCohesionAlpha * 0.16f);
                 smoothedCohesionByDivId.put(cohKey, cohesionAlphaMult);
 
-                List<Vector2f> polyScreen = buildFluidDropletPolygonScreen(
-                        div,
-                        dropletMembers,
-                        hullMembers,
-                        scale,
-                        offsetX,
-                        offsetY);
-                if (polyScreen.size() < 3) continue;
-
-                Vector2f centerScreen = computePolygonCentroid(polyScreen);
                 List<Vector2f> displayPolyScreen = applyMetaballNeckPinchScreen(
                         div,
-                        polyScreen,
-                        centerScreen,
+                        null,
+                        null,
                         dropletMembers,
                         hullMembers,
                         scale,
                         offsetX,
                         offsetY);
-                if (displayPolyScreen.size() >= 3) {
-                    centerScreen = computePolygonCentroid(displayPolyScreen);
+                if (displayPolyScreen == null || displayPolyScreen.size() < 3) {
+                    displayPolyScreen = buildFluidDropletPolygonScreen(
+                            div,
+                            dropletMembers,
+                            hullMembers,
+                            scale,
+                            offsetX,
+                            offsetY);
                 }
+                if (displayPolyScreen == null || displayPolyScreen.size() < 3) continue;
+                List<Vector2f> polyScreen = displayPolyScreen;
+                Vector2f centerScreen = computePolygonCentroid(displayPolyScreen);
 
                 outList.add(new RenderedDivisionPolygon(
                         div,
@@ -825,6 +846,63 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
+    private static void translateCachedPolygonsByLiveShipMotion(
+            List<RenderedDivisionPolygon> polys,
+            float scale) {
+        for (int pIdx = 0, pLen = polys.size(); pIdx < pLen; pIdx++) {
+            RenderedDivisionPolygon rp = polys.get(pIdx);
+            List<ShipAPI> members = rp.hullMembers;
+            if (members == null || members.isEmpty()) continue;
+            float wx = 0f, wy = 0f;
+            int cnt = 0;
+            for (int i = 0, n = members.size(); i < n; i++) {
+                ShipAPI s = members.get(i);
+                if (s != null && s.isAlive() && s.getLocation() != null) {
+                    wx += s.getLocation().x;
+                    wy += s.getLocation().y;
+                    cnt++;
+                }
+            }
+            if (cnt <= 0) continue;
+            wx /= cnt;
+            wy /= cnt;
+            float dxPx = (wx - rp.lastWorldCenterX) * scale;
+            float dyPx = (wy - rp.lastWorldCenterY) * scale;
+            if (Math.abs(dxPx) < 0.05f && Math.abs(dyPx) < 0.05f) continue;
+            rp.lastWorldCenterX = wx;
+            rp.lastWorldCenterY = wy;
+            for (int i = 0, n = rp.polyScreen.size(); i < n; i++) {
+                Vector2f v = rp.polyScreen.get(i);
+                v.x += dxPx;
+                v.y += dyPx;
+            }
+            if (rp.displayPolyScreen != rp.polyScreen) {
+                for (int i = 0, n = rp.displayPolyScreen.size(); i < n; i++) {
+                    Vector2f v = rp.displayPolyScreen.get(i);
+                    v.x += dxPx;
+                    v.y += dyPx;
+                }
+            }
+            if (rp.clipHullScreen != null && rp.clipHullScreen != rp.polyScreen) {
+                for (int i = 0, n = rp.clipHullScreen.size(); i < n; i++) {
+                    Vector2f v = rp.clipHullScreen.get(i);
+                    v.x += dxPx;
+                    v.y += dyPx;
+                }
+            }
+            if (rp.centerScreen != null) {
+                rp.centerScreen.x += dxPx;
+                rp.centerScreen.y += dyPx;
+            }
+            rp.labelX += dxPx;
+            rp.labelY += dyPx;
+            rp.minX += dxPx;
+            rp.maxX += dxPx;
+            rp.minY += dyPx;
+            rp.maxY += dyPx;
+        }
+    }
+
     /**
      * Groups a division's visible alive ships into sticky connected sub-clusters ("water droplets"):
      *  - Ships within mergeDist coalesce into the same droplet.
@@ -997,9 +1075,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         for (int k = 0; k < n; k++) {
             if (k == i || k == j) continue;
             Vector2f pk = members.get(k).getLocation();
-            float dik = DivisionUiWidgets.distance(pi, pk);
-            float djk = DivisionUiWidgets.distance(pj, pk);
-            if (dik < distIJ && djk < distIJ && (dik * dik + djk * djk) < distSqIJ * 1.12f) {
+            float dxik = pi.x - pk.x;
+            float dyik = pi.y - pk.y;
+            float dikSq = dxik * dxik + dyik * dyik;
+            if (dikSq >= distSqIJ) continue;
+            float dxjk = pj.x - pk.x;
+            float dyjk = pj.y - pk.y;
+            float djkSq = dxjk * dxjk + dyjk * dyjk;
+            if (djkSq < distSqIJ && (dikSq + djkSq) < distSqIJ * 1.12f) {
                 return true;
             }
         }
@@ -1478,16 +1561,289 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         return Math.min(a, b) - h * h * k * 0.25f;
     }
 
-    private static float evalMetaballSdf(
+    private static final class PrecomputedSdfPrimitives {
+        final int brCount;
+        final float[] brAx, brAy, brUx, brUy, brSa, brSb, brSKiss, brYa, brYb, brRWaist, brInvSpanA, brInvSpanB;
+        final float[] brMinX, brMaxX, brMinY, brMaxY;
+
+        final int menCount;
+        final float[] menAx, menAy, menUx, menUy, menS0, menS1, menInvSpan, menYShoulder, menRTip;
+        final float[] menMinX, menMaxX, menMinY, menMaxY;
+
+        final int triCount;
+        final float[] triAx, triAy, triBx, triBy, triCx, triCy, triPad;
+        final float[] triMinX, triMaxX, triMinY, triMaxY;
+
+        PrecomputedSdfPrimitives(
+                float[] sx, float[] sy, float[] sr,
+                int mCount, int total, float[][] kPair, float minWaistPx) {
+            int maxBr = (mCount * (mCount - 1)) / 2;
+            brAx = new float[maxBr]; brAy = new float[maxBr];
+            brUx = new float[maxBr]; brUy = new float[maxBr];
+            brSa = new float[maxBr]; brSb = new float[maxBr]; brSKiss = new float[maxBr];
+            brYa = new float[maxBr]; brYb = new float[maxBr]; brRWaist = new float[maxBr];
+            brInvSpanA = new float[maxBr]; brInvSpanB = new float[maxBr];
+            brMinX = new float[maxBr]; brMaxX = new float[maxBr];
+            brMinY = new float[maxBr]; brMaxY = new float[maxBr];
+            int bIdx = 0;
+
+            int maxMen = Math.max(0, total - mCount) * mCount;
+            menAx = new float[maxMen]; menAy = new float[maxMen];
+            menUx = new float[maxMen]; menUy = new float[maxMen];
+            menS0 = new float[maxMen]; menS1 = new float[maxMen]; menInvSpan = new float[maxMen];
+            menYShoulder = new float[maxMen]; menRTip = new float[maxMen];
+            menMinX = new float[maxMen]; menMaxX = new float[maxMen];
+            menMinY = new float[maxMen]; menMaxY = new float[maxMen];
+            int mIdx = 0;
+
+            for (int i = 0; i < mCount; i++) {
+                float ax = sx[i];
+                float ay = sy[i];
+                float ra = sr[i];
+                for (int j = i + 1; j < mCount; j++) {
+                    float openness = kPair[i][j];
+                    if (openness <= 0f) continue;
+                    float bx = sx[j];
+                    float by = sy[j];
+                    float rb = sr[j];
+                    float abx = bx - ax;
+                    float aby = by - ay;
+                    float lenSq = abx * abx + aby * aby;
+                    if (lenSq < 1e-3f) continue;
+                    float len = (float) Math.sqrt(lenSq);
+                    float sKiss = len * (ra / Math.max(1f, ra + rb));
+                    float sa = Math.min(ra * 0.45f, sKiss * 0.55f);
+                    float sb = len - Math.min(rb * 0.45f, (len - sKiss) * 0.55f);
+                    if (sb <= sa + 1.0f) continue;
+
+                    float maxShoulderR = Math.max(ra, rb) * 1.15f + 12f;
+                    brAx[bIdx] = ax;
+                    brAy[bIdx] = ay;
+                    brUx[bIdx] = abx / len;
+                    brUy[bIdx] = aby / len;
+                    brSa[bIdx] = sa;
+                    brSb[bIdx] = sb;
+                    brSKiss[bIdx] = sKiss;
+                    brYa[bIdx] = (float) Math.sqrt(Math.max(1f, ra * ra - sa * sa)) * 0.94f;
+                    float lb = len - sb;
+                    brYb[bIdx] = (float) Math.sqrt(Math.max(1f, rb * rb - lb * lb)) * 0.94f;
+                    float minR = Math.min(ra, rb);
+                    float maxWaist = Math.max(minWaistPx + 1.0f, minR * 0.84f);
+                    brRWaist[bIdx] = minWaistPx + openness * (maxWaist - minWaistPx);
+                    brInvSpanA[bIdx] = 1.0f / Math.max(1f, sKiss - sa);
+                    brInvSpanB[bIdx] = 1.0f / Math.max(1f, sb - sKiss);
+                    brMinX[bIdx] = Math.min(ax, bx) - maxShoulderR;
+                    brMaxX[bIdx] = Math.max(ax, bx) + maxShoulderR;
+                    brMinY[bIdx] = Math.min(ay, by) - maxShoulderR;
+                    brMaxY[bIdx] = Math.max(ay, by) + maxShoulderR;
+                    bIdx++;
+                }
+
+                for (int j = mCount; j < total; j++) {
+                    float reach = -kPair[i][j];
+                    if (reach <= 0.02f) continue;
+                    float bx = sx[j];
+                    float by = sy[j];
+                    float rb = sr[j];
+                    float abx = bx - ax;
+                    float aby = by - ay;
+                    float lenSq = abx * abx + aby * aby;
+                    if (lenSq < 1e-3f) continue;
+                    float len = (float) Math.sqrt(lenSq);
+                    float ux = abx / len;
+                    float uy = aby / len;
+                    float distToKissPx = len * (ra / Math.max(1f, ra + rb));
+                    float maxExtPx = Math.min(ra * 0.48f, Math.max(2.0f, distToKissPx - ra * 0.94f));
+                    float s0 = ra * 0.52f;
+                    float s1 = ra + reach * maxExtPx;
+                    if (s1 <= s0 + 1.0f) continue;
+                    float yShoulder = (float) Math.sqrt(Math.max(1f, ra * ra - s0 * s0)) * (0.74f + 0.20f * reach);
+                    float rTip = 2.4f + (1.0f - reach) * Math.min(4.8f, ra * 0.14f);
+                    float endX = ax + ux * s1;
+                    float endY = ay + uy * s1;
+                    float pad = yShoulder + 8f;
+                    menAx[mIdx] = ax;
+                    menAy[mIdx] = ay;
+                    menUx[mIdx] = ux;
+                    menUy[mIdx] = uy;
+                    menS0[mIdx] = s0;
+                    menS1[mIdx] = s1;
+                    menInvSpan[mIdx] = 1.0f / Math.max(1f, s1 - s0);
+                    menYShoulder[mIdx] = yShoulder;
+                    menRTip[mIdx] = rTip;
+                    menMinX[mIdx] = Math.min(ax, endX) - pad;
+                    menMaxX[mIdx] = Math.max(ax, endX) + pad;
+                    menMinY[mIdx] = Math.min(ay, endY) - pad;
+                    menMaxY[mIdx] = Math.max(ay, endY) + pad;
+                    mIdx++;
+                }
+            }
+            this.brCount = bIdx;
+            this.menCount = mIdx;
+
+            int maxTri = (mCount >= 3) ? (mCount * (mCount - 1) * (mCount - 2)) / 6 : 0;
+            triAx = new float[maxTri]; triAy = new float[maxTri];
+            triBx = new float[maxTri]; triBy = new float[maxTri];
+            triCx = new float[maxTri]; triCy = new float[maxTri];
+            triPad = new float[maxTri];
+            triMinX = new float[maxTri]; triMaxX = new float[maxTri];
+            triMinY = new float[maxTri]; triMaxY = new float[maxTri];
+            int tIdx = 0;
+            if (mCount >= 3) {
+                for (int i = 0; i < mCount; i++) {
+                    for (int j = i + 1; j < mCount; j++) {
+                        if (kPair[i][j] <= 0f) continue;
+                        for (int l = j + 1; l < mCount; l++) {
+                            if (kPair[j][l] <= 0f || kPair[i][l] <= 0f) continue;
+                            float ax = sx[i], ay = sy[i];
+                            float bx = sx[j], by = sy[j];
+                            float cx = sx[l], cy = sy[l];
+                            float cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+                            if (Math.abs(cross) < 1e-3f) continue;
+                            if (cross < 0f) {
+                                float tx = bx; bx = cx; cx = tx;
+                                float ty = by; by = cy; cy = ty;
+                            }
+                            float minR = Math.min(sr[i], Math.min(sr[j], sr[l]));
+                            float avgOpen = (kPair[i][j] + kPair[j][l] + kPair[i][l]) / 3.0f;
+                            float pad = minWaistPx + avgOpen * minR * 0.45f;
+                            float margin = pad + 8.0f;
+                            triAx[tIdx] = ax; triAy[tIdx] = ay;
+                            triBx[tIdx] = bx; triBy[tIdx] = by;
+                            triCx[tIdx] = cx; triCy[tIdx] = cy;
+                            triPad[tIdx] = pad;
+                            triMinX[tIdx] = Math.min(ax, Math.min(bx, cx)) - margin;
+                            triMaxX[tIdx] = Math.max(ax, Math.max(bx, cx)) + margin;
+                            triMinY[tIdx] = Math.min(ay, Math.min(by, cy)) - margin;
+                            triMaxY[tIdx] = Math.max(ay, Math.max(by, cy)) + margin;
+                            tIdx++;
+                        }
+                    }
+                }
+            }
+            this.triCount = tIdx;
+        }
+    }
+
+    private static float evalMetaballSdfRowCell(
+            float x, float y,
+            float[] sx, float[] sr, int mCount,
+            float[] rowDyAbs, float[] rowDySq,
+            PrecomputedSdfPrimitives prims, float deepInteriorCutoffPx,
+            int[] rowBrIdx, int rBrCount, float rBrMinX, float rBrMaxX,
+            int[] rowMenIdx, int rMenCount, float rMenMinX, float rMenMaxX,
+            int[] rowTriIdx, int rTriCount, float rTriMinX, float rTriMaxX) {
+        float bestCircle = Float.MAX_VALUE;
+        for (int i = 0; i < mCount; i++) {
+            float rad = sr[i];
+            if (rowDyAbs[i] - rad >= bestCircle) continue;
+            float dx = Math.abs(x - sx[i]);
+            if (dx - rad >= bestCircle) continue;
+            float di = (float) Math.sqrt(dx * dx + rowDySq[i]) - rad;
+            if (di < bestCircle) {
+                bestCircle = di;
+            }
+        }
+        if (bestCircle <= -deepInteriorCutoffPx) {
+            return bestCircle;
+        }
+
+        float bestBridge = Float.MAX_VALUE;
+        if (rBrCount > 0 && x >= rBrMinX && x <= rBrMaxX) {
+            bestBridge = evalRowBridgesSdf(x, y, prims, rowBrIdx, rBrCount, bestBridge);
+        }
+        if (rMenCount > 0 && x >= rMenMinX && x <= rMenMaxX) {
+            bestBridge = evalRowMeniscusesSdf(x, y, prims, rowMenIdx, rMenCount, bestBridge);
+        }
+        if (rTriCount > 0 && x >= rTriMinX && x <= rTriMaxX && bestBridge > -deepInteriorCutoffPx) {
+            for (int k = 0; k < rTriCount; k++) {
+                int t = rowTriIdx[k];
+                if (x < prims.triMinX[t] || x > prims.triMaxX[t]) continue;
+                float dTri = signedDistanceToTriangleCCW2D(
+                        x, y,
+                        prims.triAx[t], prims.triAy[t],
+                        prims.triBx[t], prims.triBy[t],
+                        prims.triCx[t], prims.triCy[t],
+                        prims.triPad[t]);
+                bestBridge = sminPoly(bestBridge, dTri - prims.triPad[t], 6.0f);
+            }
+        }
+        return sminPoly(bestCircle, bestBridge, 2.5f);
+    }
+
+    private static float evalRowBridgesSdf(
+            float x, float y, PrecomputedSdfPrimitives prims, int[] rowBrIdx, int rBrCount, float bestBridge) {
+        for (int k = 0; k < rBrCount; k++) {
+            int b = rowBrIdx[k];
+            if (x < prims.brMinX[b] || x > prims.brMaxX[b]) continue;
+            float ax = prims.brAx[b];
+            float ay = prims.brAy[b];
+            float ux = prims.brUx[b];
+            float uy = prims.brUy[b];
+            float sa = prims.brSa[b];
+            float sb = prims.brSb[b];
+            float sKiss = prims.brSKiss[b];
+            float proj = (x - ax) * ux + (y - ay) * uy;
+            float sClamped = clamp(proj, sa, sb);
+            float qx = ax + ux * sClamped;
+            float qy = ay + uy * sClamped;
+            float distToAxis = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
+            float rWaist = prims.brRWaist[b];
+            float rBridge;
+            if (sClamped <= sKiss) {
+                float u = clamp((sClamped - sa) * prims.brInvSpanA[b], 0f, 1f);
+                float oneMinusU = 1.0f - u;
+                rBridge = rWaist + (prims.brYa[b] - rWaist) * oneMinusU * oneMinusU;
+            } else {
+                float v = clamp((sb - sClamped) * prims.brInvSpanB[b], 0f, 1f);
+                float oneMinusV = 1.0f - v;
+                rBridge = rWaist + (prims.brYb[b] - rWaist) * oneMinusV * oneMinusV;
+            }
+            float dBridge = distToAxis - rBridge;
+            if (dBridge < bestBridge) {
+                bestBridge = dBridge;
+            }
+        }
+        return bestBridge;
+    }
+
+    private static float evalRowMeniscusesSdf(
+            float x, float y, PrecomputedSdfPrimitives prims, int[] rowMenIdx, int rMenCount, float bestBridge) {
+        for (int k = 0; k < rMenCount; k++) {
+            int m = rowMenIdx[k];
+            if (x < prims.menMinX[m] || x > prims.menMaxX[m]) continue;
+            float ax = prims.menAx[m];
+            float ay = prims.menAy[m];
+            float ux = prims.menUx[m];
+            float uy = prims.menUy[m];
+            float s0 = prims.menS0[m];
+            float s1 = prims.menS1[m];
+            float proj = (x - ax) * ux + (y - ay) * uy;
+            float sClamped = clamp(proj, s0, s1);
+            float qx = ax + ux * sClamped;
+            float qy = ay + uy * sClamped;
+            float distToAxis = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
+            float u = clamp((sClamped - s0) * prims.menInvSpan[m], 0f, 1f);
+            float oneMinusU = 1.0f - u;
+            float rTip = prims.menRTip[m];
+            float rCone = rTip + (prims.menYShoulder[m] - rTip) * oneMinusU * oneMinusU;
+            float dCone = distToAxis - rCone;
+            if (dCone < bestBridge) {
+                bestBridge = dCone;
+            }
+        }
+        return bestBridge;
+    }
+
+    private static float evalMetaballSdfFast(
             float x,
             float y,
             float[] sx,
             float[] sy,
             float[] sr,
             int mCount,
-            int total,
-            float[][] kPair,
-            float minWaistPx) {
+            PrecomputedSdfPrimitives prims,
+            float deepInteriorCutoffPx) {
         float bestCircle = Float.MAX_VALUE;
         for (int i = 0; i < mCount; i++) {
             float dx = x - sx[i];
@@ -1497,153 +1853,114 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 bestCircle = di;
             }
         }
+        // Any grid vertex deeper inside a circle than deepInteriorCutoffPx has all 4 adjacent grid cells < 0,
+        // so sminPoly(bestCircle, bestBridge, 2.5f) cannot change any Marching Squares cell mask or edge interpolation!
+        if (bestCircle <= -deepInteriorCutoffPx) {
+            return bestCircle;
+        }
 
         float bestBridge = Float.MAX_VALUE;
-        for (int i = 0; i < mCount; i++) {
-            float ax = sx[i];
-            float ay = sy[i];
-            float ra = sr[i];
-            // Connected intra-droplet shoulder-anchored concave hourglass bridges
-            for (int j = i + 1; j < mCount; j++) {
-                float openness = kPair[i][j];
-                if (openness <= 0f) continue;
-                float bx = sx[j];
-                float by = sy[j];
-                float rb = sr[j];
-                float abx = bx - ax;
-                float aby = by - ay;
-                float lenSq = abx * abx + aby * aby;
-                if (lenSq < 1e-3f) continue;
-                // AABB fast-reject: the hourglass bridge can never influence a point lying outside
-                // its capsule's padded screen-space bounding box (saves millions of SDF sqrt/axis ops)
-                float maxShoulderR = Math.max(ra, rb) * 1.15f + 12f;
-                float bbMinX = Math.min(ax, bx) - maxShoulderR;
-                float bbMaxX = Math.max(ax, bx) + maxShoulderR;
-                if (x < bbMinX || x > bbMaxX) continue;
-                float bbMinY = Math.min(ay, by) - maxShoulderR;
-                float bbMaxY = Math.max(ay, by) + maxShoulderR;
-                if (y < bbMinY || y > bbMaxY) continue;
-                float len = (float) Math.sqrt(lenSq);
-                float ux = abx / len;
-                float uy = aby / len;
-
-                float sKiss = len * (ra / Math.max(1f, ra + rb));
-                // Anchor the bridge on the wide shoulders of Circle A and Circle B (so the concave taper
-                // happens OUTSIDE the circles rather than being buried inside [0, ra]!)
-                float sa = Math.min(ra * 0.45f, sKiss * 0.55f);
-                float sb = len - Math.min(rb * 0.45f, (len - sKiss) * 0.55f);
-                if (sb <= sa + 1.0f) continue;
-
-                float ya = (float) Math.sqrt(Math.max(1f, ra * ra - sa * sa)) * 0.94f;
-                float lb = len - sb;
-                float yb = (float) Math.sqrt(Math.max(1f, rb * rb - lb * lb)) * 0.94f;
-
-                float proj = (x - ax) * ux + (y - ay) * uy;
-                float sClamped = clamp(proj, sa, sb);
-                float qx = ax + ux * sClamped;
-                float qy = ay + uy * sClamped;
-                float distToAxis = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
-
-                float minR = Math.min(ra, rb);
-                // At openness=0.02f (just joined or right before split), waist radius is minWaistPx (Nyquist-safe
-                // tiniest point of contact so Marching Squares never drops half a droplet!)
-                // At openness=1.0f (snug in formation), waist radius is 0.84 * minR
-                float maxWaist = Math.max(minWaistPx + 1.0f, minR * 0.84f);
-                float rWaist = minWaistPx + openness * (maxWaist - minWaistPx);
-                float rBridge;
-                if (sClamped <= sKiss) {
-                    float u = clamp((sClamped - sa) / Math.max(1f, sKiss - sa), 0f, 1f);
-                    float oneMinusU = 1.0f - u;
-                    rBridge = rWaist + (ya - rWaist) * oneMinusU * oneMinusU;
-                } else {
-                    float v = clamp((sb - sClamped) / Math.max(1f, sb - sKiss), 0f, 1f);
-                    float oneMinusV = 1.0f - v;
-                    rBridge = rWaist + (yb - rWaist) * oneMinusV * oneMinusV;
-                }
-                float dBridge = distToAxis - rBridge;
-                bestBridge = Math.min(bestBridge, dBridge);
+        int brCount = prims.brCount;
+        for (int b = 0; b < brCount; b++) {
+            if (x < prims.brMinX[b] || x > prims.brMaxX[b] || y < prims.brMinY[b] || y > prims.brMaxY[b]) {
+                continue;
             }
-            // Approaching or post-split recoiling inter-droplet liquid meniscus tail toward P_kiss
-            for (int j = mCount; j < total; j++) {
-                float reach = -kPair[i][j];
-                if (reach <= 0.02f) continue;
-                float bx = sx[j];
-                float by = sy[j];
-                float rb = sr[j];
-                float abx = bx - ax;
-                float aby = by - ay;
-                float lenSq = abx * abx + aby * aby;
-                if (lenSq < 1e-3f) continue;
-                float len = (float) Math.sqrt(lenSq);
-                float ux = abx / len;
-                float uy = aby / len;
-                float distToKissPx = len * (ra / Math.max(1f, ra + rb));
-                // Cap maximum tail extension outside Circle A's front edge to 0.48 * ra so it always forms
-                // a proportional liquid teardrop meniscus and never shoots a long spear across the map.
-                float maxExtPx = Math.min(ra * 0.48f, Math.max(2.0f, distToKissPx - ra * 0.94f));
-                float s0 = ra * 0.52f;
-                float s1 = ra + reach * maxExtPx;
-                if (s1 <= s0 + 1.0f) continue;
-
-                float yShoulder = (float) Math.sqrt(Math.max(1f, ra * ra - s0 * s0)) * (0.74f + 0.20f * reach);
-                float proj = (x - ax) * ux + (y - ay) * uy;
-                float sClamped = clamp(proj, s0, s1);
-                float qx = ax + ux * sClamped;
-                float qy = ay + uy * sClamped;
-                float distToAxis = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
-                float u = clamp((sClamped - s0) / Math.max(1f, s1 - s0), 0f, 1f);
+            float ax = prims.brAx[b];
+            float ay = prims.brAy[b];
+            float ux = prims.brUx[b];
+            float uy = prims.brUy[b];
+            float sa = prims.brSa[b];
+            float sb = prims.brSb[b];
+            float sKiss = prims.brSKiss[b];
+            float proj = (x - ax) * ux + (y - ay) * uy;
+            float sClamped = clamp(proj, sa, sb);
+            float qx = ax + ux * sClamped;
+            float qy = ay + uy * sClamped;
+            float distToAxis = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
+            float rWaist = prims.brRWaist[b];
+            float rBridge;
+            if (sClamped <= sKiss) {
+                float u = clamp((sClamped - sa) * prims.brInvSpanA[b], 0f, 1f);
                 float oneMinusU = 1.0f - u;
-                float rTip = 2.4f + (1.0f - reach) * Math.min(4.8f, ra * 0.14f);
-                float rCone = rTip + (yShoulder - rTip) * oneMinusU * oneMinusU;
-                float dCone = distToAxis - rCone;
-                bestBridge = Math.min(bestBridge, dCone);
+                rBridge = rWaist + (prims.brYa[b] - rWaist) * oneMinusU * oneMinusU;
+            } else {
+                float v = clamp((sb - sClamped) * prims.brInvSpanB[b], 0f, 1f);
+                float oneMinusV = 1.0f - v;
+                rBridge = rWaist + (prims.brYb[b] - rWaist) * oneMinusV * oneMinusV;
+            }
+            float dBridge = distToAxis - rBridge;
+            if (dBridge < bestBridge) {
+                bestBridge = dBridge;
             }
         }
 
-        // Fill interior of connected 3-ship triangles so the center of a 3+ circle cluster never traps an inverted hole
-        if (mCount >= 3) {
-            for (int i = 0; i < mCount; i++) {
-                for (int j = i + 1; j < mCount; j++) {
-                    if (kPair[i][j] <= 0f) continue;
-                    for (int l = j + 1; l < mCount; l++) {
-                        if (kPair[j][l] <= 0f || kPair[i][l] <= 0f) continue;
-                        float dTri = signedDistanceToTriangle2D(
-                                x, y, sx[i], sy[i], sx[j], sy[j], sx[l], sy[l]);
-                        float minR = Math.min(sr[i], Math.min(sr[j], sr[l]));
-                        float avgOpen = (kPair[i][j] + kPair[j][l] + kPair[i][l]) / 3.0f;
-                        float pad = minWaistPx + avgOpen * minR * 0.45f;
-                        bestBridge = sminPoly(bestBridge, dTri - pad, 6.0f);
-                    }
+        int menCount = prims.menCount;
+        for (int m = 0; m < menCount; m++) {
+            if (x < prims.menMinX[m] || x > prims.menMaxX[m] || y < prims.menMinY[m] || y > prims.menMaxY[m]) {
+                continue;
+            }
+            float ax = prims.menAx[m];
+            float ay = prims.menAy[m];
+            float ux = prims.menUx[m];
+            float uy = prims.menUy[m];
+            float s0 = prims.menS0[m];
+            float s1 = prims.menS1[m];
+            float proj = (x - ax) * ux + (y - ay) * uy;
+            float sClamped = clamp(proj, s0, s1);
+            float qx = ax + ux * sClamped;
+            float qy = ay + uy * sClamped;
+            float distToAxis = (float) Math.sqrt((x - qx) * (x - qx) + (y - qy) * (y - qy));
+            float u = clamp((sClamped - s0) * prims.menInvSpan[m], 0f, 1f);
+            float oneMinusU = 1.0f - u;
+            float rTip = prims.menRTip[m];
+            float rCone = rTip + (prims.menYShoulder[m] - rTip) * oneMinusU * oneMinusU;
+            float dCone = distToAxis - rCone;
+            if (dCone < bestBridge) {
+                bestBridge = dCone;
+            }
+        }
+
+        int triCount = prims.triCount;
+        if (triCount > 0 && bestBridge > -deepInteriorCutoffPx) {
+            for (int t = 0; t < triCount; t++) {
+                if (x < prims.triMinX[t] || x > prims.triMaxX[t] || y < prims.triMinY[t] || y > prims.triMaxY[t]) {
+                    continue;
                 }
+                float dTri = signedDistanceToTriangleCCW2D(
+                        x, y,
+                        prims.triAx[t], prims.triAy[t],
+                        prims.triBx[t], prims.triBy[t],
+                        prims.triCx[t], prims.triCy[t],
+                        prims.triPad[t]);
+                bestBridge = sminPoly(bestBridge, dTri - prims.triPad[t], 6.0f);
             }
         }
 
         return sminPoly(bestCircle, bestBridge, 2.5f);
     }
 
-    private static float signedDistanceToTriangle2D(
+    private static float signedDistanceToTriangleCCW2D(
             float px, float py,
             float ax, float ay,
             float bx, float by,
-            float cx, float cy) {
-        // Ensure CCW order (A, B, C)
-        float cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-        if (Math.abs(cross) < 1e-3f) {
-            return Float.MAX_VALUE;
-        }
-        if (cross < 0f) {
-            float tx = bx; bx = cx; cx = tx;
-            float ty = by; by = cy; cy = ty;
+            float cx, float cy,
+            float pad) {
+        float s0 = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+        float s1 = (cx - bx) * (py - by) - (cy - by) * (px - bx);
+        float s2 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx);
+        if (s0 >= 0f && s1 >= 0f && s2 >= 0f) {
+            // Point is strictly inside the connected 3-ship triangle: dTri <= 0, so dTri - pad <= -pad < 0
+            return -2.0f;
         }
         float d0 = distSqPointToSegment(px, py, ax, ay, bx, by);
         float d1 = distSqPointToSegment(px, py, bx, by, cx, cy);
         float d2 = distSqPointToSegment(px, py, cx, cy, ax, ay);
-        float minDist = (float) Math.sqrt(Math.min(d0, Math.min(d1, d2)));
-        float s0 = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
-        float s1 = (cx - bx) * (py - by) - (cy - by) * (px - bx);
-        float s2 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx);
-        boolean inside = (s0 >= 0f && s1 >= 0f && s2 >= 0f);
-        return inside ? -minDist : minDist;
+        float minSq = Math.min(d0, Math.min(d1, d2));
+        float maxInfluence = pad + 6.0f;
+        if (minSq >= maxInfluence * maxInfluence) {
+            return maxInfluence;
+        }
+        return (float) Math.sqrt(minSq);
     }
 
     private static float distSqPointToSegment(
@@ -1681,105 +1998,185 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float minWaistPx) {
         int cols = Math.max(8, Math.min(104, (int) Math.ceil((maxX - minX) / stepPx)));
         int rows = Math.max(8, Math.min(104, (int) Math.ceil((maxY - minY) / stepPx)));
+        PrecomputedSdfPrimitives prims = new PrecomputedSdfPrimitives(sx, sy, sr, mCount, total, kPair, minWaistPx);
+        // Exact triangle-inequality interior bound: if bestCircle <= -stepPx, neither this grid point nor any
+        // of its 4 cardinal neighbors can have SDF > 0, so it never touches a Marching Squares contour edge!
+        float deepInteriorCutoffPx = stepPx + 0.5f;
         float[][] grid = new float[rows + 1][cols + 1];
+        float[] rowDyAbs = new float[mCount];
+        float[] rowDySq = new float[mCount];
+        int[] rowBrIdx = new int[prims.brCount];
+        int[] rowMenIdx = new int[prims.menCount];
+        int[] rowTriIdx = new int[prims.triCount];
+
         for (int r = 0; r <= rows; r++) {
             float y = minY + r * stepPx;
+            float[] row = grid[r];
+
+            for (int i = 0; i < mCount; i++) {
+                float dy = Math.abs(y - sy[i]);
+                rowDyAbs[i] = dy;
+                rowDySq[i] = dy * dy;
+            }
+
+            int rBrCount = 0;
+            float rBrMinX = Float.MAX_VALUE;
+            float rBrMaxX = -Float.MAX_VALUE;
+            for (int b = 0; b < prims.brCount; b++) {
+                if (y >= prims.brMinY[b] && y <= prims.brMaxY[b]) {
+                    rowBrIdx[rBrCount++] = b;
+                    if (prims.brMinX[b] < rBrMinX) rBrMinX = prims.brMinX[b];
+                    if (prims.brMaxX[b] > rBrMaxX) rBrMaxX = prims.brMaxX[b];
+                }
+            }
+
+            int rMenCount = 0;
+            float rMenMinX = Float.MAX_VALUE;
+            float rMenMaxX = -Float.MAX_VALUE;
+            for (int m = 0; m < prims.menCount; m++) {
+                if (y >= prims.menMinY[m] && y <= prims.menMaxY[m]) {
+                    rowMenIdx[rMenCount++] = m;
+                    if (prims.menMinX[m] < rMenMinX) rMenMinX = prims.menMinX[m];
+                    if (prims.menMaxX[m] > rMenMaxX) rMenMaxX = prims.menMaxX[m];
+                }
+            }
+
+            int rTriCount = 0;
+            float rTriMinX = Float.MAX_VALUE;
+            float rTriMaxX = -Float.MAX_VALUE;
+            for (int t = 0; t < prims.triCount; t++) {
+                if (y >= prims.triMinY[t] && y <= prims.triMaxY[t]) {
+                    rowTriIdx[rTriCount++] = t;
+                    if (prims.triMinX[t] < rTriMinX) rTriMinX = prims.triMinX[t];
+                    if (prims.triMaxX[t] > rTriMaxX) rTriMaxX = prims.triMaxX[t];
+                }
+            }
+
             for (int c = 0; c <= cols; c++) {
                 float x = minX + c * stepPx;
-                grid[r][c] = evalMetaballSdf(x, y, sx, sy, sr, mCount, total, kPair, minWaistPx);
+                row[c] = evalMetaballSdfRowCell(
+                        x, y, sx, sr, mCount, rowDyAbs, rowDySq,
+                        prims, deepInteriorCutoffPx,
+                        rowBrIdx, rBrCount, rBrMinX, rBrMaxX,
+                        rowMenIdx, rMenCount, rMenMinX, rMenMaxX,
+                        rowTriIdx, rTriCount, rTriMinX, rTriMaxX);
             }
         }
 
-        Map<Long, Vector2f> nodePos = new HashMap<>();
-        Map<Long, List<Long>> adj = new HashMap<>();
+        // Flat primitive edge graph (zero Long boxing, zero HashMap/HashSet/ArrayList per-edge allocations):
+        // Each grid edge is uniquely indexed in [0, 2 * strideR * strideC), and has at most 2 outgoing directed edges.
+        int strideC = cols + 2;
+        int planeSize = (rows + 2) * strideC;
+        int maxEdges = planeSize * 2;
+        float[] nodeX = new float[maxEdges];
+        float[] nodeY = new float[maxEdges];
+        boolean[] hasNode = new boolean[maxEdges];
+        int[] adjOut0 = new int[maxEdges];
+        int[] adjOut1 = new int[maxEdges];
+        java.util.Arrays.fill(adjOut0, -1);
+        java.util.Arrays.fill(adjOut1, -1);
+        int[] activeEdgeStarts = new int[Math.min(maxEdges, (rows + cols) * 8 + 64)];
+        int activeEdgeCount = 0;
 
         for (int r = 0; r < rows; r++) {
+            float[] row0 = grid[r];
+            float[] row1 = grid[r + 1];
+            float y0 = minY + r * stepPx;
+            int baseR0 = r * strideC;
+            int baseR1 = (r + 1) * strideC;
             for (int c = 0; c < cols; c++) {
-                float v0 = grid[r][c];
-                float v1 = grid[r][c + 1];
-                float v2 = grid[r + 1][c + 1];
-                float v3 = grid[r + 1][c];
+                float v0 = row0[c];
+                float v1 = row0[c + 1];
+                float v2 = row1[c + 1];
+                float v3 = row1[c];
                 int mask = (v0 <= 0f ? 1 : 0)
                         | (v1 <= 0f ? 2 : 0)
                         | (v2 <= 0f ? 4 : 0)
                         | (v3 <= 0f ? 8 : 0);
                 if (mask == 0 || mask == 15) continue;
 
-                long eBottom = msEdgeId(r, c, 0);
-                long eRight = msEdgeId(r, c + 1, 1);
-                long eTop = msEdgeId(r + 1, c, 0);
-                long eLeft = msEdgeId(r, c, 1);
+                int eBottom = baseR0 + c;
+                int eRight = planeSize + baseR0 + (c + 1);
+                int eTop = baseR1 + c;
+                int eLeft = planeSize + baseR0 + c;
 
                 float x0 = minX + c * stepPx;
-                float y0 = minY + r * stepPx;
-                if ((mask & 1) != ((mask >> 1) & 1) && !nodePos.containsKey(eBottom)) {
-                    nodePos.put(eBottom, new Vector2f(x0 + msInterp(v0, v1) * stepPx, y0));
+                if ((mask & 1) != ((mask >> 1) & 1) && !hasNode[eBottom]) {
+                    hasNode[eBottom] = true;
+                    nodeX[eBottom] = x0 + msInterp(v0, v1) * stepPx;
+                    nodeY[eBottom] = y0;
                 }
-                if (((mask >> 1) & 1) != ((mask >> 2) & 1) && !nodePos.containsKey(eRight)) {
-                    nodePos.put(eRight, new Vector2f(x0 + stepPx, y0 + msInterp(v1, v2) * stepPx));
+                if (((mask >> 1) & 1) != ((mask >> 2) & 1) && !hasNode[eRight]) {
+                    hasNode[eRight] = true;
+                    nodeX[eRight] = x0 + stepPx;
+                    nodeY[eRight] = y0 + msInterp(v1, v2) * stepPx;
                 }
-                if (((mask >> 3) & 1) != ((mask >> 2) & 1) && !nodePos.containsKey(eTop)) {
-                    nodePos.put(eTop, new Vector2f(x0 + msInterp(v3, v2) * stepPx, y0 + stepPx));
+                if (((mask >> 3) & 1) != ((mask >> 2) & 1) && !hasNode[eTop]) {
+                    hasNode[eTop] = true;
+                    nodeX[eTop] = x0 + msInterp(v3, v2) * stepPx;
+                    nodeY[eTop] = y0 + stepPx;
                 }
-                if ((mask & 1) != ((mask >> 3) & 1) && !nodePos.containsKey(eLeft)) {
-                    nodePos.put(eLeft, new Vector2f(x0, y0 + msInterp(v0, v3) * stepPx));
+                if ((mask & 1) != ((mask >> 3) & 1) && !hasNode[eLeft]) {
+                    hasNode[eLeft] = true;
+                    nodeX[eLeft] = x0;
+                    nodeY[eLeft] = y0 + msInterp(v0, v3) * stepPx;
                 }
 
                 float centerVal = 0.25f * (v0 + v1 + v2 + v3);
                 switch (mask) {
                     case 1:
-                        msAddDirEdge(adj, eLeft, eBottom);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eLeft, eBottom);
                         break;
                     case 2:
-                        msAddDirEdge(adj, eBottom, eRight);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eBottom, eRight);
                         break;
                     case 3:
-                        msAddDirEdge(adj, eLeft, eRight);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eLeft, eRight);
                         break;
                     case 4:
-                        msAddDirEdge(adj, eRight, eTop);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eRight, eTop);
                         break;
                     case 5:
                         if (centerVal <= 0f) {
-                            msAddDirEdge(adj, eLeft, eTop);
-                            msAddDirEdge(adj, eRight, eBottom);
+                            activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eLeft, eTop);
+                            activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eRight, eBottom);
                         } else {
-                            msAddDirEdge(adj, eLeft, eBottom);
-                            msAddDirEdge(adj, eRight, eTop);
+                            activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eLeft, eBottom);
+                            activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eRight, eTop);
                         }
                         break;
                     case 6:
-                        msAddDirEdge(adj, eBottom, eTop);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eBottom, eTop);
                         break;
                     case 7:
-                        msAddDirEdge(adj, eLeft, eTop);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eLeft, eTop);
                         break;
                     case 8:
-                        msAddDirEdge(adj, eTop, eLeft);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eTop, eLeft);
                         break;
                     case 9:
-                        msAddDirEdge(adj, eTop, eBottom);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eTop, eBottom);
                         break;
                     case 10:
                         if (centerVal <= 0f) {
-                            msAddDirEdge(adj, eBottom, eLeft);
-                            msAddDirEdge(adj, eTop, eRight);
+                            activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eBottom, eLeft);
+                            activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eTop, eRight);
                         } else {
-                            msAddDirEdge(adj, eBottom, eRight);
-                            msAddDirEdge(adj, eTop, eLeft);
+                            activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eBottom, eRight);
+                            activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eTop, eLeft);
                         }
                         break;
                     case 11:
-                        msAddDirEdge(adj, eTop, eRight);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eTop, eRight);
                         break;
                     case 12:
-                        msAddDirEdge(adj, eRight, eLeft);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eRight, eLeft);
                         break;
                     case 13:
-                        msAddDirEdge(adj, eRight, eBottom);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eRight, eBottom);
                         break;
                     case 14:
-                        msAddDirEdge(adj, eBottom, eLeft);
+                        activeEdgeCount = msAddFlatEdge(adjOut0, adjOut1, activeEdgeStarts, activeEdgeCount, eBottom, eLeft);
                         break;
                     default:
                         break;
@@ -1788,30 +2185,40 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
 
         List<List<Vector2f>> loops = new ArrayList<>();
-        Set<Long> usedEdges = new HashSet<>();
-        for (Map.Entry<Long, List<Long>> entry : adj.entrySet()) {
-            long start = entry.getKey();
-            for (long firstNext : entry.getValue()) {
-                long dirKey = (start << 32) ^ (firstNext & 0xFFFFFFFFL);
-                if (usedEdges.contains(dirKey)) continue;
+        boolean[] usedOut0 = new boolean[maxEdges];
+        boolean[] usedOut1 = new boolean[maxEdges];
+        for (int idx = 0; idx < activeEdgeCount; idx++) {
+            int start = activeEdgeStarts[idx];
+            for (int slot = 0; slot < 2; slot++) {
+                int firstNext = (slot == 0) ? adjOut0[start] : adjOut1[start];
+                if (firstNext < 0) continue;
+                boolean alreadyUsed = (slot == 0) ? usedOut0[start] : usedOut1[start];
+                if (alreadyUsed) continue;
+
                 List<Vector2f> poly = new ArrayList<>();
-                long curr = start;
-                long next = firstNext;
+                int curr = start;
+                int next = firstNext;
+                if (slot == 0) usedOut0[start] = true;
+                else usedOut1[start] = true;
+
                 int guard = 2000;
                 while (guard-- > 0) {
-                    usedEdges.add((curr << 32) ^ (next & 0xFFFFFFFFL));
-                    Vector2f pt = nodePos.get(curr);
-                    if (pt != null) poly.add(pt);
+                    if (hasNode[curr]) {
+                        poly.add(new Vector2f(nodeX[curr], nodeY[curr]));
+                    }
                     if (next == start) break;
                     curr = next;
-                    List<Long> outs = adj.get(curr);
-                    if (outs == null || outs.isEmpty()) break;
-                    long chosen = outs.get(0);
-                    for (long cand : outs) {
-                        if (!usedEdges.contains((curr << 32) ^ (cand & 0xFFFFFFFFL))) {
-                            chosen = cand;
-                            break;
-                        }
+                    int c0 = adjOut0[curr];
+                    if (c0 < 0) break;
+                    int chosen;
+                    if (!usedOut0[curr]) {
+                        usedOut0[curr] = true;
+                        chosen = c0;
+                    } else if (adjOut1[curr] >= 0 && !usedOut1[curr]) {
+                        usedOut1[curr] = true;
+                        chosen = adjOut1[curr];
+                    } else {
+                        break;
                     }
                     next = chosen;
                 }
@@ -1826,9 +2233,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
         return loops;
     }
-    private static long msEdgeId(int r, int c, int type) {
-        return ((long) type << 28) | ((long) r << 14) | (long) c;
-    }
 
     private static float msInterp(float a, float b) {
         float denom = a - b;
@@ -1836,16 +2240,25 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         return clamp(a / denom, 0.02f, 0.98f);
     }
 
-    private static void msAddDirEdge(Map<Long, List<Long>> adj, long from, long to) {
+    private static int msAddFlatEdge(
+            int[] adjOut0,
+            int[] adjOut1,
+            int[] activeStarts,
+            int activeCount,
+            int from,
+            int to) {
         // In Y-up screen coordinates, orient directed edges so that inside regions (SDF <= 0) lie on the LEFT
         // of each edge: outer droplet perimeters trace Counter-Clockwise (signedArea > 0) and interior holes
         // trace Clockwise (signedArea < 0).
-        List<Long> list = adj.get(to);
-        if (list == null) {
-            list = new ArrayList<>(2);
-            adj.put(to, list);
+        if (adjOut0[to] < 0) {
+            adjOut0[to] = from;
+            if (activeCount < activeStarts.length) {
+                activeStarts[activeCount++] = to;
+            }
+        } else if (adjOut1[to] < 0) {
+            adjOut1[to] = from;
         }
-        list.add(from);
+        return activeCount;
     }
 
     // =========================================================================
@@ -1997,23 +2410,22 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glTranslatef((float) ((int) offsetX), (float) ((int) offsetY), 0.0f);
 
         try {
-            for (RenderedDivisionPolygon rp : renderedPolys) {
-                for (ShipAPI ship : rp.hullMembers) {
+            List<Object> resolvedIcons = new ArrayList<>(64);
+            for (int pIdx = 0, pLen = renderedPolys.size(); pIdx < pLen; pIdx++) {
+                RenderedDivisionPolygon rp = renderedPolys.get(pIdx);
+                List<ShipAPI> members = rp.hullMembers;
+                for (int sIdx = 0, sLen = members.size(); sIdx < sLen; sIdx++) {
+                    ShipAPI ship = members.get(sIdx);
                     if (ship == null || !ship.isAlive()) continue;
                     Object icon = mapGetIconHandle.invoke(mapDisplayInstance, (Object) ship);
                     if (icon != null) {
+                        resolvedIcons.add(icon);
                         iconRenderSpriteHandle.invoke(icon, false, scale, fade);
                     }
                 }
             }
-            for (RenderedDivisionPolygon rp : renderedPolys) {
-                for (ShipAPI ship : rp.hullMembers) {
-                    if (ship == null || !ship.isAlive()) continue;
-                    Object icon = mapGetIconHandle.invoke(mapDisplayInstance, (Object) ship);
-                    if (icon != null) {
-                        iconRenderBarsHandle.invoke(icon, false, scale, fade);
-                    }
-                }
+            for (int i = 0, n = resolvedIcons.size(); i < n; i++) {
+                iconRenderBarsHandle.invoke(resolvedIcons.get(i), false, scale, fade);
             }
         } catch (Throwable ignored) {
         } finally {
@@ -2097,7 +2509,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         if (ship == null || !ship.isAlive() || ship.getLocation() == null) return;
 
         float iconRadiusPx = 0f;
-        if (mapDisplayInstance != null && mapGetIconHandle != null && iconGetRadiusHandle != null) {
+        if (ship.isStation() && mapDisplayInstance != null && mapGetIconHandle != null && iconGetRadiusHandle != null) {
             try {
                 Object icon = mapGetIconHandle.invoke(mapDisplayInstance, (Object) ship);
                 if (icon != null) {
@@ -3010,24 +3422,54 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
      * Sutherland-Hodgman clipping of convex subjectPoly against convex clipPoly (both CCW).
      */
     public static List<Vector2f> clipConvexPolygon(List<Vector2f> subjectPoly, List<Vector2f> clipPoly) {
-        List<Vector2f> output = new ArrayList<>(subjectPoly);
+        if (subjectPoly == null || clipPoly == null) return Collections.emptyList();
+        int subjLen = subjectPoly.size();
         int clipLen = clipPoly.size();
+        if (subjLen < 3 || clipLen < 3) return Collections.emptyList();
+
+        float sMinX = Float.MAX_VALUE, sMaxX = -Float.MAX_VALUE;
+        float sMinY = Float.MAX_VALUE, sMaxY = -Float.MAX_VALUE;
+        for (int i = 0; i < subjLen; i++) {
+            Vector2f v = subjectPoly.get(i);
+            if (v.x < sMinX) sMinX = v.x;
+            if (v.x > sMaxX) sMaxX = v.x;
+            if (v.y < sMinY) sMinY = v.y;
+            if (v.y > sMaxY) sMaxY = v.y;
+        }
+        float cMinX = Float.MAX_VALUE, cMaxX = -Float.MAX_VALUE;
+        float cMinY = Float.MAX_VALUE, cMaxY = -Float.MAX_VALUE;
         for (int i = 0; i < clipLen; i++) {
-            if (output.isEmpty()) break;
+            Vector2f v = clipPoly.get(i);
+            if (v.x < cMinX) cMinX = v.x;
+            if (v.x > cMaxX) cMaxX = v.x;
+            if (v.y < cMinY) cMinY = v.y;
+            if (v.y > cMaxY) cMaxY = v.y;
+        }
+        if (sMaxX < cMinX || cMaxX < sMinX || sMaxY < cMinY || cMaxY < sMinY) {
+            return Collections.emptyList();
+        }
+
+        List<Vector2f> bufA = new ArrayList<>(subjLen + 8);
+        List<Vector2f> bufB = new ArrayList<>(subjLen + 8);
+        bufA.addAll(subjectPoly);
+        List<Vector2f> input = bufA;
+        List<Vector2f> output = bufB;
+
+        for (int i = 0; i < clipLen; i++) {
+            int inLen = input.size();
+            if (inLen == 0) return Collections.emptyList();
             Vector2f c1 = clipPoly.get(i);
             Vector2f c2 = clipPoly.get((i + 1) % clipLen);
             float edgeDx = c2.x - c1.x;
             float edgeDy = c2.y - c1.y;
 
-            List<Vector2f> input = output;
-            output = new ArrayList<>(input.size() + 2);
-            int inLen = input.size();
+            output.clear();
+            Vector2f s = input.get(inLen - 1);
+            float sCross = edgeDx * (s.y - c1.y) - edgeDy * (s.x - c1.x);
+            boolean sInside = sCross >= -1e-3f;
             for (int j = 0; j < inLen; j++) {
-                Vector2f s = input.get(j);
-                Vector2f e = input.get((j + 1) % inLen);
-                float sCross = edgeDx * (s.y - c1.y) - edgeDy * (s.x - c1.x);
+                Vector2f e = input.get(j);
                 float eCross = edgeDx * (e.y - c1.y) - edgeDy * (e.x - c1.x);
-                boolean sInside = sCross >= -1e-3f;
                 boolean eInside = eCross >= -1e-3f;
 
                 if (eInside) {
@@ -3038,9 +3480,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 } else if (sInside) {
                     output.add(intersectEdge(s, e, sCross, eCross));
                 }
+                s = e;
+                sCross = eCross;
+                sInside = eInside;
             }
+            List<Vector2f> tmp = input;
+            input = output;
+            output = tmp;
         }
-        return output;
+        return input;
     }
 
     private static Vector2f intersectEdge(Vector2f s, Vector2f e, float sVal, float eVal) {

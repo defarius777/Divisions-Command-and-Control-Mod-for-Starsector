@@ -1233,6 +1233,16 @@ public class BattlefieldFirepowerEvaluator {
                 || attacker.getPhaseCloak() != null
                 || (attacker.getShield() != null && attacker.getShield().getType() == ShieldAPI.ShieldType.PHASE);
         float dist = distance(attacker.getLocation(), target.getLocation());
+        int attackerBays = attacker.getNumFighterBays();
+        ShipFirepowerRose attackerRose = rosesByShipId.get(attacker.getId());
+        if (attackerBays <= 0 && attackerRose != null && attackerRose.initialized) {
+            float maxR = Math.max(attackerRose.maxGeneralRange, attackerRose.maxPdRange);
+            if (dist > maxR * 1.08f + 50f) {
+                return 0f;
+            }
+        } else if (dist > 3400f) {
+            return 0f;
+        }
         float bearing = normalizeAngle360((float) Math.toDegrees(Math.atan2(
                 target.getLocation().y - attacker.getLocation().y,
                 target.getLocation().x - attacker.getLocation().x)));
@@ -2659,6 +2669,95 @@ public class BattlefieldFirepowerEvaluator {
                 ? collectPeerDivisionsAndStations(engine, enemyGroup, div.side == 1)
                 : Collections.<DivisionState>emptyList();
 
+        // Precompute sector-invariant friendly peer & enemy division parameters once before the 24-sector loop
+        int peerCap = myPeers.size();
+        float[] peerCx = new float[peerCap];
+        float[] peerCy = new float[peerCap];
+        float[] peerInR = new float[peerCap];
+        float[] peerDomR = new float[peerCap];
+        float[] peerPotR = new float[peerCap];
+        float[] peerDomW = new float[peerCap];
+        int peerCount = 0;
+        for (int i = 0; i < peerCap; i++) {
+            DivisionState peer = myPeers.get(i);
+            if (peer == null || peer == div || !peer.isCombatEffective()) continue;
+            peerCx[peerCount] = peer.centroid.x;
+            peerCy[peerCount] = peer.centroid.y;
+            peerInR[peerCount] = peer.spaceInnerRadius;
+            peerDomR[peerCount] = peer.spaceDominatedRadius;
+            peerPotR[peerCount] = Math.max(peer.spaceDominatedRadius + 180f, peer.spacePotentialRadius);
+            peerDomW[peerCount] = peer.spaceDominanceWeight;
+            peerCount++;
+        }
+
+        int enemyCap = enemyUnits.size();
+        float[] ePosX = new float[enemyCap];
+        float[] ePosY = new float[enemyCap];
+        float[] eEx = new float[enemyCap];
+        float[] eEy = new float[enemyCap];
+        float[] eRatioArr = new float[enemyCap];
+        float[] eCloseGrappleArr = new float[enemyCap];
+        boolean[] eInInteractRange = new boolean[enemyCap];
+        float[] eInRArr = new float[enemyCap];
+        float[] eDomRArr = new float[enemyCap];
+        float[] ePotRArr = new float[enemyCap];
+        float[] eDomWArr = new float[enemyCap];
+        int enemyCount = 0;
+        for (int i = 0; i < enemyCap; i++) {
+            DivisionState eDiv = enemyUnits.get(i);
+            if (eDiv == null || !eDiv.isCombatEffective()) continue;
+            if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
+            Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
+            float dx = ePos.x - div.centroid.x;
+            float dy = ePos.y - div.centroid.y;
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            float eDomR = Math.max(850f, eDiv.spaceDominatedRadius);
+            float eInR = Math.max(450f, eDiv.spaceInnerRadius);
+            float maxInteractDist = freeR * 0.82f + eDomR;
+            ePosX[enemyCount] = ePos.x;
+            ePosY[enemyCount] = ePos.y;
+            eInRArr[enemyCount] = eInR;
+            eDomRArr[enemyCount] = eDomR;
+            ePotRArr[enemyCount] = Math.max(1200f, eDiv.spacePotentialRadius);
+            eDomWArr[enemyCount] = Math.max(10f, eDiv.spaceDominanceWeight);
+            if (d < maxInteractDist) {
+                float ov = clampVal(
+                        1.0f - (d - eInR * 0.55f) / Math.max(350f, maxInteractDist - eInR * 0.55f),
+                        0f,
+                        1f);
+                eRatioArr[enemyCount] = clampVal(
+                        (ov * Math.max(12f, eDiv.spaceDominanceWeight)) / Math.max(16f, refStrength), 0f, 0.78f);
+                eEx[enemyCount] = (d > 1f) ? (dx / d) : 1f;
+                eEy[enemyCount] = (d > 1f) ? (dy / d) : 0f;
+                eCloseGrappleArr[enemyCount] = (d < eInR) ? (0.20f * (1.0f - d / eInR)) : 0f;
+                eInInteractRange[enemyCount] = true;
+            }
+            enemyCount++;
+        }
+
+        int edgeEnemyCap = (enemyGroup != null) ? enemyGroup.divisions.size() : 0;
+        float[] edgeEUx = new float[edgeEnemyCap];
+        float[] edgeEUy = new float[edgeEnemyCap];
+        float[] edgeEDist = new float[edgeEnemyCap];
+        int edgeEnemyCount = 0;
+        if (enemyGroup != null) {
+            for (int i = 0; i < edgeEnemyCap; i++) {
+                DivisionState eDiv = enemyGroup.divisions.get(i);
+                if (eDiv == null || !eDiv.isCombatEffective()) continue;
+                if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
+                Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
+                float edx = ePos.x - div.centroid.x;
+                float edy = ePos.y - div.centroid.y;
+                float eDist = (float) Math.sqrt(edx * edx + edy * edy);
+                if (eDist > 1f) {
+                    edgeEUx[edgeEnemyCount] = edx / eDist;
+                    edgeEUy[edgeEnemyCount] = edy / eDist;
+                    edgeEDist[edgeEnemyCount] = eDist;
+                    edgeEnemyCount++;
+                }
+            }
+        }
+
         for (int s = 0; s < nDirs; s++) {
             float angleDeg = s * (360f / nDirs);
             double rad = Math.toRadians(angleDeg);
@@ -2668,117 +2767,74 @@ public class BattlefieldFirepowerEvaluator {
             float dirPinch = baseDrag;
 
             // 1. Directional Enemy Contact & Space Blocking Lobe
-            if (!enemyUnits.isEmpty()) {
-                for (DivisionState eDiv : enemyUnits) {
-                    if (eDiv == null || !eDiv.isCombatEffective()) continue;
-                    if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
-                    Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
-                    float dx = ePos.x - div.centroid.x;
-                    float dy = ePos.y - div.centroid.y;
-                    float d = (float) Math.sqrt(dx * dx + dy * dy);
-                    float eDomR = Math.max(850f, eDiv.spaceDominatedRadius);
-                    float eInR = Math.max(450f, eDiv.spaceInnerRadius);
-                    float maxInteractDist = freeR * 0.82f + eDomR;
-                    if (d < maxInteractDist) {
-                        float ov = clampVal(
-                                1.0f - (d - eInR * 0.55f) / Math.max(350f, maxInteractDist - eInR * 0.55f),
-                                0f,
-                                1f);
-                        float eRatio = clampVal((ov * Math.max(12f, eDiv.spaceDominanceWeight)) / Math.max(16f, refStrength), 0f, 0.78f);
-                        float ex = (d > 1f) ? (dx / d) : 1f;
-                        float ey = (d > 1f) ? (dy / d) : 0f;
-                        // Cosine alignment: +1 = directly toward enemy, 0 = sideways/lateral, -1 = backward away from enemy
-                        float cosAlign = ux * ex + uy * ey;
-                        float closeGrapple = (d < eInR) ? (0.20f * (1.0f - d / eInR)) : 0f;
-
-                        float directionalFactor;
-                        if (cosAlign >= 0f) {
-                            // Toward the fighting: strong frontal pinch (exceeds isotropic average directly into enemy contact)
-                            directionalFactor = 0.26f + 1.18f * cosAlign * cosAlign + closeGrapple;
-                        } else if (cosAlign >= -0.45f) {
-                            // Sideways / oblique slide: light lateral friction, tapering down as angle turns away
-                            float uLat = (cosAlign + 0.45f) / 0.45f; // 1.0 at 90 deg, 0.0 at 117 deg
-                            directionalFactor = 0.04f + 0.22f * uLat * uLat + closeGrapple * 0.65f;
-                        } else {
-                            // Backwards away from the fighting: division can freely disengage unless deep inside inner grapple
-                            directionalFactor = 0.02f + closeGrapple * 0.35f;
-                        }
-                        dirPinch += eRatio * directionalFactor;
-                    }
+            for (int i = 0; i < enemyCount; i++) {
+                if (!eInInteractRange[i]) continue;
+                float cosAlign = ux * eEx[i] + uy * eEy[i];
+                float closeGrapple = eCloseGrappleArr[i];
+                float directionalFactor;
+                if (cosAlign >= 0f) {
+                    directionalFactor = 0.26f + 1.18f * cosAlign * cosAlign + closeGrapple;
+                } else if (cosAlign >= -0.45f) {
+                    float uLat = (cosAlign + 0.45f) / 0.45f;
+                    directionalFactor = 0.04f + 0.22f * uLat * uLat + closeGrapple * 0.65f;
+                } else {
+                    directionalFactor = 0.02f + closeGrapple * 0.35f;
                 }
+                dirPinch += eRatioArr[i] * directionalFactor;
             }
 
-            // 2. Plus/Minus External Space Control along the directional slide vector (P_step = centroid + u * 0.55 * freeR):
-            //    Enemy Space in that direction pinches Time further; allied peer Friendly Space in that direction eases the slide!
-            Vector2f stepPt = new Vector2f(
-                    div.centroid.x + ux * (freeR * 0.55f),
-                    div.centroid.y + uy * (freeR * 0.55f));
+            // 2. Plus/Minus External Space Control along the directional slide vector (P_step = centroid + u * 0.55 * freeR)
+            float stepPtX = div.centroid.x + ux * (freeR * 0.55f);
+            float stepPtY = div.centroid.y + uy * (freeR * 0.55f);
             float peerFriendlySpace = 0f;
-            if (!myPeers.isEmpty()) {
-                for (DivisionState peer : myPeers) {
-                    if (peer == null || peer == div || !peer.isCombatEffective()) continue;
-                    float dist = distance(stepPt, peer.centroid);
-                    float potR = Math.max(peer.spaceDominatedRadius + 180f, peer.spacePotentialRadius);
-                    if (dist < potR) {
-                        float w = (dist <= peer.spaceInnerRadius) ? 1.0f
-                                : (dist <= peer.spaceDominatedRadius
-                                ? (0.55f + 0.45f * (1f - (dist - peer.spaceInnerRadius) / Math.max(100f, peer.spaceDominatedRadius - peer.spaceInnerRadius)))
-                                : (0.55f * (1f - (dist - peer.spaceDominatedRadius) / Math.max(100f, potR - peer.spaceDominatedRadius))));
-                        peerFriendlySpace += peer.spaceDominanceWeight * Math.max(0f, w);
-                    }
+            for (int i = 0; i < peerCount; i++) {
+                float pdx = stepPtX - peerCx[i];
+                float pdy = stepPtY - peerCy[i];
+                float dist = (float) Math.sqrt(pdx * pdx + pdy * pdy);
+                float potR = peerPotR[i];
+                if (dist < potR) {
+                    float inR = peerInR[i];
+                    float domR = peerDomR[i];
+                    float w = (dist <= inR) ? 1.0f
+                            : (dist <= domR
+                            ? (0.55f + 0.45f * (1f - (dist - inR) / Math.max(100f, domR - inR)))
+                            : (0.55f * (1f - (dist - domR) / Math.max(100f, potR - domR))));
+                    peerFriendlySpace += peerDomW[i] * Math.max(0f, w);
                 }
             }
             float stepEnemySpace = 0f;
-            if (!enemyUnits.isEmpty()) {
-                for (DivisionState e : enemyUnits) {
-                    if (e == null || !e.isCombatEffective()) continue;
-                    if (!OtcAI.isDivisionVisibleToSide(engine, div.side, e)) continue;
-                    Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, e);
-                    float dist = distance(stepPt, ePos);
-                    float potR = Math.max(1200f, e.spacePotentialRadius);
-                    float domR = Math.max(850f, e.spaceDominatedRadius);
-                    float inR = Math.max(450f, e.spaceInnerRadius);
-                    float domW = Math.max(10f, e.spaceDominanceWeight);
-                    if (dist < potR) {
-                        float w = (dist <= inR) ? 1.0f
-                                : (dist <= domR
-                                ? (0.55f + 0.45f * (1f - (dist - inR) / Math.max(100f, domR - inR)))
-                                : (0.55f * (1f - (dist - domR) / Math.max(100f, potR - domR))));
-                        stepEnemySpace += domW * Math.max(0f, w);
-                    }
+            for (int i = 0; i < enemyCount; i++) {
+                float edx = stepPtX - ePosX[i];
+                float edy = stepPtY - ePosY[i];
+                float dist = (float) Math.sqrt(edx * edx + edy * edy);
+                float potR = ePotRArr[i];
+                if (dist < potR) {
+                    float inR = eInRArr[i];
+                    float domR = eDomRArr[i];
+                    float w = (dist <= inR) ? 1.0f
+                            : (dist <= domR
+                            ? (0.55f + 0.45f * (1f - (dist - inR) / Math.max(100f, domR - inR)))
+                            : (0.55f * (1f - (dist - domR) / Math.max(100f, potR - domR))));
+                    stepEnemySpace += eDomWArr[i] * Math.max(0f, w);
                 }
             }
             float externalNetSpace = peerFriendlySpace - stepEnemySpace;
             if (externalNetSpace < 0f) {
-                // Sliding into Enemy Space increases the directional pinch
                 dirPinch += clampVal((-externalNetSpace) / Math.max(20f, refStrength * 1.25f), 0f, 0.34f);
             } else if (externalNetSpace > 0f) {
-                // Sliding into allied Friendly Space reduces the directional pinch (friendly cover aids lateral/rear slide)
                 dirPinch -= clampVal(externalNetSpace / Math.max(24f, refStrength * 1.65f), 0f, 0.16f);
             }
 
-            // 2b. Map-Edge Directional Pinch (Item D):
-            //     When the map boundary is closer than freeR * 1.18 in direction (ux, uy), the map wall directly
-            //     pinches Time projection along this ray — EXCEPT when a target enemy division is between us and
-            //     that boundary (or hugging the boundary), in which case our division has full tactical freedom to
-            //     close onto the cornered enemy without its TSFC being artificially squished!
+            // 2b. Map-Edge Directional Pinch (Item D)
             float edgeDist = computeDirectionalBoundaryClearance(engine, div.centroid, ux, uy, 140f);
             if (edgeDist < freeR * 1.18f) {
                 boolean enemyInEdgeCorridor = false;
-                if (enemyGroup != null) {
-                    for (DivisionState eDiv : enemyGroup.divisions) {
-                        if (eDiv == null || !eDiv.isCombatEffective()) continue;
-                        if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
-                        Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
-                        float edx = ePos.x - div.centroid.x;
-                        float edy = ePos.y - div.centroid.y;
-                        float eDist = (float) Math.sqrt(edx * edx + edy * edy);
-                        if (eDist > 1f && eDist <= edgeDist + 280f) {
-                            float dot = (edx * ux + edy * uy) / eDist;
-                            if (dot >= 0.78f) {
-                                enemyInEdgeCorridor = true;
-                                break;
-                            }
+                for (int i = 0; i < edgeEnemyCount; i++) {
+                    if (edgeEDist[i] <= edgeDist + 280f) {
+                        float dot = edgeEUx[i] * ux + edgeEUy[i] * uy;
+                        if (dot >= 0.78f) {
+                            enemyInEdgeCorridor = true;
+                            break;
                         }
                     }
                 }
@@ -2820,13 +2876,7 @@ public class BattlefieldFirepowerEvaluator {
 
     /**
      * Computes the 24-sector Directional, Non-Circular, Pinchable Space (Zone of Control) envelope for {@code div}
-     * across all three tiers (Inner Directly Dominated, Mid Dominated Nearby, Outer Potentially Dominated):
-     *   - Anisotropic baseline shape: shaped by the division's active formation geometry (e.g. Line Abreast broadside/front
-     *     projection vs Line Ahead axial elongation vs Semicircle dome), actual member distribution around the centroid,
-     *     and directional weapon-arc reach from member firepower roses.
-     *   - Directional Enemy Space & Firepower Pinch: sectors facing overlapping Enemy Space or heavy incoming Firepower
-     *     are compressed/pinched inward, while sectors linking up with adjacent Friendly Space are bolstered.
-     *   - Map-Edge Boundary Pinch: all three Space tiers are pinched by the combat map boundaries along every sector ray.
+     * across all three tiers (Inner Directly Dominated, Mid Dominated Nearby, Outer Potentially Dominated).
      */
     public static void computeDirectionalSpaceEnvelope(
             CombatEngineAPI engine,
@@ -2866,6 +2916,112 @@ public class BattlefieldFirepowerEvaluator {
         float[] rawDom = new float[nDirs];
         float[] rawPot = new float[nDirs];
 
+        // Precompute sector-invariant member ship, enemy division, enemy wing, and friendly peer arrays once before the 24-sector loop
+        int aliveCap = alive.size();
+        float[] mRelX = new float[aliveCap];
+        float[] mRelY = new float[aliveCap];
+        ShipFirepowerRose[] mRoses = new ShipFirepowerRose[aliveCap];
+        float[] mFpWeights = new float[aliveCap];
+        int mCount = 0;
+        for (int mIdx = 0; mIdx < aliveCap; mIdx++) {
+            ShipAPI m = alive.get(mIdx);
+            if (m == null || (div.detachedStragglerIds.contains(m.getId()) && div.coreMemberCount >= 1)) continue;
+            mRelX[mCount] = m.getLocation().x - div.centroid.x;
+            mRelY[mCount] = m.getLocation().y - div.centroid.y;
+            ShipFirepowerRose rose = rosesByShipId.get(m.getId());
+            if (rose != null && rose.maxGeneralRange > 50f) {
+                mRoses[mCount] = rose;
+                mFpWeights[mCount] = ShipCapabilityProfile.resolveShipFpStrength(m);
+            }
+            mCount++;
+        }
+
+        int eUnitCap = enemyUnits.size();
+        float[] eUx = new float[eUnitCap];
+        float[] eUy = new float[eUnitCap];
+        float[] ePinchCoeff = new float[eUnitCap];
+        float[] eHullPinchCoeff = new float[eUnitCap];
+        int eActiveCount = 0;
+        List<Float> wingUxList = null;
+        List<Float> wingUyList = null;
+        List<Float> wingCoeffList = null;
+
+        for (int i = 0; i < eUnitCap; i++) {
+            DivisionState eDiv = enemyUnits.get(i);
+            if (eDiv == null || !eDiv.isCombatEffective()) continue;
+            if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
+            Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
+            float dx = ePos.x - div.centroid.x;
+            float dy = ePos.y - div.centroid.y;
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            float eDomR = Math.max(650f, eDiv.spaceDominatedRadius);
+            float eInR = Math.max(380f, eDiv.spaceInnerRadius);
+            float maxDist = basePot + eDomR;
+            if (d < maxDist && d > 1f) {
+                float overlap = clampVal(1.0f - (d / Math.max(400f, maxDist)), 0f, 1f);
+                float weightRatio = eDiv.spaceDominanceWeight
+                        / Math.max(8f, div.spaceDominanceWeight + eDiv.spaceDominanceWeight * 0.85f);
+                eUx[eActiveCount] = dx / d;
+                eUy[eActiveCount] = dy / d;
+                ePinchCoeff[eActiveCount] = overlap * weightRatio * 0.58f;
+                float hullBlockingSpan = baseInner + eInR * 1.35f;
+                if (d < hullBlockingSpan) {
+                    float hullOverlap = clampVal(1.0f - (d / Math.max(300f, hullBlockingSpan)), 0f, 1f);
+                    eHullPinchCoeff[eActiveCount] = hullOverlap * weightRatio * 0.52f;
+                }
+                eActiveCount++;
+            }
+            List<ShipAPI> eMembers = eDiv.members;
+            for (int esIdx = 0, esLen = eMembers.size(); esIdx < esLen; esIdx++) {
+                ShipAPI es = eMembers.get(esIdx);
+                if (es == null || !es.isAlive() || es.isHulk() || es.isExpired()) continue;
+                List<com.fs.starfarer.api.combat.FighterWingAPI> eWings = es.getAllWings();
+                if (eWings == null) continue;
+                for (int wIdx = 0, wLen = eWings.size(); wIdx < wLen; wIdx++) {
+                    com.fs.starfarer.api.combat.FighterWingAPI ew = eWings.get(wIdx);
+                    ShipAPI wLead = resolveAliveWingLeader(ew);
+                    if (wLead == null || !OtcAI.isShipVisibleToSide(engine, div.side, wLead)) continue;
+                    if (distance(wLead.getLocation(), ePos) <= 260f) continue;
+                    float wdx = wLead.getLocation().x - div.centroid.x;
+                    float wdy = wLead.getLocation().y - div.centroid.y;
+                    float wd = (float) Math.sqrt(wdx * wdx + wdy * wdy);
+                    if (wd < basePot + 450f && wd > 1f) {
+                        float wOv = clampVal(1.0f - (wd / Math.max(350f, basePot + 450f)), 0f, 1f);
+                        if (wingUxList == null) {
+                            wingUxList = new ArrayList<>(8);
+                            wingUyList = new ArrayList<>(8);
+                            wingCoeffList = new ArrayList<>(8);
+                        }
+                        wingUxList.add(wdx / wd);
+                        wingUyList.add(wdy / wd);
+                        wingCoeffList.add(wOv * 0.035f);
+                    }
+                }
+            }
+        }
+        int wingCount = (wingUxList != null) ? wingUxList.size() : 0;
+
+        int peerCap = myPeers.size();
+        float[] pUx = new float[peerCap];
+        float[] pUy = new float[peerCap];
+        float[] pBolsterCoeff = new float[peerCap];
+        int pActiveCount = 0;
+        for (int i = 0; i < peerCap; i++) {
+            DivisionState peer = myPeers.get(i);
+            if (peer == null || peer == div || !peer.isAbleCombatEffective()) continue;
+            float dx = peer.centroid.x - div.centroid.x;
+            float dy = peer.centroid.y - div.centroid.y;
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            float maxDist = baseDom + peer.spaceDominatedRadius;
+            if (d < maxDist && d > 1f) {
+                float overlap = clampVal(1.0f - (d / Math.max(400f, maxDist)), 0f, 1f);
+                pUx[pActiveCount] = dx / d;
+                pUy[pActiveCount] = dy / d;
+                pBolsterCoeff[pActiveCount] = overlap * 0.14f;
+                pActiveCount++;
+            }
+        }
+
         for (int s = 0; s < nDirs; s++) {
             float angleDeg = s * (360f / nDirs);
             double rad = Math.toRadians(angleDeg);
@@ -2878,21 +3034,17 @@ public class BattlefieldFirepowerEvaluator {
             float formShape = 1.0f;
             switch (fm) {
                 case LINE_ABREAST:
-                    // Wide lateral footprint + strong forward gunline projection, shallower astern
                     formShape = 0.90f + 0.16f * (cosRight * cosRight) + (cosFwd >= 0f ? 0.14f * cosFwd : -0.14f * (-cosFwd));
                     break;
                 case LINE_AHEAD:
-                    // Elongated along the column axis, narrower on the beam
                     formShape = 0.86f + 0.24f * (cosFwd * cosFwd);
                     break;
                 case FORWARD_WEDGE:
                 case FORWARD_SEMICIRCLE:
-                    // Concentrated forward spearhead / dome, tapered rear
                     formShape = 0.92f + (cosFwd >= 0f ? 0.22f * cosFwd : -0.16f * (-cosFwd));
                     break;
                 case REVERSE_WEDGE:
                 case REVERSE_SEMICIRCLE:
-                    // Concave pocket opening forward with extended flank wings
                     formShape = 0.90f + 0.18f * (cosRight * cosRight) + (cosFwd >= 0f ? 0.10f * cosFwd : -0.12f * (-cosFwd));
                     break;
                 case ECHELON_LEFT: {
@@ -2906,7 +3058,6 @@ public class BattlefieldFirepowerEvaluator {
                     break;
                 }
                 default:
-                    // Even in Circle/Protective Circle, forward hemisphere where shields/weapons orient is slightly fuller
                     formShape = 0.95f + 0.09f * cosFwd;
                     break;
             }
@@ -2915,16 +3066,14 @@ public class BattlefieldFirepowerEvaluator {
             float maxMemberProj = 0f;
             float roseReachSum = 0f;
             float roseWeightSum = 0f;
-            for (int mIdx = 0; mIdx < alive.size(); mIdx++) {
-                ShipAPI m = alive.get(mIdx);
-                if (m == null || (div.detachedStragglerIds.contains(m.getId()) && div.coreMemberCount >= 1)) continue;
-                float proj = (m.getLocation().x - div.centroid.x) * ux + (m.getLocation().y - div.centroid.y) * uy;
+            for (int mIdx = 0; mIdx < mCount; mIdx++) {
+                float proj = mRelX[mIdx] * ux + mRelY[mIdx] * uy;
                 if (proj > maxMemberProj) {
                     maxMemberProj = proj;
                 }
-                ShipFirepowerRose rose = rosesByShipId.get(m.getId());
-                if (rose != null && rose.maxGeneralRange > 50f) {
-                    float w = ShipCapabilityProfile.resolveShipFpStrength(m);
+                ShipFirepowerRose rose = mRoses[mIdx];
+                if (rose != null) {
+                    float w = mFpWeights[mIdx];
                     float relAngle = normalizeAngle360(angleDeg - rose.smoothedFacingDeg);
                     float secRange = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relAngle);
                     float ratio = clampVal(secRange / Math.max(250f, rose.maxGeneralRange), 0.55f, 1.15f);
@@ -2937,81 +3086,31 @@ public class BattlefieldFirepowerEvaluator {
             float sectorAnisotropy = clampVal(formShape * (0.78f + 0.22f * weaponArcFactor) + memberReachBoost * 0.5f, 0.72f, 1.26f);
 
             // 2. Directional Pinching by Opposing Enemy Space & Enemy Firepower (and bolstering by Friendly Space)
-            //    Per Task F: Warships can physically move right through strike craft! Therefore:
-            //      - Only solid hull-exclusion Space (spaceInnerRadius / warship hull mass) pinches Zone 1 (secIn).
-            //      - Airborne enemy strike craft squadrons exert only soft permeable pressure on outer Space (Zone 2/3)
-            //        and NEVER hard-block or pinch a warship division's inner hull Space (Zone 1).
             float enemyPinch = 0f;
             float enemyHullInnerPinch = 0f;
             float enemyStrikeCraftSoftPinch = 0f;
-            if (!enemyUnits.isEmpty()) {
-                for (DivisionState eDiv : enemyUnits) {
-                    if (eDiv == null || !eDiv.isCombatEffective()) continue;
-                    if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
-                    Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
-                    float dx = ePos.x - div.centroid.x;
-                    float dy = ePos.y - div.centroid.y;
-                    float d = (float) Math.sqrt(dx * dx + dy * dy);
-                    float eDomR = Math.max(650f, eDiv.spaceDominatedRadius);
-                    float eInR = Math.max(380f, eDiv.spaceInnerRadius);
-                    float maxDist = basePot + eDomR;
-                    if (d < maxDist && d > 1f) {
-                        float cosAlign = (dx * ux + dy * uy) / d;
-                        if (cosAlign > 0.05f) {
-                            float overlap = clampVal(1.0f - (d / Math.max(400f, maxDist)), 0f, 1f);
-                            float weightRatio = eDiv.spaceDominanceWeight
-                                    / Math.max(8f, div.spaceDominanceWeight + eDiv.spaceDominanceWeight * 0.85f);
-                            float sectorPinch = overlap * weightRatio * (cosAlign * cosAlign) * 0.58f;
-                            enemyPinch += sectorPinch;
-
-                            // Inner hull-exclusion pinch is driven strictly by solid warship hull proximity (baseInner + eInR),
-                            // because warships can move through enemy strike craft squadrons!
-                            float hullBlockingSpan = baseInner + eInR * 1.35f;
-                            if (d < hullBlockingSpan) {
-                                float hullOverlap = clampVal(1.0f - (d / Math.max(300f, hullBlockingSpan)), 0f, 1f);
-                                enemyHullInnerPinch += hullOverlap * weightRatio * (cosAlign * cosAlign) * 0.52f;
-                            }
-                        }
+            for (int i = 0; i < eActiveCount; i++) {
+                float cosAlign = eUx[i] * ux + eUy[i] * uy;
+                if (cosAlign > 0.05f) {
+                    float cosSq = cosAlign * cosAlign;
+                    enemyPinch += ePinchCoeff[i] * cosSq;
+                    if (eHullPinchCoeff[i] > 0f) {
+                        enemyHullInnerPinch += eHullPinchCoeff[i] * cosSq;
                     }
-                    // Airborne enemy strike craft deployed away from their carrier exert soft permeable pressure
-                    // on outer Space (secPot / secDom) only, and zero physical blocking on secIn:
-                    for (ShipAPI es : eDiv.getAliveMembers()) {
-                        List<com.fs.starfarer.api.combat.FighterWingAPI> eWings = es.getAllWings();
-                        if (eWings == null) continue;
-                        for (com.fs.starfarer.api.combat.FighterWingAPI ew : eWings) {
-                            ShipAPI wLead = resolveAliveWingLeader(ew);
-                            if (wLead == null || !OtcAI.isShipVisibleToSide(engine, div.side, wLead)) continue;
-                            if (distance(wLead.getLocation(), ePos) <= 260f) continue;
-                            float wdx = wLead.getLocation().x - div.centroid.x;
-                            float wdy = wLead.getLocation().y - div.centroid.y;
-                            float wd = (float) Math.sqrt(wdx * wdx + wdy * wdy);
-                            if (wd < basePot + 450f && wd > 1f) {
-                                float wCos = (wdx * ux + wdy * uy) / wd;
-                                if (wCos > 0.10f) {
-                                    float wOv = clampVal(1.0f - (wd / Math.max(350f, basePot + 450f)), 0f, 1f);
-                                    enemyStrikeCraftSoftPinch += wOv * (wCos * wCos) * 0.035f;
-                                }
-                            }
-                        }
-                    }
+                }
+            }
+            for (int wIdx = 0; wIdx < wingCount; wIdx++) {
+                float wCos = wingUxList.get(wIdx) * ux + wingUyList.get(wIdx) * uy;
+                if (wCos > 0.10f) {
+                    enemyStrikeCraftSoftPinch += wingCoeffList.get(wIdx) * (wCos * wCos);
                 }
             }
 
             float friendlyBolster = 0f;
-            if (!myPeers.isEmpty()) {
-                for (DivisionState peer : myPeers) {
-                    if (peer == null || peer == div || !peer.isAbleCombatEffective()) continue;
-                    float dx = peer.centroid.x - div.centroid.x;
-                    float dy = peer.centroid.y - div.centroid.y;
-                    float d = (float) Math.sqrt(dx * dx + dy * dy);
-                    float maxDist = baseDom + peer.spaceDominatedRadius;
-                    if (d < maxDist && d > 1f) {
-                        float cosAlign = (dx * ux + dy * uy) / d;
-                        if (cosAlign > 0.15f) {
-                            float overlap = clampVal(1.0f - (d / Math.max(400f, maxDist)), 0f, 1f);
-                            friendlyBolster += overlap * (cosAlign * cosAlign) * 0.14f;
-                        }
-                    }
+            for (int i = 0; i < pActiveCount; i++) {
+                float cosAlign = pUx[i] * ux + pUy[i] * uy;
+                if (cosAlign > 0.15f) {
+                    friendlyBolster += pBolsterCoeff[i] * (cosAlign * cosAlign);
                 }
             }
 

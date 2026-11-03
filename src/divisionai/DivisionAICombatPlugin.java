@@ -145,8 +145,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     @Override
     public void renderInWorldCoords(ViewportAPI viewport) {
-        // Fallback in case the layered hook could not be attached
-        interceptBeforeRender();
+        // Fallback only in case the layered hook could not be attached
+        if (!preRenderHookAttached) {
+            interceptBeforeRender();
+        }
     }
 
     @Override

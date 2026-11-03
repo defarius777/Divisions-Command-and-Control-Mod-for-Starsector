@@ -527,10 +527,15 @@ public class OtcAI {
 
     public static boolean isDivisionVisibleToSide(CombatEngineAPI engine, int observerSide, DivisionState div) {
         if (div == null) return false;
-        if (observerSide == div.side) return div.isCombatEffective();
-        for (ShipAPI s : div.getAliveMembers()) {
-            if (isShipVisibleToSide(engine, observerSide, s)) {
-                return true;
+        if (observerSide == div.side || engine == null) return div.isCombatEffective();
+        FogOfWarAPI fog = engine.getFogOfWar(observerSide);
+        List<ShipAPI> members = div.members;
+        for (int i = 0, n = members.size(); i < n; i++) {
+            ShipAPI s = members.get(i);
+            if (s != null && s.isAlive() && !s.isHulk() && !s.isExpired()) {
+                if (fog == null || fog.isVisible(s)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -539,11 +544,16 @@ public class OtcAI {
     public static Vector2f getVisibleCentroidForSide(CombatEngineAPI engine, int observerSide, DivisionState div) {
         if (div == null) return new Vector2f(0f, 0f);
         if (observerSide == div.side || engine == null) return div.centroid;
+        FogOfWarAPI fog = engine.getFogOfWar(observerSide);
+        if (fog == null) return div.centroid;
         float sumX = 0f;
         float sumY = 0f;
         float weightSum = 0f;
-        for (ShipAPI s : div.getAliveMembers()) {
-            if (!isShipVisibleToSide(engine, observerSide, s)) continue;
+        List<ShipAPI> members = div.members;
+        for (int i = 0, n = members.size(); i < n; i++) {
+            ShipAPI s = members.get(i);
+            if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+            if (!fog.isVisible(s)) continue;
             float w = ShipCapabilityProfile.resolveShipFpStrength(s) * (DivisionState.isShipUnable(s) ? 0.15f : 1.0f);
             sumX += s.getLocation().x * w;
             sumY += s.getLocation().y * w;
@@ -558,9 +568,14 @@ public class OtcAI {
     public static float getVisibleFpForSide(CombatEngineAPI engine, int observerSide, DivisionState div) {
         if (div == null) return 0f;
         if (observerSide == div.side || engine == null) return div.totalFpStrength;
+        FogOfWarAPI fog = engine.getFogOfWar(observerSide);
+        if (fog == null) return div.totalFpStrength;
         float fpSum = 0f;
-        for (ShipAPI s : div.getAliveMembers()) {
-            if (isShipVisibleToSide(engine, observerSide, s)) {
+        List<ShipAPI> members = div.members;
+        for (int i = 0, n = members.size(); i < n; i++) {
+            ShipAPI s = members.get(i);
+            if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+            if (fog.isVisible(s)) {
                 float w = ShipCapabilityProfile.resolveShipFpStrength(s);
                 fpSum += DivisionState.isShipUnable(s) ? (w * 0.20f) : w;
             }
