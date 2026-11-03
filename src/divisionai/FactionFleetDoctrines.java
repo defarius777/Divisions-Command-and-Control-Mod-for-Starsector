@@ -142,8 +142,54 @@ public final class FactionFleetDoctrines {
      */
     public static void onGameLoad(SectorAPI sector) {
         if (sector == null) return;
+        sanitizeAllNpcFleetMemories(sector);
         sector.addTransientListener(new FleetInitializationDivisionListener());
         runInitialSectorDivisionsPassIfNeeded(sector);
+    }
+
+    private static List<PermanentDivisionSpec> readNpcDivisionsFromMemory(MemoryAPI mem) {
+        if (mem == null) return new ArrayList<>();
+        Object raw = mem.get(MEM_NPC_DIVISIONS_KEY);
+        if (!(raw instanceof List)) return new ArrayList<>();
+        List<PermanentDivisionSpec> specs = PermanentDivisionManager.deserializeSpecList(raw);
+        for (Object item : (List<?>) raw) {
+            if (item instanceof PermanentDivisionSpec) {
+                writeNpcDivisionsToMemory(mem, specs);
+                break;
+            }
+        }
+        return specs;
+    }
+
+    private static void writeNpcDivisionsToMemory(MemoryAPI mem, List<PermanentDivisionSpec> specs) {
+        if (mem == null) return;
+        mem.set(MEM_NPC_DIVISIONS_KEY, PermanentDivisionManager.serializeSpecList(specs));
+    }
+
+    /**
+     * Ensures no CampaignFleetAPI in the sector has raw PermanentDivisionSpec objects stored in
+     * its MemoryAPI ($divisionai_npc_divisions_v1) before game save or after game load.
+     */
+    public static void sanitizeAllNpcFleetMemories(SectorAPI sector) {
+        if (sector == null) return;
+        List<LocationAPI> locations = new ArrayList<>();
+        if (sector.getHyperspace() != null) {
+            locations.add(sector.getHyperspace());
+        }
+        if (sector.getStarSystems() != null) {
+            for (StarSystemAPI sys : sector.getStarSystems()) {
+                if (sys != null) locations.add(sys);
+            }
+        }
+        for (LocationAPI loc : locations) {
+            if (loc.getFleets() != null) {
+                for (CampaignFleetAPI fleet : loc.getFleets()) {
+                    if (fleet != null && fleet.getMemoryWithoutUpdate() != null) {
+                        readNpcDivisionsFromMemory(fleet.getMemoryWithoutUpdate());
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -313,9 +359,8 @@ public final class FactionFleetDoctrines {
         for (CampaignFleetAPI fleet : collectAllInstancedNpcFleets(sector)) {
             if (!isPlayerPersonalFactionFleet(fleet)) continue;
             MemoryAPI mem = fleet.getMemoryWithoutUpdate();
-            Object rawDivs = (mem != null) ? mem.get(MEM_NPC_DIVISIONS_KEY) : null;
-            if (rawDivs instanceof List && !((List<?>) rawDivs).isEmpty()) {
-                List<PermanentDivisionSpec> specs = (List<PermanentDivisionSpec>) rawDivs;
+            List<PermanentDivisionSpec> specs = readNpcDivisionsFromMemory(mem);
+            if (!specs.isEmpty()) {
                 for (PermanentDivisionSpec spec : specs) {
                     if (spec == null) continue;
                     FactionDivisionRecord rec = recordById.get(spec.id);
@@ -334,6 +379,7 @@ public final class FactionFleetDoctrines {
                                 0L);
                     }
                 }
+                writeNpcDivisionsToMemory(mem, specs);
                 updatedFleets++;
             } else {
                 List<PermanentDivisionSpec> divs = ensureFleetDivisionsSorted(fleet);
@@ -758,11 +804,11 @@ public final class FactionFleetDoctrines {
 
         String currentSig = sigBuilder.toString();
         MemoryAPI mem = fleet.getMemoryWithoutUpdate();
+        List<PermanentDivisionSpec> existingDivs = readNpcDivisionsFromMemory(mem);
         if (mem != null) {
             Object cachedSig = mem.get(MEM_NPC_SIGNATURE_KEY);
-            Object cachedDivs = mem.get(MEM_NPC_DIVISIONS_KEY);
-            if (currentSig.equals(cachedSig) && cachedDivs instanceof List) {
-                return (List<PermanentDivisionSpec>) cachedDivs;
+            if (currentSig.equals(cachedSig) && !existingDivs.isEmpty()) {
+                return existingDivs;
             }
         }
 
@@ -771,7 +817,6 @@ public final class FactionFleetDoctrines {
         String factionId = fleet.getFaction() != null ? fleet.getFaction().getId() : "independent";
 
         List<PermanentDivisionSpec> sorted;
-        Object existingDivsObj = (mem != null) ? mem.get(MEM_NPC_DIVISIONS_KEY) : null;
         Set<String> knownIndependentIds = new HashSet<>();
         if (mem != null) {
             Object rawIndep = mem.get(MEM_NPC_INDEPENDENT_IDS_KEY);
@@ -782,13 +827,13 @@ public final class FactionFleetDoctrines {
             }
         }
 
-        if (existingDivsObj instanceof List && !((List<?>) existingDivsObj).isEmpty()) {
+        if (!existingDivs.isEmpty()) {
             // Sticky AI fleet divisions: preserve existing divisions across casualties, recombine depleted
             // remnants after attrition, keep known independent captains independent, and apply the fleet's
             // Organization Rating quota to genuinely new reinforcement ships.
             sorted = updateStickyNpcFleetDivisions(
                     fleet,
-                    (List<PermanentDivisionSpec>) existingDivsObj,
+                    existingDivs,
                     eligible,
                     knownIndependentIds,
                     doctrine,
@@ -812,7 +857,7 @@ public final class FactionFleetDoctrines {
 
         if (mem != null) {
             mem.set(MEM_NPC_SIGNATURE_KEY, currentSig);
-            mem.set(MEM_NPC_DIVISIONS_KEY, sorted);
+            writeNpcDivisionsToMemory(mem, sorted);
             mem.set(MEM_NPC_INDEPENDENT_IDS_KEY, new ArrayList<>(knownIndependentIds));
         }
         return sorted;
@@ -823,7 +868,6 @@ public final class FactionFleetDoctrines {
      * transferred part of its divisions into this fleet, swaps same-hull-size ships between the two
      * fleets so whole divisions are transferred intact whenever possible.
      */
-    @SuppressWarnings("unchecked")
     public static void consolidateWholeDivisionTransfersWithNearbyFleets(CampaignFleetAPI childFleet) {
         if (childFleet == null || childFleet.isPlayerFleet() || childFleet.getFleetData() == null) return;
         LocationAPI loc = childFleet.getContainingLocation();
@@ -846,9 +890,7 @@ public final class FactionFleetDoctrines {
 
             MemoryAPI otherMem = other.getMemoryWithoutUpdate();
             if (otherMem == null) continue;
-            Object rawDivs = otherMem.get(MEM_NPC_DIVISIONS_KEY);
-            if (!(rawDivs instanceof List)) continue;
-            List<PermanentDivisionSpec> parentDivs = (List<PermanentDivisionSpec>) rawDivs;
+            List<PermanentDivisionSpec> parentDivs = readNpcDivisionsFromMemory(otherMem);
             if (parentDivs.isEmpty()) continue;
 
             Map<String, FleetMemberAPI> parentById = new HashMap<>();
@@ -1695,14 +1737,14 @@ public final class FactionFleetDoctrines {
                 replacement.unitSeed);
         table.add(replacement);
 
-        // Update the bumped fleet's cached PermanentDivisionSpec if that fleet is currently instanced
+        // Update the bumped fleet's cached division list if that fleet is currently instanced
         SectorAPI sector = Global.getSector();
         if (sector != null && oldFleetId != null) {
             CampaignFleetAPI oldFleet = findLiveFleetById(sector, oldFleetId);
             if (oldFleet != null && oldFleet.getMemoryWithoutUpdate() != null) {
-                Object rawDivs = oldFleet.getMemoryWithoutUpdate().get(MEM_NPC_DIVISIONS_KEY);
-                if (rawDivs instanceof List) {
-                    List<PermanentDivisionSpec> specs = (List<PermanentDivisionSpec>) rawDivs;
+                MemoryAPI oldMem = oldFleet.getMemoryWithoutUpdate();
+                List<PermanentDivisionSpec> specs = readNpcDivisionsFromMemory(oldMem);
+                if (!specs.isEmpty()) {
                     for (int i = 0; i < specs.size(); i++) {
                         PermanentDivisionSpec s = specs.get(i);
                         if (s != null && preempted.recordId.equals(s.id)) {
@@ -1714,6 +1756,7 @@ public final class FactionFleetDoctrines {
                             updated.flagshipMemberId = s.flagshipMemberId;
                             updated.customStandoffRange = s.customStandoffRange;
                             specs.set(i, updated);
+                            writeNpcDivisionsToMemory(oldMem, specs);
                             break;
                         }
                     }

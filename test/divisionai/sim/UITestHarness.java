@@ -674,9 +674,17 @@ public class UITestHarness {
         playerNaming.setNumberingStyle(NumberingStyle.ARABIC);
         DivisionNomenclature.clearAppliedPlayerFactionNamingConfigForTests();
 
+        boolean saveSafetyPlainMapOk = ffdJava.contains("writeNpcDivisionsToMemory(mem, sorted)")
+                && ffdJava.contains("PermanentDivisionManager.serializeSpecList(specs)")
+                && (new PermanentDivisionManager.PermanentDivisionSpec("t_1", "Test Div", DivisionArchetype.CRUISER_DIVISION) != null)
+                && (PermanentDivisionManager.serializeSpecToMap(
+                        new PermanentDivisionManager.PermanentDivisionSpec("t_1", "Test Div", DivisionArchetype.CRUISER_DIVISION)).getClass().getName().startsWith("java.util."))
+                && (playerNaming.toPlainMap().getClass().getName().startsWith("java.util."));
+
         boolean itemARuntimeOk = "Battle Div. I".equals(beforeSyncPlayerFactionName)
                 && "Executor Line I".equals(afterSyncPlayerFactionName)
-                && "Battle Div. I".equals(hegemonyFactionName);
+                && "Battle Div. I".equals(hegemonyFactionName)
+                && saveSafetyPlainMapOk;
 
         res.record(
                 itemAButtonsOk && itemARuntimeOk,

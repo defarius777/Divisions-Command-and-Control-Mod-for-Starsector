@@ -2385,6 +2385,16 @@ public class PermanentDivisionManager {
             this.name = name;
             this.archetype = archetype != null ? archetype : DivisionArchetype.CRUISER_DIVISION;
         }
+
+        /**
+         * XStream legacy-save migration hook: if an older save serialized a PermanentDivisionSpec
+         * instance directly into a fleet's MemoryAPI ($divisionai_npc_divisions_v1), immediately
+         * resolve it to a plain JDK Map<String, Object> during XML unmarshalling so zero custom
+         * divisionai.* classes remain anywhere in the Sector object graph.
+         */
+        private Object readResolve() {
+            return serializeSpecToMap(this);
+        }
     }
 
     public static class DormantMember {
@@ -4567,150 +4577,186 @@ public class PermanentDivisionManager {
 
     @SuppressWarnings("unchecked")
     private static List<PermanentDivisionSpec> loadSpecsFromPersistentData(Map<String, Object> pdata) {
+        if (pdata == null) return new ArrayList<>();
+        return deserializeSpecList(pdata.get(PERSISTENT_DIVISIONS_KEY));
+    }
+
+    /**
+     * Deserializes a list of division specs from a raw collection stored in persistent data or
+     * fleet MemoryAPI. Accepts both plain JDK Map<String, Object> entries and legacy
+     * PermanentDivisionSpec instances for backward compatibility.
+     */
+    @SuppressWarnings("unchecked")
+    public static List<PermanentDivisionSpec> deserializeSpecList(Object raw) {
         List<PermanentDivisionSpec> result = new ArrayList<>();
-        if (pdata == null) return result;
-        Object raw = pdata.get(PERSISTENT_DIVISIONS_KEY);
         if (!(raw instanceof List)) return result;
 
         List<?> rawList = (List<?>) raw;
         for (Object item : rawList) {
-            if (!(item instanceof Map)) continue;
-            Map<String, Object> map = (Map<String, Object>) item;
-            String id = (String) map.get("id");
-            String name = (String) map.get("name");
-            String archStr = (String) map.get("archetype");
-            String docStr = (String) map.get("doctrine");
-            String flagshipId = (String) map.get("flagshipMemberId");
-
-            DivisionArchetype arch = DivisionArchetype.CRUISER_DIVISION;
-            if (archStr != null) {
-                try {
-                    arch = DivisionArchetype.valueOf(DivisionArchetype.resolveLegacyName(archStr));
-                } catch (IllegalArgumentException ignored) {
-                }
+            PermanentDivisionSpec spec = deserializeSpecFromObject(item);
+            if (spec != null) {
+                result.add(spec);
             }
-            if (id == null || name == null) continue;
-
-            PermanentDivisionSpec spec = new PermanentDivisionSpec(id, name, arch);
-            spec.flagshipMemberId = flagshipId;
-            spec.doctrine = DoctrineOption.fromId(docStr);
-
-            Object cIntra = map.get("customIntraSpacing");
-            Object cInter = map.get("customInterSpacing");
-            Object cStandoff = map.get("customLineStandoff");
-            Object cOpenMis = map.get("customOpeningMission");
-            Object cMainMis = map.get("customMainMission");
-            Object cPrefSpace = map.get("customPreferredSpace");
-            Object cForm = map.get("customFormation");
-            Object cSticky = map.get("customMovementStickiness");
-            Object cVsObs = map.get("customVoidstrikeObservance");
-            Object cVsCoord = map.get("customVoidstrikeCoordination");
-            Object cFtrFm = map.get("customFighterFormation");
-            Object cFtrVsFm = map.get("customFighterVoidstrikeFormation");
-            Object cBmbFm = map.get("customBomberFormation");
-            Object cBmbVsFm = map.get("customBomberVoidstrikeFormation");
-            Object cVsDepth = map.get("customVoidstrikeSquadronDepth");
-            Object cVsWidth = map.get("customVoidstrikeSquadronWidth");
-            if (cIntra instanceof Number) spec.customStationSpacing = ((Number) cIntra).intValue();
-            if (cInter instanceof Number) spec.customDivisionInterval = ((Number) cInter).intValue();
-            if (cStandoff instanceof Number) spec.customStandoffRange = ((Number) cStandoff).intValue();
-            if (cOpenMis instanceof String) spec.customOpeningMission = DivisionMissionType.fromId((String) cOpenMis, null);
-            if (cMainMis instanceof String) spec.customMainMission = DivisionMissionType.fromId((String) cMainMis, null);
-            if (cPrefSpace instanceof String) spec.customLineStation = LineStation.fromId((String) cPrefSpace, null);
-            if (cForm instanceof String) spec.customFormation = DivisionFormation.fromId((String) cForm, null);
-            if (cSticky instanceof String) spec.customMovementStickiness = DivisionMovementStickiness.fromId((String) cSticky, null);
-            if (cVsObs instanceof String) spec.customVoidstrikeObservance = VoidstrikeTargetObservance.fromId((String) cVsObs, null);
-            if (cVsCoord instanceof String) spec.customVoidstrikeCoordination = VoidstrikeCoordinationMode.fromId((String) cVsCoord, null);
-            if (cFtrFm instanceof String) spec.customFighterFormation = SquadronFormation.fromId((String) cFtrFm, null);
-            if (cFtrVsFm instanceof String) spec.customFighterVoidstrikeFormation = SquadronFormation.fromId((String) cFtrVsFm, null);
-            if (cBmbFm instanceof String) spec.customBomberFormation = SquadronFormation.fromId((String) cBmbFm, null);
-            if (cBmbVsFm instanceof String) spec.customBomberVoidstrikeFormation = SquadronFormation.fromId((String) cBmbVsFm, null);
-            if (cVsDepth instanceof Number) {
-                spec.customVoidstrikeSquadronDepth = Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH,
-                        Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, ((Number) cVsDepth).intValue()));
-            }
-            if (cVsWidth instanceof Number) {
-                spec.customVoidstrikeSquadronWidth = Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH,
-                        Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, ((Number) cVsWidth).intValue()));
-            }
-            Object cSetpiece = map.get("customSetpieceAttack");
-            if (cSetpiece instanceof String) {
-                spec.customSetpieceAttack = DivisionSetpieceAttack.fromId((String) cSetpiece, null);
-            }
-
-            Object dormantObj = map.get("dormantMembers");
-            if (dormantObj instanceof List) {
-                for (Object d : (List<?>) dormantObj) {
-                    if (!(d instanceof Map)) continue;
-                    Map<?, ?> dmap = (Map<?, ?>) d;
-                    Object did = dmap.get("id");
-                    if (!(did instanceof String)) continue;
-                    Object dfp = dmap.get("fp");
-                    Object dts = dmap.get("since");
-                    Object dslot = dmap.get("slot");
-                    spec.dormantMembers.put((String) did, new DormantMember(
-                            dfp instanceof String ? (String) dfp : null,
-                            dts instanceof Number ? ((Number) dts).longValue() : 0L,
-                            dslot instanceof Number ? ((Number) dslot).intValue() : 99));
-                    if (dfp instanceof String) LAST_KNOWN_FINGERPRINT.put((String) did, (String) dfp);
-                }
-            }
-
-            Object membersObj = map.get("memberIds");
-            if (membersObj instanceof List) {
-                for (Object m : (List<?>) membersObj) {
-                    if (m instanceof String && !spec.memberIds.contains((String) m)) {
-                        spec.memberIds.add((String) m);
-                    }
-                }
-            }
-            result.add(spec);
         }
         return result;
     }
 
+    @SuppressWarnings("unchecked")
+    public static PermanentDivisionSpec deserializeSpecFromObject(Object item) {
+        if (item instanceof PermanentDivisionSpec) {
+            return (PermanentDivisionSpec) item;
+        }
+        if (!(item instanceof Map)) return null;
+        Map<String, Object> map = (Map<String, Object>) item;
+        String id = (String) map.get("id");
+        String name = (String) map.get("name");
+        String archStr = (String) map.get("archetype");
+        String docStr = (String) map.get("doctrine");
+        String flagshipId = (String) map.get("flagshipMemberId");
+
+        DivisionArchetype arch = DivisionArchetype.CRUISER_DIVISION;
+        if (archStr != null) {
+            try {
+                arch = DivisionArchetype.valueOf(DivisionArchetype.resolveLegacyName(archStr));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        if (id == null || name == null) return null;
+
+        PermanentDivisionSpec spec = new PermanentDivisionSpec(id, name, arch);
+        spec.flagshipMemberId = flagshipId;
+        spec.doctrine = DoctrineOption.fromId(docStr);
+
+        Object cIntra = map.get("customIntraSpacing");
+        Object cInter = map.get("customInterSpacing");
+        Object cStandoff = map.get("customLineStandoff");
+        Object cOpenMis = map.get("customOpeningMission");
+        Object cMainMis = map.get("customMainMission");
+        Object cPrefSpace = map.get("customPreferredSpace");
+        Object cForm = map.get("customFormation");
+        Object cSticky = map.get("customMovementStickiness");
+        Object cVsObs = map.get("customVoidstrikeObservance");
+        Object cVsCoord = map.get("customVoidstrikeCoordination");
+        Object cFtrFm = map.get("customFighterFormation");
+        Object cFtrVsFm = map.get("customFighterVoidstrikeFormation");
+        Object cBmbFm = map.get("customBomberFormation");
+        Object cBmbVsFm = map.get("customBomberVoidstrikeFormation");
+        Object cVsDepth = map.get("customVoidstrikeSquadronDepth");
+        Object cVsWidth = map.get("customVoidstrikeSquadronWidth");
+        if (cIntra instanceof Number) spec.customStationSpacing = ((Number) cIntra).intValue();
+        if (cInter instanceof Number) spec.customDivisionInterval = ((Number) cInter).intValue();
+        if (cStandoff instanceof Number) spec.customStandoffRange = ((Number) cStandoff).intValue();
+        if (cOpenMis instanceof String) spec.customOpeningMission = DivisionMissionType.fromId((String) cOpenMis, null);
+        if (cMainMis instanceof String) spec.customMainMission = DivisionMissionType.fromId((String) cMainMis, null);
+        if (cPrefSpace instanceof String) spec.customLineStation = LineStation.fromId((String) cPrefSpace, null);
+        if (cForm instanceof String) spec.customFormation = DivisionFormation.fromId((String) cForm, null);
+        if (cSticky instanceof String) spec.customMovementStickiness = DivisionMovementStickiness.fromId((String) cSticky, null);
+        if (cVsObs instanceof String) spec.customVoidstrikeObservance = VoidstrikeTargetObservance.fromId((String) cVsObs, null);
+        if (cVsCoord instanceof String) spec.customVoidstrikeCoordination = VoidstrikeCoordinationMode.fromId((String) cVsCoord, null);
+        if (cFtrFm instanceof String) spec.customFighterFormation = SquadronFormation.fromId((String) cFtrFm, null);
+        if (cFtrVsFm instanceof String) spec.customFighterVoidstrikeFormation = SquadronFormation.fromId((String) cFtrVsFm, null);
+        if (cBmbFm instanceof String) spec.customBomberFormation = SquadronFormation.fromId((String) cBmbFm, null);
+        if (cBmbVsFm instanceof String) spec.customBomberVoidstrikeFormation = SquadronFormation.fromId((String) cBmbVsFm, null);
+        if (cVsDepth instanceof Number) {
+            spec.customVoidstrikeSquadronDepth = Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH,
+                    Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, ((Number) cVsDepth).intValue()));
+        }
+        if (cVsWidth instanceof Number) {
+            spec.customVoidstrikeSquadronWidth = Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH,
+                    Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, ((Number) cVsWidth).intValue()));
+        }
+        Object cSetpiece = map.get("customSetpieceAttack");
+        if (cSetpiece instanceof String) {
+            spec.customSetpieceAttack = DivisionSetpieceAttack.fromId((String) cSetpiece, null);
+        }
+
+        Object dormantObj = map.get("dormantMembers");
+        if (dormantObj instanceof List) {
+            for (Object d : (List<?>) dormantObj) {
+                if (!(d instanceof Map)) continue;
+                Map<?, ?> dmap = (Map<?, ?>) d;
+                Object did = dmap.get("id");
+                if (!(did instanceof String)) continue;
+                Object dfp = dmap.get("fp");
+                Object dts = dmap.get("since");
+                Object dslot = dmap.get("slot");
+                spec.dormantMembers.put((String) did, new DormantMember(
+                        dfp instanceof String ? (String) dfp : null,
+                        dts instanceof Number ? ((Number) dts).longValue() : 0L,
+                        dslot instanceof Number ? ((Number) dslot).intValue() : 99));
+                if (dfp instanceof String) LAST_KNOWN_FINGERPRINT.put((String) did, (String) dfp);
+            }
+        }
+
+        Object membersObj = map.get("memberIds");
+        if (membersObj instanceof List) {
+            for (Object m : (List<?>) membersObj) {
+                if (m instanceof String && !spec.memberIds.contains((String) m)) {
+                    spec.memberIds.add((String) m);
+                }
+            }
+        }
+        return spec;
+    }
+
     private static void saveSpecsToPersistentData(Map<String, Object> pdata, List<PermanentDivisionSpec> specs) {
         if (pdata == null || specs == null) return;
+        pdata.put(PERSISTENT_DIVISIONS_KEY, serializeSpecList(specs));
+    }
+
+    /**
+     * Serializes a list of division specs into plain JDK Maps/Lists/Strings/Numbers so XStream
+     * never writes custom divisionai.* classes into campaign.xml.
+     */
+    public static List<Map<String, Object>> serializeSpecList(List<PermanentDivisionSpec> specs) {
         List<Map<String, Object>> serialized = new ArrayList<>();
+        if (specs == null) return serialized;
         for (PermanentDivisionSpec spec : specs) {
-            Map<String, Object> map = new HashMap<>();
-            map.put("id", spec.id);
-            map.put("name", spec.name);
-            map.put("archetype", spec.archetype != null ? spec.archetype.name() : DivisionArchetype.CRUISER_DIVISION.name());
-            map.put("doctrine", spec.doctrine != null ? spec.doctrine.name() : DoctrineOption.ADAPTIVE.name());
-            map.put("flagshipMemberId", spec.flagshipMemberId);
-            map.put("memberIds", new ArrayList<>(spec.memberIds));
-            if (spec.dormantMembers != null && !spec.dormantMembers.isEmpty()) {
-                List<Map<String, Object>> dl = new ArrayList<>();
-                for (Map.Entry<String, DormantMember> e : spec.dormantMembers.entrySet()) {
-                    Map<String, Object> dm = new HashMap<>();
-                    dm.put("id", e.getKey());
-                    if (e.getValue().fingerprint != null) dm.put("fp", e.getValue().fingerprint);
-                    dm.put("since", Long.valueOf(e.getValue().sinceTimestamp));
-                    dm.put("slot", Integer.valueOf(e.getValue().slotIndex));
-                    dl.add(dm);
-                }
-                map.put("dormantMembers", dl);
-            }
-            if (spec.customStationSpacing != null) map.put("customIntraSpacing", spec.customStationSpacing);
-            if (spec.customDivisionInterval != null) map.put("customInterSpacing", spec.customDivisionInterval);
-            if (spec.customStandoffRange != null) map.put("customLineStandoff", spec.customStandoffRange);
-            if (spec.customOpeningMission != null) map.put("customOpeningMission", spec.customOpeningMission.name());
-            if (spec.customMainMission != null) map.put("customMainMission", spec.customMainMission.name());
-            if (spec.customLineStation != null) map.put("customPreferredSpace", spec.customLineStation.name());
-            if (spec.customFormation != null) map.put("customFormation", spec.customFormation.name());
-            if (spec.customMovementStickiness != null) map.put("customMovementStickiness", spec.customMovementStickiness.name());
-            if (spec.customVoidstrikeObservance != null) map.put("customVoidstrikeObservance", spec.customVoidstrikeObservance.name());
-            if (spec.customVoidstrikeCoordination != null) map.put("customVoidstrikeCoordination", spec.customVoidstrikeCoordination.name());
-            if (spec.customFighterFormation != null) map.put("customFighterFormation", spec.customFighterFormation.name());
-            if (spec.customFighterVoidstrikeFormation != null) map.put("customFighterVoidstrikeFormation", spec.customFighterVoidstrikeFormation.name());
-            if (spec.customBomberFormation != null) map.put("customBomberFormation", spec.customBomberFormation.name());
-            if (spec.customBomberVoidstrikeFormation != null) map.put("customBomberVoidstrikeFormation", spec.customBomberVoidstrikeFormation.name());
-            if (spec.customVoidstrikeSquadronDepth != null) map.put("customVoidstrikeSquadronDepth", spec.customVoidstrikeSquadronDepth);
-            if (spec.customVoidstrikeSquadronWidth != null) map.put("customVoidstrikeSquadronWidth", spec.customVoidstrikeSquadronWidth);
-            if (spec.customSetpieceAttack != null) map.put("customSetpieceAttack", spec.customSetpieceAttack.name());
-            serialized.add(map);
+            if (spec == null) continue;
+            serialized.add(serializeSpecToMap(spec));
         }
-        pdata.put(PERSISTENT_DIVISIONS_KEY, serialized);
+        return serialized;
+    }
+
+    public static Map<String, Object> serializeSpecToMap(PermanentDivisionSpec spec) {
+        Map<String, Object> map = new HashMap<>();
+        if (spec == null) return map;
+        map.put("id", spec.id);
+        map.put("name", spec.name);
+        map.put("archetype", spec.archetype != null ? spec.archetype.name() : DivisionArchetype.CRUISER_DIVISION.name());
+        map.put("doctrine", spec.doctrine != null ? spec.doctrine.name() : DoctrineOption.ADAPTIVE.name());
+        map.put("flagshipMemberId", spec.flagshipMemberId);
+        map.put("memberIds", spec.memberIds != null ? new ArrayList<>(spec.memberIds) : new ArrayList<String>());
+        if (spec.dormantMembers != null && !spec.dormantMembers.isEmpty()) {
+            List<Map<String, Object>> dl = new ArrayList<>();
+            for (Map.Entry<String, DormantMember> e : spec.dormantMembers.entrySet()) {
+                if (e.getValue() == null) continue;
+                Map<String, Object> dm = new HashMap<>();
+                dm.put("id", e.getKey());
+                if (e.getValue().fingerprint != null) dm.put("fp", e.getValue().fingerprint);
+                dm.put("since", Long.valueOf(e.getValue().sinceTimestamp));
+                dm.put("slot", Integer.valueOf(e.getValue().slotIndex));
+                dl.add(dm);
+            }
+            map.put("dormantMembers", dl);
+        }
+        if (spec.customStationSpacing != null) map.put("customIntraSpacing", spec.customStationSpacing);
+        if (spec.customDivisionInterval != null) map.put("customInterSpacing", spec.customDivisionInterval);
+        if (spec.customStandoffRange != null) map.put("customLineStandoff", spec.customStandoffRange);
+        if (spec.customOpeningMission != null) map.put("customOpeningMission", spec.customOpeningMission.name());
+        if (spec.customMainMission != null) map.put("customMainMission", spec.customMainMission.name());
+        if (spec.customLineStation != null) map.put("customPreferredSpace", spec.customLineStation.name());
+        if (spec.customFormation != null) map.put("customFormation", spec.customFormation.name());
+        if (spec.customMovementStickiness != null) map.put("customMovementStickiness", spec.customMovementStickiness.name());
+        if (spec.customVoidstrikeObservance != null) map.put("customVoidstrikeObservance", spec.customVoidstrikeObservance.name());
+        if (spec.customVoidstrikeCoordination != null) map.put("customVoidstrikeCoordination", spec.customVoidstrikeCoordination.name());
+        if (spec.customFighterFormation != null) map.put("customFighterFormation", spec.customFighterFormation.name());
+        if (spec.customFighterVoidstrikeFormation != null) map.put("customFighterVoidstrikeFormation", spec.customFighterVoidstrikeFormation.name());
+        if (spec.customBomberFormation != null) map.put("customBomberFormation", spec.customBomberFormation.name());
+        if (spec.customBomberVoidstrikeFormation != null) map.put("customBomberVoidstrikeFormation", spec.customBomberVoidstrikeFormation.name());
+        if (spec.customVoidstrikeSquadronDepth != null) map.put("customVoidstrikeSquadronDepth", spec.customVoidstrikeSquadronDepth);
+        if (spec.customVoidstrikeSquadronWidth != null) map.put("customVoidstrikeSquadronWidth", spec.customVoidstrikeSquadronWidth);
+        if (spec.customSetpieceAttack != null) map.put("customSetpieceAttack", spec.customSetpieceAttack.name());
+        return map;
     }
 }

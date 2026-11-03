@@ -225,6 +225,7 @@ public final class DivisionNomenclature {
         private String numberingStyleId = NumberingStyle.ARABIC.name();
         private String customOtcTitle = "";
         private Map<String, String> customPrefixes = new LinkedHashMap<>();
+        private transient Map<String, Object> backingMap = null;
 
         public PlayerNamingPreset getPreset() {
             PlayerNamingPreset p = PlayerNamingPreset.fromId(presetId, PlayerNamingPreset.NAVAL_STANDARD);
@@ -235,6 +236,7 @@ public final class DivisionNomenclature {
             if (preset == null || !preset.playerSelectable) preset = PlayerNamingPreset.NAVAL_STANDARD;
             this.presetId = preset.name();
             this.numberingStyleId = preset.defaultNumbering.name();
+            syncToBackingMap();
         }
 
         public NumberingStyle getNumberingStyle() {
@@ -244,6 +246,7 @@ public final class DivisionNomenclature {
         public void setNumberingStyle(NumberingStyle style) {
             if (style != null) {
                 this.numberingStyleId = style.name();
+                syncToBackingMap();
             }
         }
 
@@ -253,6 +256,7 @@ public final class DivisionNomenclature {
 
         public void setCustomOtcTitle(String title) {
             this.customOtcTitle = title != null ? title.trim() : "";
+            syncToBackingMap();
         }
 
         public String getPrefixForArchetype(DivisionArchetype archetype) {
@@ -277,6 +281,7 @@ public final class DivisionNomenclature {
             } else {
                 customPrefixes.put(archetype.name(), prefix.trim());
             }
+            syncToBackingMap();
         }
 
         public void clearCustomPrefixes() {
@@ -284,6 +289,7 @@ public final class DivisionNomenclature {
                 customPrefixes.clear();
             }
             customOtcTitle = "";
+            syncToBackingMap();
         }
 
         public PlayerNamingConfig copy() {
@@ -296,23 +302,88 @@ public final class DivisionNomenclature {
             }
             return cp;
         }
+
+        public Map<String, Object> toPlainMap() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            writeFieldsToMap(map);
+            return map;
+        }
+
+        private void writeFieldsToMap(Map<String, Object> map) {
+            if (map == null) return;
+            map.put("presetId", presetId != null ? presetId : PlayerNamingPreset.NAVAL_STANDARD.name());
+            map.put("numberingStyleId", numberingStyleId != null ? numberingStyleId : NumberingStyle.ARABIC.name());
+            map.put("customOtcTitle", customOtcTitle != null ? customOtcTitle : "");
+            Map<String, String> prefs = new LinkedHashMap<>();
+            if (customPrefixes != null) {
+                prefs.putAll(customPrefixes);
+            }
+            map.put("customPrefixes", prefs);
+        }
+
+        private void syncToBackingMap() {
+            if (backingMap != null) {
+                writeFieldsToMap(backingMap);
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        public static PlayerNamingConfig fromPlainMap(Map<String, Object> map) {
+            PlayerNamingConfig cfg = new PlayerNamingConfig();
+            if (map == null) return cfg;
+            Object pid = map.get("presetId");
+            if (pid instanceof String) cfg.presetId = (String) pid;
+            Object nid = map.get("numberingStyleId");
+            if (nid instanceof String) cfg.numberingStyleId = (String) nid;
+            Object otc = map.get("customOtcTitle");
+            if (otc instanceof String) cfg.customOtcTitle = (String) otc;
+            Object prefs = map.get("customPrefixes");
+            if (prefs instanceof Map) {
+                for (Map.Entry<?, ?> e : ((Map<?, ?>) prefs).entrySet()) {
+                    if (e.getKey() instanceof String && e.getValue() instanceof String) {
+                        cfg.customPrefixes.put((String) e.getKey(), (String) e.getValue());
+                    }
+                }
+            }
+            cfg.backingMap = map;
+            return cfg;
+        }
+
+        /**
+         * XStream legacy-save migration hook: if an older save serialized a PlayerNamingConfig
+         * instance directly into SectorAPI.getPersistentData(), immediately resolve it to a plain
+         * JDK Map<String, Object> during XML unmarshalling.
+         */
+        private Object readResolve() {
+            return toPlainMap();
+        }
     }
 
     private DivisionNomenclature() {
     }
 
+    @SuppressWarnings("unchecked")
     public static PlayerNamingConfig getPlayerNamingConfig() {
         SectorAPI sector = Global.getSector();
-        if (sector == null) {
+        if (sector == null || sector.getPersistentData() == null) {
             return inMemoryPlayerNamingFallback;
         }
         Map<String, Object> data = sector.getPersistentData();
         Object raw = data.get(PERSISTENT_PLAYER_NAMING_KEY);
+        if (raw instanceof Map) {
+            return PlayerNamingConfig.fromPlainMap((Map<String, Object>) raw);
+        }
         if (raw instanceof PlayerNamingConfig) {
-            return (PlayerNamingConfig) raw;
+            PlayerNamingConfig legacy = (PlayerNamingConfig) raw;
+            Map<String, Object> plain = legacy.toPlainMap();
+            data.put(PERSISTENT_PLAYER_NAMING_KEY, plain);
+            legacy.backingMap = plain;
+            return legacy;
         }
         PlayerNamingConfig fresh = new PlayerNamingConfig();
-        data.put(PERSISTENT_PLAYER_NAMING_KEY, fresh);
+        Map<String, Object> plain = fresh.toPlainMap();
+        fresh.backingMap = plain;
+        data.put(PERSISTENT_PLAYER_NAMING_KEY, plain);
         return fresh;
     }
 
@@ -325,20 +396,44 @@ public final class DivisionNomenclature {
         inMemoryAppliedPlayerFactionNaming = snapshot;
         SectorAPI sector = Global.getSector();
         if (sector != null && sector.getPersistentData() != null) {
-            sector.getPersistentData().put(PERSISTENT_PLAYER_FACTION_NAMING_KEY, snapshot);
+            Map<String, Object> plain = snapshot.toPlainMap();
+            snapshot.backingMap = plain;
+            sector.getPersistentData().put(PERSISTENT_PLAYER_FACTION_NAMING_KEY, plain);
         }
         return snapshot;
     }
 
+    @SuppressWarnings("unchecked")
     public static PlayerNamingConfig getAppliedPlayerFactionNamingConfig() {
         SectorAPI sector = Global.getSector();
         if (sector != null && sector.getPersistentData() != null) {
-            Object raw = sector.getPersistentData().get(PERSISTENT_PLAYER_FACTION_NAMING_KEY);
+            Map<String, Object> data = sector.getPersistentData();
+            Object raw = data.get(PERSISTENT_PLAYER_FACTION_NAMING_KEY);
+            if (raw instanceof Map) {
+                return PlayerNamingConfig.fromPlainMap((Map<String, Object>) raw);
+            }
             if (raw instanceof PlayerNamingConfig) {
-                return (PlayerNamingConfig) raw;
+                PlayerNamingConfig legacy = (PlayerNamingConfig) raw;
+                Map<String, Object> plain = legacy.toPlainMap();
+                data.put(PERSISTENT_PLAYER_FACTION_NAMING_KEY, plain);
+                legacy.backingMap = plain;
+                return legacy;
             }
         }
         return inMemoryAppliedPlayerFactionNaming;
+    }
+
+    public static void sanitizePersistentNamingData(SectorAPI sector) {
+        if (sector == null || sector.getPersistentData() == null) return;
+        Map<String, Object> data = sector.getPersistentData();
+        Object raw1 = data.get(PERSISTENT_PLAYER_NAMING_KEY);
+        if (raw1 instanceof PlayerNamingConfig) {
+            data.put(PERSISTENT_PLAYER_NAMING_KEY, ((PlayerNamingConfig) raw1).toPlainMap());
+        }
+        Object raw2 = data.get(PERSISTENT_PLAYER_FACTION_NAMING_KEY);
+        if (raw2 instanceof PlayerNamingConfig) {
+            data.put(PERSISTENT_PLAYER_FACTION_NAMING_KEY, ((PlayerNamingConfig) raw2).toPlainMap());
+        }
     }
 
 

@@ -40,10 +40,20 @@ public class DivisionAIModPlugin extends BaseModPlugin {
             PermanentDivisionManager.migrateAutoStandoffToGunRange();
             PermanentDivisionManager.migrateDivisionNamesToNavalTerms();
             PermanentDivisionManager.migrateFleetWideFormationDefaultToAuto();
+            DivisionNomenclature.sanitizePersistentNamingData(sector);
             FactionFleetDoctrines.onGameLoad(sector);
             DivisionAISettings.consumePendingReinitOnGameLoad();
             sector.removeTransientScriptsOfClass(DivisionFleetTabInjector.class);
             sector.addTransientScript(new DivisionFleetTabInjector());
+        }
+    }
+
+    @Override
+    public void beforeGameSave() {
+        SectorAPI sector = Global.getSector();
+        if (sector != null) {
+            DivisionNomenclature.sanitizePersistentNamingData(sector);
+            FactionFleetDoctrines.sanitizeAllNpcFleetMemories(sector);
         }
     }
 }
