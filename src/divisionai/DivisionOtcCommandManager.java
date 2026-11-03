@@ -13,6 +13,10 @@ import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionState;
+import divisionai.DivisionNomenclature.NomenclatureCategory;
+import org.lwjgl.util.vector.Vector2f;
+import java.util.Collections;
+import java.util.Comparator;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import org.apache.log4j.Logger;
 
@@ -117,7 +121,7 @@ public class DivisionOtcCommandManager {
                     : "Fleet Commander";
             this.alphaCore = alphaCoreOverride
                     || DivisionDeploymentDialogOrganizer.isFlagshipAlphaCoreEquipped(null, member, null)
-                    || BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(ship);
+                    || isAlphaCoreControlledShip(ship);
             if (this.alphaCore) {
                 this.personalityId = "fearless";
                 this.personalityDisplay = "Alpha Core";
@@ -181,20 +185,11 @@ public class DivisionOtcCommandManager {
         return explicitPlayerOtcChoiceMade || (playerGroup != null && playerGroup.otcManuallyAssigned);
     }
 
-    public static void setExplicitPlayerOtcChoiceMade(BattleGroupState playerGroup, boolean explicit) {
-        explicitPlayerOtcChoiceMade = explicit;
-        if (playerGroup != null) {
-            playerGroup.otcManuallyAssigned = explicit;
-        }
-    }
 
     public static boolean isPlayerShipStickyOtcActive() {
         return playerShipStickyOtcActive;
     }
 
-    public static void setPlayerShipStickyOtcActive(boolean active) {
-        playerShipStickyOtcActive = active;
-    }
 
     public static void setAutoPreDeployPlayerOtcMemberId(BattleGroupState playerGroup, String id) {
         preferredPlayerOtcMemberId = id;
@@ -478,8 +473,8 @@ public class DivisionOtcCommandManager {
     public static boolean isOtcDisabled(BattleGroupState group, float now) {
         if (group == null) return false;
         if (group.side == 0 && !group.isAlliedAi && group.useConvergence
-                && BattlefieldFirepowerEvaluator.getPlayerConvergenceFlagshipOverride() != null
-                && BattlefieldFirepowerEvaluator.getPlayerConvergenceFlagshipOverride().isAlive()) {
+                && getPlayerConvergenceFlagshipOverride() != null
+                && getPlayerConvergenceFlagshipOverride().isAlive()) {
             return false;
         }
         return now < group.otcDisabledUntilTime;
@@ -615,7 +610,7 @@ public class DivisionOtcCommandManager {
 
                 boolean isDivLeader = m.getId().equals(leaderId) || activeCombatDivisionLeaders.contains(m.getId());
                 boolean isAlpha = DivisionDeploymentDialogOrganizer.isFlagshipAlphaCoreEquipped(null, m, null)
-                        || BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(ship);
+                        || isAlphaCoreControlledShip(ship);
                 PersonAPI cap = m.getCaptain();
                 boolean hasOfficerOrPlayer = (cap != null && !cap.isDefault()) || isPlayerCharacterMember(m) || isAlpha;
 
@@ -640,7 +635,7 @@ public class DivisionOtcCommandManager {
 
             boolean isDivLeader = activeCombatDivisionLeaders.contains(m.getId());
             boolean isAlpha = DivisionDeploymentDialogOrganizer.isFlagshipAlphaCoreEquipped(null, m, null)
-                    || BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(ship);
+                    || isAlphaCoreControlledShip(ship);
             PersonAPI cap = m.getCaptain();
             boolean hasOfficerOrPlayer = (cap != null && !cap.isDefault()) || isPlayerCharacterMember(m) || isAlpha;
 
@@ -693,54 +688,6 @@ public class DivisionOtcCommandManager {
         return null;
     }
 
-    /**
-     * Cycles the player's OTC to the next eligible candidate from the Deployment Screen "Change" button.
-     * Pre-battle is free; mid-battle costs 75% of max CP unless transferring to an Alpha Core ship.
-     */
-    public static boolean cycleToNextEligiblePlayerOtc(
-            CombatEngineAPI engine,
-            BattleGroupState playerGroup,
-            List<FleetMemberAPI> deployedMembers,
-            List<FleetMemberAPI> reserveMembers,
-            FleetMemberAPI currentFlagshipMember,
-            boolean preBattle) {
-
-        if (isPlayerOtcLockedByAlphaCoreInBattle(engine, currentFlagshipMember, playerGroup, preBattle)) {
-            notifyPlayer(engine, "OTC cannot be changed during battle while an Alpha Core holds command.", false);
-            return false;
-        }
-        float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
-        boolean emergency = isEmergencyPlayerOtcSelectionPending(playerGroup);
-        if (!preBattle && !emergency && isOtcDisabled(playerGroup, now)) {
-            notifyPlayer(engine, String.format(Locale.ROOT,
-                    "OTC disabled for %.0fs following flagship destruction.",
-                    getOtcDisabledSecondsRemaining(playerGroup, now)), false);
-            return false;
-        }
-
-        List<OtcCandidate> candidates = collectPlayerOtcCandidates(engine, playerGroup, deployedMembers, reserveMembers);
-        if (candidates.size() <= 1) {
-            return false;
-        }
-
-        String curId = (currentFlagshipMember != null) ? currentFlagshipMember.getId() : getPreferredPlayerOtcMemberId(playerGroup);
-        int curIdx = -1;
-        for (int i = 0; i < candidates.size(); i++) {
-            if (curId != null && curId.equals(candidates.get(i).memberId)) {
-                curIdx = i;
-                break;
-            }
-        }
-
-        for (int step = 1; step < candidates.size(); step++) {
-            OtcCandidate next = candidates.get((Math.max(0, curIdx) + step) % candidates.size());
-            if (curId != null && curId.equals(next.memberId)) continue;
-            if (applyPlayerOtcCandidate(engine, playerGroup, next, preBattle, now)) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     /**
      * Applies the chosen OTC candidate, charging 75% of max CP if mid-battle and not an Alpha Core Convergence transfer
@@ -800,13 +747,13 @@ public class DivisionOtcCommandManager {
                 if (!preBattle) {
                     lockPlayerAlphaCoreOtcInBattle(playerGroup);
                     if (resolvedShip != null) {
-                        BattlefieldFirepowerEvaluator.setPlayerConvergenceFlagshipOverride(resolvedShip);
+                        setPlayerConvergenceFlagshipOverride(resolvedShip);
                     }
                 }
             } else {
                 clearPlayerAlphaCoreOtcLockInBattle(playerGroup);
-                BattlefieldFirepowerEvaluator.setPlayerConvergenceFlagshipOverride(null);
-                BattlefieldFirepowerEvaluator.markInitialPlayerOtcAlphaCore(false);
+                setPlayerConvergenceFlagshipOverride(null);
+                markInitialPlayerOtcAlphaCore(false);
                 if (playerGroup.forceConvergenceOverride == null) {
                     playerGroup.useConvergence = false;
                 }
@@ -816,8 +763,8 @@ public class DivisionOtcCommandManager {
                 lockPlayerAlphaCoreOtcInBattle(null);
             } else if (!candidate.alphaCore) {
                 clearPlayerAlphaCoreOtcLockInBattle(null);
-                BattlefieldFirepowerEvaluator.setPlayerConvergenceFlagshipOverride(null);
-                BattlefieldFirepowerEvaluator.markInitialPlayerOtcAlphaCore(false);
+                setPlayerConvergenceFlagshipOverride(null);
+                markInitialPlayerOtcAlphaCore(false);
             }
         }
 
@@ -887,20 +834,6 @@ public class DivisionOtcCommandManager {
         return unpenalized;
     }
 
-    public static float getPlayerEffectiveCpRateMult(CombatEngineAPI engine) {
-        CombatTaskManagerAPI tm = getPlayerTaskManager(engine);
-        if (tm == null) return 1.0f;
-        try {
-            float mult = tm.getCPRateMult();
-            if (mult > 0f) return mult;
-            MutableStat rateMod = tm.getCPRateModifier();
-            if (rateMod != null) {
-                return Math.max(0f, 1.0f + rateMod.getModifiedValue());
-            }
-        } catch (Throwable ignored) {
-        }
-        return 1.0f;
-    }
 
     /**
      * Feature E: Returns true if the player side's designated OTC ship is currently deployed and alive in battle.
@@ -1120,8 +1053,8 @@ public class DivisionOtcCommandManager {
         if (!destroyed) return;
 
         boolean retreated = isShipRetreatedFromBattle(engine, group, flagship);
-        boolean wasAlphaCoreOtc = BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(flagship)
-                || (group.otc != null && BattlefieldFirepowerEvaluator.isAlphaCoreOfficer(group.otc.person))
+        boolean wasAlphaCoreOtc = isAlphaCoreControlledShip(flagship)
+                || (group.otc != null && isAlphaCoreOfficer(group.otc.person))
                 || (group.side == 0 && !group.isAlliedAi && isAlphaCoreOtcLockedInBattle(group));
 
         if (retreated) {
@@ -1172,7 +1105,7 @@ public class DivisionOtcCommandManager {
                 }
                 return;
             }
-            if (BattlefieldFirepowerEvaluator.isNonHumanConvergenceGroup(group)
+            if (isNonHumanConvergenceGroup(group)
                     || Boolean.TRUE.equals(group.forceConvergenceOverride)) {
                 return;
             }
@@ -1180,7 +1113,7 @@ public class DivisionOtcCommandManager {
             group.useConvergence = false;
             if (group.side == 0 && !group.isAlliedAi) {
                 clearPlayerAlphaCoreOtcLockInBattle(group);
-                BattlefieldFirepowerEvaluator.setPlayerConvergenceFlagshipOverride(null);
+                setPlayerConvergenceFlagshipOverride(null);
             }
         } else if (group.useConvergence || Boolean.TRUE.equals(group.forceConvergenceOverride)) {
             return;
@@ -1257,7 +1190,7 @@ public class DivisionOtcCommandManager {
         ShipAPI best = null;
         float bestScore = -Float.MAX_VALUE;
         for (ShipAPI s : pool) {
-            if (!BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(s)) continue;
+            if (!isAlphaCoreControlledShip(s)) continue;
             float score = scoreSuccessorCandidate(s, group, true);
             if (score > bestScore) {
                 bestScore = score;
@@ -1365,7 +1298,7 @@ public class DivisionOtcCommandManager {
                 : (successor.getName() != null ? successor.getName() + " Captain" : "Acting OTC");
         group.otc = new CommanderProfile(cap, fallbackName);
 
-        boolean isAlpha = isAlphaCoreAutoTransfer || BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(successor);
+        boolean isAlpha = isAlphaCoreAutoTransfer || isAlphaCoreControlledShip(successor);
         if (isAlpha) {
             group.useConvergence = true;
             group.otcDisabledUntilTime = -100f;
@@ -1380,7 +1313,7 @@ public class DivisionOtcCommandManager {
             clearEmergencyPlayerOtcSelection(group);
             if (isAlpha) {
                 lockPlayerAlphaCoreOtcInBattle(group);
-                BattlefieldFirepowerEvaluator.setPlayerConvergenceFlagshipOverride(successor);
+                setPlayerConvergenceFlagshipOverride(successor);
             }
         }
     }
@@ -1426,7 +1359,7 @@ public class DivisionOtcCommandManager {
             BattleGroupState group,
             boolean allowAlphaCoreTier1) {
         if (s == null) return -Float.MAX_VALUE;
-        boolean isAlpha = BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(s);
+        boolean isAlpha = isAlphaCoreControlledShip(s);
         PersonAPI cap = s.getCaptain();
         boolean hasOfficer = (cap != null && !cap.isDefault());
         int officerLevel = getOfficerLevelSafe(cap);
@@ -1780,5 +1713,680 @@ public class DivisionOtcCommandManager {
             ui.addMessage(1, color, text);
         } catch (Throwable ignored) {
         }
+    }
+
+    static CombatEngineAPI lastAlphaCoreCheckEngine = null;
+    static float lastAlphaCoreCheckTime = -100f;
+    static int lastAlphaCoreCheckShipsSize = -1;
+    static boolean cachedHasAlphaCoreInPlayerFleet = false;
+
+    static ShipAPI playerConvergenceFlagshipOverride = null;
+    static ShipAPI initialDefaultPlayerFlagship = null;
+    static BattleGroupState initialDefaultFlagshipGroupRef = null;
+    static boolean initialPlayerOtcWasAlphaCore = false;
+    static ShipAPI pendingCommsAlphaCoreShip = null;
+    static final Set<String> askedAlphaCoreShipIds = new HashSet<>();
+    static int urgentCommsPromptSequence = 0;
+    static int activeCommsPhraseIndex = 0;
+
+    static final String[][] URGENT_COMMS_PHRASES = new String[][]{
+            {"Shall I take ", "command?", ""},
+            {"Please ", "allow", " me."},
+            {"I am at your ", "service.", ""},
+            {"I can ", "ANNIHILATE", " them faster."}
+    };
+
+    public static int getActiveCommsPhraseIndex() {
+        return activeCommsPhraseIndex;
+    }
+
+    public static String[] getUrgentCommsPhraseParts(int index) {
+        int idx = Math.abs(index) % URGENT_COMMS_PHRASES.length;
+        return URGENT_COMMS_PHRASES[idx];
+    }
+
+    public static ShipAPI getPlayerConvergenceFlagshipOverride() {
+        return playerConvergenceFlagshipOverride;
+    }
+
+    public static void setPlayerConvergenceFlagshipOverride(ShipAPI ship) {
+        playerConvergenceFlagshipOverride = ship;
+    }
+
+    public static ShipAPI getPendingCommsAlphaCoreShip() {
+        return pendingCommsAlphaCoreShip;
+    }
+
+    public static Set<String> getAskedAlphaCoreShipIds() {
+        return askedAlphaCoreShipIds;
+    }
+
+    public static void markInitialPlayerOtcAlphaCore(boolean isAlpha) {
+        initialPlayerOtcWasAlphaCore = isAlpha;
+    }
+
+    public static void resetAlphaCoreAndFlagshipStateForNewBattle() {
+        playerConvergenceFlagshipOverride = null;
+        initialDefaultPlayerFlagship = null;
+        initialDefaultFlagshipGroupRef = null;
+        initialPlayerOtcWasAlphaCore = false;
+        pendingCommsAlphaCoreShip = null;
+        askedAlphaCoreShipIds.clear();
+        urgentCommsPromptSequence = 0;
+        activeCommsPhraseIndex = 0;
+        lastAlphaCoreCheckEngine = null;
+        lastAlphaCoreCheckTime = -100f;
+        lastAlphaCoreCheckShipsSize = -1;
+        cachedHasAlphaCoreInPlayerFleet = false;
+    }
+
+    /**
+     * Strictly defines an "AI-controlled ship" officer as an Alpha Core ("alpha_core") or Omega Core ("omega_core").
+     * Beta cores, Gamma cores, and human officers return false.
+     */
+    public static boolean isAlphaCoreOfficer(PersonAPI person) {
+        if (person == null) return false;
+        String coreId = person.getAICoreId();
+        if (coreId != null) {
+            String trimmed = coreId.trim().toLowerCase(Locale.ROOT);
+            if ("alpha_core".equals(trimmed)
+                    || "omega_core".equals(trimmed)
+                    || trimmed.startsWith("omega_core")) {
+                return true;
+            }
+        }
+        try {
+            if (person.getFaction() != null && "omega".equalsIgnoreCase(person.getFaction().getId())) {
+                return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Returns true ONLY if the given ship is controlled by an Alpha Core.
+     * Lower cores (Beta/Gamma) and human captains do not count.
+     */
+    public static boolean isAlphaCoreControlledShip(ShipAPI ship) {
+        if (ship == null) return false;
+        if (isAlphaCoreOfficer(ship.getCaptain())) return true;
+        if (ship.getFleetMember() != null && isAlphaCoreControlledMember(ship.getFleetMember())) {
+            return true;
+        }
+        try {
+            if (ship.getVariant() != null && ship.getVariant().getHullMods() != null) {
+                for (String hm : ship.getVariant().getHullMods()) {
+                    if (hm == null) continue;
+                    String low = hm.toLowerCase(Locale.ROOT);
+                    if (low.contains("alpha_core") || low.contains("aicore_alpha")) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    public static boolean isAlphaCoreControlledMember(FleetMemberAPI member) {
+        if (member == null) return false;
+        if (isAlphaCoreOfficer(member.getCaptain())) return true;
+        try {
+            if (member.getVariant() != null && member.getVariant().getHullMods() != null) {
+                for (String hm : member.getVariant().getHullMods()) {
+                    if (hm == null) continue;
+                    String low = hm.toLowerCase(Locale.ROOT);
+                    if (low.contains("alpha_core") || low.contains("aicore_alpha")) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if the player has an Alpha Core anywhere in their fleet (installed on a deployed ship,
+     * installed on an undeployed reserve ship, or carried in the player fleet's cargo).
+     * Even if the Alpha Core ship is not in play, the Alpha Core feeds its analysis into the player's bridge.
+     */
+    public static boolean hasAlphaCoreInPlayerFleet(CombatEngineAPI engine) {
+        if (engine != null) {
+            int shipsSize = (engine.getShips() != null) ? engine.getShips().size() : 0;
+            if (engine == lastAlphaCoreCheckEngine
+                    && shipsSize == lastAlphaCoreCheckShipsSize) {
+                return cachedHasAlphaCoreInPlayerFleet;
+            }
+            lastAlphaCoreCheckEngine = engine;
+            lastAlphaCoreCheckShipsSize = shipsSize;
+        }
+        boolean found = computeHasAlphaCoreInPlayerFleetUncached(engine);
+        cachedHasAlphaCoreInPlayerFleet = found;
+        return found;
+    }
+
+    static boolean computeHasAlphaCoreInPlayerFleetUncached(CombatEngineAPI engine) {
+        if (engine != null) {
+            List<ShipAPI> ships = engine.getShips();
+            if (ships != null) {
+                for (ShipAPI s : ships) {
+                    if (s != null && s.getOwner() == 0 && !s.isAlly() && isAlphaCoreControlledShip(s)) {
+                        return true;
+                    }
+                }
+            }
+            try {
+                CombatFleetManagerAPI fm = engine.getFleetManager(0);
+                if (fm != null) {
+                    List<FleetMemberAPI> deployed = fm.getDeployedCopy();
+                    if (deployed != null) {
+                        for (FleetMemberAPI m : deployed) {
+                            if (m != null && !m.isAlly() && isAlphaCoreControlledMember(m)) return true;
+                        }
+                    }
+                    List<FleetMemberAPI> reserves = fm.getReservesCopy();
+                    if (reserves != null) {
+                        for (FleetMemberAPI m : reserves) {
+                            if (m != null && !m.isAlly() && isAlphaCoreControlledMember(m)) return true;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        try {
+            if (Global.getSector() != null && Global.getSector().getPlayerFleet() != null) {
+                com.fs.starfarer.api.campaign.CampaignFleetAPI pf = Global.getSector().getPlayerFleet();
+                if (pf.getFleetData() != null && pf.getFleetData().getMembersListCopy() != null) {
+                    for (FleetMemberAPI m : pf.getFleetData().getMembersListCopy()) {
+                        if (isAlphaCoreControlledMember(m)) return true;
+                    }
+                }
+                if (pf.getCargo() != null
+                        && (pf.getCargo().getCommodityQuantity("alpha_core") >= 1f
+                        || pf.getCargo().getCommodityQuantity("omega_core") >= 1f)) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Returns true ONLY for non-AI-core alien/extradimensional entities (Threat Swarm and Abyssal/Omega)
+     * that natively practice Convergence without standard AI cores.
+     * AI fleets (Remnant and Derelict probes/sub-ordos) do NOT get automatic group-wide Convergence:
+     * they only practice Convergence when their OTC flagship or division flagship is commanded by an
+     * Alpha Core officer (Beta cores, Gamma cores, and un-cored Derelict probes use standard "human"
+     * OTC and division decision-making).
+     */
+    public static boolean isNonHumanConvergenceGroup(BattleGroupState group) {
+        if (group == null) return false;
+        if (group.nomenclatureCategory == NomenclatureCategory.THREAT_SWARM
+                || group.nomenclatureCategory == NomenclatureCategory.ABYSSAL_ERROR) {
+            return true;
+        }
+        String f = group.factionId != null ? group.factionId.toLowerCase(Locale.ROOT) : "";
+        return "threat".equals(f)
+                || "dweller".equals(f)
+                || "omega".equals(f);
+    }
+
+    /**
+     * Resolves the active Fleet Flagship for a battlegroup:
+     *  - On the player side (side == 0, !isAlliedAi), if the player accepted an Alpha Core ship's offer to take
+     *    command (playerConvergenceFlagshipOverride), that ship is the flagship; otherwise resolves the default flagship
+     *    (engine.getPlayerShip(), or deployed FleetMemberAPI.isFlagship(), or highest-FP division flagship).
+     */
+    public static ShipAPI resolveActiveFleetFlagship(CombatEngineAPI engine, BattleGroupState group) {
+        if (group == null) return null;
+        boolean isPlayerGroup = (group.side == 0 && !group.isAlliedAi);
+        if (isPlayerGroup
+                && playerConvergenceFlagshipOverride != null
+                && playerConvergenceFlagshipOverride.isAlive()
+                && !playerConvergenceFlagshipOverride.isHulk()
+                && !playerConvergenceFlagshipOverride.isExpired()) {
+            return playerConvergenceFlagshipOverride;
+        }
+        String prefId = isPlayerGroup ? getPreferredPlayerOtcMemberId(group) : null;
+        if (isPlayerGroup && prefId != null && !prefId.isEmpty() && engine != null) {
+            List<ShipAPI> allShips = engine.getShips();
+            if (allShips != null) {
+                for (ShipAPI s : allShips) {
+                    if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                    if (s.getOwner() != 0 || s.isAlly()) continue;
+                    String mId = (s.getFleetMember() != null) ? s.getFleetMember().getId() : null;
+                    if (prefId.equals(s.getId())
+                            || (mId != null && prefId.equals(mId))) {
+                        return s;
+                    }
+                }
+            }
+            // If the explicitly designated or sticky OTC is sitting in reserves (undeployed), do not substitute another ship
+            if (hasAutoOrExplicitPlayerOtcSelection(group)) {
+                try {
+                    if (engine.getFleetManager(0) != null && engine.getFleetManager(0).getReservesCopy() != null) {
+                        for (FleetMemberAPI rm : engine.getFleetManager(0).getReservesCopy()) {
+                            if (rm != null && prefId.equals(rm.getId())) {
+                                return null;
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            } else if (allShips != null) {
+                // Auto OTC fallback when ships deployed in a single frame before pre-battle selection ran
+                List<FleetMemberAPI> deployedPool = new ArrayList<>();
+                for (ShipAPI s : allShips) {
+                    if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                    if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
+                    if (s.getOwner() != 0 || s.isAlly()) continue;
+                    if (s.getFleetMember() != null) deployedPool.add(s.getFleetMember());
+                }
+                FleetMemberAPI autoBest = selectLargestShipCommanderMember(deployedPool);
+                if (autoBest != null && autoBest.getId() != null) {
+                    setAutoPreDeployPlayerOtcMemberId(group, autoBest.getId());
+                    for (ShipAPI s : allShips) {
+                        if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                        if (s.getOwner() != 0 || s.isAlly()) continue;
+                        if (s.getFleetMember() != null && autoBest.getId().equals(s.getFleetMember().getId())) {
+                            return s;
+                        }
+                    }
+                }
+            }
+        }
+        if (group.designatedSuccessorFlagship != null
+                && group.designatedSuccessorFlagship.isAlive()
+                && !group.designatedSuccessorFlagship.isHulk()
+                && !group.designatedSuccessorFlagship.isExpired()
+                && !isShipRetreatedFromBattle(engine, group, group.designatedSuccessorFlagship)) {
+            return group.designatedSuccessorFlagship;
+        }
+        if (engine != null) {
+            List<ShipAPI> ships = engine.getShips();
+            if (ships != null) {
+                for (ShipAPI s : ships) {
+                    if (s != null && s.getId() != null
+                            && s.getOwner() == group.side && s.isAlly() == group.isAlliedAi
+                            && (s.isRetreating() || s.isDirectRetreat())) {
+                        group.formationSpawnHijackedShipIds.add("__retreating_" + s.getId());
+                    }
+                }
+            }
+            // If an Alpha Core ship was the designated campaign flagship (and player did not override OTC to a human),
+            // resolve that flagship before engine.getPlayerShip() (since a human player cannot manually pilot an
+            // automated Alpha Core ship without Neural Link, so engine.getPlayerShip() may be a subordinate human ship).
+            if (isPlayerGroup && ships != null) {
+                if (prefId == null || prefId.isEmpty()) {
+                    for (ShipAPI s : ships) {
+                        if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                        if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
+                        if (s.getOwner() != 0 || s.isAlly()) continue;
+                        if (s.getFleetMember() != null && s.getFleetMember().isFlagship() && isAlphaCoreControlledShip(s)) {
+                            return s;
+                        }
+                    }
+                }
+                if (initialPlayerOtcWasAlphaCore || (group.otc != null && isAlphaCoreOfficer(group.otc.person))) {
+                    ShipAPI bestAlpha = findBestDeployedAlphaCoreSuccessor(engine, group, null);
+                    if (bestAlpha != null) {
+                        return bestAlpha;
+                    }
+                }
+            }
+            if (isPlayerGroup) {
+                ShipAPI playerPiloted = engine.getPlayerShip();
+                if (playerPiloted != null
+                        && playerPiloted.isAlive()
+                        && !playerPiloted.isHulk()
+                        && playerPiloted.getOwner() == 0
+                        && !playerPiloted.isAlly()) {
+                    return playerPiloted;
+                }
+            }
+            if (ships != null) {
+                for (ShipAPI s : ships) {
+                    if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                    if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
+                    if (s.getOwner() != group.side || s.isAlly() != group.isAlliedAi) continue;
+                    if (s.getFleetMember() != null && s.getFleetMember().isFlagship()) {
+                        return s;
+                    }
+                }
+            }
+        }
+        if (!isPlayerGroup) {
+            if (group.activeFleetFlagship != null
+                    && group.activeFleetFlagship.isAlive()
+                    && !group.activeFleetFlagship.isHulk()
+                    && !group.activeFleetFlagship.isExpired()
+                    && !group.activeFleetFlagship.isRetreating()
+                    && !group.activeFleetFlagship.isDirectRetreat()) {
+                return group.activeFleetFlagship;
+            }
+            ShipAPI hier = selectSuccessorShipByHierarchy(engine, group, null, group.useConvergence);
+            if (hier != null) {
+                group.designatedSuccessorFlagship = hier;
+                group.activeFleetFlagship = hier;
+                return hier;
+            }
+        }
+        if (isPlayerGroup) {
+            if (initialDefaultFlagshipGroupRef != group) {
+                initialDefaultFlagshipGroupRef = group;
+                initialDefaultPlayerFlagship = null;
+            }
+            if (initialDefaultPlayerFlagship != null
+                    && initialDefaultPlayerFlagship.isAlive()
+                    && !initialDefaultPlayerFlagship.isHulk()
+                    && !initialDefaultPlayerFlagship.isExpired()) {
+                return initialDefaultPlayerFlagship;
+            }
+            // If the first division in the player's deployed order is Alpha Core-led (or no human division exists),
+            // allow the Alpha Core ship to be the default flagship; otherwise prefer the highest-FP human division
+            // flagship as the default flagship so subordinate Alpha Core ships ask "Shall I take command?" on click.
+            boolean firstDivIsAlphaCore = false;
+            boolean anyHumanDiv = false;
+            for (int i = 0; i < group.divisions.size(); i++) {
+                DivisionState d = group.divisions.get(i);
+                List<ShipAPI> alive = d.getAliveMembers();
+                if (alive.isEmpty()) continue;
+                ShipAPI f = (d.flagship != null && alive.contains(d.flagship)) ? d.flagship : alive.get(0);
+                if (i == 0 && isAlphaCoreControlledShip(f)) {
+                    firstDivIsAlphaCore = true;
+                }
+                if (!isAlphaCoreControlledShip(f)) {
+                    anyHumanDiv = true;
+                }
+            }
+            ShipAPI bestHumanFlag = null;
+            float bestHumanFp = -1f;
+            ShipAPI bestAnyFlag = null;
+            float bestAnyFp = -1f;
+            for (DivisionState div : group.divisions) {
+                List<ShipAPI> alive = div.getAliveMembers();
+                if (alive.isEmpty()) continue;
+                ShipAPI f = (div.flagship != null && alive.contains(div.flagship)) ? div.flagship : alive.get(0);
+                float fp = ShipCapabilityProfile.resolveShipFpStrength(f);
+                if (fp > bestAnyFp) {
+                    bestAnyFp = fp;
+                    bestAnyFlag = f;
+                }
+                if (!isAlphaCoreControlledShip(f) && fp > bestHumanFp) {
+                    bestHumanFp = fp;
+                    bestHumanFlag = f;
+                }
+            }
+            ShipAPI chosen = (!firstDivIsAlphaCore && anyHumanDiv && bestHumanFlag != null)
+                    ? bestHumanFlag
+                    : bestAnyFlag;
+            if (chosen != null) {
+                initialDefaultPlayerFlagship = chosen;
+            }
+            return chosen;
+        }
+        ShipAPI bestFlag = null;
+        float bestFp = -1f;
+        ShipAPI bestRetreatingFlag = null;
+        float bestRetreatingFp = -1f;
+        for (DivisionState div : group.divisions) {
+            List<ShipAPI> alive = div.getAliveMembers();
+            if (alive.isEmpty()) continue;
+            ShipAPI f = (div.flagship != null && alive.contains(div.flagship)) ? div.flagship : alive.get(0);
+            if (f != null && f.getId() != null && (f.isRetreating() || f.isDirectRetreat())) {
+                group.formationSpawnHijackedShipIds.add("__retreating_" + f.getId());
+            }
+            float fp = ShipCapabilityProfile.resolveShipFpStrength(f);
+            if (f != null && (f.isRetreating() || f.isDirectRetreat())) {
+                if (fp > bestRetreatingFp) {
+                    bestRetreatingFp = fp;
+                    bestRetreatingFlag = f;
+                }
+            } else if (fp > bestFp) {
+                bestFp = fp;
+                bestFlag = f;
+            }
+        }
+        return bestFlag != null ? bestFlag : bestRetreatingFlag;
+    }
+
+    /**
+     * Synchronizes OTC and Division Commander Convergence decision-making states:
+     *  1. Non-human fleets (AI, Threat, Abyssal) always use Convergence for both OTC and Division Commanders.
+     *  2. Player OTC uses Convergence if and only if its active Fleet Flagship is an Alpha Core-controlled ship
+     *     (either deployed as the default flagship, or promoted to flagship when the player clicks "Yes" on
+     *     the "[URGENT COMMS FROM <AI-controlled ship>]" pop-up). If the Alpha Core ship is subordinate,
+     *     the Player OTC uses standard human decision-making.
+     *  3. Each Division Commander uses human or Convergence decision-making depending on that division's flagship.
+     */
+    public static void updateConvergenceCommandStates(CombatEngineAPI engine, BattleGroupState group) {
+        if (group == null) return;
+        float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
+        if (!group.isPassiveOpposingView) {
+            checkGroupFlagshipLoss(engine, group, now, !group.isAlliedAi);
+        }
+        boolean otcInBlackout = !group.isPassiveOpposingView && isOtcDisabled(group, now);
+        if (group.forceConvergenceOverride != null) {
+            boolean forced = group.forceConvergenceOverride;
+            group.useConvergence = forced;
+            if (!otcInBlackout || group.activeFleetFlagship == null) {
+                group.activeFleetFlagship = resolveActiveFleetFlagship(engine, group);
+            }
+            for (DivisionState div : group.divisions) {
+                div.useConvergence = forced && !div.getAliveMembers().isEmpty();
+            }
+            return;
+        }
+        boolean nonHuman = isNonHumanConvergenceGroup(group);
+        ShipAPI fleetFlag = (!otcInBlackout || group.activeFleetFlagship == null)
+                ? resolveActiveFleetFlagship(engine, group)
+                : group.activeFleetFlagship;
+        group.activeFleetFlagship = fleetFlag;
+        boolean playerInitialAlpha = (group.side == 0 && !group.isAlliedAi)
+                && (initialPlayerOtcWasAlphaCore || (group.otc != null && isAlphaCoreOfficer(group.otc.person)));
+        group.useConvergence = nonHuman || playerInitialAlpha || isAlphaCoreControlledShip(fleetFlag);
+
+        if (group.side == 0 && !group.isAlliedAi && fleetFlag != null) {
+            if (isAlphaCoreControlledShip(fleetFlag)) {
+                if (fleetFlag.getCaptain() != null
+                        && (group.otc == null || group.otc.person != fleetFlag.getCaptain())) {
+                    group.otc = new CommanderProfile(fleetFlag.getCaptain(), formatAiShipName(fleetFlag));
+                }
+                if (!DivisionDeploymentDialogOrganizer.isPreBattleDeployment(engine, null)) {
+                    lockPlayerAlphaCoreOtcInBattle(group);
+                }
+            } else {
+                PersonAPI resolvedCap = resolveCandidatePerson(
+                        fleetFlag.getFleetMember(), fleetFlag);
+                if (resolvedCap != null && (group.otc == null || group.otc.person != resolvedCap)) {
+                    String cName = (resolvedCap.getNameString() != null && !resolvedCap.getNameString().trim().isEmpty())
+                            ? resolvedCap.getNameString().trim()
+                            : "Fleet Commander";
+                    group.otc = new CommanderProfile(resolvedCap, cName);
+                }
+            }
+            if (fleetFlag.getFleetMember() != null && fleetFlag.getFleetMember().getId() != null
+                    && (group.preferredOtcShipId == null || group.preferredOtcShipId.isEmpty())) {
+                setAutoPreDeployPlayerOtcMemberId(group, fleetFlag.getFleetMember().getId());
+            }
+        }
+
+        for (DivisionState div : group.divisions) {
+            List<ShipAPI> alive = div.getAliveMembers();
+            if (alive.isEmpty()) {
+                div.useConvergence = false;
+                continue;
+            }
+            if (group.side == 0 && !group.isAlliedAi
+                    && playerConvergenceFlagshipOverride != null
+                    && alive.contains(playerConvergenceFlagshipOverride)) {
+                div.flagship = playerConvergenceFlagshipOverride;
+            } else if (div.flagship == null
+                    || !alive.contains(div.flagship)
+                    || !div.flagship.isAlive()
+                    || div.flagship.isHulk()
+                    || div.flagship.isRetreating()
+                    || div.flagship.isDirectRetreat()) {
+                resolveBestDivisionFlagshipSuccessor(div);
+                if (div.flagship == null || !alive.contains(div.flagship)) {
+                    div.flagship = alive.get(0);
+                }
+            }
+            div.useConvergence = nonHuman || isAlphaCoreControlledShip(div.flagship);
+        }
+    }
+
+    /**
+     * Finds the next deployed, alive, subordinate Alpha Core-controlled player ship that has not yet asked
+     * "Shall I take command?". Returns null if the current fleet flagship is already an Alpha Core ship
+     * or if all deployed Alpha Core ships have already asked.
+     */
+    public static ShipAPI findNextUnaskedSubordinateAlphaCoreShip(CombatEngineAPI engine, BattleGroupState playerGroup) {
+        if (initialPlayerOtcWasAlphaCore) {
+            return null;
+        }
+        if (playerGroup != null && (playerGroup.useConvergence
+                || (playerGroup.otc != null && isAlphaCoreOfficer(playerGroup.otc.person)))) {
+            return null;
+        }
+        if (isActivePlayerOtcAlphaCore(engine, null, playerGroup)) {
+            return null;
+        }
+        ShipAPI currentFlag = resolveActiveFleetFlagship(engine, playerGroup);
+        if (isAlphaCoreControlledShip(currentFlag)) {
+            return null;
+        }
+        List<ShipAPI> candidates = new ArrayList<>();
+        if (engine != null && engine.getShips() != null) {
+            for (ShipAPI s : engine.getShips()) {
+                if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
+                if (s.getOwner() != 0 || s.isAlly()) continue;
+                if (s == currentFlag) continue;
+                if (!isAlphaCoreControlledShip(s)) continue;
+                if (askedAlphaCoreShipIds.contains(s.getId())) continue;
+                candidates.add(s);
+            }
+        }
+        if (candidates.isEmpty() && playerGroup != null) {
+            for (DivisionState div : playerGroup.divisions) {
+                for (ShipAPI s : div.getAliveMembers()) {
+                    if (s == currentFlag) continue;
+                    if (!isAlphaCoreControlledShip(s)) continue;
+                    if (askedAlphaCoreShipIds.contains(s.getId())) continue;
+                    if (!candidates.contains(s)) {
+                        candidates.add(s);
+                    }
+                }
+            }
+        }
+        if (candidates.isEmpty()) return null;
+        Collections.sort(candidates, new Comparator<ShipAPI>() {
+            @Override
+            public int compare(ShipAPI a, ShipAPI b) {
+                int cmp = Float.compare(
+                        ShipCapabilityProfile.resolveShipFpStrength(b),
+                        ShipCapabilityProfile.resolveShipFpStrength(a));
+                if (cmp != 0) return cmp;
+                String idA = a.getId() != null ? a.getId() : "";
+                String idB = b.getId() != null ? b.getId() : "";
+                return idA.compareTo(idB);
+            }
+        });
+        return candidates.get(0);
+    }
+
+    /**
+     * Handles clicking the Convergence button on the Command View Window:
+     *  - If the player has deployed Alpha Core-commanded ship(s), none of them is currently the flagship,
+     *    and at least one has not yet asked to take command, pauses the battle and opens the
+     *    "[URGENT COMMS FROM <AI-controlled ship>]" pop-up asking "Shall I take command?".
+     *  - Otherwise toggles the Convergence overlay visibility directly.
+     */
+    public static void handleConvergenceButtonClick(CombatEngineAPI engine) {
+        ShipAPI candidate = findNextUnaskedSubordinateAlphaCoreShip(engine, BattlefieldFirepowerEvaluator.activePlayerGroupRef);
+        if (candidate != null) {
+            askedAlphaCoreShipIds.add(candidate.getId());
+            pendingCommsAlphaCoreShip = candidate;
+            activeCommsPhraseIndex = urgentCommsPromptSequence % URGENT_COMMS_PHRASES.length;
+            urgentCommsPromptSequence++;
+            TsfcWarroomRenderer.convergenceOverlayVisible = true;
+            if (engine != null) {
+                engine.setPaused(true);
+            }
+            return;
+        }
+        TsfcWarroomRenderer.toggleConvergenceOverlayVisible();
+    }
+
+    /**
+     * Player clicked "Yes" on "[URGENT COMMS FROM <AI-controlled ship>]":
+     *  - That AI-controlled ship becomes the player fleet's flagship.
+     *  - Player OTC immediately starts using Convergence decision-making.
+     *  - That ship will never ask to take command again.
+     */
+    public static void acceptPendingAlphaCoreCommand(CombatEngineAPI engine) {
+        if (pendingCommsAlphaCoreShip == null) return;
+        ShipAPI aiShip = pendingCommsAlphaCoreShip;
+        pendingCommsAlphaCoreShip = null;
+        playerConvergenceFlagshipOverride = aiShip;
+        askedAlphaCoreShipIds.add(aiShip.getId());
+        TsfcWarroomRenderer.convergenceOverlayVisible = true;
+        lockPlayerAlphaCoreOtcInBattle(BattlefieldFirepowerEvaluator.activePlayerGroupRef);
+        if (BattlefieldFirepowerEvaluator.activePlayerGroupRef != null) {
+            String mId = (aiShip.getFleetMember() != null && aiShip.getFleetMember().getId() != null)
+                    ? aiShip.getFleetMember().getId()
+                    : aiShip.getId();
+            setPreferredPlayerOtcMemberId(BattlefieldFirepowerEvaluator.activePlayerGroupRef, mId);
+            BattlefieldFirepowerEvaluator.activePlayerGroupRef.otcDisabledUntilTime = -100f;
+            BattlefieldFirepowerEvaluator.activePlayerGroupRef.otcDisabledWarningActive = false;
+            updateConvergenceCommandStates(engine, BattlefieldFirepowerEvaluator.activePlayerGroupRef);
+            DivisionCombatLog.logOtcOrder(
+                    engine,
+                    BattlefieldFirepowerEvaluator.activePlayerGroupRef,
+                    String.format(
+                            Locale.ROOT,
+                            "Alpha Core on \"%s\" assumes command of the fleet (Convergence active).",
+                            formatAiShipName(aiShip)));
+        }
+    }
+
+    /**
+     * Player clicked "No" on "[URGENT COMMS FROM <AI-controlled ship>]":
+     *  - Closes the pop-up; that ship remains in askedAlphaCoreShipIds and will not ask again.
+     *  - Player OTC stays on standard human decision-making.
+     */
+    public static void refusePendingAlphaCoreCommand(CombatEngineAPI engine) {
+        if (pendingCommsAlphaCoreShip == null) return;
+        askedAlphaCoreShipIds.add(pendingCommsAlphaCoreShip.getId());
+        pendingCommsAlphaCoreShip = null;
+    }
+
+    public static String formatAiShipName(ShipAPI ship) {
+        if (ship == null) return "AI Vessel";
+        if (ship.getName() != null && !ship.getName().trim().isEmpty()) {
+            return ship.getName().trim();
+        }
+        if (ship.getHullSpec() != null && ship.getHullSpec().getHullName() != null) {
+            return ship.getHullSpec().getHullName().trim();
+        }
+        return "AI Vessel";
+    }
+
+    /**
+     * Computes the subtle 0.5-second positional shift (dx, dy in pixels) for the word "command?"
+     * in "Shall I take command?". Guaranteed to step cleanly every 0.5s.
+     */
+    public static Vector2f getCommandWordShiftOffset(float elapsedRealSeconds) {
+        long halfSecTick = (long) Math.floor(Math.max(0f, elapsedRealSeconds) * 2.0f);
+        // 8-step subtle non-repeating glitch-shift cycle so every 0.5s tick visibly shifts "command?"
+        final float[] dxTable = new float[]{ 0.0f,  2.2f, -1.8f,  1.5f, -2.4f,  1.9f, -1.4f,  2.5f};
+        final float[] dyTable = new float[]{ 0.0f, -1.4f,  1.6f,  1.2f, -1.5f,  1.8f, -1.2f,  1.0f};
+        int idx = (int) (Math.abs(halfSecTick) & 7L);
+        return new Vector2f(dxTable[idx], dyTable[idx]);
     }
 }

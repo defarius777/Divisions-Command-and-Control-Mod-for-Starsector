@@ -1252,33 +1252,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 4f);
     }
 
-    private static final class OtcPennantBoxRect {
-        final OtcAuthority authority;
-        final CustomPanelAPI hostPanel;
-        final float relX;
-        final float relY;
-        final float width;
-        final float height;
 
-        OtcPennantBoxRect(OtcAuthority authority, CustomPanelAPI hostPanel, float relX, float relY, float width, float height) {
-            this.authority = authority;
-            this.hostPanel = hostPanel;
-            this.relX = relX;
-            this.relY = relY;
-            this.width = width;
-            this.height = height;
-        }
-
-        boolean contains(float screenX, float screenY) {
-            if (hostPanel == null || hostPanel.getPosition() == null) return false;
-            PositionAPI p = hostPanel.getPosition();
-            float bx = p.getX() + relX;
-            float by = p.getY() + relY;
-            return screenX >= bx && screenX <= (bx + width) && screenY >= by && screenY <= (by + height);
-        }
-    }
-
-    private final List<OtcPennantBoxRect> otcPennantBoxes = new ArrayList<>();
+    private final List<DivisionUiWidgets.OtcPennantBox> otcPennantBoxes = new ArrayList<>();
 
     public static void renderOtcAuthorityPennantBox(
             OtcAuthority authority,
@@ -1431,7 +1406,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         for (int i = 0; i < allAuths.length; i++) {
             float relX = startX + i * (cardW + cardGap);
             float relY = bannerPanelH - 6f - cardH;
-            otcPennantBoxes.add(new OtcPennantBoxRect(allAuths[i], bannerPanel, relX, relY, cardW, cardH));
+            otcPennantBoxes.add(new DivisionUiWidgets.OtcPennantBox(allAuths[i], bannerPanel, relX, relY, cardW, cardH));
         }
         LabelAPI headerLbl = Global.getSettings().createLabel(current.dropdownLabel, Fonts.ORBITRON_20AA);
         headerLbl.setColor(new Color(255, 222, 90, 255));
@@ -1634,50 +1609,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private void addDivisionSetpieceAttackRow(
-            TooltipMakerAPI body,
-            float rowWidth,
-            String labelText,
-            DivisionSetpieceAttack current,
-            String actionPrefix,
-            Color baseColor,
-            Color darkColor,
-            Color activeValueColor,
-            Color gray) {
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
-        rowUi.addPara(labelText, 0f, baseColor, current.shortName).getPosition().inTL(6f, 5f);
-
-        float x = CONTROL_COL_X;
-        float btnW = 58f;
-        for (DivisionSetpieceAttack opt : DivisionSetpieceAttack.values()) {
-            boolean isCurr = (opt == current);
-            String act = actionPrefix + opt.name();
-            ButtonAPI btn = registerButton(
-                    rowUi.addButton(
-                            opt.shortName,
-                            act,
-                            isCurr ? activeValueColor : baseColor,
-                            darkColor,
-                            Alignment.MID,
-                            CutStyle.ALL,
-                            btnW,
-                            22f,
-                            0f),
-                    act);
-            if (isCurr) {
-                btn.highlight();
-            }
-            btn.getPosition().inTL(x, 3f);
-            x += btnW + 4f;
-        }
-
-        rowUi.addPara(current.summary, 0f, gray).getPosition().inTL(x + 8f, 5f);
-        rowUi.setHeightSoFar(28f);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
-    }
 
     private void addPlayToggleRow(
             TooltipMakerAPI body,
@@ -1735,343 +1666,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         body.addCustom(rowPanel, 3f);
     }
 
-    private void addPreferredSpaceRow(
-            TooltipMakerAPI body,
-            float rowWidth,
-            String labelText,
-            LineStation currentSpace,
-            String actionPrefix,
-            Color baseColor,
-            Color darkColor,
-            Color activeValueColor) {
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
 
-        float xCursor = CONTROL_COL_X;
-        for (LineStation ps : LineStation.values()) {
-            boolean selected = (ps == currentSpace);
-            String act = actionPrefix + ps.name();
-            ButtonAPI bPs = registerButton(
-                    rowUi.addButton(
-                            ps.displayName,
-                            act,
-                            selected ? activeValueColor : baseColor,
-                            darkColor,
-                            Alignment.MID,
-                            CutStyle.ALL,
-                            110f,
-                            22f,
-                            0f),
-                    act);
-            if (selected) {
-                bPs.highlight();
-            }
-            bPs.getPosition().inTL(xCursor, 3f);
-            xCursor += 118f;
-        }
 
-        rowUi.setHeightSoFar(28f);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
-    }
 
-    private void addMovementStickinessRow(
-            TooltipMakerAPI body,
-            float rowWidth,
-            String labelText,
-            DivisionMovementStickiness currentStickiness,
-            String actionPrefix,
-            Color baseColor,
-            Color darkColor,
-            Color activeValueColor,
-            Color gray) {
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
-
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
-
-        float xCursor = CONTROL_COL_X;
-        for (DivisionMovementStickiness ms : DivisionMovementStickiness.values()) {
-            boolean selected = (ms == currentStickiness);
-            String act = actionPrefix + ms.name();
-            ButtonAPI bMs = registerButton(
-                    rowUi.addButton(
-                            ms.displayName,
-                            act,
-                            selected ? activeValueColor : baseColor,
-                            darkColor,
-                            Alignment.MID,
-                            CutStyle.ALL,
-                            74f,
-                            22f,
-                            0f),
-                    act);
-            if (selected) {
-                bMs.highlight();
-            }
-            bMs.getPosition().inTL(xCursor, 3f);
-            xCursor += 80f;
-        }
-
-        if (currentStickiness != null) {
-            rowUi.addPara(currentStickiness.summary, 0f, gray).getPosition().inTL(xCursor + 8f, 6f);
-        }
-
-        rowUi.setHeightSoFar(28f);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
-    }
-
-    private void addVoidstrikeObservanceRow(
-            TooltipMakerAPI body,
-            float rowWidth,
-            String labelText,
-            VoidstrikeTargetObservance currentObs,
-            String actionPrefix,
-            Color baseColor,
-            Color darkColor,
-            Color activeValueColor,
-            Color gray) {
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
-
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
-
-        float xCursor = CONTROL_COL_X;
-        for (VoidstrikeTargetObservance obs : VoidstrikeTargetObservance.values()) {
-            boolean selected = (obs == currentObs);
-            String act = actionPrefix + obs.name();
-            ButtonAPI btn = registerButton(
-                    rowUi.addButton(
-                            obs.displayName,
-                            act,
-                            selected ? activeValueColor : baseColor,
-                            darkColor,
-                            Alignment.MID,
-                            CutStyle.ALL,
-                            84f,
-                            22f,
-                            0f),
-                    act);
-            if (selected) {
-                btn.highlight();
-            }
-            btn.getPosition().inTL(xCursor, 3f);
-            xCursor += 90f;
-        }
-
-        if (currentObs != null) {
-            rowUi.addPara(currentObs.summary, 0f, gray).getPosition().inTL(xCursor + 8f, 6f);
-        }
-
-        rowUi.setHeightSoFar(28f);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
-    }
-
-    private void addVoidstrikeCoordinationRow(
-            TooltipMakerAPI body,
-            float rowWidth,
-            String labelText,
-            VoidstrikeCoordinationMode currentCoord,
-            String actionPrefix,
-            Color baseColor,
-            Color darkColor,
-            Color activeValueColor,
-            Color gray) {
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
-
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
-
-        float xCursor = CONTROL_COL_X;
-        for (VoidstrikeCoordinationMode mode : VoidstrikeCoordinationMode.values()) {
-            boolean selected = (mode == currentCoord);
-            String act = actionPrefix + mode.name();
-            ButtonAPI btn = registerButton(
-                    rowUi.addButton(
-                            mode.displayName,
-                            act,
-                            selected ? activeValueColor : baseColor,
-                            darkColor,
-                            Alignment.MID,
-                            CutStyle.ALL,
-                            116f,
-                            22f,
-                            0f),
-                    act);
-            if (selected) {
-                btn.highlight();
-            }
-            btn.getPosition().inTL(xCursor, 3f);
-            xCursor += 122f;
-        }
-
-        if (currentCoord != null) {
-            rowUi.addPara(currentCoord.summary, 0f, gray).getPosition().inTL(xCursor + 8f, 6f);
-        }
-
-        rowUi.setHeightSoFar(28f);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
-    }
-
-    private void addSquadronFormationRow(
-            TooltipMakerAPI body,
-            float rowWidth,
-            String labelText,
-            final SquadronFormation currentFormation,
-            final SquadronFormation[] options,
-            String actionPrefix,
-            final Color baseColor,
-            Color darkColor,
-            final Color activeValueColor) {
-
-        final float btnW = 112f;
-        final float btnGap = 6f;
-        final float rowH = 28f;
-        final ButtonAPI[] formButtons = new ButtonAPI[options.length];
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, rowH, new BaseCustomUIPanelPlugin() {
-            @Override
-            public void buttonPressed(Object buttonId) {
-                FleetDoctrineDialog.this.buttonPressed(buttonId);
-            }
-
-            @Override
-            public void render(float alphaMult) {
-                for (int i = 0; i < options.length; i++) {
-                    SquadronFormation sf = options[i];
-                    ButtonAPI btn = formButtons[i];
-                    if (btn == null || btn.getPosition() == null) continue;
-                    PositionAPI bp = btn.getPosition();
-                    boolean selected = (sf == currentFormation);
-                    renderFormationIcon(
-                            sf.iconFormation,
-                            bp.getX() + 12f,
-                            bp.getY() + bp.getHeight() * 0.5f,
-                            15f,
-                            selected ? activeValueColor : baseColor,
-                            alphaMult);
-                }
-            }
-        });
-
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
-
-        for (int i = 0; i < options.length; i++) {
-            SquadronFormation sf = options[i];
-            boolean selected = (sf == currentFormation);
-            float bx = CONTROL_COL_X + i * (btnW + btnGap);
-            String act = actionPrefix + sf.name();
-            ButtonAPI bForm = registerButton(
-                    rowUi.addButton(
-                            "    " + sf.shortName,
-                            act,
-                            selected ? activeValueColor : baseColor,
-                            darkColor,
-                            Alignment.MID,
-                            CutStyle.ALL,
-                            btnW,
-                            22f,
-                            0f),
-                    act);
-            if (selected) {
-                bForm.highlight();
-            }
-            bForm.getPosition().inTL(bx, 3f);
-            formButtons[i] = bForm;
-        }
-
-        rowUi.setHeightSoFar(rowH);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
-    }
-
-    private void addVoidstrikeDepthRow(
-            TooltipMakerAPI body,
-            float rowWidth,
-            String labelText,
-            int currentValue,
-            String actionPrefix,
-            Color baseColor,
-            Color darkColor,
-            Color activeValueColor) {
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
-
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
-
-        float xCursor = CONTROL_COL_X;
-        String decAct = actionPrefix + Math.max(PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH, currentValue - 1);
-        ButtonAPI bDec = registerButton(
-                rowUi.addButton(
-                        "-",
-                        decAct,
-                        baseColor,
-                        darkColor,
-                        Alignment.MID,
-                        CutStyle.ALL,
-                        32f,
-                        22f,
-                        0f),
-                decAct);
-        bDec.setEnabled(currentValue > PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH);
-        bDec.getPosition().inTL(xCursor, 3f);
-        xCursor += 38f;
-
-        for (int v = PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH;
-             v <= PermanentDivisionManager.MAX_VOIDSTRIKE_SQUADRON_DEPTH;
-             v++) {
-            boolean selected = (v == currentValue);
-            String valAct = actionPrefix + v;
-            ButtonAPI bVal = registerButton(
-                    rowUi.addButton(
-                            String.valueOf(v),
-                            valAct,
-                            selected ? activeValueColor : baseColor,
-                            darkColor,
-                            Alignment.MID,
-                            CutStyle.ALL,
-                            40f,
-                            22f,
-                            0f),
-                    valAct);
-            if (selected) {
-                bVal.highlight();
-            }
-            bVal.getPosition().inTL(xCursor, 3f);
-            xCursor += 46f;
-        }
-
-        String incAct = actionPrefix + Math.min(PermanentDivisionManager.MAX_VOIDSTRIKE_SQUADRON_DEPTH, currentValue + 1);
-        ButtonAPI bInc = registerButton(
-                rowUi.addButton(
-                        "+",
-                        incAct,
-                        baseColor,
-                        darkColor,
-                        Alignment.MID,
-                        CutStyle.ALL,
-                        32f,
-                        22f,
-                        0f),
-                incAct);
-        bInc.setEnabled(currentValue < PermanentDivisionManager.MAX_VOIDSTRIKE_SQUADRON_DEPTH);
-        bInc.getPosition().inTL(xCursor, 3f);
-
-        rowUi.setHeightSoFar(28f);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
-    }
 
     private void addFormationSelectorRow(
             TooltipMakerAPI body,
@@ -2313,88 +1912,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         GL11.glPopAttrib();
     }
 
-    private void addMissionDropdownRow(
-            TooltipMakerAPI body,
-            float rowWidth,
-            String labelText,
-            String dropdownKey,
-            DivisionMissionType currentMission,
-            DivisionMissionType[] primaryOptions,
-            String selectActionPrefix,
-            Color baseColor,
-            Color darkColor,
-            Color activeValueColor,
-            Color gray) {
-
-        boolean expanded = dropdownKey.equals(expandedDropdownKey);
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
-
-        rowUi.addPara(labelText, 0f, baseColor).getPosition().inTL(6f, 5f);
-
-        String toggleAct = "TOGGLE_DD:" + dropdownKey;
-        String btnText = (expanded ? "[^] " : "[v] ") + currentMission.dropdownLabel;
-        ButtonAPI bToggle = registerButton(
-                rowUi.addButton(
-                        btnText,
-                        toggleAct,
-                        activeValueColor,
-                        darkColor,
-                        Alignment.LMID,
-                        CutStyle.TL_BR,
-                        268f,
-                        22f,
-                        0f),
-                toggleAct);
-        if (expanded) {
-            bToggle.highlight();
-        }
-        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
-
-        rowUi.addPara(currentMission.summary, 0f, gray).getPosition().inTL(CONTROL_COL_X + 280f, 5f);
-
-        rowUi.setHeightSoFar(28f);
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        body.addCustom(rowPanel, 2f);
-
-        if (expanded) {
-            DivisionMissionType[] optionsToShow = (primaryOptions != null && primaryOptions.length > 0)
-                    ? primaryOptions
-                    : DivisionMissionType.values();
-            for (DivisionMissionType option : optionsToShow) {
-                boolean isCurrent = (option == currentMission);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 26f, subPanelPlugin);
-                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 26f, false);
-
-                String selAct = selectActionPrefix + option.name();
-                ButtonAPI bOpt = registerButton(
-                        optUi.addButton(
-                                (isCurrent ? "* " : "   ") + option.dropdownLabel,
-                                selAct,
-                                isCurrent ? activeValueColor : baseColor,
-                                darkColor,
-                                Alignment.LMID,
-                                CutStyle.ALL,
-                                256f,
-                                20f,
-                                0f),
-                        selAct);
-                if (isCurrent) {
-                    bOpt.highlight();
-                }
-                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
-
-                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
-                        .getPosition()
-                        .inTL(CONTROL_COL_X + 280f, 4f);
-
-                optUi.setHeightSoFar(26f);
-                optPanel.addUIElement(optUi).inTL(0f, 0f);
-                body.addCustom(optPanel, 2f);
-            }
-        }
-    }
 
     private void addUnitModifierRow(
             TooltipMakerAPI body,
@@ -3109,7 +2626,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             if (event.isLMBDownEvent()) {
                 float ex = event.getX();
                 float ey = event.getY();
-                for (OtcPennantBoxRect box : otcPennantBoxes) {
+                for (DivisionUiWidgets.OtcPennantBox box : otcPennantBoxes) {
                     if (box != null && box.contains(ex, ey)) {
                         event.consume();
                         try {
@@ -3127,56 +2644,206 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
+    private final DivisionUiWidgets.ButtonRegistrar buttonRegistrar = new DivisionUiWidgets.ButtonRegistrar() {
+        @Override
+        public ButtonAPI register(ButtonAPI button, String actionId) {
+            return registerButton(button, actionId);
+        }
+    };
+
+    private final DivisionUiWidgets.ButtonPressRelay buttonPressRelay = new DivisionUiWidgets.ButtonPressRelay() {
+        @Override
+        public void onButtonPressed(Object buttonId) {
+            FleetDoctrineDialog.this.buttonPressed(buttonId);
+        }
+    };
+
+    private void addDivisionSetpieceAttackRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            DivisionSetpieceAttack current,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        DivisionSetpieceAttack[] opts = DivisionSetpieceAttack.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].shortName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == current) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, current.shortName, baseColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 58f, 22f, 62f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor, current.summary, gray, 5f);
+    }
+
+    private void addPreferredSpaceRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            LineStation currentSpace,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor) {
+        LineStation[] opts = LineStation.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentSpace) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 110f, 22f, 118f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor, null, null, 5f);
+    }
+
+    private void addMovementStickinessRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            DivisionMovementStickiness currentStickiness,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        DivisionMovementStickiness[] opts = DivisionMovementStickiness.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentStickiness) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 74f, 22f, 80f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentStickiness != null ? currentStickiness.summary : null, gray, 6f);
+    }
+
+    private void addVoidstrikeObservanceRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            VoidstrikeTargetObservance currentObs,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        VoidstrikeTargetObservance[] opts = VoidstrikeTargetObservance.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentObs) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 84f, 22f, 90f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentObs != null ? currentObs.summary : null, gray, 6f);
+    }
+
+    private void addVoidstrikeCoordinationRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            VoidstrikeCoordinationMode currentCoord,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        VoidstrikeCoordinationMode[] opts = VoidstrikeCoordinationMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentCoord) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 116f, 22f, 122f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentCoord != null ? currentCoord.summary : null, gray, 6f);
+    }
+
+    private void addVoidstrikeDepthRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            int currentValue,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor) {
+        DivisionUiWidgets.addVoidstrikeDepthRow(
+                body, rowWidth, 28f, CONTROL_COL_X, subPanelPlugin, buttonRegistrar,
+                labelText, activeValueColor, 6f, 5f, currentValue, actionPrefix,
+                true, false, false, 40f, 22f, 46f, baseColor, darkColor, activeValueColor, activeValueColor);
+    }
+
+    private void addSquadronFormationRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            SquadronFormation currentFormation,
+            SquadronFormation[] options,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor) {
+        DivisionUiWidgets.addSquadronFormationRow(
+                body, rowWidth, CONTROL_COL_X, buttonRegistrar, buttonPressRelay,
+                labelText, currentFormation, options, actionPrefix,
+                false, false, false, baseColor, darkColor, activeValueColor, activeValueColor);
+    }
+
+    private void addMissionDropdownRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            String dropdownKey,
+            DivisionMissionType currentMission,
+            DivisionMissionType[] primaryOptions,
+            String selectActionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        DivisionUiWidgets.addMissionDropdownRow(
+                body, rowWidth, CONTROL_COL_X, subPanelPlugin, buttonRegistrar,
+                labelText, dropdownKey, expandedDropdownKey, currentMission, primaryOptions,
+                false, false, false, false, selectActionPrefix,
+                baseColor, darkColor, activeValueColor, gray);
+    }
+
     @Override
     public void renderBelow(float alphaMult) {
         if (closed || contentContainer == null) return;
-
-        float screenW = Global.getSettings().getScreenWidth();
-        float screenH = Global.getSettings().getScreenHeight();
-        PositionAPI pos = contentContainer.getPosition();
-        float x = pos.getX();
-        float y = pos.getY();
-        float w = pos.getWidth();
-        float h = pos.getHeight();
-
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glEnable(GL11.GL_BLEND);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-
-        // Backdrop dim
-        GL11.glColor4f(0.02f, 0.03f, 0.05f, 0.78f * alphaMult);
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2f(0f, 0f);
-        GL11.glVertex2f(screenW, 0f);
-        GL11.glVertex2f(screenW, screenH);
-        GL11.glVertex2f(0f, screenH);
-        GL11.glEnd();
-
-        // Modal panel background
-        GL11.glColor4f(0.05f, 0.08f, 0.12f, 0.96f * alphaMult);
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2f(x, y);
-        GL11.glVertex2f(x + w, y);
-        GL11.glVertex2f(x + w, y + h);
-        GL11.glVertex2f(x, y + h);
-        GL11.glEnd();
-
-        // Modal panel border
-        Color border = Misc.getBasePlayerColor();
-        GL11.glLineWidth(2.0f);
-        GL11.glColor4f(
-                border.getRed() / 255f,
-                border.getGreen() / 255f,
-                border.getBlue() / 255f,
-                0.88f * alphaMult);
-        GL11.glBegin(GL11.GL_LINE_LOOP);
-        GL11.glVertex2f(x, y);
-        GL11.glVertex2f(x + w, y);
-        GL11.glVertex2f(x + w, y + h);
-        GL11.glVertex2f(x, y + h);
-        GL11.glEnd();
-
-        GL11.glPopAttrib();
+        DivisionUiWidgets.renderModalDialogBackdrop(
+                contentContainer, 0.02f, 0.03f, 0.05f, 0.78f, 0.05f, 0.08f, 0.12f, 0.88f, alphaMult);
     }
 }

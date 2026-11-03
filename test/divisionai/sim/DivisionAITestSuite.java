@@ -5,6 +5,7 @@ import com.fs.starfarer.api.characters.FullName.Gender;
 import com.fs.starfarer.api.characters.PersonAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import divisionai.BattlefieldFirepowerEvaluator;
+import divisionai.TsfcWarroomRenderer;
 import divisionai.BattlefieldFirepowerEvaluator.PointFirepowerEval;
 import divisionai.BattlefieldFirepowerEvaluator.ShipFirepowerRose;
 import divisionai.DivisionCommanderAI;
@@ -619,11 +620,11 @@ public class DivisionAITestSuite {
                 enemyGroup);
 
         // Verify right-side toggle button is OFF by default on battle init
-        boolean defaultOff = !BattlefieldFirepowerEvaluator.isOverlayVisible();
-        BattlefieldFirepowerEvaluator.toggleOverlayVisible();
-        boolean toggledOn = BattlefieldFirepowerEvaluator.isOverlayVisible();
+        boolean defaultOff = !TsfcWarroomRenderer.isOverlayVisible();
+        TsfcWarroomRenderer.toggleOverlayVisible();
+        boolean toggledOn = TsfcWarroomRenderer.isOverlayVisible();
         BattlefieldFirepowerEvaluator.resetForNewBattle();
-        boolean resetBackToOff = !BattlefieldFirepowerEvaluator.isOverlayVisible();
+        boolean resetBackToOff = !TsfcWarroomRenderer.isOverlayVisible();
 
         arena.addShip(anchorDiv, "b_anc", "RDS Onslaught", "Onslaught", HullSize.CAPITAL_SHIP, 0f, -1500f, 55f, 1400f, 0, 0);
         SimShipState hh1 = arena.addShip(hhDiv, "hh1", "RDS Solstice", "Hammerhead", HullSize.DESTROYER, 0f, 0f, 130f, 950f, 0, 0);

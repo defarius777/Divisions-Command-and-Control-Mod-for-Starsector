@@ -331,7 +331,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             } catch (Throwable ignored) {
             }
         }
-        BattlefieldFirepowerEvaluator.processInputEvents(engine, events);
+        TsfcWarroomRenderer.processInputEvents(engine, events);
     }
 
     @Override
@@ -484,9 +484,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         renderFlagshipStarsOnTopLayer(cachedFleetFlagships, cachedDivisionFlagships, scale, offsetX, offsetY, fade);
 
         // 4c. Render Time, Space, Firepower, and Convergence map layers (when toggled ON)
-        BattlefieldFirepowerEvaluator.renderTimeSpaceAndConvergenceScreenSpace(
+        TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
-        BattlefieldFirepowerEvaluator.renderFirepowerRosesScreenSpace(
+        TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
 
         // 5. Render de-conflicted division labels anchored to the primary division droplet entity
@@ -498,7 +498,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         // 5b. Update & render "Voidstrike #" labels following the live center of strike craft groups
         // (friendly and visible enemy Voidstrikes; disappears when strike craft return)
-        BattlefieldFirepowerEvaluator.refreshVoidstrikesForRender(
+        VoidstrikeCoordinator.refreshVoidstrikesForRender(
                 engine,
                 playerGroup,
                 alliedAiGroup,
@@ -508,7 +508,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         // 6. Render right-side Warroom Buttons & Urgent Alpha Core Comms Modal on the ABSOLUTE TOP LAYER
         // above all division polygons, ship sprites, overlays, and division text labels
-        BattlefieldFirepowerEvaluator.renderToggleButtonAndLegendUI(engine, fade);
+        TsfcWarroomRenderer.renderToggleButtonAndLegendUI(engine, fade);
     }
 
     private void collectDivisionPolygons(
@@ -681,7 +681,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     }
                     if (wingRep != null && wingRep.isAlive() && !wingRep.isHulk() && !wingRep.isExpired()) {
                         // Only draw airborne strike craft polygons once the squadron has cleared its carrier deck
-                        if (distance(wingRep.getLocation(), carrier.getLocation()) <= 120f) continue;
+                        if (DivisionUiWidgets.distance(wingRep.getLocation(), carrier.getLocation()) <= 120f) continue;
                         if (!isEnemy || isEnemyShipVisibleOnCommandMap(wingRep, playerFog)) {
                             if (!strikeMembers.contains(wingRep)) {
                                 strikeMembers.add(wingRep);
@@ -859,7 +859,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             for (int j = i + 1; j < n; j++) {
                 ShipAPI b = members.get(j);
                 float rb = getMemberFootprintRadiusWorld(b);
-                float dist = distance(a.getLocation(), b.getLocation());
+                float dist = DivisionUiWidgets.distance(a.getLocation(), b.getLocation());
                 float mergeDist = (ra + rb) * 1.18f;
                 float splitMult = (div != null && div.side == 1) ? 1.38f : 1.24f;
                 float splitDist = mergeDist * splitMult;
@@ -997,8 +997,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         for (int k = 0; k < n; k++) {
             if (k == i || k == j) continue;
             Vector2f pk = members.get(k).getLocation();
-            float dik = distance(pi, pk);
-            float djk = distance(pj, pk);
+            float dik = DivisionUiWidgets.distance(pi, pk);
+            float djk = DivisionUiWidgets.distance(pj, pk);
             if (dik < distIJ && djk < distIJ && (dik * dik + djk * djk) < distSqIJ * 1.12f) {
                 return true;
             }
@@ -1063,7 +1063,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
         float ra = getMemberFootprintRadiusWorld(a);
         float rb = getMemberFootprintRadiusWorld(b);
-        float dist = distance(a.getLocation(), b.getLocation());
+        float dist = DivisionUiWidgets.distance(a.getLocation(), b.getLocation());
         float mergeDist = (ra + rb) * 1.18f;
         float splitDist = mergeDist * 1.24f;
         float fullOpenDist = (ra + rb) * 0.72f;
@@ -1081,7 +1081,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
         float ra = getMemberFootprintRadiusWorld(a);
         float rb = getMemberFootprintRadiusWorld(b);
-        float dist = distance(a.getLocation(), b.getLocation());
+        float dist = DivisionUiWidgets.distance(a.getLocation(), b.getLocation());
         float mergeDist = (ra + rb) * 1.18f;
         float attractMaxDist = mergeDist * 1.24f;
         if (dist > mergeDist && dist < attractMaxDist) {
@@ -1329,7 +1329,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 for (int oIdx = 0; oIdx < allDivisionMembers.size(); oIdx++) {
                     ShipAPI other = allDivisionMembers.get(oIdx);
                     if (dropletMembers.contains(other)) continue;
-                    float distW = distance(m.getLocation(), other.getLocation());
+                    float distW = DivisionUiWidgets.distance(m.getLocation(), other.getLocation());
                     if (mAllIdx >= 0 && isRedundantShortcutChordWorld(allDivisionMembers, mAllIdx, oIdx, distW)) {
                         continue;
                     }
@@ -1373,7 +1373,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             for (int j = i + 1; j < mCount; j++) {
                 ShipAPI shipJ = evalShips.get(j);
                 float rWj = getMemberFootprintRadiusWorld(shipJ);
-                float distW = distance(shipI.getLocation(), shipJ.getLocation());
+                float distW = DivisionUiWidgets.distance(shipI.getLocation(), shipJ.getLocation());
                 if (isRedundantShortcutChordWorld(dropletMembers, i, j, distW)) {
                     continue;
                 }
@@ -2157,12 +2157,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         boolean hasAlliedFleetFlag = false;
         boolean hasEnemyFleetFlag = false;
 
-        ShipAPI alphaCoreFlagOverride = BattlefieldFirepowerEvaluator.getPlayerConvergenceFlagshipOverride();
+        ShipAPI alphaCoreFlagOverride = DivisionOtcCommandManager.getPlayerConvergenceFlagshipOverride();
         if (alphaCoreFlagOverride != null && isEligibleCommandMapShip(alphaCoreFlagOverride, playerFog)) {
             result.add(alphaCoreFlagOverride);
             hasPlayerFleetFlag = true;
         } else if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
-            ShipAPI resolvedPlayerFlag = BattlefieldFirepowerEvaluator.resolveActiveFleetFlagship(engine, playerGroup);
+            ShipAPI resolvedPlayerFlag = DivisionOtcCommandManager.resolveActiveFleetFlagship(engine, playerGroup);
             if (resolvedPlayerFlag != null && isEligibleCommandMapShip(resolvedPlayerFlag, playerFog)) {
                 result.add(resolvedPlayerFlag);
                 hasPlayerFleetFlag = true;
@@ -2699,15 +2699,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetX,
             float offsetY,
             float fade) {
-        List<BattlefieldFirepowerEvaluator.VoidstrikeRecord> voidstrikes =
-                BattlefieldFirepowerEvaluator.getActiveVoidstrikes();
+        List<VoidstrikeCoordinator.VoidstrikeRecord> voidstrikes =
+                VoidstrikeCoordinator.getActiveVoidstrikes();
         if (voidstrikes == null || voidstrikes.isEmpty()) return;
 
-        for (BattlefieldFirepowerEvaluator.VoidstrikeRecord vs : voidstrikes) {
+        for (VoidstrikeCoordinator.VoidstrikeRecord vs : voidstrikes) {
             if (vs == null || vs.activeFighters.isEmpty() || vs.voidstrikeNumber <= 0) continue;
 
-            boolean isEnemy = (vs.side == BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_ENEMY);
-            boolean isAlly = (vs.side == BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_ALLIED);
+            boolean isEnemy = (vs.side == VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ENEMY);
+            boolean isAlly = (vs.side == VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ALLIED);
             float wx;
             float wy;
 
@@ -2915,26 +2915,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 && ((d3 > 1e-3f && d4 < -1e-3f) || (d3 < -1e-3f && d4 > 1e-3f));
     }
 
-    public static List<Vector2f> subdivideLongEdgesScreen(List<Vector2f> poly, float maxEdgeLenPx) {
-        if (poly == null || poly.size() < 3 || maxEdgeLenPx <= 1f) {
-            return poly;
-        }
-        int n = poly.size();
-        List<Vector2f> out = new ArrayList<>(n * 2);
-        for (int i = 0; i < n; i++) {
-            Vector2f p0 = poly.get(i);
-            Vector2f p1 = poly.get((i + 1) % n);
-            float dx = p1.x - p0.x;
-            float dy = p1.y - p0.y;
-            float len = (float) Math.sqrt(dx * dx + dy * dy);
-            int steps = Math.max(1, Math.min(32, (int) Math.ceil(len / maxEdgeLenPx)));
-            for (int s = 0; s < steps; s++) {
-                float t = (float) s / (float) steps;
-                out.add(new Vector2f(p0.x + dx * t, p0.y + dy * t));
-            }
-        }
-        return out;
-    }
 
     public static List<Vector2f> computeConvexHullCCW(List<Vector2f> pts) {
         if (pts == null || pts.size() <= 3) {
@@ -3337,9 +3317,4 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         return Math.max(min, Math.min(max, val));
     }
 
-    private static float distance(Vector2f a, Vector2f b) {
-        float dx = a.x - b.x;
-        float dy = a.y - b.y;
-        return (float) Math.sqrt(dx * dx + dy * dy);
-    }
 }

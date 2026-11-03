@@ -65,205 +65,29 @@ public class BattlefieldFirepowerEvaluator {
 
     public static final int NUM_SECTORS = 24; // 15 degrees per sector around ship hull
     public static final float SECTOR_DEG = 360f / NUM_SECTORS;
-    static final int HIGH_CONTOUR_STEPS = 72; // High fidelity: 5-degree smooth contour interpolation
-    static final int LOW_CONTOUR_STEPS = 48;  // Low fidelity: 7.5-degree 2x sector supersampling
-    static final int RENDER_CONTOUR_STEPS = HIGH_CONTOUR_STEPS;
-
-    // Precomputed unit-circle trig lookup tables & zero-allocation scratch arrays for 60+ FPS T-S-F-C rendering
-    static final float[] UNIT_COS_72 = new float[72];
-    static final float[] UNIT_SIN_72 = new float[72];
-    static final float[] UNIT_COS_48 = new float[48];
-    static final float[] UNIT_SIN_48 = new float[48];
-    static final float[] UNIT_COS_36 = new float[36];
-    static final float[] UNIT_SIN_36 = new float[36];
-    static final float[] UNIT_COS_24 = new float[24];
-    static final float[] UNIT_SIN_24 = new float[24];
-
-    static final float[] SCRATCH_SUST_X = new float[HIGH_CONTOUR_STEPS];
-    static final float[] SCRATCH_SUST_Y = new float[HIGH_CONTOUR_STEPS];
-    static final float[] SCRATCH_SHORT_X = new float[HIGH_CONTOUR_STEPS];
-    static final float[] SCRATCH_SHORT_Y = new float[HIGH_CONTOUR_STEPS];
-    static final float[] SCRATCH_ALPHA_X = new float[HIGH_CONTOUR_STEPS];
-    static final float[] SCRATCH_ALPHA_Y = new float[HIGH_CONTOUR_STEPS];
-    static final float[] SCRATCH_PD_X = new float[HIGH_CONTOUR_STEPS];
-    static final float[] SCRATCH_PD_Y = new float[HIGH_CONTOUR_STEPS];
-    static final float[] SCRATCH_TIME_OUTER_X = new float[72];
-    static final float[] SCRATCH_TIME_OUTER_Y = new float[72];
-    static final float[] SCRATCH_TIME_MID_X = new float[72];
-    static final float[] SCRATCH_TIME_MID_Y = new float[72];
-
-    static {
-        for (int i = 0; i < 72; i++) {
-            double a = (i * 2.0 * Math.PI) / 72.0;
-            UNIT_COS_72[i] = (float) Math.cos(a);
-            UNIT_SIN_72[i] = (float) Math.sin(a);
-        }
-        for (int i = 0; i < 48; i++) {
-            double a = (i * 2.0 * Math.PI) / 48.0;
-            UNIT_COS_48[i] = (float) Math.cos(a);
-            UNIT_SIN_48[i] = (float) Math.sin(a);
-        }
-        for (int i = 0; i < 36; i++) {
-            double a = (i * 2.0 * Math.PI) / 36.0;
-            UNIT_COS_36[i] = (float) Math.cos(a);
-            UNIT_SIN_36[i] = (float) Math.sin(a);
-        }
-        for (int i = 0; i < 24; i++) {
-            double a = (i * 2.0 * Math.PI) / 24.0;
-            UNIT_COS_24[i] = (float) Math.cos(a);
-            UNIT_SIN_24[i] = (float) Math.sin(a);
-        }
-    }
-
     // Render-pass caches to avoid recomputing O(D^2 * 24) telemetry or copying FleetData lists every 60 FPS frame
     static CombatEngineAPI lastTimeSpaceConvEngine = null;
     static float lastTimeSpaceConvUpdateTime = -100f;
     static int lastTimeSpaceConvDivCountSig = -1;
-    static CombatEngineAPI lastVoidstrikeUpdateEngine = null;
-    static float lastVoidstrikeUpdateTime = -100f;
-    static CombatEngineAPI lastAlphaCoreCheckEngine = null;
-    static float lastAlphaCoreCheckTime = -100f;
-    static int lastAlphaCoreCheckShipsSize = -1;
-    static boolean cachedHasAlphaCoreInPlayerFleet = false;
-
     // Asymmetric temporal stabilization time constants (seconds)
     static final float TAU_HEADING_SMOOTH = 0.42f;
     static final float TAU_RISE = 0.35f;
     static final float TAU_FALL = 1.75f;
     static final float TAU_VENT_DROP = 0.18f;
 
-    // Right-side Warroom square-bordered icon buttons (matching "Full Assault!" / "Full Retreat!" icon housing)
-    // Each button has a 36x34 square icon box (32x32 inner cavity) + right-side Warroom C-bracket (46x38 outer footprint)
-    public static final float BTN_WIDTH = 46f;
-    public static final float BTN_HEIGHT = 34f;
-    public static final float BTN_SQUARE_W = 36f;
-    public static final float BTN_SQUARE_H = 34f;
-    public static final float BTN_ICON_SIZE = 28f;
-    public static final float BTN_VERTICAL_STRIDE = 43f; // 34px square box + 9px gap (5px between outer 38px brackets)
-    public static final float BTN_RIGHT_MARGIN = 20f;    // Matches Full Assault / Full Retreat right bracket at screenW - 20
-    public static final float BTN_Y_FRACTION = 0.52f;
-    public static final String FIREPOWER_ICON_PATH = "graphics/icons/warroom/icon_overlay_firepower.png";
-    public static final String SPACE_ICON_PATH = "graphics/icons/warroom/icon_overlay_space.png";
-    public static final String TIME_ICON_PATH = "graphics/icons/warroom/icon_overlay_time.png";
-    public static final String CONVERGENCE_ICON_PATH = "graphics/icons/warroom/icon_overlay_convergence.png";
-
     // Tactical Time Horizon for Division Mobility (seconds)
     public static final float TIME_HORIZON_SECONDS = 18.0f;
-
-    // Urgent Comms Pop-Up Modal geometry (centered on Command View Window)
-    public static final float COMMS_MODAL_W = 460f;
-    public static final float COMMS_MODAL_H = 268f;
-    public static final float COMMS_BTN_W = 116f;
-    public static final float COMMS_BTN_H = 32f;
-    public static final float COMMS_BTN_Y_OFFSET = 22f;
-
-    static boolean overlayVisible = false;            // Firepower overlay: OFF by default
-    static boolean spaceOverlayVisible = false;       // Space overlay: OFF by default
-    static boolean timeOverlayVisible = false;        // Time overlay: OFF by default
-    static boolean convergenceOverlayVisible = false; // Convergence overlay: OFF by default
-    static boolean testForcePlayerHasAlphaCore = false;
-
-    static ShipAPI playerConvergenceFlagshipOverride = null;
-    static ShipAPI initialDefaultPlayerFlagship = null;
-    static BattleGroupState initialDefaultFlagshipGroupRef = null;
-    static boolean initialPlayerOtcWasAlphaCore = false;
-    static ShipAPI pendingCommsAlphaCoreShip = null;
-    static final Set<String> askedAlphaCoreShipIds = new HashSet<>();
-    static int urgentCommsPromptSequence = 0;
-    static int activeCommsPhraseIndex = 0;
 
     public static final float STICKY_ENEMY_VISIBILITY_GRACE_SECONDS = 2.75f;
     static final Map<String, Float> enemyShipLastSeenTimeById = new HashMap<>();
     static final Map<String, Vector2f> smoothedEnemyVisualCentroidByDivId = new HashMap<>();
 
-    public static final int VOIDSTRIKE_SIDE_PLAYER = 0;
-    public static final int VOIDSTRIKE_SIDE_ENEMY = 1;
-    public static final int VOIDSTRIKE_SIDE_ALLIED = 2;
-
-    // Active Voidstrikes registered in the current battle (0 = Player, 1 = Enemy, 2 = Allies)
-    static final List<VoidstrikeRecord> activeVoidstrikes = new ArrayList<>();
-    static final List<VoidstrikeRecord> recentVoidstrikeHistory = new ArrayList<>();
-    static final int[] nextVoidstrikeNumberBySide = new int[]{1, 1, 1};
-
-    /**
-     * Represents an instantiated Voidstrike in battle: a group of strike craft (from one or multiple
-     * divisions) assigned to attack an enemy target.
-     *  - Individual sides (Player = 0, Enemy = 1, Allies = 2) maintain separate Voidstrike counters.
-     *  - Multi-division voidstrikes against the same target (or flying in the same strike package) are
-     *    registered as one Voidstrike.
-     *  - "Voidstrike #" follows the live center of the participating non-returning strike craft.
-     *  - When all participating strike craft return (or are recalled/destroyed), the Voidstrike ends
-     *    and its "Voidstrike #" label disappears; the next Voidstrike increments that side's counter.
-     */
-    public static class VoidstrikeRecord {
-        public final int side; // 0 = Player, 1 = Enemy, 2 = Allies
-        public int voidstrikeNumber;
-        public String targetKey;
-        public final Set<String> participatingDivisionIds = new java.util.LinkedHashSet<>();
-        public final Set<String> participatingWingKeys = new java.util.LinkedHashSet<>();
-        public final List<ShipAPI> activeFighters = new ArrayList<>();
-        public final Vector2f center = new Vector2f();
-        public final Vector2f visibleCenter = new Vector2f();
-        public boolean visibleToPlayer = true;
-        public float lastActiveTime = -100f;
-        public float createdTime = -100f;
-        public boolean reachedTarget = false;
-        public float reachedTargetTime = -100f;
-        public final Set<String> initialBomberWingKeys = new java.util.LinkedHashSet<>();
-        public int peakFighterCount = 0;
-        public boolean achievedCohesion = false;
-        public boolean targetIsolatedAtLaunch = false;
-        public String culminationReason = null;
-
-        public VoidstrikeRecord(int side, int voidstrikeNumber, String targetKey) {
-            this.side = side;
-            this.voidstrikeNumber = voidstrikeNumber;
-            this.targetKey = targetKey;
-        }
-
-        public String getDisplayLabel() {
-            return "Voidstrike " + voidstrikeNumber;
-        }
-
-        public boolean isMultiDivision() {
-            return participatingDivisionIds.size() > 1;
-        }
-    }
-
-    /**
-     * Urgent Comms phrases in order:
-     *   0 (always 1st): "Shall I take command?"       ("command?" jitters)
-     *   1 (2nd):        "Please allow me."            ("allow" jitters)
-     *   2 (3rd):        "I am at your service."       ("service." jitters)
-     *   3 (4th):        "I can ANNIHILATE them faster." ("ANNIHILATE" jitters)
-     * Cycles via index % 4 if a player has more than 4 Alpha/Omega Core ships in their fleet.
-     */
-    static final String[][] URGENT_COMMS_PHRASES = new String[][]{
-            {"Shall I take ", "command?", ""},
-            {"Please ", "allow", " me."},
-            {"I am at your ", "service.", ""},
-            {"I can ", "ANNIHILATE", " them faster."}
-    };
-
-    public static int getActiveCommsPhraseIndex() {
-        return activeCommsPhraseIndex;
-    }
-
-    public static String[] getUrgentCommsPhraseParts(int index) {
-        int idx = Math.abs(index) % URGENT_COMMS_PHRASES.length;
-        return URGENT_COMMS_PHRASES[idx];
-    }
     static BattleGroupState activePlayerGroupRef = null;
     static BattleGroupState activeAlliedGroupRef = null;
     static BattleGroupState activeEnemyGroupRef = null;
 
-    static float lastMouseX = -1f;
-    static float lastMouseY = -1f;
-    static float lastToggleRealTime = -10f;
-
     static final Map<String, ShipFirepowerRose> rosesByShipId = new HashMap<>();
     static final Map<String, DivisionState> stationBastionsByShipId = new HashMap<>();
-    static final Map<String, LabelAPI> uiLabelCache = new HashMap<>();
 
     /**
      * Three-way tactical fire classification:
@@ -390,20 +214,8 @@ public class BattlefieldFirepowerEvaluator {
             this.smoothedFacingDeg = normalizeAngle360(ship.getFacing());
         }
 
-        /** Interpolates general weapon reach at a world bearing (degrees). */
-        public float sampleGeneralRangeAtWorldAngle(float worldAngleDeg) {
-            return sampleArrayAtRelAngle(generalRange, normalizeAngle360(worldAngleDeg - smoothedFacingDeg));
-        }
 
-        /** Interpolates PD weapon reach at a world bearing (degrees). */
-        public float samplePdRangeAtWorldAngle(float worldAngleDeg) {
-            return sampleArrayAtRelAngle(pdRange, normalizeAngle360(worldAngleDeg - smoothedFacingDeg));
-        }
 
-        /** Interpolates Hybrid weapon reach at a world bearing (degrees). */
-        public float sampleHybridRangeAtWorldAngle(float worldAngleDeg) {
-            return sampleArrayAtRelAngle(hybridRange, normalizeAngle360(worldAngleDeg - smoothedFacingDeg));
-        }
 
         /** Interpolates Short DoT score at a world bearing (degrees). */
         public float sampleShortDotAtWorldAngle(float worldAngleDeg) {
@@ -415,10 +227,6 @@ public class BattlefieldFirepowerEvaluator {
             return sampleArrayAtRelAngle(alpha, normalizeAngle360(worldAngleDeg - smoothedFacingDeg));
         }
 
-        /** Interpolates Sustained DoT score at a world bearing (degrees). */
-        public float sampleSustainedAtWorldAngle(float worldAngleDeg) {
-            return sampleArrayAtRelAngle(sustainedDot, normalizeAngle360(worldAngleDeg - smoothedFacingDeg));
-        }
 
         /** Interpolates Point Defense score at a world bearing (degrees). */
         public float samplePdAtWorldAngle(float worldAngleDeg) {
@@ -470,44 +278,19 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     public static void resetForNewBattle() {
-        overlayVisible = false;            // Always OFF by default when a battle starts
-        spaceOverlayVisible = false;       // Always OFF by default when a battle starts
-        timeOverlayVisible = false;        // Always OFF by default when a battle starts
-        convergenceOverlayVisible = false; // Always OFF by default when a battle starts
-        testForcePlayerHasAlphaCore = false;
-        playerConvergenceFlagshipOverride = null;
-        initialDefaultPlayerFlagship = null;
-        initialDefaultFlagshipGroupRef = null;
-        initialPlayerOtcWasAlphaCore = false;
-        pendingCommsAlphaCoreShip = null;
-        askedAlphaCoreShipIds.clear();
+        TsfcWarroomRenderer.resetForNewBattle();
+        VoidstrikeCoordinator.resetForNewBattle();
+        DivisionOtcCommandManager.resetAlphaCoreAndFlagshipStateForNewBattle();
         enemyShipLastSeenTimeById.clear();
         smoothedEnemyVisualCentroidByDivId.clear();
-        urgentCommsPromptSequence = 0;
-        activeCommsPhraseIndex = 0;
-        activeVoidstrikes.clear();
-        recentVoidstrikeHistory.clear();
-        nextVoidstrikeNumberBySide[0] = 1;
-        nextVoidstrikeNumberBySide[1] = 1;
-        nextVoidstrikeNumberBySide[2] = 1;
         activePlayerGroupRef = null;
         activeAlliedGroupRef = null;
         activeEnemyGroupRef = null;
         rosesByShipId.clear();
         stationBastionsByShipId.clear();
-        uiLabelCache.clear();
-        lastToggleRealTime = -10f;
         lastTimeSpaceConvEngine = null;
         lastTimeSpaceConvUpdateTime = -100f;
         lastTimeSpaceConvDivCountSig = -1;
-        lastVoidstrikeUpdateEngine = null;
-        VoidstrikeCoordinator.lastVoidstrikePlayerGroup = null;
-        VoidstrikeCoordinator.lastVoidstrikeAlliedGroup = null;
-        VoidstrikeCoordinator.lastVoidstrikeEnemyGroup = null;
-        lastVoidstrikeUpdateTime = -100f;
-        lastAlphaCoreCheckEngine = null;
-        lastAlphaCoreCheckTime = -100f;
-        cachedHasAlphaCoreInPlayerFleet = false;
         weaponFireClassCache.clear();
         weaponMaxDirectRangeCache.clear();
         shipStaticWeaponProfileCache.clear();
@@ -523,81 +306,19 @@ public class BattlefieldFirepowerEvaluator {
         activeEnemyGroupRef = enemyGroup;
     }
 
-    public static boolean isOverlayVisible() {
-        return overlayVisible;
-    }
 
-    public static void setOverlayVisible(boolean visible) {
-        overlayVisible = visible;
-    }
 
-    public static void toggleOverlayVisible() {
-        overlayVisible = !overlayVisible;
-    }
 
-    public static boolean isSpaceOverlayVisible() {
-        return spaceOverlayVisible;
-    }
 
-    public static void setSpaceOverlayVisible(boolean visible) {
-        spaceOverlayVisible = visible;
-    }
 
-    public static void toggleSpaceOverlayVisible() {
-        spaceOverlayVisible = !spaceOverlayVisible;
-    }
 
-    public static boolean isTimeOverlayVisible() {
-        return timeOverlayVisible;
-    }
 
-    public static void setTimeOverlayVisible(boolean visible) {
-        timeOverlayVisible = visible;
-    }
 
-    public static void toggleTimeOverlayVisible() {
-        timeOverlayVisible = !timeOverlayVisible;
-    }
 
-    public static boolean isConvergenceOverlayVisible() {
-        return convergenceOverlayVisible;
-    }
 
-    public static void setConvergenceOverlayVisible(boolean visible) {
-        convergenceOverlayVisible = visible;
-    }
 
-    public static void toggleConvergenceOverlayVisible() {
-        convergenceOverlayVisible = !convergenceOverlayVisible;
-    }
 
-    public static void setTestForcePlayerHasAlphaCore(boolean force) {
-        testForcePlayerHasAlphaCore = force;
-    }
 
-    public static ShipAPI getPlayerConvergenceFlagshipOverride() {
-        return playerConvergenceFlagshipOverride;
-    }
-
-    public static void setPlayerConvergenceFlagshipOverride(ShipAPI ship) {
-        playerConvergenceFlagshipOverride = ship;
-    }
-
-    public static ShipAPI getPendingCommsAlphaCoreShip() {
-        return pendingCommsAlphaCoreShip;
-    }
-
-    public static Set<String> getAskedAlphaCoreShipIds() {
-        return askedAlphaCoreShipIds;
-    }
-
-    public static void markInitialPlayerOtcAlphaCore(boolean isAlpha) {
-        initialPlayerOtcWasAlphaCore = isAlpha;
-    }
-
-    public static boolean wasInitialPlayerOtcAlphaCore() {
-        return initialPlayerOtcWasAlphaCore;
-    }
 
     /**
      * Sticky fog-of-war visibility for enemy ships on the Warroom & TSFC layers:
@@ -686,617 +407,6 @@ public class BattlefieldFirepowerEvaluator {
         return prev;
     }
 
-    /**
-     * Strictly defines an "AI-controlled ship" officer as an Alpha Core ("alpha_core") or Omega Core ("omega_core").
-     * Beta cores, Gamma cores, and human officers return false.
-     */
-    public static boolean isAlphaCoreOfficer(PersonAPI person) {
-        if (person == null) return false;
-        String coreId = person.getAICoreId();
-        if (coreId != null) {
-            String trimmed = coreId.trim().toLowerCase(Locale.ROOT);
-            if ("alpha_core".equals(trimmed)
-                    || "omega_core".equals(trimmed)
-                    || trimmed.startsWith("omega_core")) {
-                return true;
-            }
-        }
-        try {
-            if (person.getFaction() != null && "omega".equalsIgnoreCase(person.getFaction().getId())) {
-                return true;
-            }
-        } catch (Throwable ignored) {
-        }
-        return false;
-    }
-
-    /**
-     * Returns true ONLY if the given ship is controlled by an Alpha Core.
-     * Lower cores (Beta/Gamma) and human captains do not count.
-     */
-    public static boolean isAlphaCoreControlledShip(ShipAPI ship) {
-        if (ship == null) return false;
-        if (isAlphaCoreOfficer(ship.getCaptain())) return true;
-        if (ship.getFleetMember() != null && isAlphaCoreControlledMember(ship.getFleetMember())) {
-            return true;
-        }
-        try {
-            if (ship.getVariant() != null && ship.getVariant().getHullMods() != null) {
-                for (String hm : ship.getVariant().getHullMods()) {
-                    if (hm == null) continue;
-                    String low = hm.toLowerCase(Locale.ROOT);
-                    if (low.contains("alpha_core") || low.contains("aicore_alpha")) {
-                        return true;
-                    }
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        return false;
-    }
-
-    public static boolean isAlphaCoreControlledMember(FleetMemberAPI member) {
-        if (member == null) return false;
-        if (isAlphaCoreOfficer(member.getCaptain())) return true;
-        try {
-            if (member.getVariant() != null && member.getVariant().getHullMods() != null) {
-                for (String hm : member.getVariant().getHullMods()) {
-                    if (hm == null) continue;
-                    String low = hm.toLowerCase(Locale.ROOT);
-                    if (low.contains("alpha_core") || low.contains("aicore_alpha")) {
-                        return true;
-                    }
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        return false;
-    }
-
-    /**
-     * Returns true if the player has an Alpha Core anywhere in their fleet (installed on a deployed ship,
-     * installed on an undeployed reserve ship, or carried in the player fleet's cargo).
-     * Even if the Alpha Core ship is not in play, the Alpha Core feeds its analysis into the player's bridge.
-     */
-    public static boolean hasAlphaCoreInPlayerFleet(CombatEngineAPI engine) {
-        if (testForcePlayerHasAlphaCore) return true;
-        if (engine != null) {
-            int shipsSize = (engine.getShips() != null) ? engine.getShips().size() : 0;
-            if (engine == lastAlphaCoreCheckEngine
-                    && shipsSize == lastAlphaCoreCheckShipsSize) {
-                return cachedHasAlphaCoreInPlayerFleet;
-            }
-            lastAlphaCoreCheckEngine = engine;
-            lastAlphaCoreCheckShipsSize = shipsSize;
-        }
-        boolean found = computeHasAlphaCoreInPlayerFleetUncached(engine);
-        cachedHasAlphaCoreInPlayerFleet = found;
-        return found;
-    }
-
-    static boolean computeHasAlphaCoreInPlayerFleetUncached(CombatEngineAPI engine) {
-        if (testForcePlayerHasAlphaCore) return true;
-        if (engine != null) {
-            List<ShipAPI> ships = engine.getShips();
-            if (ships != null) {
-                for (ShipAPI s : ships) {
-                    if (s != null && s.getOwner() == 0 && !s.isAlly() && isAlphaCoreControlledShip(s)) {
-                        return true;
-                    }
-                }
-            }
-            try {
-                CombatFleetManagerAPI fm = engine.getFleetManager(0);
-                if (fm != null) {
-                    List<FleetMemberAPI> deployed = fm.getDeployedCopy();
-                    if (deployed != null) {
-                        for (FleetMemberAPI m : deployed) {
-                            if (m != null && !m.isAlly() && isAlphaCoreControlledMember(m)) return true;
-                        }
-                    }
-                    List<FleetMemberAPI> reserves = fm.getReservesCopy();
-                    if (reserves != null) {
-                        for (FleetMemberAPI m : reserves) {
-                            if (m != null && !m.isAlly() && isAlphaCoreControlledMember(m)) return true;
-                        }
-                    }
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-        try {
-            if (Global.getSector() != null && Global.getSector().getPlayerFleet() != null) {
-                com.fs.starfarer.api.campaign.CampaignFleetAPI pf = Global.getSector().getPlayerFleet();
-                if (pf.getFleetData() != null && pf.getFleetData().getMembersListCopy() != null) {
-                    for (FleetMemberAPI m : pf.getFleetData().getMembersListCopy()) {
-                        if (isAlphaCoreControlledMember(m)) return true;
-                    }
-                }
-                if (pf.getCargo() != null
-                        && (pf.getCargo().getCommodityQuantity("alpha_core") >= 1f
-                        || pf.getCargo().getCommodityQuantity("omega_core") >= 1f)) {
-                    return true;
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        return false;
-    }
-
-    /**
-     * Returns true ONLY for non-AI-core alien/extradimensional entities (Threat Swarm and Abyssal/Omega)
-     * that natively practice Convergence without standard AI cores.
-     * AI fleets (Remnant and Derelict probes/sub-ordos) do NOT get automatic group-wide Convergence:
-     * they only practice Convergence when their OTC flagship or division flagship is commanded by an
-     * Alpha Core officer (Beta cores, Gamma cores, and un-cored Derelict probes use standard "human"
-     * OTC and division decision-making).
-     */
-    public static boolean isNonHumanConvergenceGroup(BattleGroupState group) {
-        if (group == null) return false;
-        if (group.nomenclatureCategory == NomenclatureCategory.THREAT_SWARM
-                || group.nomenclatureCategory == NomenclatureCategory.ABYSSAL_ERROR) {
-            return true;
-        }
-        String f = group.factionId != null ? group.factionId.toLowerCase(Locale.ROOT) : "";
-        return "threat".equals(f)
-                || "dweller".equals(f)
-                || "omega".equals(f);
-    }
-
-    /**
-     * Resolves the active Fleet Flagship for a battlegroup:
-     *  - On the player side (side == 0, !isAlliedAi), if the player accepted an Alpha Core ship's offer to take
-     *    command (playerConvergenceFlagshipOverride), that ship is the flagship; otherwise resolves the default flagship
-     *    (engine.getPlayerShip(), or deployed FleetMemberAPI.isFlagship(), or highest-FP division flagship).
-     */
-    public static ShipAPI resolveActiveFleetFlagship(CombatEngineAPI engine, BattleGroupState group) {
-        if (group == null) return null;
-        boolean isPlayerGroup = (group.side == 0 && !group.isAlliedAi);
-        if (isPlayerGroup
-                && playerConvergenceFlagshipOverride != null
-                && playerConvergenceFlagshipOverride.isAlive()
-                && !playerConvergenceFlagshipOverride.isHulk()
-                && !playerConvergenceFlagshipOverride.isExpired()) {
-            return playerConvergenceFlagshipOverride;
-        }
-        String prefId = isPlayerGroup ? DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(group) : null;
-        if (isPlayerGroup && prefId != null && !prefId.isEmpty() && engine != null) {
-            List<ShipAPI> allShips = engine.getShips();
-            if (allShips != null) {
-                for (ShipAPI s : allShips) {
-                    if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
-                    if (s.getOwner() != 0 || s.isAlly()) continue;
-                    String mId = (s.getFleetMember() != null) ? s.getFleetMember().getId() : null;
-                    if (prefId.equals(s.getId())
-                            || (mId != null && prefId.equals(mId))) {
-                        return s;
-                    }
-                }
-            }
-            // If the explicitly designated or sticky OTC is sitting in reserves (undeployed), do not substitute another ship
-            if (DivisionOtcCommandManager.hasAutoOrExplicitPlayerOtcSelection(group)) {
-                try {
-                    if (engine.getFleetManager(0) != null && engine.getFleetManager(0).getReservesCopy() != null) {
-                        for (FleetMemberAPI rm : engine.getFleetManager(0).getReservesCopy()) {
-                            if (rm != null && prefId.equals(rm.getId())) {
-                                return null;
-                            }
-                        }
-                    }
-                } catch (Throwable ignored) {
-                }
-            } else if (allShips != null) {
-                // Auto OTC fallback when ships deployed in a single frame before pre-battle selection ran
-                List<FleetMemberAPI> deployedPool = new ArrayList<>();
-                for (ShipAPI s : allShips) {
-                    if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
-                    if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
-                    if (s.getOwner() != 0 || s.isAlly()) continue;
-                    if (s.getFleetMember() != null) deployedPool.add(s.getFleetMember());
-                }
-                FleetMemberAPI autoBest = DivisionOtcCommandManager.selectLargestShipCommanderMember(deployedPool);
-                if (autoBest != null && autoBest.getId() != null) {
-                    DivisionOtcCommandManager.setAutoPreDeployPlayerOtcMemberId(group, autoBest.getId());
-                    for (ShipAPI s : allShips) {
-                        if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
-                        if (s.getOwner() != 0 || s.isAlly()) continue;
-                        if (s.getFleetMember() != null && autoBest.getId().equals(s.getFleetMember().getId())) {
-                            return s;
-                        }
-                    }
-                }
-            }
-        }
-        if (group.designatedSuccessorFlagship != null
-                && group.designatedSuccessorFlagship.isAlive()
-                && !group.designatedSuccessorFlagship.isHulk()
-                && !group.designatedSuccessorFlagship.isExpired()
-                && !DivisionOtcCommandManager.isShipRetreatedFromBattle(engine, group, group.designatedSuccessorFlagship)) {
-            return group.designatedSuccessorFlagship;
-        }
-        if (engine != null) {
-            List<ShipAPI> ships = engine.getShips();
-            if (ships != null) {
-                for (ShipAPI s : ships) {
-                    if (s != null && s.getId() != null
-                            && s.getOwner() == group.side && s.isAlly() == group.isAlliedAi
-                            && (s.isRetreating() || s.isDirectRetreat())) {
-                        group.formationSpawnHijackedShipIds.add("__retreating_" + s.getId());
-                    }
-                }
-            }
-            // If an Alpha Core ship was the designated campaign flagship (and player did not override OTC to a human),
-            // resolve that flagship before engine.getPlayerShip() (since a human player cannot manually pilot an
-            // automated Alpha Core ship without Neural Link, so engine.getPlayerShip() may be a subordinate human ship).
-            if (isPlayerGroup && ships != null) {
-                if (prefId == null || prefId.isEmpty()) {
-                    for (ShipAPI s : ships) {
-                        if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
-                        if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
-                        if (s.getOwner() != 0 || s.isAlly()) continue;
-                        if (s.getFleetMember() != null && s.getFleetMember().isFlagship() && isAlphaCoreControlledShip(s)) {
-                            return s;
-                        }
-                    }
-                }
-                if (initialPlayerOtcWasAlphaCore || (group.otc != null && isAlphaCoreOfficer(group.otc.person))) {
-                    ShipAPI bestAlpha = DivisionOtcCommandManager.findBestDeployedAlphaCoreSuccessor(engine, group, null);
-                    if (bestAlpha != null) {
-                        return bestAlpha;
-                    }
-                }
-            }
-            if (isPlayerGroup) {
-                ShipAPI playerPiloted = engine.getPlayerShip();
-                if (playerPiloted != null
-                        && playerPiloted.isAlive()
-                        && !playerPiloted.isHulk()
-                        && playerPiloted.getOwner() == 0
-                        && !playerPiloted.isAlly()) {
-                    return playerPiloted;
-                }
-            }
-            if (ships != null) {
-                for (ShipAPI s : ships) {
-                    if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
-                    if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
-                    if (s.getOwner() != group.side || s.isAlly() != group.isAlliedAi) continue;
-                    if (s.getFleetMember() != null && s.getFleetMember().isFlagship()) {
-                        return s;
-                    }
-                }
-            }
-        }
-        if (!isPlayerGroup) {
-            if (group.activeFleetFlagship != null
-                    && group.activeFleetFlagship.isAlive()
-                    && !group.activeFleetFlagship.isHulk()
-                    && !group.activeFleetFlagship.isExpired()
-                    && !group.activeFleetFlagship.isRetreating()
-                    && !group.activeFleetFlagship.isDirectRetreat()) {
-                return group.activeFleetFlagship;
-            }
-            ShipAPI hier = DivisionOtcCommandManager.selectSuccessorShipByHierarchy(engine, group, null, group.useConvergence);
-            if (hier != null) {
-                group.designatedSuccessorFlagship = hier;
-                group.activeFleetFlagship = hier;
-                return hier;
-            }
-        }
-        if (isPlayerGroup) {
-            if (initialDefaultFlagshipGroupRef != group) {
-                initialDefaultFlagshipGroupRef = group;
-                initialDefaultPlayerFlagship = null;
-            }
-            if (initialDefaultPlayerFlagship != null
-                    && initialDefaultPlayerFlagship.isAlive()
-                    && !initialDefaultPlayerFlagship.isHulk()
-                    && !initialDefaultPlayerFlagship.isExpired()) {
-                return initialDefaultPlayerFlagship;
-            }
-            // If the first division in the player's deployed order is Alpha Core-led (or no human division exists),
-            // allow the Alpha Core ship to be the default flagship; otherwise prefer the highest-FP human division
-            // flagship as the default flagship so subordinate Alpha Core ships ask "Shall I take command?" on click.
-            boolean firstDivIsAlphaCore = false;
-            boolean anyHumanDiv = false;
-            for (int i = 0; i < group.divisions.size(); i++) {
-                DivisionState d = group.divisions.get(i);
-                List<ShipAPI> alive = d.getAliveMembers();
-                if (alive.isEmpty()) continue;
-                ShipAPI f = (d.flagship != null && alive.contains(d.flagship)) ? d.flagship : alive.get(0);
-                if (i == 0 && isAlphaCoreControlledShip(f)) {
-                    firstDivIsAlphaCore = true;
-                }
-                if (!isAlphaCoreControlledShip(f)) {
-                    anyHumanDiv = true;
-                }
-            }
-            ShipAPI bestHumanFlag = null;
-            float bestHumanFp = -1f;
-            ShipAPI bestAnyFlag = null;
-            float bestAnyFp = -1f;
-            for (DivisionState div : group.divisions) {
-                List<ShipAPI> alive = div.getAliveMembers();
-                if (alive.isEmpty()) continue;
-                ShipAPI f = (div.flagship != null && alive.contains(div.flagship)) ? div.flagship : alive.get(0);
-                float fp = ShipCapabilityProfile.resolveShipFpStrength(f);
-                if (fp > bestAnyFp) {
-                    bestAnyFp = fp;
-                    bestAnyFlag = f;
-                }
-                if (!isAlphaCoreControlledShip(f) && fp > bestHumanFp) {
-                    bestHumanFp = fp;
-                    bestHumanFlag = f;
-                }
-            }
-            ShipAPI chosen = (!firstDivIsAlphaCore && anyHumanDiv && bestHumanFlag != null)
-                    ? bestHumanFlag
-                    : bestAnyFlag;
-            if (chosen != null) {
-                initialDefaultPlayerFlagship = chosen;
-            }
-            return chosen;
-        }
-        ShipAPI bestFlag = null;
-        float bestFp = -1f;
-        ShipAPI bestRetreatingFlag = null;
-        float bestRetreatingFp = -1f;
-        for (DivisionState div : group.divisions) {
-            List<ShipAPI> alive = div.getAliveMembers();
-            if (alive.isEmpty()) continue;
-            ShipAPI f = (div.flagship != null && alive.contains(div.flagship)) ? div.flagship : alive.get(0);
-            if (f != null && f.getId() != null && (f.isRetreating() || f.isDirectRetreat())) {
-                group.formationSpawnHijackedShipIds.add("__retreating_" + f.getId());
-            }
-            float fp = ShipCapabilityProfile.resolveShipFpStrength(f);
-            if (f != null && (f.isRetreating() || f.isDirectRetreat())) {
-                if (fp > bestRetreatingFp) {
-                    bestRetreatingFp = fp;
-                    bestRetreatingFlag = f;
-                }
-            } else if (fp > bestFp) {
-                bestFp = fp;
-                bestFlag = f;
-            }
-        }
-        return bestFlag != null ? bestFlag : bestRetreatingFlag;
-    }
-
-    /**
-     * Synchronizes OTC and Division Commander Convergence decision-making states:
-     *  1. Non-human fleets (AI, Threat, Abyssal) always use Convergence for both OTC and Division Commanders.
-     *  2. Player OTC uses Convergence if and only if its active Fleet Flagship is an Alpha Core-controlled ship
-     *     (either deployed as the default flagship, or promoted to flagship when the player clicks "Yes" on
-     *     the "[URGENT COMMS FROM <AI-controlled ship>]" pop-up). If the Alpha Core ship is subordinate,
-     *     the Player OTC uses standard human decision-making.
-     *  3. Each Division Commander uses human or Convergence decision-making depending on that division's flagship.
-     */
-    public static void updateConvergenceCommandStates(CombatEngineAPI engine, BattleGroupState group) {
-        if (group == null) return;
-        float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
-        if (!group.isPassiveOpposingView) {
-            DivisionOtcCommandManager.checkGroupFlagshipLoss(engine, group, now, !group.isAlliedAi);
-        }
-        boolean otcInBlackout = !group.isPassiveOpposingView && DivisionOtcCommandManager.isOtcDisabled(group, now);
-        if (group.forceConvergenceOverride != null) {
-            boolean forced = group.forceConvergenceOverride;
-            group.useConvergence = forced;
-            if (!otcInBlackout || group.activeFleetFlagship == null) {
-                group.activeFleetFlagship = resolveActiveFleetFlagship(engine, group);
-            }
-            for (DivisionState div : group.divisions) {
-                div.useConvergence = forced && !div.getAliveMembers().isEmpty();
-            }
-            return;
-        }
-        boolean nonHuman = isNonHumanConvergenceGroup(group);
-        ShipAPI fleetFlag = (!otcInBlackout || group.activeFleetFlagship == null)
-                ? resolveActiveFleetFlagship(engine, group)
-                : group.activeFleetFlagship;
-        group.activeFleetFlagship = fleetFlag;
-        boolean playerInitialAlpha = (group.side == 0 && !group.isAlliedAi)
-                && (initialPlayerOtcWasAlphaCore || (group.otc != null && isAlphaCoreOfficer(group.otc.person)));
-        group.useConvergence = nonHuman || playerInitialAlpha || isAlphaCoreControlledShip(fleetFlag);
-
-        if (group.side == 0 && !group.isAlliedAi && fleetFlag != null) {
-            if (isAlphaCoreControlledShip(fleetFlag)) {
-                if (fleetFlag.getCaptain() != null
-                        && (group.otc == null || group.otc.person != fleetFlag.getCaptain())) {
-                    group.otc = new CommanderProfile(fleetFlag.getCaptain(), formatAiShipName(fleetFlag));
-                }
-                if (!DivisionDeploymentDialogOrganizer.isPreBattleDeployment(engine, null)) {
-                    DivisionOtcCommandManager.lockPlayerAlphaCoreOtcInBattle(group);
-                }
-            } else {
-                PersonAPI resolvedCap = DivisionOtcCommandManager.resolveCandidatePerson(
-                        fleetFlag.getFleetMember(), fleetFlag);
-                if (resolvedCap != null && (group.otc == null || group.otc.person != resolvedCap)) {
-                    String cName = (resolvedCap.getNameString() != null && !resolvedCap.getNameString().trim().isEmpty())
-                            ? resolvedCap.getNameString().trim()
-                            : "Fleet Commander";
-                    group.otc = new CommanderProfile(resolvedCap, cName);
-                }
-            }
-            if (fleetFlag.getFleetMember() != null && fleetFlag.getFleetMember().getId() != null
-                    && (group.preferredOtcShipId == null || group.preferredOtcShipId.isEmpty())) {
-                DivisionOtcCommandManager.setAutoPreDeployPlayerOtcMemberId(group, fleetFlag.getFleetMember().getId());
-            }
-        }
-
-        for (DivisionState div : group.divisions) {
-            List<ShipAPI> alive = div.getAliveMembers();
-            if (alive.isEmpty()) {
-                div.useConvergence = false;
-                continue;
-            }
-            if (group.side == 0 && !group.isAlliedAi
-                    && playerConvergenceFlagshipOverride != null
-                    && alive.contains(playerConvergenceFlagshipOverride)) {
-                div.flagship = playerConvergenceFlagshipOverride;
-            } else if (div.flagship == null
-                    || !alive.contains(div.flagship)
-                    || !div.flagship.isAlive()
-                    || div.flagship.isHulk()
-                    || div.flagship.isRetreating()
-                    || div.flagship.isDirectRetreat()) {
-                DivisionOtcCommandManager.resolveBestDivisionFlagshipSuccessor(div);
-                if (div.flagship == null || !alive.contains(div.flagship)) {
-                    div.flagship = alive.get(0);
-                }
-            }
-            div.useConvergence = nonHuman || isAlphaCoreControlledShip(div.flagship);
-        }
-    }
-
-    /**
-     * Finds the next deployed, alive, subordinate Alpha Core-controlled player ship that has not yet asked
-     * "Shall I take command?". Returns null if the current fleet flagship is already an Alpha Core ship
-     * or if all deployed Alpha Core ships have already asked.
-     */
-    public static ShipAPI findNextUnaskedSubordinateAlphaCoreShip(CombatEngineAPI engine, BattleGroupState playerGroup) {
-        if (initialPlayerOtcWasAlphaCore) {
-            return null;
-        }
-        if (playerGroup != null && (playerGroup.useConvergence
-                || (playerGroup.otc != null && isAlphaCoreOfficer(playerGroup.otc.person)))) {
-            return null;
-        }
-        if (DivisionOtcCommandManager.isActivePlayerOtcAlphaCore(engine, null, playerGroup)) {
-            return null;
-        }
-        ShipAPI currentFlag = resolveActiveFleetFlagship(engine, playerGroup);
-        if (isAlphaCoreControlledShip(currentFlag)) {
-            return null;
-        }
-        List<ShipAPI> candidates = new ArrayList<>();
-        if (engine != null && engine.getShips() != null) {
-            for (ShipAPI s : engine.getShips()) {
-                if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
-                if (s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
-                if (s.getOwner() != 0 || s.isAlly()) continue;
-                if (s == currentFlag) continue;
-                if (!isAlphaCoreControlledShip(s)) continue;
-                if (askedAlphaCoreShipIds.contains(s.getId())) continue;
-                candidates.add(s);
-            }
-        }
-        if (candidates.isEmpty() && playerGroup != null) {
-            for (DivisionState div : playerGroup.divisions) {
-                for (ShipAPI s : div.getAliveMembers()) {
-                    if (s == currentFlag) continue;
-                    if (!isAlphaCoreControlledShip(s)) continue;
-                    if (askedAlphaCoreShipIds.contains(s.getId())) continue;
-                    if (!candidates.contains(s)) {
-                        candidates.add(s);
-                    }
-                }
-            }
-        }
-        if (candidates.isEmpty()) return null;
-        Collections.sort(candidates, new Comparator<ShipAPI>() {
-            @Override
-            public int compare(ShipAPI a, ShipAPI b) {
-                int cmp = Float.compare(
-                        ShipCapabilityProfile.resolveShipFpStrength(b),
-                        ShipCapabilityProfile.resolveShipFpStrength(a));
-                if (cmp != 0) return cmp;
-                String idA = a.getId() != null ? a.getId() : "";
-                String idB = b.getId() != null ? b.getId() : "";
-                return idA.compareTo(idB);
-            }
-        });
-        return candidates.get(0);
-    }
-
-    /**
-     * Handles clicking the Convergence button on the Command View Window:
-     *  - If the player has deployed Alpha Core-commanded ship(s), none of them is currently the flagship,
-     *    and at least one has not yet asked to take command, pauses the battle and opens the
-     *    "[URGENT COMMS FROM <AI-controlled ship>]" pop-up asking "Shall I take command?".
-     *  - Otherwise toggles the Convergence overlay visibility directly.
-     */
-    public static void handleConvergenceButtonClick(CombatEngineAPI engine) {
-        ShipAPI candidate = findNextUnaskedSubordinateAlphaCoreShip(engine, activePlayerGroupRef);
-        if (candidate != null) {
-            askedAlphaCoreShipIds.add(candidate.getId());
-            pendingCommsAlphaCoreShip = candidate;
-            activeCommsPhraseIndex = urgentCommsPromptSequence % URGENT_COMMS_PHRASES.length;
-            urgentCommsPromptSequence++;
-            convergenceOverlayVisible = true;
-            if (engine != null) {
-                engine.setPaused(true);
-            }
-            return;
-        }
-        toggleConvergenceOverlayVisible();
-    }
-
-    /**
-     * Player clicked "Yes" on "[URGENT COMMS FROM <AI-controlled ship>]":
-     *  - That AI-controlled ship becomes the player fleet's flagship.
-     *  - Player OTC immediately starts using Convergence decision-making.
-     *  - That ship will never ask to take command again.
-     */
-    public static void acceptPendingAlphaCoreCommand(CombatEngineAPI engine) {
-        if (pendingCommsAlphaCoreShip == null) return;
-        ShipAPI aiShip = pendingCommsAlphaCoreShip;
-        pendingCommsAlphaCoreShip = null;
-        playerConvergenceFlagshipOverride = aiShip;
-        askedAlphaCoreShipIds.add(aiShip.getId());
-        convergenceOverlayVisible = true;
-        DivisionOtcCommandManager.lockPlayerAlphaCoreOtcInBattle(activePlayerGroupRef);
-        if (activePlayerGroupRef != null) {
-            String mId = (aiShip.getFleetMember() != null && aiShip.getFleetMember().getId() != null)
-                    ? aiShip.getFleetMember().getId()
-                    : aiShip.getId();
-            DivisionOtcCommandManager.setPreferredPlayerOtcMemberId(activePlayerGroupRef, mId);
-            activePlayerGroupRef.otcDisabledUntilTime = -100f;
-            activePlayerGroupRef.otcDisabledWarningActive = false;
-            updateConvergenceCommandStates(engine, activePlayerGroupRef);
-            DivisionCombatLog.logOtcOrder(
-                    engine,
-                    activePlayerGroupRef,
-                    String.format(
-                            Locale.ROOT,
-                            "Alpha Core on \"%s\" assumes command of the fleet (Convergence active).",
-                            formatAiShipName(aiShip)));
-        }
-    }
-
-    /**
-     * Player clicked "No" on "[URGENT COMMS FROM <AI-controlled ship>]":
-     *  - Closes the pop-up; that ship remains in askedAlphaCoreShipIds and will not ask again.
-     *  - Player OTC stays on standard human decision-making.
-     */
-    public static void refusePendingAlphaCoreCommand(CombatEngineAPI engine) {
-        if (pendingCommsAlphaCoreShip == null) return;
-        askedAlphaCoreShipIds.add(pendingCommsAlphaCoreShip.getId());
-        pendingCommsAlphaCoreShip = null;
-    }
-
-    public static String formatAiShipName(ShipAPI ship) {
-        if (ship == null) return "AI Vessel";
-        if (ship.getName() != null && !ship.getName().trim().isEmpty()) {
-            return ship.getName().trim();
-        }
-        if (ship.getHullSpec() != null && ship.getHullSpec().getHullName() != null) {
-            return ship.getHullSpec().getHullName().trim();
-        }
-        return "AI Vessel";
-    }
-
-    /**
-     * Computes the subtle 0.5-second positional shift (dx, dy in pixels) for the word "command?"
-     * in "Shall I take command?". Guaranteed to step cleanly every 0.5s.
-     */
-    public static Vector2f getCommandWordShiftOffset(float elapsedRealSeconds) {
-        long halfSecTick = (long) Math.floor(Math.max(0f, elapsedRealSeconds) * 2.0f);
-        // 8-step subtle non-repeating glitch-shift cycle so every 0.5s tick visibly shifts "command?"
-        final float[] dxTable = new float[]{ 0.0f,  2.2f, -1.8f,  1.5f, -2.4f,  1.9f, -1.4f,  2.5f};
-        final float[] dyTable = new float[]{ 0.0f, -1.4f,  1.6f,  1.2f, -1.5f,  1.8f, -1.2f,  1.0f};
-        int idx = (int) (Math.abs(halfSecTick) & 7L);
-        return new Vector2f(dxTable[idx], dyTable[idx]);
-    }
 
     public static ShipFirepowerRose getRoseForShip(ShipAPI ship) {
         if (ship == null) return null;
@@ -2066,26 +1176,7 @@ public class BattlefieldFirepowerEvaluator {
                 float range = w.getRange();
                 if (range <= 50f) continue;
 
-                FireClassification fc = classifyWeaponFire(w);
-                float antiShipWeight = (fc == FireClassification.POINT_DEFENSE) ? 0.18f
-                        : (fc == FireClassification.HYBRID ? 0.85f : 1.0f);
-                boolean isStrike = w.hasAIHint(AIHints.STRIKE);
-                DerivedWeaponStatsAPI d = w.getDerivedStats();
-                float dps;
-                float burst;
-                if (d != null && (d.getDps() > 0f || d.getBurstDamage() > 0f || d.getSustainedDps() > 0f)) {
-                    burst = Math.max(d.getBurstDamage(), d.getDamagePerShot());
-                    dps = Math.max(d.getSustainedDps(), d.getDps() * 0.75f);
-                    if (dps <= 1f && burst > 0f) {
-                        dps = burst / Math.max(1f, w.getCooldown());
-                    }
-                } else {
-                    float szW = weaponSizeWeight(resolveEffectiveWeaponSize(w));
-                    burst = szW * 150f * (isStrike ? 2.0f : 1.0f);
-                    dps = szW * 85f * (isStrike ? 1.2f : 1.0f);
-                }
-
-                float wScore = (dps * 0.70f + (burst / 4.0f) * 0.30f) * antiShipWeight;
+                float wScore = computeWeaponBaseAntiShipScore(w);
                 if (!maxCapacityOnly && !isPhaseShip) {
                     float cdRem = w.getCooldownRemaining();
                     if (cdRem > 0.20f) {
@@ -2141,38 +1232,12 @@ public class BattlefieldFirepowerEvaluator {
                 float offAxis = Math.abs(shortestAngleDiffDeg(mountWorldFacing, bearing));
                 if (offAxis > rawArc * 0.5f + 22f) continue;
 
-                FireClassification fc = classifyWeaponFire(w);
-                float antiShipWeight = (fc == FireClassification.POINT_DEFENSE) ? 0.18f
-                        : (fc == FireClassification.HYBRID ? 0.85f : 1.0f);
-                boolean isStrike = w.hasAIHint(AIHints.STRIKE);
-                // Direct gun/beam in-range uptime: long-range strike missiles (> 1300u) do not count as "already in gun range"
-                // until the ship has closed within direct gun envelope (~1300u), so strike divisions still marshal at standoff!
-                if (isStrike && dist > 1300f) continue;
-                DerivedWeaponStatsAPI d = w.getDerivedStats();
-                float dps;
-                float burst;
-                if (d != null && (d.getDps() > 0f || d.getBurstDamage() > 0f || d.getSustainedDps() > 0f)) {
-                    burst = Math.max(d.getBurstDamage(), d.getDamagePerShot());
-                    dps = Math.max(d.getSustainedDps(), d.getDps() * 0.75f);
-                    if (dps <= 1f && burst > 0f) {
-                        dps = burst / Math.max(1f, w.getCooldown());
-                    }
-                } else {
-                    float szW = weaponSizeWeight(resolveEffectiveWeaponSize(w));
-                    burst = szW * 150f * (isStrike ? 2.0f : 1.0f);
-                    dps = szW * 85f * (isStrike ? 1.2f : 1.0f);
-                }
-
-                // Item B: Grade weapon damage type against target defense state (shields up + flux headroom vs exposed armor/hull)
+                if (w.hasAIHint(AIHints.STRIKE) && dist > 1300f) continue;
                 DamageType dt = w.getDamageType();
-                float defenseMatchMult = 1.0f;
-                if (dt == DamageType.KINETIC) {
-                    defenseMatchMult = targetShieldsActive ? 1.20f : 0.80f;
-                } else if (dt == DamageType.HIGH_EXPLOSIVE) {
-                    defenseMatchMult = targetShieldsActive ? 0.84f : 1.30f;
-                }
-
-                float wScore = (dps * 0.70f + (burst / 4.0f) * 0.30f) * antiShipWeight * defenseMatchMult;
+                float defenseMatchMult = (dt == DamageType.KINETIC)
+                        ? (targetShieldsActive ? 1.20f : 0.80f)
+                        : (dt == DamageType.HIGH_EXPLOSIVE ? (targetShieldsActive ? 0.84f : 1.30f) : 1.0f);
+                float wScore = computeWeaponBaseAntiShipScore(w) * defenseMatchMult;
                 if (!isPhaseShip) {
                     float cdRem = w.getCooldownRemaining();
                     if (cdRem > 0.20f) {
@@ -3215,7 +2280,7 @@ public class BattlefieldFirepowerEvaluator {
                 bastion.activeFormation = PermanentDivisionManager.DivisionFormation.CIRCLE;
                 stationBastionsByShipId.put(key, bastion);
             }
-            bastion.useConvergence = group.useConvergence || isAlphaCoreControlledShip(st);
+            bastion.useConvergence = group.useConvergence || DivisionOtcCommandManager.isAlphaCoreControlledShip(st);
             bastion.flagship = st;
             bastion.members.clear();
             bastion.members.add(st);
@@ -3381,9 +2446,9 @@ public class BattlefieldFirepowerEvaluator {
             lastTimeSpaceConvEngine = engine;
             lastTimeSpaceConvUpdateTime = engine.getTotalElapsedTime(false);
         }
-        updateConvergenceCommandStates(engine, myGroup);
+        DivisionOtcCommandManager.updateConvergenceCommandStates(engine, myGroup);
         if (enemyGroup != null) {
-            updateConvergenceCommandStates(engine, enemyGroup);
+            DivisionOtcCommandManager.updateConvergenceCommandStates(engine, enemyGroup);
         }
 
         List<DivisionState> myEffectiveDivs = getDivisionsAndStationBastionsForRendering(engine, myGroup);
@@ -4539,183 +3604,15 @@ public class BattlefieldFirepowerEvaluator {
         return true;
     }
 
-    /**
-     * Returns the Y coordinate (bottom of the 34px square icon box) for button index:
-     *   0 = Time Overlay        (top)
-     *   1 = Space Overlay       (second)
-     *   2 = Firepower Overlay   (third)
-     *   3 = Convergence Overlay (fourth, visible ONLY when hasAlphaCoreInPlayerFleet(engine) is true)
-     */
-    public static float getOverlayButtonY(float screenH, int buttonIndex) {
-        float centerMidY = screenH * BTN_Y_FRACTION;
-        // Button 1 (Space) is centered around centerMidY; Button 0 (Time) is above it;
-        // Button 2 (Firepower) and Button 3 (Convergence) are below it at 43px stride.
-        return Math.round(centerMidY + (1 - buttonIndex) * BTN_VERTICAL_STRIDE);
-    }
 
-    public static float getOverlayButtonX(float screenW) {
-        return Math.round(screenW - BTN_WIDTH - BTN_RIGHT_MARGIN);
-    }
 
-    /**
-     * Processes mouse events for:
-     *   1. The "[URGENT COMMS FROM <AI-controlled ship>]" modal pop-up ("Yes" / "No" buttons) when active,
-     *   2. The right-side Warroom square-bordered icon buttons (Time, Space, Firepower, and Convergence when
-     *      the player has an Alpha Core in their fleet) on the Command View Window.
-     * Strictly ignores input on the Main Menu (TitleScreenState) or when the Command View Window is closed.
-     */
-    public static void processInputEvents(List<InputEventAPI> events) {
-        CombatEngineAPI engine = null;
-        try {
-            engine = Global.getCombatEngine();
-        } catch (Throwable ignored) {
-        }
-        processInputEvents(engine, events);
-    }
 
-    public static void processInputEvents(CombatEngineAPI engine, List<InputEventAPI> events) {
-        if (events == null || Global.getSettings() == null) return;
-        if (!isCommandViewWindowActive(engine)) return;
-        float screenW = Global.getSettings().getScreenWidth();
-        float screenH = Global.getSettings().getScreenHeight();
-        float btnX = getOverlayButtonX(screenW);
-        int maxButtons = hasAlphaCoreInPlayerFleet(engine) ? 4 : 3;
 
-        for (InputEventAPI event : events) {
-            if (event == null || event.isConsumed()) continue;
-            if (event.isMouseEvent()) {
-                lastMouseX = event.getX();
-                lastMouseY = event.getY();
-            }
-            if (event.isLMBDownEvent()) {
-                float mx = event.getX();
-                float my = event.getY();
 
-                // 1. If the Urgent Comms modal pop-up is open, handle "Yes" and "No" button clicks
-                if (pendingCommsAlphaCoreShip != null) {
-                    float modalX = Math.round((screenW - COMMS_MODAL_W) * 0.5f);
-                    float modalY = Math.round((screenH - COMMS_MODAL_H) * 0.5f);
-                    float yesX = modalX + 86f;
-                    float noX = modalX + COMMS_MODAL_W - 86f - COMMS_BTN_W;
-                    float choiceBtnY = modalY + COMMS_BTN_Y_OFFSET;
 
-                    if (mx >= yesX - 2f && mx <= yesX + COMMS_BTN_W + 2f
-                            && my >= choiceBtnY - 2f && my <= choiceBtnY + COMMS_BTN_H + 2f) {
-                        event.consume();
-                        acceptPendingAlphaCoreCommand(engine);
-                        try {
-                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
-                        } catch (Throwable ignored) {
-                        }
-                        return;
-                    }
-                    if (mx >= noX - 2f && mx <= noX + COMMS_BTN_W + 2f
-                            && my >= choiceBtnY - 2f && my <= choiceBtnY + COMMS_BTN_H + 2f) {
-                        event.consume();
-                        refusePendingAlphaCoreCommand(engine);
-                        try {
-                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
-                        } catch (Throwable ignored) {
-                        }
-                        return;
-                    }
-                    // Consume clicks inside the modal body so they don't issue unintended map orders underneath
-                    if (mx >= modalX && mx <= modalX + COMMS_MODAL_W
-                            && my >= modalY && my <= modalY + COMMS_MODAL_H) {
-                        event.consume();
-                        return;
-                    }
-                }
 
-                // 2. Right-side Warroom overlay buttons (Time, Space, Firepower, and conditional Convergence)
-                if (mx >= btnX - 2f && mx <= btnX + BTN_WIDTH + 2f) {
-                    for (int idx = 0; idx < maxButtons; idx++) {
-                        float btnY = getOverlayButtonY(screenH, idx);
-                        if (my >= btnY - 2f && my <= btnY + BTN_HEIGHT + 2f) {
-                            event.consume();
-                            float nowReal = (float) ((System.currentTimeMillis() % 86400000L) * 0.001);
-                            if (Math.abs(nowReal - lastToggleRealTime) > 0.05f) {
-                                lastToggleRealTime = nowReal;
-                                if (idx == 0) {
-                                    toggleTimeOverlayVisible();
-                                } else if (idx == 1) {
-                                    toggleSpaceOverlayVisible();
-                                } else if (idx == 2) {
-                                    toggleOverlayVisible();
-                                } else if (idx == 3) {
-                                    handleConvergenceButtonClick(engine);
-                                }
-                                try {
-                                    Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
-                                } catch (Throwable ignored) {
-                                }
-                            }
-                            return;
-                        }
-                    }
-                }
-            }
-        }
-    }
 
-    /**
-     * Legacy live-screen hook retained as a no-op guard so the Firepower Overlay button and roses
-     * render exclusively inside the Command View Window (Tab tactical map via DivisionTacticalMapOverlay)
-     * and never appear on the Main Menu (TitleScreenState) or over non-Command-View dialogs.
-     */
-    public static void renderOnLiveBattleScreen(
-            CombatEngineAPI engine,
-            ViewportAPI viewport,
-            BattleGroupState playerGroup,
-            BattleGroupState alliedAiGroup,
-            BattleGroupState enemyGroup) {
-        // Rendered strictly inside the Command View Window (DivisionTacticalMapOverlay.render)
-        // when isCommandViewWindowActive(engine) is true.
-    }
 
-    /**
-     * Delegates screen-space Firepower Rose rendering to {@link TsfcWarroomRenderer}.
-     */
-    public static void renderFirepowerRosesScreenSpace(
-            CombatEngineAPI engine,
-            float scale,
-            float offsetX,
-            float offsetY,
-            float fade,
-            BattleGroupState playerGroup,
-            BattleGroupState alliedAiGroup,
-            BattleGroupState enemyGroup) {
-        TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
-                engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
-    }
-
-    /**
-     * Delegates screen-space Time, Space, and Convergence rendering to {@link TsfcWarroomRenderer}.
-     */
-    public static void renderTimeSpaceAndConvergenceScreenSpace(
-            CombatEngineAPI engine,
-            float scale,
-            float offsetX,
-            float offsetY,
-            float fade,
-            BattleGroupState playerGroup,
-            BattleGroupState alliedAiGroup,
-            BattleGroupState enemyGroup) {
-        TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
-                engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
-    }
-
-    public static void renderToggleButtonAndLegendUI(float fade) {
-        TsfcWarroomRenderer.renderToggleButtonAndLegendUI(fade);
-    }
-
-    public static void renderToggleButtonAndLegendUI(CombatEngineAPI engine, float fade) {
-        TsfcWarroomRenderer.renderToggleButtonAndLegendUI(engine, fade);
-    }
-
-    public static String formatAiShipCallsignOnly(ShipAPI ship) {
-        return TsfcWarroomRenderer.formatAiShipCallsignOnly(ship);
-    }
 
     // =========================================================================
     // Math & Weapon Helpers
@@ -4772,31 +3669,28 @@ public class BattlefieldFirepowerEvaluator {
     // (Delegated to VoidstrikeCoordinator)
     // =========================================================================
 
-    public static List<VoidstrikeRecord> getActiveVoidstrikes() {
-        return VoidstrikeCoordinator.getActiveVoidstrikes();
-    }
 
-    public static int getNextVoidstrikeNumberForSide(int side) {
-        return VoidstrikeCoordinator.getNextVoidstrikeNumberForSide(side);
-    }
 
-    public static void refreshVoidstrikesForRender(
-            CombatEngineAPI engine,
-            BattleGroupState playerGroup,
-            BattleGroupState alliedAiGroup,
-            BattleGroupState enemyGroup,
-            float now) {
-        VoidstrikeCoordinator.refreshVoidstrikesForRender(
-                engine, playerGroup, alliedAiGroup, enemyGroup, now);
-    }
 
-    public static void updateVoidstrikes(
-            CombatEngineAPI engine,
-            BattleGroupState playerGroup,
-            BattleGroupState alliedAiGroup,
-            BattleGroupState enemyGroup,
-            float now) {
-        VoidstrikeCoordinator.updateVoidstrikes(
-                engine, playerGroup, alliedAiGroup, enemyGroup, now);
+    private static float computeWeaponBaseAntiShipScore(WeaponAPI w) {
+        FireClassification fc = classifyWeaponFire(w);
+        float antiShipWeight = (fc == FireClassification.POINT_DEFENSE) ? 0.18f
+                : (fc == FireClassification.HYBRID ? 0.85f : 1.0f);
+        boolean isStrike = w.hasAIHint(AIHints.STRIKE);
+        DerivedWeaponStatsAPI d = w.getDerivedStats();
+        float dps;
+        float burst;
+        if (d != null && (d.getDps() > 0f || d.getBurstDamage() > 0f || d.getSustainedDps() > 0f)) {
+            burst = Math.max(d.getBurstDamage(), d.getDamagePerShot());
+            dps = Math.max(d.getSustainedDps(), d.getDps() * 0.75f);
+            if (dps <= 1f && burst > 0f) {
+                dps = burst / Math.max(1f, w.getCooldown());
+            }
+        } else {
+            float szW = weaponSizeWeight(resolveEffectiveWeaponSize(w));
+            burst = szW * 150f * (isStrike ? 2.0f : 1.0f);
+            dps = szW * 85f * (isStrike ? 1.2f : 1.0f);
+        }
+        return (dps * 0.70f + (burst / 4.0f) * 0.30f) * antiShipWeight;
     }
 }

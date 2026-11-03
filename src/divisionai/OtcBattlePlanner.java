@@ -329,12 +329,12 @@ public class OtcBattlePlanner {
         for (DivisionState d : active) {
             if (d == myGroup.mainEffortDivision || d == myGroup.reserveDivision || d == myGroup.reinforcingDivision) continue;
             if (!isStrikeCandidate(d, myGroup, now)) continue;
-            if (distance(d.centroid, targetPos) > STRIKE_MAX_RANGE) continue;
+            if (DivisionUiWidgets.distance(d.centroid, targetPos) > STRIKE_MAX_RANGE) continue;
             strikers.add(d);
         }
         boolean mainEffortCanFix = myGroup.mainEffortDivision != null
                 && myGroup.mainEffortDivision.isCombatEffective()
-                && distance(myGroup.mainEffortDivision.centroid, targetPos) < 4000f;
+                && DivisionUiWidgets.distance(myGroup.mainEffortDivision.centroid, targetPos) < 4000f;
 
         // Scope Item 2: If Multi-Division Setpiece Doctrine is enabled and we have >= 2 combat-ready divisions
         // within reach of the target, allow non-missile maneuver divisions to join a coordinated Multi-Division Setpiece!
@@ -352,7 +352,7 @@ public class OtcBattlePlanner {
                 if (d.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                         || d.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) continue;
                 if (d.avgFluxLevel >= 0.48f || d.effectiveHpRatio < 0.55f) continue;
-                if (distance(d.centroid, targetPos) <= 3400f) {
+                if (DivisionUiWidgets.distance(d.centroid, targetPos) <= 3400f) {
                     strikers.add(d);
                 }
             }
@@ -494,7 +494,7 @@ public class OtcBattlePlanner {
             plan.participantFormations.put(d.id, spForm);
             plan.participants.add(d);
 
-            float travel = Math.max(0f, distance(d.centroid, new Vector2f(targetPos.x + offset.x, targetPos.y + offset.y)) - 250f);
+            float travel = Math.max(0f, DivisionUiWidgets.distance(d.centroid, new Vector2f(targetPos.x + offset.x, targetPos.y + offset.y)) - 250f);
             float effectiveSpd = Math.max(45f, d.weightedTimeSpeed > 1f
                     ? (d.weightedTimeSpeed * Math.max(0.45f, d.timeFreedomFactor))
                     : (d.avgMaxSpeed * 0.8f));
@@ -506,7 +506,7 @@ public class OtcBattlePlanner {
             if (!p.archetype.isCarrierArchetype()
                     && (p.inRangeFirepowerScore > 0f
                     || p.incomingInRangeFirepower > 25f
-                    || distance(p.centroid, targetPos) <= Math.max(1050f, p.avgEngageRange * 1.08f))) {
+                    || DivisionUiWidgets.distance(p.centroid, targetPos) <= Math.max(1050f, p.avgEngageRange * 1.08f))) {
                 anyParticipantInCombatRange = true;
                 break;
             }
@@ -560,13 +560,13 @@ public class OtcBattlePlanner {
             if (!p.archetype.isCarrierArchetype()
                     && (p.inRangeFirepowerScore > 0f
                     || p.incomingInRangeFirepower > 25f
-                    || distance(p.centroid, targetPos) <= Math.max(1050f, p.avgEngageRange * 1.08f))) {
+                    || DivisionUiWidgets.distance(p.centroid, targetPos) <= Math.max(1050f, p.avgEngageRange * 1.08f))) {
                 return true;
             }
             Vector2f offset = plan.marshalOffsets.get(p.id);
             if (offset == null) continue;
             float marshalDist = offset.length();
-            if (distance(p.centroid, targetPos) > marshalDist + 350f) {
+            if (DivisionUiWidgets.distance(p.centroid, targetPos) > marshalDist + 350f) {
                 return false;
             }
         }
@@ -580,7 +580,7 @@ public class OtcBattlePlanner {
         for (ShipAPI s : target.getAliveMembers()) {
             if (!OtcAI.isShipVisibleToSide(engine, side, s)) continue;
             boolean ovl = s.getFluxTracker() != null && s.getFluxTracker().isOverloadedOrVenting();
-            float dCenter = (refPt != null) ? distance(refPt, s.getLocation()) : 0f;
+            float dCenter = (refPt != null) ? DivisionUiWidgets.distance(refPt, s.getLocation()) : 0f;
             float score = ShipCapabilityProfile.resolveShipFpStrength(s) * 5f
                     - dCenter * 0.25f
                     + (ovl ? 680f : 0f)
@@ -642,7 +642,7 @@ public class OtcBattlePlanner {
             if (d.avgFluxLevel >= 0.55f) continue;
             boolean selfEngaged = d.localEnemyStrength >= 12f && d.localForceRatio < 1.0f;
             if (selfEngaged) continue;
-            float dist = distance(d.centroid, crisis.centroid);
+            float dist = DivisionUiWidgets.distance(d.centroid, crisis.centroid);
             if (dist > maxDist) continue;
 
             // Do not send a small Destroyer/Frigate division to commit suicide inside a deep multi-division
@@ -722,7 +722,7 @@ public class OtcBattlePlanner {
         List<DivisionState> broken = new ArrayList<>();
         for (DivisionState e : visibleEnemies) {
             if (isVisiblyBroken(engine, myGroup.side, e)
-                    && distance(myGroup.fleetCentroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e)) < CHASE_LEASH) {
+                    && DivisionUiWidgets.distance(myGroup.fleetCentroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e)) < CHASE_LEASH) {
                 broken.add(e);
             }
         }
@@ -750,7 +750,7 @@ public class OtcBattlePlanner {
                         && !(d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e)) {
                     continue;
                 }
-                float dist = distance(d.centroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e));
+                float dist = DivisionUiWidgets.distance(d.centroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e));
                 if (d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e) {
                     dist -= 1000f;
                 }
@@ -961,7 +961,7 @@ public class OtcBattlePlanner {
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e);
                 float need = Math.max(4f, neededFp.get(e));
                 float have = assignedFp.get(e);
-                float dist = distance(d.centroid, ePos);
+                float dist = DivisionUiWidgets.distance(d.centroid, ePos);
                 float rawVisFp = OtcAI.getVisibleFpForSide(engine, myGroup.side, e);
                 float threatW = Math.max(0.28f, e.combatThreatWeight);
                 float visFp = rawVisFp * threatW;
@@ -974,7 +974,7 @@ public class OtcBattlePlanner {
 
                 // Enemy Center of Gravity bonus: weight force distribution toward the Enemy Center of Gravity
                 if (myGroup.hasEnemyCenterOfGravity && visibleEnemies.size() >= 2) {
-                    float distToCog = distance(ePos, myGroup.enemyCenterOfGravity);
+                    float distToCog = DivisionUiWidgets.distance(ePos, myGroup.enemyCenterOfGravity);
                     score += Math.max(-340f, 180f - distToCog * 0.14f);
                 }
 
@@ -985,7 +985,7 @@ public class OtcBattlePlanner {
                     if (friendDiv.totalFpStrength >= 18f
                             && friendDiv.localEnemyStrength >= 12f
                             && friendDiv.localForceRatio < 0.90f) {
-                        float dFriend = distance(friendDiv.centroid, ePos);
+                        float dFriend = DivisionUiWidgets.distance(friendDiv.centroid, ePos);
                         if (dFriend <= 2050f) {
                             float urgency = Math.min(1.6f, Math.max(0.4f, 1.15f - friendDiv.localForceRatio));
                             score += (2050f - dFriend) * 0.32f * urgency;
@@ -1005,7 +1005,7 @@ public class OtcBattlePlanner {
 
                 // Item D: Align fire distribution with friendly independent ships when organizationRatio < 0.75
                 if (myGroup.friendlyIndependentFp >= 12f && myGroup.organizationRatio < 0.75f) {
-                    float dIndep = distance(myGroup.independentProjectedCentroid, ePos);
+                    float dIndep = DivisionUiWidgets.distance(myGroup.independentProjectedCentroid, ePos);
                     if (dIndep <= 1750f) {
                         score += (1750f - dIndep) * 0.25f * (1f - myGroup.organizationRatio);
                     }
@@ -1074,7 +1074,7 @@ public class OtcBattlePlanner {
                     && DivisionCommanderAI.resolveActiveMission(d, now) != DivisionMissionType.ENVELOPMENT
                     && DivisionCommanderAI.resolveActiveMission(d, now) != DivisionMissionType.SCOUTING) {
                 Vector2f bPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, best);
-                float distToTarget = distance(d.centroid, bPos);
+                float distToTarget = DivisionUiWidgets.distance(d.centroid, bPos);
                 if (wedgeOrOblique) {
                     if (d.fleetFormationWingSide < 0) {
                         d.otcOrder.orderedFormation = DivisionFormation.ECHELON_LEFT;
@@ -1139,7 +1139,7 @@ public class OtcBattlePlanner {
                 DivisionState prevTarget = d.otcOrder.targetEnemy;
                 boolean prevOverkilled = prevTarget.isOverkilled && target != null && target != prevTarget && !target.isOverkilled;
                 if (!prevOverkilled
-                        && (target == null || distance(d.centroid, prevTarget.centroid) <= distance(d.centroid, target.centroid) + 1400f)) {
+                        && (target == null || DivisionUiWidgets.distance(d.centroid, prevTarget.centroid) <= DivisionUiWidgets.distance(d.centroid, target.centroid) + 1400f)) {
                     target = prevTarget;
                 }
             }
@@ -1385,7 +1385,7 @@ public class OtcBattlePlanner {
             }
 
             Vector2f tPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, target);
-            float distBaitToTarget = distance(bait.centroid, tPos);
+            float distBaitToTarget = DivisionUiWidgets.distance(bait.centroid, tPos);
             // Transition from Stage 1 (Lure) to Stage 2 (Spring Alpha Strike) when enemy closes into the kill zone or after 5.5s
             if (myGroup.fleetFeignedRetreatStage == 1
                     && (distBaitToTarget <= Math.max(980f, bait.avgEngageRange * 0.92f)
@@ -1421,7 +1421,7 @@ public class OtcBattlePlanner {
                 for (DivisionState d : active) {
                     if (tasked.contains(d) || d.archetype.isCarrierArchetype() || d.avgFluxLevel >= 0.65f) continue;
                     if (!d.detachedStragglerIds.isEmpty()) continue;
-                    if (distance(d.centroid, tPos) <= 2250f) {
+                    if (DivisionUiWidgets.distance(d.centroid, tPos) <= 2250f) {
                         d.feignedRetreatStage = 2;
                         d.otcOrder.set(OtcOrderType.EXECUTE_STRIKE, target, null, 0f, expires,
                                 "OTC: Feigned Retreat trap sprung on \"" + target.displayName + "\"");
@@ -1448,7 +1448,7 @@ public class OtcBattlePlanner {
             if (tasked.contains(d) || d.archetype.isCarrierArchetype() || d.archetype == DivisionArchetype.SERVICE_GROUP) {
                 continue;
             }
-            float dist = distance(d.centroid, tPos);
+            float dist = DivisionUiWidgets.distance(d.centroid, tPos);
             if (dist >= 880f && dist <= 1650f && d.avgFluxLevel < 0.36f && d.weaponReadinessRatio >= 0.68f) {
                 if (baitCandidate == null || d == myGroup.mainEffortDivision) {
                     baitCandidate = d;
@@ -1526,7 +1526,7 @@ public class OtcBattlePlanner {
                 if (cand.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                         || cand.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) continue;
                 if (cand.avgFluxLevel >= 0.52f) continue;
-                float dist = distance(cand.centroid, venting.centroid);
+                float dist = DivisionUiWidgets.distance(cand.centroid, venting.centroid);
                 if (dist > 1150f) continue;
                 float score = -dist * 0.45f + cand.totalFpStrength * 5f - cand.avgFluxLevel * 300f;
                 if (cand.coveringFriendDivision == venting) score += 320f;
@@ -1625,9 +1625,4 @@ public class OtcBattlePlanner {
         DivisionCombatLog.logOtcOrder(engine, battleGroup, text);
     }
 
-    private static float distance(Vector2f a, Vector2f b) {
-        float dx = a.x - b.x;
-        float dy = a.y - b.y;
-        return (float) Math.sqrt(dx * dx + dy * dy);
-    }
 }

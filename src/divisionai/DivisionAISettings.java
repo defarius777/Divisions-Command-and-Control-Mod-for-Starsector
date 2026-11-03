@@ -584,11 +584,6 @@ public class DivisionAISettings {
         return true;
     }
 
-    public static BattleMusicControlMode getBattleMusicControlMode() {
-        return isDynamicBattleMusicEnabled()
-                ? BattleMusicControlMode.MOD_DYNAMIC
-                : BattleMusicControlMode.VANILLA_DEFAULT;
-    }
 
     public static void setDynamicBattleMusicEnabled(Boolean enabled) {
         testBattleMusicEnabledOverride = enabled;
@@ -688,10 +683,6 @@ public class DivisionAISettings {
         }
     }
 
-    public static boolean isFleetAndBattleSizeOverrideEnabled() {
-        captureBaselineFleetAndBattleSettings();
-        return getBool(OVERRIDE_FLEET_BATTLE_SIZE_FIELD_ID, false);
-    }
 
     public static int getMaxBattleSizeOverride() {
         captureBaselineFleetAndBattleSettings();

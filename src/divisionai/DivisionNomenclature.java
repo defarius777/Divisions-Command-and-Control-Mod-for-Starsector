@@ -10,6 +10,7 @@ import com.fs.starfarer.api.fleet.FleetMemberAPI;
 import divisionai.DivisionModel.DivisionArchetype;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -265,11 +266,6 @@ public final class DivisionNomenclature {
             return getDefaultPrefixForPreset(getPreset(), archetype);
         }
 
-        public boolean hasCustomPrefix(DivisionArchetype archetype) {
-            if (archetype == null || customPrefixes == null) return false;
-            String custom = customPrefixes.get(archetype.name());
-            return custom != null && !custom.trim().isEmpty();
-        }
 
         public void setCustomPrefixForArchetype(DivisionArchetype archetype, String prefix) {
             if (archetype == null) return;
@@ -345,9 +341,6 @@ public final class DivisionNomenclature {
         return inMemoryAppliedPlayerFactionNaming;
     }
 
-    public static boolean hasAppliedPlayerFactionNamingConfig() {
-        return getAppliedPlayerFactionNamingConfig() != null;
-    }
 
     public static void clearAppliedPlayerFactionNamingConfigForTests() {
         inMemoryAppliedPlayerFactionNaming = null;
@@ -424,25 +417,11 @@ public final class DivisionNomenclature {
         if (members == null || members.isEmpty()) {
             return NomenclatureCategory.HUMAN_NAVAL;
         }
-        int dwellerOrOmega = 0;
-        int threat = 0;
-        int postAiWar = 0;
-        int total = 0;
+        List<ShipHullSpecAPI> specs = new ArrayList<>();
         for (FleetMemberAPI m : members) {
-            if (m == null || m.isFighterWing()) continue;
-            total++;
-            ShipHullSpecAPI spec = m.getHullSpec();
-            if (spec == null) continue;
-            NomenclatureCategory hullCat = classifyHullSpec(spec);
-            if (hullCat == NomenclatureCategory.ABYSSAL_ERROR) dwellerOrOmega++;
-            else if (hullCat == NomenclatureCategory.THREAT_SWARM) threat++;
-            else if (hullCat == NomenclatureCategory.POST_AI_WAR) postAiWar++;
+            if (m != null && !m.isFighterWing()) specs.add(m.getHullSpec());
         }
-        if (total == 0) return NomenclatureCategory.HUMAN_NAVAL;
-        if (dwellerOrOmega * 2 >= total) return NomenclatureCategory.ABYSSAL_ERROR;
-        if (threat * 2 >= total) return NomenclatureCategory.THREAT_SWARM;
-        if (postAiWar * 2 >= total) return NomenclatureCategory.POST_AI_WAR;
-        return NomenclatureCategory.HUMAN_NAVAL;
+        return resolveCategoryFromHullSpecs(specs);
     }
 
     public static NomenclatureCategory resolveCategoryForCombatShips(
@@ -466,29 +445,35 @@ public final class DivisionNomenclature {
         if (ships == null || ships.isEmpty()) {
             return NomenclatureCategory.HUMAN_NAVAL;
         }
-        int dwellerOrOmega = 0;
-        int threat = 0;
-        int postAiWar = 0;
-        int total = 0;
+        List<ShipHullSpecAPI> specs = new ArrayList<>();
         for (ShipAPI s : ships) {
             if (s == null || s.isFighter()) continue;
-            total++;
             if (s.getFleetMember() != null && s.getFleetMember().getFleetData() != null
                     && s.getFleetMember().getFleetData().getFleet() != null) {
-                CampaignFleetAPI sourceFleet = s.getFleetMember().getFleetData().getFleet();
-                NomenclatureCategory fleetCat = resolveCategoryForCampaignFleet(sourceFleet);
+                NomenclatureCategory fleetCat = resolveCategoryForCampaignFleet(
+                        s.getFleetMember().getFleetData().getFleet());
                 if (fleetCat != NomenclatureCategory.HUMAN_NAVAL) {
                     return fleetCat;
                 }
             }
-            ShipHullSpecAPI spec = s.getHullSpec();
+            specs.add(s.getHullSpec());
+        }
+        return resolveCategoryFromHullSpecs(specs);
+    }
+
+    private static NomenclatureCategory resolveCategoryFromHullSpecs(List<ShipHullSpecAPI> specs) {
+        if (specs == null || specs.isEmpty()) return NomenclatureCategory.HUMAN_NAVAL;
+        int dwellerOrOmega = 0;
+        int threat = 0;
+        int postAiWar = 0;
+        int total = specs.size();
+        for (ShipHullSpecAPI spec : specs) {
             if (spec == null) continue;
             NomenclatureCategory hullCat = classifyHullSpec(spec);
             if (hullCat == NomenclatureCategory.ABYSSAL_ERROR) dwellerOrOmega++;
             else if (hullCat == NomenclatureCategory.THREAT_SWARM) threat++;
             else if (hullCat == NomenclatureCategory.POST_AI_WAR) postAiWar++;
         }
-        if (total == 0) return NomenclatureCategory.HUMAN_NAVAL;
         if (dwellerOrOmega * 2 >= total) return NomenclatureCategory.ABYSSAL_ERROR;
         if (threat * 2 >= total) return NomenclatureCategory.THREAT_SWARM;
         if (postAiWar * 2 >= total) return NomenclatureCategory.POST_AI_WAR;
@@ -957,16 +942,7 @@ public final class DivisionNomenclature {
                 : FactionLibrary.FleetRoleCategory.WAR_FLEET;
         boolean isCivGroup = (archetype == DivisionArchetype.SERVICE_GROUP);
 
-        List<String> roleNouns = null;
-        if (attrs != null) {
-            if (effRole == FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY) {
-                roleNouns = isCivGroup ? attrs.merchantConvoyNouns : attrs.merchantEscortNouns;
-            } else if (effRole == FactionLibrary.FleetRoleCategory.SMUGGLER_RAIDER) {
-                roleNouns = isCivGroup ? attrs.smugglerConvoyNouns : attrs.smugglerEscortNouns;
-            } else if (effRole == FactionLibrary.FleetRoleCategory.SCAVENGER_EXPEDITION) {
-                roleNouns = isCivGroup ? attrs.scavengerConvoyNouns : attrs.scavengerEscortNouns;
-            }
-        }
+        List<String> roleNouns = resolveNonWarRoleNouns(attrs, effRole, isCivGroup);
 
         String noun;
         if (roleNouns != null && !roleNouns.isEmpty()) {
@@ -1044,16 +1020,7 @@ public final class DivisionNomenclature {
         boolean hasCommanderName = (cmdLast != null && !cmdLast.isEmpty()) || (cmdFirst != null && !cmdFirst.isEmpty());
 
         if (effRole.isNonWarFleet()) {
-            List<String> roleNouns = null;
-            if (attrs != null) {
-                if (effRole == FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY) {
-                    roleNouns = isCivGroup ? attrs.merchantConvoyNouns : attrs.merchantEscortNouns;
-                } else if (effRole == FactionLibrary.FleetRoleCategory.SMUGGLER_RAIDER) {
-                    roleNouns = isCivGroup ? attrs.smugglerConvoyNouns : attrs.smugglerEscortNouns;
-                } else if (effRole == FactionLibrary.FleetRoleCategory.SCAVENGER_EXPEDITION) {
-                    roleNouns = isCivGroup ? attrs.scavengerConvoyNouns : attrs.scavengerEscortNouns;
-                }
-            }
+            List<String> roleNouns = resolveNonWarRoleNouns(attrs, effRole, isCivGroup);
             String coreNoun;
             if (roleNouns != null && !roleNouns.isEmpty()) {
                 int rIdx = Math.floorMod((int) (seed ^ (seed >>> 11)), roleNouns.size());
@@ -1676,5 +1643,21 @@ public final class DivisionNomenclature {
             return callsigns[idx];
         }
         return callsigns[idx % callsigns.length] + "-" + ((idx / callsigns.length) + 1);
+    }
+    private static List<String> resolveNonWarRoleNouns(
+            FactionLibrary.FactionAttributes attrs,
+            FactionLibrary.FleetRoleCategory effRole,
+            boolean isCivGroup) {
+        if (attrs == null || effRole == null) return null;
+        if (effRole == FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY) {
+            return isCivGroup ? attrs.merchantConvoyNouns : attrs.merchantEscortNouns;
+        }
+        if (effRole == FactionLibrary.FleetRoleCategory.SMUGGLER_RAIDER) {
+            return isCivGroup ? attrs.smugglerConvoyNouns : attrs.smugglerEscortNouns;
+        }
+        if (effRole == FactionLibrary.FleetRoleCategory.SCAVENGER_EXPEDITION) {
+            return isCivGroup ? attrs.scavengerConvoyNouns : attrs.scavengerEscortNouns;
+        }
+        return null;
     }
 }

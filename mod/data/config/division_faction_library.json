@@ -1,537 +1,707 @@
 {
-	"#_comment_overview": "Submod-friendly Faction & Fleet-Role Library for Divisions: Command and Control (division_ai). Automatically merged across all enabled mods via Global.getSettings().getMergedJSONForMod('data/config/division_faction_library.json', 'division_ai').",
-	"#_comment_organization_ratings": "Supported organizationRating values: 'none' (0% of ships in a division), 'low' (25%), 'average' (50%), 'high' (80% - default fallback for any faction not listed here), 'very_high' (90%), 'perfect' (100%).",
-	"#_comment_fleet_roles": "Non-war fleets adapt both their organization rating (via patrolOrganizationRating, merchantOrganizationRating, smugglerOrganizationRating, scavengerOrganizationRating) and their nomenclature (via merchantFleetPrefixes / merchantConvoyNouns / merchantEscortNouns, smugglerFleetPrefixes, scavengerFleetPrefixes). Merchant fleets never call their merchant divisions 'Service Groups'.",
-	"#_comment_submod_api": "Submodders can either place a partial data/config/division_faction_library.json in their own mod or call divisionai.FactionLibrary.registerFaction(factionId, attributes) / FactionLibrary.getOrCreateFaction(factionId) in Java.",
-	"defaultOrganizationRating": "high",
-	"defaultMerchantPrefixes": {
-		"SERVICE_GROUP": "Merchant Convoy",
-		"BATTLESHIP_DIVISION": "Heavy Convoy Escort",
-		"MISSILE_BATTLESHIP_DIVISION": "Heavy Convoy Escort",
-		"FLEET_CARRIER_DIVISION": "Convoy Carrier Escort",
-		"LIGHT_CARRIER_DIVISION": "Convoy Carrier Escort",
-		"ESCORT_CARRIER_DIVISION": "Convoy Escort Wing",
-		"CARRIER_GROUP": "Convoy Carrier Escort",
-		"CRUISER_DIVISION": "Convoy Cruiser Escort",
-		"MISSILE_CRUISER_DIVISION": "Convoy Cruiser Escort",
-		"STRIKE_CRUISER_DIVISION": "Convoy Outrider Escort",
-		"DESTROYER_DIVISION": "Convoy Escort",
-		"MISSILE_DESTROYER_DIVISION": "Convoy Escort",
-		"FRIGATE_DIVISION": "Convoy Picket",
-		"MISSILE_FRIGATE_DIVISION": "Convoy Picket",
-		"PHASE_DIVISION": "Convoy Scout Screen",
-		"FORCE_DIVISION": "Convoy Guard"
-	},
-	"defaultSmugglerPrefixes": {
-		"SERVICE_GROUP": "Blockade Runner Group",
-		"BATTLESHIP_DIVISION": "Heavy Raider Group",
-		"CRUISER_DIVISION": "Raider Cruiser Group",
-		"STRIKE_CRUISER_DIVISION": "Fast Runner Group",
-		"DESTROYER_DIVISION": "Runner Escort",
-		"FRIGATE_DIVISION": "Runner Outriders",
-		"PHASE_DIVISION": "Shadow Runner Group",
-		"FORCE_DIVISION": "Smuggler Group"
-	},
-	"defaultScavengerPrefixes": {
-		"SERVICE_GROUP": "Salvage Convoy",
-		"BATTLESHIP_DIVISION": "Heavy Salvage Guard",
-		"CRUISER_DIVISION": "Salvage Cruiser Guard",
-		"DESTROYER_DIVISION": "Salvage Guard",
-		"FRIGATE_DIVISION": "Claim Watch",
-		"PHASE_DIVISION": "Survey Recon Group",
-		"FORCE_DIVISION": "Expedition Group"
-	},
-	"factions": {
-		"hegemony": {
-			"organizationRating": "very_high",
-			"patrolOrganizationRating": "high",
-			"merchantOrganizationRating": "average",
-			"smugglerOrganizationRating": "low",
-			"scavengerOrganizationRating": "average",
-			"namingStyle": "STANDARD_PREFIX",
-			"basePreset": "NAVAL_STANDARD",
-			"defaultNumbering": "ARABIC",
-			"battleshipNumbering": "ROMAN",
-			"battleshipDotRoman": true,
-			"merchantFleetPrefixes": {
-				"SERVICE_GROUP": "Chartered Convoy",
-				"BATTLESHIP_DIVISION": "Convoy Battle Escort",
-				"FLEET_CARRIER_DIVISION": "Convoy Carrier Wing",
-				"LIGHT_CARRIER_DIVISION": "Convoy Carrier Wing",
-				"ESCORT_CARRIER_DIVISION": "Convoy Carrier Wing",
-				"CRUISER_DIVISION": "Convoy Cruiser Escort",
-				"DESTROYER_DIVISION": "Convoy Destroyer Escort",
-				"FRIGATE_DIVISION": "Convoy Picket",
-				"PHASE_DIVISION": "Convoy Phase Screen"
-			}
-		},
-		"ironshell": {
-			"aliases": [
-				"iron shell 1.183aj"
-			],
-			"organizationRating": "very_high",
-			"patrolOrganizationRating": "very_high",
-			"merchantOrganizationRating": "high",
-			"merchantFleetPrefixes": {
-				"SERVICE_GROUP": "Ministry Tax Convoy",
-				"BATTLESHIP_DIVISION": "Chitagupta Heavy Escort",
-				"CRUISER_DIVISION": "Commerce Cruiser Escort",
-				"DESTROYER_DIVISION": "Revenue Escort Flotilla",
-				"FRIGATE_DIVISION": "Customs Picket"
-			}
-		},
-		"ironsentinel": {
-			"organizationRating": "perfect"
-		},
-		"tritachyon": {
-			"aliases": [
-				"hte",
-				"tte"
-			],
-			"organizationRating": "very_high",
-			"patrolOrganizationRating": "high",
-			"merchantOrganizationRating": "high",
-			"smugglerOrganizationRating": "average",
-			"scavengerOrganizationRating": "high",
-			"merchantFleetPrefixes": {
-				"SERVICE_GROUP": "Commercial Caravan",
-				"BATTLESHIP_DIVISION": "Capital Protection Unit",
-				"FLEET_CARRIER_DIVISION": "Caravan Flight Group",
-				"LIGHT_CARRIER_DIVISION": "Caravan Flight Group",
-				"ESCORT_CARRIER_DIVISION": "Caravan Flight Group",
-				"CRUISER_DIVISION": "Asset Security Unit",
-				"DESTROYER_DIVISION": "Convoy Assurance Unit",
-				"FRIGATE_DIVISION": "Caravan Picket Unit",
-				"PHASE_DIVISION": "Special Commerce Escort"
-			}
-		},
-		"persean": {
-			"aliases": [
-				"persean_league",
-				"mayasura",
-				"mayasuran navy"
-			],
-			"organizationRating": "high",
-			"patrolOrganizationRating": "high",
-			"merchantOrganizationRating": "average",
-			"smugglerOrganizationRating": "low",
-			"scavengerOrganizationRating": "average",
-			"namingStyle": "CULTURAL_PERSEAN",
-			"commanderPossessiveChance": 15,
-			"warUnitNouns": [
-				"Division",
-				"Flotilla",
-				"Squadron",
-				"Group",
-				"Unit",
-				"Fleet",
-				"Phalanx",
-				"Task Group"
-			],
-			"merchantConvoyNouns": [
-				"Merchant Flotilla",
-				"Trade Convoy",
-				"Free Trade Convoy",
-				"Merchant Convoy",
-				"Cargo Flotilla",
-				"Trade Squadron"
-			],
-			"merchantEscortNouns": [
-				"Convoy Escort",
-				"Caravan Guard",
-				"Escort Lochos",
-				"Trade Picket",
-				"Convoy Phalanx",
-				"Close Escort"
-			],
-			"merchantFleetPrefixes": {
-				"SERVICE_GROUP": "Merchant Flotilla",
-				"BATTLESHIP_DIVISION": "Convoy Phalanx",
-				"CRUISER_DIVISION": "Convoy Mora",
-				"DESTROYER_DIVISION": "Convoy Lochos",
-				"FRIGATE_DIVISION": "Convoy Peltast"
-			}
-		},
-		"mayasuran_guard": {
-			"organizationRating": "perfect",
-			"namingStyle": "CULTURAL_PERSEAN"
-		},
-		"sindrian_diktat": {
-			"aliases": [
-				"sindran_diktat"
-			],
-			"organizationRating": "very_high",
-			"patrolOrganizationRating": "high",
-			"merchantOrganizationRating": "high",
-			"smugglerOrganizationRating": "low",
-			"merchantFleetPrefixes": {
-				"SERVICE_GROUP": "State Fuel Convoy",
-				"BATTLESHIP_DIVISION": "Fuel Convoy Heavy Guard",
-				"FLEET_CARRIER_DIVISION": "Solar Convoy Wing",
-				"CRUISER_DIVISION": "Fuel Convoy Cruiser Guard",
-				"DESTROYER_DIVISION": "Convoy Vanguard Flotilla",
-				"FRIGATE_DIVISION": "Convoy Picket Guard"
-			}
-		},
-		"lions_guard": {
-			"organizationRating": "perfect"
-		},
-		"luddic_church": {
-			"organizationRating": "high",
-			"patrolOrganizationRating": "high",
-			"merchantOrganizationRating": "average",
-			"scavengerOrganizationRating": "average",
-			"merchantFleetPrefixes": {
-				"SERVICE_GROUP": "Pilgrim Trade Convoy",
-				"BATTLESHIP_DIVISION": "Bastion Convoy Escort",
-				"FLEET_CARRIER_DIVISION": "Ark Convoy Host",
-				"CRUISER_DIVISION": "Convoy Warden Group",
-				"DESTROYER_DIVISION": "Convoy Sword Flotilla",
-				"FRIGATE_DIVISION": "Pilgrim Watchers"
-			},
-			"scavengerFleetPrefixes": {
-				"SERVICE_GROUP": "Shrine Pilgrim Convoy",
-				"DESTROYER_DIVISION": "Pilgrim Escort Flotilla",
-				"FRIGATE_DIVISION": "Shrine Watchers"
-			}
-		},
-		"knights_of_ludd": {
-			"aliases": [
-				"knights_of_selkie",
-				"zea_dawn",
-				"zea_dusk",
-				"zea_elysians",
-				"templars"
-			],
-			"organizationRating": "very_high",
-			"patrolOrganizationRating": "high",
-			"merchantOrganizationRating": "high"
-		},
-		"luddic_path": {
-			"aliases": [
-				"luddenhance"
-			],
-			"organizationRating": "average",
-			"patrolOrganizationRating": "low",
-			"merchantOrganizationRating": "low",
-			"smugglerOrganizationRating": "low",
-			"scavengerOrganizationRating": "low",
-			"namingStyle": "CULTURAL_PIRATE_INDIE",
-			"commanderPossessiveChance": 40,
-			"warUnitNouns": [
-				"Flotilla",
-				"Fleet",
-				"Warband",
-				"Pack",
-				"Group",
-				"Unit",
-				"Division"
-			],
-			"merchantConvoyNouns": [
-				"Tithe Convoy",
-				"Pilgrim Caravan",
-				"Supply Caravan",
-				"Faithful Convoy"
-			],
-			"merchantEscortNouns": [
-				"Caravan Watch",
-				"Zealot Escort",
-				"Faithful Guard",
-				"Convoy Pack"
-			]
-		},
-		"pirates": {
-			"aliases": [
-				"pirate_privateers",
-				"jaydeepiracy",
-				"jdp_flowerfish",
-				"hmi_sv",
-				"fang"
-			],
-			"organizationRating": "low",
-			"patrolOrganizationRating": "low",
-			"merchantOrganizationRating": "low",
-			"smugglerOrganizationRating": "low",
-			"scavengerOrganizationRating": "low",
-			"namingStyle": "CULTURAL_PIRATE_INDIE",
-			"commanderPossessiveChance": 55,
-			"warUnitNouns": [
-				"Flotilla",
-				"Fleet",
-				"Warband",
-				"Pack",
-				"Group",
-				"Unit",
-				"Gang",
-				"Division"
-			],
-			"merchantConvoyNouns": [
-				"Prize Convoy",
-				"Booty Caravan",
-				"Fence Convoy",
-				"Smuggler Convoy",
-				"Trader Pack"
-			],
-			"merchantEscortNouns": [
-				"Convoy Guard",
-				"Prize Escort",
-				"Outrider Pack",
-				"Cutthroat Escort"
-			],
-			"smugglerConvoyNouns": [
-				"Contraband Run",
-				"Blockade Runners",
-				"Smuggler Pack",
-				"Prize Crew",
-				"Black-Market Convoy"
-			],
-			"smugglerEscortNouns": [
-				"Runner Escort",
-				"Raider Pack",
-				"Cutthroat Pack",
-				"Privateer Pack",
-				"Outrider Gang"
-			]
-		},
-		"independent": {
-			"aliases": [
-				"brighton",
-				"hmi_brighton",
-				"pack"
-			],
-			"organizationRating": "average",
-			"patrolOrganizationRating": "average",
-			"merchantOrganizationRating": "average",
-			"smugglerOrganizationRating": "low",
-			"scavengerOrganizationRating": "low",
-			"namingStyle": "CULTURAL_PIRATE_INDIE",
-			"commanderPossessiveChance": 40,
-			"warUnitNouns": [
-				"Flotilla",
-				"Fleet",
-				"Warband",
-				"Pack",
-				"Group",
-				"Unit",
-				"Division"
-			],
-			"merchantConvoyNouns": [
-				"Merchant Convoy",
-				"Trade Convoy",
-				"Freighter Convoy",
-				"Trade Flotilla",
-				"Cargo Flotilla",
-				"Merchant Group",
-				"Caravan"
-			],
-			"merchantEscortNouns": [
-				"Convoy Escort",
-				"Caravan Guard",
-				"Escort Flotilla",
-				"Outrider Escort",
-				"Trade Guard",
-				"Close Escort"
-			],
-			"smugglerConvoyNouns": [
-				"Free-Trader Run",
-				"Blockade Runners",
-				"Smuggler Convoy",
-				"Runner Group"
-			],
-			"smugglerEscortNouns": [
-				"Runner Escort",
-				"Privateer Group",
-				"Outrider Pack",
-				"Escort Unit"
-			],
-			"scavengerConvoyNouns": [
-				"Salvage Convoy",
-				"Recovery Flotilla",
-				"Prospecting Group",
-				"Mining Convoy",
-				"Survey Convoy",
-				"Salvage Rig Group"
-			],
-			"scavengerEscortNouns": [
-				"Salvage Guard",
-				"Claim Watch",
-				"Expedition Escort",
-				"Rig Escort"
-			]
-		},
-		"cft": {
-			"aliases": [
-				"indevo_couriers"
-			],
-			"organizationRating": "average",
-			"merchantOrganizationRating": "high",
-			"patrolOrganizationRating": "average",
-			"namingStyle": "CULTURAL_PIRATE_INDIE",
-			"commanderPossessiveChance": 35,
-			"merchantConvoyNouns": [
-				"Freetrader Convoy",
-				"Trade Caravan",
-				"Merchant Flotilla",
-				"Chartered Caravan",
-				"Express Convoy"
-			],
-			"merchantEscortNouns": [
-				"Caravan Guard",
-				"Convoy Escort",
-				"Freetrader Escort",
-				"Outrider Guard"
-			]
-		},
-		"scavengers": {
-			"aliases": [
-				"astroidships"
-			],
-			"organizationRating": "low",
-			"scavengerOrganizationRating": "low",
-			"merchantOrganizationRating": "low",
-			"namingStyle": "CULTURAL_PIRATE_INDIE",
-			"commanderPossessiveChance": 40,
-			"scavengerConvoyNouns": [
-				"Salvage Convoy",
-				"Recovery Crew",
-				"Wrecking Flotilla",
-				"Prospecting Crew",
-				"Rig Group"
-			],
-			"scavengerEscortNouns": [
-				"Salvage Guard",
-				"Claim Watch",
-				"Rig Escort",
-				"Outrider Watch"
-			]
-		},
-		"hmi": {
-			"aliases": [
-				"hmi_exec",
-				"jyd"
-			],
-			"organizationRating": "average",
-			"patrolOrganizationRating": "average",
-			"merchantOrganizationRating": "average",
-			"scavengerOrganizationRating": "average",
-			"namingStyle": "CULTURAL_PIRATE_INDIE",
-			"commanderPossessiveChance": 35,
-			"merchantConvoyNouns": [
-				"Ore Convoy",
-				"Industrial Haul",
-				"Freighter Convoy",
-				"Company Convoy",
-				"Bulk Flotilla"
-			],
-			"merchantEscortNouns": [
-				"Company Guard",
-				"Haul Escort",
-				"Hazard Escort",
-				"Security Unit"
-			],
-			"scavengerConvoyNouns": [
-				"Mining Crew",
-				"Deep-Core Rig Group",
-				"Recovery Convoy",
-				"Strip-Mining Flotilla"
-			],
-			"scavengerEscortNouns": [
-				"Claim Security",
-				"Rig Guard",
-				"Hazard Watch"
-			]
-		},
-		"mercenary": {
-			"aliases": [
-				"famous_bounty",
-				"ml_bounty"
-			],
-			"organizationRating": "high",
-			"patrolOrganizationRating": "high",
-			"merchantOrganizationRating": "high",
-			"namingStyle": "CULTURAL_PIRATE_INDIE",
-			"commanderPossessiveChance": 45
-		},
-		"uaf": {
-			"organizationRating": "very_high",
-			"patrolOrganizationRating": "high",
-			"merchantOrganizationRating": "high"
-		},
-		"uaf_november": {
-			"aliases": [
-				"uaf_automata"
-			],
-			"organizationRating": "perfect"
-		},
-		"interstellarimperium": {
-			"aliases": [
-				"imperium"
-			],
-			"organizationRating": "very_high",
-			"merchantOrganizationRating": "high"
-		},
-		"ii_imperial_guard": {
-			"organizationRating": "perfect"
-		},
-		"diableavionics": {
-			"organizationRating": "very_high",
-			"merchantOrganizationRating": "high"
-		},
-		"xhanempire": {
-			"aliases": [
-				"vantanet"
-			],
-			"organizationRating": "very_high",
-			"merchantOrganizationRating": "high"
-		},
-		"scy": {
-			"aliases": [
-				"scynation"
-			],
-			"organizationRating": "high",
-			"merchantOrganizationRating": "average"
-		},
-		"remnant": {
-			"aliases": [
-				"remnants",
-				"derelict",
-				"nex_derelict",
-				"domres",
-				"indevo_derelict",
-				"indevo_converters"
-			],
-			"nomenclatureCategory": "POST_AI_WAR",
-			"namingStyle": "POST_AI_WAR_UNKNOWN",
-			"organizationRating": "perfect"
-		},
-		"threat": {
-			"aliases": [
-				"mess",
-				"mess_remnant",
-				"hmi_nightmare"
-			],
-			"nomenclatureCategory": "THREAT_SWARM",
-			"namingStyle": "THREAT_CORRUPTED",
-			"organizationRating": "perfect"
-		},
-		"dweller": {
-			"aliases": [
-				"omega",
-				"liminal",
-				"rat_abyssals",
-				"rat_abyssals_deep",
-				"rat_abyssals_deep_seraph",
-				"rat_abyssals_primordial",
-				"rat_abyssals_primordials",
-				"rat_abyssals_sim",
-				"rat_abyssals_harmony",
-				"rat_abyssals_serenity",
-				"rat_abyssals_solitude",
-				"rat_abyssals_wastes"
-			],
-			"nomenclatureCategory": "ABYSSAL_ERROR",
-			"namingStyle": "ABYSSAL_ERROR",
-			"organizationRating": "perfect"
-		}
-	}
+  "#_comment_overview": "Submod-friendly Faction & Fleet-Role Library for Divisions: Command and Control (division_ai). Automatically merged across all enabled mods via Global.getSettings().getMergedJSONForMod('data/config/division_faction_library.json', 'division_ai').",
+  "#_comment_organization_ratings": "Supported organizationRating values: 'none' (0% of ships in a division), 'low' (25%), 'average' (50%), 'high' (80% - default fallback for any faction not listed here), 'very_high' (90%), 'perfect' (100%).",
+  "#_comment_fleet_roles": "Non-war fleets adapt both their organization rating (via patrolOrganizationRating, merchantOrganizationRating, smugglerOrganizationRating, scavengerOrganizationRating) and their nomenclature (via merchantFleetPrefixes / merchantConvoyNouns / merchantEscortNouns, smugglerFleetPrefixes, scavengerFleetPrefixes). Merchant fleets never call their merchant divisions 'Service Groups'.",
+  "#_comment_submod_api": "Submodders can either place a partial data/config/division_faction_library.json in their own mod or call divisionai.FactionLibrary.registerFaction(factionId, attributes) / FactionLibrary.getOrCreateFaction(factionId) in Java.",
+  "defaultOrganizationRating": "high",
+  "defaultMerchantPrefixes": {
+    "SERVICE_GROUP": "Merchant Convoy",
+    "BATTLESHIP_DIVISION": "Heavy Convoy Escort",
+    "MISSILE_BATTLESHIP_DIVISION": "Heavy Convoy Escort",
+    "FLEET_CARRIER_DIVISION": "Convoy Carrier Escort",
+    "LIGHT_CARRIER_DIVISION": "Convoy Carrier Escort",
+    "ESCORT_CARRIER_DIVISION": "Convoy Escort Wing",
+    "CARRIER_GROUP": "Convoy Carrier Escort",
+    "CRUISER_DIVISION": "Convoy Cruiser Escort",
+    "MISSILE_CRUISER_DIVISION": "Convoy Cruiser Escort",
+    "STRIKE_CRUISER_DIVISION": "Convoy Outrider Escort",
+    "DESTROYER_DIVISION": "Convoy Escort",
+    "MISSILE_DESTROYER_DIVISION": "Convoy Escort",
+    "FRIGATE_DIVISION": "Convoy Picket",
+    "MISSILE_FRIGATE_DIVISION": "Convoy Picket",
+    "PHASE_DIVISION": "Convoy Scout Screen",
+    "FORCE_DIVISION": "Convoy Guard"
+  },
+  "defaultSmugglerPrefixes": {
+    "SERVICE_GROUP": "Blockade Runner Group",
+    "BATTLESHIP_DIVISION": "Heavy Raider Group",
+    "CRUISER_DIVISION": "Raider Cruiser Group",
+    "STRIKE_CRUISER_DIVISION": "Fast Runner Group",
+    "DESTROYER_DIVISION": "Runner Escort",
+    "FRIGATE_DIVISION": "Runner Outriders",
+    "PHASE_DIVISION": "Shadow Runner Group",
+    "FORCE_DIVISION": "Smuggler Group"
+  },
+  "defaultScavengerPrefixes": {
+    "SERVICE_GROUP": "Salvage Convoy",
+    "BATTLESHIP_DIVISION": "Heavy Salvage Guard",
+    "CRUISER_DIVISION": "Salvage Cruiser Guard",
+    "DESTROYER_DIVISION": "Salvage Guard",
+    "FRIGATE_DIVISION": "Claim Watch",
+    "PHASE_DIVISION": "Survey Recon Group",
+    "FORCE_DIVISION": "Expedition Group"
+  },
+  "factions": {
+    "hegemony": {
+      "organizationRating": "very_high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "average",
+      "smugglerOrganizationRating": "low",
+      "scavengerOrganizationRating": "average",
+      "namingStyle": "STANDARD_PREFIX",
+      "basePreset": "NAVAL_STANDARD",
+      "defaultNumbering": "ARABIC",
+      "battleshipNumbering": "ROMAN",
+      "battleshipDotRoman": true,
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "Chartered Convoy",
+        "BATTLESHIP_DIVISION": "Convoy Battle Escort",
+        "FLEET_CARRIER_DIVISION": "Convoy Carrier Wing",
+        "LIGHT_CARRIER_DIVISION": "Convoy Carrier Wing",
+        "ESCORT_CARRIER_DIVISION": "Convoy Carrier Wing",
+        "CRUISER_DIVISION": "Convoy Cruiser Escort",
+        "DESTROYER_DIVISION": "Convoy Destroyer Escort",
+        "FRIGATE_DIVISION": "Convoy Picket",
+        "PHASE_DIVISION": "Convoy Phase Screen"
+      }
+    },
+    "ironshell": {
+      "aliases": [
+        "iron shell 1.183aj"
+      ],
+      "organizationRating": "very_high",
+      "patrolOrganizationRating": "very_high",
+      "merchantOrganizationRating": "high",
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "Ministry Tax Convoy",
+        "BATTLESHIP_DIVISION": "Chitagupta Heavy Escort",
+        "CRUISER_DIVISION": "Commerce Cruiser Escort",
+        "DESTROYER_DIVISION": "Revenue Escort Flotilla",
+        "FRIGATE_DIVISION": "Customs Picket"
+      }
+    },
+    "ironsentinel": {
+      "organizationRating": "perfect"
+    },
+    "tritachyon": {
+      "aliases": [
+        "hte",
+        "tte"
+      ],
+      "organizationRating": "very_high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "high",
+      "smugglerOrganizationRating": "average",
+      "scavengerOrganizationRating": "high",
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "Commercial Caravan",
+        "BATTLESHIP_DIVISION": "Capital Protection Unit",
+        "FLEET_CARRIER_DIVISION": "Caravan Flight Group",
+        "LIGHT_CARRIER_DIVISION": "Caravan Flight Group",
+        "ESCORT_CARRIER_DIVISION": "Caravan Flight Group",
+        "CRUISER_DIVISION": "Asset Security Unit",
+        "DESTROYER_DIVISION": "Convoy Assurance Unit",
+        "FRIGATE_DIVISION": "Caravan Picket Unit",
+        "PHASE_DIVISION": "Special Commerce Escort"
+      }
+    },
+    "persean": {
+      "aliases": [
+        "persean_league",
+        "mayasura",
+        "mayasuran navy"
+      ],
+      "organizationRating": "high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "average",
+      "smugglerOrganizationRating": "low",
+      "scavengerOrganizationRating": "average",
+      "namingStyle": "CULTURAL_PERSEAN",
+      "commanderPossessiveChance": 15,
+      "warUnitNouns": [
+        "Division",
+        "Flotilla",
+        "Squadron",
+        "Group",
+        "Unit",
+        "Fleet",
+        "Phalanx",
+        "Task Group"
+      ],
+      "merchantConvoyNouns": [
+        "Merchant Flotilla",
+        "Trade Convoy",
+        "Free Trade Convoy",
+        "Merchant Convoy",
+        "Cargo Flotilla",
+        "Trade Squadron"
+      ],
+      "merchantEscortNouns": [
+        "Convoy Escort",
+        "Caravan Guard",
+        "Escort Lochos",
+        "Trade Picket",
+        "Convoy Phalanx",
+        "Close Escort"
+      ],
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "Merchant Flotilla",
+        "BATTLESHIP_DIVISION": "Convoy Phalanx",
+        "CRUISER_DIVISION": "Convoy Mora",
+        "DESTROYER_DIVISION": "Convoy Lochos",
+        "FRIGATE_DIVISION": "Convoy Peltast"
+      }
+    },
+    "mayasuran_guard": {
+      "organizationRating": "perfect",
+      "namingStyle": "CULTURAL_PERSEAN"
+    },
+    "sindrian_diktat": {
+      "aliases": [
+        "sindran_diktat"
+      ],
+      "organizationRating": "very_high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "high",
+      "smugglerOrganizationRating": "low",
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "State Fuel Convoy",
+        "BATTLESHIP_DIVISION": "Fuel Convoy Heavy Guard",
+        "FLEET_CARRIER_DIVISION": "Solar Convoy Wing",
+        "CRUISER_DIVISION": "Fuel Convoy Cruiser Guard",
+        "DESTROYER_DIVISION": "Convoy Vanguard Flotilla",
+        "FRIGATE_DIVISION": "Convoy Picket Guard"
+      }
+    },
+    "lions_guard": {
+      "organizationRating": "perfect",
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "State Fuel Convoy",
+        "BATTLESHIP_DIVISION": "Executor Convoy Guard",
+        "MISSILE_BATTLESHIP_DIVISION": "Executor Convoy Guard",
+        "FLEET_CARRIER_DIVISION": "Solar Convoy Wing",
+        "LIGHT_CARRIER_DIVISION": "Solar Convoy Wing",
+        "ESCORT_CARRIER_DIVISION": "Solar Convoy Wing",
+        "CARRIER_GROUP": "Solar Convoy Wing",
+        "CRUISER_DIVISION": "Lion's Convoy Phalanx",
+        "MISSILE_CRUISER_DIVISION": "Lion's Convoy Phalanx",
+        "STRIKE_CRUISER_DIVISION": "Lion's Convoy Phalanx",
+        "DESTROYER_DIVISION": "Lion's Convoy Flotilla",
+        "MISSILE_DESTROYER_DIVISION": "Lion's Convoy Flotilla",
+        "FRIGATE_DIVISION": "Lion's Convoy Picket",
+        "MISSILE_FRIGATE_DIVISION": "Lion's Convoy Picket",
+        "PHASE_DIVISION": "Lion's Special Guard",
+        "FORCE_DIVISION": "Lion's Convoy Flotilla"
+      }
+    },
+    "luddic_church": {
+      "organizationRating": "high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "average",
+      "scavengerOrganizationRating": "average",
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "Pilgrim Trade Convoy",
+        "BATTLESHIP_DIVISION": "Bastion Convoy Escort",
+        "FLEET_CARRIER_DIVISION": "Ark Convoy Host",
+        "CRUISER_DIVISION": "Convoy Warden Group",
+        "DESTROYER_DIVISION": "Convoy Sword Flotilla",
+        "FRIGATE_DIVISION": "Pilgrim Watchers"
+      },
+      "scavengerFleetPrefixes": {
+        "SERVICE_GROUP": "Shrine Pilgrim Convoy",
+        "DESTROYER_DIVISION": "Pilgrim Escort Flotilla",
+        "FRIGATE_DIVISION": "Shrine Watchers"
+      }
+    },
+    "knights_of_ludd": {
+      "aliases": [
+        "knights_of_selkie",
+        "zea_dawn",
+        "zea_dusk",
+        "zea_elysians",
+        "templars"
+      ],
+      "organizationRating": "very_high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "high",
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "Sanctuary Relief Convoy",
+        "BATTLESHIP_DIVISION": "Templar Heavy Escort",
+        "MISSILE_BATTLESHIP_DIVISION": "Templar Heavy Escort",
+        "FLEET_CARRIER_DIVISION": "Sanctuary Carrier Host",
+        "LIGHT_CARRIER_DIVISION": "Sanctuary Carrier Host",
+        "ESCORT_CARRIER_DIVISION": "Sanctuary Carrier Host",
+        "CARRIER_GROUP": "Sanctuary Carrier Host",
+        "CRUISER_DIVISION": "Crusader Convoy Guard",
+        "MISSILE_CRUISER_DIVISION": "Crusader Convoy Guard",
+        "STRIKE_CRUISER_DIVISION": "Crusader Convoy Guard",
+        "DESTROYER_DIVISION": "Reliquary Escort Flotilla",
+        "MISSILE_DESTROYER_DIVISION": "Reliquary Escort Flotilla",
+        "FRIGATE_DIVISION": "Vigil Picket",
+        "MISSILE_FRIGATE_DIVISION": "Vigil Picket",
+        "PHASE_DIVISION": "Duskborne Veil Escort",
+        "FORCE_DIVISION": "Reliquary Escort Flotilla"
+      }
+    },
+    "luddic_path": {
+      "aliases": [
+        "luddenhance"
+      ],
+      "organizationRating": "average",
+      "patrolOrganizationRating": "low",
+      "merchantOrganizationRating": "low",
+      "smugglerOrganizationRating": "low",
+      "scavengerOrganizationRating": "low",
+      "namingStyle": "CULTURAL_PIRATE_INDIE",
+      "commanderPossessiveChance": 40,
+      "warUnitNouns": [
+        "Flotilla",
+        "Fleet",
+        "Warband",
+        "Pack",
+        "Group",
+        "Unit",
+        "Division"
+      ],
+      "merchantConvoyNouns": [
+        "Tithe Convoy",
+        "Pilgrim Caravan",
+        "Supply Caravan",
+        "Faithful Convoy"
+      ],
+      "merchantEscortNouns": [
+        "Caravan Watch",
+        "Zealot Escort",
+        "Faithful Guard",
+        "Convoy Pack"
+      ],
+      "smugglerConvoyNouns": [
+        "Smuggler Cell",
+        "Gunrunner Pack",
+        "Hidden Caravan",
+        "Supply Cell"
+      ],
+      "smugglerEscortNouns": [
+        "Raider Cell",
+        "Ambush Pack",
+        "Martyr Pack",
+        "Outrider Cell"
+      ]
+    },
+    "pirates": {
+      "aliases": [
+        "pirate_privateers",
+        "jaydeepiracy",
+        "jdp_flowerfish",
+        "hmi_sv",
+        "fang"
+      ],
+      "organizationRating": "low",
+      "patrolOrganizationRating": "low",
+      "merchantOrganizationRating": "low",
+      "smugglerOrganizationRating": "low",
+      "scavengerOrganizationRating": "low",
+      "namingStyle": "CULTURAL_PIRATE_INDIE",
+      "commanderPossessiveChance": 55,
+      "warUnitNouns": [
+        "Flotilla",
+        "Fleet",
+        "Warband",
+        "Pack",
+        "Group",
+        "Unit",
+        "Gang",
+        "Division"
+      ],
+      "merchantConvoyNouns": [
+        "Prize Convoy",
+        "Booty Caravan",
+        "Fence Convoy",
+        "Smuggler Convoy",
+        "Trader Pack"
+      ],
+      "merchantEscortNouns": [
+        "Convoy Guard",
+        "Prize Escort",
+        "Outrider Pack",
+        "Cutthroat Escort"
+      ],
+      "smugglerConvoyNouns": [
+        "Contraband Run",
+        "Blockade Runners",
+        "Smuggler Pack",
+        "Prize Crew",
+        "Black-Market Convoy"
+      ],
+      "smugglerEscortNouns": [
+        "Runner Escort",
+        "Raider Pack",
+        "Cutthroat Pack",
+        "Privateer Pack",
+        "Outrider Gang"
+      ],
+      "scavengerConvoyNouns": [
+        "Scrapper Crew",
+        "Wreck-Picker Pack",
+        "Stripper Convoy",
+        "Salvage Gang"
+      ],
+      "scavengerEscortNouns": [
+        "Scrapper Guard",
+        "Claim-Jumper Pack",
+        "Vulture Pack"
+      ]
+    },
+    "independent": {
+      "aliases": [
+        "brighton",
+        "hmi_brighton",
+        "pack"
+      ],
+      "organizationRating": "average",
+      "patrolOrganizationRating": "average",
+      "merchantOrganizationRating": "average",
+      "smugglerOrganizationRating": "low",
+      "scavengerOrganizationRating": "low",
+      "namingStyle": "CULTURAL_PIRATE_INDIE",
+      "commanderPossessiveChance": 40,
+      "warUnitNouns": [
+        "Flotilla",
+        "Fleet",
+        "Warband",
+        "Pack",
+        "Group",
+        "Unit",
+        "Division"
+      ],
+      "merchantConvoyNouns": [
+        "Merchant Convoy",
+        "Trade Convoy",
+        "Freighter Convoy",
+        "Trade Flotilla",
+        "Cargo Flotilla",
+        "Merchant Group",
+        "Caravan"
+      ],
+      "merchantEscortNouns": [
+        "Convoy Escort",
+        "Caravan Guard",
+        "Escort Flotilla",
+        "Outrider Escort",
+        "Trade Guard",
+        "Close Escort"
+      ],
+      "smugglerConvoyNouns": [
+        "Free-Trader Run",
+        "Blockade Runners",
+        "Smuggler Convoy",
+        "Runner Group"
+      ],
+      "smugglerEscortNouns": [
+        "Runner Escort",
+        "Privateer Group",
+        "Outrider Pack",
+        "Escort Unit"
+      ],
+      "scavengerConvoyNouns": [
+        "Salvage Convoy",
+        "Recovery Flotilla",
+        "Prospecting Group",
+        "Mining Convoy",
+        "Survey Convoy",
+        "Salvage Rig Group"
+      ],
+      "scavengerEscortNouns": [
+        "Salvage Guard",
+        "Claim Watch",
+        "Expedition Escort",
+        "Rig Escort"
+      ]
+    },
+    "cft": {
+      "aliases": [
+        "indevo_couriers"
+      ],
+      "organizationRating": "average",
+      "merchantOrganizationRating": "high",
+      "patrolOrganizationRating": "average",
+      "namingStyle": "CULTURAL_PIRATE_INDIE",
+      "commanderPossessiveChance": 35,
+      "merchantConvoyNouns": [
+        "Freetrader Convoy",
+        "Trade Caravan",
+        "Merchant Flotilla",
+        "Chartered Caravan",
+        "Express Convoy"
+      ],
+      "merchantEscortNouns": [
+        "Caravan Guard",
+        "Convoy Escort",
+        "Freetrader Escort",
+        "Outrider Guard"
+      ],
+      "warUnitNouns": [
+        "Flotilla",
+        "Fleet",
+        "Group",
+        "Unit",
+        "Division",
+        "Caravan"
+      ]
+    },
+    "scavengers": {
+      "aliases": [
+        "astroidships"
+      ],
+      "organizationRating": "low",
+      "scavengerOrganizationRating": "low",
+      "merchantOrganizationRating": "low",
+      "namingStyle": "CULTURAL_PIRATE_INDIE",
+      "commanderPossessiveChance": 40,
+      "scavengerConvoyNouns": [
+        "Salvage Convoy",
+        "Recovery Crew",
+        "Wrecking Flotilla",
+        "Prospecting Crew",
+        "Rig Group"
+      ],
+      "scavengerEscortNouns": [
+        "Salvage Guard",
+        "Claim Watch",
+        "Rig Escort",
+        "Outrider Watch"
+      ],
+      "warUnitNouns": [
+        "Flotilla",
+        "Pack",
+        "Group",
+        "Unit",
+        "Crew"
+      ]
+    },
+    "hmi": {
+      "aliases": [
+        "hmi_exec",
+        "jyd"
+      ],
+      "organizationRating": "average",
+      "patrolOrganizationRating": "average",
+      "merchantOrganizationRating": "average",
+      "scavengerOrganizationRating": "average",
+      "namingStyle": "CULTURAL_PIRATE_INDIE",
+      "commanderPossessiveChance": 35,
+      "merchantConvoyNouns": [
+        "Ore Convoy",
+        "Industrial Haul",
+        "Freighter Convoy",
+        "Company Convoy",
+        "Bulk Flotilla"
+      ],
+      "merchantEscortNouns": [
+        "Company Guard",
+        "Haul Escort",
+        "Hazard Escort",
+        "Security Unit"
+      ],
+      "scavengerConvoyNouns": [
+        "Mining Crew",
+        "Deep-Core Rig Group",
+        "Recovery Convoy",
+        "Strip-Mining Flotilla"
+      ],
+      "scavengerEscortNouns": [
+        "Claim Security",
+        "Rig Guard",
+        "Hazard Watch"
+      ],
+      "warUnitNouns": [
+        "Flotilla",
+        "Group",
+        "Unit",
+        "Division",
+        "Crew",
+        "Pack"
+      ]
+    },
+    "mercenary": {
+      "aliases": [
+        "famous_bounty",
+        "ml_bounty"
+      ],
+      "organizationRating": "high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "high",
+      "namingStyle": "CULTURAL_PIRATE_INDIE",
+      "commanderPossessiveChance": 45,
+      "warUnitNouns": [
+        "Company",
+        "Squadron",
+        "Flotilla",
+        "Group",
+        "Unit",
+        "Division",
+        "Lance"
+      ],
+      "merchantConvoyNouns": [
+        "Contract Convoy",
+        "Chartered Convoy",
+        "Bonded Caravan"
+      ],
+      "merchantEscortNouns": [
+        "Contract Escort",
+        "Charter Guard",
+        "Security Lance"
+      ]
+    },
+    "uaf": {
+      "organizationRating": "very_high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "high",
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "Auroran Bakery & Trade Convoy",
+        "BATTLESHIP_DIVISION": "Royal Convoy Battle Escort",
+        "MISSILE_BATTLESHIP_DIVISION": "Royal Convoy Battle Escort",
+        "FLEET_CARRIER_DIVISION": "Auroran Escort Carrier Wing",
+        "LIGHT_CARRIER_DIVISION": "Auroran Escort Carrier Wing",
+        "ESCORT_CARRIER_DIVISION": "Auroran Escort Carrier Wing",
+        "CARRIER_GROUP": "Auroran Escort Carrier Wing",
+        "CRUISER_DIVISION": "Royal Convoy Cruiser Escort",
+        "MISSILE_CRUISER_DIVISION": "Royal Convoy Cruiser Escort",
+        "STRIKE_CRUISER_DIVISION": "Royal Convoy Cruiser Escort",
+        "DESTROYER_DIVISION": "Royal Convoy Destroyer Escort",
+        "MISSILE_DESTROYER_DIVISION": "Royal Convoy Destroyer Escort",
+        "FRIGATE_DIVISION": "Auroran Convoy Picket",
+        "MISSILE_FRIGATE_DIVISION": "Auroran Convoy Picket",
+        "PHASE_DIVISION": "Convoy Phase Screen",
+        "FORCE_DIVISION": "Royal Convoy Destroyer Escort"
+      }
+    },
+    "uaf_november": {
+      "aliases": [
+        "uaf_automata"
+      ],
+      "organizationRating": "perfect"
+    },
+    "interstellarimperium": {
+      "aliases": [
+        "imperium"
+      ],
+      "organizationRating": "very_high",
+      "merchantOrganizationRating": "high",
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "Imperial Grain & Trade Convoy",
+        "BATTLESHIP_DIVISION": "Legionary Convoy Escort",
+        "MISSILE_BATTLESHIP_DIVISION": "Legionary Convoy Escort",
+        "FLEET_CARRIER_DIVISION": "Imperial Convoy Carrier Wing",
+        "LIGHT_CARRIER_DIVISION": "Imperial Convoy Carrier Wing",
+        "ESCORT_CARRIER_DIVISION": "Imperial Convoy Carrier Wing",
+        "CARRIER_GROUP": "Imperial Convoy Carrier Wing",
+        "CRUISER_DIVISION": "Cohort Cruiser Escort",
+        "MISSILE_CRUISER_DIVISION": "Cohort Cruiser Escort",
+        "STRIKE_CRUISER_DIVISION": "Cohort Cruiser Escort",
+        "DESTROYER_DIVISION": "Manipular Escort",
+        "MISSILE_DESTROYER_DIVISION": "Manipular Escort",
+        "FRIGATE_DIVISION": "Velites Convoy Picket",
+        "MISSILE_FRIGATE_DIVISION": "Velites Convoy Picket",
+        "PHASE_DIVISION": "Speculatores Screen",
+        "FORCE_DIVISION": "Manipular Escort"
+      }
+    },
+    "ii_imperial_guard": {
+      "organizationRating": "perfect"
+    },
+    "diableavionics": {
+      "organizationRating": "very_high",
+      "merchantOrganizationRating": "high"
+    },
+    "xhanempire": {
+      "aliases": [
+        "vantanet"
+      ],
+      "organizationRating": "very_high",
+      "merchantOrganizationRating": "high"
+    },
+    "scy": {
+      "aliases": [
+        "scynation"
+      ],
+      "organizationRating": "high",
+      "merchantOrganizationRating": "average"
+    },
+    "remnant": {
+      "aliases": [
+        "remnants",
+        "derelict",
+        "nex_derelict",
+        "domres",
+        "indevo_derelict",
+        "indevo_converters"
+      ],
+      "nomenclatureCategory": "POST_AI_WAR",
+      "namingStyle": "POST_AI_WAR_UNKNOWN",
+      "organizationRating": "perfect"
+    },
+    "threat": {
+      "aliases": [
+        "mess",
+        "mess_remnant",
+        "hmi_nightmare"
+      ],
+      "nomenclatureCategory": "THREAT_SWARM",
+      "namingStyle": "THREAT_CORRUPTED",
+      "organizationRating": "perfect"
+    },
+    "dweller": {
+      "aliases": [
+        "omega",
+        "liminal",
+        "rat_abyssals",
+        "rat_abyssals_deep",
+        "rat_abyssals_deep_seraph",
+        "rat_abyssals_primordial",
+        "rat_abyssals_primordials",
+        "rat_abyssals_sim",
+        "rat_abyssals_harmony",
+        "rat_abyssals_serenity",
+        "rat_abyssals_solitude",
+        "rat_abyssals_wastes"
+      ],
+      "nomenclatureCategory": "ABYSSAL_ERROR",
+      "namingStyle": "ABYSSAL_ERROR",
+      "organizationRating": "perfect"
+    },
+    "koc": {
+      "aliases": [
+        "everybody loves koc",
+        "eridani",
+        "bhilai",
+        "kyeltziv",
+        "kyeltziv technocracy",
+        "unitedpamed",
+        "ora",
+        "shadow_industry",
+        "neutrinocorp",
+        "metelson",
+        "syndicate_asp",
+        "tahlan_greathouses",
+        "blackrock_driveyards",
+        "dassault_mikoyan",
+        "sms_curator"
+      ],
+      "organizationRating": "high",
+      "merchantOrganizationRating": "high"
+    },
+    "tahlan_legioinfernalis": {
+      "organizationRating": "very_high"
+    },
+    "maybegoogle": {
+      "aliases": [
+        "rat_exotech",
+        "draco",
+        "jdp_deadcomm",
+        "jdp_laplacians"
+      ],
+      "organizationRating": "average"
+    }
+  }
 }

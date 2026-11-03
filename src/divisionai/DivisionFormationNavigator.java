@@ -34,7 +34,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.List;
-import static divisionai.DivisionCommanderAI.*;
 
 /**
  * Naval Formation Slot Geometry, Tactical Station Calculators (Standoff, Reinforce, Screening, Flank),
@@ -102,7 +101,7 @@ public class DivisionFormationNavigator {
             // carriage >= 1950u ahead so rear Wedge/Column ranks never fall at/behind div.centroid and ships never
             // stall inside vanilla BasicShipAI's < 450u CAMP_LOCATION braking zone!
             boolean cautiousObjectiveStep = (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD)
-                    && shouldAdvanceCautiouslyOnObjective(engine, div, myGroup, null);
+                    && DivisionCommanderAI.shouldAdvanceCautiouslyOnObjective(engine, div, myGroup, null);
             float maxCarriageLead = cautiousObjectiveStep
                     ? Math.max(850f, effectiveSlotSpacing * 2.10f)
                     : Math.max(1950f, effectiveSlotSpacing * 4.0f);
@@ -1000,7 +999,7 @@ public class DivisionFormationNavigator {
 
         // Pincer: an OTC-assigned flank side is measured on the battlegroup's attack axis (fleet centre -> target),
         // so two flankers on opposite sides really do envelop the target from left and right.
-        float assignedSide = assignedFlankSide(flankerDiv, enemyDiv, myGroup);
+        float assignedSide = DivisionCommanderAI.assignedFlankSide(flankerDiv, enemyDiv, myGroup);
         if (assignedSide != 0f) {
             float ax = visEnemyPos.x - myGroup.fleetCentroid.x;
             float ay = visEnemyPos.y - myGroup.fleetCentroid.y;
@@ -1104,7 +1103,7 @@ public class DivisionFormationNavigator {
         DivisionState ignoreDirectTarget = directAttackIntent ? div.targetEnemyDivision : null;
         DivisionState flankTarget = (intent == DivisionIntentType.WORK_FLANK) ? div.targetEnemyDivision : null;
 
-        float preferredSide = assignedFlankSide(div, div.targetEnemyDivision, myGroup);
+        float preferredSide = DivisionCommanderAI.assignedFlankSide(div, div.targetEnemyDivision, myGroup);
         if (preferredSide == 0f) {
             preferredSide = div.routeSkirtSide;
         }
@@ -1122,7 +1121,7 @@ public class DivisionFormationNavigator {
                 chosenSide);
         div.routeSkirtSide = chosenSide[0];
         div.routeWaypoint.set(wp);
-        div.hasRouteWaypoint = distance(div.routeWaypoint, div.stationPoint) > 220f;
+        div.hasRouteWaypoint = DivisionCommanderAI.distance(div.routeWaypoint, div.stationPoint) > 220f;
     }
 
     /**
@@ -1174,8 +1173,8 @@ public class DivisionFormationNavigator {
             if (ignoreDirectAttackTarget != null && OtcAI.getVisibleFpForSide(engine, side, eDiv) < 24f) continue;
 
             Vector2f eCenter = OtcAI.getVisibleCentroidForSide(engine, side, eDiv);
-            float distGoalToEnemy = distance(goalPos, eCenter);
-            float distStartToEnemy = distance(startPos, eCenter);
+            float distGoalToEnemy = DivisionCommanderAI.distance(goalPos, eCenter);
+            float distStartToEnemy = DivisionCommanderAI.distance(startPos, eCenter);
 
             // Threat avoidance radius: enemy engagement range + spread + out-of-contact buffer
             float threatRadius = Math.max(1150f, eDiv.avgEngageRange * 1.10f)
@@ -1229,7 +1228,7 @@ public class DivisionFormationNavigator {
             if (!OtcAI.isDivisionVisibleToSide(engine, side, otherE)) continue;
             if (otherE == ignoreDirectAttackTarget) continue;
             Vector2f oPos = OtcAI.getVisibleCentroidForSide(engine, side, otherE);
-            float dBetween = distance(blockingCenter, oPos);
+            float dBetween = DivisionCommanderAI.distance(blockingCenter, oPos);
             if (dBetween < 1850f) {
                 // Project onto A -> B as well
                 float oProj = (oPos.x - startPos.x) * dirX + (oPos.y - startPos.y) * dirY;
@@ -1242,7 +1241,7 @@ public class DivisionFormationNavigator {
             }
         }
         Vector2f obsCenter = new Vector2f(clusterX / clusterWeight, clusterY / clusterWeight);
-        float extraClusterSpan = distance(obsCenter, blockingCenter);
+        float extraClusterSpan = DivisionCommanderAI.distance(obsCenter, blockingCenter);
         float skirtRadius = Math.min(2850f, blockingRadius + extraClusterSpan * 0.65f + 240f);
 
         // Two candidate normals perpendicular to A -> B: +1 (Port / Left of chord) and -1 (Starboard / Right of chord)
@@ -1261,14 +1260,14 @@ public class DivisionFormationNavigator {
             float score = 0f;
             // 1. Prefer swinging around the OUTSIDE of the enemy fleet centroid rather than between enemy divisions
             if (enemyGroup.totalFriendlyStrength > 0f) {
-                score += distance(candApex, enemyGroup.fleetCentroid) * 0.42f;
+                score += DivisionCommanderAI.distance(candApex, enemyGroup.fleetCentroid) * 0.42f;
             }
             // 2. Penalize candidate apex if other visible enemy divisions sit near that side
             for (DivisionState otherE : enemyGroup.divisions) {
                 if (otherE == null || otherE == blockingDiv || !otherE.isCombatEffective()) continue;
                 if (!OtcAI.isDivisionVisibleToSide(engine, side, otherE)) continue;
                 Vector2f oPos = OtcAI.getVisibleCentroidForSide(engine, side, otherE);
-                float dToCand = distance(candApex, oPos);
+                float dToCand = DivisionCommanderAI.distance(candApex, oPos);
                 if (dToCand < 1900f) {
                     score -= (1900f - dToCand) * 0.65f;
                 }

@@ -1,0 +1,2314 @@
+{
+  "_comment": "Division AI Faction Fleet Doctrines Library. Submods may override or add factions via SettingsAPI.getMergedJSONForMod(\"data/config/division_faction_doctrines.json\", \"division_ai\").",
+  "factions": {
+    "hegemony": {
+      "fleetWideFormation": "GRAND_WEDGE_SPEARHEAD",
+      "multiDivisionSetpiece": "HAMMER_AND_ANVIL",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 625,
+          "divisionInterval": 1100,
+          "standoffRange": 700,
+          "stationKeepingMult": 0.88,
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "CRUISER": {
+          "stationSpacing": 500,
+          "divisionInterval": 1000,
+          "standoffRange": 750,
+          "stationKeepingMult": 0.9,
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 750,
+          "stationKeepingMult": 0.94,
+          "openingMission": "SCREEN",
+          "formation": "FORWARD_SEMICIRCLE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "ESCORT_CARRIER": {
+          "stationSpacing": 480,
+          "divisionInterval": 1000,
+          "standoffRange": 1250,
+          "stationKeepingMult": 0.94,
+          "fighterVoidstrikeFormation": "SEMICIRCLE"
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 625,
+          "divisionInterval": 1250,
+          "standoffRange": 1450,
+          "stationKeepingMult": 0.9,
+          "mainMission": "CYCLIC_STRIKES",
+          "voidstrikeObservance": "MEDIUM",
+          "bomberVoidstrikeFormation": "LINE_ABREAST",
+          "voidstrikeSquadronDepth": 2
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 780,
+          "stationKeepingMult": 0.98,
+          "mainMission": "SCREEN"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1150,
+          "standoffRange": 1400,
+          "stationKeepingMult": 0.92,
+          "mainMission": "COMBAT_SPACE_PATROL",
+          "voidstrikeObservance": "MEDIUM",
+          "fighterVoidstrikeFormation": "WEDGE"
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 650,
+          "divisionInterval": 1150,
+          "standoffRange": 1100,
+          "stationKeepingMult": 0.9
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 525,
+          "divisionInterval": 1050,
+          "standoffRange": 1100,
+          "stationKeepingMult": 0.92,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "MISSILE_DESTROYER": {
+          "stationSpacing": 450,
+          "divisionInterval": 950,
+          "standoffRange": 1000,
+          "stationKeepingMult": 0.94,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "formation": "LINE_ABREAST"
+        },
+        "MISSILE_FRIGATE": {
+          "stationSpacing": 400,
+          "divisionInterval": 880,
+          "standoffRange": 950,
+          "stationKeepingMult": 0.98,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 525,
+          "divisionInterval": 1050,
+          "standoffRange": 700,
+          "stationKeepingMult": 0.95,
+          "openingMission": "CLOSE_ACTION"
+        }
+      }
+    },
+    "ironshell": {
+      "aliases": [
+        "iron shell 1.183aj"
+      ],
+      "openingDurationSeconds": 35,
+      "fleetWideFormation": "GRAND_WEDGE_SPEARHEAD",
+      "multiDivisionSetpiece": "HAMMER_AND_ANVIL",
+      "hullMax": {
+        "CAPITAL": 3,
+        "DESTROYER": 5,
+        "FRIGATE": 6
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1050,
+          "standoffRange": 620,
+          "stationKeepingMult": 0.86,
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "CRUISER": {
+          "stationSpacing": 490,
+          "divisionInterval": 980,
+          "standoffRange": 660,
+          "stationKeepingMult": 0.88,
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 680,
+          "stationKeepingMult": 0.92,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "ESCORT_CARRIER": {
+          "divisionInterval": 980,
+          "standoffRange": 1150,
+          "stationKeepingMult": 0.92,
+          "mainMission": "DECKLOAD_STRIKE",
+          "lineStation": "CENTER",
+          "voidstrikeCoordination": "COORDINATED",
+          "fighterVoidstrikeFormation": "SEMICIRCLE"
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 600,
+          "divisionInterval": 1200,
+          "standoffRange": 1380,
+          "stationKeepingMult": 0.88,
+          "bomberFormation": "WEDGE",
+          "voidstrikeSquadronDepth": 2
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 650,
+          "stationKeepingMult": 0.98
+        },
+        "LIGHT_CARRIER": {
+          "divisionInterval": 1120,
+          "standoffRange": 1300,
+          "stationKeepingMult": 0.9,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE"
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 625,
+          "divisionInterval": 1100,
+          "standoffRange": 1020,
+          "stationKeepingMult": 0.88,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 520,
+          "divisionInterval": 1040,
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.9,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 510,
+          "divisionInterval": 1020,
+          "standoffRange": 620,
+          "stationKeepingMult": 0.94,
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "ironsentinel": {
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 35,
+      "fleetWideFormation": "GRAND_WEDGE_SPEARHEAD",
+      "multiDivisionSetpiece": "ECHELONED_WAVE_BREACH",
+      "hullMax": {
+        "CAPITAL": 3,
+        "DESTROYER": 5,
+        "FRIGATE": 6
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1050,
+          "standoffRange": 620,
+          "stationKeepingMult": 0.86,
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "CRUISER": {
+          "stationSpacing": 490,
+          "divisionInterval": 980,
+          "standoffRange": 660,
+          "stationKeepingMult": 0.88,
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 680,
+          "stationKeepingMult": 0.92,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "ESCORT_CARRIER": {
+          "divisionInterval": 980,
+          "standoffRange": 1150,
+          "stationKeepingMult": 0.92,
+          "mainMission": "DECKLOAD_STRIKE",
+          "lineStation": "CENTER",
+          "voidstrikeCoordination": "COORDINATED",
+          "fighterVoidstrikeFormation": "SEMICIRCLE"
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 600,
+          "divisionInterval": 1200,
+          "standoffRange": 1380,
+          "stationKeepingMult": 0.88,
+          "bomberFormation": "WEDGE",
+          "voidstrikeSquadronDepth": 2
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 650,
+          "stationKeepingMult": 0.98
+        },
+        "LIGHT_CARRIER": {
+          "divisionInterval": 1120,
+          "standoffRange": 1300,
+          "stationKeepingMult": 0.9,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE"
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 625,
+          "divisionInterval": 1100,
+          "standoffRange": 1020,
+          "stationKeepingMult": 0.88,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 520,
+          "divisionInterval": 1040,
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.9,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 510,
+          "divisionInterval": 1020,
+          "standoffRange": 620,
+          "stationKeepingMult": 0.94,
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "tritachyon": {
+      "aliases": [
+        "hte",
+        "tte"
+      ],
+      "openingDurationSeconds": 40,
+      "fleetWideFormation": "CRESCENT_HORNS",
+      "multiDivisionSetpiece": "CANNAAE_DOUBLE_ENVELOPMENT",
+      "hullMax": {
+        "CRUISER": 3
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 725,
+          "divisionInterval": 1300,
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.98,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "formation": "REVERSE_WEDGE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1150,
+          "standoffRange": 880,
+          "stationKeepingMult": 1.1,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "ENVELOPMENT",
+          "formation": "REVERSE_SEMICIRCLE",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 475,
+          "divisionInterval": 1000,
+          "standoffRange": 800,
+          "stationKeepingMult": 1.15,
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "ECHELON_LEFT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "ESCORT_CARRIER": {
+          "stationSpacing": 525,
+          "divisionInterval": 1100,
+          "standoffRange": 1400,
+          "openingMission": "SPACE_SUPERIORITY",
+          "mainMission": "ALPHA_STRIKE",
+          "voidstrikeObservance": "HIGH",
+          "voidstrikeCoordination": "COORDINATED",
+          "fighterFormation": "WEDGE"
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 750,
+          "divisionInterval": 1400,
+          "standoffRange": 1750,
+          "stationKeepingMult": 0.92,
+          "bomberFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeSquadronDepth": 2
+        },
+        "FRIGATE": {
+          "stationSpacing": 425,
+          "divisionInterval": 950,
+          "standoffRange": 800,
+          "stationKeepingMult": 1.22,
+          "formation": "REVERSE_SEMICIRCLE"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 650,
+          "standoffRange": 1550,
+          "stationKeepingMult": 0.94,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "bomberFormation": "WEDGE",
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 725,
+          "divisionInterval": 1300,
+          "standoffRange": 1200,
+          "stationKeepingMult": 0.98,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "lineStation": "REAR"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1150,
+          "standoffRange": 1100,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_DESTROYER": {
+          "stationSpacing": 485,
+          "divisionInterval": 1020,
+          "standoffRange": 1000,
+          "stationKeepingMult": 1.12,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "lineStation": "VAN"
+        },
+        "MISSILE_FRIGATE": {
+          "stationSpacing": 435,
+          "divisionInterval": 960,
+          "standoffRange": 950,
+          "stationKeepingMult": 1.18,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "PHASE": {
+          "stationSpacing": 500,
+          "divisionInterval": 1150,
+          "standoffRange": 750,
+          "stationKeepingMult": 1.32,
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1150,
+          "standoffRange": 740,
+          "stationKeepingMult": 1.18,
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "persean": {
+      "aliases": [
+        "persean_league"
+      ],
+      "fleetWideFormation": "CHECKERBOARD_QUINCUNX",
+      "multiDivisionSetpiece": "CROSSING_THE_T_COLUMN",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 700,
+          "divisionInterval": 1250,
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.98,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "formation": "LINE_AHEAD",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "CRUISER": {
+          "stationSpacing": 550,
+          "divisionInterval": 1100,
+          "standoffRange": 950,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "DESTROYER": {
+          "standoffRange": 900,
+          "stationKeepingMult": 0.98,
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "ESCORT_CARRIER": {
+          "stationSpacing": 525,
+          "divisionInterval": 1050,
+          "standoffRange": 1400,
+          "openingMission": "ARMED_RECONNAISSANCE",
+          "mainMission": "ALPHA_STRIKE",
+          "voidstrikeObservance": "HIGH",
+          "voidstrikeCoordination": "COORDINATED",
+          "fighterFormation": "WEDGE"
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 675,
+          "divisionInterval": 1300,
+          "standoffRange": 1650,
+          "stationKeepingMult": 0.92,
+          "bomberVoidstrikeFormation": "LINE_ABREAST",
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeSquadronDepth": 2
+        },
+        "FRIGATE": {
+          "standoffRange": 820,
+          "stationKeepingMult": 0.96,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "setpieceAttack": "NONE"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 625,
+          "divisionInterval": 1200,
+          "standoffRange": 1550,
+          "stationKeepingMult": 0.94,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 725,
+          "divisionInterval": 1280,
+          "standoffRange": 1250,
+          "stationKeepingMult": 0.95,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1150,
+          "standoffRange": 1200,
+          "stationKeepingMult": 0.98,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_DESTROYER": {
+          "standoffRange": 1100,
+          "stationKeepingMult": 0.98,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_FRIGATE": {
+          "divisionInterval": 920,
+          "standoffRange": 1050,
+          "stationKeepingMult": 1.0,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "STRIKE_CRUISER": {
+          "standoffRange": 850,
+          "stationKeepingMult": 1.05,
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "sindrian_diktat": {
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 35,
+      "fleetWideFormation": "GRAND_COLUMN_IN_DEPTH",
+      "multiDivisionSetpiece": "ECHELONED_WAVE_BREACH",
+      "plays": {
+        "DOUBLING": false
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1050,
+          "standoffRange": 820,
+          "stationKeepingMult": 0.84,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "formation": "LINE_AHEAD",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationSpacing": 475,
+          "divisionInterval": 950,
+          "standoffRange": 780,
+          "stationKeepingMult": 0.85,
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 780,
+          "stationKeepingMult": 0.88,
+          "openingMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 720,
+          "stationKeepingMult": 0.9,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "formation": "PROTECTIVE_CIRCLE",
+          "setpieceAttack": "NONE"
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 625,
+          "divisionInterval": 1100,
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.85,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 500,
+          "divisionInterval": 1000,
+          "standoffRange": 1020,
+          "stationKeepingMult": 0.86,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 490,
+          "divisionInterval": 980,
+          "standoffRange": 720,
+          "stationKeepingMult": 0.88,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION"
+        }
+      }
+    },
+    "lions_guard": {
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 35,
+      "fleetWideFormation": "GRAND_COLUMN_IN_DEPTH",
+      "multiDivisionSetpiece": "ECHELONED_WAVE_BREACH",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1050,
+          "standoffRange": 820,
+          "stationKeepingMult": 0.84,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "formation": "LINE_AHEAD",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationSpacing": 475,
+          "divisionInterval": 950,
+          "standoffRange": 780,
+          "stationKeepingMult": 0.85,
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 780,
+          "stationKeepingMult": 0.88,
+          "openingMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 720,
+          "stationKeepingMult": 0.9,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "formation": "PROTECTIVE_CIRCLE",
+          "setpieceAttack": "NONE"
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 625,
+          "divisionInterval": 1100,
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.85,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 500,
+          "divisionInterval": 1000,
+          "standoffRange": 1020,
+          "stationKeepingMult": 0.86,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 490,
+          "divisionInterval": 980,
+          "standoffRange": 720,
+          "stationKeepingMult": 0.88,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION"
+        }
+      }
+    },
+    "luddic_church": {
+      "aliases": [
+        "knights_of_ludd",
+        "knights_of_selkie"
+      ],
+      "openingDurationSeconds": 40,
+      "fleetWideFormation": "FLEET_PROTECTIVE_BASTION",
+      "multiDivisionSetpiece": "HAMMER_AND_ANVIL",
+      "plays": {
+        "DOUBLING": false
+      },
+      "hullMax": {
+        "CRUISER": 5,
+        "DESTROYER": 5,
+        "FRIGATE": 6
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 625,
+          "divisionInterval": 1100,
+          "standoffRange": 620,
+          "stationKeepingMult": 0.85,
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationSpacing": 475,
+          "divisionInterval": 950,
+          "standoffRange": 640,
+          "stationKeepingMult": 0.88,
+          "lineStation": "VAN",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 680,
+          "stationKeepingMult": 0.92,
+          "openingMission": "SCREEN",
+          "mainMission": "CLOSE_ACTION",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "ESCORT_CARRIER": {
+          "stationSpacing": 480,
+          "divisionInterval": 1000,
+          "standoffRange": 1150,
+          "stationKeepingMult": 0.92,
+          "mainMission": "DECKLOAD_STRIKE",
+          "formation": "PROTECTIVE_CIRCLE",
+          "voidstrikeObservance": "FREE",
+          "fighterFormation": "LINE_ABREAST",
+          "fighterVoidstrikeFormation": "LINE_ABREAST"
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 625,
+          "divisionInterval": 1200,
+          "standoffRange": 1300,
+          "stationKeepingMult": 0.88,
+          "openingMission": "COMBAT_SPACE_PATROL",
+          "mainMission": "DECKLOAD_STRIKE",
+          "formation": "PROTECTIVE_CIRCLE",
+          "voidstrikeObservance": "FREE",
+          "fighterFormation": "LINE_ABREAST",
+          "fighterVoidstrikeFormation": "LINE_ABREAST",
+          "bomberVoidstrikeFormation": "LINE_ABREAST",
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeSquadronDepth": 2
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 600,
+          "stationKeepingMult": 0.94,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "SCREEN",
+          "formation": "PROTECTIVE_CIRCLE",
+          "setpieceAttack": "NONE"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1150,
+          "standoffRange": 1250,
+          "stationKeepingMult": 0.9,
+          "openingMission": "COMBAT_SPACE_PATROL",
+          "formation": "PROTECTIVE_CIRCLE",
+          "voidstrikeObservance": "FREE",
+          "fighterFormation": "LINE_ABREAST",
+          "fighterVoidstrikeFormation": "LINE_ABREAST",
+          "voidstrikeSquadronWidth": 3
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 490,
+          "divisionInterval": 980,
+          "standoffRange": 580,
+          "stationKeepingMult": 0.92,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION"
+        }
+      }
+    },
+    "zea_dawn": {
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 35,
+      "fleetWideFormation": "GRAND_WEDGE_SPEARHEAD",
+      "multiDivisionSetpiece": "HAMMER_AND_ANVIL",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1050,
+          "standoffRange": 600,
+          "stationKeepingMult": 0.85,
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "CRUISER": {
+          "stationSpacing": 490,
+          "divisionInterval": 980,
+          "standoffRange": 640,
+          "stationKeepingMult": 0.88,
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1150,
+          "standoffRange": 1300,
+          "stationKeepingMult": 0.9,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "bomberFormation": "WEDGE",
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        }
+      }
+    },
+    "zea_dusk": {
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 35,
+      "fleetWideFormation": "CRESCENT_HORNS",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "divisionTypes": {
+        "CRUISER": {
+          "standoffRange": 720,
+          "stationKeepingMult": 1.05,
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "ECHELON_LEFT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "PHASE": {
+          "stationSpacing": 500,
+          "standoffRange": 650,
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        }
+      }
+    },
+    "zea_elysians": {
+      "otcAuthority": "POSITIVE_CONTROL",
+      "fleetWideFormation": "CHECKERBOARD_QUINCUNX",
+      "multiDivisionSetpiece": "CROSSING_THE_T_COLUMN",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.9,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 675,
+          "divisionInterval": 1300,
+          "standoffRange": 1550,
+          "stationKeepingMult": 0.9,
+          "bomberFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeSquadronDepth": 2
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 600,
+          "divisionInterval": 1200,
+          "stationKeepingMult": 0.9,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "bomberFormation": "WEDGE",
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        }
+      }
+    },
+    "luddic_path": {
+      "aliases": [
+        "luddenhance"
+      ],
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "openingDurationSeconds": 30,
+      "fleetWideFormation": "GRAND_WEDGE_SPEARHEAD",
+      "multiDivisionSetpiece": "ECHELONED_WAVE_BREACH",
+      "plays": {
+        "LINE_AND_FIRE_DISTRIBUTION": false,
+        "TIME_ON_TARGET_STRIKES": false,
+        "MARTYRDOM": true
+      },
+      "hullMax": {
+        "CRUISER": 5,
+        "DESTROYER": 5,
+        "FRIGATE": 7
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 550,
+          "divisionInterval": 1000,
+          "standoffRange": 300,
+          "stationKeepingMult": 1.25,
+          "mainMission": "MARTYRDOM",
+          "formation": "NONE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "CARRIER_GROUP": {
+          "formation": "NONE"
+        },
+        "CRUISER": {
+          "stationSpacing": 450,
+          "divisionInterval": 900,
+          "standoffRange": 300,
+          "stationKeepingMult": 1.3,
+          "mainMission": "MARTYRDOM",
+          "lineStation": "VAN",
+          "formation": "NONE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 400,
+          "divisionInterval": 850,
+          "standoffRange": 300,
+          "stationKeepingMult": 1.35,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "MARTYRDOM",
+          "lineStation": "VAN",
+          "formation": "NONE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "ESCORT_CARRIER": {
+          "formation": "NONE"
+        },
+        "FLEET_CARRIER": {
+          "formation": "NONE"
+        },
+        "FORCE": {
+          "formation": "NONE"
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 800,
+          "standoffRange": 300,
+          "stationKeepingMult": 1.4,
+          "openingMission": "MARTYRDOM",
+          "mainMission": "MARTYRDOM",
+          "formation": "NONE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "LIGHT_CARRIER": {
+          "formation": "NONE"
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 550,
+          "divisionInterval": 1000,
+          "standoffRange": 300,
+          "stationKeepingMult": 1.25,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "MARTYRDOM",
+          "lineStation": "VAN",
+          "formation": "NONE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 450,
+          "divisionInterval": 900,
+          "standoffRange": 300,
+          "stationKeepingMult": 1.3,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "MARTYRDOM",
+          "lineStation": "VAN",
+          "formation": "NONE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "MISSILE_DESTROYER": {
+          "stationSpacing": 400,
+          "divisionInterval": 850,
+          "standoffRange": 300,
+          "stationKeepingMult": 1.35,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "MARTYRDOM",
+          "lineStation": "VAN",
+          "formation": "NONE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "MISSILE_FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 800,
+          "standoffRange": 300,
+          "stationKeepingMult": 1.4,
+          "openingMission": "MARTYRDOM",
+          "mainMission": "MARTYRDOM",
+          "formation": "NONE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "PHASE": {
+          "formation": "NONE"
+        },
+        "SERVICE_GROUP": {
+          "formation": "NONE"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 450,
+          "divisionInterval": 900,
+          "standoffRange": 300,
+          "stationKeepingMult": 1.3,
+          "openingMission": "MARTYRDOM",
+          "mainMission": "MARTYRDOM",
+          "formation": "NONE"
+        }
+      }
+    },
+    "pirates": {
+      "aliases": [
+        "pirate_privateers",
+        "jaydeepiracy",
+        "jdp_flowerfish",
+        "hmi_sv"
+      ],
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "openingDurationSeconds": 35,
+      "fleetWideFormation": "REFUSED_FLANK_OBLIQUE",
+      "multiDivisionSetpiece": "CANNAAE_DOUBLE_ENVELOPMENT",
+      "hullMax": {
+        "CAPITAL": 3,
+        "CRUISER": 5,
+        "DESTROYER": 6,
+        "FRIGATE": 7
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 650,
+          "divisionInterval": 1150,
+          "standoffRange": 900,
+          "stationKeepingMult": 1.12,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "standoffRange": 700,
+          "stationKeepingMult": 1.2,
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "DESTROYER": {
+          "standoffRange": 700,
+          "stationKeepingMult": 1.25,
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "FRIGATE": {
+          "standoffRange": 620,
+          "stationKeepingMult": 1.32,
+          "formation": "NONE"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 600,
+          "divisionInterval": 1200,
+          "standoffRange": 1300,
+          "stationKeepingMult": 1.15,
+          "formation": "NONE",
+          "voidstrikeObservance": "FREE",
+          "voidstrikeCoordination": "UNCOORDINATED",
+          "fighterFormation": "SEMICIRCLE",
+          "fighterVoidstrikeFormation": "SEMICIRCLE"
+        },
+        "MISSILE_CRUISER": {
+          "standoffRange": 1050,
+          "stationKeepingMult": 1.15,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 525,
+          "divisionInterval": 1050,
+          "standoffRange": 620,
+          "stationKeepingMult": 1.25
+        }
+      }
+    },
+    "independent": {
+      "aliases": [
+        "scavengers",
+        "cft",
+        "brighton",
+        "hmi_brighton"
+      ],
+      "fleetWideFormation": "FLEET_PROTECTIVE_BASTION",
+      "multiDivisionSetpiece": "HAMMER_AND_ANVIL",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 650,
+          "divisionInterval": 1150,
+          "standoffRange": 820,
+          "stationKeepingMult": 0.9,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationKeepingMult": 0.94,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "DESTROYER": {
+          "standoffRange": 780,
+          "stationKeepingMult": 0.95,
+          "openingMission": "SCREEN",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "FRIGATE": {
+          "standoffRange": 700,
+          "stationKeepingMult": 0.98,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "formation": "PROTECTIVE_CIRCLE",
+          "setpieceAttack": "NONE"
+        }
+      }
+    },
+    "mercenary": {
+      "openingDurationSeconds": 40,
+      "fleetWideFormation": "REFUSED_FLANK_OBLIQUE",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationKeepingMult": 0.9
+        },
+        "CARRIER_GROUP": {
+          "stationKeepingMult": 0.9
+        },
+        "CRUISER": {
+          "stationKeepingMult": 0.9
+        },
+        "DESTROYER": {
+          "stationKeepingMult": 0.9
+        },
+        "ESCORT_CARRIER": {
+          "stationKeepingMult": 0.9
+        },
+        "FLEET_CARRIER": {
+          "stationKeepingMult": 0.9
+        },
+        "FORCE": {
+          "stationKeepingMult": 0.9
+        },
+        "FRIGATE": {
+          "stationKeepingMult": 0.9
+        },
+        "LIGHT_CARRIER": {
+          "stationKeepingMult": 0.9
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationKeepingMult": 0.9
+        },
+        "MISSILE_CRUISER": {
+          "stationKeepingMult": 0.9
+        },
+        "MISSILE_DESTROYER": {
+          "stationKeepingMult": 0.9
+        },
+        "MISSILE_FRIGATE": {
+          "stationKeepingMult": 0.9
+        },
+        "PHASE": {
+          "stationKeepingMult": 0.9
+        },
+        "STRIKE_CRUISER": {
+          "stationKeepingMult": 0.9
+        }
+      }
+    },
+    "uaf": {
+      "openingDurationSeconds": 44,
+      "fleetWideFormation": "FLEET_PROTECTIVE_BASTION",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "hullMax": {
+        "CAPITAL": 3,
+        "DESTROYER": 5,
+        "FRIGATE": 6
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 650,
+          "divisionInterval": 1180,
+          "standoffRange": 880,
+          "stationKeepingMult": 0.9,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "CRUISER": {
+          "standoffRange": 840,
+          "stationKeepingMult": 0.94,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "DESTROYER": {
+          "standoffRange": 780,
+          "stationKeepingMult": 0.94,
+          "openingMission": "SCREEN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "ESCORT_CARRIER": {
+          "stationSpacing": 500,
+          "divisionInterval": 1050,
+          "standoffRange": 1300,
+          "stationKeepingMult": 0.92,
+          "mainMission": "ALPHA_STRIKE",
+          "voidstrikeObservance": "HIGH",
+          "voidstrikeCoordination": "COORDINATED",
+          "fighterFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 675,
+          "standoffRange": 1550,
+          "stationKeepingMult": 0.88,
+          "bomberFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 5
+        },
+        "FRIGATE": {
+          "standoffRange": 720,
+          "stationKeepingMult": 0.98,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "formation": "PROTECTIVE_CIRCLE",
+          "setpieceAttack": "NONE"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 600,
+          "divisionInterval": 1200,
+          "stationKeepingMult": 0.9,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "bomberFormation": "WEDGE",
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 4
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 675,
+          "divisionInterval": 1220,
+          "standoffRange": 1200,
+          "stationKeepingMult": 0.9,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_CRUISER": {
+          "standoffRange": 1150,
+          "stationKeepingMult": 0.92,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_DESTROYER": {
+          "stationSpacing": 460,
+          "divisionInterval": 960,
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.95,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 540,
+          "divisionInterval": 1080,
+          "standoffRange": 740,
+          "stationKeepingMult": 1.02,
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "uaf_november": {
+      "openingDurationSeconds": 44,
+      "fleetWideFormation": "GRAND_LINE_ABREAST",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "hullMax": {
+        "CAPITAL": 3,
+        "DESTROYER": 5,
+        "FRIGATE": 6
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 650,
+          "divisionInterval": 1180,
+          "standoffRange": 880,
+          "stationKeepingMult": 0.9,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "CRUISER": {
+          "standoffRange": 840,
+          "stationKeepingMult": 0.94,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "DESTROYER": {
+          "standoffRange": 780,
+          "stationKeepingMult": 0.94,
+          "openingMission": "SCREEN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "ESCORT_CARRIER": {
+          "stationSpacing": 500,
+          "divisionInterval": 1050,
+          "standoffRange": 1300,
+          "stationKeepingMult": 0.92,
+          "mainMission": "ALPHA_STRIKE",
+          "voidstrikeObservance": "HIGH",
+          "voidstrikeCoordination": "COORDINATED",
+          "fighterFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 675,
+          "standoffRange": 1550,
+          "stationKeepingMult": 0.88,
+          "bomberFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 5
+        },
+        "FRIGATE": {
+          "standoffRange": 720,
+          "stationKeepingMult": 0.98,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "formation": "PROTECTIVE_CIRCLE",
+          "setpieceAttack": "NONE"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 600,
+          "divisionInterval": 1200,
+          "stationKeepingMult": 0.9,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "bomberFormation": "WEDGE",
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 4
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 675,
+          "divisionInterval": 1220,
+          "standoffRange": 1200,
+          "stationKeepingMult": 0.9,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_CRUISER": {
+          "standoffRange": 1150,
+          "stationKeepingMult": 0.92,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_DESTROYER": {
+          "stationSpacing": 460,
+          "divisionInterval": 960,
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.95,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 540,
+          "divisionInterval": 1080,
+          "standoffRange": 740,
+          "stationKeepingMult": 1.02,
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "uaf_automata": {
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 32,
+      "fleetWideFormation": "GRAND_WEDGE_SPEARHEAD",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "hullMax": {
+        "CAPITAL": 3,
+        "DESTROYER": 5,
+        "FRIGATE": 6
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 650,
+          "divisionInterval": 1180,
+          "standoffRange": 880,
+          "stationKeepingMult": 0.9,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "CRUISER": {
+          "standoffRange": 840,
+          "stationKeepingMult": 0.94,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "DESTROYER": {
+          "standoffRange": 780,
+          "stationKeepingMult": 0.94,
+          "openingMission": "SCREEN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "ESCORT_CARRIER": {
+          "stationSpacing": 500,
+          "divisionInterval": 1050,
+          "standoffRange": 1300,
+          "stationKeepingMult": 0.92,
+          "mainMission": "ALPHA_STRIKE",
+          "voidstrikeObservance": "HIGH",
+          "voidstrikeCoordination": "COORDINATED",
+          "fighterFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 675,
+          "standoffRange": 1550,
+          "stationKeepingMult": 0.88,
+          "bomberFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 5
+        },
+        "FRIGATE": {
+          "standoffRange": 720,
+          "stationKeepingMult": 0.98,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "formation": "PROTECTIVE_CIRCLE",
+          "setpieceAttack": "NONE"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 600,
+          "divisionInterval": 1200,
+          "stationKeepingMult": 0.9,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "bomberFormation": "WEDGE",
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 4
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 675,
+          "divisionInterval": 1220,
+          "standoffRange": 1200,
+          "stationKeepingMult": 0.9,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_CRUISER": {
+          "standoffRange": 1150,
+          "stationKeepingMult": 0.92,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_DESTROYER": {
+          "stationSpacing": 460,
+          "divisionInterval": 960,
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.95,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 540,
+          "divisionInterval": 1080,
+          "standoffRange": 740,
+          "stationKeepingMult": 1.02,
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "interstellarimperium": {
+      "aliases": [
+        "imperium"
+      ],
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 40,
+      "fleetWideFormation": "GRAND_LINE_ABREAST",
+      "multiDivisionSetpiece": "HAMMER_AND_ANVIL",
+      "hullMax": {
+        "CAPITAL": 3,
+        "DESTROYER": 5,
+        "FRIGATE": 6
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 625,
+          "divisionInterval": 1100,
+          "standoffRange": 720,
+          "stationKeepingMult": 0.85,
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationSpacing": 500,
+          "divisionInterval": 1000,
+          "standoffRange": 740,
+          "stationKeepingMult": 0.86,
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 750,
+          "stationKeepingMult": 0.88,
+          "openingMission": "SCREEN",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "FLEET_CARRIER": {
+          "divisionInterval": 1250,
+          "standoffRange": 1450,
+          "stationKeepingMult": 0.88,
+          "bomberVoidstrikeFormation": "LINE_ABREAST",
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeSquadronDepth": 2
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 700,
+          "stationKeepingMult": 0.9,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "setpieceAttack": "NONE"
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 675,
+          "divisionInterval": 1200,
+          "standoffRange": 1250,
+          "stationKeepingMult": 0.86,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "lineStation": "REAR"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 525,
+          "divisionInterval": 1050,
+          "standoffRange": 1100,
+          "stationKeepingMult": 0.88,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 520,
+          "divisionInterval": 1040,
+          "standoffRange": 660,
+          "stationKeepingMult": 0.9,
+          "openingMission": "CLOSE_ACTION"
+        }
+      }
+    },
+    "ii_imperial_guard": {
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 40,
+      "fleetWideFormation": "GRAND_WEDGE_SPEARHEAD",
+      "multiDivisionSetpiece": "HAMMER_AND_ANVIL",
+      "hullMax": {
+        "CAPITAL": 3,
+        "DESTROYER": 5,
+        "FRIGATE": 6
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 625,
+          "divisionInterval": 1100,
+          "standoffRange": 720,
+          "stationKeepingMult": 0.85,
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationSpacing": 500,
+          "divisionInterval": 1000,
+          "standoffRange": 740,
+          "stationKeepingMult": 0.86,
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 750,
+          "stationKeepingMult": 0.88,
+          "openingMission": "SCREEN",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "FLEET_CARRIER": {
+          "divisionInterval": 1250,
+          "standoffRange": 1450,
+          "stationKeepingMult": 0.88,
+          "bomberVoidstrikeFormation": "LINE_ABREAST",
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeSquadronDepth": 2
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 700,
+          "stationKeepingMult": 0.9,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "setpieceAttack": "NONE"
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 675,
+          "divisionInterval": 1200,
+          "standoffRange": 1250,
+          "stationKeepingMult": 0.86,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "lineStation": "REAR"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 525,
+          "divisionInterval": 1050,
+          "standoffRange": 1100,
+          "stationKeepingMult": 0.88,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 520,
+          "divisionInterval": 1040,
+          "standoffRange": 660,
+          "stationKeepingMult": 0.9,
+          "openingMission": "CLOSE_ACTION"
+        }
+      }
+    },
+    "diableavionics": {
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 34,
+      "fleetWideFormation": "REFUSED_FLANK_OBLIQUE",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 650,
+          "divisionInterval": 1150,
+          "standoffRange": 880,
+          "stationKeepingMult": 0.92,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "standoffRange": 820,
+          "stationKeepingMult": 0.98,
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "DESTROYER": {
+          "standoffRange": 780,
+          "stationKeepingMult": 1.0,
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "ECHELON_LEFT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "FLEET_CARRIER": {
+          "divisionInterval": 1300,
+          "standoffRange": 1450,
+          "stationKeepingMult": 0.9,
+          "bomberFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeSquadronDepth": 2
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1180,
+          "standoffRange": 1350,
+          "stationKeepingMult": 0.92,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "bomberFormation": "WEDGE",
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 675,
+          "divisionInterval": 1200,
+          "standoffRange": 1120,
+          "stationKeepingMult": 0.92,
+          "mainMission": "TOT_ALPHA_STRIKE"
+        },
+        "MISSILE_CRUISER": {
+          "standoffRange": 1050,
+          "stationKeepingMult": 0.96,
+          "mainMission": "TOT_ALPHA_STRIKE",
+          "formation": "LINE_ABREAST"
+        },
+        "STRIKE_CRUISER": {
+          "standoffRange": 720,
+          "stationKeepingMult": 1.05,
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "mayasura": {
+      "aliases": [
+        "mayasuran_guard",
+        "mayasuran navy"
+      ],
+      "fleetWideFormation": "CRESCENT_HORNS",
+      "multiDivisionSetpiece": "CROSSING_THE_T_COLUMN",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "divisionInterval": 1220,
+          "standoffRange": 980,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "formation": "LINE_AHEAD",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "CRUISER": {
+          "stationSpacing": 550,
+          "divisionInterval": 1100,
+          "standoffRange": 900,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "FLEET_CARRIER": {
+          "stationSpacing": 675,
+          "divisionInterval": 1320,
+          "standoffRange": 1550,
+          "stationKeepingMult": 0.9,
+          "bomberFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeSquadronDepth": 2
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 600,
+          "divisionInterval": 1200,
+          "stationKeepingMult": 0.92,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "bomberFormation": "WEDGE",
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        },
+        "STRIKE_CRUISER": {
+          "standoffRange": 780,
+          "stationKeepingMult": 1.08,
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "scy": {
+      "aliases": [
+        "scynation"
+      ],
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "openingDurationSeconds": 38,
+      "fleetWideFormation": "CRESCENT_HORNS",
+      "multiDivisionSetpiece": "CANNAAE_DOUBLE_ENVELOPMENT",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "divisionInterval": 1250,
+          "standoffRange": 1050,
+          "stationKeepingMult": 1.08,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "CRUISER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1150,
+          "standoffRange": 980,
+          "stationKeepingMult": 1.15,
+          "openingMission": "SCOUTING",
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 475,
+          "divisionInterval": 1000,
+          "standoffRange": 900,
+          "stationKeepingMult": 1.2,
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "REVERSE_SEMICIRCLE",
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "FRIGATE": {
+          "stationSpacing": 425,
+          "divisionInterval": 950,
+          "standoffRange": 820,
+          "stationKeepingMult": 1.25,
+          "formation": "REVERSE_SEMICIRCLE"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1150,
+          "standoffRange": 840,
+          "stationKeepingMult": 1.22,
+          "formation": "ECHELON_LEFT",
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        }
+      }
+    },
+    "hmi": {
+      "aliases": [
+        "hmi_exec",
+        "astroidships"
+      ],
+      "openingDurationSeconds": 38,
+      "fleetWideFormation": "GRAND_WEDGE_SPEARHEAD",
+      "multiDivisionSetpiece": "HAMMER_AND_ANVIL",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1050,
+          "standoffRange": 580,
+          "stationKeepingMult": 0.88,
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "CRUISER": {
+          "stationSpacing": 480,
+          "divisionInterval": 960,
+          "standoffRange": 620,
+          "stationKeepingMult": 0.9,
+          "lineStation": "VAN",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 640,
+          "stationKeepingMult": 0.92,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 580,
+          "stationKeepingMult": 0.98
+        }
+      }
+    },
+    "jyd": {
+      "openingDurationSeconds": 38,
+      "fleetWideFormation": "FLEET_PROTECTIVE_BASTION",
+      "multiDivisionSetpiece": "HAMMER_AND_ANVIL",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1050,
+          "standoffRange": 580,
+          "stationKeepingMult": 0.88,
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "CRUISER": {
+          "stationSpacing": 480,
+          "divisionInterval": 960,
+          "standoffRange": 620,
+          "stationKeepingMult": 0.9,
+          "lineStation": "VAN",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 640,
+          "stationKeepingMult": 0.92,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "FRIGATE": {
+          "stationSpacing": 375,
+          "divisionInterval": 850,
+          "standoffRange": 580,
+          "stationKeepingMult": 0.98
+        }
+      }
+    },
+    "draco": {
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "openingDurationSeconds": 34,
+      "fleetWideFormation": "CRESCENT_HORNS",
+      "multiDivisionSetpiece": "CANNAAE_DOUBLE_ENVELOPMENT",
+      "divisionTypes": {
+        "CRUISER": {
+          "stationSpacing": 550,
+          "divisionInterval": 1100,
+          "standoffRange": 740,
+          "stationKeepingMult": 1.15,
+          "openingMission": "SCOUTING",
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "FRIGATE": {
+          "stationSpacing": 425,
+          "divisionInterval": 950,
+          "standoffRange": 640,
+          "stationKeepingMult": 1.25,
+          "formation": "REVERSE_SEMICIRCLE"
+        },
+        "STRIKE_CRUISER": {
+          "standoffRange": 660,
+          "stationKeepingMult": 1.22,
+          "formation": "ECHELON_RIGHT"
+        }
+      }
+    },
+    "fang": {
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "openingDurationSeconds": 30,
+      "fleetWideFormation": "GRAND_WEDGE_SPEARHEAD",
+      "multiDivisionSetpiece": "ECHELONED_WAVE_BREACH",
+      "plays": {
+        "LINE_AND_FIRE_DISTRIBUTION": false
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "CRUISER": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "FORCE": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "openingMission": "CLOSE_ACTION",
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "FRIGATE": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "MISSILE_BATTLESHIP": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "MISSILE_CRUISER": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "MISSILE_DESTROYER": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "lineStation": "VAN",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "MISSILE_FRIGATE": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "PHASE": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 450,
+          "divisionInterval": 920,
+          "standoffRange": 440,
+          "stationKeepingMult": 1.25,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION"
+        }
+      }
+    },
+    "maybegoogle": {
+      "aliases": [
+        "rat_exotech"
+      ],
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "openingDurationSeconds": 32,
+      "fleetWideFormation": "CRESCENT_HORNS",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "divisionTypes": {
+        "CRUISER": {
+          "stationSpacing": 550,
+          "divisionInterval": 1100,
+          "standoffRange": 760,
+          "stationKeepingMult": 1.15,
+          "openingMission": "SCOUTING",
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "ECHELON_RIGHT",
+          "setpieceAttack": "ECHELON_STRIKE"
+        },
+        "PHASE": {
+          "stationSpacing": 500,
+          "divisionInterval": 1150,
+          "standoffRange": 620,
+          "stationKeepingMult": 1.32,
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        }
+      }
+    },
+    "koc": {
+      "aliases": [
+        "everybody loves koc",
+        "eridani",
+        "bhilai",
+        "kyeltziv",
+        "kyeltziv technocracy",
+        "unitedpamed"
+      ],
+      "fleetWideFormation": "CHECKERBOARD_QUINCUNX",
+      "multiDivisionSetpiece": "CROSSING_THE_T_COLUMN",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "standoffRange": 960,
+          "stationKeepingMult": 0.92,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "lineStation": "CENTER",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationSpacing": 540,
+          "divisionInterval": 1080,
+          "standoffRange": 920,
+          "stationKeepingMult": 0.94,
+          "openingMission": "STANDOFF_ENGAGEMENT",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "DESTROYER": {
+          "standoffRange": 880,
+          "stationKeepingMult": 0.95,
+          "openingMission": "SCREEN",
+          "mainMission": "STANDOFF_ENGAGEMENT",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        }
+      }
+    },
+    "xhanempire": {
+      "aliases": [
+        "vantanet"
+      ],
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 38,
+      "fleetWideFormation": "GRAND_COLUMN_IN_DEPTH",
+      "multiDivisionSetpiece": "ECHELONED_WAVE_BREACH",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1050,
+          "standoffRange": 620,
+          "stationKeepingMult": 0.82,
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationSpacing": 475,
+          "divisionInterval": 950,
+          "standoffRange": 650,
+          "stationKeepingMult": 0.85,
+          "lineStation": "VAN",
+          "setpieceAttack": "LANCE_CHARGE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 425,
+          "divisionInterval": 900,
+          "standoffRange": 680,
+          "stationKeepingMult": 0.88,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        }
+      }
+    },
+    "remnant": {
+      "aliases": [
+        "remnants",
+        "derelict",
+        "domres",
+        "indevo_derelict",
+        "indevo_converters"
+      ],
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 35,
+      "fleetWideFormation": "FLEET_PROTECTIVE_BASTION",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "hullMax": {
+        "CAPITAL": 3,
+        "DESTROYER": 5,
+        "FRIGATE": 6
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1050,
+          "standoffRange": 680,
+          "stationKeepingMult": 0.88,
+          "lineStation": "CENTER",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "CRUISER": {
+          "stationSpacing": 480,
+          "divisionInterval": 950,
+          "standoffRange": 620,
+          "stationKeepingMult": 0.88,
+          "setpieceAttack": "BROADSIDE_ROLL"
+        },
+        "DESTROYER": {
+          "stationSpacing": 420,
+          "divisionInterval": 880,
+          "standoffRange": 600,
+          "stationKeepingMult": 0.9,
+          "openingMission": "SCREEN",
+          "mainMission": "CLOSE_ACTION",
+          "setpieceAttack": "WALL_SALVO_PASS"
+        },
+        "FRIGATE": {
+          "stationSpacing": 360,
+          "divisionInterval": 820,
+          "standoffRange": 520,
+          "stationKeepingMult": 0.92,
+          "openingMission": "SCREEN",
+          "mainMission": "SCREEN",
+          "formation": "PROTECTIVE_CIRCLE"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 600,
+          "divisionInterval": 1150,
+          "stationKeepingMult": 0.88,
+          "mainMission": "ALPHA_STRIKE",
+          "fighterVoidstrikeFormation": "WEDGE",
+          "bomberFormation": "WEDGE",
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeSquadronWidth": 3
+        },
+        "PHASE": {
+          "stationSpacing": 450,
+          "divisionInterval": 950,
+          "standoffRange": 700,
+          "stationKeepingMult": 0.95,
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "STRIKE_CRUISER": {
+          "stationSpacing": 480,
+          "divisionInterval": 950,
+          "standoffRange": 600,
+          "stationKeepingMult": 0.9,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "LINE_ABREAST",
+          "setpieceAttack": "ECHELON_STRIKE"
+        }
+      }
+    },
+    "threat": {
+      "aliases": [
+        "mess",
+        "mess_remnant",
+        "hmi_nightmare"
+      ],
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 30,
+      "fleetWideFormation": "CRESCENT_HORNS",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "hullMax": {
+        "CAPITAL": 3,
+        "CRUISER": 5,
+        "DESTROYER": 6,
+        "FRIGATE": 8
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 625,
+          "divisionInterval": 1100,
+          "standoffRange": 700,
+          "stationKeepingMult": 0.9,
+          "lineStation": "CENTER",
+          "formation": "FORWARD_SEMICIRCLE",
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "CRUISER": {
+          "stationSpacing": 475,
+          "divisionInterval": 950,
+          "standoffRange": 650,
+          "stationKeepingMult": 0.92,
+          "lineStation": "VAN",
+          "formation": "FORWARD_SEMICIRCLE",
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "DESTROYER": {
+          "stationSpacing": 400,
+          "divisionInterval": 850,
+          "standoffRange": 600,
+          "stationKeepingMult": 0.95,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "FORWARD_SEMICIRCLE",
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "FRIGATE": {
+          "stationSpacing": 350,
+          "divisionInterval": 800,
+          "standoffRange": 500,
+          "stationKeepingMult": 1.0,
+          "openingMission": "CLOSE_ACTION"
+        },
+        "LIGHT_CARRIER": {
+          "stationSpacing": 575,
+          "divisionInterval": 1100,
+          "standoffRange": 1200,
+          "stationKeepingMult": 0.9,
+          "openingMission": "COMBAT_SPACE_PATROL",
+          "mainMission": "ALPHA_STRIKE",
+          "formation": "PROTECTIVE_CIRCLE"
+        }
+      }
+    },
+    "dweller": {
+      "aliases": [
+        "omega",
+        "liminal",
+        "rat_abyssals",
+        "rat_abyssals_deep",
+        "rat_abyssals_deep_seraph",
+        "rat_abyssals_primordial",
+        "rat_abyssals_sim"
+      ],
+      "otcAuthority": "POSITIVE_CONTROL",
+      "openingDurationSeconds": 30,
+      "fleetWideFormation": "CRESCENT_HORNS",
+      "multiDivisionSetpiece": "CONVERGENCE_KILL_BOX",
+      "hullMax": {
+        "CAPITAL": 3,
+        "CRUISER": 5,
+        "DESTROYER": 6,
+        "FRIGATE": 7
+      },
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 600,
+          "divisionInterval": 1100,
+          "standoffRange": 550,
+          "stationKeepingMult": 0.9,
+          "formation": "FORWARD_SEMICIRCLE",
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "CRUISER": {
+          "stationSpacing": 475,
+          "divisionInterval": 950,
+          "standoffRange": 550,
+          "stationKeepingMult": 0.95,
+          "lineStation": "VAN",
+          "formation": "FORWARD_SEMICIRCLE",
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "DESTROYER": {
+          "stationSpacing": 400,
+          "divisionInterval": 850,
+          "standoffRange": 500,
+          "stationKeepingMult": 1.0,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "ENVELOPMENT",
+          "lineStation": "VAN",
+          "formation": "FORWARD_SEMICIRCLE",
+          "setpieceAttack": "HORNS_OF_THE_BULL"
+        },
+        "FRIGATE": {
+          "stationSpacing": 350,
+          "divisionInterval": 800,
+          "standoffRange": 450,
+          "stationKeepingMult": 1.05,
+          "openingMission": "CLOSE_ACTION"
+        }
+      }
+    }
+  }
+}

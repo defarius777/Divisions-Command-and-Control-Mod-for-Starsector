@@ -294,17 +294,6 @@ public final class FactionLibrary {
     private static final Map<DivisionArchetype, String> DEFAULT_SCAVENGER_PREFIXES = new EnumMap<>(DivisionArchetype.class);
 
     private static boolean configLoaded = false;
-    private static boolean jsonHandlesResolved = false;
-    private static MethodHandle mhGetMergedJsonForMod;
-    private static MethodHandle mhJsonObjFromStringCtor;
-    private static MethodHandle mhJsonObjOptString;
-    private static MethodHandle mhJsonObjOptInt;
-    private static MethodHandle mhJsonObjOptBoolean;
-    private static MethodHandle mhJsonObjOptJsonObject;
-    private static MethodHandle mhJsonObjOptJsonArray;
-    private static MethodHandle mhJsonObjNames;
-    private static MethodHandle mhJsonArrLength;
-    private static MethodHandle mhJsonArrOptString;
 
     static {
         installBuiltInLibrary();
@@ -317,23 +306,7 @@ public final class FactionLibrary {
     // PUBLIC SUBMODDER API
     // =========================================================================
 
-    /**
-     * Returns the default fallback Organization Rating for any faction not explicitly in the library
-     * (defaults to {@link OrganizationRating#HIGH} = 80%).
-     */
-    public static OrganizationRating getDefaultFallbackOrganizationRating() {
-        ensureLoaded();
-        return DEFAULT_FALLBACK_RATING;
-    }
 
-    /**
-     * Allows a submod to change the global fallback Organization Rating for unknown factions.
-     */
-    public static synchronized void setDefaultFallbackOrganizationRating(OrganizationRating rating) {
-        if (rating != null) {
-            DEFAULT_FALLBACK_RATING = rating;
-        }
-    }
 
     /**
      * Registers or overrides a faction's attributes (and any aliases) in the Faction Library.
@@ -367,14 +340,6 @@ public final class FactionLibrary {
         return created;
     }
 
-    /**
-     * Returns true if {@code factionId} has an explicit entry in the Faction Library.
-     */
-    public static boolean isFactionInLibrary(String factionId) {
-        ensureLoaded();
-        if (factionId == null) return false;
-        return FACTION_REGISTRY.containsKey(factionId.trim().toLowerCase(Locale.ROOT));
-    }
 
     /**
      * Resolves the {@link FactionAttributes} for a faction ID, returning a default entry with
@@ -401,21 +366,7 @@ public final class FactionLibrary {
         return createFallbackAttributes(factionId);
     }
 
-    /**
-     * Returns an unmodifiable view of all registered faction IDs -> FactionAttributes.
-     */
-    public static Map<String, FactionAttributes> getAllRegisteredFactions() {
-        ensureLoaded();
-        return Collections.unmodifiableMap(FACTION_REGISTRY);
-    }
 
-    /**
-     * Reloads built-in defaults and re-merges {@code data/config/division_faction_library.json}.
-     */
-    public static synchronized void reloadLibrary() {
-        configLoaded = false;
-        ensureLoaded();
-    }
 
     // =========================================================================
     // FLEET ROLE DETECTION & ORGANIZATION RATING RESOLUTION
@@ -900,32 +851,6 @@ public final class FactionLibrary {
         }
     }
 
-    private static void populateMerchantPrefixes(
-            FactionAttributes attr,
-            String convoyName,
-            String battleEscort,
-            String carrierEscort,
-            String cruiserEscort,
-            String destroyerEscort,
-            String frigateEscort,
-            String phaseEscort) {
-        attr.merchantFleetPrefixes.put(DivisionArchetype.SERVICE_GROUP, convoyName);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.BATTLESHIP_DIVISION, battleEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, battleEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.FLEET_CARRIER_DIVISION, carrierEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.LIGHT_CARRIER_DIVISION, carrierEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.ESCORT_CARRIER_DIVISION, carrierEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.CARRIER_GROUP, carrierEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.CRUISER_DIVISION, cruiserEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.MISSILE_CRUISER_DIVISION, cruiserEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.STRIKE_CRUISER_DIVISION, cruiserEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.DESTROYER_DIVISION, destroyerEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.MISSILE_DESTROYER_DIVISION, destroyerEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.FRIGATE_DIVISION, frigateEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.MISSILE_FRIGATE_DIVISION, frigateEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.PHASE_DIVISION, phaseEscort);
-        attr.merchantFleetPrefixes.put(DivisionArchetype.FORCE_DIVISION, destroyerEscort);
-    }
 
     private static void installBuiltInLibrary() {
         FACTION_REGISTRY.clear();
@@ -986,365 +911,13 @@ public final class FactionLibrary {
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.PHASE_DIVISION, "Survey Recon Group");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.FORCE_DIVISION, "Expedition Group");
 
-        // 1. HEGEMONY (War: VERY_HIGH 90%, Patrol: HIGH 80%, Merchant: AVERAGE 50%, Smuggler: LOW 25%)
-        FactionAttributes hegemony = createFallbackAttributes("hegemony");
-        hegemony.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        hegemony.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.HIGH);
-        hegemony.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.AVERAGE);
-        hegemony.roleOrganizationOverrides.put(FleetRoleCategory.SMUGGLER_RAIDER, OrganizationRating.LOW);
-        hegemony.roleOrganizationOverrides.put(FleetRoleCategory.SCAVENGER_EXPEDITION, OrganizationRating.AVERAGE);
-        populateMerchantPrefixes(hegemony,
-                "Chartered Convoy", "Convoy Battle Escort", "Convoy Carrier Wing",
-                "Convoy Cruiser Escort", "Convoy Destroyer Escort", "Convoy Picket", "Convoy Phase Screen");
-        registerFaction("hegemony", hegemony);
-
-        // 2. IRON SHELL / XIV SENTINELS (War: VERY_HIGH 90% / PERFECT 100%)
-        FactionAttributes ironShell = createFallbackAttributes("ironshell");
-        ironShell.aliases.addAll(Arrays.asList("iron shell 1.183aj"));
-        ironShell.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        ironShell.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.VERY_HIGH);
-        ironShell.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        populateMerchantPrefixes(ironShell,
-                "Ministry Tax Convoy", "Chitagupta Heavy Escort", "Convoy Flight Wing",
-                "Commerce Cruiser Escort", "Revenue Escort Flotilla", "Customs Picket", "Revenue Phase Screen");
-        registerFaction("ironshell", ironShell);
-
-        FactionAttributes ironSentinel = createFallbackAttributes("ironsentinel");
-        ironSentinel.warOrganizationRating = OrganizationRating.PERFECT;
-        registerFaction("ironsentinel", ironSentinel);
-
-        // 3. TRI-TACHYON CORPORATION (War: VERY_HIGH 90%, Patrol: HIGH 80%, Merchant: HIGH 80%, Smuggler: AVERAGE 50%)
-        FactionAttributes tritachyon = createFallbackAttributes("tritachyon");
-        tritachyon.aliases.addAll(Arrays.asList("hte", "tte"));
-        tritachyon.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        tritachyon.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.HIGH);
-        tritachyon.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        tritachyon.roleOrganizationOverrides.put(FleetRoleCategory.SMUGGLER_RAIDER, OrganizationRating.AVERAGE);
-        tritachyon.roleOrganizationOverrides.put(FleetRoleCategory.SCAVENGER_EXPEDITION, OrganizationRating.HIGH);
-        populateMerchantPrefixes(tritachyon,
-                "Commercial Caravan", "Capital Protection Unit", "Caravan Flight Group",
-                "Asset Security Unit", "Convoy Assurance Unit", "Caravan Picket Unit", "Special Commerce Escort");
-        registerFaction("tritachyon", tritachyon);
-
-        // 4. PERSEAN LEAGUE & MAYASURA (War: HIGH 80%, Patrol: HIGH 80%, Merchant: AVERAGE 50%, Smuggler: LOW 25%)
-        FactionAttributes persean = createFallbackAttributes("persean");
-        persean.aliases.addAll(Arrays.asList("persean_league", "mayasura", "mayasuran navy"));
-        persean.namingStyle = FactionNamingStyle.CULTURAL_PERSEAN;
-        persean.commanderPossessiveChance = 15;
-        persean.warUnitNouns.addAll(Arrays.asList(
-                "Division", "Flotilla", "Squadron", "Group", "Unit", "Fleet", "Phalanx", "Task Group"));
-        persean.merchantConvoyNouns.addAll(Arrays.asList(
-                "Merchant Flotilla", "Trade Convoy", "Free Trade Convoy", "Merchant Convoy", "Cargo Flotilla", "Trade Squadron"));
-        persean.merchantEscortNouns.addAll(Arrays.asList(
-                "Convoy Escort", "Caravan Guard", "Escort Lochos", "Trade Picket", "Convoy Phalanx", "Close Escort"));
-        persean.warOrganizationRating = OrganizationRating.HIGH;
-        persean.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.HIGH);
-        persean.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.AVERAGE);
-        persean.roleOrganizationOverrides.put(FleetRoleCategory.SMUGGLER_RAIDER, OrganizationRating.LOW);
-        persean.roleOrganizationOverrides.put(FleetRoleCategory.SCAVENGER_EXPEDITION, OrganizationRating.AVERAGE);
-        populateMerchantPrefixes(persean,
-                "Merchant Flotilla", "Convoy Phalanx", "Convoy Carrier Group",
-                "Convoy Mora", "Convoy Lochos", "Convoy Peltast", "Convoy Krypteia");
-        registerFaction("persean", persean);
-
-        FactionAttributes mayasuranGuard = createFallbackAttributes("mayasuran_guard");
-        mayasuranGuard.namingStyle = FactionNamingStyle.CULTURAL_PERSEAN;
-        mayasuranGuard.warOrganizationRating = OrganizationRating.PERFECT;
-        registerFaction("mayasuran_guard", mayasuranGuard);
-
-        // 5. SINDRIAN DIKTAT & LION'S GUARD (Diktat War: VERY_HIGH 90%, Lion's Guard: PERFECT 100%)
-        FactionAttributes diktat = createFallbackAttributes("sindrian_diktat");
-        diktat.aliases.add("sindran_diktat");
-        diktat.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        diktat.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.HIGH);
-        diktat.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        diktat.roleOrganizationOverrides.put(FleetRoleCategory.SMUGGLER_RAIDER, OrganizationRating.LOW);
-        populateMerchantPrefixes(diktat,
-                "State Fuel Convoy", "Fuel Convoy Heavy Guard", "Solar Convoy Wing",
-                "Fuel Convoy Cruiser Guard", "Convoy Vanguard Flotilla", "Convoy Picket Guard", "Convoy Special Guard");
-        registerFaction("sindrian_diktat", diktat);
-
-        FactionAttributes lionsGuard = createFallbackAttributes("lions_guard");
-        lionsGuard.warOrganizationRating = OrganizationRating.PERFECT;
-        populateMerchantPrefixes(lionsGuard,
-                "State Fuel Convoy", "Executor Convoy Guard", "Solar Convoy Wing",
-                "Lion's Convoy Phalanx", "Lion's Convoy Flotilla", "Lion's Convoy Picket", "Lion's Special Guard");
-        registerFaction("lions_guard", lionsGuard);
-
-        // 6. LUDDIC CHURCH & KNIGHTS OF LUDD (War: HIGH 80%, Knights Elite: VERY_HIGH 90%, Merchant/Pilgrim: AVERAGE 50%)
-        FactionAttributes church = createFallbackAttributes("luddic_church");
-        church.warOrganizationRating = OrganizationRating.HIGH;
-        church.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.HIGH);
-        church.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.AVERAGE);
-        church.roleOrganizationOverrides.put(FleetRoleCategory.SCAVENGER_EXPEDITION, OrganizationRating.AVERAGE);
-        populateMerchantPrefixes(church,
-                "Pilgrim Trade Convoy", "Bastion Convoy Escort", "Ark Convoy Host",
-                "Convoy Warden Group", "Convoy Sword Flotilla", "Pilgrim Watchers", "Penitent Escort");
-        church.scavengerFleetPrefixes.put(DivisionArchetype.SERVICE_GROUP, "Shrine Pilgrim Convoy");
-        church.scavengerFleetPrefixes.put(DivisionArchetype.FRIGATE_DIVISION, "Shrine Watchers");
-        church.scavengerFleetPrefixes.put(DivisionArchetype.DESTROYER_DIVISION, "Pilgrim Escort Flotilla");
-        registerFaction("luddic_church", church);
-
-        FactionAttributes kol = createFallbackAttributes("knights_of_ludd");
-        kol.aliases.addAll(Arrays.asList("knights_of_selkie", "zea_dawn", "zea_dusk", "zea_elysians", "templars"));
-        kol.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        kol.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.HIGH);
-        kol.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        populateMerchantPrefixes(kol,
-                "Sanctuary Relief Convoy", "Templar Heavy Escort", "Sanctuary Carrier Host",
-                "Crusader Convoy Guard", "Reliquary Escort Flotilla", "Vigil Picket", "Duskborne Veil Escort");
-        registerFaction("knights_of_ludd", kol);
-
-        // 7. LUDDIC PATH (Fanatic cells — War: AVERAGE 50%, Patrol/Raider: LOW 25%, Smuggler/Merchant: LOW 25%)
-        FactionAttributes path = createFallbackAttributes("luddic_path");
-        path.aliases.add("luddenhance");
-        path.namingStyle = FactionNamingStyle.CULTURAL_PIRATE_INDIE;
-        path.commanderPossessiveChance = 40;
-        path.warOrganizationRating = OrganizationRating.AVERAGE;
-        path.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.LOW);
-        path.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.LOW);
-        path.roleOrganizationOverrides.put(FleetRoleCategory.SMUGGLER_RAIDER, OrganizationRating.LOW);
-        path.roleOrganizationOverrides.put(FleetRoleCategory.SCAVENGER_EXPEDITION, OrganizationRating.LOW);
-        path.warUnitNouns.addAll(Arrays.asList(
-                "Flotilla", "Fleet", "Warband", "Pack", "Group", "Unit", "Division"));
-        path.merchantConvoyNouns.addAll(Arrays.asList(
-                "Tithe Convoy", "Pilgrim Caravan", "Supply Caravan", "Faithful Convoy"));
-        path.merchantEscortNouns.addAll(Arrays.asList(
-                "Caravan Watch", "Zealot Escort", "Faithful Guard", "Convoy Pack"));
-        path.smugglerConvoyNouns.addAll(Arrays.asList(
-                "Smuggler Cell", "Gunrunner Pack", "Hidden Caravan", "Supply Cell"));
-        path.smugglerEscortNouns.addAll(Arrays.asList(
-                "Raider Cell", "Ambush Pack", "Martyr Pack", "Outrider Cell"));
-        registerFaction("luddic_path", path);
-
-        // 8. PIRATES & OUTLAW FACTIONS (War: LOW 25%, Patrol/Raider/Smuggler/Merchant: LOW 25%)
-        FactionAttributes pirates = createFallbackAttributes("pirates");
-        pirates.aliases.addAll(Arrays.asList(
-                "pirate_privateers", "jaydeepiracy", "jdp_flowerfish", "hmi_sv", "fang"));
-        pirates.namingStyle = FactionNamingStyle.CULTURAL_PIRATE_INDIE;
-        pirates.commanderPossessiveChance = 55;
-        pirates.warOrganizationRating = OrganizationRating.LOW;
-        pirates.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.LOW);
-        pirates.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.LOW);
-        pirates.roleOrganizationOverrides.put(FleetRoleCategory.SMUGGLER_RAIDER, OrganizationRating.LOW);
-        pirates.roleOrganizationOverrides.put(FleetRoleCategory.SCAVENGER_EXPEDITION, OrganizationRating.LOW);
-        pirates.warUnitNouns.addAll(Arrays.asList(
-                "Flotilla", "Fleet", "Warband", "Pack", "Group", "Unit", "Gang", "Division"));
-        pirates.merchantConvoyNouns.addAll(Arrays.asList(
-                "Prize Convoy", "Booty Caravan", "Fence Convoy", "Smuggler Convoy", "Trader Pack"));
-        pirates.merchantEscortNouns.addAll(Arrays.asList(
-                "Convoy Guard", "Prize Escort", "Outrider Pack", "Cutthroat Escort"));
-        pirates.smugglerConvoyNouns.addAll(Arrays.asList(
-                "Contraband Run", "Blockade Runners", "Smuggler Pack", "Prize Crew", "Black-Market Convoy"));
-        pirates.smugglerEscortNouns.addAll(Arrays.asList(
-                "Runner Escort", "Raider Pack", "Cutthroat Pack", "Privateer Pack", "Outrider Gang"));
-        pirates.scavengerConvoyNouns.addAll(Arrays.asList(
-                "Scrapper Crew", "Wreck-Picker Pack", "Stripper Convoy", "Salvage Gang"));
-        pirates.scavengerEscortNouns.addAll(Arrays.asList(
-                "Scrapper Guard", "Claim-Jumper Pack", "Vulture Pack"));
-        registerFaction("pirates", pirates);
-
-        // 9. INDEPENDENTS (War: AVERAGE 50%, Patrol: AVERAGE 50%, Merchant: AVERAGE 50%, Scavenger/Smuggler: LOW 25%)
-        FactionAttributes independent = createFallbackAttributes("independent");
-        independent.aliases.addAll(Arrays.asList("brighton", "hmi_brighton", "pack"));
-        independent.namingStyle = FactionNamingStyle.CULTURAL_PIRATE_INDIE;
-        independent.commanderPossessiveChance = 40;
-        independent.warOrganizationRating = OrganizationRating.AVERAGE;
-        independent.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.AVERAGE);
-        independent.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.AVERAGE);
-        independent.roleOrganizationOverrides.put(FleetRoleCategory.SMUGGLER_RAIDER, OrganizationRating.LOW);
-        independent.roleOrganizationOverrides.put(FleetRoleCategory.SCAVENGER_EXPEDITION, OrganizationRating.LOW);
-        independent.warUnitNouns.addAll(Arrays.asList(
-                "Flotilla", "Fleet", "Warband", "Pack", "Group", "Unit", "Division"));
-        independent.merchantConvoyNouns.addAll(Arrays.asList(
-                "Merchant Convoy", "Trade Convoy", "Freighter Convoy", "Trade Flotilla", "Cargo Flotilla", "Merchant Group", "Caravan"));
-        independent.merchantEscortNouns.addAll(Arrays.asList(
-                "Convoy Escort", "Caravan Guard", "Escort Flotilla", "Outrider Escort", "Trade Guard", "Close Escort"));
-        independent.smugglerConvoyNouns.addAll(Arrays.asList(
-                "Free-Trader Run", "Blockade Runners", "Smuggler Convoy", "Runner Group"));
-        independent.smugglerEscortNouns.addAll(Arrays.asList(
-                "Runner Escort", "Privateer Group", "Outrider Pack", "Escort Unit"));
-        independent.scavengerConvoyNouns.addAll(Arrays.asList(
-                "Salvage Convoy", "Recovery Flotilla", "Prospecting Group", "Mining Convoy", "Survey Convoy", "Salvage Rig Group"));
-        independent.scavengerEscortNouns.addAll(Arrays.asList(
-                "Salvage Guard", "Claim Watch", "Expedition Escort", "Rig Escort"));
-        registerFaction("independent", independent);
-
-        // 10. CARTER'S FREETRADERS & INDEVO COURIERS (Organized Merchant Houses — Merchant: HIGH 80%, War: AVERAGE 50%)
-        FactionAttributes cft = createFallbackAttributes("cft");
-        cft.aliases.add("indevo_couriers");
-        cft.namingStyle = FactionNamingStyle.CULTURAL_PIRATE_INDIE;
-        cft.commanderPossessiveChance = 35;
-        cft.warOrganizationRating = OrganizationRating.AVERAGE;
-        cft.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        cft.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.AVERAGE);
-        cft.warUnitNouns.addAll(Arrays.asList("Flotilla", "Fleet", "Group", "Unit", "Division", "Caravan"));
-        cft.merchantConvoyNouns.addAll(Arrays.asList(
-                "Freetrader Convoy", "Trade Caravan", "Merchant Flotilla", "Chartered Caravan", "Express Convoy"));
-        cft.merchantEscortNouns.addAll(Arrays.asList(
-                "Caravan Guard", "Convoy Escort", "Freetrader Escort", "Outrider Guard"));
-        registerFaction("cft", cft);
-
-        // 11. SCAVENGERS & INDUSTRIAL / MINING GUILDS (Scavengers: LOW 25%; HMI / JYD: AVERAGE 50%)
-        FactionAttributes scavs = createFallbackAttributes("scavengers");
-        scavs.aliases.add("astroidships");
-        scavs.namingStyle = FactionNamingStyle.CULTURAL_PIRATE_INDIE;
-        scavs.commanderPossessiveChance = 40;
-        scavs.warOrganizationRating = OrganizationRating.LOW;
-        scavs.roleOrganizationOverrides.put(FleetRoleCategory.SCAVENGER_EXPEDITION, OrganizationRating.LOW);
-        scavs.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.LOW);
-        scavs.warUnitNouns.addAll(Arrays.asList("Flotilla", "Pack", "Group", "Unit", "Crew"));
-        scavs.scavengerConvoyNouns.addAll(Arrays.asList(
-                "Salvage Convoy", "Recovery Crew", "Wrecking Flotilla", "Prospecting Crew", "Rig Group"));
-        scavs.scavengerEscortNouns.addAll(Arrays.asList(
-                "Salvage Guard", "Claim Watch", "Rig Escort", "Outrider Watch"));
-        registerFaction("scavengers", scavs);
-
-        FactionAttributes hmi = createFallbackAttributes("hmi");
-        hmi.aliases.addAll(Arrays.asList("hmi_exec", "jyd"));
-        hmi.namingStyle = FactionNamingStyle.CULTURAL_PIRATE_INDIE;
-        hmi.commanderPossessiveChance = 35;
-        hmi.warOrganizationRating = OrganizationRating.AVERAGE;
-        hmi.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.AVERAGE);
-        hmi.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.AVERAGE);
-        hmi.roleOrganizationOverrides.put(FleetRoleCategory.SCAVENGER_EXPEDITION, OrganizationRating.AVERAGE);
-        hmi.warUnitNouns.addAll(Arrays.asList("Flotilla", "Group", "Unit", "Division", "Crew", "Pack"));
-        hmi.merchantConvoyNouns.addAll(Arrays.asList(
-                "Ore Convoy", "Industrial Haul", "Freighter Convoy", "Company Convoy", "Bulk Flotilla"));
-        hmi.merchantEscortNouns.addAll(Arrays.asList(
-                "Company Guard", "Haul Escort", "Hazard Escort", "Security Unit"));
-        hmi.scavengerConvoyNouns.addAll(Arrays.asList(
-                "Mining Crew", "Deep-Core Rig Group", "Recovery Convoy", "Strip-Mining Flotilla"));
-        hmi.scavengerEscortNouns.addAll(Arrays.asList(
-                "Claim Security", "Rig Guard", "Hazard Watch"));
-        registerFaction("hmi", hmi);
-
-        // 12. MERCENARIES (Chartered Companies — War/Patrol/Escort: HIGH 80%)
-        FactionAttributes merc = createFallbackAttributes("mercenary");
-        merc.aliases.addAll(Arrays.asList("famous_bounty", "ml_bounty"));
-        merc.namingStyle = FactionNamingStyle.CULTURAL_PIRATE_INDIE;
-        merc.commanderPossessiveChance = 45;
-        merc.warOrganizationRating = OrganizationRating.HIGH;
-        merc.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.HIGH);
-        merc.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        merc.warUnitNouns.addAll(Arrays.asList("Company", "Squadron", "Flotilla", "Group", "Unit", "Division", "Lance"));
-        merc.merchantConvoyNouns.addAll(Arrays.asList("Contract Convoy", "Chartered Convoy", "Bonded Caravan"));
-        merc.merchantEscortNouns.addAll(Arrays.asList("Contract Escort", "Charter Guard", "Security Lance"));
-        registerFaction("mercenary", merc);
-
-        // 13. MAJOR MODDED MILITARY / CORPORATE FACTIONS
-        FactionAttributes uaf = createFallbackAttributes("uaf");
-        uaf.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        uaf.roleOrganizationOverrides.put(FleetRoleCategory.PATROL_PICKET, OrganizationRating.HIGH);
-        uaf.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        populateMerchantPrefixes(uaf,
-                "Auroran Bakery & Trade Convoy", "Royal Convoy Battle Escort", "Auroran Escort Carrier Wing",
-                "Royal Convoy Cruiser Escort", "Royal Convoy Destroyer Escort", "Auroran Convoy Picket", "Convoy Phase Screen");
-        registerFaction("uaf", uaf);
-
-        FactionAttributes uafElite = createFallbackAttributes("uaf_november");
-        uafElite.aliases.add("uaf_automata");
-        uafElite.warOrganizationRating = OrganizationRating.PERFECT;
-        registerFaction("uaf_november", uafElite);
-
-        FactionAttributes imperium = createFallbackAttributes("interstellarimperium");
-        imperium.aliases.add("imperium");
-        imperium.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        imperium.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        populateMerchantPrefixes(imperium,
-                "Imperial Grain & Trade Convoy", "Legionary Convoy Escort", "Imperial Convoy Carrier Wing",
-                "Cohort Cruiser Escort", "Manipular Escort", "Velites Convoy Picket", "Speculatores Screen");
-        registerFaction("interstellarimperium", imperium);
-
-        FactionAttributes impGuard = createFallbackAttributes("ii_imperial_guard");
-        impGuard.warOrganizationRating = OrganizationRating.PERFECT;
-        registerFaction("ii_imperial_guard", impGuard);
-
-        FactionAttributes diable = createFallbackAttributes("diableavionics");
-        diable.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        diable.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        registerFaction("diableavionics", diable);
-
-        FactionAttributes xhan = createFallbackAttributes("xhanempire");
-        xhan.aliases.add("vantanet");
-        xhan.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        xhan.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        registerFaction("xhanempire", xhan);
-
-        FactionAttributes scy = createFallbackAttributes("scy");
-        scy.aliases.add("scynation");
-        scy.warOrganizationRating = OrganizationRating.HIGH;
-        scy.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.AVERAGE);
-        registerFaction("scy", scy);
-
-        FactionAttributes corporateTechno = createFallbackAttributes("koc");
-        corporateTechno.aliases.addAll(Arrays.asList(
-                "everybody loves koc", "eridani", "bhilai", "kyeltziv", "kyeltziv technocracy",
-                "unitedpamed", "ora", "shadow_industry", "neutrinocorp", "metelson",
-                "syndicate_asp", "tahlan_greathouses", "blackrock_driveyards", "dassault_mikoyan", "sms_curator"));
-        corporateTechno.warOrganizationRating = OrganizationRating.HIGH;
-        corporateTechno.roleOrganizationOverrides.put(FleetRoleCategory.MERCHANT_CONVOY, OrganizationRating.HIGH);
-        registerFaction("koc", corporateTechno);
-
-        FactionAttributes legio = createFallbackAttributes("tahlan_legioinfernalis");
-        legio.warOrganizationRating = OrganizationRating.VERY_HIGH;
-        registerFaction("tahlan_legioinfernalis", legio);
-
-        FactionAttributes stealthRaiders = createFallbackAttributes("maybegoogle");
-        stealthRaiders.aliases.addAll(Arrays.asList("rat_exotech", "draco", "jdp_deadcomm", "jdp_laplacians"));
-        stealthRaiders.warOrganizationRating = OrganizationRating.AVERAGE;
-        registerFaction("maybegoogle", stealthRaiders);
-
-        // 14. POST-AI WAR / THE THREAT / ABYSSAL (PERFECT 100%)
-        FactionAttributes remnant = createFallbackAttributes("remnant");
-        remnant.aliases.addAll(Arrays.asList(
-                "remnants", "derelict", "nex_derelict", "domres", "indevo_derelict", "indevo_converters"));
-        remnant.nomenclatureCategory = NomenclatureCategory.POST_AI_WAR;
-        remnant.namingStyle = FactionNamingStyle.POST_AI_WAR_UNKNOWN;
-        remnant.warOrganizationRating = OrganizationRating.PERFECT;
-        registerFaction("remnant", remnant);
-
-        FactionAttributes threat = createFallbackAttributes("threat");
-        threat.aliases.addAll(Arrays.asList("mess", "mess_remnant", "hmi_nightmare"));
-        threat.nomenclatureCategory = NomenclatureCategory.THREAT_SWARM;
-        threat.namingStyle = FactionNamingStyle.THREAT_CORRUPTED;
-        threat.warOrganizationRating = OrganizationRating.PERFECT;
-        registerFaction("threat", threat);
-
-        FactionAttributes dweller = createFallbackAttributes("dweller");
-        dweller.aliases.addAll(Arrays.asList(
-                "omega", "liminal", "rat_abyssals", "rat_abyssals_deep", "rat_abyssals_deep_seraph",
-                "rat_abyssals_primordial", "rat_abyssals_primordials", "rat_abyssals_sim",
-                "rat_abyssals_harmony", "rat_abyssals_serenity", "rat_abyssals_solitude", "rat_abyssals_wastes"));
-        dweller.nomenclatureCategory = NomenclatureCategory.ABYSSAL_ERROR;
-        dweller.namingStyle = FactionNamingStyle.ABYSSAL_ERROR;
-        dweller.warOrganizationRating = OrganizationRating.PERFECT;
-        registerFaction("dweller", dweller);
     }
 
     public static synchronized void ensureLoaded() {
         if (configLoaded) return;
         installBuiltInLibrary();
         try {
-            ensureJsonHandlesInitialized();
-            Object rootJson = null;
-            if (Global.getSettings() != null && mhGetMergedJsonForMod != null) {
-                try {
-                    rootJson = mhGetMergedJsonForMod.invoke(Global.getSettings(), CONFIG_PATH, MOD_ID);
-                } catch (Throwable ignored) {
-                }
-            }
-            if (rootJson == null && Global.getSettings() == null && mhJsonObjFromStringCtor != null) {
-                // Offline headless unit-test fallback only (never invoked inside the Starsector runtime)
-                File localFile = new File("mod/" + CONFIG_PATH);
-                if (!localFile.isFile()) {
-                    localFile = new File(CONFIG_PATH);
-                }
-                if (localFile.isFile()) {
-                    String raw = new String(Files.readAllBytes(localFile.toPath()), StandardCharsets.UTF_8);
-                    rootJson = mhJsonObjFromStringCtor.invoke(raw);
-                }
-            }
+            Object rootJson = JsonReflectBridge.loadMergedModJson(CONFIG_PATH, MOD_ID);
             if (rootJson != null) {
                 parseMergedLibraryJson(rootJson);
             }
@@ -1355,85 +928,33 @@ public final class FactionLibrary {
         }
     }
 
-    private static synchronized void ensureJsonHandlesInitialized() {
-        if (jsonHandlesResolved) return;
-        jsonHandlesResolved = true;
-        try {
-            ClassLoader cl = FactionLibrary.class.getClassLoader();
-            Class<?> settingsClass = Class.forName("com.fs.starfarer.api.SettingsAPI", false, cl);
-            Class<?> jsonObjClass = Class.forName("org.json.JSONObject", false, cl);
-            Class<?> jsonArrClass = Class.forName("org.json.JSONArray", false, cl);
-            MethodHandles.Lookup lookup = MethodHandles.publicLookup();
-
-            mhGetMergedJsonForMod = lookup.findVirtual(
-                    settingsClass,
-                    "getMergedJSONForMod",
-                    MethodType.methodType(jsonObjClass, String.class, String.class));
-            mhJsonObjFromStringCtor = lookup.findConstructor(
-                    jsonObjClass,
-                    MethodType.methodType(void.class, String.class));
-            mhJsonObjOptString = lookup.findVirtual(
-                    jsonObjClass,
-                    "optString",
-                    MethodType.methodType(String.class, String.class, String.class));
-            mhJsonObjOptInt = lookup.findVirtual(
-                    jsonObjClass,
-                    "optInt",
-                    MethodType.methodType(int.class, String.class, int.class));
-            mhJsonObjOptBoolean = lookup.findVirtual(
-                    jsonObjClass,
-                    "optBoolean",
-                    MethodType.methodType(boolean.class, String.class, boolean.class));
-            mhJsonObjOptJsonObject = lookup.findVirtual(
-                    jsonObjClass,
-                    "optJSONObject",
-                    MethodType.methodType(jsonObjClass, String.class));
-            mhJsonObjOptJsonArray = lookup.findVirtual(
-                    jsonObjClass,
-                    "optJSONArray",
-                    MethodType.methodType(jsonArrClass, String.class));
-            mhJsonObjNames = lookup.findVirtual(
-                    jsonObjClass,
-                    "names",
-                    MethodType.methodType(jsonArrClass));
-            mhJsonArrLength = lookup.findVirtual(
-                    jsonArrClass,
-                    "length",
-                    MethodType.methodType(int.class));
-            mhJsonArrOptString = lookup.findVirtual(
-                    jsonArrClass,
-                    "optString",
-                    MethodType.methodType(String.class, int.class, String.class));
-        } catch (Throwable ignored) {
-        }
-    }
 
     private static void parseMergedLibraryJson(Object rootJson) throws Throwable {
-        String defRatingStr = (String) mhJsonObjOptString.invoke(rootJson, "defaultOrganizationRating", "high");
+        String defRatingStr = JsonReflectBridge.optString(rootJson, "defaultOrganizationRating", "high");
         DEFAULT_FALLBACK_RATING = OrganizationRating.fromId(defRatingStr, OrganizationRating.HIGH);
 
-        Object defMerchObj = mhJsonObjOptJsonObject.invoke(rootJson, "defaultMerchantPrefixes");
+        Object defMerchObj = JsonReflectBridge.optJSONObject(rootJson, "defaultMerchantPrefixes");
         if (defMerchObj != null) {
             parseArchetypePrefixMap(defMerchObj, DEFAULT_MERCHANT_PREFIXES);
         }
-        Object defSmugObj = mhJsonObjOptJsonObject.invoke(rootJson, "defaultSmugglerPrefixes");
+        Object defSmugObj = JsonReflectBridge.optJSONObject(rootJson, "defaultSmugglerPrefixes");
         if (defSmugObj != null) {
             parseArchetypePrefixMap(defSmugObj, DEFAULT_SMUGGLER_PREFIXES);
         }
-        Object defScavObj = mhJsonObjOptJsonObject.invoke(rootJson, "defaultScavengerPrefixes");
+        Object defScavObj = JsonReflectBridge.optJSONObject(rootJson, "defaultScavengerPrefixes");
         if (defScavObj != null) {
             parseArchetypePrefixMap(defScavObj, DEFAULT_SCAVENGER_PREFIXES);
         }
 
-        Object factionsObj = mhJsonObjOptJsonObject.invoke(rootJson, "factions");
+        Object factionsObj = JsonReflectBridge.optJSONObject(rootJson, "factions");
         if (factionsObj == null) return;
-        Object namesArr = mhJsonObjNames.invoke(factionsObj);
+        Object namesArr = JsonReflectBridge.names(factionsObj);
         if (namesArr == null) return;
-        int len = (int) mhJsonArrLength.invoke(namesArr);
+        int len = JsonReflectBridge.arrayLength(namesArr);
         for (int i = 0; i < len; i++) {
-            String factionKey = (String) mhJsonArrOptString.invoke(namesArr, i, "");
+            String factionKey = JsonReflectBridge.arrayOptString(namesArr, i, "");
             if (factionKey == null || factionKey.isEmpty() || factionKey.startsWith("#")) continue;
-            Object fObj = mhJsonObjOptJsonObject.invoke(factionsObj, factionKey);
+            Object fObj = JsonReflectBridge.optJSONObject(factionsObj, factionKey);
             if (fObj == null) continue;
 
             String normKey = factionKey.trim().toLowerCase(Locale.ROOT);
@@ -1442,7 +963,7 @@ public final class FactionLibrary {
                 attr = createFallbackAttributes(normKey);
             }
 
-            String catStr = (String) mhJsonObjOptString.invoke(fObj, "nomenclatureCategory", "");
+            String catStr = JsonReflectBridge.optString(fObj, "nomenclatureCategory", "");
             if (!catStr.isEmpty()) {
                 for (NomenclatureCategory c : NomenclatureCategory.values()) {
                     if (c.name().equalsIgnoreCase(catStr.trim())) {
@@ -1452,108 +973,107 @@ public final class FactionLibrary {
                 }
             }
 
-            String styleStr = (String) mhJsonObjOptString.invoke(fObj, "namingStyle", "");
+            String styleStr = JsonReflectBridge.optString(fObj, "namingStyle", "");
             if (!styleStr.isEmpty()) {
                 attr.namingStyle = FactionNamingStyle.fromId(styleStr, attr.namingStyle);
             }
 
-            String presetStr = (String) mhJsonObjOptString.invoke(fObj, "basePreset", "");
+            String presetStr = JsonReflectBridge.optString(fObj, "basePreset", "");
             if (!presetStr.isEmpty()) {
                 PlayerNamingPreset p = PlayerNamingPreset.fromId(presetStr, attr.basePreset);
                 attr.basePreset = p;
                 populateDefaultPresetPrefixes(attr, p);
             }
 
-            String numStr = (String) mhJsonObjOptString.invoke(fObj, "defaultNumbering", "");
+            String numStr = JsonReflectBridge.optString(fObj, "defaultNumbering", "");
             if (!numStr.isEmpty()) {
                 attr.defaultNumbering = NumberingStyle.fromId(numStr, attr.defaultNumbering);
             }
 
-            String bNumStr = (String) mhJsonObjOptString.invoke(fObj, "battleshipNumbering", "");
+            String bNumStr = JsonReflectBridge.optString(fObj, "battleshipNumbering", "");
             if (!bNumStr.isEmpty()) {
                 attr.battleshipNumbering = NumberingStyle.fromId(bNumStr, attr.battleshipNumbering);
             }
 
-            attr.battleshipDotRoman = (boolean) mhJsonObjOptBoolean.invoke(fObj, "battleshipDotRoman", attr.battleshipDotRoman);
-            attr.commanderPossessiveChance = (int) mhJsonObjOptInt.invoke(
-                    fObj, "commanderPossessiveChance", attr.commanderPossessiveChance);
+            attr.battleshipDotRoman = JsonReflectBridge.optBoolean(fObj, "battleshipDotRoman", attr.battleshipDotRoman);
+            attr.commanderPossessiveChance = JsonReflectBridge.optInt(fObj, "commanderPossessiveChance", attr.commanderPossessiveChance);
 
-            String orgStr = (String) mhJsonObjOptString.invoke(fObj, "organizationRating", "");
+            String orgStr = JsonReflectBridge.optString(fObj, "organizationRating", "");
             if (!orgStr.isEmpty()) {
                 attr.warOrganizationRating = OrganizationRating.fromId(orgStr, attr.warOrganizationRating);
             }
 
-            String patrolOrgStr = (String) mhJsonObjOptString.invoke(fObj, "patrolOrganizationRating", "");
+            String patrolOrgStr = JsonReflectBridge.optString(fObj, "patrolOrganizationRating", "");
             if (!patrolOrgStr.isEmpty()) {
                 attr.roleOrganizationOverrides.put(
                         FleetRoleCategory.PATROL_PICKET,
                         OrganizationRating.fromId(patrolOrgStr, attr.warOrganizationRating));
             }
-            String merchOrgStr = (String) mhJsonObjOptString.invoke(fObj, "merchantOrganizationRating", "");
+            String merchOrgStr = JsonReflectBridge.optString(fObj, "merchantOrganizationRating", "");
             if (!merchOrgStr.isEmpty()) {
                 attr.roleOrganizationOverrides.put(
                         FleetRoleCategory.MERCHANT_CONVOY,
                         OrganizationRating.fromId(merchOrgStr, attr.warOrganizationRating));
             }
-            String smugOrgStr = (String) mhJsonObjOptString.invoke(fObj, "smugglerOrganizationRating", "");
+            String smugOrgStr = JsonReflectBridge.optString(fObj, "smugglerOrganizationRating", "");
             if (!smugOrgStr.isEmpty()) {
                 attr.roleOrganizationOverrides.put(
                         FleetRoleCategory.SMUGGLER_RAIDER,
                         OrganizationRating.fromId(smugOrgStr, attr.warOrganizationRating));
             }
-            String scavOrgStr = (String) mhJsonObjOptString.invoke(fObj, "scavengerOrganizationRating", "");
+            String scavOrgStr = JsonReflectBridge.optString(fObj, "scavengerOrganizationRating", "");
             if (!scavOrgStr.isEmpty()) {
                 attr.roleOrganizationOverrides.put(
                         FleetRoleCategory.SCAVENGER_EXPEDITION,
                         OrganizationRating.fromId(scavOrgStr, attr.warOrganizationRating));
             }
 
-            Object aliasesArr = mhJsonObjOptJsonArray.invoke(fObj, "aliases");
+            Object aliasesArr = JsonReflectBridge.optJSONArray(fObj, "aliases");
             if (aliasesArr != null) {
                 parseStringList(aliasesArr, attr.aliases, false);
             }
-            Object warNounsArr = mhJsonObjOptJsonArray.invoke(fObj, "warUnitNouns");
+            Object warNounsArr = JsonReflectBridge.optJSONArray(fObj, "warUnitNouns");
             if (warNounsArr != null) {
                 parseStringList(warNounsArr, attr.warUnitNouns, true);
             }
-            Object merchConvoyArr = mhJsonObjOptJsonArray.invoke(fObj, "merchantConvoyNouns");
+            Object merchConvoyArr = JsonReflectBridge.optJSONArray(fObj, "merchantConvoyNouns");
             if (merchConvoyArr != null) {
                 parseStringList(merchConvoyArr, attr.merchantConvoyNouns, true);
             }
-            Object merchEscortArr = mhJsonObjOptJsonArray.invoke(fObj, "merchantEscortNouns");
+            Object merchEscortArr = JsonReflectBridge.optJSONArray(fObj, "merchantEscortNouns");
             if (merchEscortArr != null) {
                 parseStringList(merchEscortArr, attr.merchantEscortNouns, true);
             }
-            Object smugConvoyArr = mhJsonObjOptJsonArray.invoke(fObj, "smugglerConvoyNouns");
+            Object smugConvoyArr = JsonReflectBridge.optJSONArray(fObj, "smugglerConvoyNouns");
             if (smugConvoyArr != null) {
                 parseStringList(smugConvoyArr, attr.smugglerConvoyNouns, true);
             }
-            Object smugEscortArr = mhJsonObjOptJsonArray.invoke(fObj, "smugglerEscortNouns");
+            Object smugEscortArr = JsonReflectBridge.optJSONArray(fObj, "smugglerEscortNouns");
             if (smugEscortArr != null) {
                 parseStringList(smugEscortArr, attr.smugglerEscortNouns, true);
             }
-            Object scavConvoyArr = mhJsonObjOptJsonArray.invoke(fObj, "scavengerConvoyNouns");
+            Object scavConvoyArr = JsonReflectBridge.optJSONArray(fObj, "scavengerConvoyNouns");
             if (scavConvoyArr != null) {
                 parseStringList(scavConvoyArr, attr.scavengerConvoyNouns, true);
             }
-            Object scavEscortArr = mhJsonObjOptJsonArray.invoke(fObj, "scavengerEscortNouns");
+            Object scavEscortArr = JsonReflectBridge.optJSONArray(fObj, "scavengerEscortNouns");
             if (scavEscortArr != null) {
                 parseStringList(scavEscortArr, attr.scavengerEscortNouns, true);
             }
 
-            Object warPrefObj = mhJsonObjOptJsonObject.invoke(fObj, "warFleetPrefixes");
+            Object warPrefObj = JsonReflectBridge.optJSONObject(fObj, "warFleetPrefixes");
             if (warPrefObj != null) {
                 parseArchetypePrefixMap(warPrefObj, attr.warFleetPrefixes);
             }
-            Object merchPrefObj = mhJsonObjOptJsonObject.invoke(fObj, "merchantFleetPrefixes");
+            Object merchPrefObj = JsonReflectBridge.optJSONObject(fObj, "merchantFleetPrefixes");
             if (merchPrefObj != null) {
                 parseArchetypePrefixMap(merchPrefObj, attr.merchantFleetPrefixes);
             }
-            Object smugPrefObj = mhJsonObjOptJsonObject.invoke(fObj, "smugglerFleetPrefixes");
+            Object smugPrefObj = JsonReflectBridge.optJSONObject(fObj, "smugglerFleetPrefixes");
             if (smugPrefObj != null) {
                 parseArchetypePrefixMap(smugPrefObj, attr.smugglerFleetPrefixes);
             }
-            Object scavPrefObj = mhJsonObjOptJsonObject.invoke(fObj, "scavengerFleetPrefixes");
+            Object scavPrefObj = JsonReflectBridge.optJSONObject(fObj, "scavengerFleetPrefixes");
             if (scavPrefObj != null) {
                 parseArchetypePrefixMap(scavPrefObj, attr.scavengerFleetPrefixes);
             }
@@ -1564,9 +1084,9 @@ public final class FactionLibrary {
 
     private static void parseStringList(Object jsonArr, List<String> target, boolean clearFirst) throws Throwable {
         if (clearFirst) target.clear();
-        int len = (int) mhJsonArrLength.invoke(jsonArr);
+        int len = JsonReflectBridge.arrayLength(jsonArr);
         for (int i = 0; i < len; i++) {
-            String s = (String) mhJsonArrOptString.invoke(jsonArr, i, "");
+            String s = JsonReflectBridge.arrayOptString(jsonArr, i, "");
             if (s != null && !s.trim().isEmpty() && !target.contains(s.trim())) {
                 target.add(s.trim());
             }
@@ -1574,13 +1094,13 @@ public final class FactionLibrary {
     }
 
     private static void parseArchetypePrefixMap(Object jsonObj, Map<DivisionArchetype, String> target) throws Throwable {
-        Object namesArr = mhJsonObjNames.invoke(jsonObj);
+        Object namesArr = JsonReflectBridge.names(jsonObj);
         if (namesArr == null) return;
-        int len = (int) mhJsonArrLength.invoke(namesArr);
+        int len = JsonReflectBridge.arrayLength(namesArr);
         for (int i = 0; i < len; i++) {
-            String key = (String) mhJsonArrOptString.invoke(namesArr, i, "");
+            String key = JsonReflectBridge.arrayOptString(namesArr, i, "");
             if (key == null || key.isEmpty() || key.startsWith("#")) continue;
-            String val = (String) mhJsonObjOptString.invoke(jsonObj, key, "");
+            String val = JsonReflectBridge.optString(jsonObj, key, "");
             if (val == null || val.trim().isEmpty()) continue;
             try {
                 DivisionArchetype arch = DivisionArchetype.valueOf(DivisionArchetype.resolveLegacyName(key.trim().toUpperCase(Locale.ROOT)));

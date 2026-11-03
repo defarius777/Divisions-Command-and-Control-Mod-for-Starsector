@@ -291,17 +291,6 @@ public class DynamicBattleMusicController {
 
     // MethodHandles for Starsector's native sound.H, sound.O, AL10, and org.json (zero java.lang.reflect)
     private static boolean audioHandlesInitialized = false;
-    private static MethodHandle mhGetMergedJsonForMod;
-    private static MethodHandle mhJsonObjFromStringCtor;
-    private static MethodHandle mhJsonObjOptBoolean;
-    private static MethodHandle mhJsonObjOptDouble;
-    private static MethodHandle mhJsonObjOptString;
-    private static MethodHandle mhJsonObjOptJsonObject;
-    private static MethodHandle mhJsonObjOptJsonArray;
-    private static MethodHandle mhJsonObjNames;
-    private static MethodHandle mhJsonArrLength;
-    private static MethodHandle mhJsonArrOptString;
-    private static MethodHandle mhJsonArrOptJsonObject;
 
     private static MethodHandle mhSoundHGetInstance;
     private static MethodHandle mhSoundHGetMasterMusicVol;
@@ -342,30 +331,15 @@ public class DynamicBattleMusicController {
         installBuiltInDefaults();
     }
 
-    /**
-     * Public API for submods to register or override a faction's dynamic battle music profile programmatically.
-     */
-    public static synchronized void registerFactionProfile(String factionId, FactionMusicProfile profile) {
-        if (factionId == null || profile == null) return;
-        FACTION_PROFILES.put(factionId.trim().toLowerCase(Locale.ROOT), profile);
-    }
 
-    /**
-     * Public API for submods to override the default fallback battle music profile.
-     */
-    public static synchronized void setDefaultProfile(FactionMusicProfile profile) {
-        if (profile != null) {
-            defaultProfile = profile;
-        }
-    }
 
     public static synchronized void ensureConfigLoaded() {
         if (configLoaded) return;
         installBuiltInDefaults();
         try {
-            ensureJsonHandlesInitialized();
-            if (Global.getSettings() != null && mhGetMergedJsonForMod != null) {
-                Object rootJson = mhGetMergedJsonForMod.invoke(Global.getSettings(), CONFIG_PATH, MOD_ID);
+            JsonReflectBridge.ensureInitialized();
+            if (Global.getSettings() != null) {
+                Object rootJson = JsonReflectBridge.loadMergedModJson(CONFIG_PATH, MOD_ID);
                 if (rootJson != null) {
                     parseMergedConfigJsonObject(rootJson);
                 }
@@ -487,17 +461,17 @@ public class DynamicBattleMusicController {
 
     private static synchronized void parseMergedConfigJsonObject(Object root) throws Throwable {
         if (root == null) return;
-        systemEnabled = (boolean) mhJsonObjOptBoolean.invoke(root, "enabled", true);
-        float defThreshold = (float) (double) mhJsonObjOptDouble.invoke(root, "defaultActivationThreshold", (double) DEFAULT_ACTIVATION_THRESHOLD);
-        float defFull = (float) (double) mhJsonObjOptDouble.invoke(root, "defaultFullVolumeEngagement", (double) DEFAULT_FULL_VOLUME_ENGAGEMENT);
-        float defMinVol = (float) (double) mhJsonObjOptDouble.invoke(root, "defaultMinVolume", (double) DEFAULT_MIN_VOLUME);
-        float defMaxVol = (float) (double) mhJsonObjOptDouble.invoke(root, "defaultMaxVolume", (double) DEFAULT_MAX_VOLUME);
-        fadeInSpeedPerSec = (float) (double) mhJsonObjOptDouble.invoke(root, "fadeInSpeedPerSec", (double) DEFAULT_FADE_IN_SPEED);
-        fadeOutSpeedPerSec = (float) (double) mhJsonObjOptDouble.invoke(root, "fadeOutSpeedPerSec", (double) DEFAULT_FADE_OUT_SPEED);
-        defaultPauseFadeOutSec = (float) (double) mhJsonObjOptDouble.invoke(root, "defaultPauseFadeOutSec", (double) DEFAULT_PAUSE_FADE_OUT_SEC);
-        defaultPauseFadeInSec = (float) (double) mhJsonObjOptDouble.invoke(root, "defaultPauseFadeInSec", (double) DEFAULT_PAUSE_FADE_IN_SEC);
+        systemEnabled = JsonReflectBridge.optBoolean(root, "enabled", true);
+        float defThreshold = JsonReflectBridge.optFloat(root, "defaultActivationThreshold", DEFAULT_ACTIVATION_THRESHOLD);
+        float defFull = JsonReflectBridge.optFloat(root, "defaultFullVolumeEngagement", DEFAULT_FULL_VOLUME_ENGAGEMENT);
+        float defMinVol = JsonReflectBridge.optFloat(root, "defaultMinVolume", DEFAULT_MIN_VOLUME);
+        float defMaxVol = JsonReflectBridge.optFloat(root, "defaultMaxVolume", DEFAULT_MAX_VOLUME);
+        fadeInSpeedPerSec = JsonReflectBridge.optFloat(root, "fadeInSpeedPerSec", DEFAULT_FADE_IN_SPEED);
+        fadeOutSpeedPerSec = JsonReflectBridge.optFloat(root, "fadeOutSpeedPerSec", DEFAULT_FADE_OUT_SPEED);
+        defaultPauseFadeOutSec = JsonReflectBridge.optFloat(root, "defaultPauseFadeOutSec", DEFAULT_PAUSE_FADE_OUT_SEC);
+        defaultPauseFadeInSec = JsonReflectBridge.optFloat(root, "defaultPauseFadeInSec", DEFAULT_PAUSE_FADE_IN_SEC);
 
-        Object defObj = mhJsonObjOptJsonObject.invoke(root, "defaultProfile");
+        Object defObj = JsonReflectBridge.optJSONObject(root, "defaultProfile");
         if (defObj != null) {
             FactionMusicProfile parsedDef = parseProfileObject("default", defObj, defThreshold, defFull, defMinVol, defMaxVol);
             if (parsedDef != null) {
@@ -505,15 +479,15 @@ public class DynamicBattleMusicController {
             }
         }
 
-        Object factionsObj = mhJsonObjOptJsonObject.invoke(root, "factions");
+        Object factionsObj = JsonReflectBridge.optJSONObject(root, "factions");
         if (factionsObj != null) {
-            Object namesArr = mhJsonObjNames.invoke(factionsObj);
+            Object namesArr = JsonReflectBridge.names(factionsObj);
             if (namesArr != null) {
-                int len = (int) mhJsonArrLength.invoke(namesArr);
+                int len = JsonReflectBridge.arrayLength(namesArr);
                 for (int i = 0; i < len; i++) {
-                    String fKey = (String) mhJsonArrOptString.invoke(namesArr, i, null);
+                    String fKey = JsonReflectBridge.arrayOptString(namesArr, i, null);
                     if (fKey == null || fKey.startsWith("#")) continue;
-                    Object fObj = mhJsonObjOptJsonObject.invoke(factionsObj, fKey);
+                    Object fObj = JsonReflectBridge.optJSONObject(factionsObj, fKey);
                     if (fObj == null) continue;
                     FactionMusicProfile parsed = parseProfileObject(fKey, fObj, defThreshold, defFull, defMinVol, defMaxVol);
                     if (parsed != null) {
@@ -531,54 +505,54 @@ public class DynamicBattleMusicController {
             float defFull,
             float defMinVol,
             float defMaxVol) throws Throwable {
-        boolean silent = (boolean) mhJsonObjOptBoolean.invoke(obj, "silent", false);
+        boolean silent = JsonReflectBridge.optBoolean(obj, "silent", false);
         List<MusicLayerSpec> layers = new ArrayList<>();
-        Object layersArr = mhJsonObjOptJsonArray.invoke(obj, "layers");
+        Object layersArr = JsonReflectBridge.optJSONArray(obj, "layers");
         if (layersArr != null) {
-            int nLayers = (int) mhJsonArrLength.invoke(layersArr);
+            int nLayers = JsonReflectBridge.arrayLength(layersArr);
             for (int i = 0; i < nLayers; i++) {
-                Object lObj = mhJsonArrOptJsonObject.invoke(layersArr, i);
+                Object lObj = JsonReflectBridge.arrayOptJSONObject(layersArr, i);
                 if (lObj == null) continue;
-                String id = (String) mhJsonObjOptString.invoke(lObj, "id", "layer_" + i);
+                String id = JsonReflectBridge.optString(lObj, "id", "layer_" + i);
                 List<String> setIds = new ArrayList<>();
-                Object setArr = mhJsonObjOptJsonArray.invoke(lObj, "musicSetIds");
+                Object setArr = JsonReflectBridge.optJSONArray(lObj, "musicSetIds");
                 if (setArr != null) {
-                    int nSets = (int) mhJsonArrLength.invoke(setArr);
+                    int nSets = JsonReflectBridge.arrayLength(setArr);
                     for (int j = 0; j < nSets; j++) {
-                        String s = (String) mhJsonArrOptString.invoke(setArr, j, null);
+                        String s = JsonReflectBridge.arrayOptString(setArr, j, null);
                         if (s != null && !s.trim().isEmpty()) setIds.add(s.trim());
                     }
                 }
-                String singleSet = (String) mhJsonObjOptString.invoke(lObj, "musicSetId", null);
+                String singleSet = JsonReflectBridge.optString(lObj, "musicSetId", null);
                 if (singleSet != null && !singleSet.trim().isEmpty() && !setIds.contains(singleSet.trim())) {
                     setIds.add(singleSet.trim());
                 }
 
                 List<String> files = new ArrayList<>();
-                Object filesArr = mhJsonObjOptJsonArray.invoke(lObj, "files");
+                Object filesArr = JsonReflectBridge.optJSONArray(lObj, "files");
                 if (filesArr != null) {
-                    int nFiles = (int) mhJsonArrLength.invoke(filesArr);
+                    int nFiles = JsonReflectBridge.arrayLength(filesArr);
                     for (int j = 0; j < nFiles; j++) {
-                        String f = (String) mhJsonArrOptString.invoke(filesArr, j, null);
+                        String f = JsonReflectBridge.arrayOptString(filesArr, j, null);
                         if (f != null && !f.trim().isEmpty()) files.add(f.trim());
                     }
                 }
-                String singleFile = (String) mhJsonObjOptString.invoke(lObj, "file", null);
+                String singleFile = JsonReflectBridge.optString(lObj, "file", null);
                 if (singleFile != null && !singleFile.trim().isEmpty() && !files.contains(singleFile.trim())) {
                     files.add(singleFile.trim());
                 }
 
-                String source = (String) mhJsonObjOptString.invoke(lObj, "source", "sounds/music/music.bin");
-                boolean randomStart = (boolean) mhJsonObjOptBoolean.invoke(lObj, "randomStart", false);
+                String source = JsonReflectBridge.optString(lObj, "source", "sounds/music/music.bin");
+                boolean randomStart = JsonReflectBridge.optBoolean(lObj, "randomStart", false);
                 boolean isAmb = MusicLayerSpec.isAmbienceLayerIdOrFiles(id, files);
-                boolean alwaysOn = (boolean) mhJsonObjOptBoolean.invoke(lObj, "alwaysOn", isAmb);
-                boolean fadeOnPause = (boolean) mhJsonObjOptBoolean.invoke(lObj, "fadeOnPause", !alwaysOn);
-                float pauseOutSec = (float) (double) mhJsonObjOptDouble.invoke(lObj, "pauseFadeOutSec", (double) defaultPauseFadeOutSec);
-                float pauseInSec = (float) (double) mhJsonObjOptDouble.invoke(lObj, "pauseFadeInSec", (double) defaultPauseFadeInSec);
-                float threshold = (float) (double) mhJsonObjOptDouble.invoke(lObj, "activationThreshold", alwaysOn ? 0.0 : (double) defThreshold);
-                float fullEng = (float) (double) mhJsonObjOptDouble.invoke(lObj, "fullVolumeEngagement", alwaysOn ? 1.0 : (double) defFull);
-                float minVol = (float) (double) mhJsonObjOptDouble.invoke(lObj, "minVolume", alwaysOn ? 0.85 : (double) defMinVol);
-                float maxVol = (float) (double) mhJsonObjOptDouble.invoke(lObj, "maxVolume", (double) defMaxVol);
+                boolean alwaysOn = JsonReflectBridge.optBoolean(lObj, "alwaysOn", isAmb);
+                boolean fadeOnPause = JsonReflectBridge.optBoolean(lObj, "fadeOnPause", !alwaysOn);
+                float pauseOutSec = JsonReflectBridge.optFloat(lObj, "pauseFadeOutSec", defaultPauseFadeOutSec);
+                float pauseInSec = JsonReflectBridge.optFloat(lObj, "pauseFadeInSec", defaultPauseFadeInSec);
+                float threshold = JsonReflectBridge.optFloat(lObj, "activationThreshold", alwaysOn ? 0.0f : defThreshold);
+                float fullEng = JsonReflectBridge.optFloat(lObj, "fullVolumeEngagement", alwaysOn ? 1.0f : defFull);
+                float minVol = JsonReflectBridge.optFloat(lObj, "minVolume", alwaysOn ? 0.85f : defMinVol);
+                float maxVol = JsonReflectBridge.optFloat(lObj, "maxVolume", defMaxVol);
 
                 if (!setIds.isEmpty() || !files.isEmpty()) {
                     layers.add(new MusicLayerSpec(
@@ -1433,13 +1407,7 @@ public class DynamicBattleMusicController {
         return currentBattleEngagementLevel;
     }
 
-    public String getActiveEnemyFactionKey() {
-        return activeEnemyFactionKey;
-    }
 
-    public FactionMusicProfile getActiveProfile() {
-        return activeProfile;
-    }
 
     public boolean isAnyLayerTriggered() {
         for (ActiveLayerRuntime l : activeLayers) {
@@ -1489,65 +1457,11 @@ public class DynamicBattleMusicController {
     // 4. NATIVE OPENAL STREAMING BRIDGE (MethodHandles, Zero java.lang.reflect)
     // =============================================================================================
 
-    private static synchronized void ensureJsonHandlesInitialized() {
-        if (mhGetMergedJsonForMod != null) return;
-        try {
-            MethodHandles.Lookup lookup = MethodHandles.lookup();
-            ClassLoader cl = Global.class.getClassLoader();
-            Class<?> jsonObjClass = Class.forName("org.json.JSONObject", false, cl);
-            Class<?> jsonArrClass = Class.forName("org.json.JSONArray", false, cl);
-
-            mhGetMergedJsonForMod = lookup.findVirtual(
-                    SettingsAPI.class,
-                    "getMergedJSONForMod",
-                    MethodType.methodType(jsonObjClass, String.class, String.class));
-            mhJsonObjFromStringCtor = lookup.findConstructor(
-                    jsonObjClass,
-                    MethodType.methodType(void.class, String.class));
-            mhJsonObjOptBoolean = lookup.findVirtual(
-                    jsonObjClass,
-                    "optBoolean",
-                    MethodType.methodType(boolean.class, String.class, boolean.class));
-            mhJsonObjOptDouble = lookup.findVirtual(
-                    jsonObjClass,
-                    "optDouble",
-                    MethodType.methodType(double.class, String.class, double.class));
-            mhJsonObjOptString = lookup.findVirtual(
-                    jsonObjClass,
-                    "optString",
-                    MethodType.methodType(String.class, String.class, String.class));
-            mhJsonObjOptJsonObject = lookup.findVirtual(
-                    jsonObjClass,
-                    "optJSONObject",
-                    MethodType.methodType(jsonObjClass, String.class));
-            mhJsonObjOptJsonArray = lookup.findVirtual(
-                    jsonObjClass,
-                    "optJSONArray",
-                    MethodType.methodType(jsonArrClass, String.class));
-            mhJsonObjNames = lookup.findVirtual(
-                    jsonObjClass,
-                    "names",
-                    MethodType.methodType(jsonArrClass));
-            mhJsonArrLength = lookup.findVirtual(
-                    jsonArrClass,
-                    "length",
-                    MethodType.methodType(int.class));
-            mhJsonArrOptString = lookup.findVirtual(
-                    jsonArrClass,
-                    "optString",
-                    MethodType.methodType(String.class, int.class, String.class));
-            mhJsonArrOptJsonObject = lookup.findVirtual(
-                    jsonArrClass,
-                    "optJSONObject",
-                    MethodType.methodType(jsonObjClass, int.class));
-        } catch (Throwable ignored) {
-        }
-    }
 
     private static synchronized void ensureAudioHandlesInitialized() {
         if (audioHandlesInitialized) return;
         audioHandlesInitialized = true;
-        ensureJsonHandlesInitialized();
+        JsonReflectBridge.ensureInitialized();
         try {
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             ClassLoader cl = Global.class.getClassLoader();
@@ -1676,23 +1590,11 @@ public class DynamicBattleMusicController {
         }
     }
 
-    private static void stopNativeMusicPlaybackIfVanillaAmbience() {
-        try {
-            SoundPlayerAPI sp = Global.getSoundPlayer();
-            if (sp != null) {
-                String cur = sp.getCurrentMusicId();
-                if (cur != null && cur.toLowerCase(Locale.ROOT).contains("battle_ambience")) {
-                    stopCurrentNativeMusic(0);
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-    }
 
     private static Object createStandaloneStreamPlayer(List<String> files, String source, boolean randomStart) {
         if (!isOpenAlContextActive()) return null;
         ensureAudioHandlesInitialized();
-        if (mhJsonObjFromStringCtor == null
+        if (!JsonReflectBridge.isAvailable()
                 || mhStreamDescriptorCtor == null
                 || mhStreamDescriptorInit == null
                 || mhStreamDescriptorCreatePlayer == null
@@ -1725,7 +1627,7 @@ public class DynamicBattleMusicController {
                     LOG.info("[DivisionAI] Dynamic Battle Music cleared stale OpenAL error " + drained + " before stream creation");
                 }
                 try {
-                    Object descJson = mhJsonObjFromStringCtor.invoke(json);
+                    Object descJson = JsonReflectBridge.newJsonObject(json);
                     Object desc = mhStreamDescriptorCtor.invoke(descJson);
                     Object player = mhStreamDescriptorCreatePlayer.invoke(desc);
                     if (player != null) {

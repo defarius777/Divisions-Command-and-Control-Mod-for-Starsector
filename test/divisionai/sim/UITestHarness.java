@@ -5,6 +5,7 @@ import com.fs.starfarer.api.combat.CombatUIAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
 import divisionai.BattlefieldFirepowerEvaluator;
+import divisionai.DivisionOtcCommandManager;
 import divisionai.DivisionAISettings;
 import divisionai.DivisionCombatLog;
 import divisionai.DivisionCommanderAI;
@@ -39,6 +40,8 @@ import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import divisionai.TsfcWarroomRenderer;
+import divisionai.VoidstrikeCoordinator;
+import divisionai.DivisionFormationNavigator;
 import org.lwjgl.util.vector.Vector2f;
 
 import javax.imageio.ImageIO;
@@ -113,35 +116,35 @@ public class UITestHarness {
         // Audit Battle Screen right-side Time, Space, and Firepower square-bordered icon buttons
         // (all 3 active, OFF by default, textless "Full Assault"/"Full Retreat" square-bordered style, Command View gated)
         BattlefieldFirepowerEvaluator.resetForNewBattle();
-        boolean allThreeDefaultOff = !BattlefieldFirepowerEvaluator.isOverlayVisible()
-                && !BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
-                && !BattlefieldFirepowerEvaluator.isTimeOverlayVisible();
+        boolean allThreeDefaultOff = !TsfcWarroomRenderer.isOverlayVisible()
+                && !TsfcWarroomRenderer.isSpaceOverlayVisible()
+                && !TsfcWarroomRenderer.isTimeOverlayVisible();
 
-        BattlefieldFirepowerEvaluator.toggleTimeOverlayVisible();
-        boolean timeToggledIndependently = BattlefieldFirepowerEvaluator.isTimeOverlayVisible()
-                && !BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
-                && !BattlefieldFirepowerEvaluator.isOverlayVisible();
+        TsfcWarroomRenderer.toggleTimeOverlayVisible();
+        boolean timeToggledIndependently = TsfcWarroomRenderer.isTimeOverlayVisible()
+                && !TsfcWarroomRenderer.isSpaceOverlayVisible()
+                && !TsfcWarroomRenderer.isOverlayVisible();
 
-        BattlefieldFirepowerEvaluator.toggleSpaceOverlayVisible();
-        boolean spaceToggledIndependently = BattlefieldFirepowerEvaluator.isTimeOverlayVisible()
-                && BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
-                && !BattlefieldFirepowerEvaluator.isOverlayVisible();
+        TsfcWarroomRenderer.toggleSpaceOverlayVisible();
+        boolean spaceToggledIndependently = TsfcWarroomRenderer.isTimeOverlayVisible()
+                && TsfcWarroomRenderer.isSpaceOverlayVisible()
+                && !TsfcWarroomRenderer.isOverlayVisible();
 
-        BattlefieldFirepowerEvaluator.toggleOverlayVisible();
-        boolean allThreeActive = BattlefieldFirepowerEvaluator.isTimeOverlayVisible()
-                && BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
-                && BattlefieldFirepowerEvaluator.isOverlayVisible();
+        TsfcWarroomRenderer.toggleOverlayVisible();
+        boolean allThreeActive = TsfcWarroomRenderer.isTimeOverlayVisible()
+                && TsfcWarroomRenderer.isSpaceOverlayVisible()
+                && TsfcWarroomRenderer.isOverlayVisible();
         BattlefieldFirepowerEvaluator.resetForNewBattle();
 
-        float yTime = BattlefieldFirepowerEvaluator.getOverlayButtonY(1080f, 0);
-        float ySpace = BattlefieldFirepowerEvaluator.getOverlayButtonY(1080f, 1);
-        float yFirepower = BattlefieldFirepowerEvaluator.getOverlayButtonY(1080f, 2);
-        boolean squareGeometryOk = BattlefieldFirepowerEvaluator.BTN_SQUARE_W == 36f
-                && BattlefieldFirepowerEvaluator.BTN_SQUARE_H == 34f
-                && BattlefieldFirepowerEvaluator.BTN_WIDTH == 46f
-                && BattlefieldFirepowerEvaluator.BTN_RIGHT_MARGIN == 20f
-                && (yTime - ySpace) >= BattlefieldFirepowerEvaluator.BTN_SQUARE_H + 6f
-                && (ySpace - yFirepower) >= BattlefieldFirepowerEvaluator.BTN_SQUARE_H + 6f;
+        float yTime = TsfcWarroomRenderer.getOverlayButtonY(1080f, 0);
+        float ySpace = TsfcWarroomRenderer.getOverlayButtonY(1080f, 1);
+        float yFirepower = TsfcWarroomRenderer.getOverlayButtonY(1080f, 2);
+        boolean squareGeometryOk = TsfcWarroomRenderer.BTN_SQUARE_W == 36f
+                && TsfcWarroomRenderer.BTN_SQUARE_H == 34f
+                && TsfcWarroomRenderer.BTN_WIDTH == 46f
+                && TsfcWarroomRenderer.BTN_RIGHT_MARGIN == 20f
+                && (yTime - ySpace) >= TsfcWarroomRenderer.BTN_SQUARE_H + 6f
+                && (ySpace - yFirepower) >= TsfcWarroomRenderer.BTN_SQUARE_H + 6f;
 
         String fpJava = (new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8) + new String(Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()), StandardCharsets.UTF_8));
         boolean textlessSquareButtons = fpJava.contains("renderSingleWarroomSquareIconButton")
@@ -195,8 +198,8 @@ public class UITestHarness {
                         Locale.ROOT,
                         "all3Active=%b, textlessSquare=%b, box=%.0fx%.0fpx (outer %.0fpx, rightMargin=%.0fpx), y=[%.0f, %.0f, %.0f], cmdViewGated=%b",
                         allThreeActive, textlessSquareButtons,
-                        BattlefieldFirepowerEvaluator.BTN_SQUARE_W, BattlefieldFirepowerEvaluator.BTN_SQUARE_H,
-                        BattlefieldFirepowerEvaluator.BTN_WIDTH, BattlefieldFirepowerEvaluator.BTN_RIGHT_MARGIN,
+                        TsfcWarroomRenderer.BTN_SQUARE_W, TsfcWarroomRenderer.BTN_SQUARE_H,
+                        TsfcWarroomRenderer.BTN_WIDTH, TsfcWarroomRenderer.BTN_RIGHT_MARGIN,
                         yTime, ySpace, yFirepower, hiddenWhenCmdViewClosed && shownWhenCmdViewOpen));
 
         auditEnumSuccinctnessAndClarity(res);
@@ -756,7 +759,7 @@ public class UITestHarness {
                 && overlayJava.contains("minWaistPx")
                 && overlayJava.contains("extractMetaballDropletPolygonScreen")
                 && overlayJava.contains("traceMetaballContoursMarchingSquares")
-                && overlayJava.contains("subdivideLongEdgesScreen")
+                && overlayJava.contains("chaikinSmoothClosed")
                 && overlayJava.contains("triangulatePolygonCCW")
                 && overlayJava.contains("deconflictPrimaryDivisionLabels");
         res.record(
@@ -1888,14 +1891,14 @@ public class UITestHarness {
                         pGroupAuto,
                         Arrays.asList(humanMember1, divCmdrMember, officerMember),
                         java.util.Collections.emptyList());
-        // Inherit into battle via BattlefieldFirepowerEvaluator.resolveActiveFleetFlagship:
+        // Inherit into battle via DivisionOtcCommandManager.resolveActiveFleetFlagship:
         // Suppose divCmdrShip ("div_cmdr_m") is deployed alongside humanShip1 ("human_m1"), while div_cmdr_m was auto-selected pre-battle.
         liveShips.clear();
         liveShips.add(humanShip1);
         liveShips.add(divCmdrShip);
         pGroupAuto.preferredOtcShipId = null;
         pGroupAuto.otc = new CommanderProfile(humanAdmiral, "Admiral Vance");
-        ShipAPI inheritedFlagship = divisionai.BattlefieldFirepowerEvaluator.resolveActiveFleetFlagship(mockEngine, pGroupAuto);
+        ShipAPI inheritedFlagship = divisionai.DivisionOtcCommandManager.resolveActiveFleetFlagship(mockEngine, pGroupAuto);
         boolean autoOtcStickyAndInheritedOk = (autoResolved == divCmdrMember)
                 && (stickyAfterClear == divCmdrMember)
                 && "div_cmdr_m".equals(divisionai.DivisionOtcCommandManager.getAutoSelectedPlayerOtcMemberId())
@@ -2392,10 +2395,10 @@ public class UITestHarness {
         ShipAPI alphaShip2 = createMockNamedShip("p_alpha_2", "TTS Radiant", HullSize.CRUISER, 900f, -1200f, 110f, 0, alphaCapt);
         ShipAPI enemyShip = createMockNamedShip("e_1", "HSS Onslaught", HullSize.CAPITAL_SHIP, 0f, 600f, 55f, 1, humanCapt);
 
-        boolean strictAlphaCoreCheck = BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(alphaShip1)
-                && !BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(betaShip)
-                && !BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(gammaShip)
-                && !BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(humanFlagship);
+        boolean strictAlphaCoreCheck = DivisionOtcCommandManager.isAlphaCoreControlledShip(alphaShip1)
+                && !DivisionOtcCommandManager.isAlphaCoreControlledShip(betaShip)
+                && !DivisionOtcCommandManager.isAlphaCoreControlledShip(gammaShip)
+                && !DivisionOtcCommandManager.isAlphaCoreControlledShip(humanFlagship);
 
         // 3. Verify Time & Space telemetry & Engagement Level reduction + 3+ circle non-inversion check
         CommanderProfile cmdr = new CommanderProfile(humanCapt, "steady");
@@ -2457,12 +2460,12 @@ public class UITestHarness {
                 });
 
         // Without an Alpha Core in the fleet, hasAlphaCoreInPlayerFleet is false
-        boolean noAlphaButtonWhenOnlyLowerCores = !BattlefieldFirepowerEvaluator.hasAlphaCoreInPlayerFleet(mockEngine);
+        boolean noAlphaButtonWhenOnlyLowerCores = !DivisionOtcCommandManager.hasAlphaCoreInPlayerFleet(mockEngine);
 
         // Add the two subordinate Alpha Core ships to the deployed fleet
         deployedShips.add(alphaShip1);
         deployedShips.add(alphaShip2);
-        boolean alphaButtonAvailableWhenAlphaPresent = BattlefieldFirepowerEvaluator.hasAlphaCoreInPlayerFleet(mockEngine);
+        boolean alphaButtonAvailableWhenAlphaPresent = DivisionOtcCommandManager.hasAlphaCoreInPlayerFleet(mockEngine);
 
         BattlefieldFirepowerEvaluator.setActiveBattleGroups(playerGroup, null, enemyGroup);
         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(playerDiv1);
@@ -2501,50 +2504,50 @@ public class UITestHarness {
 
         // 5. Verify Urgent Comms Pop-Up state machine when clicking Convergence button:
         //    - Click #1: pauses battle, opens "[URGENT COMMS FROM TTS Hyperion]" asking "Shall I take command?" (phrase 0)
-        BattlefieldFirepowerEvaluator.handleConvergenceButtonClick(mockEngine);
-        ShipAPI firstAsked = BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip();
+        DivisionOtcCommandManager.handleConvergenceButtonClick(mockEngine);
+        ShipAPI firstAsked = DivisionOtcCommandManager.getPendingCommsAlphaCoreShip();
         boolean firstClickOpenedCommsAndPaused = pausedRef[0]
                 && firstAsked == alphaShip1
-                && BattlefieldFirepowerEvaluator.getActiveCommsPhraseIndex() == 0
+                && DivisionOtcCommandManager.getActiveCommsPhraseIndex() == 0
                 && !playerGroup.useConvergence;
 
         //    - Player clicks "No": closes pop-up, TTS Hyperion will not ask again, OTC remains human
-        BattlefieldFirepowerEvaluator.refusePendingAlphaCoreCommand(mockEngine);
-        boolean afterRefuseFirstOk = BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip() == null
+        DivisionOtcCommandManager.refusePendingAlphaCoreCommand(mockEngine);
+        boolean afterRefuseFirstOk = DivisionOtcCommandManager.getPendingCommsAlphaCoreShip() == null
                 && !playerGroup.useConvergence
-                && BattlefieldFirepowerEvaluator.getAskedAlphaCoreShipIds().contains(alphaShip1.getId());
+                && DivisionOtcCommandManager.getAskedAlphaCoreShipIds().contains(alphaShip1.getId());
 
         //    - Click #2: next Alpha Core ship (TTS Radiant) asks "Please allow me." (phrase 1)
         pausedRef[0] = false;
-        BattlefieldFirepowerEvaluator.handleConvergenceButtonClick(mockEngine);
-        ShipAPI secondAsked = BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip();
+        DivisionOtcCommandManager.handleConvergenceButtonClick(mockEngine);
+        ShipAPI secondAsked = DivisionOtcCommandManager.getPendingCommsAlphaCoreShip();
         boolean secondClickAskedNextAlpha = pausedRef[0]
                 && secondAsked == alphaShip2
-                && BattlefieldFirepowerEvaluator.getActiveCommsPhraseIndex() == 1;
+                && DivisionOtcCommandManager.getActiveCommsPhraseIndex() == 1;
 
         //    - Player clicks "Yes": TTS Radiant becomes flagship and player OTC starts using Convergence decision-making!
-        BattlefieldFirepowerEvaluator.acceptPendingAlphaCoreCommand(mockEngine);
-        boolean afterAcceptSecondOk = BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip() == null
-                && BattlefieldFirepowerEvaluator.getPlayerConvergenceFlagshipOverride() == alphaShip2
+        DivisionOtcCommandManager.acceptPendingAlphaCoreCommand(mockEngine);
+        boolean afterAcceptSecondOk = DivisionOtcCommandManager.getPendingCommsAlphaCoreShip() == null
+                && DivisionOtcCommandManager.getPlayerConvergenceFlagshipOverride() == alphaShip2
                 && playerGroup.activeFleetFlagship == alphaShip2
                 && playerGroup.useConvergence;
 
         //    - Click #3: no further pop-ups (flagship is now an Alpha Core and both ships were asked), toggles overlay cleanly
         pausedRef[0] = false;
-        BattlefieldFirepowerEvaluator.handleConvergenceButtonClick(mockEngine);
+        DivisionOtcCommandManager.handleConvergenceButtonClick(mockEngine);
         boolean thirdClickNoPopup = !pausedRef[0]
-                && BattlefieldFirepowerEvaluator.getPendingCommsAlphaCoreShip() == null;
+                && DivisionOtcCommandManager.getPendingCommsAlphaCoreShip() == null;
 
         // 6. Verify 0.5-second positional shift animation, centered ship sprite + callsign, and all 4 cycling phrases
-        Vector2f shift0 = BattlefieldFirepowerEvaluator.getCommandWordShiftOffset(0.10f);
-        Vector2f shift1 = BattlefieldFirepowerEvaluator.getCommandWordShiftOffset(0.60f);
-        Vector2f shift2 = BattlefieldFirepowerEvaluator.getCommandWordShiftOffset(1.10f);
+        Vector2f shift0 = DivisionOtcCommandManager.getCommandWordShiftOffset(0.10f);
+        Vector2f shift1 = DivisionOtcCommandManager.getCommandWordShiftOffset(0.60f);
+        Vector2f shift2 = DivisionOtcCommandManager.getCommandWordShiftOffset(1.10f);
         String evalSrc = (new String(Files.readAllBytes(new File("src/divisionai/BattlefieldFirepowerEvaluator.java").toPath()), StandardCharsets.UTF_8) + new String(Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()), StandardCharsets.UTF_8));
-        String[] p0 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(0);
-        String[] p1 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(1);
-        String[] p2 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(2);
-        String[] p3 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(3);
-        String[] p4 = BattlefieldFirepowerEvaluator.getUrgentCommsPhraseParts(4);
+        String[] p0 = DivisionOtcCommandManager.getUrgentCommsPhraseParts(0);
+        String[] p1 = DivisionOtcCommandManager.getUrgentCommsPhraseParts(1);
+        String[] p2 = DivisionOtcCommandManager.getUrgentCommsPhraseParts(2);
+        String[] p3 = DivisionOtcCommandManager.getUrgentCommsPhraseParts(3);
+        String[] p4 = DivisionOtcCommandManager.getUrgentCommsPhraseParts(4);
         boolean allFourPhrasesAndCycleOk = "command?".equals(p0[1])
                 && "Please ".equals(p1[0]) && "allow".equals(p1[1]) && " me.".equals(p1[2])
                 && "I am at your ".equals(p2[0]) && "service.".equals(p2[1])
@@ -2552,7 +2555,7 @@ public class UITestHarness {
                 && "command?".equals(p4[1]);
         boolean commsSpriteAndJitterQuestionMarkOk = evalSrc.contains("renderCommsShipSprite(aiShip, spriteCenterX, spriteCenterY")
                 && allFourPhrasesAndCycleOk
-                && "TTS Hyperion".equals(BattlefieldFirepowerEvaluator.formatAiShipCallsignOnly(alphaShip1));
+                && "TTS Hyperion".equals(TsfcWarroomRenderer.formatAiShipCallsignOnly(alphaShip1));
         boolean commandShiftEveryHalfSecOk = (shift0.x != shift1.x || shift0.y != shift1.y)
                 && (shift1.x != shift2.x || shift1.y != shift2.y)
                 && commsSpriteAndJitterQuestionMarkOk;
@@ -2585,7 +2588,7 @@ public class UITestHarness {
         // 1. Verify Omega Core ("omega_core") officer practices Convergence alongside Alpha Core ("alpha_core")
         com.fs.starfarer.api.characters.PersonAPI omegaOfficer = createMockCaptain("omega_core");
         ShipAPI omegaShip = createMockNamedShip("omega_ship", "Tesseract", HullSize.CRUISER, 0f, -1000f, 150f, 0, omegaOfficer);
-        boolean omegaCoreRecognized = BattlefieldFirepowerEvaluator.isAlphaCoreControlledShip(omegaShip);
+        boolean omegaCoreRecognized = DivisionOtcCommandManager.isAlphaCoreControlledShip(omegaShip);
 
         // 2. Verify all 11 Naval Formation solid-bar icons (10 structured + 1 "No Formation") exist on disk and in settings.json,
         //    and that the 10 original triangle formation icons were archived in mod/graphics/icons/formations/archive_triangles/
@@ -2651,12 +2654,12 @@ public class UITestHarness {
         boolean breakupToNoneOk = (div.activeFormation == DivisionFormation.NONE);
 
         // 5. Verify 2D geometric slot offsets for key formations
-        float[] wedgeApex = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.FORWARD_WEDGE, 0, 5, 500f);
-        float[] wedgeWing = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.FORWARD_WEDGE, 1, 5, 500f);
-        float[] revWedgeApex = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.REVERSE_WEDGE, 0, 5, 500f);
-        float[] revWedgeWing = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.REVERSE_WEDGE, 1, 5, 500f);
-        float[] aheadLead = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.LINE_AHEAD, 0, 5, 500f);
-        float[] aheadTrail = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.LINE_AHEAD, 2, 5, 500f);
+        float[] wedgeApex = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.FORWARD_WEDGE, 0, 5, 500f);
+        float[] wedgeWing = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.FORWARD_WEDGE, 1, 5, 500f);
+        float[] revWedgeApex = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.REVERSE_WEDGE, 0, 5, 500f);
+        float[] revWedgeWing = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.REVERSE_WEDGE, 1, 5, 500f);
+        float[] aheadLead = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.LINE_AHEAD, 0, 5, 500f);
+        float[] aheadTrail = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.LINE_AHEAD, 2, 5, 500f);
         boolean geometryDistinctOk = (wedgeApex[1] > wedgeWing[1])
                 && (revWedgeApex[1] < revWedgeWing[1])
                 && (Math.abs(aheadLead[0]) < 1f && Math.abs(aheadTrail[0]) < 1f && aheadLead[1] > aheadTrail[1]);
@@ -2678,7 +2681,7 @@ public class UITestHarness {
                 && editorSrc.contains("bp.getY() + bp.getHeight() * 0.5f")
                 && doctrineSrc.contains("final ButtonAPI[] formButtons = new ButtonAPI[formations.length];");
         int divLabelIdx = overlaySrc.indexOf("renderDivisionEntityLabel(rp, fade");
-        int modalTopLayerIdx = overlaySrc.indexOf("BattlefieldFirepowerEvaluator.renderToggleButtonAndLegendUI(engine, fade);");
+        int modalTopLayerIdx = overlaySrc.indexOf("TsfcWarroomRenderer.renderToggleButtonAndLegendUI(engine, fade);");
         boolean modalAboveDivTextOk = (divLabelIdx > 0 && modalTopLayerIdx > divLabelIdx);
 
         // 7. Verify Item A: Doctrinal Division Movement Stickiness (3-tier hierarchy) & Missile Frigate Div 2 anti-stuck fix
@@ -2844,8 +2847,8 @@ public class UITestHarness {
         pGroup.shipIdToDivision.put(carrier2.getId(), cDiv2);
 
         // Multi-division strike from cDiv1 + cDiv2 against enemyWarband1 -> registered as ONE Voidstrike ("Voidstrike 1")
-        BattlefieldFirepowerEvaluator.updateVoidstrikes(null, pGroup, null, eGroup, 10f);
-        List<BattlefieldFirepowerEvaluator.VoidstrikeRecord> activeVs1 = BattlefieldFirepowerEvaluator.getActiveVoidstrikes();
+        VoidstrikeCoordinator.updateVoidstrikes(null, pGroup, null, eGroup, 10f);
+        List<VoidstrikeCoordinator.VoidstrikeRecord> activeVs1 = VoidstrikeCoordinator.getActiveVoidstrikes();
         boolean multiDivMergedIntoOneOk = (activeVs1.size() == 1)
                 && "Voidstrike 1".equals(activeVs1.get(0).getDisplayLabel())
                 && activeVs1.get(0).isMultiDivision()
@@ -2854,15 +2857,15 @@ public class UITestHarness {
 
         // When strike craft return -> "Voidstrike 1" disappears
         returningFlag[0] = true;
-        BattlefieldFirepowerEvaluator.updateVoidstrikes(null, pGroup, null, eGroup, 15f);
-        boolean disappearsOnReturnOk = BattlefieldFirepowerEvaluator.getActiveVoidstrikes().isEmpty();
+        VoidstrikeCoordinator.updateVoidstrikes(null, pGroup, null, eGroup, 15f);
+        boolean disappearsOnReturnOk = VoidstrikeCoordinator.getActiveVoidstrikes().isEmpty();
 
         // Next strike launched -> incremented to "Voidstrike 2"
         returningFlag[0] = false;
         f1Loc.set(400f, 900f);
         f2Loc.set(400f, 900f);
-        BattlefieldFirepowerEvaluator.updateVoidstrikes(null, pGroup, null, eGroup, 20f);
-        List<BattlefieldFirepowerEvaluator.VoidstrikeRecord> activeVs2 = BattlefieldFirepowerEvaluator.getActiveVoidstrikes();
+        VoidstrikeCoordinator.updateVoidstrikes(null, pGroup, null, eGroup, 20f);
+        List<VoidstrikeCoordinator.VoidstrikeRecord> activeVs2 = VoidstrikeCoordinator.getActiveVoidstrikes();
         boolean incrementedToTwoOk = (activeVs2.size() == 1)
                 && "Voidstrike 2".equals(activeVs2.get(0).getDisplayLabel())
                 && Math.abs(activeVs2.get(0).center.x - 400f) < 1f
@@ -2882,12 +2885,12 @@ public class UITestHarness {
                 && (DivisionIntentType.valueOf("TOT_ALPHA_STRIKE") != null);
         //  - Item D & E: Separate Voidstrike counters for Player (0), Enemy (1), and Allies (2), and Fog-of-War
         //    flicker does not runaway-increment the Enemy Voidstrike counter!
-        boolean separateSideCountersOk = (BattlefieldFirepowerEvaluator.getNextVoidstrikeNumberForSide(
-                BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_PLAYER) == 3)
-                && (BattlefieldFirepowerEvaluator.getNextVoidstrikeNumberForSide(
-                BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_ENEMY) == 1)
-                && (BattlefieldFirepowerEvaluator.getNextVoidstrikeNumberForSide(
-                BattlefieldFirepowerEvaluator.VOIDSTRIKE_SIDE_ALLIED) == 1);
+        boolean separateSideCountersOk = (VoidstrikeCoordinator.getNextVoidstrikeNumberForSide(
+                VoidstrikeCoordinator.VOIDSTRIKE_SIDE_PLAYER) == 3)
+                && (VoidstrikeCoordinator.getNextVoidstrikeNumberForSide(
+                VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ENEMY) == 1)
+                && (VoidstrikeCoordinator.getNextVoidstrikeNumberForSide(
+                VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ALLIED) == 1);
 
         // 9. Verify Item C: Campaign fleet hover tooltip division distribution follows faction campaign colors
         boolean factionTooltipColorsOk = tooltipSrc.contains("return factionColor != null ? factionColor : Misc.getBasePlayerColor();")
@@ -2907,7 +2910,7 @@ public class UITestHarness {
                 && evalSrc.contains("UNIT_COS_72")
                 && evalSrc.contains("UNIT_COS_48")
                 && evalSrc.contains("SCRATCH_SUST_X")
-                && evalSrc.contains("refreshVoidstrikesForRender");
+                && evalSrc.contains("UNIT_SIN_72");
 
         // Item B: T-S-F-C Graphics Quality setting (default High, plus Low)
         DivisionAISettings.testTsfcQualityOverride = null;
@@ -2976,11 +2979,11 @@ public class UITestHarness {
         // Verify Coordinated Voidstrike Staging progression: Stage 0 (Orbit Carrier) -> Stage 1 (Marshal Point) -> Stage 2 (Attack)
         cDiv1.voidstrikeCoordination = PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED;
         cDiv1.voidstrikeLastTargetKey = null;
-        DivisionCommanderAI.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 100f);
+        VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 100f);
         boolean stage0Ok = (cDiv1.voidstrikeStage == 0);
-        DivisionCommanderAI.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 102f);
+        VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 102f);
         boolean stage1Ok = (cDiv1.voidstrikeStage == 1) && (cDiv1.voidstrikeMarshalPoint.y > -1500f);
-        DivisionCommanderAI.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 105f);
+        VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget, 105f);
         boolean stage2Ok = (cDiv1.voidstrikeStage == 2);
         boolean campaignUiSweepOk = "F. Wedge".equals(DivisionFormation.FORWARD_WEDGE.shortName)
                 && "R. Wedge".equals(DivisionFormation.REVERSE_WEDGE.shortName)
@@ -2998,8 +3001,8 @@ public class UITestHarness {
         testCarrierSpec.customVoidstrikeSquadronWidth = 8;
         PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(cDiv1, testCarrierSpec, vsDocCfg);
         boolean vsWidthCustomOk = (cDiv1.voidstrikeSquadronWidth == 8);
-        int[] exactComp = DivisionCommanderAI.computeCompromiseStrikeWidthAndDepth(6, 3, 2);
-        int[] avgComp = DivisionCommanderAI.computeCompromiseStrikeWidthAndDepth(4, 4, 4);
+        int[] exactComp = VoidstrikeCoordinator.computeCompromiseStrikeWidthAndDepth(6, 3, 2);
+        int[] avgComp = VoidstrikeCoordinator.computeCompromiseStrikeWidthAndDepth(4, 4, 4);
         boolean strikeWidthCompromiseOk = vsWidthPropagatedOk && vsWidthCustomOk
                 && exactComp[0] == 3 && exactComp[1] == 2
                 && avgComp[0] == 3 && avgComp[1] == 3;
@@ -3032,9 +3035,9 @@ public class UITestHarness {
                 && (hhDiv.effectiveHpRatio < 0.65f);
 
         // Verify Change D: Protective Circle formation places core ship at center (0,0) and escorts on 360-deg outer ring
-        float[] pCircleCore = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.PROTECTIVE_CIRCLE, 0, 4, 500f);
-        float[] pCircleRing1 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.PROTECTIVE_CIRCLE, 1, 4, 500f);
-        float[] pCircleRing2 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.PROTECTIVE_CIRCLE, 2, 4, 500f);
+        float[] pCircleCore = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.PROTECTIVE_CIRCLE, 0, 4, 500f);
+        float[] pCircleRing1 = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.PROTECTIVE_CIRCLE, 1, 4, 500f);
+        float[] pCircleRing2 = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.PROTECTIVE_CIRCLE, 2, 4, 500f);
         float ring1Rad = (float) Math.hypot(pCircleRing1[0], pCircleRing1[1]);
         float ring2Rad = (float) Math.hypot(pCircleRing2[0], pCircleRing2[1]);
         boolean protectiveCircleOk = Math.abs(pCircleCore[0]) < 1f && Math.abs(pCircleCore[1]) < 1f
@@ -3088,9 +3091,9 @@ public class UITestHarness {
 
         // - Items A, B, C, D, E, F (Opening Echelon/Line Abreast handedness, Voidstrike mid-flight continuity,
         //   Directional pinchable non-circular Space, Map-edge pinching, and Unable/Retreating unit discounting):
-        float[] echR0 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.ECHELON_RIGHT, 0, 4, 300f);
-        float[] echR2 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.ECHELON_RIGHT, 2, 4, 300f);
-        float[] echL2 = DivisionCommanderAI.computeLocalFormationOffset(DivisionFormation.ECHELON_LEFT, 2, 4, 300f);
+        float[] echR0 = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.ECHELON_RIGHT, 0, 4, 300f);
+        float[] echR2 = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.ECHELON_RIGHT, 2, 4, 300f);
+        float[] echL2 = DivisionFormationNavigator.computeLocalFormationOffset(DivisionFormation.ECHELON_LEFT, 2, 4, 300f);
         boolean echelonHandednessOk = (echR0[0] == 0f && echR0[1] == 0f)
                 && (echR2[0] > 350f && echR2[1] < -300f)
                 && (echL2[0] < -350f && echL2[1] < -300f);
@@ -3101,7 +3104,7 @@ public class UITestHarness {
         enemyWarband2.flagship = enemyTarget2;
         enemyWarband2.members.add(enemyTarget2);
         cDiv1.targetEnemyDivision = enemyWarband2;
-        DivisionCommanderAI.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget2, 106f);
+        VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(cDiv1, pGroup, enemyTarget2, 106f);
         boolean voidstrikeMidFlightKeepStage2Ok = (cDiv1.voidstrikeStage == 2);
 
         // Items D & E: Directional non-circular Space & Map-edge pinching
@@ -3492,16 +3495,21 @@ public class UITestHarness {
                 && !indMerchConvoyName.toLowerCase(Locale.ROOT).contains("service group")
                 && (indMerchConvoyName.contains("Convoy") || indMerchConvoyName.contains("Flotilla")
                 || indMerchConvoyName.contains("Group") || indMerchConvoyName.contains("Caravan"))
-                && new File("mod/data/config/division_faction_library.json").isFile();
+                && new File("mod/data/config/division_faction_library.json").isFile()
+                && new File("mod/data/config/division_faction_doctrines.json").isFile()
+                && FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null).getFleetWideFormation() == PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD
+                && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getOtcAuthority() == OtcAuthority.POSITIVE_CONTROL
+                && FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null).isPlayEnabled(PermanentDivisionManager.OtcPlay.MARTYRDOM);
 
         // Verify New Battle Bugs (A, B, C) & Feature Changes (A, B, C):
         // Bug A: Urgent comms from Alpha Core ship suppressed when an Alpha Core was OTC from the start
-        BattlefieldFirepowerEvaluator.markInitialPlayerOtcAlphaCore(true);
-        ShipAPI unaskedWhenInitialAlpha = BattlefieldFirepowerEvaluator.findNextUnaskedSubordinateAlphaCoreShip(musicTestEngine, pGroup);
-        BattlefieldFirepowerEvaluator.markInitialPlayerOtcAlphaCore(false);
+        DivisionOtcCommandManager.markInitialPlayerOtcAlphaCore(true);
+        ShipAPI unaskedWhenInitialAlpha = DivisionOtcCommandManager.findNextUnaskedSubordinateAlphaCoreShip(musicTestEngine, pGroup);
+        DivisionOtcCommandManager.markInitialPlayerOtcAlphaCore(false);
+        String otcMgrSrc = new String(Files.readAllBytes(new File("src/divisionai/DivisionOtcCommandManager.java").toPath()), StandardCharsets.UTF_8);
         boolean bugAUrgentCommsSuppressedOk = (unaskedWhenInitialAlpha == null)
-                && evalSrc.contains("if (initialPlayerOtcWasAlphaCore)")
-                && evalSrc.contains("DivisionOtcCommandManager.isActivePlayerOtcAlphaCore(engine, null, playerGroup)");
+                && otcMgrSrc.contains("if (initialPlayerOtcWasAlphaCore)")
+                && otcMgrSrc.contains("isActivePlayerOtcAlphaCore(engine, null, playerGroup)");
 
         // Bug B: OTC panel 2-line text wrapping provisions for long ship names
         String[] wrappedLongFlag = DivisionDeploymentDialogOrganizer.wrapOtcTextIntoTwoLines(
@@ -3579,8 +3587,8 @@ public class UITestHarness {
         boolean featBBattleScreenTsfcOk = divisionai.DivisionAICombatPlugin.BATTLE_SCREEN_TSFC_OPACITY_MULT <= 0.25f
                 && divisionai.DivisionAICombatPlugin.BATTLE_SCREEN_TSFC_OPACITY_MULT > 0.10f
                 && combatPluginSrc.contains("renderBattleScreenTsfcOverlay(viewport)")
-                && combatPluginSrc.contains("BattlefieldFirepowerEvaluator.renderTimeSpaceAndConvergenceScreenSpace")
-                && combatPluginSrc.contains("BattlefieldFirepowerEvaluator.renderFirepowerRosesScreenSpace");
+                && combatPluginSrc.contains("TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace")
+                && combatPluginSrc.contains("TsfcWarroomRenderer.renderFirepowerRosesScreenSpace");
 
         // Feature Change C: Softly remove formations text underneath division names since formation icons exist
         boolean featCNoFormationTextUnderDivNameOk = !overlaySrc.contains("f.shortName.toUpperCase(Locale.ROOT)")
@@ -3685,7 +3693,6 @@ public class UITestHarness {
                 && cCruiser.consentedWingSide == wingCruiser0
                 && cScoutDd.fleetFormationSlotIndex == slotDd0
                 && cScoutDd.consentedWingSide == wingDd0;
-
         taskFStrikeCraftSpaceOk = taskFStrikeCraftSpaceOk && factionLibRatingsOk && merchantNomenclatureOk
                 && bugAUrgentCommsSuppressedOk && bugBOtcWrappingOk && bugCStickyVisibilityOk
                 && featAWheelIconOk && featBBattleScreenTsfcOk && featCNoFormationTextUnderDivNameOk

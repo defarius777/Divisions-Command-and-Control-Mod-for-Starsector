@@ -210,12 +210,7 @@ public class ShipCapabilityProfile {
             }
         }
 
-        // Battlecarriers (e.g. Legion, Odyssey, or capitals with COMBAT hint / heavy gun batteries) default to Battle Divisions, not Carrier Divisions
-        boolean isBattlecarrier = (bays > 0) && this.hullSize == HullSize.CAPITAL_SHIP
-                && (hints.contains(ShipTypeHints.COMBAT)
-                || (bays <= 2 && (opSum - purePdSum) >= 20f));
-        this.isDedicatedCarrier = !isBattlecarrier
-                && ((bays >= 1 && hints.contains(ShipTypeHints.CARRIER)) || (bays >= 2));
+        this.isDedicatedCarrier = isDedicatedCarrierHull(this.hullSize, bays, hints, opSum - purePdSum);
 
         this.totalWeaponOP = Math.max(1f, opSum);
         this.strikeMissileWeight = strikeSum;
@@ -224,28 +219,15 @@ public class ShipCapabilityProfile {
         this.closeBrawlWeight = closeSum;
         this.avgWeaponRange = opSum > 0f ? (weightedRangeSum / opSum) : 700f;
 
-        // Dedicated Missile Ship detection: requires missiles to be a primary armament of the hull
-        // (e.g. Pegasus, Gryphon, Falcon (P), or missile-boat destroyers/frigates), never gun battleships like Onslaught!
-        float missileShare = weaponOnlyOpSum > 0f ? (missileWeight / weaponOnlyOpSum) : 0f;
         boolean isHeadlessMockMissileShip = (weapons != null && weapons.size() <= 2 && strikeSum >= 3.0f);
-        if (this.isDedicatedCarrier) {
-            this.hasHeavyMissileLoadout = false;
-        } else if (hullSize == HullSize.CAPITAL_SHIP) {
-            this.hasHeavyMissileLoadout = hullIdLower.contains("pegasus")
-                    || (largeMissileCount >= 2 && missileShare >= 0.38f)
-                    || (missileShare >= 0.45f && missileWeight >= 16.0f);
-        } else if (hullSize == HullSize.CRUISER) {
-            this.hasHeavyMissileLoadout = hullIdLower.contains("gryphon")
-                    || (largeMissileCount >= 1 && missileShare >= 0.38f)
-                    || (missileShare >= 0.45f && missileWeight >= 9.0f);
-        } else if (hullSize == HullSize.DESTROYER) {
-            this.hasHeavyMissileLoadout = (largeMissileCount >= 1 && missileShare >= 0.38f)
-                    || (missileShare >= 0.42f && missileWeight >= 6.0f)
-                    || isHeadlessMockMissileShip;
-        } else {
-            this.hasHeavyMissileLoadout = (missileShare >= 0.45f && missileWeight >= 3.0f)
-                    || isHeadlessMockMissileShip;
-        }
+        this.hasHeavyMissileLoadout = isHeavyMissileHullLoadout(
+                this.hullSize,
+                hullIdLower,
+                this.isDedicatedCarrier,
+                largeMissileCount,
+                missileWeight,
+                weaponOnlyOpSum,
+                isHeadlessMockMissileShip);
 
         this.isPdScreenCapable = (pdSum / this.totalWeaponOP) >= 0.32f
                 || (interceptorSupportWings >= 1 && pdSum >= 2.0f);
@@ -293,7 +275,7 @@ public class ShipCapabilityProfile {
         }
     }
 
-    private static float sizeWeight(WeaponSize size) {
+    public static float sizeWeight(WeaponSize size) {
         if (size == null) return 1f;
         switch (size) {
             case LARGE:
@@ -331,6 +313,65 @@ public class ShipCapabilityProfile {
                 return 5f;
             default:
                 return 2f;
+        }
+    }
+
+    /**
+     * Unified battlecarrier check shared by combat (ShipCapabilityProfile) and campaign (PermanentDivisionManager).
+     */
+    public static boolean isBattlecarrierHull(
+            HullSize hullSize,
+            int bays,
+            EnumSet<ShipTypeHints> hints,
+            float nonPdWeaponWeight) {
+        if (bays <= 0 || hullSize != HullSize.CAPITAL_SHIP) return false;
+        return (hints != null && hints.contains(ShipTypeHints.COMBAT))
+                || (bays <= 2 && nonPdWeaponWeight >= 20f);
+    }
+
+    /**
+     * Unified dedicated-carrier check shared by combat (ShipCapabilityProfile) and campaign (PermanentDivisionManager).
+     */
+    public static boolean isDedicatedCarrierHull(
+            HullSize hullSize,
+            int bays,
+            EnumSet<ShipTypeHints> hints,
+            float nonPdWeaponWeight) {
+        boolean isBc = isBattlecarrierHull(hullSize, bays, hints, nonPdWeaponWeight);
+        return !isBc && ((bays >= 1 && hints != null && hints.contains(ShipTypeHints.CARRIER)) || bays >= 2);
+    }
+
+    /**
+     * Unified heavy-missile loadout check shared by combat (ShipCapabilityProfile) and campaign (PermanentDivisionManager).
+     */
+    public static boolean isHeavyMissileHullLoadout(
+            HullSize hullSize,
+            String hullIdLower,
+            boolean isDedicatedCarrier,
+            int largeMissileCount,
+            float missileWeight,
+            float totalWeaponWeight,
+            boolean isHeadlessMockMissileShip) {
+        if (isDedicatedCarrier) return false;
+        String h = hullIdLower != null ? hullIdLower : "";
+        float missileShare = totalWeaponWeight > 0f ? (missileWeight / totalWeaponWeight) : 0f;
+        if (hullSize == HullSize.CAPITAL_SHIP) {
+            return h.contains("pegasus")
+                    || (largeMissileCount >= 2 && missileShare >= 0.38f)
+                    || (missileShare >= 0.45f && missileWeight >= 16.0f)
+                    || (isHeadlessMockMissileShip && h.contains("missile"));
+        } else if (hullSize == HullSize.CRUISER) {
+            return h.contains("gryphon")
+                    || (largeMissileCount >= 1 && missileShare >= 0.38f)
+                    || (missileShare >= 0.45f && missileWeight >= 9.0f)
+                    || (isHeadlessMockMissileShip && h.contains("gryphon"));
+        } else if (hullSize == HullSize.DESTROYER) {
+            return (largeMissileCount >= 1 && missileShare >= 0.38f)
+                    || (missileShare >= 0.42f && missileWeight >= 6.0f)
+                    || isHeadlessMockMissileShip;
+        } else {
+            return (missileShare >= 0.45f && missileWeight >= 3.0f)
+                    || isHeadlessMockMissileShip;
         }
     }
 }

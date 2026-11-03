@@ -2126,12 +2126,6 @@ public class PermanentDivisionManager {
         saveFleetDoctrine(cfg);
     }
 
-    public static void updateDivisionTypeStationKeeping(DoctrineDivisionType dt, float newStationKeepingMult) {
-        if (dt == null) return;
-        FleetDoctrineConfig cfg = getFleetDoctrine();
-        cfg.setStationKeepingMult(dt, newStationKeepingMult);
-        saveFleetDoctrine(cfg);
-    }
 
     public static void updateDivisionTypeMission(DoctrineDivisionType dt, boolean isOpening, DivisionMissionType mission) {
         if (dt == null || mission == null) return;
@@ -2756,39 +2750,49 @@ public class PermanentDivisionManager {
         }
     }
 
-    public static void autoSetDivisionStandoffRange(String divisionId) {
+    private interface DivisionSpecMutator {
+        void mutate(PermanentDivisionSpec spec, CampaignFleetAPI playerFleet);
+    }
+
+    private static void mutatePlayerDivisionSpec(String divisionId, DivisionSpecMutator mutator) {
         SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
+        if (sector == null || divisionId == null || mutator == null) return;
         CampaignFleetAPI fleet = sector.getPlayerFleet();
         Map<String, Object> pdata = sector.getPersistentData();
         List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
         for (PermanentDivisionSpec spec : specs) {
             if (divisionId.equals(spec.id)) {
-                recalculateDivisionStandoffRangeFromGuns(spec, fleet);
+                mutator.mutate(spec, fleet);
                 break;
             }
         }
         saveSpecsToPersistentData(pdata, specs);
     }
 
+    public static void autoSetDivisionStandoffRange(String divisionId) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                recalculateDivisionStandoffRangeFromGuns(spec, fleet);
+            }
+        });
+    }
+
     public static void updateIndividualDivisionSettings(
             String divisionId,
-            boolean updateIntra,
-            Integer intraSpacing,
-            boolean updateInter,
-            Integer interSpacing,
-            boolean updateStandoff,
-            Integer lineStandoff,
-            boolean updateOpeningMission,
-            DivisionMissionType openingMission,
-            boolean updateMainMission,
-            DivisionMissionType mainMission) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final boolean updateIntra,
+            final Integer intraSpacing,
+            final boolean updateInter,
+            final Integer interSpacing,
+            final boolean updateStandoff,
+            final Integer lineStandoff,
+            final boolean updateOpeningMission,
+            final DivisionMissionType openingMission,
+            final boolean updateMainMission,
+            final DivisionMissionType mainMission) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 if (updateIntra) {
                     spec.customStationSpacing = (intraSpacing != null)
                             ? Math.max(MIN_STATION_SPACING_UNITS, Math.min(MAX_STATION_SPACING_UNITS, intraSpacing))
@@ -2816,202 +2820,183 @@ public class PermanentDivisionManager {
                         spec.customLineStation = mainMission.autoLineStation;
                     }
                 }
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
-    public static void updateIndividualDivisionLineStation(String divisionId, LineStation lineStation) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+    public static void updateIndividualDivisionLineStation(String divisionId, final LineStation lineStation) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customLineStation = lineStation;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
-    public static void updateIndividualDivisionFormation(String divisionId, DivisionFormation formation) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+    public static void updateIndividualDivisionFormation(String divisionId, final DivisionFormation formation) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customFormation = formation;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionMovementStickiness(
             String divisionId,
-            DivisionMovementStickiness stickiness) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final DivisionMovementStickiness stickiness) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customMovementStickiness = stickiness;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionSetpieceAttack(
             String divisionId,
-            DivisionSetpieceAttack setpiece) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final DivisionSetpieceAttack setpiece) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customSetpieceAttack = setpiece;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionVoidstrikeObservance(
             String divisionId,
-            VoidstrikeTargetObservance observance) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final VoidstrikeTargetObservance observance) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customVoidstrikeObservance = observance;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionVoidstrikeCoordination(
             String divisionId,
-            VoidstrikeCoordinationMode coordination) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final VoidstrikeCoordinationMode coordination) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customVoidstrikeCoordination = coordination;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionFighterFormation(
             String divisionId,
-            SquadronFormation formation) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final SquadronFormation formation) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customFighterFormation = formation;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionFighterVoidstrikeFormation(
             String divisionId,
-            SquadronFormation formation) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final SquadronFormation formation) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customFighterVoidstrikeFormation = formation;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionBomberFormation(
             String divisionId,
-            SquadronFormation formation) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final SquadronFormation formation) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customBomberFormation = formation;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionBomberVoidstrikeFormation(
             String divisionId,
-            SquadronFormation formation) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final SquadronFormation formation) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customBomberVoidstrikeFormation = formation;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionVoidstrikeSquadronDepth(
             String divisionId,
-            Integer depth) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final Integer depth) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customVoidstrikeSquadronDepth = (depth != null)
                         ? Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, depth))
                         : null;
-                break;
             }
-        }
-        saveSpecsToPersistentData(pdata, specs);
+        });
     }
 
     public static void updateIndividualDivisionVoidstrikeSquadronWidth(
             String divisionId,
-            Integer width) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || divisionId == null) return;
-        Map<String, Object> pdata = sector.getPersistentData();
-        List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
-        for (PermanentDivisionSpec spec : specs) {
-            if (divisionId.equals(spec.id)) {
+            final Integer width) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customVoidstrikeSquadronWidth = (width != null)
                         ? Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, width))
                         : null;
+            }
+        });
+    }
+
+    /**
+     * Shared combat DivisionState builder from a campaign PermanentDivisionSpec and its deployed ShipCapabilityProfiles.
+     */
+    public static DivisionState instantiateCombatDivisionFromSpec(
+            BattleGroupState battleGroup,
+            PermanentDivisionSpec spec,
+            List<ShipCapabilityProfile> members,
+            int divisionNumber) {
+        ShipAPI leaderShip = null;
+        for (ShipCapabilityProfile p : members) {
+            String fmId = (p.ship.getFleetMember() != null) ? p.ship.getFleetMember().getId() : null;
+            if (fmId != null && fmId.equals(spec.flagshipMemberId)) {
+                leaderShip = p.ship;
                 break;
             }
         }
-        saveSpecsToPersistentData(pdata, specs);
+        if (leaderShip == null) {
+            leaderShip = members.get(0).ship;
+        }
+        String resolvedDisplayName = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                battleGroup.nomenclatureCategory,
+                spec.archetype,
+                divisionNumber,
+                spec.name);
+        CommanderProfile cmdr = new CommanderProfile(leaderShip.getCaptain(), resolvedDisplayName + " Cmdr");
+        DivisionState combatDiv = new DivisionState(
+                spec.id,
+                battleGroup.side,
+                divisionNumber,
+                spec.archetype,
+                resolvedDisplayName,
+                cmdr);
+        combatDiv.nomenclatureCategory = battleGroup.nomenclatureCategory;
+        combatDiv.flagship = leaderShip;
+        for (ShipCapabilityProfile p : members) {
+            combatDiv.members.add(p.ship);
+            combatDiv.profiles.add(p);
+            battleGroup.shipIdToDivision.put(p.ship.getId(), combatDiv);
+        }
+        DivisionAutoFormer.recomputeDivisionCapabilities(combatDiv);
+        return combatDiv;
     }
 
     /**
@@ -3070,15 +3055,6 @@ public class PermanentDivisionManager {
         return null;
     }
 
-    public static PermanentDivisionSpec getDivisionForMemberId(String fleetMemberId) {
-        if (fleetMemberId == null) return null;
-        for (PermanentDivisionSpec spec : ensureInitializedForPlayerFleet()) {
-            if (spec.memberIds.contains(fleetMemberId)) {
-                return spec;
-            }
-        }
-        return null;
-    }
 
     public static void resetAndAutoFormFromPlayerFleet() {
         SectorAPI sector = Global.getSector();
@@ -3833,40 +3809,8 @@ public class PermanentDivisionManager {
             List<ShipCapabilityProfile> members = entry.getValue();
             if (spec == null || members.isEmpty()) continue;
 
-            ShipAPI leaderShip = null;
-            for (ShipCapabilityProfile p : members) {
-                String fmId = (p.ship.getFleetMember() != null) ? p.ship.getFleetMember().getId() : null;
-                if (fmId != null && fmId.equals(spec.flagshipMemberId)) {
-                    leaderShip = p.ship;
-                    break;
-                }
-            }
-            if (leaderShip == null) {
-                leaderShip = members.get(0).ship;
-            }
-
-            PersonAPI captain = leaderShip.getCaptain();
-            String resolvedDisplayName = DivisionNomenclature.resolveDynamicDivisionDisplayName(
-                    battleGroup.nomenclatureCategory,
-                    spec.archetype,
-                    fallbackNumber,
-                    spec.name);
-            CommanderProfile cmdr = new CommanderProfile(captain, resolvedDisplayName + " Cmdr");
-            DivisionState combatDiv = new DivisionState(
-                    spec.id,
-                    battleGroup.side,
-                    fallbackNumber++,
-                    spec.archetype,
-                    resolvedDisplayName,
-                    cmdr);
-            combatDiv.nomenclatureCategory = battleGroup.nomenclatureCategory;
-            combatDiv.flagship = leaderShip;
-            for (ShipCapabilityProfile p : members) {
-                combatDiv.members.add(p.ship);
-                combatDiv.profiles.add(p);
-                battleGroup.shipIdToDivision.put(p.ship.getId(), combatDiv);
-            }
-            DivisionAutoFormer.recomputeDivisionCapabilities(combatDiv);
+            DivisionState combatDiv = instantiateCombatDivisionFromSpec(
+                    battleGroup, spec, members, fallbackNumber++);
             applyDoctrineModifiersToCombatDivision(combatDiv, spec);
             battleGroup.divisions.add(combatDiv);
             newlyCreatedOut.add(combatDiv);
@@ -4354,28 +4298,9 @@ public class PermanentDivisionManager {
         if (bays == 0 && hullSpec != null) {
             bays = hullSpec.getFighterBays();
         }
-        // Battlecarriers (e.g. Legion, Odyssey — hulls with fighter bays + COMBAT hint) default to Battle Divisions!
-        boolean isBattlecarrier = (bays > 0) && hints.contains(ShipTypeHints.COMBAT);
-        boolean isDedicatedCarrier = !isBattlecarrier
-                && (member.isCarrier() || hints.contains(ShipTypeHints.CARRIER) || bays >= 2);
-        if (isDedicatedCarrier && (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.CARRIER, aaHull))) {
-            switch (size) {
-                case CAPITAL_SHIP:
-                    return DivisionArchetype.FLEET_CARRIER_DIVISION;
-                case CRUISER:
-                    return DivisionArchetype.LIGHT_CARRIER_DIVISION;
-                case DESTROYER:
-                case FRIGATE:
-                default:
-                    return DivisionArchetype.ESCORT_CARRIER_DIVISION;
-            }
-        }
-
-        int strikeWeaponCount = 0;
-        int missileWeight = 0;
-        int totalWeaponWeight = 0;
+        float missileWeight = 0f;
+        float totalWeaponWeight = 0f;
         int largeMissileCount = 0;
-        int mediumMissileCount = 0;
         if (variant != null) {
             java.util.Collection<String> slotIds = variant.getFittedWeaponSlots();
             if (slotIds == null || slotIds.isEmpty()) {
@@ -4406,56 +4331,52 @@ public class PermanentDivisionManager {
                             sz = slotSz;
                         }
                     }
-                    int wWeight;
-                    switch (sz != null ? sz : WeaponSize.SMALL) {
-                        case LARGE:
-                            wWeight = 7;
-                            break;
-                        case MEDIUM:
-                            wWeight = 3;
-                            break;
-                        case SMALL:
-                        default:
-                            wWeight = 1;
-                            break;
-                    }
+                    float wWeight = ShipCapabilityProfile.sizeWeight(sz != null ? sz : WeaponSize.SMALL);
                     totalWeaponWeight += wWeight;
                     if (wt == WeaponType.MISSILE) {
                         missileWeight += wWeight;
                         if (sz == WeaponSize.LARGE) {
                             largeMissileCount++;
-                        } else if (sz == WeaponSize.MEDIUM) {
-                            mediumMissileCount++;
-                        }
-                        if (wSpec.getAIHints() != null && (wSpec.getAIHints().contains(AIHints.STRIKE)
-                                || wSpec.getAIHints().contains(AIHints.DANGEROUS)
-                                || (wSpec.getMaxAmmo() > 0 && wSpec.getMaxAmmo() <= 24))) {
-                            strikeWeaponCount++;
                         }
                     }
                 }
             }
         }
-        float missileShare = totalWeaponWeight > 0 ? ((float) missileWeight / totalWeaponWeight) : 0f;
+
+        // Battlecarriers (e.g. Legion, Odyssey — capital hulls with fighter bays + COMBAT hint) default to Battle Divisions!
+        boolean isBattlecarrier = ShipCapabilityProfile.isBattlecarrierHull(size, bays, hints, totalWeaponWeight);
+        boolean isDedicatedCarrier = !isBattlecarrier
+                && (member.isCarrier() || ShipCapabilityProfile.isDedicatedCarrierHull(size, bays, hints, totalWeaponWeight));
+        if (isDedicatedCarrier && (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.CARRIER, aaHull))) {
+            switch (size) {
+                case CAPITAL_SHIP:
+                    return DivisionArchetype.FLEET_CARRIER_DIVISION;
+                case CRUISER:
+                    return DivisionArchetype.LIGHT_CARRIER_DIVISION;
+                case DESTROYER:
+                case FRIGATE:
+                default:
+                    return DivisionArchetype.ESCORT_CARRIER_DIVISION;
+            }
+        }
+
         String hullId = (hullSpec != null && hullSpec.getHullId() != null)
                 ? hullSpec.getHullId().toLowerCase()
                 : "";
+        boolean heavyMissile = ShipCapabilityProfile.isHeavyMissileHullLoadout(
+                size, hullId, isDedicatedCarrier, largeMissileCount, missileWeight, totalWeaponWeight, false);
 
         boolean missileAllowed = (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.MISSILE, aaHull));
         boolean lineAllowed = (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.LINE, aaHull));
 
         switch (size) {
             case CAPITAL_SHIP:
-                if (missileAllowed && (hullId.contains("pegasus")
-                        || (largeMissileCount >= 2 && missileShare >= 0.38f)
-                        || (missileShare >= 0.45f && missileWeight >= 16))) {
+                if (missileAllowed && heavyMissile) {
                     return DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
                 }
                 return lineAllowed ? DivisionArchetype.BATTLESHIP_DIVISION : DivisionArchetype.FORCE_DIVISION;
             case CRUISER:
-                if (missileAllowed && (hullId.contains("gryphon")
-                        || (largeMissileCount >= 1 && missileShare >= 0.38f)
-                        || (missileShare >= 0.45f && missileWeight >= 9))) {
+                if (missileAllowed && heavyMissile) {
                     return DivisionArchetype.MISSILE_CRUISER_DIVISION;
                 }
                 if ((doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.STRIKE, AutoAssignHull.CRUISER))
@@ -4465,14 +4386,13 @@ public class PermanentDivisionManager {
                 }
                 return lineAllowed ? DivisionArchetype.CRUISER_DIVISION : DivisionArchetype.FORCE_DIVISION;
             case DESTROYER:
-                if (missileAllowed && ((largeMissileCount >= 1 && missileShare >= 0.38f)
-                        || (missileShare >= 0.42f && missileWeight >= 6))) {
+                if (missileAllowed && heavyMissile) {
                     return DivisionArchetype.MISSILE_DESTROYER_DIVISION;
                 }
                 return lineAllowed ? DivisionArchetype.DESTROYER_DIVISION : DivisionArchetype.FORCE_DIVISION;
             case FRIGATE:
             default:
-                if (missileAllowed && (missileShare >= 0.45f && missileWeight >= 3)) {
+                if (missileAllowed && heavyMissile) {
                     return DivisionArchetype.MISSILE_FRIGATE_DIVISION;
                 }
                 return lineAllowed ? DivisionArchetype.FRIGATE_DIVISION : DivisionArchetype.FORCE_DIVISION;

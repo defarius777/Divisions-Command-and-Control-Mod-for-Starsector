@@ -386,16 +386,6 @@ public final class CampaignFleetTooltipOrganizer {
             return sb.toString();
         }
 
-        private static String[] splitBalancedTwoLines(String text, LabelAPI measurer, float maxLineW) {
-            String[] res = splitBalancedLines(text, measurer, maxLineW);
-            if (res.length == 1) {
-                return new String[]{res[0], ""};
-            } else if (res.length == 2) {
-                return res;
-            } else {
-                return new String[]{res[0], res[1] + " " + res[2]};
-            }
-        }
 
         @Override
         public void renderBelow(float alphaMult) {

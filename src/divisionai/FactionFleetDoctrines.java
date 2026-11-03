@@ -219,16 +219,6 @@ public final class FactionFleetDoctrines {
         return inMemoryAppliedPlayerFactionDoctrine;
     }
 
-    public static void clearAppliedPlayerFactionDoctrineForTests() {
-        inMemoryAppliedPlayerFactionDoctrine = null;
-        synchronized (DOCTRINE_CACHE) {
-            DOCTRINE_CACHE.remove(Factions.PLAYER);
-        }
-        SectorAPI sector = Global.getSector();
-        if (sector != null && sector.getPersistentData() != null) {
-            sector.getPersistentData().remove(PERSISTENT_PLAYER_FACTION_DOCTRINE_KEY);
-        }
-    }
 
     /**
      * Copies the player's current Fleet Doctrine to the player's personal faction ("player")
@@ -562,6 +552,7 @@ public final class FactionFleetDoctrines {
             }
         }
         synchronized (DOCTRINE_CACHE) {
+            ensureJsonDoctrinesLoaded();
             FleetDoctrineConfig cached = DOCTRINE_CACHE.get(key);
             if (cached != null) {
                 return cached;
@@ -572,1313 +563,167 @@ public final class FactionFleetDoctrines {
         }
     }
 
+    public static final String FACTION_DOCTRINES_JSON_PATH = "data/config/division_faction_doctrines.json";
+    private static boolean jsonDoctrinesLoaded = false;
+
+    private static synchronized void ensureJsonDoctrinesLoaded() {
+        if (jsonDoctrinesLoaded) return;
+        jsonDoctrinesLoaded = true;
+        try {
+            Object rootJson = JsonReflectBridge.loadMergedModJson(FACTION_DOCTRINES_JSON_PATH, FactionLibrary.MOD_ID);
+            if (rootJson == null) return;
+            Object factionsJson = JsonReflectBridge.optJSONObject(rootJson, "factions");
+            if (factionsJson == null) factionsJson = rootJson;
+            for (String key : JsonReflectBridge.keys(factionsJson)) {
+                if (key == null || key.startsWith("_")) continue;
+                Object entryJson = JsonReflectBridge.optJSONObject(factionsJson, key);
+                if (entryJson == null) continue;
+                FleetDoctrineConfig cfg = parseDoctrineFromJson(entryJson);
+                String normKey = key.trim().toLowerCase(Locale.ROOT);
+                DOCTRINE_CACHE.put(normKey, cfg);
+                for (String alias : JsonReflectBridge.optStringList(entryJson, "aliases")) {
+                    String normAlias = alias.trim().toLowerCase(Locale.ROOT);
+                    if (!normAlias.isEmpty()) {
+                        DOCTRINE_CACHE.put(normAlias, cfg.copy());
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            LOG.warn("[DivisionAI] Failed to load faction doctrines from " + FACTION_DOCTRINES_JSON_PATH, t);
+        }
+    }
+
+    private static FleetDoctrineConfig parseDoctrineFromJson(Object entryJson) throws Throwable {
+        FleetDoctrineConfig cfg = new FleetDoctrineConfig();
+        String authStr = JsonReflectBridge.optString(entryJson, "otcAuthority", null);
+        if (authStr != null && !authStr.isEmpty()) {
+            cfg.setOtcAuthority(OtcAuthority.fromId(authStr, cfg.getOtcAuthority()));
+        }
+        int opDur = JsonReflectBridge.optInt(entryJson, "openingDurationSeconds", -1);
+        if (opDur > 0) {
+            cfg.setOpeningDurationSeconds(opDur);
+        }
+        String fwStr = JsonReflectBridge.optString(entryJson, "fleetWideFormation", null);
+        if (fwStr != null && !fwStr.isEmpty()) {
+            cfg.setFleetWideFormation(FleetWideFormation.fromId(fwStr, cfg.getFleetWideFormation()));
+        }
+        String mdsStr = JsonReflectBridge.optString(entryJson, "multiDivisionSetpiece", null);
+        if (mdsStr != null && !mdsStr.isEmpty()) {
+            cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.fromId(mdsStr, cfg.getMultiDivisionSetpiece()));
+        }
+
+        Object playsJson = JsonReflectBridge.optJSONObject(entryJson, "plays");
+        if (playsJson != null) {
+            for (OtcPlay play : OtcPlay.values()) {
+                if (JsonReflectBridge.has(playsJson, play.name())) {
+                    cfg.setPlayEnabled(play, JsonReflectBridge.optBoolean(playsJson, play.name(), cfg.isPlayEnabled(play)));
+                }
+            }
+        }
+
+        Object hullMaxJson = JsonReflectBridge.optJSONObject(entryJson, "hullMax");
+        if (hullMaxJson != null) {
+            for (DoctrineHullCategory hc : DoctrineHullCategory.values()) {
+                if (JsonReflectBridge.has(hullMaxJson, hc.name())) {
+                    cfg.setMax(hc, JsonReflectBridge.optInt(hullMaxJson, hc.name(), cfg.getMax(hc)));
+                }
+            }
+        }
+
+        Object divTypesJson = JsonReflectBridge.optJSONObject(entryJson, "divisionTypes");
+        if (divTypesJson != null) {
+            for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
+                Object dtJson = JsonReflectBridge.optJSONObject(divTypesJson, dt.name());
+                if (dtJson == null) continue;
+                if (JsonReflectBridge.has(dtJson, "stationSpacing")) {
+                    cfg.setStationSpacing(dt, JsonReflectBridge.optInt(dtJson, "stationSpacing", cfg.getStationSpacing(dt)));
+                }
+                if (JsonReflectBridge.has(dtJson, "divisionInterval")) {
+                    cfg.setDivisionInterval(dt, JsonReflectBridge.optInt(dtJson, "divisionInterval", cfg.getDivisionInterval(dt)));
+                }
+                if (JsonReflectBridge.has(dtJson, "standoffRange")) {
+                    cfg.setStandoffRange(dt, JsonReflectBridge.optInt(dtJson, "standoffRange", cfg.getStandoffRange(dt)));
+                }
+                if (JsonReflectBridge.has(dtJson, "stationKeepingMult")) {
+                    cfg.setStationKeepingMult(dt, JsonReflectBridge.optFloat(dtJson, "stationKeepingMult", cfg.getStationKeepingMult(dt)));
+                }
+                String opMis = JsonReflectBridge.optString(dtJson, "openingMission", null);
+                if (opMis != null && !opMis.isEmpty()) {
+                    cfg.setOpeningMission(dt, DivisionMissionType.fromId(opMis, cfg.getOpeningMission(dt)));
+                }
+                String mnMis = JsonReflectBridge.optString(dtJson, "mainMission", null);
+                if (mnMis != null && !mnMis.isEmpty()) {
+                    cfg.setMainMission(dt, DivisionMissionType.fromId(mnMis, cfg.getMainMission(dt)));
+                }
+                String ls = JsonReflectBridge.optString(dtJson, "lineStation", null);
+                if (ls != null && !ls.isEmpty()) {
+                    cfg.setLineStation(dt, LineStation.fromId(ls, cfg.getLineStation(dt)));
+                }
+                String fm = JsonReflectBridge.optString(dtJson, "formation", null);
+                if (fm != null && !fm.isEmpty()) {
+                    cfg.setFormation(dt, DivisionFormation.fromId(fm, cfg.getFormation(dt)));
+                }
+                String spAtk = JsonReflectBridge.optString(dtJson, "setpieceAttack", null);
+                if (spAtk != null && !spAtk.isEmpty()) {
+                    cfg.setSetpieceAttack(dt, DivisionSetpieceAttack.fromId(spAtk, cfg.getSetpieceAttack(dt)));
+                }
+                String vsObs = JsonReflectBridge.optString(dtJson, "voidstrikeObservance", null);
+                if (vsObs != null && !vsObs.isEmpty()) {
+                    cfg.setVoidstrikeObservance(dt, VoidstrikeTargetObservance.fromId(vsObs, cfg.getVoidstrikeObservance(dt)));
+                }
+                String vsCoord = JsonReflectBridge.optString(dtJson, "voidstrikeCoordination", null);
+                if (vsCoord != null && !vsCoord.isEmpty()) {
+                    cfg.setVoidstrikeCoordination(dt, VoidstrikeCoordinationMode.fromId(vsCoord, cfg.getVoidstrikeCoordination(dt)));
+                }
+                String ftrFm = JsonReflectBridge.optString(dtJson, "fighterFormation", null);
+                if (ftrFm != null && !ftrFm.isEmpty()) {
+                    cfg.setFighterFormation(dt, SquadronFormation.fromId(ftrFm, cfg.getFighterFormation(dt)));
+                }
+                String ftrVsFm = JsonReflectBridge.optString(dtJson, "fighterVoidstrikeFormation", null);
+                if (ftrVsFm != null && !ftrVsFm.isEmpty()) {
+                    cfg.setFighterVoidstrikeFormation(dt, SquadronFormation.fromId(ftrVsFm, cfg.getFighterVoidstrikeFormation(dt)));
+                }
+                String bmbFm = JsonReflectBridge.optString(dtJson, "bomberFormation", null);
+                if (bmbFm != null && !bmbFm.isEmpty()) {
+                    cfg.setBomberFormation(dt, SquadronFormation.fromId(bmbFm, cfg.getBomberFormation(dt)));
+                }
+                String bmbVsFm = JsonReflectBridge.optString(dtJson, "bomberVoidstrikeFormation", null);
+                if (bmbVsFm != null && !bmbVsFm.isEmpty()) {
+                    cfg.setBomberVoidstrikeFormation(dt, SquadronFormation.fromId(bmbVsFm, cfg.getBomberVoidstrikeFormation(dt)));
+                }
+                if (JsonReflectBridge.has(dtJson, "voidstrikeSquadronWidth")) {
+                    cfg.setVoidstrikeSquadronWidth(dt, JsonReflectBridge.optInt(dtJson, "voidstrikeSquadronWidth", cfg.getVoidstrikeSquadronWidth(dt)));
+                }
+                if (JsonReflectBridge.has(dtJson, "voidstrikeSquadronDepth")) {
+                    cfg.setVoidstrikeSquadronDepth(dt, JsonReflectBridge.optInt(dtJson, "voidstrikeSquadronDepth", cfg.getVoidstrikeSquadronDepth(dt)));
+                }
+            }
+        }
+        return cfg;
+    }
+
     private static FleetDoctrineConfig buildFactionDoctrine(String id, FactionAPI optionalFaction) {
         FleetDoctrineConfig cfg = new FleetDoctrineConfig();
-
-        switch (id) {
-            case "hegemony": {
-                // XIV Battlegroup / Domain Navy:
-                // Armored gunline (Onslaught, Legion, Dominator, Eagle, Mora, Enforcer),
-                // disciplined Hammer-and-Anvil mutual PD support, Gryphon missile salvos, and cyclic carrier strikes.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setOpeningDurationSeconds(45);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                cfg.setFleetWideFormation(FleetWideFormation.GRAND_WEDGE_SPEARHEAD);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.HAMMER_AND_ANVIL);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        625, 1100, 700, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
-                        650, 1150, 1100, 0.90f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        500, 1000, 750, 0.90f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        525, 1050, 1100, 0.92f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        525, 1050, 700, 0.95f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        425, 900, 750, 0.94f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.CENTER,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_DESTROYER,
-                        450, 950, 1000, 0.94f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        375, 850, 780, 0.98f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.SCREEN, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_FRIGATE,
-                        400, 880, 950, 0.98f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.VAN,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        625, 1250, 1450, 0.90f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.CYCLIC_STRIKES, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.MEDIUM, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.LINE_ABREAST, 3, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        575, 1150, 1400, 0.92f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.COMBAT_SPACE_PATROL, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.MEDIUM, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.LINE_ABREAST, 2, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.ESCORT_CARRIER,
-                        480, 1000, 1250, 0.94f,
-                        DivisionMissionType.COMBAT_SPACE_PATROL, DivisionMissionType.CYCLIC_STRIKES, LineStation.REAR,
-                        DivisionFormation.FORWARD_SEMICIRCLE, VoidstrikeTargetObservance.MEDIUM, VoidstrikeCoordinationMode.UNCOORDINATED,
-                        SquadronFormation.SEMICIRCLE, SquadronFormation.LINE_ABREAST, 2, 2);
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 4);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 4);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 5);
-                return cfg;
-            }
-
-            case "ironshell":
-            case "iron shell 1.183aj":
-            case "ironsentinel": {
-                // Hegemony Iron Shell (Chitagupta Ministry of Commerce / XIV Reclamation Sentinels):
-                // Aggressive high-mobility XIV battlecarrier & assault spearhead (Tyrant, Skyrend, Vengeance,
-                // Indomitable, Audacious, Valorous) combining burn-drive Lance Charges with coordinated Alpha Strikes.
-                boolean sentinel = "ironsentinel".equals(id);
-                cfg.setOtcAuthority(sentinel ? OtcAuthority.POSITIVE_CONTROL : OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setOpeningDurationSeconds(35);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                cfg.setFleetWideFormation(FleetWideFormation.GRAND_WEDGE_SPEARHEAD);
-                cfg.setMultiDivisionSetpiece(sentinel
-                        ? MultiDivisionSetpiece.ECHELONED_WAVE_BREACH
-                        : MultiDivisionSetpiece.HAMMER_AND_ANVIL);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        600, 1050, 620, 0.86f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
-                        625, 1100, 1020, 0.88f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        490, 980, 660, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        510, 1020, 620, 0.94f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        520, 1040, 1050, 0.90f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        425, 900, 680, 0.92f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        375, 850, 650, 0.98f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        600, 1200, 1380, 0.88f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 3, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        550, 1120, 1300, 0.90f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.LINE_ABREAST, 2, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.ESCORT_CARRIER,
-                        475, 980, 1150, 0.92f,
-                        DivisionMissionType.COMBAT_SPACE_PATROL, DivisionMissionType.DECKLOAD_STRIKE, LineStation.CENTER,
-                        DivisionFormation.FORWARD_SEMICIRCLE, VoidstrikeTargetObservance.MEDIUM, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.SEMICIRCLE, SquadronFormation.LINE_ABREAST, 2, 2);
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 3);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 4);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 5);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 6);
-                return cfg;
-            }
-
-            case "tritachyon":
-            case "hte":
-            case "tte": {
-                // Tri-Tachyon Corporation (plus High-Tech Expansion & Tri-Tac Expansion):
-                // Paragon fortress standoff anchor + Astral recall-bomber Alpha Strikes + Aurora/Fury/Medusa
-                // Strike Cruiser wolfpacks and Doom/Harbinger/Afflictor phase infiltrators in Double Envelopment.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setOpeningDurationSeconds(40);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                cfg.setFleetWideFormation(FleetWideFormation.CRESCENT_HORNS);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CANNAAE_DOUBLE_ENVELOPMENT);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        725, 1300, 1050, 0.98f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.REVERSE_WEDGE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
-                        725, 1300, 1200, 0.98f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        575, 1150, 880, 1.10f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.ENVELOPMENT, LineStation.CENTER,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        575, 1150, 740, 1.18f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        575, 1150, 1100, 1.05f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.REVERSE_WEDGE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        475, 1000, 800, 1.15f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_LEFT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_DESTROYER,
-                        485, 1020, 1000, 1.12f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.VAN,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        425, 950, 800, 1.22f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_FRIGATE,
-                        435, 960, 950, 1.18f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.VAN,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.PHASE,
-                        500, 1150, 750, 1.32f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        750, 1400, 1750, 0.92f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 4, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        650, 1250, 1550, 0.94f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 3, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.ESCORT_CARRIER,
-                        525, 1100, 1400, 0.95f,
-                        DivisionMissionType.SPACE_SUPERIORITY, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.FORWARD_SEMICIRCLE, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.LINE_ABREAST, 2, 2);
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 3);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 4);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 5);
-                return cfg;
-            }
-
-            case "persean":
-            case "persean_league": {
-                // Persean League / Kazeron Navarchy:
-                // Midline missile-and-carrier Combined Arms (Pegasus, Conquest, Champion, Gryphon, Heron,
-                // Drover, Vigilance, Monitor). Heavy DEM/Hydra/Squall standoff saturation & broadside rolls.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setOpeningDurationSeconds(45);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                cfg.setFleetWideFormation(FleetWideFormation.CHECKERBOARD_QUINCUNX);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CROSSING_THE_T_COLUMN);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        700, 1250, 1050, 0.98f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_AHEAD, DivisionSetpieceAttack.BROADSIDE_ROLL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
-                        725, 1280, 1250, 0.95f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        550, 1100, 950, 1.00f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.BROADSIDE_ROLL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        575, 1150, 1200, 0.98f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.REVERSE_WEDGE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        550, 1100, 850, 1.05f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        450, 950, 900, 0.98f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.SCREEN, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_DESTROYER,
-                        475, 1000, 1100, 0.98f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        400, 900, 820, 0.96f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.NONE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_FRIGATE,
-                        425, 920, 1050, 1.00f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.VAN,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        675, 1300, 1650, 0.92f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.LINE_ABREAST, 4, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        625, 1200, 1550, 0.94f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.LINE_ABREAST, 3, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.ESCORT_CARRIER,
-                        525, 1050, 1400, 0.95f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.FORWARD_SEMICIRCLE, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.LINE_ABREAST, 2, 2);
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 4);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 4);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 5);
-                return cfg;
-            }
-
-            case "sindrian_diktat":
-            case "lions_guard": {
-                // Supreme Executor Philip Andrada's "Great Plan":
-                // Rigid centralized Positive Control, all-warship midline/energy column-in-depth
-                // (Executor, Conquest, Eagle, Champion, Falcon, Sunder, Hammerhead), Echeloned Wave Breach.
+        // Dynamic fallback from FactionDoctrineAPI if present for unknown modded factions
+        if (optionalFaction != null && optionalFaction.getDoctrine() != null) {
+            FactionDoctrineAPI fd = optionalFaction.getDoctrine();
+            int aggr = fd.getAggression();
+            if (fd.isStrictComposition()) {
                 cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.GRAND_COLUMN_IN_DEPTH);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.ECHELONED_WAVE_BREACH);
-                cfg.setOpeningDurationSeconds(35);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, "lions_guard".equals(id));
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        600, 1050, 820, 0.84f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.LINE_AHEAD, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
-                        625, 1100, 1050, 0.85f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        475, 950, 780, 0.85f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        490, 980, 720, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        500, 1000, 1020, 0.86f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        425, 900, 780, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.SCREEN, LineStation.CENTER,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        375, 850, 720, 0.90f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.VAN,
-                        DivisionFormation.PROTECTIVE_CIRCLE, DivisionSetpieceAttack.NONE);
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 4);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 4);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 5);
-                return cfg;
-            }
-
-            case "luddic_church":
-            case "knights_of_ludd":
-            case "knights_of_selkie": {
-                // Church of Galactic Redemption & Knights of Ludd:
-                // Armored low-tech bastions (Invictus, Legion, Retribution, Dominator, Eradicator, Mora,
-                // Manticore) advancing in Fleet Protective Bastion with Perdition deckload bomber walls.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setFleetWideFormation(FleetWideFormation.FLEET_PROTECTIVE_BASTION);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.HAMMER_AND_ANVIL);
-                cfg.setOpeningDurationSeconds(40);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, false);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                cfg.setPlayEnabled(OtcPlay.MARTYRDOM, false);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        625, 1100, 620, 0.85f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        475, 950, 640, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        490, 980, 580, 0.92f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        425, 900, 680, 0.92f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        375, 850, 600, 0.94f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.SCREEN, LineStation.VAN,
-                        DivisionFormation.PROTECTIVE_CIRCLE, DivisionSetpieceAttack.NONE);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        625, 1200, 1300, 0.88f,
-                        DivisionMissionType.COMBAT_SPACE_PATROL, DivisionMissionType.DECKLOAD_STRIKE, LineStation.REAR,
-                        DivisionFormation.PROTECTIVE_CIRCLE, VoidstrikeTargetObservance.FREE, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.LINE_ABREAST, SquadronFormation.LINE_ABREAST, 4, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        575, 1150, 1250, 0.90f,
-                        DivisionMissionType.COMBAT_SPACE_PATROL, DivisionMissionType.DECKLOAD_STRIKE, LineStation.REAR,
-                        DivisionFormation.PROTECTIVE_CIRCLE, VoidstrikeTargetObservance.FREE, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.LINE_ABREAST, SquadronFormation.LINE_ABREAST, 3, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.ESCORT_CARRIER,
-                        480, 1000, 1150, 0.92f,
-                        DivisionMissionType.COMBAT_SPACE_PATROL, DivisionMissionType.DECKLOAD_STRIKE, LineStation.REAR,
-                        DivisionFormation.PROTECTIVE_CIRCLE, VoidstrikeTargetObservance.FREE, VoidstrikeCoordinationMode.UNCOORDINATED,
-                        SquadronFormation.LINE_ABREAST, SquadronFormation.LINE_ABREAST, 2, 2);
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 5);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 5);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 6);
-                return cfg;
-            }
-
-            case "zea_dawn": {
-                // Knights of Ludd — Dawntide (warships=4, carriers=3, aggr=4):
-                // Aggressive solar-crusader offensive host.
-                cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.GRAND_WEDGE_SPEARHEAD);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.HAMMER_AND_ANVIL);
-                cfg.setOpeningDurationSeconds(35);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        600, 1050, 600, 0.85f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        490, 980, 640, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        575, 1150, 1300, 0.90f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 3, 2);
-                return cfg;
-            }
-
-            case "zea_dusk": {
-                // Knights of Ludd — Duskborne (warships=4, carriers=1, phase=5, aggr=3):
-                // Spectral phase-coil strike order.
-                cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.CRESCENT_HORNS);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
-                cfg.setOpeningDurationSeconds(35);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.PHASE,
-                        500, 1100, 650, 1.25f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        525, 1050, 720, 1.05f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_LEFT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                return cfg;
-            }
-
-            case "zea_elysians": {
-                // Knights of Ludd — Elysians (warships=2, carriers=4, phase=1, aggr=2):
-                // High-standoff carrier & esoteric beam host.
-                cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.CHECKERBOARD_QUINCUNX);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CROSSING_THE_T_COLUMN);
-                cfg.setOpeningDurationSeconds(45);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        675, 1200, 1050, 0.90f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        675, 1300, 1550, 0.90f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 4, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        600, 1200, 1450, 0.90f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 3, 2);
-                return cfg;
-            }
-
-            case "luddic_path":
-            case "luddenhance": {
-                // Luddic Path & Luddic Enhancement Fanatic / IED Cells:
-                // Fanatical Safety-Overrides & VBIED cells charging into point-blank Martyrdom.
+            } else if (aggr >= 5) {
                 cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_NEGATION);
-                cfg.setFleetWideFormation(FleetWideFormation.GRAND_WEDGE_SPEARHEAD);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.ECHELONED_WAVE_BREACH);
-                cfg.setOpeningDurationSeconds(25);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, false);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, false);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                cfg.setPlayEnabled(OtcPlay.MARTYRDOM, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        550, 1000, 300, 1.25f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
-                        550, 1000, 300, 1.25f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        450, 900, 300, 1.30f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        450, 900, 300, 1.30f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        450, 900, 300, 1.30f,
-                        DivisionMissionType.MARTYRDOM, DivisionMissionType.MARTYRDOM, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        400, 850, 300, 1.35f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_DESTROYER,
-                        400, 850, 300, 1.35f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.MARTYRDOM, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        375, 800, 300, 1.40f,
-                        DivisionMissionType.MARTYRDOM, DivisionMissionType.MARTYRDOM, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_FRIGATE,
-                        375, 800, 300, 1.40f,
-                        DivisionMissionType.MARTYRDOM, DivisionMissionType.MARTYRDOM, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.LANCE_CHARGE);
-                for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
-                    cfg.setFormation(dt, DivisionFormation.NONE);
-                }
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 2);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 5);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 5);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 7);
-                return cfg;
+            } else {
+                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
             }
-
-            case "pirates":
-            case "pirate_privateers":
-            case "jaydeepiracy":
-            case "jdp_flowerfish":
-            case "hmi_sv": {
-                // Outlaw wolfpacks, Flowerfish raiders, and converted freighter fire-support
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_NEGATION);
-                cfg.setFleetWideFormation(FleetWideFormation.REFUSED_FLANK_OBLIQUE);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CANNAAE_DOUBLE_ENVELOPMENT);
+            if (aggr >= 4) {
                 cfg.setOpeningDurationSeconds(35);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        650, 1150, 900, 1.12f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        525, 1050, 700, 1.20f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        525, 1050, 620, 1.25f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        550, 1100, 1050, 1.15f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.REVERSE_WEDGE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        450, 950, 700, 1.25f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        400, 900, 620, 1.32f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.NONE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        600, 1200, 1300, 1.15f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.DECKLOAD_STRIKE, LineStation.REAR,
-                        DivisionFormation.NONE, VoidstrikeTargetObservance.FREE, VoidstrikeCoordinationMode.UNCOORDINATED,
-                        SquadronFormation.SEMICIRCLE, SquadronFormation.LINE_ABREAST, 2, 2);
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 3);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 5);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 6);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 7);
-                return cfg;
-            }
-
-            case "independent":
-            case "scavengers":
-            case "cft":
-            case "brighton":
-            case "hmi_brighton": {
-                // Independents, Scavengers, Carter's Freetraders & Brighton Federation:
-                // Defensive convoy bastion, salvage protection, and mutual fire support.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setFleetWideFormation(FleetWideFormation.FLEET_PROTECTIVE_BASTION);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.HAMMER_AND_ANVIL);
-                cfg.setOpeningDurationSeconds(45);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        650, 1150, 820, 0.90f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        525, 1050, 800, 0.94f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.BROADSIDE_ROLL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        450, 950, 780, 0.95f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        400, 900, 700, 0.98f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.VAN,
-                        DivisionFormation.PROTECTIVE_CIRCLE, DivisionSetpieceAttack.NONE);
-                return cfg;
-            }
-
-            case "mercenary": {
-                // Veteran charter companies: tight, disciplined combined-arms
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setFleetWideFormation(FleetWideFormation.REFUSED_FLANK_OBLIQUE);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
-                cfg.setOpeningDurationSeconds(40);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
-                    cfg.setStationKeepingMult(dt, 0.90f);
-                }
-                return cfg;
-            }
-
-            case "uaf":
-            case "uaf_november":
-            case "uaf_automata": {
-                // United Aurora Federation (Royal Navy, November Task Forces & Automata SpecOps):
-                // Modern carrier-strike-group & heavy battlecruiser/Semibreve missile doctrine
-                // (Solvernia, Novaeria, Exoria, Rillaru, Lillaru, Reisen, Seniraja, Nakiha).
-                boolean automata = "uaf_automata".equals(id);
-                cfg.setOtcAuthority(automata ? OtcAuthority.POSITIVE_CONTROL : OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setFleetWideFormation(automata
-                        ? FleetWideFormation.GRAND_WEDGE_SPEARHEAD
-                        : ("uaf_november".equals(id)
-                                ? FleetWideFormation.GRAND_LINE_ABREAST
-                                : FleetWideFormation.FLEET_PROTECTIVE_BASTION));
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
-                cfg.setOpeningDurationSeconds(automata ? 32 : 44);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        650, 1180, 880, 0.90f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.BROADSIDE_ROLL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
-                        675, 1220, 1200, 0.90f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        525, 1050, 840, 0.94f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.BROADSIDE_ROLL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        540, 1080, 740, 1.02f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        550, 1100, 1150, 0.92f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.REVERSE_WEDGE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        450, 950, 780, 0.94f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.CENTER,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_DESTROYER,
-                        460, 960, 1050, 0.95f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        400, 900, 720, 0.98f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.VAN,
-                        DivisionFormation.PROTECTIVE_CIRCLE, DivisionSetpieceAttack.NONE);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        675, 1350, 1550, 0.88f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 5, 3);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        600, 1200, 1450, 0.90f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 4, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.ESCORT_CARRIER,
-                        500, 1050, 1300, 0.92f,
-                        DivisionMissionType.COMBAT_SPACE_PATROL, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.FORWARD_SEMICIRCLE, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.LINE_ABREAST, 3, 2);
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 3);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 4);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 5);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 6);
-                return cfg;
-            }
-
-            case "interstellarimperium":
-            case "imperium":
-            case "ii_imperial_guard": {
-                // Interstellar Imperium & Imperial Guard (Emperor Victus II & Alpha Core Minerva):
-                // Neo-Roman manipular legion formations under Minerva's AI-directed POSITIVE_CONTROL
-                // (Olympus Titan missile dreadnought, Caesar, Dominus, Matriarch, Sebastos, Praetorian, Triarius).
-                boolean guard = "ii_imperial_guard".equals(id);
-                cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(guard
-                        ? FleetWideFormation.GRAND_WEDGE_SPEARHEAD
-                        : FleetWideFormation.GRAND_LINE_ABREAST);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.HAMMER_AND_ANVIL);
-                cfg.setOpeningDurationSeconds(40);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        625, 1100, 720, 0.85f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
-                        675, 1200, 1250, 0.86f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        500, 1000, 740, 0.86f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        520, 1040, 660, 0.90f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        525, 1050, 1100, 0.88f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        425, 900, 750, 0.88f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        375, 850, 700, 0.90f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.NONE);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        650, 1250, 1450, 0.88f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.LINE_ABREAST, 4, 2);
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 3);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 4);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 5);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 6);
-                return cfg;
-            }
-
-            case "diableavionics": {
-                // Diable Avionics (aggression=5):
-                // Transforming Wanzer strikecraft wings + micro-missile saturation (Pandemonium,
-                // Maelstrom, Rime, Gust, Haze) executing rapid oblique kill-boxes under POSITIVE_CONTROL.
-                cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.REFUSED_FLANK_OBLIQUE);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
-                cfg.setOpeningDurationSeconds(34);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        650, 1150, 880, 0.92f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_BATTLESHIP,
-                        675, 1200, 1120, 0.92f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        525, 1050, 820, 0.98f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        550, 1100, 720, 1.05f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.MISSILE_CRUISER,
-                        550, 1100, 1050, 0.96f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.TOT_ALPHA_STRIKE, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        450, 950, 780, 1.00f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_LEFT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        650, 1300, 1450, 0.90f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 4, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        575, 1180, 1350, 0.92f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 3, 2);
-                return cfg;
-            }
-
-            case "mayasura":
-            case "mayasuran_guard":
-            case "mayasuran navy": {
-                // Mayasuran Navy & Elite Guard (Mairaath Survivors):
-                // Elite fast battlecruisers & carriers (Vishnu, Manta, Garuda, Javanicus, Mokarran,
-                // Arjuna, Skyrend) using Crossing-the-T broadside rolls and synchronized carrier Alpha Strikes.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setFleetWideFormation(FleetWideFormation.CRESCENT_HORNS);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CROSSING_THE_T_COLUMN);
-                cfg.setOpeningDurationSeconds(45);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        675, 1220, 980, 0.95f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_AHEAD, DivisionSetpieceAttack.BROADSIDE_ROLL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        550, 1100, 900, 1.00f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.BROADSIDE_ROLL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        550, 1100, 780, 1.08f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.FLEET_CARRIER,
-                        675, 1320, 1550, 0.90f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 4, 2);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        600, 1200, 1450, 0.92f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 3, 2);
-                return cfg;
-            }
-
-            case "scy":
-            case "scynation": {
-                // Scy Nation (Science Colony of Yggdrasill):
-                // Stealthy, sensor-spoofing hit-and-run predators (Nemean Lion, Keto, Khalkotauroi,
-                // Corocotta, Erymanthian Boar, Sirens). High-autonomy COMMAND_BY_NEGATION ambush & sniping.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_NEGATION);
-                cfg.setFleetWideFormation(FleetWideFormation.CRESCENT_HORNS);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CANNAAE_DOUBLE_ENVELOPMENT);
-                cfg.setOpeningDurationSeconds(38);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        675, 1250, 1050, 1.08f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        575, 1150, 980, 1.15f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        575, 1150, 840, 1.22f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_LEFT, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        475, 1000, 900, 1.20f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        425, 950, 820, 1.25f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                return cfg;
-            }
-
-            case "hmi":
-            case "hmi_exec":
-            case "jyd":
-            case "astroidships": {
-                // Hazard Mining Incorporated, Junk Yard Dogs & Asteroid Flotillas:
-                // Heavy ruggedized industrial/mining-hull brawlers (Locomotive, Herakles, Scarecrow,
-                // Dogstar miner conversions) advancing in close-range armor wedges and protective bastions.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setFleetWideFormation("jyd".equals(id)
-                        ? FleetWideFormation.FLEET_PROTECTIVE_BASTION
-                        : FleetWideFormation.GRAND_WEDGE_SPEARHEAD);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.HAMMER_AND_ANVIL);
-                cfg.setOpeningDurationSeconds(38);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        600, 1050, 580, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        480, 960, 620, 0.90f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        425, 900, 640, 0.92f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        375, 850, 580, 0.98f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                return cfg;
-            }
-
-            case "draco": {
-                // Draco Group (aggression=5):
-                // Aristocratic high-tech vampire raiders executing aggressive wolfpack envelopments.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_NEGATION);
-                cfg.setFleetWideFormation(FleetWideFormation.CRESCENT_HORNS);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CANNAAE_DOUBLE_ENVELOPMENT);
-                cfg.setOpeningDurationSeconds(34);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        550, 1100, 740, 1.15f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        550, 1100, 660, 1.22f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        425, 950, 640, 1.25f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.REVERSE_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                return cfg;
-            }
-
-            case "fang": {
-                // Fang Society (aggression=4):
-                // Biomutagenic feral low-tech pack raiders charging into point-blank brawl range.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_NEGATION);
-                cfg.setFleetWideFormation(FleetWideFormation.GRAND_WEDGE_SPEARHEAD);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.ECHELONED_WAVE_BREACH);
-                cfg.setOpeningDurationSeconds(28);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, false);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
-                    if (!dt.isCarrierType() && dt != DoctrineDivisionType.SERVICE_GROUP) {
-                        configureDivisionTypeFull(cfg, dt,
-                                450, 920, 440, 1.25f,
-                                DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                                DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.LANCE_CHARGE);
-                    }
-                }
-                return cfg;
-            }
-
-            case "maybegoogle":
-            case "rat_exotech": {
-                // Mbaye-Gogol Directorate (phase=5, aggr=4) & Exo-Tech (phase=3):
-                // Secretive phase-coil and stealth strike fleets operating in decentralized wolfpacks.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_NEGATION);
-                cfg.setFleetWideFormation(FleetWideFormation.CRESCENT_HORNS);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
-                cfg.setOpeningDurationSeconds(32);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.PHASE,
-                        500, 1150, 620, 1.32f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        550, 1100, 760, 1.15f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.ECHELON_STRIKE);
-                return cfg;
-            }
-
-            case "koc":
-            case "everybody loves koc":
-            case "eridani":
-            case "bhilai":
-            case "kyeltziv":
-            case "kyeltziv technocracy":
-            case "unitedpamed": {
-                // Ko Combine, Eridani-Utopia, Bhilai Astra, Kyeltziv Technocracy & United Pamed:
-                // Methodical corporate/technocratic gunlines with drone/escort screens and standoff fire.
-                cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                cfg.setFleetWideFormation(FleetWideFormation.CHECKERBOARD_QUINCUNX);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CROSSING_THE_T_COLUMN);
-                cfg.setOpeningDurationSeconds(45);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        675, 1200, 960, 0.92f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        540, 1080, 920, 0.94f,
-                        DivisionMissionType.STANDOFF_ENGAGEMENT, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.BROADSIDE_ROLL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        450, 950, 880, 0.95f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.STANDOFF_ENGAGEMENT, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                return cfg;
-            }
-
-            case "xhanempire":
-            case "vantanet": {
-                // Xhan Empire (Divine Emperor Okkatrid Zetnon, aggression=4):
-                // Totalitarian rigid POSITIVE_CONTROL column-in-depth, heavy armor blocks (Myrianous,
-                // Gramada, Occuklop, Panrelka) grinding forward in echeloned wave breaches.
-                cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.GRAND_COLUMN_IN_DEPTH);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.ECHELONED_WAVE_BREACH);
-                cfg.setOpeningDurationSeconds(38);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        600, 1050, 620, 0.82f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        475, 950, 650, 0.85f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.LANCE_CHARGE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        425, 900, 680, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.FORWARD_WEDGE, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                return cfg;
-            }
-
-            case "remnant":
-            case "remnants":
-            case "derelict":
-            case "domres":
-            case "indevo_derelict":
-            case "indevo_converters": {
-                // Post-AI War AI Fleets, Domain Resurgent & Automated Derelicts:
-                // ORDO COGITATOR/MASTER Positive Control machine synchronization
-                cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.FLEET_PROTECTIVE_BASTION);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
-                cfg.setOpeningDurationSeconds(35);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        600, 1050, 680, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        480, 950, 620, 0.88f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.BROADSIDE_ROLL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.STRIKE_CRUISER,
-                        480, 950, 600, 0.90f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.ECHELON_STRIKE);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        420, 880, 600, 0.90f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.LINE_ABREAST, DivisionSetpieceAttack.WALL_SALVO_PASS);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        360, 820, 520, 0.92f,
-                        DivisionMissionType.SCREEN, DivisionMissionType.SCREEN, LineStation.VAN,
-                        DivisionFormation.PROTECTIVE_CIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.PHASE,
-                        450, 950, 700, 0.95f,
-                        DivisionMissionType.SCOUTING, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.ECHELON_RIGHT, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureCarrierTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        600, 1150, 1450, 0.88f,
-                        DivisionMissionType.ARMED_RECONNAISSANCE, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.LINE_ABREAST, VoidstrikeTargetObservance.HIGH, VoidstrikeCoordinationMode.COORDINATED,
-                        SquadronFormation.WEDGE, SquadronFormation.WEDGE, 3, 2);
-
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 3);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 4);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 5);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 6);
-                return cfg;
-            }
-
-            case "threat":
-            case "mess":
-            case "mess_remnant":
-            case "hmi_nightmare": {
-                // The Threat & The Mess (self-replicating grey-goo nanite swarm):
-                // <<UNKNOWN?? FRAGMENT COMPILER>> self-fabricating swarm convergence
-                cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.CRESCENT_HORNS);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
-                cfg.setOpeningDurationSeconds(30);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        625, 1100, 700, 0.90f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.CENTER,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        475, 950, 650, 0.92f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        400, 850, 600, 0.95f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        350, 800, 500, 1.00f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.LIGHT_CARRIER,
-                        575, 1100, 1200, 0.90f,
-                        DivisionMissionType.COMBAT_SPACE_PATROL, DivisionMissionType.ALPHA_STRIKE, LineStation.REAR,
-                        DivisionFormation.PROTECTIVE_CIRCLE, DivisionSetpieceAttack.NONE);
-
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 3);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 5);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 6);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 8);
-                return cfg;
-            }
-
-            case "dweller":
-            case "omega":
-            case "liminal":
-            case "rat_abyssals":
-            case "rat_abyssals_deep":
-            case "rat_abyssals_deep_seraph":
-            case "rat_abyssals_primordial":
-            case "rat_abyssals_sim": {
-                // Abyssal / Otherworldly / Liminal: "ERROR"
-                cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                cfg.setFleetWideFormation(FleetWideFormation.CRESCENT_HORNS);
-                cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.CONVERGENCE_KILL_BOX);
-                cfg.setOpeningDurationSeconds(30);
-                cfg.setPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION, true);
-                cfg.setPlayEnabled(OtcPlay.DOUBLING, true);
-                cfg.setPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES, true);
-                cfg.setPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE, true);
-
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.BATTLESHIP,
-                        600, 1100, 550, 0.90f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.CRUISER,
-                        475, 950, 550, 0.95f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.CLOSE_ACTION, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.DESTROYER,
-                        400, 850, 500, 1.00f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-                configureDivisionTypeFull(cfg, DoctrineDivisionType.FRIGATE,
-                        350, 800, 450, 1.05f,
-                        DivisionMissionType.CLOSE_ACTION, DivisionMissionType.ENVELOPMENT, LineStation.VAN,
-                        DivisionFormation.FORWARD_SEMICIRCLE, DivisionSetpieceAttack.HORNS_OF_THE_BULL);
-
-                cfg.setMax(DoctrineHullCategory.CAPITAL, 3);
-                cfg.setMax(DoctrineHullCategory.CRUISER, 5);
-                cfg.setMax(DoctrineHullCategory.DESTROYER, 6);
-                cfg.setMax(DoctrineHullCategory.FRIGATE, 7);
-                return cfg;
-            }
-
-            default: {
-                // Dynamic fallback from FactionDoctrineAPI if present
-                if (optionalFaction != null && optionalFaction.getDoctrine() != null) {
-                    FactionDoctrineAPI fd = optionalFaction.getDoctrine();
-                    int aggr = fd.getAggression();
-                    if (fd.isStrictComposition()) {
-                        cfg.setOtcAuthority(OtcAuthority.POSITIVE_CONTROL);
-                    } else if (aggr >= 5) {
-                        cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_NEGATION);
-                    } else {
-                        cfg.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
-                    }
-                    if (aggr >= 4) {
-                        cfg.setOpeningDurationSeconds(35);
-                        cfg.setOpeningMission(DoctrineDivisionType.BATTLESHIP, DivisionMissionType.CLOSE_ACTION);
-                        cfg.setMainMission(DoctrineDivisionType.BATTLESHIP, DivisionMissionType.CLOSE_ACTION);
-                        cfg.setOpeningMission(DoctrineDivisionType.CRUISER, DivisionMissionType.CLOSE_ACTION);
-                        cfg.setMainMission(DoctrineDivisionType.CRUISER, DivisionMissionType.CLOSE_ACTION);
-                    }
-                }
-                return cfg;
+                cfg.setOpeningMission(DoctrineDivisionType.BATTLESHIP, DivisionMissionType.CLOSE_ACTION);
+                cfg.setMainMission(DoctrineDivisionType.BATTLESHIP, DivisionMissionType.CLOSE_ACTION);
+                cfg.setOpeningMission(DoctrineDivisionType.CRUISER, DivisionMissionType.CLOSE_ACTION);
+                cfg.setMainMission(DoctrineDivisionType.CRUISER, DivisionMissionType.CLOSE_ACTION);
             }
         }
-    }
-
-    private static void configureDivisionType(
-            FleetDoctrineConfig cfg,
-            DoctrineDivisionType dt,
-            int stationSpacing,
-            int divisionInterval,
-            int standoffRange,
-            float stationKeepingMult,
-            DivisionMissionType openingMission,
-            DivisionMissionType mainMission,
-            LineStation lineStation) {
-        cfg.setStationSpacing(dt, stationSpacing);
-        cfg.setDivisionInterval(dt, divisionInterval);
-        cfg.setStandoffRange(dt, standoffRange);
-        cfg.setStationKeepingMult(dt, stationKeepingMult);
-        cfg.setOpeningMission(dt, openingMission);
-        cfg.setMainMission(dt, mainMission);
-        cfg.setLineStation(dt, lineStation);
-    }
-
-    private static void configureDivisionTypeFull(
-            FleetDoctrineConfig cfg,
-            DoctrineDivisionType dt,
-            int stationSpacing,
-            int divisionInterval,
-            int standoffRange,
-            float stationKeepingMult,
-            DivisionMissionType openingMission,
-            DivisionMissionType mainMission,
-            LineStation lineStation,
-            DivisionFormation formation,
-            DivisionSetpieceAttack setpiece) {
-        configureDivisionType(cfg, dt, stationSpacing, divisionInterval, standoffRange,
-                stationKeepingMult, openingMission, mainMission, lineStation);
-        if (formation != null) {
-            cfg.setFormation(dt, formation);
-        }
-        if (setpiece != null) {
-            cfg.setSetpieceAttack(dt, setpiece);
-        }
-    }
-
-    private static void configureCarrierTypeFull(
-            FleetDoctrineConfig cfg,
-            DoctrineDivisionType dt,
-            int stationSpacing,
-            int divisionInterval,
-            int standoffRange,
-            float stationKeepingMult,
-            DivisionMissionType openingMission,
-            DivisionMissionType mainMission,
-            LineStation lineStation,
-            DivisionFormation formation,
-            VoidstrikeTargetObservance observance,
-            VoidstrikeCoordinationMode coordination,
-            SquadronFormation fighterFm,
-            SquadronFormation bomberFm,
-            int width,
-            int depth) {
-        configureDivisionType(cfg, dt, stationSpacing, divisionInterval, standoffRange,
-                stationKeepingMult, openingMission, mainMission, lineStation);
-        if (formation != null) {
-            cfg.setFormation(dt, formation);
-        }
-        if (observance != null) {
-            cfg.setVoidstrikeObservance(dt, observance);
-        }
-        if (coordination != null) {
-            cfg.setVoidstrikeCoordination(dt, coordination);
-        }
-        if (fighterFm != null) {
-            cfg.setFighterFormation(dt, fighterFm);
-            cfg.setFighterVoidstrikeFormation(dt, fighterFm);
-        }
-        if (bomberFm != null) {
-            cfg.setBomberFormation(dt, bomberFm);
-            cfg.setBomberVoidstrikeFormation(dt, bomberFm);
-        }
-        cfg.setVoidstrikeSquadronWidth(dt, width);
-        cfg.setVoidstrikeSquadronDepth(dt, depth);
+        return cfg;
     }
 
     /**
@@ -3104,41 +1949,8 @@ public final class FactionFleetDoctrines {
             List<ShipCapabilityProfile> members = entry.getValue();
             if (spec == null || members.isEmpty()) continue;
 
-            ShipAPI leaderShip = null;
-            for (ShipCapabilityProfile p : members) {
-                String fmId = (p.ship.getFleetMember() != null) ? p.ship.getFleetMember().getId() : null;
-                if (fmId != null && fmId.equals(spec.flagshipMemberId)) {
-                    leaderShip = p.ship;
-                    break;
-                }
-            }
-            if (leaderShip == null) {
-                leaderShip = members.get(0).ship;
-            }
-
-            int divNum = fallbackNumber++;
-            String displayName = DivisionNomenclature.resolveDynamicDivisionDisplayName(
-                    battleGroup.nomenclatureCategory,
-                    spec.archetype,
-                    divNum,
-                    spec.name);
-
-            CommanderProfile cmdr = new CommanderProfile(leaderShip.getCaptain(), displayName + " Cmdr");
-            DivisionState combatDiv = new DivisionState(
-                    spec.id,
-                    battleGroup.side,
-                    divNum,
-                    spec.archetype,
-                    displayName,
-                    cmdr);
-            combatDiv.nomenclatureCategory = battleGroup.nomenclatureCategory;
-            combatDiv.flagship = leaderShip;
-            for (ShipCapabilityProfile p : members) {
-                combatDiv.members.add(p.ship);
-                combatDiv.profiles.add(p);
-                battleGroup.shipIdToDivision.put(p.ship.getId(), combatDiv);
-            }
-            DivisionAutoFormer.recomputeDivisionCapabilities(combatDiv);
+            DivisionState combatDiv = PermanentDivisionManager.instantiateCombatDivisionFromSpec(
+                    battleGroup, spec, members, fallbackNumber++);
             CampaignFleetAPI sourceFleet = specIdToFleet.get(spec.id);
             applyFactionDoctrineToCombatDivision(combatDiv, spec, getDoctrineForFleet(sourceFleet));
             battleGroup.divisions.add(combatDiv);

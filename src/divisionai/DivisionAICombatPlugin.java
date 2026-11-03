@@ -152,7 +152,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     @Override
     public void processInputPreCoreControls(float amount, List<InputEventAPI> events) {
         if (!BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) return;
-        BattlefieldFirepowerEvaluator.processInputEvents(engine, events);
+        TsfcWarroomRenderer.processInputEvents(engine, events);
     }
 
     public static final float BATTLE_SCREEN_TSFC_OPACITY_MULT = 0.22f;
@@ -171,10 +171,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) {
             return;
         }
-        if (!BattlefieldFirepowerEvaluator.isTimeOverlayVisible()
-                && !BattlefieldFirepowerEvaluator.isSpaceOverlayVisible()
-                && !BattlefieldFirepowerEvaluator.isOverlayVisible()
-                && !BattlefieldFirepowerEvaluator.isConvergenceOverlayVisible()) {
+        if (!TsfcWarroomRenderer.isTimeOverlayVisible()
+                && !TsfcWarroomRenderer.isSpaceOverlayVisible()
+                && !TsfcWarroomRenderer.isOverlayVisible()
+                && !TsfcWarroomRenderer.isConvergenceOverlayVisible()) {
             return;
         }
         com.fs.starfarer.api.combat.CombatUIAPI ui = engine.getCombatUI();
@@ -195,9 +195,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (scale <= 1e-5f) {
             return;
         }
-        BattlefieldFirepowerEvaluator.renderTimeSpaceAndConvergenceScreenSpace(
+        TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
                 engine, scale, offsetX, offsetY, battleFade, playerGroup, alliedAiGroup, enemyGroup);
-        BattlefieldFirepowerEvaluator.renderFirepowerRosesScreenSpace(
+        TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
                 engine, scale, offsetX, offsetY, battleFade, playerGroup, alliedAiGroup, enemyGroup);
     }
 
@@ -214,7 +214,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             return;
         }
         if (BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) {
-            BattlefieldFirepowerEvaluator.processInputEvents(engine, events);
+            TsfcWarroomRenderer.processInputEvents(engine, events);
         }
         if (tacticalOverlay == null) {
             tacticalOverlay = new DivisionTacticalMapOverlay(engine);
@@ -267,9 +267,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
             if (!engine.isPaused()
                     || (playerGroup != null && playerGroup.activeFleetFlagship == null && !playerGroup.divisions.isEmpty())) {
-                BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, playerGroup);
-                BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, alliedAiGroup);
-                BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, enemyGroup);
+                DivisionOtcCommandManager.updateConvergenceCommandStates(engine, playerGroup);
+                DivisionOtcCommandManager.updateConvergenceCommandStates(engine, alliedAiGroup);
+                DivisionOtcCommandManager.updateConvergenceCommandStates(engine, enemyGroup);
             }
         }
 
@@ -361,9 +361,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             boolean alliedAiHasDivisions = !alliedAiGroup.divisions.isEmpty();
             boolean enemyHasDivisions = !enemyGroup.divisions.isEmpty();
 
-            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, playerGroup);
-            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, alliedAiGroup);
-            BattlefieldFirepowerEvaluator.updateConvergenceCommandStates(engine, enemyGroup);
+            DivisionOtcCommandManager.updateConvergenceCommandStates(engine, playerGroup);
+            DivisionOtcCommandManager.updateConvergenceCommandStates(engine, alliedAiGroup);
+            DivisionOtcCommandManager.updateConvergenceCommandStates(engine, enemyGroup);
 
             if (playerHasDivisions && !loggedPlayerOtcInit) {
                 loggedPlayerOtcInit = true;
@@ -472,7 +472,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             markDivNs = System.nanoTime();
             // 5. Update active Voidstrike instantiation, multi-division merging, and return cleanup
-            BattlefieldFirepowerEvaluator.updateVoidstrikes(
+            VoidstrikeCoordinator.updateVoidstrikes(
                     engine,
                     playerGroup,
                     alliedAiGroup,

@@ -703,7 +703,7 @@ public class DivisionCommanderAI {
                 || div.isFastFlanker
                 || div.localEnemyStrength < 15f)) {
             div.targetFriendlyDivision = endangeredFriendlyDiv;
-            computeReinforceStation(engine, div, endangeredFriendlyDiv, div.stationPoint, myGroup);
+            DivisionFormationNavigator.computeReinforceStation(engine, div, endangeredFriendlyDiv, div.stationPoint, myGroup);
             String reason = (activeMission == DivisionMissionType.RESERVE || div.isDesignatedReserve)
                     ? String.format("reserve called forward to reinforce (local ratio %.2f)", endangeredFriendlyDiv.localForceRatio)
                     : String.format("hard pressed, local ratio %.2f", endangeredFriendlyDiv.localForceRatio);
@@ -976,7 +976,7 @@ public class DivisionCommanderAI {
             DivisionState carrierTargetDiv) {
         div.targetEnemyDivision = carrierTargetDiv;
         if (carrierTargetDiv != null) {
-            computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
+            DivisionFormationNavigator.computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
             return carrierTargetDiv.displayName;
         }
         div.stationPoint.set(myGroup.reserveStation);
@@ -1035,7 +1035,7 @@ public class DivisionCommanderAI {
                 div.targetEnemyDivision = carrierTargetDiv;
                 String targetLabel;
                 if (carrierTargetDiv != null) {
-                    computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
                     targetLabel = carrierTargetDiv.displayName;
                 } else if (uncapturedObj != null) {
                     div.targetObjective = uncapturedObj;
@@ -1062,7 +1062,7 @@ public class DivisionCommanderAI {
                     computePatrolStation(div, protectedFriendly, div.stationPoint);
                     targetLabel = protectedFriendly.displayName;
                 } else if (carrierTargetDiv != null) {
-                    computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
                     targetLabel = carrierTargetDiv.displayName;
                 } else {
                     div.stationPoint.set(myGroup.reserveStation);
@@ -1149,7 +1149,7 @@ public class DivisionCommanderAI {
             } else {
                 // While Strike Cooldown is recharging between passes, hold standoff outside enemy gun range
                 div.targetEnemyDivision = alphaTarget;
-                computeStandoffStation(engine, div, alphaTarget, div.stationPoint);
+                DivisionFormationNavigator.computeStandoffStation(engine, div, alphaTarget, div.stationPoint);
                 return commitIntent(engine, div, DivisionIntentType.CLOSE_AND_ENGAGE,
                         alphaTarget.displayName, missionPhaseTag + "re-forming after ToT Alpha Strike", now);
             }
@@ -1158,7 +1158,7 @@ public class DivisionCommanderAI {
         if (activeMission == DivisionMissionType.SCREEN && heavyFriendlyToScreen != null) {
             div.targetFriendlyDivision = heavyFriendlyToScreen;
             div.targetEnemyDivision = nearestEnemyDiv;
-            computeScreeningStation(engine, div, heavyFriendlyToScreen, nearestEnemyDiv, div.stationPoint, div.side);
+            DivisionFormationNavigator.computeScreeningStation(engine, div, heavyFriendlyToScreen, nearestEnemyDiv, div.stationPoint, div.side);
             return commitIntent(engine, div, DivisionIntentType.TAKE_SCREENING_STATION,
                     heavyFriendlyToScreen.displayName, missionPhaseTag + activeMission.shortName, now);
         }
@@ -1183,7 +1183,7 @@ public class DivisionCommanderAI {
             }
             if (strikeCooldownElapsed && div.avgFluxLevel < 0.58f) {
                 div.targetEnemyDivision = nearestEnemyDiv;
-                computeFlankStation(engine, div, nearestEnemyDiv, div.stationPoint, myGroup);
+                DivisionFormationNavigator.computeFlankStation(engine, div, nearestEnemyDiv, div.stationPoint, myGroup);
                 if (!inFlankManeuver) {
                     div.strikeCommittedTimestamp = now;
                 }
@@ -1197,7 +1197,7 @@ public class DivisionCommanderAI {
                 || activeMission == DivisionMissionType.SCOUTING)
                 && nearestEnemyDiv != null) {
             div.targetEnemyDivision = nearestEnemyDiv;
-            computeStandoffStation(engine, div, nearestEnemyDiv, div.stationPoint);
+            DivisionFormationNavigator.computeStandoffStation(engine, div, nearestEnemyDiv, div.stationPoint);
             String reason = String.format("%s%s (standoff range %.0fu)", missionPhaseTag, activeMission.shortName, div.standoffRange);
             return commitIntent(engine, div, DivisionIntentType.CLOSE_AND_ENGAGE,
                     nearestEnemyDiv.displayName, reason, now);
@@ -1225,7 +1225,7 @@ public class DivisionCommanderAI {
                     || (nearestEnemyDiv.totalEffectiveHp > div.totalEffectiveHp * 1.38f);
             boolean hasTimeAdvantage = div.weightedTimeSpeed > Math.max(40f, nearestEnemyDiv.weightedTimeSpeed * 1.08f);
             if (isLightOrDestroyer && enemyOutmatchesEhp && hasTimeAdvantage && div.avgFluxLevel < 0.58f) {
-                computeFlankStation(engine, div, nearestEnemyDiv, div.stationPoint, myGroup);
+                DivisionFormationNavigator.computeFlankStation(engine, div, nearestEnemyDiv, div.stationPoint, myGroup);
                 if (!inFlankManeuver) {
                     div.strikeCommittedTimestamp = now;
                 }
@@ -1240,7 +1240,7 @@ public class DivisionCommanderAI {
             DivisionIntentType intent = (realLocalOvermatch && ehpReadyToPress && distToVisibleEnemy < 2200f)
                     ? DivisionIntentType.PRESS_HOME
                     : DivisionIntentType.CLOSE_AND_ENGAGE;
-            computeStandoffStation(engine, div, nearestEnemyDiv, div.stationPoint);
+            DivisionFormationNavigator.computeStandoffStation(engine, div, nearestEnemyDiv, div.stationPoint);
             return commitIntent(engine, div, intent,
                     nearestEnemyDiv.displayName, missionPhaseTag + activeMission.shortName, now);
         }
@@ -1287,7 +1287,7 @@ public class DivisionCommanderAI {
             if (heavyNeedsScreen) {
                 div.targetFriendlyDivision = heavyFriendlyToScreen;
                 div.targetEnemyDivision = nearestEnemyDiv;
-                computeScreeningStation(engine, div, heavyFriendlyToScreen, nearestEnemyDiv, div.stationPoint, div.side);
+                DivisionFormationNavigator.computeScreeningStation(engine, div, heavyFriendlyToScreen, nearestEnemyDiv, div.stationPoint, div.side);
                 commitIntent(engine, div, DivisionIntentType.TAKE_SCREENING_STATION,
                         heavyFriendlyToScreen.displayName, "forward PD and anti-flank screen", now);
                 return;
@@ -1358,7 +1358,7 @@ public class DivisionCommanderAI {
                 && myGroup.mainEffortDivision != div
                 && div.avgFluxLevel < 0.52f) {
             div.targetEnemyDivision = nearestEnemyDiv;
-            computeFlankStation(engine, div, nearestEnemyDiv, div.stationPoint, myGroup);
+            DivisionFormationNavigator.computeFlankStation(engine, div, nearestEnemyDiv, div.stationPoint, myGroup);
             if (!inFlankManeuver) {
                 div.strikeCommittedTimestamp = now;
             }
@@ -1431,7 +1431,7 @@ public class DivisionCommanderAI {
         // 13. Press local overmatch vs standard line advance (strictly respecting Fog of War)
         if (nearestEnemyDiv != null) {
             div.targetEnemyDivision = nearestEnemyDiv;
-            computeStandoffStation(engine, div, nearestEnemyDiv, div.stationPoint);
+            DivisionFormationNavigator.computeStandoffStation(engine, div, nearestEnemyDiv, div.stationPoint);
 
             DivisionIntentType intent;
             String reason;
@@ -1505,7 +1505,7 @@ public class DivisionCommanderAI {
                 if (task.hasStation) {
                     div.stationPoint.set(task.station);
                 } else {
-                    computeStandoffStation(engine, div, target, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, target, div.stationPoint);
                 }
                 break;
             }
@@ -1525,14 +1525,14 @@ public class DivisionCommanderAI {
                         && target.avgFluxLevel < 0.78f;
                 if (div.archetype.isCarrierArchetype()) {
                     div.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
-                    computeStandoffStation(engine, div, target, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, target, div.stationPoint);
                 } else if (flakProtectedHeavyTarget && activeMission != DivisionMissionType.TOT_ALPHA_STRIKE) {
                     if (div.hasMissileStrikeCapability && div.usableStrikeAmmoCount > 0) {
                         div.currentIntent = DivisionIntentType.TOT_MISSILE_STRIKE;
                         div.stationPoint.set(OtcAI.getVisibleCentroidForSide(engine, div.side, target));
                     } else {
                         div.currentIntent = DivisionIntentType.WORK_FLANK;
-                        computeFlankStation(engine, div, target, div.stationPoint, myGroup);
+                        DivisionFormationNavigator.computeFlankStation(engine, div, target, div.stationPoint, myGroup);
                     }
                 } else if ((activeMission == DivisionMissionType.TOT_ALPHA_STRIKE
                         && !(div.archetype.isMissileArchetype() && div.hasMissileStrikeCapability && div.usableStrikeAmmoCount > 0))
@@ -1544,7 +1544,7 @@ public class DivisionCommanderAI {
                         div.stationPoint.set(OtcAI.getVisibleCentroidForSide(engine, div.side, target));
                     } else {
                         div.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
-                        computeStandoffStation(engine, div, target, div.stationPoint);
+                        DivisionFormationNavigator.computeStandoffStation(engine, div, target, div.stationPoint);
                     }
                 } else {
                     div.currentIntent = DivisionIntentType.TOT_MISSILE_STRIKE;
@@ -1563,7 +1563,7 @@ public class DivisionCommanderAI {
                     return false;
                 }
                 div.targetFriendlyDivision = friend;
-                computeReinforceStation(engine, div, friend, div.stationPoint, myGroup);
+                DivisionFormationNavigator.computeReinforceStation(engine, div, friend, div.stationPoint, myGroup);
                 return commitIntent(engine, div, DivisionIntentType.REINFORCE_DIVISION, friend.displayName, reason, now);
             }
             case HOLD_RESERVE: {
@@ -1613,7 +1613,7 @@ public class DivisionCommanderAI {
                     // Human (Command by Direction) Main Effort: keep fighting its OTC-assigned primary enemy
                     // instead of drifting onto transient contact clusters that happen to pass nearby.
                     div.targetEnemyDivision = target;
-                    computeStandoffStation(engine, div, target, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, target, div.stationPoint);
                     div.currentIntent = DivisionIntentType.FORM_LINE_AND_FIX;
                     if (task.hasStation) {
                         div.stationPoint.set(task.station);
@@ -1627,7 +1627,7 @@ public class DivisionCommanderAI {
                 if (task.hasStation) {
                     div.stationPoint.set(task.station);
                 } else {
-                    computeStandoffStation(engine, div, target, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, target, div.stationPoint);
                 }
                 break;
             }
@@ -1637,7 +1637,7 @@ public class DivisionCommanderAI {
                 boolean wasFlanking = prevIntent == DivisionIntentType.WORK_FLANK;
                 div.currentIntent = DivisionIntentType.WORK_FLANK;
                 div.targetEnemyDivision = target;
-                computeFlankStation(engine, div, target, div.stationPoint, myGroup);
+                DivisionFormationNavigator.computeFlankStation(engine, div, target, div.stationPoint, myGroup);
                 if (!wasFlanking) {
                     div.strikeCommittedTimestamp = now;
                 }
@@ -1649,7 +1649,7 @@ public class DivisionCommanderAI {
                 Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, target);
                 float dist = distance(div.centroid, visEnemyPos);
                 div.targetEnemyDivision = target;
-                computeStandoffStation(engine, div, target, div.stationPoint);
+                DivisionFormationNavigator.computeStandoffStation(engine, div, target, div.stationPoint);
                 if (activeMission != DivisionMissionType.STANDOFF_ENGAGEMENT
                         && target.enemyFeignedRetreatSuspicion < 0.60f
                         && div.localEnemyStrength >= 12f
@@ -1764,17 +1764,17 @@ public class DivisionCommanderAI {
         switch (div.currentIntent) {
             case TAKE_SCREENING_STATION:
                 if (friend != null) {
-                    computeScreeningStation(engine, div, friend, enemy, div.stationPoint, div.side);
+                    DivisionFormationNavigator.computeScreeningStation(engine, div, friend, enemy, div.stationPoint, div.side);
                 }
                 break;
             case WORK_FLANK:
                 if (enemyTrackable) {
-                    computeFlankStation(engine, div, enemy, div.stationPoint, myGroup);
+                    DivisionFormationNavigator.computeFlankStation(engine, div, enemy, div.stationPoint, myGroup);
                 }
                 break;
             case REINFORCE_DIVISION:
                 if (friend != null && friend.isCombatEffective()) {
-                    computeReinforceStation(engine, div, friend, div.stationPoint, myGroup);
+                    DivisionFormationNavigator.computeReinforceStation(engine, div, friend, div.stationPoint, myGroup);
                 }
                 break;
             case PRESS_HOME:
@@ -1834,7 +1834,7 @@ public class DivisionCommanderAI {
                         && div.otcOrder.type == DivisionModel.OtcOrderType.ENGAGE_ASSIGNED) {
                     div.stationPoint.set(div.otcOrder.station);
                 } else if (enemyTrackable) {
-                    computeStandoffStation(engine, div, enemy, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, enemy, div.stationPoint);
                 } else if (div.targetEnemyDivision == null) {
                     float scoutDirY = (div.side == 0) ? 1400f : -1400f;
                     if (myGroup != null && myGroup.mainEffortDivision != null
@@ -1852,7 +1852,7 @@ public class DivisionCommanderAI {
                 if (div.otcOrder.isActive(now) && div.otcOrder.hasStation) {
                     div.stationPoint.set(div.otcOrder.station);
                 } else if (enemyTrackable) {
-                    computeStandoffStation(engine, div, enemy, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, enemy, div.stationPoint);
                 }
                 break;
             case MARSHAL_FOR_STRIKE:
@@ -1886,7 +1886,7 @@ public class DivisionCommanderAI {
                 if (friend != null && friend != div && friend.isCombatEffective()) {
                     computePatrolStation(div, friend, div.stationPoint);
                 } else if (enemyTrackable) {
-                    computeStandoffStation(engine, div, enemy, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, enemy, div.stationPoint);
                 }
                 break;
             case FLY_ARMED_RECONNAISSANCE:
@@ -1895,7 +1895,7 @@ public class DivisionCommanderAI {
             case LAUNCH_DECKLOAD_STRIKE:
             case LAUNCH_ALPHA_STRIKE:
                 if (enemyTrackable) {
-                    computeStandoffStation(engine, div, enemy, div.stationPoint);
+                    DivisionFormationNavigator.computeStandoffStation(engine, div, enemy, div.stationPoint);
                 }
                 break;
             default:
@@ -2006,7 +2006,7 @@ public class DivisionCommanderAI {
             }
         }
 
-        updateDivisionOutOfContactRoute(engine, div, myGroup, enemyGroup);
+        DivisionFormationNavigator.updateDivisionOutOfContactRoute(engine, div, myGroup, enemyGroup);
     }
 
     /**
@@ -2347,7 +2347,7 @@ public class DivisionCommanderAI {
             focusEnemyShip = plan.focusShip;
         }
 
-        updateDivisionVoidstrikeStaging(div, myGroup, focusEnemyShip, now);
+        VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(div, myGroup, focusEnemyShip, now);
 
         for (int shipIdx = 0; shipIdx < alive.size(); shipIdx++) {
             ShipAPI ship = alive.get(shipIdx);
@@ -2387,7 +2387,7 @@ public class DivisionCommanderAI {
                 Float prevSideObj = div.stragglerSkirtSideByShipId.get(ship.getId());
                 float prevSkirtSide = prevSideObj != null ? prevSideObj : div.routeSkirtSide;
                 float[] chosenSide = new float[]{prevSkirtSide};
-                Vector2f rejoinWaypoint = computeOutOfContactRoutePoint(
+                Vector2f rejoinWaypoint = DivisionFormationNavigator.computeOutOfContactRoutePoint(
                         engine,
                         div.side,
                         ship.getLocation(),
@@ -2402,7 +2402,7 @@ public class DivisionCommanderAI {
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                 flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, rejoinWaypoint);
                 // If an enemy division is blocking the chord and pressing close to the straggler, keep distance while skirting
-                if (ship.getFluxLevel() >= 0.42f || isShipNearVisibleEnemy(engine, div.side, ship.getLocation(), enemyGroup, 1450f)) {
+                if (ship.getFluxLevel() >= 0.42f || DivisionFormationNavigator.isShipNearVisibleEnemy(engine, div.side, ship.getLocation(), enemyGroup, 1450f)) {
                     flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
                 }
                 continue;
@@ -2456,7 +2456,7 @@ public class DivisionCommanderAI {
                 continue;
             }
 
-            Vector2f slotPos = computeShipFormationSlot(engine, ship, shipIdx, alive, div, myGroup);
+            Vector2f slotPos = DivisionFormationNavigator.computeShipFormationSlot(engine, ship, shipIdx, alive, div, myGroup);
             boolean crowdedByPeer = isShipCrowdedByDivisionPeer(ship, alive, div.stationSpacing * 0.72f);
 
             float distToDivCenter = distance(ship.getLocation(), div.centroid);
@@ -2466,7 +2466,7 @@ public class DivisionCommanderAI {
             if (shipStraggling && div.currentIntent != DivisionIntentType.HARASSING_MISSILE_ATTACK
                     && div.currentIntent != DivisionIntentType.TOT_MISSILE_STRIKE) {
                 float[] chosenSide = new float[]{div.routeSkirtSide};
-                Vector2f safeSlotPos = computeOutOfContactRoutePoint(
+                Vector2f safeSlotPos = DivisionFormationNavigator.computeOutOfContactRoutePoint(
                         engine,
                         div.side,
                         ship.getLocation(),
@@ -2482,66 +2482,14 @@ public class DivisionCommanderAI {
             }
 
             applyIntentFlagsToShip(engine, ship, shipIdx, flags, slotPos, crowdedByPeer, focusEnemyShip, div, myGroup, enemyGroup, now);
-            dressShipStrikeCraftInFormation(ship, shipIdx, focusEnemyShip, div, myGroup, now);
+            VoidstrikeCoordinator.dressShipStrikeCraftInFormation(ship, shipIdx, focusEnemyShip, div, myGroup, now);
         }
     }
 
-    public static void updateDivisionVoidstrikeStaging(
-            DivisionState div,
-            BattleGroupState myGroup,
-            ShipAPI focusEnemyShip,
-            float now) {
-        VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(div, myGroup, focusEnemyShip, now);
-    }
 
-    public static int[] computeCompromiseStrikeWidthAndDepth(int totalUnits, int reqWidth, int reqDepth) {
-        return VoidstrikeCoordinator.computeCompromiseStrikeWidthAndDepth(totalUnits, reqWidth, reqDepth);
-    }
 
-    public static Vector2f computeSquadronCraftSlotOffset(
-            SquadronFormation formation,
-            int craftIdx,
-            int craftCount,
-            int squadronRankIdx,
-            int squadronDepth,
-            float craftSpacing,
-            float fwdX,
-            float fwdY,
-            float rightX,
-            float rightY) {
-        return VoidstrikeCoordinator.computeSquadronCraftSlotOffset(
-                formation, craftIdx, craftCount, squadronRankIdx, squadronDepth,
-                craftSpacing, fwdX, fwdY, rightX, rightY);
-    }
 
-    public static Vector2f computeSquadronCraftSlotOffset(
-            SquadronFormation formation,
-            int craftIdx,
-            int craftCount,
-            int squadronRankIdx,
-            int squadronDepth,
-            int squadronColIdx,
-            int squadronWidth,
-            float craftSpacing,
-            float fwdX,
-            float fwdY,
-            float rightX,
-            float rightY) {
-        return VoidstrikeCoordinator.computeSquadronCraftSlotOffset(
-                formation, craftIdx, craftCount, squadronRankIdx, squadronDepth,
-                squadronColIdx, squadronWidth, craftSpacing, fwdX, fwdY, rightX, rightY);
-    }
 
-    static void dressShipStrikeCraftInFormation(
-            ShipAPI carrier,
-            int carrierIdxInDiv,
-            ShipAPI focusEnemyShip,
-            DivisionState div,
-            BattleGroupState myGroup,
-            float now) {
-        VoidstrikeCoordinator.dressShipStrikeCraftInFormation(
-                carrier, carrierIdxInDiv, focusEnemyShip, div, myGroup, now);
-    }
 
 
     /**
@@ -4006,125 +3954,18 @@ public class DivisionCommanderAI {
         return false;
     }
 
-    /**
-     * Computes a ship's individual formation slot around its division's maneuver station using the division's
-     * configured stationSpacing (in units).
-     *  - Inter-division spacing (`divisionInterval`) and main-line clearance shift the division's `baseCenter`
-     *    as a single cohesive unit so friendly division repulsion never splits a division in two.
-     *  - During `CLOSE_UP`, slots contract to 60% of `stationSpacing` around the division flagship (or centroid)
-     *    without inter-division repulsion so scattered ships rally tightly back into formation.
-     */
-    static Vector2f computeShipFormationSlot(
-            CombatEngineAPI engine,
-            ShipAPI ship,
-            int shipIdx,
-            List<ShipAPI> alive,
-            DivisionState div,
-            BattleGroupState myGroup) {
-        return DivisionFormationNavigator.computeShipFormationSlot(
-                engine, ship, shipIdx, alive, div, myGroup);
-    }
 
-    public static Vector2f computeFormationSlotPositionForAnchor(
-            DivisionFormation formation,
-            int shipIdx,
-            List<ShipAPI> alive,
-            ShipAPI ship,
-            float anchorX,
-            float anchorY,
-            float headingX,
-            float headingY,
-            float spacing) {
-        return DivisionFormationNavigator.computeFormationSlotPositionForAnchor(
-                formation, shipIdx, alive, ship, anchorX, anchorY, headingX, headingY, spacing);
-    }
 
-    public static float[] computeLocalFormationOffset(
-            DivisionFormation formation,
-            int k,
-            int n,
-            float spacing) {
-        return DivisionFormationNavigator.computeLocalFormationOffset(formation, k, n, spacing);
-    }
 
-    public static int computeProtectiveCircleCoreCount(int n) {
-        return DivisionFormationNavigator.computeProtectiveCircleCoreCount(n);
-    }
 
-    public static float computeProtectiveCircleCorePriority(ShipAPI s, DivisionState div) {
-        return DivisionFormationNavigator.computeProtectiveCircleCorePriority(s, div);
-    }
 
-    static void computeStandoffStation(
-            CombatEngineAPI engine,
-            DivisionState div,
-            DivisionState enemyDiv,
-            Vector2f outStation) {
-        DivisionFormationNavigator.computeStandoffStation(engine, div, enemyDiv, outStation);
-    }
 
-    static void computeReinforceStation(
-            CombatEngineAPI engine,
-            DivisionState myDiv,
-            DivisionState endangeredDiv,
-            Vector2f outStation,
-            BattleGroupState myGroup) {
-        DivisionFormationNavigator.computeReinforceStation(engine, myDiv, endangeredDiv, outStation, myGroup);
-    }
 
-    static void computeScreeningStation(
-            CombatEngineAPI engine,
-            DivisionState myDiv,
-            DivisionState protectedDiv,
-            DivisionState enemyDiv,
-            Vector2f outStation,
-            int side) {
-        DivisionFormationNavigator.computeScreeningStation(engine, myDiv, protectedDiv, enemyDiv, outStation, side);
-    }
 
-    static void computeFlankStation(
-            CombatEngineAPI engine,
-            DivisionState flankerDiv,
-            DivisionState enemyDiv,
-            Vector2f outStation,
-            BattleGroupState myGroup) {
-        DivisionFormationNavigator.computeFlankStation(engine, flankerDiv, enemyDiv, outStation, myGroup);
-    }
 
-    static void updateDivisionOutOfContactRoute(
-            CombatEngineAPI engine,
-            DivisionState div,
-            BattleGroupState myGroup,
-            BattleGroupState enemyGroup) {
-        DivisionFormationNavigator.updateDivisionOutOfContactRoute(engine, div, myGroup, enemyGroup);
-    }
 
-    static Vector2f computeOutOfContactRoutePoint(
-            CombatEngineAPI engine,
-            int observerSide,
-            Vector2f startPos,
-            Vector2f goalPos,
-            DivisionState movingDiv,
-            DivisionState targetEnemyDiv,
-            float existingSideSign,
-            BattleGroupState enemyGroup,
-            float[] outSideSign) {
-        return DivisionFormationNavigator.computeOutOfContactRoutePoint(
-                engine, observerSide, startPos, goalPos, movingDiv, targetEnemyDiv, existingSideSign, enemyGroup, outSideSign);
-    }
 
-    static boolean isShipNearVisibleEnemy(
-            CombatEngineAPI engine,
-            int observerSide,
-            Vector2f pos,
-            BattleGroupState enemyGroup,
-            float radius) {
-        return DivisionFormationNavigator.isShipNearVisibleEnemy(engine, observerSide, pos, enemyGroup, radius);
-    }
 
-    static void clampToMapBounds(CombatEngineAPI engine, Vector2f pt, float margin) {
-        DivisionFormationNavigator.clampToMapBounds(engine, pt, margin);
-    }
 
     static float distance(Vector2f a, Vector2f b) {
         float dx = a.x - b.x;

@@ -884,7 +884,7 @@ public class OtcAI {
                     Vector2f laneRallyGoal = new Vector2f(
                             s.getLocation().x,
                             myGroup.fleetIndependentCommandPoint.y);
-                    if (distance(s.getLocation(), laneRallyGoal) > 1650f) {
+                    if (DivisionUiWidgets.distance(s.getLocation(), laneRallyGoal) > 1650f) {
                         flags.setFlag(AIFlags.CAMP_LOCATION, 0.85f, laneRallyGoal);
                     }
                     break;
@@ -902,14 +902,14 @@ public class OtcAI {
                     Vector2f sectorGoal = new Vector2f(
                             s.getLocation().x * 0.65f + myGroup.fleetIndependentCommandPoint.x * 0.35f,
                             myGroup.fleetIndependentCommandPoint.y);
-                    if (distance(s.getLocation(), myGroup.fleetIndependentCommandPoint) > 1950f) {
+                    if (DivisionUiWidgets.distance(s.getLocation(), myGroup.fleetIndependentCommandPoint) > 1950f) {
                         flags.setFlag(AIFlags.CAMP_LOCATION, 0.85f, sectorGoal);
                     }
                     break;
                 }
                 case ENGAGE_PRIMARY_SECTOR:
                 case PRESS_COORDINATED_STRIKE: {
-                    if (distance(s.getLocation(), myGroup.fleetIndependentCommandPoint) > 2350f) {
+                    if (DivisionUiWidgets.distance(s.getLocation(), myGroup.fleetIndependentCommandPoint) > 2350f) {
                         Vector2f laneAdvanceGoal = new Vector2f(
                                 s.getLocation().x * 0.70f + myGroup.fleetIndependentCommandPoint.x * 0.30f,
                                 myGroup.fleetIndependentCommandPoint.y);
@@ -1837,7 +1837,7 @@ public class OtcAI {
                     if (s == engine.getPlayerShip() && !engine.isUIAutopilotOn()) {
                         continue;
                     }
-                    Vector2f slot = DivisionCommanderAI.computeFormationSlotPositionForAnchor(
+                    Vector2f slot = DivisionFormationNavigator.computeFormationSlotPositionForAnchor(
                             fm, i, divWaveShips, s, divAnchorX, divAnchorY, initHx, initHy, effectiveSpacing);
 
                     // Subtle deterministic personality variation for non-strict commanders
@@ -2043,7 +2043,7 @@ public class OtcAI {
                 for (int i = 0; i < alive.size(); i++) {
                     ShipAPI s = alive.get(i);
                     if (s == null || s == engine.getPlayerShip() && !engine.isUIAutopilotOn()) continue;
-                    Vector2f slot = DivisionCommanderAI.computeFormationSlotPositionForAnchor(
+                    Vector2f slot = DivisionFormationNavigator.computeFormationSlotPositionForAnchor(
                             fm, i, alive, s, targetCenterX, targetCenterY, initHx, initHy, spacing);
                     float sx = Math.max(-maxAbsX, Math.min(maxAbsX, slot.x));
                     float sy = Math.max(-maxAbsY, Math.min(maxAbsY, slot.y));
@@ -2140,7 +2140,7 @@ public class OtcAI {
             Vector2f visPos = getVisibleCentroidForSide(engine, myGroup.side, eDiv);
             float visFp = getVisibleFpForSide(engine, myGroup.side, eDiv);
             float effectiveThreatFp = Math.max(5f, visFp * eDiv.combatThreatWeight);
-            float distToCog = myGroup.hasEnemyCenterOfGravity ? distance(visPos, myGroup.enemyCenterOfGravity) : 0f;
+            float distToCog = myGroup.hasEnemyCenterOfGravity ? DivisionUiWidgets.distance(visPos, myGroup.enemyCenterOfGravity) : 0f;
             boolean isPeripheralFlankPack = (distToCog > 2000f && effectiveThreatFp < 26f)
                     || eDiv.combatThreatWeight <= 0.58f
                     || eDiv.archetype == DivisionArchetype.SERVICE_GROUP;
@@ -2272,8 +2272,8 @@ public class OtcAI {
             float threatWeight = Math.max(0.28f, eDiv.combatThreatWeight);
             float visFp = rawVisFp * threatWeight;
             float dist = (anchorDiv != null)
-                    ? distance(anchorDiv.centroid, visCentroid)
-                    : distance(myGroup.fleetCentroid, visCentroid);
+                    ? DivisionUiWidgets.distance(anchorDiv.centroid, visCentroid)
+                    : DivisionUiWidgets.distance(myGroup.fleetCentroid, visCentroid);
             float auxPenalty = (eDiv.archetype == DivisionArchetype.SERVICE_GROUP || threatWeight <= 0.52f) ? -520f : 0f;
             // Item F: Heavily deprioritize retreating ("unable") enemy divisions as long as able enemy divisions remain
             float unablePenalty = (anyAbleVisibleEnemy && (eDiv.isUnableDivision || eDiv.retreatingFraction >= 0.5f)) ? -1400f : 0f;
@@ -2284,7 +2284,7 @@ public class OtcAI {
             // Enemy Center of Gravity Alignment: Main Effort fixes the Enemy Center of Gravity, never a stray flank pack!
             float cogBonus = 0f;
             if (myGroup.hasEnemyCenterOfGravity && ableVisibleEnemyCount >= 2) {
-                float distToCog = distance(visCentroid, myGroup.enemyCenterOfGravity);
+                float distToCog = DivisionUiWidgets.distance(visCentroid, myGroup.enemyCenterOfGravity);
                 cogBonus = Math.max(-460f, 260f - distToCog * 0.18f);
             }
 
@@ -2311,7 +2311,7 @@ public class OtcAI {
             // closing upon so our organized divisions concentrate fire with our independents instead of fighting a separate war!
             float indepAlignmentBonus = 0f;
             if (myGroup.friendlyIndependentFp >= 12f && myGroup.organizationRatio < 0.78f) {
-                float dIndep = distance(myGroup.independentProjectedCentroid, visCentroid);
+                float dIndep = DivisionUiWidgets.distance(myGroup.independentProjectedCentroid, visCentroid);
                 float indepWeight = Math.min(1.0f, (0.85f - myGroup.organizationRatio) * 1.25f);
                 if (dIndep <= 1850f) {
                     indepAlignmentBonus = (1850f - dIndep) * 0.34f * indepWeight;
@@ -2332,7 +2332,7 @@ public class OtcAI {
                         || myDiv.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
                         || myDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION;
                 if (!isHeavyBattleline && anchorDiv != null) continue;
-                float dd = distance(myDiv.centroid, visCentroid);
+                float dd = DivisionUiWidgets.distance(myDiv.centroid, visCentroid);
                 if (dd < minDivDist) minDivDist = dd;
             }
             float frontlineContactBonus = (minDivDist <= 1450f ? (1450f - minDivDist) * 0.32f : 0f)
@@ -2420,7 +2420,7 @@ public class OtcAI {
             for (DivisionState eDiv : b.divisions) {
                 if (!eDiv.isCombatEffective() || !isDivisionVisibleToSide(engine, a.side, eDiv)) continue;
                 Vector2f visCentroid = getVisibleCentroidForSide(engine, a.side, eDiv);
-                float d = distance(a.independentCentroid, visCentroid);
+                float d = DivisionUiWidgets.distance(a.independentCentroid, visCentroid);
                 if (d < minDist) minDist = d;
             }
         }
@@ -2436,7 +2436,7 @@ public class OtcAI {
             if (!eDiv.isCombatEffective()) continue;
             if (!isDivisionVisibleToSide(engine, myDiv.side, eDiv)) continue;
             Vector2f visCentroid = getVisibleCentroidForSide(engine, myDiv.side, eDiv);
-            float d = distance(myDiv.centroid, visCentroid);
+            float d = DivisionUiWidgets.distance(myDiv.centroid, visCentroid);
             if (d < minDist) minDist = d;
         }
         return minDist;
@@ -2456,9 +2456,4 @@ public class OtcAI {
         return total;
     }
 
-    private static float distance(Vector2f a, Vector2f b) {
-        float dx = a.x - b.x;
-        float dy = a.y - b.y;
-        return (float) Math.sqrt(dx * dx + dy * dy);
-    }
 }
