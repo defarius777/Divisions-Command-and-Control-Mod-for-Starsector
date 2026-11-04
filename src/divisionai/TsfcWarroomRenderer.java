@@ -1308,8 +1308,8 @@ public class TsfcWarroomRenderer {
 
             LabelAPI lbl = getCachedLabel("cordon_" + div.id, tag, Fonts.DEFAULT_SMALL, col);
             if (lbl != null) {
-                float tw = lbl.computeTextWidth(tag);
-                drawLabel(lbl, tag, cx - tw * 0.5f, cy - 28f, fade * 0.92f);
+                float tw = getCachedUiLabelWidth("cordon_" + div.id, lbl, tag);
+                drawLabelCached("cordon_" + div.id, lbl, tag, cx - tw * 0.5f, cy - 28f, fade * 0.92f);
             }
         }
     }
@@ -1479,9 +1479,10 @@ public class TsfcWarroomRenderer {
         Color headerColor = new Color(170, 222, 255, 255);
         LabelAPI headerLbl = getCachedLabel("urgent_comms_hdr", headerText, Fonts.ORBITRON_12, headerColor);
         if (headerLbl != null) {
-            float tw = headerLbl.computeTextWidth(headerText);
-            float th = headerLbl.computeTextHeight(headerText);
-            drawLabel(
+            float tw = getCachedUiLabelWidth("urgent_comms_hdr", headerLbl, headerText);
+            float th = getCachedUiLabelHeight("urgent_comms_hdr", headerLbl, headerText);
+            drawLabelCached(
+                    "urgent_comms_hdr",
                     headerLbl,
                     headerText,
                     modalX + (COMMS_MODAL_W - tw) * 0.5f,
@@ -1496,8 +1497,9 @@ public class TsfcWarroomRenderer {
         Color shipNameColor = new Color(255, 222, 115, 255);
         LabelAPI shipNameLbl = getCachedLabel("urgent_comms_shipname", shipCallsign, Fonts.ORBITRON_12, shipNameColor);
         if (shipNameLbl != null) {
-            float tw = shipNameLbl.computeTextWidth(shipCallsign);
-            drawLabel(
+            float tw = getCachedUiLabelWidth("urgent_comms_shipname", shipNameLbl, shipCallsign);
+            drawLabelCached(
+                    "urgent_comms_shipname",
                     shipNameLbl,
                     shipCallsign,
                     modalX + (COMMS_MODAL_W - tw) * 0.5f,
@@ -1520,28 +1522,31 @@ public class TsfcWarroomRenderer {
         Color bodyColor = new Color(215, 246, 255, 255);
         Color commandColor = new Color(170, 222, 255, 255);
 
+        String prefixKey = "urgent_comms_prefix_" + DivisionOtcCommandManager.activeCommsPhraseIndex;
+        String cmdKey = "urgent_comms_cmd_" + DivisionOtcCommandManager.activeCommsPhraseIndex;
+        String suffixKey = "urgent_comms_suffix_" + DivisionOtcCommandManager.activeCommsPhraseIndex;
         LabelAPI prefixLbl = prefixText.isEmpty()
                 ? null
-                : getCachedLabel("urgent_comms_prefix_" + DivisionOtcCommandManager.activeCommsPhraseIndex, prefixText, Fonts.ORBITRON_16, bodyColor);
-        LabelAPI cmdLbl = getCachedLabel("urgent_comms_cmd_" + DivisionOtcCommandManager.activeCommsPhraseIndex, commandText, Fonts.ORBITRON_16, commandColor);
+                : getCachedLabel(prefixKey, prefixText, Fonts.ORBITRON_16, bodyColor);
+        LabelAPI cmdLbl = getCachedLabel(cmdKey, commandText, Fonts.ORBITRON_16, commandColor);
         LabelAPI suffixLbl = suffixText.isEmpty()
                 ? null
-                : getCachedLabel("urgent_comms_suffix_" + DivisionOtcCommandManager.activeCommsPhraseIndex, suffixText, Fonts.ORBITRON_16, bodyColor);
+                : getCachedLabel(suffixKey, suffixText, Fonts.ORBITRON_16, bodyColor);
 
         if (cmdLbl != null) {
-            float wPrefix = (prefixLbl != null) ? prefixLbl.computeTextWidth(prefixText) : 0f;
-            float wCmd = cmdLbl.computeTextWidth(commandText);
-            float wSuffix = (suffixLbl != null) ? suffixLbl.computeTextWidth(suffixText) : 0f;
+            float wPrefix = (prefixLbl != null) ? getCachedUiLabelWidth(prefixKey, prefixLbl, prefixText) : 0f;
+            float wCmd = getCachedUiLabelWidth(cmdKey, cmdLbl, commandText);
+            float wSuffix = (suffixLbl != null) ? getCachedUiLabelWidth(suffixKey, suffixLbl, suffixText) : 0f;
             float totalW = wPrefix + wCmd + wSuffix;
             float baseX = modalX + (COMMS_MODAL_W - totalW) * 0.5f;
             float baseY = modalY + 76f;
 
             if (prefixLbl != null) {
-                drawLabel(prefixLbl, prefixText, baseX, baseY, fade);
+                drawLabelCached(prefixKey, prefixLbl, prefixText, baseX, baseY, fade);
             }
-            drawLabel(cmdLbl, commandText, baseX + wPrefix + shift.x, baseY + shift.y, fade);
+            drawLabelCached(cmdKey, cmdLbl, commandText, baseX + wPrefix + shift.x, baseY + shift.y, fade);
             if (suffixLbl != null) {
-                drawLabel(suffixLbl, suffixText, baseX + wPrefix + wCmd, baseY, fade);
+                drawLabelCached(suffixKey, suffixLbl, suffixText, baseX + wPrefix + wCmd, baseY, fade);
             }
         }
 
@@ -1550,15 +1555,15 @@ public class TsfcWarroomRenderer {
         Color btnHoverColor = new Color(225, 252, 255, 255);
         LabelAPI yesLbl = getCachedLabel("urgent_comms_yes", "Yes", Fonts.ORBITRON_12, yesHover ? btnHoverColor : btnTextColor);
         if (yesLbl != null) {
-            float tw = yesLbl.computeTextWidth("Yes");
-            float th = yesLbl.computeTextHeight("Yes");
-            drawLabel(yesLbl, "Yes", yesX + (COMMS_BTN_W - tw) * 0.5f, btnY + (COMMS_BTN_H - th) * 0.5f, fade);
+            float tw = getCachedUiLabelWidth("urgent_comms_yes", yesLbl, "Yes");
+            float th = getCachedUiLabelHeight("urgent_comms_yes", yesLbl, "Yes");
+            drawLabelCached("urgent_comms_yes", yesLbl, "Yes", yesX + (COMMS_BTN_W - tw) * 0.5f, btnY + (COMMS_BTN_H - th) * 0.5f, fade);
         }
         LabelAPI noLbl = getCachedLabel("urgent_comms_no", "No", Fonts.ORBITRON_12, noHover ? btnHoverColor : btnTextColor);
         if (noLbl != null) {
-            float tw = noLbl.computeTextWidth("No");
-            float th = noLbl.computeTextHeight("No");
-            drawLabel(noLbl, "No", noX + (COMMS_BTN_W - tw) * 0.5f, btnY + (COMMS_BTN_H - th) * 0.5f, fade);
+            float tw = getCachedUiLabelWidth("urgent_comms_no", noLbl, "No");
+            float th = getCachedUiLabelHeight("urgent_comms_no", noLbl, "No");
+            drawLabelCached("urgent_comms_no", noLbl, "No", noX + (COMMS_BTN_W - tw) * 0.5f, btnY + (COMMS_BTN_H - th) * 0.5f, fade);
         }
     }
 
@@ -1665,6 +1670,8 @@ public class TsfcWarroomRenderer {
         GL11.glEnd();
     }
 
+    private static final Map<String, SpriteAPI> warroomBtnSpriteCache = new HashMap<>();
+
     static void renderSingleWarroomSquareIconButton(
             float x,
             float y,
@@ -1673,27 +1680,10 @@ public class TsfcWarroomRenderer {
             boolean hovered,
             float fade) {
 
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        GL11.glPushMatrix();
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
-        // 1. Subtle right-edge horizontal shadow/glow bar behind the bracket (matches Full Assault / Full Retreat)
-        if (active || hovered) {
-            GL11.glColor4f(0.18f, 0.52f, 0.68f, (active ? 0.36f : 0.22f) * fade);
-        } else {
-            GL11.glColor4f(0.08f, 0.14f, 0.19f, 0.45f * fade);
-        }
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2f(x - 2f, y - 2f);
-        GL11.glVertex2f(x + BTN_WIDTH + 20f, y - 2f);
-        GL11.glVertex2f(x + BTN_WIDTH + 20f, y + BTN_SQUARE_H + 2f);
-        GL11.glVertex2f(x - 2f, y + BTN_SQUARE_H + 2f);
-        GL11.glEnd();
-
-        // 2. Outer Square Icon Frame (36x34px at x..x+36, y..y+34)
-        // Exact vanilla Warroom border color: RGB(54, 115, 142) when OFF; bright cyan when hovered/active
         float br, bg, bb, ba;
         if (active) {
             br = 0.42f; bg = 0.90f; bb = 1.00f; ba = 0.98f * fade;
@@ -1703,22 +1693,32 @@ public class TsfcWarroomRenderer {
             br = 54f / 255f; bg = 115f / 255f; bb = 142f / 255f; ba = 0.95f * fade;
         }
 
-        GL11.glColor4f(br, bg, bb, ba);
+        // Batch all 5 button quad layers into a single GL_QUADS pass
         GL11.glBegin(GL11.GL_QUADS);
-        // Main 36x34 square frame with 1px chamfer on right corners (matching scanline y=149..182, x=1854..1890)
+
+        // 1. Subtle right-edge horizontal shadow/glow bar behind the bracket
+        if (active || hovered) {
+            GL11.glColor4f(0.18f, 0.52f, 0.68f, (active ? 0.36f : 0.22f) * fade);
+        } else {
+            GL11.glColor4f(0.08f, 0.14f, 0.19f, 0.45f * fade);
+        }
+        GL11.glVertex2f(x - 2f, y - 2f);
+        GL11.glVertex2f(x + BTN_WIDTH + 20f, y - 2f);
+        GL11.glVertex2f(x + BTN_WIDTH + 20f, y + BTN_SQUARE_H + 2f);
+        GL11.glVertex2f(x - 2f, y + BTN_SQUARE_H + 2f);
+
+        // 2. Outer Square Icon Frame (36x34px at x..x+36, y..y+34)
+        GL11.glColor4f(br, bg, bb, ba);
         GL11.glVertex2f(x, y);
         GL11.glVertex2f(x + BTN_SQUARE_W - 1f, y);
         GL11.glVertex2f(x + BTN_SQUARE_W - 1f, y + BTN_SQUARE_H);
         GL11.glVertex2f(x, y + BTN_SQUARE_H);
-        // Rightmost 1px vertical edge inset by 1px top & bottom
         GL11.glVertex2f(x + BTN_SQUARE_W - 1f, y + 1f);
         GL11.glVertex2f(x + BTN_SQUARE_W, y + 1f);
         GL11.glVertex2f(x + BTN_SQUARE_W, y + BTN_SQUARE_H - 1f);
         GL11.glVertex2f(x + BTN_SQUARE_W - 1f, y + BTN_SQUARE_H - 1f);
-        GL11.glEnd();
 
         // 3. Inner 32x32 Dark Icon Cavity (x+2..x+34, y+1..y+33)
-        // Left border is 2px, top/bottom borders are 1px, right border is 2px
         if (active) {
             GL11.glColor4f(0.06f, 0.18f, 0.25f, 0.96f * fade);
         } else if (hovered) {
@@ -1726,11 +1726,44 @@ public class TsfcWarroomRenderer {
         } else {
             GL11.glColor4f(10f / 255f, 14f / 255f, 17f / 255f, 0.96f * fade);
         }
-        GL11.glBegin(GL11.GL_QUADS);
         GL11.glVertex2f(x + 2f, y + 1f);
         GL11.glVertex2f(x + 34f, y + 1f);
         GL11.glVertex2f(x + 34f, y + 33f);
         GL11.glVertex2f(x + 2f, y + 33f);
+
+        // 4. Right-Side Warroom Structural C-Bracket
+        GL11.glColor4f(br, bg, bb, ba);
+        GL11.glVertex2f(x + 11f, y + BTN_SQUARE_H + 1f);
+        GL11.glVertex2f(x + 44f, y + BTN_SQUARE_H + 1f);
+        GL11.glVertex2f(x + 44f, y + BTN_SQUARE_H + 2f);
+        GL11.glVertex2f(x + 11f, y + BTN_SQUARE_H + 2f);
+
+        GL11.glVertex2f(x + 11f, y - 2f);
+        GL11.glVertex2f(x + 44f, y - 2f);
+        GL11.glVertex2f(x + 44f, y - 1f);
+        GL11.glVertex2f(x + 11f, y - 1f);
+
+        GL11.glVertex2f(x + 38f, y + BTN_SQUARE_H);
+        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H);
+        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H + 1f);
+        GL11.glVertex2f(x + 38f, y + BTN_SQUARE_H + 1f);
+
+        GL11.glVertex2f(x + 38f, y - 1f);
+        GL11.glVertex2f(x + 45f, y - 1f);
+        GL11.glVertex2f(x + 45f, y);
+        GL11.glVertex2f(x + 38f, y);
+
+        GL11.glVertex2f(x + 40f, y);
+        GL11.glVertex2f(x + 45f, y);
+        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H);
+        GL11.glVertex2f(x + 40f, y + BTN_SQUARE_H);
+
+        // Outer 1px bevel column on the right edge of the bracket
+        GL11.glColor4f(br * 0.82f, bg * 0.82f, bb * 0.82f, ba);
+        GL11.glVertex2f(x + 45f, y);
+        GL11.glVertex2f(x + 46f, y);
+        GL11.glVertex2f(x + 46f, y + BTN_SQUARE_H);
+        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H);
         GL11.glEnd();
 
         // Subtle inner active rim highlight inside the 32x32 cavity when ON
@@ -1745,52 +1778,18 @@ public class TsfcWarroomRenderer {
             GL11.glEnd();
         }
 
-        // 4. Right-Side Warroom Structural C-Bracket (matching Full Assault / Full Retreat x=1865..1900, y=147..184)
-        // Top lip (y + 35..36, x + 11..44), Bottom lip (y - 2..-1, x + 11..44), Right vertical bar (x + 40..46, y - 1..35)
-        GL11.glColor4f(br, bg, bb, ba);
-        GL11.glBegin(GL11.GL_QUADS);
-        // Top horizontal bracket lip (1px gap above square top border)
-        GL11.glVertex2f(x + 11f, y + BTN_SQUARE_H + 1f);
-        GL11.glVertex2f(x + 44f, y + BTN_SQUARE_H + 1f);
-        GL11.glVertex2f(x + 44f, y + BTN_SQUARE_H + 2f);
-        GL11.glVertex2f(x + 11f, y + BTN_SQUARE_H + 2f);
-        // Bottom horizontal bracket lip (1px gap below square bottom border)
-        GL11.glVertex2f(x + 11f, y - 2f);
-        GL11.glVertex2f(x + 44f, y - 2f);
-        GL11.glVertex2f(x + 44f, y - 1f);
-        GL11.glVertex2f(x + 11f, y - 1f);
-        // Right inner shoulder connecting top/bottom lips at x + 38..40
-        GL11.glVertex2f(x + 38f, y + BTN_SQUARE_H);
-        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H);
-        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H + 1f);
-        GL11.glVertex2f(x + 38f, y + BTN_SQUARE_H + 1f);
-
-        GL11.glVertex2f(x + 38f, y - 1f);
-        GL11.glVertex2f(x + 45f, y - 1f);
-        GL11.glVertex2f(x + 45f, y);
-        GL11.glVertex2f(x + 38f, y);
-        // Main vertical right bracket bar (x + 40..45, y..y+34, 2px dark gap from square right edge x+36..38)
-        GL11.glVertex2f(x + 40f, y);
-        GL11.glVertex2f(x + 45f, y);
-        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H);
-        GL11.glVertex2f(x + 40f, y + BTN_SQUARE_H);
-        GL11.glEnd();
-
-        // Outer 1px bevel column on the right edge of the bracket (RGB 46, 93, 115)
-        GL11.glColor4f(br * 0.82f, bg * 0.82f, bb * 0.82f, ba);
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2f(x + 45f, y);
-        GL11.glVertex2f(x + 46f, y);
-        GL11.glVertex2f(x + 46f, y + BTN_SQUARE_H);
-        GL11.glVertex2f(x + 45f, y + BTN_SQUARE_H);
-        GL11.glEnd();
-
-        GL11.glPopMatrix();
-        GL11.glPopAttrib();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
 
         // 5. Render the pure graphical Warroom icon centered inside the 32x32 square cavity (NO text)
         try {
-            SpriteAPI iconSprite = Global.getSettings().getSprite(iconPath);
+            SpriteAPI iconSprite = warroomBtnSpriteCache.get(iconPath);
+            if (iconSprite == null || iconSprite.getTextureId() <= 0) {
+                iconSprite = Global.getSettings().getSprite(iconPath);
+                if (iconSprite != null && iconSprite.getTextureId() > 0) {
+                    warroomBtnSpriteCache.put(iconPath, iconSprite);
+                }
+            }
             if (iconSprite != null) {
                 iconSprite.setSize(BTN_ICON_SIZE, BTN_ICON_SIZE);
                 if (active) {
@@ -1809,6 +1808,37 @@ public class TsfcWarroomRenderer {
     }
 
     private static final Map<String, String> uiLabelLastTextCache = new HashMap<>();
+    private static final Map<String, Float> uiLabelWidthCache = new HashMap<>();
+    private static final Map<String, Float> uiLabelHeightCache = new HashMap<>();
+
+    static float getCachedUiLabelWidth(String key, LabelAPI lbl, String text) {
+        if (lbl == null) return 0f;
+        Float w = uiLabelWidthCache.get(key);
+        if (w == null) {
+            w = Float.valueOf(lbl.computeTextWidth(text));
+            uiLabelWidthCache.put(key, w);
+        }
+        return w.floatValue();
+    }
+
+    static float getCachedUiLabelHeight(String key, LabelAPI lbl, String text) {
+        if (lbl == null) return 0f;
+        Float h = uiLabelHeightCache.get(key);
+        if (h == null) {
+            h = Float.valueOf(lbl.computeTextHeight(text));
+            uiLabelHeightCache.put(key, h);
+        }
+        return h.floatValue();
+    }
+
+    static void drawLabelCached(String key, LabelAPI lbl, String text, float x, float y, float alpha) {
+        if (lbl == null) return;
+        float tw = getCachedUiLabelWidth(key, lbl, text);
+        float th = getCachedUiLabelHeight(key, lbl, text);
+        lbl.getPosition().setSize(tw + 10f, th + 4f);
+        lbl.getPosition().setLocation(x, y);
+        lbl.render(alpha);
+    }
 
     static void drawLabel(LabelAPI lbl, String text, float x, float y, float alpha) {
         if (lbl == null) return;
@@ -1826,9 +1856,13 @@ public class TsfcWarroomRenderer {
                 lbl = Global.getSettings().createLabel(text, font);
                 uiLabelCache.put(key, lbl);
                 uiLabelLastTextCache.put(key, text);
+                uiLabelWidthCache.remove(key);
+                uiLabelHeightCache.remove(key);
             } else if (!text.equals(uiLabelLastTextCache.get(key))) {
                 lbl.setText(text);
                 uiLabelLastTextCache.put(key, text);
+                uiLabelWidthCache.remove(key);
+                uiLabelHeightCache.remove(key);
             }
             lbl.setColor(color);
             return lbl;

@@ -66,7 +66,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private static final Color ALLY_LABEL_COLOR = new Color(255, 235, 110, 240);
     private static final Color ENEMY_LABEL_COLOR = new Color(255, 125, 120, 225);
 
-    private static class RenderedDivisionPolygon {
+    public static class RenderedDivisionPolygon {
         final DivisionState div;
         final BattleGroupState battleGroup;
         final boolean isEnemy;
@@ -217,13 +217,78 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private final Map<String, Float> smoothedBondOpennessByPairKey = new HashMap<>();
     private final Map<String, Float> smoothedMeniscusReachByPairKey = new HashMap<>();
 
+    private static class CachedDivisionGeometry {
+        int signature;
+        float builtAtSimTime;
+        float lastTranslatedSimTime;
+        float scale;
+        float offsetX;
+        float offsetY;
+        final List<RenderedDivisionPolygon> droplets = new ArrayList<>();
+    }
+
+    public static final class WarroomPerfSnapshot {
+        public final int frames;
+        public final int rebuildFrames;
+        public final int divisionsRebuilt;
+        public final int polyCount;
+        public final int overlapBandCount;
+        public final float avgTotalMs;
+        public final float p95TotalMs;
+        public final float maxTotalMs;
+        public final float avgGeomMs;
+        public final float maxGeomMs;
+        public final float avgPolyMs;
+        public final float avgStarsMs;
+        public final float avgTsfcMs;
+        public final float avgLabelsMs;
+        public final float avgUiMs;
+
+        public WarroomPerfSnapshot(
+                int frames,
+                int rebuildFrames,
+                int divisionsRebuilt,
+                int polyCount,
+                int overlapBandCount,
+                float avgTotalMs,
+                float p95TotalMs,
+                float maxTotalMs,
+                float avgGeomMs,
+                float maxGeomMs,
+                float avgPolyMs,
+                float avgStarsMs,
+                float avgTsfcMs,
+                float avgLabelsMs,
+                float avgUiMs) {
+            this.frames = frames;
+            this.rebuildFrames = rebuildFrames;
+            this.divisionsRebuilt = divisionsRebuilt;
+            this.polyCount = polyCount;
+            this.overlapBandCount = overlapBandCount;
+            this.avgTotalMs = avgTotalMs;
+            this.p95TotalMs = p95TotalMs;
+            this.maxTotalMs = maxTotalMs;
+            this.avgGeomMs = avgGeomMs;
+            this.maxGeomMs = maxGeomMs;
+            this.avgPolyMs = avgPolyMs;
+            this.avgStarsMs = avgStarsMs;
+            this.avgTsfcMs = avgTsfcMs;
+            this.avgLabelsMs = avgLabelsMs;
+            this.avgUiMs = avgUiMs;
+        }
+    }
+
     // Warroom render-frame geometry cache (eliminates all Marching-Squares / Ear-Clipping / Overlap-Stripe work
-    // on paused frames, camera pans/zooms, and caps live combat recomputation while preserving full render smoothness)
+    // on paused frames, camera pans/zooms, and caps live combat recomputation per-division while preserving full render smoothness)
     private final List<RenderedDivisionPolygon> cachedRenderedPolys = new ArrayList<>();
     private final List<RenderedDivisionPolygon> cachedStrikeCraftPolys = new ArrayList<>();
     private final List<CachedOverlapStripeBand> cachedOverlapStripeBands = new ArrayList<>();
+    private final Map<String, CachedDivisionGeometry> perDivisionGeometryCache = new HashMap<>();
+    private final Map<String, CachedDivisionGeometry> perDivisionStrikeCraftCache = new HashMap<>();
     private Set<ShipAPI> cachedFleetFlagships = Collections.emptySet();
     private Set<ShipAPI> cachedDivisionFlagships = Collections.emptySet();
+    private SpriteAPI cachedGoldStarSprite = null;
+    private SpriteAPI cachedSilverStarSprite = null;
     private CombatEngineAPI cachedPolyEngine = null;
     private BattleGroupState cachedPolyPlayerGroup = null;
     private BattleGroupState cachedPolyAlliedGroup = null;
@@ -232,15 +297,57 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private float cachedPolyNow = -1000f;
     private int cachedPolySignature = 0;
     private float lastLiveTranslateSimTime = -1000f;
+    private float lastStripeRebuildSimTime = -1000f;
     private float cachedPolyScale = Float.NaN;
     private float cachedPolyOffsetX = Float.NaN;
     private float cachedPolyOffsetY = Float.NaN;
+
+    // Rolling Warroom frame-time telemetry profiler
+    private static final int PERF_WINDOW_FRAMES = 120;
+    private final float[] perfTotalMsRing = new float[PERF_WINDOW_FRAMES];
+    private int perfWindowCount = 0;
+    private int perfRebuildFrames = 0;
+    private int perfDivisionsRebuilt = 0;
+    private float perfSumTotalMs = 0f;
+    private float perfMaxTotalMs = 0f;
+    private float perfSumGeomMs = 0f;
+    private float perfMaxGeomMs = 0f;
+    private float perfSumPolyMs = 0f;
+    private float perfSumStarsMs = 0f;
+    private float perfSumTsfcMs = 0f;
+    private float perfSumLabelsMs = 0f;
+    private float perfSumUiMs = 0f;
+    private long lastPerfLogWallMs = 0L;
+    private WarroomPerfSnapshot lastWarroomPerfSnapshot = null;
+
+    public WarroomPerfSnapshot getLastWarroomPerfSnapshot() {
+        return lastWarroomPerfSnapshot;
+    }
+
+    public void resetWarroomPerfMetrics() {
+        perfWindowCount = 0;
+        perfRebuildFrames = 0;
+        perfDivisionsRebuilt = 0;
+        perfSumTotalMs = 0f;
+        perfMaxTotalMs = 0f;
+        perfSumGeomMs = 0f;
+        perfMaxGeomMs = 0f;
+        perfSumPolyMs = 0f;
+        perfSumStarsMs = 0f;
+        perfSumTsfcMs = 0f;
+        perfSumLabelsMs = 0f;
+        perfSumUiMs = 0f;
+        lastWarroomPerfSnapshot = null;
+    }
 
     public void invalidateGeometryCache() {
         this.cachedPolyNow = -1000f;
         this.cachedPolyPaused = false;
         this.cachedPolySignature = 0;
         this.lastLiveTranslateSimTime = -1000f;
+        this.lastStripeRebuildSimTime = -1000f;
+        this.perDivisionGeometryCache.clear();
+        this.perDivisionStrikeCraftCache.clear();
     }
 
     private boolean attachedToWarroom = false;
@@ -425,24 +532,41 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
-        // Reuse computed division metaball polygons, strike craft polygons, and overlap stripes across render frames
-        // when paused (zero geometry cost while the Warroom map is paused, even while panning/zooming!) or within a
-        // ~12 Hz live-combat refresh window (translating/scaling vertices in-place during camera pans/zooms).
+        long tFrameStart = System.nanoTime();
+
+        // Reuse computed division metaball polygons, strike craft polygons, and overlap stripes across render frames:
+        //  - When paused: zero Marching-Squares / Ear-Clipping work even while panning/zooming.
+        //  - During live combat: per-division caching + staggered refresh windows so a single enemy ship flickering
+        //    across fog-of-war only rebuilds that one division (not all 39 divisions at once!), and live frames
+        //    smoothly translate cached polygons in-place between staggered rebuilds.
         boolean paused = engine.isPaused();
         float now = engine.getTotalElapsedTime(false);
-        int geomSignature = computeBattleGroupsGeometrySignature(
-                playerGroup, alliedAiGroup, enemyGroup, playerFog, paused);
-        boolean sameContext = cachedPolyEngine == engine
+        boolean sameEngineAndGroups = cachedPolyEngine == engine
                 && cachedPolyPlayerGroup == playerGroup
                 && cachedPolyAlliedGroup == alliedAiGroup
-                && cachedPolyEnemyGroup == enemyGroup
+                && cachedPolyEnemyGroup == enemyGroup;
+        if (!sameEngineAndGroups) {
+            perDivisionGeometryCache.clear();
+            perDivisionStrikeCraftCache.clear();
+            cachedRenderedPolys.clear();
+            cachedStrikeCraftPolys.clear();
+            cachedOverlapStripeBands.clear();
+            lastStripeRebuildSimTime = -1000f;
+        }
+
+        int geomSignature = computeBattleGroupsGeometrySignature(
+                playerGroup, alliedAiGroup, enemyGroup, playerFog, paused);
+        boolean sameContext = sameEngineAndGroups
                 && cachedPolySignature == geomSignature
                 && (!cachedRenderedPolys.isEmpty() || !cachedStrikeCraftPolys.isEmpty());
-        boolean reuseGeometry = sameContext
-                && (paused ? Math.abs(now - cachedPolyNow) < 1e-4f : Math.abs(now - cachedPolyNow) < 0.35f);
+        boolean reuseAllCached = sameContext
+                && (paused ? Math.abs(now - cachedPolyNow) < 1e-4f : Math.abs(now - cachedPolyNow) < 0.12f);
+
         List<RenderedDivisionPolygon> renderedPolys = cachedRenderedPolys;
         List<RenderedDivisionPolygon> strikeCraftPolys = cachedStrikeCraftPolys;
-        if (reuseGeometry) {
+        int divisionsRebuiltThisFrame = 0;
+
+        if (reuseAllCached) {
             if (Float.compare(cachedPolyScale, scale) != 0
                     || Float.compare(cachedPolyOffsetX, offsetX) != 0
                     || Float.compare(cachedPolyOffsetY, offsetY) != 0) {
@@ -454,30 +578,60 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             if (!paused && Math.abs(now - lastLiveTranslateSimTime) > 1e-4f) {
                 translateCachedPolygonsByLiveShipMotion(renderedPolys, scale);
                 translateCachedPolygonsByLiveShipMotion(strikeCraftPolys, scale);
+                deconflictPrimaryDivisionLabels(renderedPolys);
                 lastLiveTranslateSimTime = now;
             }
         } else {
+            boolean cameraChanged = !Float.isNaN(cachedPolyScale)
+                    && (Float.compare(cachedPolyScale, scale) != 0
+                    || Float.compare(cachedPolyOffsetX, offsetX) != 0
+                    || Float.compare(cachedPolyOffsetY, offsetY) != 0);
+            if (cameraChanged && !cachedOverlapStripeBands.isEmpty()) {
+                float ratio = scale / cachedPolyScale;
+                for (CachedOverlapStripeBand band : cachedOverlapStripeBands) {
+                    for (Vector2f v : band.verts) {
+                        v.x = (v.x - cachedPolyOffsetX) * ratio + offsetX;
+                        v.y = (v.y - cachedPolyOffsetY) * ratio + offsetY;
+                    }
+                }
+            }
+
             renderedPolys.clear();
             strikeCraftPolys.clear();
-            cachedOverlapStripeBands.clear();
+            int[] rebuildBudget = new int[] { (!sameEngineAndGroups || cachedPolyNow < -500f) ? 256 : 6 };
+
             if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
-                collectDivisionPolygons(playerGroup, false, null, scale, offsetX, offsetY, renderedPolys);
-                collectStrikeCraftDivisionPolygons(playerGroup, false, null, scale, offsetX, offsetY, strikeCraftPolys);
+                divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
+                        playerGroup, false, null, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
+                collectStrikeCraftDivisionPolygonsCached(
+                        playerGroup, false, null, now, paused, scale, offsetX, offsetY, strikeCraftPolys);
             }
             if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
-                collectDivisionPolygons(alliedAiGroup, false, null, scale, offsetX, offsetY, renderedPolys);
-                collectStrikeCraftDivisionPolygons(alliedAiGroup, false, null, scale, offsetX, offsetY, strikeCraftPolys);
+                divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
+                        alliedAiGroup, false, null, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
+                collectStrikeCraftDivisionPolygonsCached(
+                        alliedAiGroup, false, null, now, paused, scale, offsetX, offsetY, strikeCraftPolys);
             }
             if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
-                collectDivisionPolygons(enemyGroup, true, playerFog, scale, offsetX, offsetY, renderedPolys);
-                collectStrikeCraftDivisionPolygons(enemyGroup, true, playerFog, scale, offsetX, offsetY, strikeCraftPolys);
+                divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
+                        enemyGroup, true, playerFog, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
+                collectStrikeCraftDivisionPolygonsCached(
+                        enemyGroup, true, playerFog, now, paused, scale, offsetX, offsetY, strikeCraftPolys);
             }
-            if (renderedPolys.size() >= 2) {
-                buildOverlappingPolygonStripesCache(renderedPolys, cachedOverlapStripeBands);
+
+            boolean rebuildStripesAndFlags = (divisionsRebuiltThisFrame > 0 && Math.abs(now - lastStripeRebuildSimTime) >= 0.30f)
+                    || lastStripeRebuildSimTime < -500f
+                    || Math.abs(now - lastStripeRebuildSimTime) >= 0.45f;
+            if (rebuildStripesAndFlags) {
+                cachedOverlapStripeBands.clear();
+                if (renderedPolys.size() >= 2) {
+                    buildOverlappingPolygonStripesCache(renderedPolys, cachedOverlapStripeBands);
+                }
+                cachedFleetFlagships = resolveFleetFlagships(playerFog);
+                cachedDivisionFlagships = resolveDivisionFlagships(playerFog, cachedFleetFlagships);
+                lastStripeRebuildSimTime = now;
             }
             deconflictPrimaryDivisionLabels(renderedPolys);
-            cachedFleetFlagships = resolveFleetFlagships(playerFog);
-            cachedDivisionFlagships = resolveDivisionFlagships(playerFog, cachedFleetFlagships);
             cachedPolyEngine = engine;
             cachedPolyPlayerGroup = playerGroup;
             cachedPolyAlliedGroup = alliedAiGroup;
@@ -491,6 +645,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             cachedPolyOffsetY = offsetY;
         }
 
+        long tAfterGeom = System.nanoTime();
+
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glPushMatrix();
         GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -498,12 +654,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glEnable(GL11.GL_LINE_SMOOTH);
 
-        // 1. Layer 1: Render unbroken fluid warship division polygons with mild shading & variable cohesion translucency
-        for (RenderedDivisionPolygon rp : renderedPolys) {
-            renderSingleDivisionPolygon(rp, basePolyAlpha);
-        }
+        // 1. Layer 1: Render unbroken fluid warship division polygons in a single batched GL_TRIANGLES pass
+        renderAllDivisionPolygonsBatched(renderedPolys, basePolyAlpha);
 
-        // 2. Layer 1b: Render thickly striped overlap zones wherever two opposing warship division polygons intersect
+        // 2. Layer 1b: Render thickly striped overlap zones in a single batched GL_TRIANGLES pass
         if (!cachedOverlapStripeBands.isEmpty()) {
             renderCachedOverlapPolygonStripes(cachedOverlapStripeBands, basePolyAlpha);
         }
@@ -524,17 +678,22 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         GL11.glPopMatrix();
         GL11.glPopAttrib();
 
-        // 4. Re-render Warroom Ship Sprites & Status Bars on the TOP LAYER above division polygons
-        renderShipSpritesOnTopLayer(renderedPolys, scale, offsetX, offsetY, fade);
+        long tAfterPolys = System.nanoTime();
 
-        // 4b. Render Fleet Flagship (gold star) and Division Leader (silver star) badges
+        // 4. Render Fleet Flagship (gold star) and Division Leader (silver star) badges
+        // (Vanilla mapDisplay already renders all ship sprites, weapon turrets, and status bars directly underneath
+        // our low-alpha 8%-14% division polygons; skipping duplicate 134-ship re-rendering avoids 2x weapon-turret draw stalls.)
         renderFlagshipStarsOnTopLayer(cachedFleetFlagships, cachedDivisionFlagships, scale, offsetX, offsetY, fade);
+
+        long tAfterStars = System.nanoTime();
 
         // 4c. Render Time, Space, Firepower, and Convergence map layers (when toggled ON)
         TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
         TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
+
+        long tAfterTsfc = System.nanoTime();
 
         // 5. Render de-conflicted division labels anchored to the primary division droplet entity
         for (RenderedDivisionPolygon rp : renderedPolys) {
@@ -553,9 +712,216 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 engine.getTotalElapsedTime(false));
         renderVoidstrikeLabels(playerFog, scale, offsetX, offsetY, fade);
 
+        long tAfterLabels = System.nanoTime();
+
         // 6. Render right-side Warroom Buttons & Urgent Alpha Core Comms Modal on the ABSOLUTE TOP LAYER
         // above all division polygons, ship sprites, overlays, and division text labels
         TsfcWarroomRenderer.renderToggleButtonAndLegendUI(engine, fade);
+
+        long tFrameEnd = System.nanoTime();
+        recordWarroomFrameTelemetry(
+                tFrameStart,
+                tAfterGeom,
+                tAfterPolys,
+                tAfterStars,
+                tAfterTsfc,
+                tAfterLabels,
+                tFrameEnd,
+                divisionsRebuiltThisFrame,
+                renderedPolys.size(),
+                cachedOverlapStripeBands.size());
+    }
+
+    private void recordWarroomFrameTelemetry(
+            long tFrameStart,
+            long tAfterGeom,
+            long tAfterPolys,
+            long tAfterStars,
+            long tAfterTsfc,
+            long tAfterLabels,
+            long tFrameEnd,
+            int divisionsRebuiltThisFrame,
+            int polyCount,
+            int overlapBandCount) {
+        float totalMs = (tFrameEnd - tFrameStart) / 1e6f;
+        float geomMs = (tAfterGeom - tFrameStart) / 1e6f;
+        float polyMs = (tAfterPolys - tAfterGeom) / 1e6f;
+        float starsMs = (tAfterStars - tAfterPolys) / 1e6f;
+        float tsfcMs = (tAfterTsfc - tAfterStars) / 1e6f;
+        float labelsMs = (tAfterLabels - tAfterTsfc) / 1e6f;
+        float uiMs = (tFrameEnd - tAfterLabels) / 1e6f;
+
+        int ringIdx = perfWindowCount % PERF_WINDOW_FRAMES;
+        perfTotalMsRing[ringIdx] = totalMs;
+        perfWindowCount++;
+        if (divisionsRebuiltThisFrame > 0) {
+            perfRebuildFrames++;
+            perfDivisionsRebuilt += divisionsRebuiltThisFrame;
+        }
+        perfSumTotalMs += totalMs;
+        if (totalMs > perfMaxTotalMs) perfMaxTotalMs = totalMs;
+        perfSumGeomMs += geomMs;
+        if (geomMs > perfMaxGeomMs) perfMaxGeomMs = geomMs;
+        perfSumPolyMs += polyMs;
+        perfSumStarsMs += starsMs;
+        perfSumTsfcMs += tsfcMs;
+        perfSumLabelsMs += labelsMs;
+        perfSumUiMs += uiMs;
+
+        int sampleLen = Math.min(perfWindowCount, PERF_WINDOW_FRAMES);
+        if (perfWindowCount >= PERF_WINDOW_FRAMES || totalMs >= 12.0f) {
+            float[] sorted = java.util.Arrays.copyOf(perfTotalMsRing, sampleLen);
+            java.util.Arrays.sort(sorted);
+            float p95Ms = sorted[Math.min(sampleLen - 1, (int) Math.floor(sampleLen * 0.95f))];
+            float inv = 1f / Math.max(1, perfWindowCount);
+            WarroomPerfSnapshot snap = new WarroomPerfSnapshot(
+                    perfWindowCount,
+                    perfRebuildFrames,
+                    perfDivisionsRebuilt,
+                    polyCount,
+                    overlapBandCount,
+                    perfSumTotalMs * inv,
+                    p95Ms,
+                    perfMaxTotalMs,
+                    perfSumGeomMs * inv,
+                    perfMaxGeomMs,
+                    perfSumPolyMs * inv,
+                    perfSumStarsMs * inv,
+                    perfSumTsfcMs * inv,
+                    perfSumLabelsMs * inv,
+                    perfSumUiMs * inv);
+            lastWarroomPerfSnapshot = snap;
+
+            long wallNow = System.currentTimeMillis();
+            boolean slowSpike = snap.maxTotalMs >= 8.0f || snap.avgTotalMs >= 3.5f;
+            boolean periodicDebug = DivisionAISettings.isDebugLoggingEnabled() && (wallNow - lastPerfLogWallMs >= 10000L);
+            if ((slowSpike && (wallNow - lastPerfLogWallMs >= 2000L)) || periodicDebug) {
+                lastPerfLogWallMs = wallNow;
+                LOG.info(String.format(
+                        Locale.ROOT,
+                        "[DivisionAI] Warroom perf (%d frames, rebuilds=%d/%d divs, polys=%d, stripes=%d): avg=%.2fms p95=%.2fms max=%.2fms | geom=%.2fms(max %.2fms) poly=%.2fms stars=%.2fms tsfc=%.2fms labels=%.2fms ui=%.2fms",
+                        snap.frames,
+                        snap.rebuildFrames,
+                        snap.divisionsRebuilt,
+                        snap.polyCount,
+                        snap.overlapBandCount,
+                        snap.avgTotalMs,
+                        snap.p95TotalMs,
+                        snap.maxTotalMs,
+                        snap.avgGeomMs,
+                        snap.maxGeomMs,
+                        snap.avgPolyMs,
+                        snap.avgStarsMs,
+                        snap.avgTsfcMs,
+                        snap.avgLabelsMs,
+                        snap.avgUiMs));
+            }
+
+            if (perfWindowCount >= PERF_WINDOW_FRAMES) {
+                perfWindowCount = 0;
+                perfRebuildFrames = 0;
+                perfDivisionsRebuilt = 0;
+                perfSumTotalMs = 0f;
+                perfMaxTotalMs = 0f;
+                perfSumGeomMs = 0f;
+                perfMaxGeomMs = 0f;
+                perfSumPolyMs = 0f;
+                perfSumStarsMs = 0f;
+                perfSumTsfcMs = 0f;
+                perfSumLabelsMs = 0f;
+                perfSumUiMs = 0f;
+            }
+        }
+    }
+
+    private int computeSingleDivisionGeometrySignature(
+            DivisionState div,
+            boolean isEnemy,
+            FogOfWarAPI playerFog,
+            boolean includeQuantizedPositions) {
+        if (div == null) return 0;
+        int h = (div.id != null ? div.id.hashCode() : 17);
+        for (int j = 0, m = div.members.size(); j < m; j++) {
+            ShipAPI s = div.members.get(j);
+            if (s == null || !s.isAlive() || s.isHulk() || s.isFighter()) continue;
+            if (isEnemy && !isEnemyShipVisibleOnCommandMap(this.engine, s, playerFog)) continue;
+            h = 31 * h + (s.getId() != null ? s.getId().hashCode() : j);
+        }
+        return h;
+    }
+
+    public int collectDivisionPolygonsCached(
+            BattleGroupState battleGroup,
+            boolean isEnemy,
+            FogOfWarAPI playerFog,
+            float now,
+            boolean paused,
+            float scale,
+            float offsetX,
+            float offsetY,
+            int[] rebuildBudget,
+            List<RenderedDivisionPolygon> outList) {
+        int rebuiltCount = 0;
+        if (battleGroup == null || battleGroup.divisions.isEmpty()) return 0;
+
+        for (int divIdx = 0, divLen = battleGroup.divisions.size(); divIdx < divLen; divIdx++) {
+            DivisionState div = battleGroup.divisions.get(divIdx);
+            if (div == null) continue;
+            String cacheKey = (isEnemy ? "E:" : (battleGroup.isAlliedAi ? "A:" : "P:"))
+                    + (div.id != null ? div.id : ("idx_" + divIdx));
+            int divSig = computeSingleDivisionGeometrySignature(div, isEnemy, playerFog, paused);
+            CachedDivisionGeometry entry = perDivisionGeometryCache.get(cacheKey);
+            float staggerWindow = 0.40f + (Math.abs(cacheKey.hashCode()) % 7) * 0.045f;
+
+            boolean sigMatches = (entry != null && entry.signature == divSig);
+            boolean withinTimeWindow = (entry != null && (paused || Math.abs(now - entry.builtAtSimTime) < staggerWindow));
+            boolean reuseEntry = (entry != null)
+                    && ((sigMatches && withinTimeWindow)
+                    || (sigMatches && !paused && rebuildBudget != null && rebuildBudget[0] <= 0 && !entry.droplets.isEmpty()));
+
+            if (reuseEntry) {
+                if (!entry.droplets.isEmpty()) {
+                    if (Float.compare(entry.scale, scale) != 0
+                            || Float.compare(entry.offsetX, offsetX) != 0
+                            || Float.compare(entry.offsetY, offsetY) != 0) {
+                        float ratio = (entry.scale > 1e-5f) ? (scale / entry.scale) : 1f;
+                        transformPolygonListInPlace(
+                                entry.droplets, ratio, entry.offsetX, entry.offsetY, offsetX, offsetY);
+                        entry.scale = scale;
+                        entry.offsetX = offsetX;
+                        entry.offsetY = offsetY;
+                    }
+                    if (!paused && Math.abs(now - entry.lastTranslatedSimTime) > 1e-4f) {
+                        translateCachedPolygonsByLiveShipMotion(entry.droplets, scale);
+                        entry.lastTranslatedSimTime = now;
+                    }
+                    outList.addAll(entry.droplets);
+                }
+                continue;
+            }
+
+            if (entry == null) {
+                entry = new CachedDivisionGeometry();
+                perDivisionGeometryCache.put(cacheKey, entry);
+            } else {
+                entry.droplets.clear();
+            }
+            buildSingleDivisionDroplets(battleGroup, div, isEnemy, playerFog, scale, offsetX, offsetY, entry.droplets);
+            entry.signature = divSig;
+            entry.builtAtSimTime = now;
+            entry.lastTranslatedSimTime = now;
+            entry.scale = scale;
+            entry.offsetX = offsetX;
+            entry.offsetY = offsetY;
+            if (!entry.droplets.isEmpty()) {
+                outList.addAll(entry.droplets);
+            }
+            rebuiltCount++;
+            if (rebuildBudget != null && rebuildBudget[0] > 0) {
+                rebuildBudget[0]--;
+            }
+        }
+        return rebuiltCount;
     }
 
     private void collectDivisionPolygons(
@@ -566,121 +932,186 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetX,
             float offsetY,
             List<RenderedDivisionPolygon> outList) {
-
+        if (battleGroup == null || battleGroup.divisions.isEmpty()) return;
         for (DivisionState div : battleGroup.divisions) {
-            List<ShipAPI> alive = div.getAliveMembers();
-            if (alive.isEmpty()) continue;
+            buildSingleDivisionDroplets(battleGroup, div, isEnemy, playerFog, scale, offsetX, offsetY, outList);
+        }
+    }
 
-            ShipAPI activeFlag = resolveActiveFlagship(div, alive);
-            List<ShipAPI> hullMembers = new ArrayList<>(alive.size());
-            if (!isEnemy) {
-                for (ShipAPI s : alive) {
-                    if (s != null && !s.isFighter()) {
-                        hullMembers.add(s);
-                    }
-                }
-            } else {
-                for (ShipAPI s : alive) {
-                    if (s != null && !s.isFighter() && isEnemyShipVisibleOnCommandMap(s, playerFog)) {
-                        hullMembers.add(s);
-                    }
+    private void buildSingleDivisionDroplets(
+            BattleGroupState battleGroup,
+            DivisionState div,
+            boolean isEnemy,
+            FogOfWarAPI playerFog,
+            float scale,
+            float offsetX,
+            float offsetY,
+            List<RenderedDivisionPolygon> outList) {
+        if (div == null) return;
+        List<ShipAPI> alive = div.getAliveMembers();
+        if (alive.isEmpty()) return;
+
+        ShipAPI activeFlag = resolveActiveFlagship(div, alive);
+        List<ShipAPI> hullMembers = new ArrayList<>(alive.size());
+        if (!isEnemy) {
+            for (ShipAPI s : alive) {
+                if (s != null && !s.isFighter()) {
+                    hullMembers.add(s);
                 }
             }
-            if (hullMembers.isEmpty()) continue;
-            if (activeFlag == null || !hullMembers.contains(activeFlag)) {
-                ShipAPI bestVisFlag = hullMembers.get(0);
-                float bestVisFp = -1f;
-                for (ShipAPI vis : hullMembers) {
-                    float fp = ShipCapabilityProfile.resolveShipFpStrength(vis);
-                    if (fp > bestVisFp) {
-                        bestVisFp = fp;
-                        bestVisFlag = vis;
-                    }
+        } else {
+            for (ShipAPI s : alive) {
+                if (s != null && !s.isFighter() && isEnemyShipVisibleOnCommandMap(this.engine, s, playerFog)) {
+                    hullMembers.add(s);
                 }
-                activeFlag = bestVisFlag;
+            }
+        }
+        if (hullMembers.isEmpty()) return;
+        if (activeFlag == null || !hullMembers.contains(activeFlag)) {
+            ShipAPI bestVisFlag = hullMembers.get(0);
+            float bestVisFp = -1f;
+            for (ShipAPI vis : hullMembers) {
+                float fp = ShipCapabilityProfile.resolveShipFpStrength(vis);
+                if (fp > bestVisFp) {
+                    bestVisFp = fp;
+                    bestVisFlag = vis;
+                }
+            }
+            activeFlag = bestVisFlag;
+        }
+
+        boolean isAlliedAi = !isEnemy && (battleGroup.isAlliedAi || hullMembers.get(0).isAlly());
+
+        float cr;
+        float cg;
+        float cb;
+        if (isEnemy) {
+            cr = 0.96f;
+            cg = 0.22f;
+            cb = 0.22f;
+        } else if (isAlliedAi) {
+            cr = 1.00f;
+            cg = 0.86f;
+            cb = 0.18f;
+        } else {
+            cr = 0.20f;
+            cg = 0.94f;
+            cb = 0.44f;
+        }
+
+        // Cluster division members into sticky water-droplet sub-blobs (hysteresis merge vs split thresholds)
+        List<List<ShipAPI>> droplets = clusterDivisionMembersSticky(div, hullMembers);
+        int primaryIdx = resolvePrimaryDropletIndex(droplets, activeFlag);
+
+        for (int dIdx = 0; dIdx < droplets.size(); dIdx++) {
+            List<ShipAPI> dropletMembers = droplets.get(dIdx);
+            boolean isPrimary = (dIdx == primaryIdx);
+
+            float liveRmsSpread = computeInstantaneousRmsSpreadWorld(dropletMembers);
+            float overallRatio = liveRmsSpread / Math.max(300f, div.stationKeepingRadius);
+            float scatterPenalty = clamp((overallRatio - 0.85f) / 1.25f, 0f, 1f);
+            float targetCohesionAlpha = 1.0f - scatterPenalty * 0.18f;
+            if (dropletMembers.size() == 1 && hullMembers.size() > 1) {
+                targetCohesionAlpha *= 0.90f;
             }
 
-            boolean isAlliedAi = !isEnemy && (battleGroup.isAlliedAi || hullMembers.get(0).isAlly());
+            String cohKey = isPrimary ? div.id : (div.id + "#" + dIdx);
+            Float prevCoh = smoothedCohesionByDivId.get(cohKey);
+            float cohesionAlphaMult = (prevCoh == null)
+                    ? targetCohesionAlpha
+                    : (prevCoh * 0.84f + targetCohesionAlpha * 0.16f);
+            smoothedCohesionByDivId.put(cohKey, cohesionAlphaMult);
 
-            float cr;
-            float cg;
-            float cb;
-            if (isEnemy) {
-                cr = 0.96f;
-                cg = 0.22f;
-                cb = 0.22f;
-            } else if (isAlliedAi) {
-                cr = 1.00f;
-                cg = 0.86f;
-                cb = 0.18f;
-            } else {
-                cr = 0.20f;
-                cg = 0.94f;
-                cb = 0.44f;
-            }
-
-            // Cluster division members into sticky water-droplet sub-blobs (hysteresis merge vs split thresholds)
-            List<List<ShipAPI>> droplets = clusterDivisionMembersSticky(div, hullMembers);
-            int primaryIdx = resolvePrimaryDropletIndex(droplets, activeFlag);
-
-            for (int dIdx = 0; dIdx < droplets.size(); dIdx++) {
-                List<ShipAPI> dropletMembers = droplets.get(dIdx);
-                boolean isPrimary = (dIdx == primaryIdx);
-
-                float liveRmsSpread = computeInstantaneousRmsSpreadWorld(dropletMembers);
-                float overallRatio = liveRmsSpread / Math.max(300f, div.stationKeepingRadius);
-                float scatterPenalty = clamp((overallRatio - 0.85f) / 1.25f, 0f, 1f);
-                // Keep division droplets clearly visible even when reinforcements arrive from the map edge
-                // or while a division is closing up (each droplet is already a tight sub-cluster).
-                float targetCohesionAlpha = 1.0f - scatterPenalty * 0.18f;
-                if (dropletMembers.size() == 1 && hullMembers.size() > 1) {
-                    targetCohesionAlpha *= 0.90f;
-                }
-
-                String cohKey = isPrimary ? div.id : (div.id + "#" + dIdx);
-                Float prevCoh = smoothedCohesionByDivId.get(cohKey);
-                float cohesionAlphaMult = (prevCoh == null)
-                        ? targetCohesionAlpha
-                        : (prevCoh * 0.84f + targetCohesionAlpha * 0.16f);
-                smoothedCohesionByDivId.put(cohKey, cohesionAlphaMult);
-
-                List<Vector2f> displayPolyScreen = applyMetaballNeckPinchScreen(
+            List<Vector2f> displayPolyScreen = applyMetaballNeckPinchScreen(
+                    div,
+                    null,
+                    null,
+                    dropletMembers,
+                    hullMembers,
+                    scale,
+                    offsetX,
+                    offsetY);
+            if (displayPolyScreen == null || displayPolyScreen.size() < 3) {
+                displayPolyScreen = buildFluidDropletPolygonScreen(
                         div,
-                        null,
-                        null,
                         dropletMembers,
                         hullMembers,
                         scale,
                         offsetX,
                         offsetY);
-                if (displayPolyScreen == null || displayPolyScreen.size() < 3) {
-                    displayPolyScreen = buildFluidDropletPolygonScreen(
-                            div,
-                            dropletMembers,
-                            hullMembers,
-                            scale,
-                            offsetX,
-                            offsetY);
-                }
-                if (displayPolyScreen == null || displayPolyScreen.size() < 3) continue;
-                List<Vector2f> polyScreen = displayPolyScreen;
-                Vector2f centerScreen = computePolygonCentroid(displayPolyScreen);
-
-                outList.add(new RenderedDivisionPolygon(
-                        div,
-                        battleGroup,
-                        isEnemy,
-                        isAlliedAi,
-                        isPrimary,
-                        dropletMembers,
-                        polyScreen,
-                        displayPolyScreen,
-                        centerScreen,
-                        cr,
-                        cg,
-                        cb,
-                        cohesionAlphaMult));
             }
+            if (displayPolyScreen == null || displayPolyScreen.size() < 3) continue;
+            List<Vector2f> polyScreen = displayPolyScreen;
+            Vector2f centerScreen = computePolygonCentroid(displayPolyScreen);
+
+            outList.add(new RenderedDivisionPolygon(
+                    div,
+                    battleGroup,
+                    isEnemy,
+                    isAlliedAi,
+                    isPrimary,
+                    dropletMembers,
+                    polyScreen,
+                    displayPolyScreen,
+                    centerScreen,
+                    cr,
+                    cg,
+                    cb,
+                    cohesionAlphaMult));
+        }
+    }
+
+    private void collectStrikeCraftDivisionPolygonsCached(
+            BattleGroupState battleGroup,
+            boolean isEnemy,
+            FogOfWarAPI playerFog,
+            float now,
+            boolean paused,
+            float scale,
+            float offsetX,
+            float offsetY,
+            List<RenderedDivisionPolygon> outStrikeList) {
+        if (battleGroup == null || battleGroup.divisions.isEmpty()) return;
+        String groupKey = isEnemy ? "SC_E" : (battleGroup.isAlliedAi ? "SC_A" : "SC_P");
+        CachedDivisionGeometry entry = perDivisionStrikeCraftCache.get(groupKey);
+        int groupSig = computeSingleGroupGeometrySignature(battleGroup, isEnemy, playerFog, paused);
+        if (entry != null
+                && entry.signature == groupSig
+                && (paused || Math.abs(now - entry.builtAtSimTime) < 0.45f)) {
+            if (!entry.droplets.isEmpty()) {
+                if (Float.compare(entry.scale, scale) != 0
+                        || Float.compare(entry.offsetX, offsetX) != 0
+                        || Float.compare(entry.offsetY, offsetY) != 0) {
+                    float ratio = (entry.scale > 1e-5f) ? (scale / entry.scale) : 1f;
+                    transformPolygonListInPlace(
+                            entry.droplets, ratio, entry.offsetX, entry.offsetY, offsetX, offsetY);
+                    entry.scale = scale;
+                    entry.offsetX = offsetX;
+                    entry.offsetY = offsetY;
+                }
+                if (!paused && Math.abs(now - entry.lastTranslatedSimTime) > 1e-4f) {
+                    translateCachedPolygonsByLiveShipMotion(entry.droplets, scale);
+                    entry.lastTranslatedSimTime = now;
+                }
+                outStrikeList.addAll(entry.droplets);
+            }
+            return;
+        }
+        if (entry == null) {
+            entry = new CachedDivisionGeometry();
+            perDivisionStrikeCraftCache.put(groupKey, entry);
+        } else {
+            entry.droplets.clear();
+        }
+        collectStrikeCraftDivisionPolygons(battleGroup, isEnemy, playerFog, scale, offsetX, offsetY, entry.droplets);
+        entry.signature = groupSig;
+        entry.builtAtSimTime = now;
+        entry.lastTranslatedSimTime = now;
+        entry.scale = scale;
+        entry.offsetX = offsetX;
+        entry.offsetY = offsetY;
+        if (!entry.droplets.isEmpty()) {
+            outStrikeList.addAll(entry.droplets);
         }
     }
 
@@ -822,7 +1253,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         return clusters;
     }
 
-    private static int computeBattleGroupsGeometrySignature(
+    private int computeBattleGroupsGeometrySignature(
             BattleGroupState playerGroup,
             BattleGroupState alliedAiGroup,
             BattleGroupState enemyGroup,
@@ -835,7 +1266,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         return h;
     }
 
-    private static int computeSingleGroupGeometrySignature(
+    private int computeSingleGroupGeometrySignature(
             BattleGroupState group,
             boolean isEnemy,
             FogOfWarAPI playerFog,
@@ -849,12 +1280,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             for (int j = 0, m = div.members.size(); j < m; j++) {
                 ShipAPI s = div.members.get(j);
                 if (s == null || !s.isAlive() || s.isHulk() || s.isFighter()) continue;
-                if (isEnemy && !isEnemyShipVisibleOnCommandMap(s, playerFog)) continue;
+                if (isEnemy && !isEnemyShipVisibleOnCommandMap(this.engine, s, playerFog)) continue;
                 h = 31 * h + (s.getId() != null ? s.getId().hashCode() : j);
-                if (includeQuantizedPositions && s.getLocation() != null) {
-                    h = 31 * h + ((int) (s.getLocation().x * 0.25f));
-                    h = 31 * h + ((int) (s.getLocation().y * 0.25f));
-                }
             }
         }
         return h;
@@ -867,6 +1294,16 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float oldOffY = cachedPolyOffsetY;
         transformPolygonListInPlace(cachedRenderedPolys, ratio, oldOffX, oldOffY, newOffsetX, newOffsetY);
         transformPolygonListInPlace(cachedStrikeCraftPolys, ratio, oldOffX, oldOffY, newOffsetX, newOffsetY);
+        for (CachedDivisionGeometry entry : perDivisionGeometryCache.values()) {
+            entry.scale = newScale;
+            entry.offsetX = newOffsetX;
+            entry.offsetY = newOffsetY;
+        }
+        for (CachedDivisionGeometry entry : perDivisionStrikeCraftCache.values()) {
+            entry.scale = newScale;
+            entry.offsetX = newOffsetX;
+            entry.offsetY = newOffsetY;
+        }
         for (CachedOverlapStripeBand band : cachedOverlapStripeBands) {
             for (Vector2f v : band.verts) {
                 v.x = (v.x - oldOffX) * ratio + newOffsetX;
@@ -2328,6 +2765,47 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     // Section 4: Layer Renderers (Polygons, Top-Layer Ship Sprites, Flagship Stars, Overlap Stripes, Waypoints & Labels)
     // =========================================================================
 
+    private void renderAllDivisionPolygonsBatched(
+            List<RenderedDivisionPolygon> renderedPolys,
+            float basePolyAlpha) {
+        if (renderedPolys == null || renderedPolys.isEmpty()) return;
+        GL11.glBegin(GL11.GL_TRIANGLES);
+        for (int pIdx = 0, pLen = renderedPolys.size(); pIdx < pLen; pIdx++) {
+            RenderedDivisionPolygon rp = renderedPolys.get(pIdx);
+            List<Vector2f> poly = rp.displayPolyScreen;
+            int n = (poly != null) ? poly.size() : 0;
+            if (n < 3) continue;
+            float effectiveAlpha = basePolyAlpha * rp.cohesionAlphaMult;
+            float centerAlpha = Math.min(0.18f, effectiveAlpha * 0.72f);
+            float edgeAlpha = Math.min(0.13f, effectiveAlpha * 0.50f);
+            float triAlpha = (centerAlpha + edgeAlpha) * 0.5f;
+            GL11.glColor4f(rp.cr, rp.cg, rp.cb, triAlpha);
+
+            List<int[]> triangles = rp.triangles;
+            if (triangles != null && !triangles.isEmpty()) {
+                for (int t = 0, tLen = triangles.size(); t < tLen; t++) {
+                    int[] tri = triangles.get(t);
+                    Vector2f v0 = poly.get(tri[0]);
+                    Vector2f v1 = poly.get(tri[1]);
+                    Vector2f v2 = poly.get(tri[2]);
+                    GL11.glVertex2f(v0.x, v0.y);
+                    GL11.glVertex2f(v1.x, v1.y);
+                    GL11.glVertex2f(v2.x, v2.y);
+                }
+            } else {
+                Vector2f v0 = poly.get(0);
+                for (int i = 1; i < n - 1; i++) {
+                    Vector2f v1 = poly.get(i);
+                    Vector2f v2 = poly.get(i + 1);
+                    GL11.glVertex2f(v0.x, v0.y);
+                    GL11.glVertex2f(v1.x, v1.y);
+                    GL11.glVertex2f(v2.x, v2.y);
+                }
+            }
+        }
+        GL11.glEnd();
+    }
+
     private void renderSingleDivisionPolygon(
             RenderedDivisionPolygon rp,
             float basePolyAlpha) {
@@ -2527,37 +3005,36 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             return;
         }
 
-        SpriteAPI goldStar = null;
-        SpriteAPI silverStar = null;
         try {
-            goldStar = Global.getSettings().getSprite("division_ai", "star_gold");
-            silverStar = Global.getSettings().getSprite("division_ai", "star_silver");
+            if (cachedGoldStarSprite == null || cachedGoldStarSprite.getTextureId() <= 0) {
+                cachedGoldStarSprite = Global.getSettings().getSprite("division_ai", "star_gold");
+            }
+            if (cachedSilverStarSprite == null || cachedSilverStarSprite.getTextureId() <= 0) {
+                cachedSilverStarSprite = Global.getSettings().getSprite("division_ai", "star_silver");
+            }
         } catch (Throwable ignored) {
             return;
         }
+        SpriteAPI goldStar = cachedGoldStarSprite;
+        SpriteAPI silverStar = cachedSilverStarSprite;
         if (goldStar == null && silverStar == null) return;
 
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        GL11.glPushMatrix();
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
         try {
-            if (silverStar != null) {
+            if (silverStar != null && divisionFlagships != null) {
                 for (ShipAPI ship : divisionFlagships) {
                     renderShipCornerStar(ship, silverStar, false, scale, offsetX, offsetY, fade);
                 }
             }
-            if (goldStar != null) {
+            if (goldStar != null && fleetFlagships != null) {
                 for (ShipAPI ship : fleetFlagships) {
                     renderShipCornerStar(ship, goldStar, false, scale, offsetX, offsetY, fade);
                 }
             }
         } catch (Throwable ignored) {
-        } finally {
-            GL11.glPopMatrix();
-            GL11.glPopAttrib();
         }
     }
 
@@ -2834,17 +3311,27 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private void renderCachedOverlapPolygonStripes(
             List<CachedOverlapStripeBand> bands,
             float basePolyAlpha) {
-        for (CachedOverlapStripeBand band : bands) {
+        if (bands == null || bands.isEmpty()) return;
+        GL11.glBegin(GL11.GL_TRIANGLES);
+        for (int bIdx = 0, bLen = bands.size(); bIdx < bLen; bIdx++) {
+            CachedOverlapStripeBand band = bands.get(bIdx);
+            List<Vector2f> verts = band.verts;
+            int n = (verts != null) ? verts.size() : 0;
+            if (n < 3) continue;
             float alpha = band.isBandA
                     ? Math.min(0.28f, Math.max(0.08f, basePolyAlpha * band.alphaScale))
                     : Math.min(0.24f, Math.max(0.06f, basePolyAlpha * band.alphaScale));
             GL11.glColor4f(band.r, band.g, band.b, alpha);
-            GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-            for (Vector2f v : band.verts) {
-                GL11.glVertex2f(v.x, v.y);
+            Vector2f v0 = verts.get(0);
+            for (int i = 1; i < n - 1; i++) {
+                Vector2f v1 = verts.get(i);
+                Vector2f v2 = verts.get(i + 1);
+                GL11.glVertex2f(v0.x, v0.y);
+                GL11.glVertex2f(v1.x, v1.y);
+                GL11.glVertex2f(v2.x, v2.y);
             }
-            GL11.glEnd();
         }
+        GL11.glEnd();
     }
 
     /**
@@ -3211,15 +3698,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float sy = wy * scale + offsetY;
             String text = vs.getDisplayLabel();
 
+            String vsKeyOverride = "VOIDSTRIKE_" + vs.side + "_" + vs.voidstrikeNumber;
+            String vsMapKey = getLabelMapKey(text, vsKeyOverride, isEnemy, isAlly, false);
             LabelAPI label = getOrCreateLabel(
                     text,
-                    "VOIDSTRIKE_" + vs.side + "_" + vs.voidstrikeNumber,
+                    vsKeyOverride,
                     isEnemy,
                     isAlly,
                     false);
             if (label != null) {
-                float textW = label.computeTextWidth(text);
-                float textH = label.computeTextHeight(text);
+                float textW = getCachedLabelWidth(vsMapKey, label, text);
+                float textH = getCachedLabelHeight(vsMapKey, label, text);
                 label.getPosition().setSize(textW + 10f, textH + 4f);
                 label.getPosition().setLocation(sx - (textW * 0.5f), sy + (textH * 0.5f));
                 label.render(fade * (isEnemy ? 0.90f : 0.96f));
@@ -3715,12 +4204,21 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     private static boolean isEnemyShipVisibleOnCommandMap(ShipAPI ship, FogOfWarAPI playerFog) {
+        return isEnemyShipVisibleOnCommandMap(null, ship, playerFog);
+    }
+
+    private static boolean isEnemyShipVisibleOnCommandMap(
+            CombatEngineAPI engine,
+            ShipAPI ship,
+            FogOfWarAPI playerFog) {
         if (ship == null || !ship.isAlive()) return false;
         if (playerFog == null) return true;
-        CombatEngineAPI eng = null;
-        try {
-            eng = Global.getCombatEngine();
-        } catch (Throwable ignored) {
+        CombatEngineAPI eng = engine;
+        if (eng == null) {
+            try {
+                eng = Global.getCombatEngine();
+            } catch (Throwable ignored) {
+            }
         }
         return BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(eng, ship, playerFog);
     }

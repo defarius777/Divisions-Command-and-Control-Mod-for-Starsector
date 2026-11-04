@@ -329,7 +329,7 @@ public class BattlefieldFirepowerEvaluator {
     public static boolean isEnemyShipVisibleSticky(CombatEngineAPI engine, ShipAPI ship, FogOfWarAPI playerFog) {
         if (ship == null || !ship.isAlive() || ship.isHulk() || ship.isExpired()) return false;
         if (playerFog == null) return true;
-        float now = (engine != null) ? engine.getTotalElapsedTime(true) : 0f;
+        float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
         String id = ship.getId();
         if (playerFog.isVisible(ship)) {
             if (id != null) {
@@ -350,13 +350,13 @@ public class BattlefieldFirepowerEvaluator {
         if (ship == null || !ship.isAlive() || ship.isHulk() || ship.isExpired()) return 0f;
         if (playerFog == null || playerFog.isVisible(ship)) {
             if (ship.getId() != null && engine != null) {
-                enemyShipLastSeenTimeById.put(ship.getId(), engine.getTotalElapsedTime(true));
+                enemyShipLastSeenTimeById.put(ship.getId(), engine.getTotalElapsedTime(false));
             }
             return 1.0f;
         }
         if (ship.getId() != null && engine != null) {
             Float lastSeen = enemyShipLastSeenTimeById.get(ship.getId());
-            float now = engine.getTotalElapsedTime(true);
+            float now = engine.getTotalElapsedTime(false);
             if (lastSeen != null && now >= lastSeen) {
                 float elapsed = now - lastSeen;
                 if (elapsed <= STICKY_ENEMY_VISIBILITY_GRACE_SECONDS) {

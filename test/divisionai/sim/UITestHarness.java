@@ -792,7 +792,8 @@ public class UITestHarness {
                     if ("getLocation".equals(n)) return loc;
                     if ("getHullSize".equals(n)) return size;
                     if ("isAlive".equals(n)) return Boolean.TRUE;
-                    if ("isHulk".equals(n) || "isFighter".equals(n) || "isShuttlePod".equals(n)
+                    if ("isFighter".equals(n)) return Boolean.valueOf(size == HullSize.FIGHTER);
+                    if ("isHulk".equals(n) || "isShuttlePod".equals(n)
                             || "isStationModule".equals(n) || "isRetreating".equals(n)
                             || "isExpired".equals(n) || "isAlly".equals(n)) {
                         return Boolean.FALSE;
@@ -1250,8 +1251,247 @@ public class UITestHarness {
                             "cacheDelta=%d across 202 flux updates (must be exactly 2, no per-flux-percent LabelAPI leak)",
                             labelCacheAfter - labelCacheBefore));
 
+            auditHegemonyInspector39DivisionWarroomStressAndGlGuards(res, pCmdr);
             auditOtcReassignmentFlagshipBlackoutAndBattleSummary(res);
         }
+    }
+
+    private static void auditHegemonyInspector39DivisionWarroomStressAndGlGuards(
+            UIAuditResult res,
+            CommanderProfile cmdr) {
+        // 1. Build a 39-division (14 player + 25 enemy), 134-ship battlefield matching the Hegemony Investigators battle
+        BattleGroupState pGroup = new BattleGroupState(0, cmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, cmdr);
+        List<ShipAPI> allShips = new ArrayList<>(140);
+        final java.util.Set<ShipAPI> fogVisibleEnemyShips = new java.util.HashSet<>();
+        ShipAPI flickeringEnemyShip = null;
+
+        int shipCounter = 0;
+        for (int d = 0; d < 14; d++) {
+            DivisionState div = new DivisionState(
+                    "heg_p_div_" + d, 0, d + 1, DivisionArchetype.CRUISER_DIVISION, "Player Div " + (d + 1), cmdr);
+            pGroup.divisions.add(div);
+            int count = (d < 6) ? 4 : 3; // 6*4 + 8*3 = 48 player ships
+            float bx = -1800f + (d % 7) * 540f;
+            float by = -900f + (d / 7) * 420f;
+            for (int s = 0; s < count; s++) {
+                ShipAPI ship = createMockDropletShip(
+                        "heg_p_s_" + (++shipCounter), HullSize.CRUISER, bx + s * 220f, by + (s % 2) * 160f);
+                div.members.add(ship);
+                allShips.add(ship);
+                if (s == 0) div.flagship = ship;
+            }
+        }
+        for (int d = 0; d < 25; d++) {
+            DivisionState div = new DivisionState(
+                    "heg_e_div_" + d, 1, d + 1, DivisionArchetype.CRUISER_DIVISION, "Hegemony Div " + (d + 1), cmdr);
+            eGroup.divisions.add(div);
+            int count = (d < 11) ? 4 : 3; // 11*4 + 14*3 = 86 enemy ships (48 + 86 = 134 total ships)
+            float bx = -2200f + (d % 9) * 520f;
+            float by = -400f + (d / 9) * 400f;
+            for (int s = 0; s < count; s++) {
+                ShipAPI ship = createMockDropletShip(
+                        "heg_e_s_" + (++shipCounter), HullSize.CRUISER, bx + s * 220f, by + (s % 2) * 160f);
+                div.members.add(ship);
+                allShips.add(ship);
+                fogVisibleEnemyShips.add(ship);
+                if (s == 0) div.flagship = ship;
+                if (d == 17 && s == 2) {
+                    flickeringEnemyShip = ship;
+                }
+            }
+        }
+
+        final float[] simClock = new float[] { 100.0f };
+        final float[] realClock = new float[] { 100.0f };
+        final int[] deployedCopyCalls = new int[] { 0 };
+        final com.fs.starfarer.api.combat.CombatFleetManagerAPI mockFm =
+                (com.fs.starfarer.api.combat.CombatFleetManagerAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[] { com.fs.starfarer.api.combat.CombatFleetManagerAPI.class },
+                        (p, m, a) -> {
+                            String name = m.getName();
+                            if ("getDeployedCopy".equals(name) || "getReservesCopy".equals(name)) {
+                                deployedCopyCalls[0]++;
+                                return java.util.Collections.emptyList();
+                            }
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == int.class) return 0;
+                            if (m.getReturnType() == float.class) return 0f;
+                            return null;
+                        });
+        final CombatEngineAPI mockEng = (CombatEngineAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[] { CombatEngineAPI.class },
+                (p, m, a) -> {
+                    String name = m.getName();
+                    if ("getTotalElapsedTime".equals(name)) {
+                        boolean includePaused = (a != null && a.length > 0 && Boolean.TRUE.equals(a[0]));
+                        return includePaused ? realClock[0] : simClock[0];
+                    }
+                    if ("getShips".equals(name)) return allShips;
+                    if ("getFleetManager".equals(name)) return mockFm;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == int.class) return 0;
+                    if (m.getReturnType() == float.class) return 0f;
+                    return null;
+                });
+        final com.fs.starfarer.api.combat.FogOfWarAPI mockFog =
+                (com.fs.starfarer.api.combat.FogOfWarAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[] { com.fs.starfarer.api.combat.FogOfWarAPI.class },
+                        (p, m, a) -> {
+                            if ("isVisible".equals(m.getName()) && a != null && a.length > 0 && a[0] instanceof ShipAPI) {
+                                return fogVisibleEnemyShips.contains((ShipAPI) a[0]);
+                            }
+                            if (m.getReturnType() == boolean.class) return true;
+                            return null;
+                        });
+
+        DivisionTacticalMapOverlay stressOv = new DivisionTacticalMapOverlay(mockEng);
+
+        // Initial cold build of all 39 divisions
+        List<DivisionTacticalMapOverlay.RenderedDivisionPolygon> outPolys = new ArrayList<>(64);
+        int[] coldBudget = new int[] { 256 };
+        int initialRebuilt = stressOv.collectDivisionPolygonsCached(
+                pGroup, false, null, simClock[0], false, 0.085f, 960f, 540f, coldBudget, outPolys);
+        initialRebuilt += stressOv.collectDivisionPolygonsCached(
+                eGroup, true, mockFog, simClock[0], false, 0.085f, 960f, 540f, coldBudget, outPolys);
+
+        // Test A: Single enemy ship leaves sticky visibility on an unpaused frame -> ONLY 1 division (out of 39) rebuilds!
+        fogVisibleEnemyShips.remove(flickeringEnemyShip);
+        // Advance simClock past 4.0s sticky grace for that single ship while refreshing all other visible enemy ships
+        for (int step = 0; step < 10; step++) {
+            simClock[0] += 0.50f;
+            realClock[0] += 0.50f;
+            for (ShipAPI es : fogVisibleEnemyShips) {
+                BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(mockEng, es, mockFog);
+            }
+        }
+        // Warm cache at current time (where flickeringEnemyShip is now expired from sticky visibility)
+        outPolys.clear();
+        int[] warmBudget = new int[] { 256 };
+        stressOv.collectDivisionPolygonsCached(
+                pGroup, false, null, simClock[0], false, 0.085f, 960f, 540f, warmBudget, outPolys);
+        stressOv.collectDivisionPolygonsCached(
+                eGroup, true, mockFog, simClock[0], false, 0.085f, 960f, 540f, warmBudget, outPolys);
+
+        // Now toggle flickeringEnemyShip back into sensor view 0.05s later -> only Division #17 should rebuild!
+        fogVisibleEnemyShips.add(flickeringEnemyShip);
+        BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(mockEng, flickeringEnemyShip, mockFog);
+        simClock[0] += 0.05f;
+        realClock[0] += 0.05f;
+        outPolys.clear();
+        int[] flickerBudget = new int[] { 6 };
+        int flickerRebuilt = stressOv.collectDivisionPolygonsCached(
+                pGroup, false, null, simClock[0], false, 0.085f, 960f, 540f, flickerBudget, outPolys);
+        flickerRebuilt += stressOv.collectDivisionPolygonsCached(
+                eGroup, true, mockFog, simClock[0], false, 0.085f, 960f, 540f, flickerBudget, outPolys);
+
+        // Test B: Paused Warroom sticky-visibility stability (realClock advances 10s while paused, simClock stays still)
+        fogVisibleEnemyShips.remove(flickeringEnemyShip);
+        realClock[0] += 10.0f; // 10 seconds of wall-clock pause (> 4.0s sticky grace)
+        boolean stickyPreservedWhilePaused = BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(
+                mockEng, flickeringEnemyShip, mockFog);
+        outPolys.clear();
+        int[] pausedBudget = new int[] { 6 };
+        int pausedRebuilt = stressOv.collectDivisionPolygonsCached(
+                pGroup, false, null, simClock[0], true, 0.092f, 980f, 520f, pausedBudget, outPolys);
+        pausedRebuilt += stressOv.collectDivisionPolygonsCached(
+                eGroup, true, mockFog, simClock[0], true, 0.092f, 980f, 520f, pausedBudget, outPolys);
+
+        // Test C: 300 continuous unpaused Warroom frames (5.0s at 60 FPS) with 39 divisions & 134 moving ships + camera pan/zoom
+        long[] frameTimesNs = new long[300];
+        long totalStressNs = 0L;
+        for (int f = 0; f < 300; f++) {
+            simClock[0] += (1f / 60f);
+            realClock[0] += (1f / 60f);
+            float scale = 0.080f + (f % 30) * 0.0005f;
+            float offX = 960f + (f % 40) * 1.5f;
+            float offY = 540f - (f % 40) * 1.0f;
+            long t0 = System.nanoTime();
+            outPolys.clear();
+            int[] frameBudget = new int[] { 6 };
+            stressOv.collectDivisionPolygonsCached(
+                    pGroup, false, null, simClock[0], false, scale, offX, offY, frameBudget, outPolys);
+            stressOv.collectDivisionPolygonsCached(
+                    eGroup, true, mockFog, simClock[0], false, scale, offX, offY, frameBudget, outPolys);
+            long dt = System.nanoTime() - t0;
+            frameTimesNs[f] = dt;
+            totalStressNs += dt;
+        }
+        java.util.Arrays.sort(frameTimesNs);
+        float avgStressMs = (totalStressNs / 300.0f) / 1e6f;
+        float p95StressMs = frameTimesNs[(int) (300 * 0.95)] / 1e6f;
+
+        // Test D: Fighter launch/death churn must NOT cause hasAlphaCoreInPlayerFleet to re-clone getDeployedCopy()/getReservesCopy()
+        DivisionOtcCommandManager.resetForNewBattle();
+        DivisionOtcCommandManager.hasAlphaCoreInPlayerFleet(mockEng);
+        int copiesBeforeFighterChurn = deployedCopyCalls[0];
+        for (int f = 0; f < 60; f++) {
+            // Simulate fighter count changing every frame within a 1.0s combat window
+            ShipAPI dummyFighter = createMockDropletShip("fighter_churn_" + f, HullSize.FIGHTER, 0f, 0f);
+            allShips.add(dummyFighter);
+            simClock[0] += 0.01f;
+            DivisionOtcCommandManager.hasAlphaCoreInPlayerFleet(mockEng);
+            allShips.remove(allShips.size() - 1);
+        }
+        int copiesDuringFighterChurn = deployedCopyCalls[0] - copiesBeforeFighterChurn;
+
+        // Test E: Static source guards for OpenGL batching and removal of duplicate 134-ship re-rendering / glPushAttrib stalls
+        String overlaySrc = "";
+        String doctrineSrc = "";
+        String tsfcSrc = "";
+        try {
+            overlaySrc = new String(Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()), StandardCharsets.UTF_8);
+            doctrineSrc = new String(Files.readAllBytes(new File("src/divisionai/FleetDoctrineDialog.java").toPath()), StandardCharsets.UTF_8);
+            tsfcSrc = new String(Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()), StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+        }
+        boolean batchedTrianglesOk = overlaySrc.contains("renderAllDivisionPolygonsBatched(renderedPolys, basePolyAlpha)")
+                && !overlaySrc.contains("\n        renderShipSpritesOnTopLayer(renderedPolys")
+                && overlaySrc.contains("recordWarroomFrameTelemetry(");
+        int formBorderIdx = doctrineSrc.indexOf("public static void renderFormationSquareBorder(");
+        int formBorderEnd = (formBorderIdx >= 0) ? doctrineSrc.indexOf("private void addUnitModifierRow(", formBorderIdx) : -1;
+        String formBorderBody = (formBorderIdx >= 0 && formBorderEnd > formBorderIdx)
+                ? doctrineSrc.substring(formBorderIdx, formBorderEnd)
+                : "";
+        boolean noPushAttribInFormIcon = !formBorderBody.contains("glPushAttrib");
+
+        int btnIdx = tsfcSrc.indexOf("static void renderSingleWarroomSquareIconButton(");
+        int btnEnd = (btnIdx >= 0) ? tsfcSrc.indexOf("static float getCachedUiLabelWidth(", btnIdx) : -1;
+        String btnBody = (btnIdx >= 0 && btnEnd > btnIdx)
+                ? tsfcSrc.substring(btnIdx, btnEnd)
+                : "";
+        boolean noPushAttribInWarroomBtn = !btnBody.contains("glPushAttrib");
+
+        boolean stressPassed = (initialRebuilt == 39)
+                && (flickerRebuilt == 1)
+                && stickyPreservedWhilePaused
+                && (pausedRebuilt == 0)
+                && (avgStressMs < 2.0f)
+                && (p95StressMs < 5.0f)
+                && (copiesDuringFighterChurn == 0)
+                && batchedTrianglesOk
+                && noPushAttribInFormIcon
+                && noPushAttribInWarroomBtn;
+
+        res.record(
+                stressPassed,
+                "Hegemony Inspector 39-Division / 134-Ship Warroom Stress & OpenGL Batching Gate",
+                String.format(
+                        Locale.ROOT,
+                        "initialRebuilt=%d/39, singleShipFlickerRebuilt=%d (must=1), pausedStickyOk=%b (pausedRebuilt=%d), 300f avg=%.2fms p95=%.2fms, fighterChurnFleetCopies=%d (must=0), batchedGL=%b, noIconPushAttrib=%b/%b",
+                        initialRebuilt,
+                        flickerRebuilt,
+                        stickyPreservedWhilePaused,
+                        pausedRebuilt,
+                        avgStressMs,
+                        p95StressMs,
+                        copiesDuringFighterChurn,
+                        batchedTrianglesOk,
+                        noPushAttribInFormIcon,
+                        noPushAttribInWarroomBtn));
     }
 
     private static void auditOtcReassignmentFlagshipBlackoutAndBattleSummary(UIAuditResult res) {

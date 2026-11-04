@@ -169,6 +169,10 @@ public class DivisionOtcCommandManager {
         playerAlphaCoreLockedInBattle = false;
         emergencyPlayerOtcSelectionPending = false;
         emergencyModalAutoOpenRequested = false;
+        lastAlphaCoreCheckEngine = null;
+        lastAlphaCoreCheckTime = -100f;
+        lastAlphaCoreCheckShipsSize = -1;
+        cachedHasAlphaCoreInPlayerFleet = false;
     }
 
     public static String getAutoSelectedPlayerOtcMemberId() {
@@ -1854,13 +1858,35 @@ public class DivisionOtcCommandManager {
      */
     public static boolean hasAlphaCoreInPlayerFleet(CombatEngineAPI engine) {
         if (engine != null) {
-            int shipsSize = (engine.getShips() != null) ? engine.getShips().size() : 0;
+            if (engine == lastAlphaCoreCheckEngine && cachedHasAlphaCoreInPlayerFleet) {
+                return true;
+            }
+            int nonFighterOwner0Count = 0;
+            List<ShipAPI> ships = engine.getShips();
+            if (ships != null) {
+                for (int i = 0, n = ships.size(); i < n; i++) {
+                    ShipAPI s = ships.get(i);
+                    if (s == null || s.getOwner() != 0 || s.isAlly() || s.isFighter()) continue;
+                    nonFighterOwner0Count++;
+                    if (isAlphaCoreControlledShip(s)) {
+                        lastAlphaCoreCheckEngine = engine;
+                        lastAlphaCoreCheckTime = engine.getTotalElapsedTime(false);
+                        lastAlphaCoreCheckShipsSize = nonFighterOwner0Count;
+                        cachedHasAlphaCoreInPlayerFleet = true;
+                        return true;
+                    }
+                }
+            }
+            float now = engine.getTotalElapsedTime(false);
             if (engine == lastAlphaCoreCheckEngine
-                    && shipsSize == lastAlphaCoreCheckShipsSize) {
+                    && nonFighterOwner0Count == lastAlphaCoreCheckShipsSize
+                    && lastAlphaCoreCheckTime >= 0f
+                    && Math.abs(now - lastAlphaCoreCheckTime) < 1.0f) {
                 return cachedHasAlphaCoreInPlayerFleet;
             }
             lastAlphaCoreCheckEngine = engine;
-            lastAlphaCoreCheckShipsSize = shipsSize;
+            lastAlphaCoreCheckTime = now;
+            lastAlphaCoreCheckShipsSize = nonFighterOwner0Count;
         }
         boolean found = computeHasAlphaCoreInPlayerFleetUncached(engine);
         cachedHasAlphaCoreInPlayerFleet = found;

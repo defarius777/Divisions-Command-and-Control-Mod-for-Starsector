@@ -1822,7 +1822,14 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
+    private static final java.util.Map<String, SpriteAPI> FORMATION_SPRITE_CACHE = new java.util.HashMap<>();
+
     public static SpriteAPI loadFormationSpriteSafe(String iconKey, String path) {
+        String cacheKey = (iconKey != null ? iconKey : "") + "|" + (path != null ? path : "");
+        SpriteAPI cached = FORMATION_SPRITE_CACHE.get(cacheKey);
+        if (cached != null && cached.getTextureId() > 0) {
+            return cached;
+        }
         SpriteAPI sprite = null;
         if (iconKey != null && !iconKey.isEmpty()) {
             try {
@@ -1840,6 +1847,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             } catch (Throwable ignored) {
             }
         }
+        if (sprite != null && sprite.getTextureId() > 0) {
+            FORMATION_SPRITE_CACHE.put(cacheKey, sprite);
+        }
         return sprite;
     }
 
@@ -1855,7 +1865,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         float x1 = (float) Math.round(centerX + half);
         float y1 = (float) Math.round(centerY + half);
 
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -1873,17 +1882,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         GL11.glVertex2f(x0, y1);
         GL11.glEnd();
 
-        // 2. Dark charcoal outer frame (#303842 matching the icon SVG stroke)
-        GL11.glLineWidth(1.0f);
-        GL11.glColor4f(48f / 255f, 56f / 255f, 66f / 255f, 0.92f * alphaMult);
-        GL11.glBegin(GL11.GL_LINE_LOOP);
-        GL11.glVertex2f(x0 - 0.8f, y0 - 0.8f);
-        GL11.glVertex2f(x1 + 0.8f, y0 - 0.8f);
-        GL11.glVertex2f(x1 + 0.8f, y1 + 0.8f);
-        GL11.glVertex2f(x0 - 0.8f, y1 + 0.8f);
-        GL11.glEnd();
-
-        // 3. Beveled binary-rank metallic square border (Gold #FFF3C4->#E0B450->#A9761F vs Silver #F2F6FA->#C8D2DC->#8C98A6)
+        // 2. Dark charcoal outer frame + 3. Beveled binary-rank metallic square border batched in a single GL_LINES pass
         float tlR, tlG, tlB;
         float brR, brG, brB;
         if (isFlagshipDivision) {
@@ -1893,8 +1892,18 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             tlR = 232f / 255f; tlG = 239f / 255f; tlB = 246f / 255f;
             brR = 154f / 255f; brG = 166f / 255f; brB = 180f / 255f;
         }
-        GL11.glLineWidth(1.25f);
+        GL11.glLineWidth(1.2f);
         GL11.glBegin(GL11.GL_LINES);
+        // Outer charcoal frame (#303842)
+        GL11.glColor4f(48f / 255f, 56f / 255f, 66f / 255f, 0.92f * alphaMult);
+        GL11.glVertex2f(x0 - 0.8f, y0 - 0.8f);
+        GL11.glVertex2f(x1 + 0.8f, y0 - 0.8f);
+        GL11.glVertex2f(x1 + 0.8f, y0 - 0.8f);
+        GL11.glVertex2f(x1 + 0.8f, y1 + 0.8f);
+        GL11.glVertex2f(x1 + 0.8f, y1 + 0.8f);
+        GL11.glVertex2f(x0 - 0.8f, y1 + 0.8f);
+        GL11.glVertex2f(x0 - 0.8f, y1 + 0.8f);
+        GL11.glVertex2f(x0 - 0.8f, y0 - 0.8f);
         // Top and Left edges (light source highlight)
         GL11.glColor4f(tlR, tlG, tlB, 0.96f * alphaMult);
         GL11.glVertex2f(x0, y1);
@@ -1909,7 +1918,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         GL11.glVertex2f(x1, y1);
         GL11.glEnd();
 
-        GL11.glPopAttrib();
+        GL11.glLineWidth(1.0f);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
 
