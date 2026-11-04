@@ -559,8 +559,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         boolean sameContext = sameEngineAndGroups
                 && cachedPolySignature == geomSignature
                 && (!cachedRenderedPolys.isEmpty() || !cachedStrikeCraftPolys.isEmpty());
-        boolean reuseAllCached = sameContext
-                && (paused ? Math.abs(now - cachedPolyNow) < 1e-4f : Math.abs(now - cachedPolyNow) < 0.12f);
+        boolean reuseAllCached = sameContext && paused && Math.abs(now - cachedPolyNow) < 1e-4f;
 
         List<RenderedDivisionPolygon> renderedPolys = cachedRenderedPolys;
         List<RenderedDivisionPolygon> strikeCraftPolys = cachedStrikeCraftPolys;
@@ -574,12 +573,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 cachedPolyScale = scale;
                 cachedPolyOffsetX = offsetX;
                 cachedPolyOffsetY = offsetY;
-            }
-            if (!paused && Math.abs(now - lastLiveTranslateSimTime) > 1e-4f) {
-                translateCachedPolygonsByLiveShipMotion(renderedPolys, scale);
-                translateCachedPolygonsByLiveShipMotion(strikeCraftPolys, scale);
-                deconflictPrimaryDivisionLabels(renderedPolys);
-                lastLiveTranslateSimTime = now;
             }
         } else {
             boolean cameraChanged = !Float.isNaN(cachedPolyScale)
@@ -596,32 +589,36 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 }
             }
 
+            boolean coldBuild = (!sameEngineAndGroups || cachedPolyNow < -500f || paused);
             renderedPolys.clear();
             strikeCraftPolys.clear();
-            int[] rebuildBudget = new int[] { (!sameEngineAndGroups || cachedPolyNow < -500f) ? 256 : 6 };
+            // Spread Marching-Squares SDF contour rebuilds to at most 1 division per unpaused frame (~0.35ms max)
+            // so a 60 Hz VSync frame never stacks multiple division rebuilds onto a single frame.
+            int[] rebuildBudget = new int[] { coldBuild ? 256 : 1 };
 
             if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
                         playerGroup, false, null, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
                 collectStrikeCraftDivisionPolygonsCached(
-                        playerGroup, false, null, now, paused, scale, offsetX, offsetY, strikeCraftPolys);
+                        playerGroup, false, null, now, paused || divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
             }
             if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
                         alliedAiGroup, false, null, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
                 collectStrikeCraftDivisionPolygonsCached(
-                        alliedAiGroup, false, null, now, paused, scale, offsetX, offsetY, strikeCraftPolys);
+                        alliedAiGroup, false, null, now, paused || divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
             }
             if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
                         enemyGroup, true, playerFog, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
                 collectStrikeCraftDivisionPolygonsCached(
-                        enemyGroup, true, playerFog, now, paused, scale, offsetX, offsetY, strikeCraftPolys);
+                        enemyGroup, true, playerFog, now, paused || divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
             }
 
-            boolean rebuildStripesAndFlags = (divisionsRebuiltThisFrame > 0 && Math.abs(now - lastStripeRebuildSimTime) >= 0.30f)
-                    || lastStripeRebuildSimTime < -500f
-                    || Math.abs(now - lastStripeRebuildSimTime) >= 0.45f;
+            // Never stack overlap-stripe Sutherland-Hodgman clipping onto the same unpaused frame that just rebuilt a division SDF
+            boolean rebuildStripesAndFlags = lastStripeRebuildSimTime < -500f
+                    || (coldBuild && divisionsRebuiltThisFrame > 0)
+                    || (divisionsRebuiltThisFrame == 0 && Math.abs(now - lastStripeRebuildSimTime) >= 0.35f);
             if (rebuildStripesAndFlags) {
                 cachedOverlapStripeBands.clear();
                 if (renderedPolys.size() >= 2) {
@@ -630,6 +627,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 cachedFleetFlagships = resolveFleetFlagships(playerFog);
                 cachedDivisionFlagships = resolveDivisionFlagships(playerFog, cachedFleetFlagships);
                 lastStripeRebuildSimTime = now;
+            } else if (!paused && cachedPolySignature != geomSignature) {
+                cachedFleetFlagships = resolveFleetFlagships(playerFog);
+                cachedDivisionFlagships = resolveDivisionFlagships(playerFog, cachedFleetFlagships);
             }
             deconflictPrimaryDivisionLabels(renderedPolys);
             cachedPolyEngine = engine;
@@ -793,9 +793,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             lastWarroomPerfSnapshot = snap;
 
             long wallNow = System.currentTimeMillis();
-            boolean slowSpike = snap.maxTotalMs >= 8.0f || snap.avgTotalMs >= 3.5f;
-            boolean periodicDebug = DivisionAISettings.isDebugLoggingEnabled() && (wallNow - lastPerfLogWallMs >= 10000L);
-            if ((slowSpike && (wallNow - lastPerfLogWallMs >= 2000L)) || periodicDebug) {
+            boolean slowSpike = snap.maxTotalMs >= 4.0f || snap.avgTotalMs >= 2.0f;
+            boolean periodicTelemetry = (wallNow - lastPerfLogWallMs >= 10000L);
+            if ((slowSpike && (wallNow - lastPerfLogWallMs >= 2000L)) || periodicTelemetry) {
                 lastPerfLogWallMs = wallNow;
                 LOG.info(String.format(
                         Locale.ROOT,
@@ -871,7 +871,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     + (div.id != null ? div.id : ("idx_" + divIdx));
             int divSig = computeSingleDivisionGeometrySignature(div, isEnemy, playerFog, paused);
             CachedDivisionGeometry entry = perDivisionGeometryCache.get(cacheKey);
-            float staggerWindow = 0.40f + (Math.abs(cacheKey.hashCode()) % 7) * 0.045f;
+            float staggerWindow = 0.45f + (Math.abs(cacheKey.hashCode()) % 17) * 0.03f;
 
             boolean sigMatches = (entry != null && entry.signature == divSig);
             boolean withinTimeWindow = (entry != null && (paused || Math.abs(now - entry.builtAtSimTime) < staggerWindow));
@@ -2003,7 +2003,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         // stretch across the map. Capping stepPx at 5.5f caused 104x104 = 10,920 SDF evaluations per division!
         float stepPx = Math.max(3.0f, maxSpan / 52f);
 
-        float minWaistPx = Math.max(3.0f, stepPx * 0.84f);
+        float minWaistPx = Math.max(3.2f, stepPx * (maxSpan > 160f ? 1.15f : 0.88f));
         List<List<Vector2f>> loops = traceMetaballContoursMarchingSquares(
                 sx, sy, sr, mCount, total, kPair, minX, maxX, minY, maxY, stepPx, minWaistPx);
         if (loops.isEmpty()) {

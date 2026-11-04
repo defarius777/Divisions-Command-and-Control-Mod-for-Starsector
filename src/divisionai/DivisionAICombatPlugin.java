@@ -518,9 +518,18 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     private static MethodHandle mhExecuteAdds;
     private static boolean mhExecuteAddsResolved = false;
+    private static CombatEngineAPI lastFlushAddsEngine = null;
+    private static float lastFlushAddsSimTime = -100f;
 
     private static void flushPendingEngineAdds(CombatEngineAPI engine) {
         if (engine == null) return;
+        float now = engine.getTotalElapsedTime(false);
+        boolean paused = engine.isPaused();
+        if (engine == lastFlushAddsEngine && !paused && now > 5.0f && Math.abs(now - lastFlushAddsSimTime) < 0.25f) {
+            return;
+        }
+        lastFlushAddsEngine = engine;
+        lastFlushAddsSimTime = now;
         try {
             boolean hasUnaddedDeployed = false;
             for (int side = 0; side <= 1; side++) {
