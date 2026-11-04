@@ -34,6 +34,7 @@ final class JsonReflectBridge {
     private static MethodHandle mhJsonArrLength;
     private static MethodHandle mhJsonArrOptString;
     private static MethodHandle mhJsonArrOptJsonObject;
+    private static MethodHandle mhGetShipSystemSpecJson;
 
     private JsonReflectBridge() {
     }
@@ -99,7 +100,22 @@ final class JsonReflectBridge {
                     jsonArrClass,
                     "optJSONObject",
                     MethodType.methodType(jsonObjClass, int.class));
+            Class<?> shipSysSpecClass = Class.forName("com.fs.starfarer.api.combat.ShipSystemSpecAPI", false, cl);
+            mhGetShipSystemSpecJson = lookup.findVirtual(
+                    shipSysSpecClass,
+                    "getSpecJson",
+                    MethodType.methodType(jsonObjClass));
         } catch (Throwable ignored) {
+        }
+    }
+
+    static Object getShipSystemSpecJson(com.fs.starfarer.api.combat.ShipSystemSpecAPI spec) {
+        ensureInitialized();
+        if (spec == null || mhGetShipSystemSpecJson == null) return null;
+        try {
+            return mhGetShipSystemSpecJson.invoke(spec);
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 

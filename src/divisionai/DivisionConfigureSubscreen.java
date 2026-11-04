@@ -23,6 +23,7 @@ import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import divisionai.PermanentDivisionManager.SquadronFormation;
+import divisionai.PermanentDivisionManager.ShipSkillCoordinationMode;
 import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
 import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
 
@@ -400,6 +401,19 @@ final class DivisionConfigureSubscreen {
                     darkColor,
                     highlight);
         }
+
+        ShipSkillCoordinationMode effSkillCoord =
+                PermanentDivisionManager.resolveEffectiveShipSkillCoordination(spec, doctrineCfg);
+        addDivisionShipSkillCoordinationRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                effSkillCoord,
+                spec.customShipSkillCoordination != null,
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
 
         // 5. Opening Mission Drop-Down (0 - openingDurationSeconds)
         addDivisionMissionDropdownRow(
@@ -954,6 +968,33 @@ final class DivisionConfigureSubscreen {
                 "DIV_SETPIECE:INHERIT", isCustom, 56f, activeColor, null, null, 4f);
     }
 
+    private static void addDivisionShipSkillCoordinationRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            ShipSkillCoordinationMode effCoord,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        ShipSkillCoordinationMode[] opts = ShipSkillCoordinationMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = "DIV_SKILL_COORD:" + opts[i].name();
+            if (opts[i] == effCoord) sel = i;
+        }
+        String labelText = "Ship Skills: " + effCoord.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 110f, 20f, 114f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_SKILL_COORD:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
     private static void addDivisionVoidstrikeObservanceRow(
             final DivisionEditorDialog dialog,
             TooltipMakerAPI col,
@@ -1132,6 +1173,15 @@ final class DivisionConfigureSubscreen {
             DivisionSetpieceAttack sp =
                     "INHERIT".equals(arg) ? null : DivisionSetpieceAttack.valueOf(arg);
             PermanentDivisionManager.updateIndividualDivisionSetpieceAttack(activeDivisionId, sp);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_SKILL_COORD:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_SKILL_COORD:".length());
+            ShipSkillCoordinationMode mode =
+                    "INHERIT".equals(arg) ? null : ShipSkillCoordinationMode.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionShipSkillCoordination(activeDivisionId, mode);
             dialog.rebuildContent();
             return true;
         }

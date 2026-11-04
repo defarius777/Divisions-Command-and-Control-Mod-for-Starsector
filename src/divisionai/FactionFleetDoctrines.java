@@ -713,6 +713,11 @@ public final class FactionFleetDoctrines {
                 if (spAtk != null && !spAtk.isEmpty()) {
                     cfg.setSetpieceAttack(dt, DivisionSetpieceAttack.fromId(spAtk, cfg.getSetpieceAttack(dt)));
                 }
+                String skCoord = JsonReflectBridge.optString(dtJson, "shipSkillCoordination", null);
+                if (skCoord != null && !skCoord.isEmpty()) {
+                    cfg.setShipSkillCoordination(dt, PermanentDivisionManager.ShipSkillCoordinationMode.fromId(
+                            skCoord, cfg.getShipSkillCoordination(dt)));
+                }
                 String vsObs = JsonReflectBridge.optString(dtJson, "voidstrikeObservance", null);
                 if (vsObs != null && !vsObs.isEmpty()) {
                     cfg.setVoidstrikeObservance(dt, VoidstrikeTargetObservance.fromId(vsObs, cfg.getVoidstrikeObservance(dt)));

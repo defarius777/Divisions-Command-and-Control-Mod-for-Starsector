@@ -37,6 +37,7 @@ import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.SquadronFormation;
+import divisionai.PermanentDivisionManager.ShipSkillCoordinationMode;
 import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
 import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
 import org.lwjgl.input.Keyboard;
@@ -624,6 +625,18 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             highlight,
                             gray);
                 }
+
+                ShipSkillCoordinationMode currSkillCoord = doctrine.getShipSkillCoordination(dt);
+                addShipSkillCoordinationRow(
+                        body,
+                        bodyWidth - 16f,
+                        "Ship Skills: " + currSkillCoord.displayName,
+                        currSkillCoord,
+                        "SET_SKILL_COORD:" + dt.name() + ":",
+                        baseColor,
+                        darkColor,
+                        positive,
+                        gray);
 
                 // Row 5: Opening Mission Drop-Down Menu (30s - 60s)
                 addMissionDropdownRow(
@@ -2321,6 +2334,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             return;
         }
+        if (cmd.startsWith("SET_SKILL_COORD:")) {
+            String rest = cmd.substring("SET_SKILL_COORD:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                ShipSkillCoordinationMode mode = ShipSkillCoordinationMode.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeShipSkillCoordination(dt, mode);
+                rebuildContent();
+            }
+            return;
+        }
         if (cmd.startsWith("SET_OTC_PLAY:")) {
             String rest = cmd.substring("SET_OTC_PLAY:".length());
             int sep = rest.indexOf(':');
@@ -2693,6 +2717,33 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 labelText, current.shortName, baseColor, 6f, 5f, CONTROL_COL_X,
                 labels, acts, sel, 58f, 22f, 62f, baseColor, darkColor, activeValueColor,
                 null, true, 0f, activeValueColor, current.summary, gray, 5f);
+    }
+
+    private void addShipSkillCoordinationRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            ShipSkillCoordinationMode currentCoord,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        ShipSkillCoordinationMode[] opts = ShipSkillCoordinationMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentCoord) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 116f, 22f, 122f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentCoord != null ? currentCoord.summary : null, gray, 6f);
     }
 
     private void addPreferredSpaceRow(

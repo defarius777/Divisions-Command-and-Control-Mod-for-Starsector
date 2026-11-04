@@ -583,6 +583,21 @@ public class DivisionModel {
                 PermanentDivisionManager.VoidstrikeTargetObservance.MEDIUM;
         public PermanentDivisionManager.VoidstrikeCoordinationMode voidstrikeCoordination =
                 PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED;
+        public PermanentDivisionManager.ShipSkillCoordinationMode shipSkillCoordination =
+                PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED;
+
+        // Synchronized Ship Skill telemetry & active maneuver state
+        public int ramCapableMemberCount = 0;
+        public int linearThrustMemberCount = 0;
+        public int offensiveAmpMemberCount = 0;
+        public int blinkMemberCount = 0;
+        public float readySkillMemberRatio = 0f;
+        public boolean hasActiveLinearSkillBurn = false;
+        public boolean synchronizedSkillManeuverActive = false;
+        public int synchronizedSkillStage = 0; // 0 = Inactive, 1 = Marshaling/Aligning, 2 = Executing Synchronized Skill
+        public float synchronizedSkillStageStartTime = -999f;
+        public float lastSynchronizedSkillEndTime = -999f;
+        public String activeSkillManeuverLabel = "";
         public PermanentDivisionManager.SquadronFormation fighterFormation =
                 PermanentDivisionManager.SquadronFormation.WEDGE;
         public PermanentDivisionManager.SquadronFormation fighterVoidstrikeFormation =

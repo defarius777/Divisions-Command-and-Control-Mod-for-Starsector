@@ -546,6 +546,23 @@ public class OtcBattlePlanner {
         if (mission == DivisionMissionType.TOT_ALPHA_STRIKE) {
             return d.avgFluxLevel < 0.48f && (now - d.lastBreakOffTimestamp) >= 12f;
         }
+        if (d.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
+                && d.avgFluxLevel < 0.52f
+                && d.readySkillMemberRatio >= 0.50f
+                && (now - d.lastBreakOffTimestamp) >= 10f) {
+            int aliveCnt = Math.max(1, d.getAliveMembers().size());
+            if (d.ramCapableMemberCount * 2 >= aliveCnt) {
+                return true;
+            }
+            if (myGroup.authority == OtcAuthority.POSITIVE_CONTROL
+                    && (d.ramCapableMemberCount + d.linearThrustMemberCount) * 2 >= aliveCnt
+                    && mission != DivisionMissionType.SCOUTING
+                    && mission != DivisionMissionType.STANDOFF_ENGAGEMENT
+                    && mission != DivisionMissionType.SCREEN
+                    && mission != DivisionMissionType.RESERVE) {
+                return true;
+            }
+        }
         return d.hasMissileStrikeCapability
                 && d.usableStrikeAmmoCount > 0
                 && d.avgFluxLevel < 0.55f

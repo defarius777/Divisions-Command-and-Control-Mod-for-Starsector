@@ -3791,8 +3791,25 @@ public class BattlefieldFirepowerEvaluator {
 
     // =========================================================================
     // Voidstrike Instantiation, Multi-Division Merging & Lifecycle Tracking
-    // (Delegated to VoidstrikeCoordinator)
+    // (Delegated to VoidstrikeCoordinator & DivisionOtcCommandManager)
     // =========================================================================
+
+    public static void updateConvergenceCommandStates(CombatEngineAPI engine, BattleGroupState group) {
+        DivisionOtcCommandManager.updateConvergenceCommandStates(engine, group);
+    }
+
+    public static void updateVoidstrikes(
+            CombatEngineAPI engine,
+            BattleGroupState playerGroup,
+            BattleGroupState alliedGroup,
+            BattleGroupState enemyGroup,
+            float now) {
+        VoidstrikeCoordinator.updateVoidstrikes(engine, playerGroup, alliedGroup, enemyGroup, now);
+    }
+
+    public static List<VoidstrikeCoordinator.VoidstrikeRecord> getActiveVoidstrikes() {
+        return VoidstrikeCoordinator.getActiveVoidstrikes();
+    }
 
 
 

@@ -220,6 +220,7 @@ public class OtcAI {
         evaluateLocalForceRatioViaGrid(engine, div);
         BattlefieldFirepowerEvaluator.updateDivisionFirepowerTelemetry(engine, div);
         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(div);
+        ShipSystemCoordinator.updateDivisionSkillTelemetry(div);
         if (div.crossfireCordonIndex >= 0.32f && div.localEnemyStrength > 1f) {
             float cordonMult = 1.0f + (div.crossfireCordonIndex - 0.20f) * 0.55f;
             div.localEnemyStrength *= cordonMult;
@@ -249,7 +250,9 @@ public class OtcAI {
         int coreCount = alive.size();
 
         if (alive.size() >= 2) {
-            float neighborRadius = Math.max(820f, div.stationKeepingRadius * 1.45f);
+            boolean anyLinearBurn = div.hasActiveLinearSkillBurn || div.synchronizedSkillManeuverActive;
+            float burnSpreadMult = anyLinearBurn ? 2.25f : 1.0f;
+            float neighborRadius = Math.max(820f, div.stationKeepingRadius * 1.45f) * burnSpreadMult;
             float neighborRadiusSq = neighborRadius * neighborRadius;
 
             int anchorIdx = 0;
@@ -307,7 +310,7 @@ public class OtcAI {
             if (prelimW > 0f) {
                 prelimX /= prelimW;
                 prelimY /= prelimW;
-                float outlierCutoff = Math.max(1050f, div.stationKeepingRadius * 1.68f);
+                float outlierCutoff = Math.max(1050f, div.stationKeepingRadius * 1.68f) * burnSpreadMult;
                 float outlierCutoffSq = outlierCutoff * outlierCutoff;
                 for (int i = 0; i < alive.size(); i++) {
                     if (!inCore[i]) {

@@ -716,8 +716,10 @@ public class DivisionCommanderAI {
         // enemy division exists within strike range (< 4200u), because CLOSE_UP interrupts carrier Voidstrikes!
         boolean carrierHasStrikeTarget = (div.archetype != null && div.archetype.isCarrierArchetype())
                 && nearestEnemyDiv != null && distToVisibleEnemy <= 4200f;
-        boolean enterCloseUp = div.stationKeepingRatio > 1.48f && !carrierHasStrikeTarget;
-        boolean stayClosingUp = (prevIntent == DivisionIntentType.CLOSE_UP) && div.stationKeepingRatio > 1.08f && !carrierHasStrikeTarget;
+        boolean linearSkillBurnInFlight = div.hasActiveLinearSkillBurn || div.synchronizedSkillManeuverActive;
+        boolean enterCloseUp = div.stationKeepingRatio > 1.48f && !carrierHasStrikeTarget && !linearSkillBurnInFlight;
+        boolean stayClosingUp = (prevIntent == DivisionIntentType.CLOSE_UP) && div.stationKeepingRatio > 1.08f
+                && !carrierHasStrikeTarget && !linearSkillBurnInFlight;
         boolean outOfEnemyContact = div.localEnemyStrength < 8f && distToVisibleEnemy >= 2100f;
         if ((enterCloseUp || stayClosingUp) && div.coreMemberCount >= 2 && outOfEnemyContact) {
             if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
@@ -1214,6 +1216,15 @@ public class DivisionCommanderAI {
         if (activeMission == DivisionMissionType.CLOSE_ACTION && nearestEnemyDiv != null) {
             Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
             div.targetEnemyDivision = nearestEnemyDiv;
+            boolean isRamDivision = div.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
+                    && div.ramCapableMemberCount >= 1
+                    && div.ramCapableMemberCount * 2 >= Math.max(1, div.getAliveMembers().size())
+                    && (div.readySkillMemberRatio >= 0.50f || div.hasActiveLinearSkillBurn);
+            if (isRamDivision && div.avgFluxLevel < 0.62f && distToVisibleEnemy <= 2450f) {
+                div.stationPoint.set(visEnemyPos);
+                return commitIntent(engine, div, DivisionIntentType.PRESS_HOME,
+                        nearestEnemyDiv.displayName, missionPhaseTag + "Synchronized Ram Charge", now);
+            }
             boolean isLightOrDestroyer = div.archetype == DivisionArchetype.DESTROYER_DIVISION
                     || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
                     || div.archetype == DivisionArchetype.FRIGATE_DIVISION
@@ -2189,7 +2200,15 @@ public class DivisionCommanderAI {
                 boolean outmatchedEhp = div.localForceRatio < 0.95f
                         || div.effectiveHpRatio < 0.70f
                         || (enemy.totalEffectiveHp > div.totalEffectiveHp * 1.35f && div.totalEffectiveHp > 100f);
-                if (!isLightOrDd || !outmatchedEhp) {
+                boolean isRamDivision = div.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
+                        && div.ramCapableMemberCount >= 1
+                        && div.ramCapableMemberCount * 2 >= Math.max(1, div.getAliveMembers().size());
+                if (isRamDivision && (div.readySkillMemberRatio >= 0.50f || div.hasActiveLinearSkillBurn)
+                        && (div.currentIntent == DivisionIntentType.PRESS_HOME
+                        || div.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE
+                        || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE)) {
+                    desired = DivisionSetpieceAttack.LANCE_CHARGE;
+                } else if (!isLightOrDd || !outmatchedEhp) {
                     if (div.currentIntent == DivisionIntentType.PRESS_HOME
                             || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE) {
                         desired = DivisionSetpieceAttack.LANCE_CHARGE;
@@ -2235,18 +2254,23 @@ public class DivisionCommanderAI {
         float baseStandoff = Math.max(520f, div.standoffRange);
 
         float stageElapsed = Math.max(0f, now - div.setpieceStageStartTime);
+        boolean isRamDivisionForPass = div.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
+                && div.ramCapableMemberCount >= 1
+                && div.ramCapableMemberCount * 2 >= Math.max(1, div.getAliveMembers().size());
         if (div.setpieceStage == 1) {
             // Stage 1: Dress formation at Initial Point (IP)
-            float ipDist = baseStandoff * 1.05f;
+            float ipDist = isRamDivisionForPass ? Math.min(1380f, baseStandoff * 0.95f) : (baseStandoff * 1.05f);
             float latShift = (div.activeSetpieceAttack == DivisionSetpieceAttack.BROADSIDE_ROLL) ? -280f : 0f;
             div.setpieceIpPoint.set(
                     visEnemyPos.x + dirX * ipDist + perpX * latShift,
                     visEnemyPos.y + dirY * ipDist + perpY * latShift);
             div.stationPoint.set(div.setpieceIpPoint);
 
-            boolean dressed = div.stationKeepingRatio <= 0.72f
-                    && distance(div.centroid, div.setpieceIpPoint) <= 420f;
-            if (otcImmediateCommit || dressed || stageElapsed >= 3.8f || distToEnemy < baseStandoff * 0.85f) {
+            boolean dressed = div.stationKeepingRatio <= (isRamDivisionForPass ? 0.95f : 0.72f)
+                    && distance(div.centroid, div.setpieceIpPoint) <= 460f;
+            float maxDressTime = isRamDivisionForPass ? 1.8f : 3.8f;
+            float commitDist = isRamDivisionForPass ? 1480f : (baseStandoff * 0.85f);
+            if (otcImmediateCommit || dressed || stageElapsed >= maxDressTime || distToEnemy < commitDist) {
                 div.setpieceStage = 2;
                 div.setpieceStageStartTime = now;
                 stageElapsed = 0f;
@@ -2256,20 +2280,29 @@ public class DivisionCommanderAI {
         }
 
         // Stage 2: Execute Setpiece Pass in locked formation carriage
-        if (stageElapsed >= 9.5f) {
+        float maxPassDuration = isRamDivisionForPass ? 6.5f : 9.5f;
+        if (stageElapsed >= maxPassDuration) {
             div.lastSetpieceEndTime = now;
             div.setpieceStage = 0;
             div.activeSetpieceAttack = DivisionSetpieceAttack.NONE;
             return;
         }
 
-        float passProgress = Math.min(1f, stageElapsed / 9.5f);
+        float passProgress = Math.min(1f, stageElapsed / maxPassDuration);
         switch (div.activeSetpieceAttack) {
             case LANCE_CHARGE: {
-                float targetDist = Math.max(440f, baseStandoff * (0.88f - 0.24f * passProgress));
-                div.setpiecePassTarget.set(
-                        visEnemyPos.x + dirX * targetDist,
-                        visEnemyPos.y + dirY * targetDist);
+                if (isRamDivisionForPass) {
+                    // Ramming division Lance Charge: drive straight through the enemy formation center!
+                    float targetDist = Math.max(-160f, 240f - 400f * passProgress);
+                    div.setpiecePassTarget.set(
+                            visEnemyPos.x + dirX * targetDist,
+                            visEnemyPos.y + dirY * targetDist);
+                } else {
+                    float targetDist = Math.max(440f, baseStandoff * (0.88f - 0.24f * passProgress));
+                    div.setpiecePassTarget.set(
+                            visEnemyPos.x + dirX * targetDist,
+                            visEnemyPos.y + dirY * targetDist);
+                }
                 break;
             }
             case BROADSIDE_ROLL: {
@@ -2347,6 +2380,7 @@ public class DivisionCommanderAI {
         }
 
         VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(div, myGroup, focusEnemyShip, now);
+        ShipSystemCoordinator.updateDivisionSkillManeuverState(engine, div, myGroup, enemyGroup, focusEnemyShip, now);
 
         for (int shipIdx = 0; shipIdx < alive.size(); shipIdx++) {
             ShipAPI ship = alive.get(shipIdx);
@@ -3642,7 +3676,14 @@ public class DivisionCommanderAI {
             ShipAPI focusEnemyShip,
             DivisionState div) {
         if (focusEnemyShip == null || !focusEnemyShip.isAlive() || focusEnemyShip.isHulk()) return;
-        flags.setFlag(AIFlags.MANEUVER_TARGET, FLAG_TTL, focusEnemyShip);
+        float now = (com.fs.starfarer.api.Global.getCombatEngine() != null)
+                ? com.fs.starfarer.api.Global.getCombatEngine().getTotalElapsedTime(false)
+                : 0f;
+        if (!ShipSystemCoordinator.shouldSuppressManeuverTargetForLinearSkill(ship, div, null, now)) {
+            flags.setFlag(AIFlags.MANEUVER_TARGET, FLAG_TTL, focusEnemyShip);
+        } else {
+            flags.unsetFlag(AIFlags.MANEUVER_TARGET);
+        }
         if (ship.getNumFighterBays() > 0) {
             boolean holdingForCoord = div != null
                     && div.voidstrikeCoordination == VoidstrikeCoordinationMode.COORDINATED

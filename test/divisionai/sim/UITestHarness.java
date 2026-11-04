@@ -3946,10 +3946,54 @@ public class UITestHarness {
                 && cCruiser.consentedWingSide == wingCruiser0
                 && cScoutDd.fleetFormationSlotIndex == slotDd0
                 && cScoutDd.consentedWingSide == wingDd0;
+
+        // Verify ShipSkillCoordinationMode (default SYNCHRONIZED, doctrine & per-division override)
+        // and ShipSystemCoordinator generic ship skill classification + scouting discipline
+        PermanentDivisionManager.FleetDoctrineConfig skillDocCfg = new PermanentDivisionManager.FleetDoctrineConfig();
+        PermanentDivisionManager.PermanentDivisionSpec skillDivSpec =
+                new PermanentDivisionManager.PermanentDivisionSpec("skill_div", "1st DD Div", DivisionArchetype.DESTROYER_DIVISION);
+        boolean defaultSkillCoordSyncOk = skillDocCfg.getShipSkillCoordination(
+                        PermanentDivisionManager.DoctrineDivisionType.DESTROYER)
+                == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
+                && PermanentDivisionManager.resolveEffectiveShipSkillCoordination(skillDivSpec, skillDocCfg)
+                == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED;
+        skillDivSpec.customShipSkillCoordination = PermanentDivisionManager.ShipSkillCoordinationMode.INDEPENDENT;
+        boolean customSkillCoordIndepOk = PermanentDivisionManager.resolveEffectiveShipSkillCoordination(skillDivSpec, skillDocCfg)
+                == PermanentDivisionManager.ShipSkillCoordinationMode.INDEPENDENT;
+
+        ShipAPI ramDdMock = createMockShipWithSystem("ram_1", "JYD_rambunctious", "JYD_ramdrive");
+        ShipAPI burnCruiserMock = createMockShipWithSystem("burn_1", "dominator", "burndrive");
+        ShipAPI jetsCruiserMock = createMockShipWithSystem("jets_1", "eagle", "maneuveringjets");
+        ShipAPI blinkDdMock = createMockShipWithSystem("blink_1", "medusa", "displacer");
+        ShipAPI ampDdMock = createMockShipWithSystem("amp_1", "hammerhead", "ammofeed");
+        divisionai.ShipSystemCoordinator.ShipSkillProfile ramProf = divisionai.ShipSystemCoordinator.getSkillProfile(ramDdMock);
+        divisionai.ShipSystemCoordinator.ShipSkillProfile burnProf = divisionai.ShipSystemCoordinator.getSkillProfile(burnCruiserMock);
+        divisionai.ShipSystemCoordinator.ShipSkillProfile jetsProf = divisionai.ShipSystemCoordinator.getSkillProfile(jetsCruiserMock);
+        divisionai.ShipSystemCoordinator.ShipSkillProfile blinkProf = divisionai.ShipSystemCoordinator.getSkillProfile(blinkDdMock);
+        divisionai.ShipSystemCoordinator.ShipSkillProfile ampProf = divisionai.ShipSystemCoordinator.getSkillProfile(ampDdMock);
+        boolean shipSkillClassifierOk = ramProf.category == divisionai.ShipSystemCoordinator.ShipSkillCategory.LINEAR_RAM_DRIVE
+                && ramProf.isDesignedToRam
+                && burnProf.category == divisionai.ShipSystemCoordinator.ShipSkillCategory.LINEAR_THRUST_DRIVE
+                && !burnProf.isDesignedToRam
+                && jetsProf.category == divisionai.ShipSystemCoordinator.ShipSkillCategory.OMNI_AGILITY_JETS
+                && blinkProf.category == divisionai.ShipSystemCoordinator.ShipSkillCategory.BLINK_DISPLACER
+                && ampProf.category == divisionai.ShipSystemCoordinator.ShipSkillCategory.OFFENSIVE_AMP;
+
+        cScoutDd.shipSkillCoordination = PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED;
+        cScoutDd.openingMission = DivisionMissionType.SCOUTING;
+        boolean suppressScoutingRamOk = divisionai.ShipSystemCoordinator.shouldSuppressManeuverTargetForLinearSkill(
+                ramDdMock, cScoutDd, consentGroup, 5.0f);
+        cScoutDd.shipSkillCoordination = PermanentDivisionManager.ShipSkillCoordinationMode.INDEPENDENT;
+        boolean allowIndepScoutingRamOk = !divisionai.ShipSystemCoordinator.shouldSuppressManeuverTargetForLinearSkill(
+                ramDdMock, cScoutDd, consentGroup, 5.0f);
+        boolean shipSkillDoctrineAndClassifierOk = defaultSkillCoordSyncOk && customSkillCoordIndepOk
+                && shipSkillClassifierOk && suppressScoutingRamOk && allowIndepScoutingRamOk;
+
         taskFStrikeCraftSpaceOk = taskFStrikeCraftSpaceOk && factionLibRatingsOk && merchantNomenclatureOk
                 && bugAUrgentCommsSuppressedOk && bugBOtcWrappingOk && bugCStickyVisibilityOk
                 && featAWheelIconOk && featBBattleScreenTsfcOk && featCNoFormationTextUnderDivNameOk
-                && otcOverkillOk && mapEdgePursuitNotRepelledOk && grandFormationConsentOk;
+                && otcOverkillOk && mapEdgePursuitNotRepelledOk && grandFormationConsentOk
+                && shipSkillDoctrineAndClassifierOk;
 
         formationIconsCleanOk = formationIconsCleanOk && flagshipDivRankOk
                 && twoFrigateDivsBelowThresholdOk && fourFrigateDivsCrossThresholdOk
@@ -3982,5 +4026,65 @@ public class UITestHarness {
                         musicProfilesOk, musicFadeOutAndCessationOk, taskADeploymentAndNamingOk, taskBReDesignateRenameOk, taskFStrikeCraftSpaceOk,
                         carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk,
                         convergenceIconAndTsfcOptOk, tsfcGraphicsSettingOk));
+    }
+
+    private static ShipAPI createMockShipWithSystem(final String shipId, final String hullId, final String systemId) {
+        final com.fs.starfarer.api.combat.ShipHullSpecAPI hullSpec =
+                (com.fs.starfarer.api.combat.ShipHullSpecAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipHullSpecAPI.class},
+                        (proxy, method, args) -> {
+                            String m = method.getName();
+                            if ("getHullId".equals(m) || "getBaseHullId".equals(m)) return hullId;
+                            if ("getHullName".equals(m) || "getDesignation".equals(m)) return hullId;
+                            if ("getHints".equals(m)) return java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class);
+                            if ("getBuiltInMods".equals(m)) return java.util.Collections.emptyList();
+                            if (method.getReturnType() == boolean.class) return false;
+                            if (method.getReturnType() == float.class) return 0f;
+                            if (method.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        final com.fs.starfarer.api.combat.ShipSystemSpecAPI sysSpec =
+                (com.fs.starfarer.api.combat.ShipSystemSpecAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipSystemSpecAPI.class},
+                        (proxy, method, args) -> {
+                            String m = method.getName();
+                            if ("getId".equals(m)) return systemId;
+                            if ("getName".equals(m)) return systemId;
+                            if (method.getReturnType() == boolean.class) return false;
+                            if (method.getReturnType() == float.class) return 0f;
+                            if (method.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        final com.fs.starfarer.api.combat.ShipSystemAPI sys =
+                (com.fs.starfarer.api.combat.ShipSystemAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipSystemAPI.class},
+                        (proxy, method, args) -> {
+                            String m = method.getName();
+                            if ("getId".equals(m)) return systemId;
+                            if ("getSpecAPI".equals(m)) return sysSpec;
+                            if ("getDisplayName".equals(m)) return systemId;
+                            if (method.getReturnType() == boolean.class) return false;
+                            if (method.getReturnType() == float.class) return 1.0f;
+                            if (method.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        return (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return shipId;
+                    if ("getHullSpec".equals(m)) return hullSpec;
+                    if ("getSystem".equals(m)) return sys;
+                    if ("isAlive".equals(m)) return true;
+                    if ("getMaxSpeedWithoutBoost".equals(m)) return 90f;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == float.class) return 100f;
+                    if (method.getReturnType() == int.class) return 0;
+                    return null;
+                });
     }
 }

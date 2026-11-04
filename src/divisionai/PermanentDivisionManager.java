@@ -563,6 +563,38 @@ public class PermanentDivisionManager {
     }
 
     /**
+     * Doctrinal and per-division option controlling whether division members synchronize their movement
+     * and combat ship systems under Division Commander / OTC Positive Control (preventing premature solo
+     * scouting bursts, marshaling freely out of fire and cautiously under fire, and firing linear/offensive
+     * skills in unison) or trigger ship systems independently.
+     */
+    public enum ShipSkillCoordinationMode {
+        SYNCHRONIZED(
+                "Synchronized",
+                "Hold premature solo bursts; marshal and trigger ship skills in unison under division/OTC control."),
+        INDEPENDENT(
+                "Independent",
+                "Ships trigger their own movement and combat systems individually at their own AI discretion.");
+
+        public final String displayName;
+        public final String summary;
+
+        ShipSkillCoordinationMode(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+
+        public static ShipSkillCoordinationMode fromId(String id, ShipSkillCoordinationMode fallback) {
+            if (id == null) return fallback;
+            try {
+                return ShipSkillCoordinationMode.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
      * Items E, D2, F, G: Preferred Fighter & Bomber Squadron Formations (general patrol vs. in Voidstrike).
      */
     public enum SquadronFormation {
@@ -1362,6 +1394,7 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, Integer> voidstrikeSquadronDepthByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, Integer> voidstrikeSquadronWidthByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionSetpieceAttack> setpieceAttackByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, ShipSkillCoordinationMode> shipSkillCoordinationByType = new LinkedHashMap<>();
         private final Set<OtcPlay> enabledPlays = EnumSet.of(
                 OtcPlay.LINE_AND_FIRE_DISTRIBUTION,
                 OtcPlay.DOUBLING,
@@ -1400,6 +1433,7 @@ public class PermanentDivisionManager {
                 voidstrikeSquadronDepthByType.put(dt, defaultVoidstrikeSquadronDepthFor(dt));
                 voidstrikeSquadronWidthByType.put(dt, defaultVoidstrikeSquadronWidthFor(dt));
                 setpieceAttackByType.put(dt, defaultSetpieceAttackFor(dt));
+                shipSkillCoordinationByType.put(dt, defaultShipSkillCoordinationFor(dt));
             }
             for (AutoAssignCapability cap : AutoAssignCapability.values()) {
                 for (AutoAssignHull hull : AutoAssignHull.values()) {
@@ -1601,6 +1635,10 @@ public class PermanentDivisionManager {
             return VoidstrikeCoordinationMode.COORDINATED;
         }
 
+        public static ShipSkillCoordinationMode defaultShipSkillCoordinationFor(DoctrineDivisionType dt) {
+            return ShipSkillCoordinationMode.SYNCHRONIZED;
+        }
+
         public static SquadronFormation defaultFighterFormationFor(DoctrineDivisionType dt) {
             if (dt == DoctrineDivisionType.ESCORT_CARRIER || dt == DoctrineDivisionType.CARRIER_GROUP) {
                 return SquadronFormation.SEMICIRCLE;
@@ -1661,6 +1699,17 @@ public class PermanentDivisionManager {
         public void setVoidstrikeCoordination(DoctrineDivisionType dt, VoidstrikeCoordinationMode mode) {
             if (dt == null || mode == null) return;
             voidstrikeCoordinationByType.put(dt, mode);
+        }
+
+        public ShipSkillCoordinationMode getShipSkillCoordination(DoctrineDivisionType dt) {
+            if (dt == null) return ShipSkillCoordinationMode.SYNCHRONIZED;
+            ShipSkillCoordinationMode v = shipSkillCoordinationByType.get(dt);
+            return v != null ? v : defaultShipSkillCoordinationFor(dt);
+        }
+
+        public void setShipSkillCoordination(DoctrineDivisionType dt, ShipSkillCoordinationMode mode) {
+            if (dt == null || mode == null) return;
+            shipSkillCoordinationByType.put(dt, mode);
         }
 
         public SquadronFormation getFighterFormation(DoctrineDivisionType dt) {
@@ -2009,6 +2058,11 @@ public class PermanentDivisionManager {
                     cfg.setSetpieceAttack(dt, DivisionSetpieceAttack.fromId(
                             (String) spAtkObj, FleetDoctrineConfig.defaultSetpieceAttackFor(dt)));
                 }
+                Object skCoordObj = map.get("skill_coord_" + dt.name());
+                if (skCoordObj instanceof String) {
+                    cfg.setShipSkillCoordination(dt, ShipSkillCoordinationMode.fromId(
+                            (String) skCoordObj, FleetDoctrineConfig.defaultShipSkillCoordinationFor(dt)));
+                }
             }
         }
         return cfg;
@@ -2070,6 +2124,7 @@ public class PermanentDivisionManager {
             serialized.put("vs_depth_" + dt.name(), cfg.getVoidstrikeSquadronDepth(dt));
             serialized.put("vs_width_" + dt.name(), cfg.getVoidstrikeSquadronWidth(dt));
             serialized.put("setpiece_atk_" + dt.name(), cfg.getSetpieceAttack(dt).name());
+            serialized.put("skill_coord_" + dt.name(), cfg.getShipSkillCoordination(dt).name());
         }
         return serialized;
     }
@@ -2194,6 +2249,15 @@ public class PermanentDivisionManager {
         if (dt == null || coordination == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setVoidstrikeCoordination(dt, coordination);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeShipSkillCoordination(
+            DoctrineDivisionType dt,
+            ShipSkillCoordinationMode coordination) {
+        if (dt == null || coordination == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setShipSkillCoordination(dt, coordination);
         saveFleetDoctrine(cfg);
     }
 
@@ -2385,6 +2449,7 @@ public class PermanentDivisionManager {
         public Integer customVoidstrikeSquadronDepth = null;
         public Integer customVoidstrikeSquadronWidth = null;
         public DivisionSetpieceAttack customSetpieceAttack = null;
+        public ShipSkillCoordinationMode customShipSkillCoordination = null;
 
         /**
          * Members temporarily absent from the player fleet (disabled awaiting recovery, mid
@@ -2548,6 +2613,16 @@ public class PermanentDivisionManager {
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
         return cfg != null ? cfg.getSetpieceAttack(dt) : FleetDoctrineConfig.defaultSetpieceAttackFor(dt);
+    }
+
+    public static ShipSkillCoordinationMode resolveEffectiveShipSkillCoordination(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customShipSkillCoordination != null) {
+            return spec.customShipSkillCoordination;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getShipSkillCoordination(dt) : FleetDoctrineConfig.defaultShipSkillCoordinationFor(dt);
     }
 
     public static DivisionMovementStickiness resolveEffectiveMovementStickiness(
@@ -2907,6 +2982,17 @@ public class PermanentDivisionManager {
             @Override
             public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customVoidstrikeCoordination = coordination;
+            }
+        });
+    }
+
+    public static void updateIndividualDivisionShipSkillCoordination(
+            String divisionId,
+            final ShipSkillCoordinationMode coordination) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                spec.customShipSkillCoordination = coordination;
             }
         });
     }
@@ -3936,6 +4022,9 @@ public class PermanentDivisionManager {
         div.doctrinalSetpieceAttack = (optionalSpec != null)
                 ? resolveEffectiveSetpieceAttack(optionalSpec, cfg)
                 : cfg.getSetpieceAttack(dt);
+        div.shipSkillCoordination = (optionalSpec != null)
+                ? resolveEffectiveShipSkillCoordination(optionalSpec, cfg)
+                : cfg.getShipSkillCoordination(dt);
 
         if (div.openingMission == DivisionMissionType.RESERVE
                 || div.mainMission == DivisionMissionType.RESERVE) {
@@ -4707,6 +4796,10 @@ public class PermanentDivisionManager {
         if (cSetpiece instanceof String) {
             spec.customSetpieceAttack = DivisionSetpieceAttack.fromId((String) cSetpiece, null);
         }
+        Object cSkillCoord = map.get("customShipSkillCoordination");
+        if (cSkillCoord instanceof String) {
+            spec.customShipSkillCoordination = ShipSkillCoordinationMode.fromId((String) cSkillCoord, null);
+        }
 
         Object dormantObj = map.get("dormantMembers");
         if (dormantObj instanceof List) {
@@ -4800,6 +4893,7 @@ public class PermanentDivisionManager {
         if (spec.customVoidstrikeSquadronDepth != null) map.put("customVoidstrikeSquadronDepth", spec.customVoidstrikeSquadronDepth);
         if (spec.customVoidstrikeSquadronWidth != null) map.put("customVoidstrikeSquadronWidth", spec.customVoidstrikeSquadronWidth);
         if (spec.customSetpieceAttack != null) map.put("customSetpieceAttack", spec.customSetpieceAttack.name());
+        if (spec.customShipSkillCoordination != null) map.put("customShipSkillCoordination", spec.customShipSkillCoordination.name());
         return map;
     }
 }

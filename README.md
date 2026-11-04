@@ -1,4 +1,4 @@
-# Divisions: Command and Control (`division_ai` v1.0.4d)
+# Divisions: Command and Control (`division_ai` v1.0.5)
 
 [![Install with TriOS](https://trilink.wispborne.com/badges/install-badge-forthebadge.svg)](https://trilink.wispborne.com/open.html?mod=%7B%22url%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fdefarius777%2FDivisions-Command-and-Control-Mod-for-Starsector%2Fmain%2Fmod%2Fdivision_ai.version%22%2C%22id%22%3A%22division_ai%22%7D&dep=%7B%22url%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2FLazyWizard%2Flazylib%2Fmaster%2Fmod%2Flazylib.version%22%2C%22id%22%3A%22lw_lazylib%22%7D)
 
@@ -207,6 +207,7 @@ bash test.sh
 | `src/divisionai/DivisionCommanderAI.java` | Division Commander tactical AI: 13-step `selectDivisionIntent` priority ladder, formation slot geometry (`computeShipFormationSlot`), out-of-contact wide-arc routing (`computeOutOfContactRoutePoint`), and modular per-intent `ShipwideAIFlags` execution (`applyIntentFlagsToShip` + 10 intent helpers). |
 | `src/divisionai/BattlefieldFirepowerEvaluator.java` | Evaluates 24-sector Polar Firepower Roses (`updateSingleShipRose`), L/U-cordon crossfire indices, Directional Time Envelopes (`computeDirectionalTimeEnvelope`), 3-tier Directional Space Zones of Control (`computeDirectionalSpaceEnvelope`), and Alpha Core Convergence scores. |
 | `src/divisionai/VoidstrikeCoordinator.java` | 3-stage carrier Voidstrike staging (Orbit Carrier -> Marshal Point -> Attack Run), squadron formations, multi-division Voidstrike clustering, and live `"Voidstrike #"` tracking. |
+| `src/divisionai/ShipSystemCoordinator.java` | Generic 7-archetype `ShipSystemSpecAPI` classifier (`LINEAR_RAM_DRIVE`, `LINEAR_THRUST_DRIVE`, `OMNI_AGILITY_JETS`, `BLINK_DISPLACER`, `OFFENSIVE_AMP`, `DEFENSIVE_BULWARK`, `TACTICAL_DEPLOYABLE`), opening scouting linear-burst discipline, Stage 1 (free vs. cautious) marshaling, Stage 2 synchronized division/OTC ignition, and standoff/post-impact toggle cutoffs. |
 | `src/divisionai/DivisionOtcCommandManager.java` | OTC commander/flagship resolution, flagship-loss command disruption (`120s` OTC / `30s` subordinate blackout), Alpha Core assumption-of-command comms modal, and mid-battle OTC reassignment. |
 | `src/divisionai/DivisionAutoFormer.java` | Auto-forms NPC/Allied combat divisions at battle start, syncs Player Permanent Divisions (`syncPlayerPermanentDivisionsOnly`), and absorbs reinforcement waves. |
 | `src/divisionai/DivisionCombatLog.java` | Logs C2 events to `starsector.log` and filters HUD chatter by `ChatterVerbosity`. |

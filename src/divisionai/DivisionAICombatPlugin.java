@@ -504,6 +504,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
         }
 
+        // Enforce 60 Hz frame-accurate ship system coordination, standoff braking cutoffs, and scouting discipline
+        ShipSystemCoordinator.advanceEveryFrame(engine, playerGroup, alliedAiGroup, enemyGroup, now);
+
         // Advance dynamic engagement-driven battle music every frame
         if (musicController != null) {
             BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
