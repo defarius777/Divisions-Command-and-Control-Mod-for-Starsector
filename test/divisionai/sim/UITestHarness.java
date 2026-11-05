@@ -559,6 +559,48 @@ public class UITestHarness {
                 "v0.6.8 Fleet Screen Button Icons: icon_gold-star next to 'Fleet Doctrine' and icon_gold-wing next to 'Fleet Organization'",
                 "starImg->Fleet Doctrine and wingImg->Fleet Organization layout verified");
 
+        // Multi-mod Fleet Tab sidebar non-overlap verification (RAT Artifact slot + SiC: Auxiliaries 4-row Fleet composition data
+        // + vanilla Disengage label + FleetBuilder CTRL-F search & SF Sort/Settings, both initial & Frame-2 late shift)
+        float panelTopY = 980f;
+        final float[] injY = new float[]{482f}; // Old overlapping Y (right over Fleet composition data & disengage text!)
+        final float injH = 68f;
+        final float[] inTlRef = new float[]{430f};
+        com.fs.starfarer.api.ui.PositionAPI panelPos = createMockSidebarPos(20f, 0f, 340f, panelTopY, null, 0f);
+        com.fs.starfarer.api.ui.UIPanelAPI mockLeftPanel = (com.fs.starfarer.api.ui.UIPanelAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.UIPanelAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.UIPanelAPI.class},
+                (p, m, a) -> "getPosition".equals(m.getName()) ? panelPos : null);
+        com.fs.starfarer.api.ui.ButtonAPI mockAutoBtn = createMockSidebarButton(20f, 720f, 320f, 30f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockRatArtifact = createMockSidebarComp(20f, 630f, 300f, 60f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockSicTable = createMockSidebarComp(20f, 480f, 320f, 130f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockDisengageLbl = createMockSidebarComp(20f, 435f, 310f, 35f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockFbSearch = createMockSidebarComp(20f, 398f, 320f, 26f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockFbSort = createMockSidebarComp(20f, 356f, 150f, 30f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockInjected = (com.fs.starfarer.api.ui.UIComponentAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.UIComponentAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.UIComponentAPI.class},
+                new java.lang.reflect.InvocationHandler() {
+                    final com.fs.starfarer.api.ui.PositionAPI pos = createMockSidebarPos(20f, injY[0], 320f, injH, inTlY -> {
+                        injY[0] = panelTopY - inTlY - injH;
+                    }, injH);
+                    @Override
+                    public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
+                        if ("getPosition".equals(method.getName())) return pos;
+                        return null;
+                    }
+                });
+        List<com.fs.starfarer.api.ui.UIComponentAPI> mockSidebarChildren = java.util.Arrays.asList(
+                mockAutoBtn, mockRatArtifact, mockSicTable, mockDisengageLbl, mockFbSearch, mockFbSort, mockInjected);
+        boolean healedLateShift = divisionai.DivisionFleetTabInjector.alignPanelBelowSidebarSiblings(
+                mockLeftPanel, mockAutoBtn, mockInjected, mockSidebarChildren, null, inTlRef, false);
+        float healedTopY = injY[0] + injH;
+        boolean noModOverlap = healedLateShift && healedTopY <= 346.5f && injY[0] >= 270f;
+        res.record(
+                noModOverlap,
+                "v1.0.5b Fleet Tab Sidebar Dynamic Layout: zero overlap with RAT Artifacts, SiC: Auxiliaries table, Disengage text & FleetBuilder search/sort",
+                String.format(Locale.ROOT, "healed=%s, injectedSpan=[%.0f..%.0f] cleanly below SF Sort bottom=356",
+                        healedLateShift, injY[0], healedTopY));
+
         String overlayJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()), StandardCharsets.UTF_8);
         boolean tabStarsOk = overlayJava.contains("renderFlagshipStarsOnTopLayer")
                 && overlayJava.contains("resolveFleetFlagships")
@@ -571,6 +613,45 @@ public class UITestHarness {
                 tabStarsOk,
                 "v0.6.8 Tab Command Screen Flagship Stars: silver star on Division flagships & gold star on Fleet flagship(s) upper-right corner",
                 "renderFlagshipStarsOnTopLayer + gold-over-silver precedence verified");
+    }
+
+    private static com.fs.starfarer.api.ui.PositionAPI createMockSidebarPos(
+            float x, float initialY, float w, float h,
+            java.util.function.Consumer<Float> onInTlY, float compH) {
+        final float[] curY = new float[]{initialY};
+        return (com.fs.starfarer.api.ui.PositionAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.PositionAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.PositionAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getX".equals(n)) return x;
+                    if ("getY".equals(n)) return curY[0];
+                    if ("getWidth".equals(n)) return w;
+                    if ("getHeight".equals(n)) return h;
+                    if ("inTL".equals(n) && a != null && a.length >= 2) {
+                        float inTlY = ((Number) a[1]).floatValue();
+                        curY[0] = 980f - inTlY - compH;
+                        if (onInTlY != null) onInTlY.accept(inTlY);
+                        return p;
+                    }
+                    return p;
+                });
+    }
+
+    private static com.fs.starfarer.api.ui.UIComponentAPI createMockSidebarComp(float x, float y, float w, float h) {
+        final com.fs.starfarer.api.ui.PositionAPI pos = createMockSidebarPos(x, y, w, h, null, h);
+        return (com.fs.starfarer.api.ui.UIComponentAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.UIComponentAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.UIComponentAPI.class},
+                (p, m, a) -> "getPosition".equals(m.getName()) ? pos : null);
+    }
+
+    private static com.fs.starfarer.api.ui.ButtonAPI createMockSidebarButton(float x, float y, float w, float h) {
+        final com.fs.starfarer.api.ui.PositionAPI pos = createMockSidebarPos(x, y, w, h, null, h);
+        return (com.fs.starfarer.api.ui.ButtonAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.ButtonAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.ButtonAPI.class},
+                (p, m, a) -> "getPosition".equals(m.getName()) ? pos : null);
     }
 
     private static void auditV069StarsAutoAssignSchemesPolygonsAndRename(UIAuditResult res) throws Exception {
