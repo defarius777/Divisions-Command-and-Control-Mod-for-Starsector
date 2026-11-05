@@ -3813,18 +3813,59 @@ public class DivisionCommanderAI {
             Class<?> dfmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager$O0", false, cl);
             Class<?> basicAiCls = Class.forName("com.fs.starfarer.combat.ai.BasicShipAI", false, cl);
             Class<?> wrapperCls = Class.forName("com.fs.starfarer.combat.entities.Ship$ShipAIWrapper", false, cl);
+            Class<?> wrMapCls = Class.forName("com.fs.starfarer.combat.new.b", false, cl);
+            Class<?> arrowMgrCls = Class.forName("com.fs.starfarer.combat.new.O0OO", false, cl);
+            Class<?> arrowEntryCls = Class.forName("com.fs.starfarer.combat.new.O0OO$o", false, cl);
+            Class<?> faderCls = Class.forName("com.fs.graphics.util.Fader", false, cl);
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             lookup.findVirtual(fmCls, "getDeployedFleetMember", MethodType.methodType(dfmCls, shipCls));
             lookup.findVirtual(tmCls, "hasDirectOrders", MethodType.methodType(boolean.class, dfmCls));
             lookup.findVirtual(tmCls, "clearAssignedOrders", MethodType.methodType(void.class, dfmCls));
             lookup.findVirtual(wrapperCls, "getAI", MethodType.methodType(ShipAIPlugin.class));
             lookup.findVirtual(basicAiCls, "setTargetOverride", MethodType.methodType(void.class, shipCls));
+            MethodHandles.privateLookupIn(wrMapCls, lookup).findGetter(wrMapCls, "\u00d3o0000", arrowMgrCls);
+            MethodHandles.privateLookupIn(arrowMgrCls, lookup).findGetter(arrowMgrCls, "\u00d600000", List.class);
+            MethodHandles.privateLookupIn(arrowEntryCls, lookup).findGetter(arrowEntryCls, "\u00d600000", faderCls);
+            lookup.findVirtual(faderCls, "isFadedOut", MethodType.methodType(boolean.class));
             return true;
         } catch (ClassNotFoundException ignored) {
             return false;
         } catch (Throwable t) {
             LOG.warn("[DivisionAI] Combat obfuscated MethodHandle verification failed: " + t);
             return false;
+        }
+    }
+
+    /**
+     * Runs every frame inside {@code DivisionAICombatPlugin.advance} (immediately after
+     * {@code CombatTaskManager.advance} runs {@code fillTasks()} and BEFORE {@code CombatState.traverse}
+     * advances the Warroom order-arrow manager {@code com.fs.starfarer.combat.new.O0OO}).
+     *
+     * <p>Why this must run every frame rather than only on 0.50s C2 ticks:
+     * Vanilla's {@code CombatTaskManager.advance} runs {@code fillTasks()} every 0.5–1.0s and auto-assigns
+     * pooled tasks (such as a Warroom {@code CAPTURE} order on a Comm Relay) to ships across the fleet.
+     * If {@code clearAssignedOrders} only runs on 0.50s C2 ticks, {@code O0OO.super(float)} sees all ~25 fleet
+     * ships gain a task order on the {@code fillTasks()} frame and then lose it on the C2 tick frame, pushing
+     * 25–50 fading-out {@code O0OO$o} arrow instances per second into {@code O0OO.\u00d600000} (a LinkedList
+     * from which vanilla Starsector NEVER removes faded-out arrows, causing 50,000–100,000+ invisible OpenGL
+     * quad draw calls per Warroom frame). Clearing pooled auto-assignments on the exact same frame inside
+     * {@code engine.advance} prevents {@code O0OO} from ever observing the transient auto-assignment.
+     */
+    public static void scrubPooledAutoAssignmentsEveryFrame(CombatEngineAPI engine, BattleGroupState myGroup) {
+        if (engine == null || myGroup == null || myGroup.divisions.isEmpty()) return;
+        CombatFleetManagerAPI fm = engine.getFleetManager(myGroup.side);
+        if (fm == null) return;
+        for (int dIdx = 0, dSize = myGroup.divisions.size(); dIdx < dSize; dIdx++) {
+            DivisionState div = myGroup.divisions.get(dIdx);
+            if (div == null || div.members.isEmpty()) continue;
+            for (int mIdx = 0, mSize = div.members.size(); mIdx < mSize; mIdx++) {
+                ShipAPI ship = div.members.get(mIdx);
+                if (ship == null || !ship.isAlive() || ship.isHulk()) continue;
+                if (OtcAI.isPlayerManuallyPiloting(engine, ship)) continue;
+                CombatTaskManagerAPI tm = fm.getTaskManager(ship.isAlly());
+                if (tm == null) continue;
+                hasExplicitCommandOrder(ship, div, myGroup, tm);
+            }
         }
     }
 

@@ -360,6 +360,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private MethodHandle iconRenderSpriteHandle = null;
     private MethodHandle iconRenderBarsHandle = null;
     private MethodHandle iconGetRadiusHandle = null;
+    private List<?> warroomFadingArrowsList = null;
+    private MethodHandle arrowEntryFaderGetter = null;
+    private MethodHandle faderIsFadedOutHandle = null;
 
     public DivisionTacticalMapOverlay(CombatEngineAPI engine) {
         this.engine = engine;
@@ -443,6 +446,27 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             } catch (Throwable ignored) {
                 this.iconGetRadiusHandle = null;
             }
+            try {
+                Class<?> arrowMgrClass = Class.forName("com.fs.starfarer.combat.new.O0OO", false, cl);
+                Class<?> arrowEntryClass = Class.forName("com.fs.starfarer.combat.new.O0OO$o", false, cl);
+                Class<?> faderClass = Class.forName("com.fs.graphics.util.Fader", false, cl);
+                MethodHandles.Lookup mdLookup = MethodHandles.privateLookupIn(mdClass, lookup);
+                MethodHandles.Lookup arrowMgrLookup = MethodHandles.privateLookupIn(arrowMgrClass, lookup);
+                MethodHandles.Lookup arrowEntryLookup = MethodHandles.privateLookupIn(arrowEntryClass, lookup);
+                MethodHandle getArrowMgrHandle = mdLookup.findGetter(mdClass, "\u00d3o0000", arrowMgrClass);
+                Object arrowMgr = getArrowMgrHandle.invoke(md);
+                if (arrowMgr != null) {
+                    MethodHandle getFadingListHandle = arrowMgrLookup.findGetter(arrowMgrClass, "\u00d600000", List.class);
+                    Object listObj = getFadingListHandle.invoke(arrowMgr);
+                    if (listObj instanceof List) {
+                        this.warroomFadingArrowsList = (List<?>) listObj;
+                        this.arrowEntryFaderGetter = arrowEntryLookup.findGetter(arrowEntryClass, "\u00d600000", faderClass);
+                        this.faderIsFadedOutHandle = lookup.findVirtual(faderClass, "isFadedOut", MethodType.methodType(boolean.class));
+                    }
+                }
+            } catch (Throwable ignored) {
+                this.warroomFadingArrowsList = null;
+            }
 
             UIPanelAPI warroomPanel = (UIPanelAPI) wr;
             CustomPanelAPI custom = Global.getSettings().createCustom(0f, 0f, this);
@@ -473,8 +497,40 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         TsfcWarroomRenderer.processInputEvents(engine, events);
     }
 
+    /**
+     * Prunes faded-out order arrows from vanilla Starsector's {@code com.fs.starfarer.combat.new.O0OO.\u00d600000}
+     * LinkedList. Vanilla Starsector appends old {@code O0OO$o} arrows to {@code \u00d600000} whenever a ship's
+     * order changes, advances their faders, and renders 18 OpenGL quads per entry every Warroom frame, but NEVER
+     * removes entries after {@code Fader.isFadedOut()} becomes true.
+     */
+    public void pruneLeakedWarroomOrderArrows() {
+        List<?> list = this.warroomFadingArrowsList;
+        if (list == null || list.isEmpty()) return;
+        try {
+            if (arrowEntryFaderGetter != null && faderIsFadedOutHandle != null) {
+                java.util.Iterator<?> it = list.iterator();
+                while (it.hasNext()) {
+                    Object entry = it.next();
+                    if (entry == null) {
+                        it.remove();
+                        continue;
+                    }
+                    Object fader = arrowEntryFaderGetter.invoke(entry);
+                    if (fader != null && (boolean) faderIsFadedOutHandle.invoke(fader)) {
+                        it.remove();
+                    }
+                }
+            }
+            while (list.size() > 48) {
+                list.remove(0);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     public void render(float alphaMult) {
+        pruneLeakedWarroomOrderArrows();
         if (!attachedToWarroom || engine == null) return;
         if (!BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) return;
         if (!DivisionAISettings.isTacticalMapOverlayEnabled()) return;

@@ -1868,21 +1868,27 @@ public class DivisionOtcCommandManager {
                     ShipAPI s = ships.get(i);
                     if (s == null || s.getOwner() != 0 || s.isAlly() || s.isFighter()) continue;
                     nonFighterOwner0Count++;
-                    if (isAlphaCoreControlledShip(s)) {
-                        lastAlphaCoreCheckEngine = engine;
-                        lastAlphaCoreCheckTime = engine.getTotalElapsedTime(false);
-                        lastAlphaCoreCheckShipsSize = nonFighterOwner0Count;
-                        cachedHasAlphaCoreInPlayerFleet = true;
-                        return true;
-                    }
                 }
             }
             float now = engine.getTotalElapsedTime(false);
             if (engine == lastAlphaCoreCheckEngine
                     && nonFighterOwner0Count == lastAlphaCoreCheckShipsSize
                     && lastAlphaCoreCheckTime >= 0f
-                    && Math.abs(now - lastAlphaCoreCheckTime) < 1.0f) {
+                    && (engine.isPaused() || Math.abs(now - lastAlphaCoreCheckTime) < 2.0f)) {
                 return cachedHasAlphaCoreInPlayerFleet;
+            }
+            if (ships != null) {
+                for (int i = 0, n = ships.size(); i < n; i++) {
+                    ShipAPI s = ships.get(i);
+                    if (s == null || s.getOwner() != 0 || s.isAlly() || s.isFighter()) continue;
+                    if (isAlphaCoreControlledShip(s)) {
+                        lastAlphaCoreCheckEngine = engine;
+                        lastAlphaCoreCheckTime = now;
+                        lastAlphaCoreCheckShipsSize = nonFighterOwner0Count;
+                        cachedHasAlphaCoreInPlayerFleet = true;
+                        return true;
+                    }
+                }
             }
             lastAlphaCoreCheckEngine = engine;
             lastAlphaCoreCheckTime = now;

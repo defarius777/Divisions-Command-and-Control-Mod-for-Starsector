@@ -3160,6 +3160,12 @@ public class PermanentDivisionManager {
         CampaignFleetAPI playerFleet = sector.getPlayerFleet();
         Map<String, Object> pdata = sector.getPersistentData();
         Object raw = pdata != null ? pdata.get(PERSISTENT_DIVISIONS_KEY) : null;
+        if (raw != null && raw == cachedSpecsRawRef && cachedSpecsList != null
+                && BattlefieldFirepowerEvaluator.isRealCombatEngine(Global.getCombatEngine())) {
+            // During active combat, campaign fleet membership does not change frame-to-frame; avoid allocating
+            // fleet.getFleetData().getMembersListCopy() on every UI frame while the Deployment Dialog is open.
+            return new ArrayList<>(cachedSpecsList);
+        }
         int fleetSig = computePlayerFleetSignature(playerFleet);
         if (raw != null && raw == cachedSpecsRawRef && fleetSig == cachedSpecsFleetSig && cachedSpecsList != null) {
             return new ArrayList<>(cachedSpecsList);
