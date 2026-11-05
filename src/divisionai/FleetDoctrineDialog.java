@@ -123,6 +123,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
     private final Map<DivisionArchetype, TextFieldAPI> prefixTextFields = new LinkedHashMap<>();
+    private final java.util.Set<DoctrineDivisionType> expandedCarrierOptionsTypes =
+            java.util.EnumSet.noneOf(DoctrineDivisionType.class);
     private TextFieldAPI customOtcTitleField = null;
     private String pendingAction = null;
 
@@ -249,16 +251,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         topCloseUi.setHeightSoFar(24f);
         contentContainer.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
 
-        // 1. Header & Subtitle
-        TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 48f, false);
+        // 1. Header (subtitle removed per UI Item A)
+        TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 28f, false);
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET DOCTRINE", baseColor);
-        header.addPara(
-                "Officer in Tactical Command, division defaults, auto-assigner, hull limits (max %s/div), and nomenclature.",
-                3f,
-                highlight,
-                String.valueOf(PermanentDivisionManager.MAX_DIVISION_SIZE));
-        header.setHeightSoFar(48f);
+        header.setHeightSoFar(28f);
         contentContainer.addUIElement(header).inTL(12f, 8f);
 
         // 2. Top Toolbar (Left: 5 Filter Tabs with 8px gaps | Right: 3 Action Buttons with 150px separation)
@@ -403,7 +400,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         tb.setHeightSoFar(30f);
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
-        contentContainer.addComponent(toolbarRow).inTL(12f, 58f);
+        contentContainer.addComponent(toolbarRow).inTL(12f, 38f);
 
         if (pendingConfirmationCmd != null) {
             buildConfirmationScreen(contentContainer, baseColor, darkColor, highlight);
@@ -411,7 +408,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
 
         // 3. Scrollable Body
-        float bodyTop = 94f;
+        float bodyTop = 74f;
         float bodyHeight = DIALOG_HEIGHT - bodyTop - 14f;
         float bodyWidth = DIALOG_WIDTH - 24f;
 
@@ -666,7 +663,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         highlight,
                         gray);
 
-                // Rows 7a-7g: Carrier & Wing Voidstrike Behavior Doctrine (Items C, D, E, D2, F, G, H)
+                // Rows 7a-7g: Carrier & Wing Voidstrike Behavior Doctrine (collapsed under "Carrier Options" button per UI Items D & E)
                 VoidstrikeTargetObservance currVsObs = doctrine.getVoidstrikeObservance(dt);
                 VoidstrikeCoordinationMode currVsCoord = doctrine.getVoidstrikeCoordination(dt);
                 SquadronFormation currFtrFm = doctrine.getFighterFormation(dt);
@@ -676,91 +673,113 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 int currVsDepth = doctrine.getVoidstrikeSquadronDepth(dt);
                 int currVsWidth = doctrine.getVoidstrikeSquadronWidth(dt);
 
-                addVoidstrikeObservanceRow(
+                boolean carrierOptsExpanded = expandedCarrierOptionsTypes.contains(dt);
+                addCarrierOptionsToggleRow(
                         body,
                         bodyWidth - 16f,
-                        "Strike Focus: " + currVsObs.displayName,
+                        dt,
+                        carrierOptsExpanded,
                         currVsObs,
-                        "SET_VS_OBS:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        positive,
-                        gray);
-
-                addVoidstrikeCoordinationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Strike Launch: " + currVsCoord.displayName,
                         currVsCoord,
-                        "SET_VS_COORD:" + dt.name() + ":",
+                        currFtrFm,
+                        currFtrVsFm,
+                        currBmbFm,
+                        currBmbVsFm,
+                        currVsDepth,
+                        currVsWidth,
                         baseColor,
                         darkColor,
                         highlight,
+                        positive,
                         gray);
 
-                addSquadronFormationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Fighter Form.: " + currFtrFm.shortName,
-                        currFtrFm,
-                        SquadronFormation.FIGHTER_GENERAL_OPTIONS,
-                        "SET_FTR_FM:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        positive);
+                if (carrierOptsExpanded) {
+                    addVoidstrikeObservanceRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Voidstrike Focus: " + currVsObs.displayName,
+                            currVsObs,
+                            "SET_VS_OBS:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive,
+                            gray);
 
-                addSquadronFormationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Fighter Strike: " + currFtrVsFm.shortName,
-                        currFtrVsFm,
-                        SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
-                        "SET_FTR_VS_FM:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        highlight);
+                    addVoidstrikeCoordinationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Voidstrike Launch: " + currVsCoord.displayName,
+                            currVsCoord,
+                            "SET_VS_COORD:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            gray);
 
-                addSquadronFormationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Bomber Form.: " + currBmbFm.shortName,
-                        currBmbFm,
-                        SquadronFormation.BOMBER_GENERAL_OPTIONS,
-                        "SET_BMB_FM:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        positive);
+                    addSquadronFormationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Fighter Form.: " + currFtrFm.shortName,
+                            currFtrFm,
+                            SquadronFormation.FIGHTER_GENERAL_OPTIONS,
+                            "SET_FTR_FM:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive);
 
-                addSquadronFormationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Bomber Strike: " + currBmbVsFm.shortName,
-                        currBmbVsFm,
-                        SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
-                        "SET_BMB_VS_FM:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        highlight);
+                    addSquadronFormationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Fighter Voidstrike: " + currFtrVsFm.shortName,
+                            currFtrVsFm,
+                            SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
+                            "SET_FTR_VS_FM:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight);
 
-                addVoidstrikeDepthRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Strike Depth: " + currVsDepth,
-                        currVsDepth,
-                        "SET_VS_DEPTH:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        positive);
+                    addSquadronFormationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Bomber Form.: " + currBmbFm.shortName,
+                            currBmbFm,
+                            SquadronFormation.BOMBER_GENERAL_OPTIONS,
+                            "SET_BMB_FM:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive);
 
-                addVoidstrikeDepthRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Strike Width: " + currVsWidth,
-                        currVsWidth,
-                        "SET_VS_WIDTH:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        highlight);
+                    addSquadronFormationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Bomber Voidstrike: " + currBmbVsFm.shortName,
+                            currBmbVsFm,
+                            SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
+                            "SET_BMB_VS_FM:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight);
+
+                    addVoidstrikeDepthRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Voidstrike Depth: " + currVsDepth,
+                            currVsDepth,
+                            "SET_VS_DEPTH:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive);
+
+                    addVoidstrikeDepthRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Voidstrike Width: " + currVsWidth,
+                            currVsWidth,
+                            "SET_VS_WIDTH:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight);
+                }
             }
         }
 
@@ -783,6 +802,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     darkColor,
                     Alignment.LMID,
                     10f);
+            body.addPara(
+                    "Sets the minimum and maximum ships of each hull class that Fleet Organization and Auto-Assign will group into a single division (up to %s ships total per division).",
+                    4f,
+                    gray,
+                    highlight,
+                    String.valueOf(PermanentDivisionManager.MAX_DIVISION_SIZE));
 
             for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
                 int currMin = doctrine.getMin(cat);
@@ -1395,7 +1420,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         final float cardGap = 24f;
         final float totalCardsW = allAuths.length * cardW + (allAuths.length - 1) * cardGap;
         final float startX = Math.max(CONTROL_COL_X, Math.round((rowWidth - totalCardsW) * 0.5f));
-        final float bannerPanelH = 228f;
+        final float bannerPanelH = 266f;
         final CustomPanelAPI[] bannerRef = new CustomPanelAPI[1];
 
         BaseCustomUIPanelPlugin bannerPlugin = new BaseCustomUIPanelPlugin() {
@@ -1430,6 +1455,16 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         summaryLbl.setColor(new Color(195, 220, 240, 245));
         summaryLbl.setAlignment(Alignment.MID);
         bannerPanel.addComponent((UIComponentAPI) summaryLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 204f);
+
+        LabelAPI posLbl = Global.getSettings().createLabel(current.positiveText, Fonts.GROUP_NUM_FONT);
+        posLbl.setColor(Misc.getPositiveHighlightColor());
+        posLbl.setAlignment(Alignment.MID);
+        bannerPanel.addComponent((UIComponentAPI) posLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 223f);
+
+        LabelAPI negLbl = Global.getSettings().createLabel(current.negativeText, Fonts.GROUP_NUM_FONT);
+        negLbl.setColor(Misc.getNegativeHighlightColor());
+        negLbl.setAlignment(Alignment.MID);
+        bannerPanel.addComponent((UIComponentAPI) negLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 242f);
 
         body.addCustom(bannerPanel, 4f);
     }
@@ -2420,6 +2455,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
+        if (cmd.startsWith("TOGGLE_CARRIER_OPTS:")) {
+            try {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(cmd.substring("TOGGLE_CARRIER_OPTS:".length()));
+                if (!expandedCarrierOptionsTypes.remove(dt)) {
+                    expandedCarrierOptionsTypes.add(dt);
+                }
+                rebuildContent();
+            } catch (IllegalArgumentException ignored) {
+            }
+            return;
+        }
         if (cmd.startsWith("TOGGLE_DD:")) {
             String key = cmd.substring("TOGGLE_DD:".length());
             expandedDropdownKey = key.equals(expandedDropdownKey) ? null : key;
@@ -2796,6 +2842,67 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 labels, acts, sel, 74f, 22f, 80f, baseColor, darkColor, activeValueColor,
                 null, true, 0f, activeValueColor,
                 currentStickiness != null ? currentStickiness.summary : null, gray, 6f);
+    }
+
+    private void addCarrierOptionsToggleRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            DoctrineDivisionType dt,
+            boolean expanded,
+            VoidstrikeTargetObservance currVsObs,
+            VoidstrikeCoordinationMode currVsCoord,
+            SquadronFormation currFtrFm,
+            SquadronFormation currFtrVsFm,
+            SquadronFormation currBmbFm,
+            SquadronFormation currBmbVsFm,
+            int currVsDepth,
+            int currVsWidth,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+
+        rowUi.addPara("Carrier Options:", 0f, baseColor).getPosition().inTL(6f, 5f);
+
+        String toggleAct = "TOGGLE_CARRIER_OPTS:" + dt.name();
+        String btnText = (expanded ? "[^] " : "[v] ") + "Carrier Options";
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        expanded ? highlight : positive,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        204f,
+                        22f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        String summary = String.format(
+                Locale.ROOT,
+                "Voidstrike: %s / %s  |  %dx%d  |  Ftr: %s/%s  |  Bmb: %s/%s",
+                currVsObs.displayName,
+                currVsCoord.displayName,
+                currVsDepth,
+                currVsWidth,
+                currFtrFm.shortName,
+                currFtrVsFm.shortName,
+                currBmbFm.shortName,
+                currBmbVsFm.shortName);
+        rowUi.addPara(summary, 0f, expanded ? highlight : gray).getPosition().inTL(CONTROL_COL_X + 216f, 5f);
+
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
     }
 
     private void addVoidstrikeObservanceRow(

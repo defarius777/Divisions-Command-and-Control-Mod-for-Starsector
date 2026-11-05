@@ -427,15 +427,65 @@ public class UITestHarness {
                 "Item A: 'Division Editor' renamed to 'Fleet Organization' and placed below 'Fleet Doctrine' in Fleet UI",
                 "doctrineBtnIdx=" + docBtnIdx + " < fleetOrgBtnIdx=" + orgBtnIdx);
 
-        // B. Configure Division screen QA pass (1320x800, 15 archetypes in 2x8 grid, single-line controls)
+        // B. Configure Division screen QA pass (1320x800, Division Type drop-down menu, Carrier Options button, aligned controls)
         boolean itemBOk = DivisionEditorDialog.DIALOG_WIDTH == 1320f
                 && DivisionEditorDialog.DIALOG_HEIGHT == 800f
-                && edSrc.contains("colIdx * 162f")
+                && edSrc.contains("\"DIV_ARCH_DD\"")
+                && edSrc.contains("\"TOGGLE_DIV_CARRIER_OPTIONS\"")
                 && edSrc.contains("CONTROL_COL_X = 250f");
         res.record(
                 itemBOk,
-                "Item B: Configure Division screen enlarged to 1320x800 with 2x8 archetype grid and aligned controls",
+                "Item B: Configure Division screen enlarged to 1320x800 with Division Type drop-down menu, Carrier Options toggle, and aligned controls",
                 String.format(Locale.ROOT, "dialog=%.0fx%.0fpx", DivisionEditorDialog.DIALOG_WIDTH, DivisionEditorDialog.DIALOG_HEIGHT));
+
+        // Verify UI Polish Items A-G (Fleet Doctrine subtitle removal, Command Scheme green/red pros/cons & Standard English,
+        // Voidstrike terminology, Carrier Options collapse, Hull Limits description, Division Type dropdown)
+        boolean uiItemA_noSubtitle = !docSrc.contains("Officer in Tactical Command, division defaults, auto-assigner, hull limits");
+        boolean uiItemBC_otcEnglishAndProsCons = true;
+        for (OtcAuthority a : OtcAuthority.values()) {
+            if (!a.summary.startsWith("The Officer in Tactical Command will ")
+                    || a.positiveText == null || !a.positiveText.startsWith("+ ")
+                    || a.negativeText == null || !a.negativeText.startsWith("- ")) {
+                uiItemBC_otcEnglishAndProsCons = false;
+            }
+        }
+        uiItemBC_otcEnglishAndProsCons = uiItemBC_otcEnglishAndProsCons
+                && docSrc.contains("current.positiveText")
+                && docSrc.contains("current.negativeText")
+                && edSrc.contains("current.positiveText")
+                && edSrc.contains("current.negativeText");
+        boolean uiItemD_voidstrikeTerms = docSrc.contains("\"Voidstrike Focus: \"")
+                && docSrc.contains("\"Voidstrike Launch: \"")
+                && docSrc.contains("\"Fighter Voidstrike: \"")
+                && docSrc.contains("\"Bomber Voidstrike: \"")
+                && docSrc.contains("\"Voidstrike Depth: \"")
+                && docSrc.contains("\"Voidstrike Width: \"")
+                && edSrc.contains("\"Voidstrike Focus: \"")
+                && edSrc.contains("\"Voidstrike Launch: \"")
+                && edSrc.contains("\"Fighter Voidstrike\"")
+                && edSrc.contains("\"Bomber Voidstrike\"")
+                && edSrc.contains("\"Voidstrike Depth: \"")
+                && edSrc.contains("\"Voidstrike Width: \"")
+                && "Cyclic Voidstrikes (Carrier)".equals(DivisionMissionType.CYCLIC_STRIKES.dropdownLabel)
+                && "Deckload Voidstrike (Carrier)".equals(DivisionMissionType.DECKLOAD_STRIKE.dropdownLabel)
+                && "Alpha Voidstrike (Carrier)".equals(DivisionMissionType.ALPHA_STRIKE.dropdownLabel);
+        boolean uiItemE_carrierOptionsBtn = docSrc.contains("TOGGLE_CARRIER_OPTS:")
+                && docSrc.contains("\"Carrier Options\"")
+                && edSrc.contains("TOGGLE_DIV_CARRIER_OPTIONS")
+                && edSrc.contains("\"Carrier Options\"");
+        boolean uiItemF_hullLimitsDesc = docSrc.contains(
+                "Sets the minimum and maximum ships of each hull class that Fleet Organization and Auto-Assign will group into a single division");
+        boolean uiItemG_divTypeDropdown = edSrc.contains("addDivisionArchetypeDropdownRow")
+                && edSrc.contains("\"DIV_ARCH_DD\"")
+                && !edSrc.contains("colIdx * 162f");
+        res.record(
+                uiItemA_noSubtitle && uiItemBC_otcEnglishAndProsCons && uiItemD_voidstrikeTerms
+                        && uiItemE_carrierOptionsBtn && uiItemF_hullLimitsDesc && uiItemG_divTypeDropdown,
+                "v1.0.5b UI Overhaul (Items A-G): Subtitle removed, OTC green/red pros & cons + Standard English, Voidstrike terms, Carrier Options button, Hull Limits description, Division Type dropdown",
+                String.format(Locale.ROOT,
+                        "A_noSub=%b, BC_otc=%b, D_voidstrike=%b, E_carrierBtn=%b, F_hullDesc=%b, G_archDropdown=%b",
+                        uiItemA_noSubtitle, uiItemBC_otcEnglishAndProsCons, uiItemD_voidstrikeTerms,
+                        uiItemE_carrierOptionsBtn, uiItemF_hullLimitsDesc, uiItemG_divTypeDropdown));
 
         // C & D. Line Cruiser Division default + 4 new Missile division types
         boolean itemCDOk = "Line Cruiser Div".equals(DivisionArchetype.CRUISER_DIVISION.shortPrefix)

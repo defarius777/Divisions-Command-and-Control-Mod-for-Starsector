@@ -122,6 +122,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     // Selected division on Screen 1 (Overview) for quick right-click ship assignment
     private String selectedOverviewDivisionId = null;
     String expandedDropdownKey = null;
+    boolean carrierOptionsExpanded = false;
     private boolean closed = false;
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
@@ -612,7 +613,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         final float cardGap = 14f;
         final float totalCardsW = allAuths.length * cardW + (allAuths.length - 1) * cardGap;
         final float startX = Math.max(8f, Math.round((panelWidth - totalCardsW) * 0.5f));
-        final float panelHeight = 160f;
+        final float panelHeight = 198f;
         final CustomPanelAPI[] panelRef = new CustomPanelAPI[1];
 
         BaseCustomUIPanelPlugin plugin = new BaseCustomUIPanelPlugin() {
@@ -675,6 +676,16 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         descLbl.setColor(new Color(195, 220, 240, 245));
         descLbl.setAlignment(Alignment.MID);
         panel.addComponent((UIComponentAPI) descLbl).setSize(panelWidth - 16f, 16f).inTL(8f, 138f);
+
+        LabelAPI posLbl = Global.getSettings().createLabel(current.positiveText, Fonts.GROUP_NUM_FONT);
+        posLbl.setColor(Misc.getPositiveHighlightColor());
+        posLbl.setAlignment(Alignment.MID);
+        panel.addComponent((UIComponentAPI) posLbl).setSize(panelWidth - 16f, 16f).inTL(8f, 157f);
+
+        LabelAPI negLbl = Global.getSettings().createLabel(current.negativeText, Fonts.GROUP_NUM_FONT);
+        negLbl.setColor(Misc.getNegativeHighlightColor());
+        negLbl.setAlignment(Alignment.MID);
+        panel.addComponent((UIComponentAPI) negLbl).setSize(panelWidth - 16f, 16f).inTL(8f, 176f);
 
         return panel;
     }
@@ -1554,6 +1565,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 PermanentDivisionManager.updateDivisionMetadata(activeDivisionId, null, arch, null);
             } catch (IllegalArgumentException ignored) {
             }
+            expandedDropdownKey = null;
             rebuildContent();
             return;
         }

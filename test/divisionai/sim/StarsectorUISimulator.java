@@ -1505,8 +1505,9 @@ public class StarsectorUISimulator {
         FleetDoctrineDialog dialog = new FleetDoctrineDialog(hostCoreUI);
         dialog.show();
 
-        for (String tabCmd : new String[]{"TAB:ALL", "TAB:OTC_COMMAND", "TAB:NAMING", "TAB:ALL"}) {
+        for (String tabCmd : new String[]{"TAB:ALL", "TOGGLE_CARRIER_OPTS:FLEET_CARRIER", "TAB:OTC_COMMAND", "TAB:HULLS", "TAB:NAMING", "TAB:ALL"}) {
             dialog.buttonPressed(tabCmd);
+            dialog.advance(0.1f);
             List<LabelAPI> labels = new ArrayList<>();
             List<ButtonAPI> buttons = new ArrayList<>();
             collectLabelsAndButtonsRecursive(hostCoreUI, labels, buttons);
@@ -1534,7 +1535,7 @@ public class StarsectorUISimulator {
         DivisionEditorDialog dialog = new DivisionEditorDialog(hostCoreUI);
         dialog.show();
 
-        for (String cmd : new String[]{null, "SET_OTC_AUTH:POSITIVE_CONTROL", "SET_OTC_AUTH:COMMAND_BY_DIRECTION", "EDIT:div_1", "BACK_TO_OVERVIEW"}) {
+        for (String cmd : new String[]{null, "SET_OTC_AUTH:POSITIVE_CONTROL", "SET_OTC_AUTH:COMMAND_BY_DIRECTION", "OPEN_DIV:div_1", "TOGGLE_DD:DIV_ARCH_DD", "TOGGLE_DIV_CARRIER_OPTIONS", "BACK_TO_LIST"}) {
             if (cmd != null) {
                 dialog.buttonPressed(cmd);
                 dialog.advance(0.1f);

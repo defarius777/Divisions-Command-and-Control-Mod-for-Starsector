@@ -539,10 +539,10 @@ public class PermanentDivisionManager {
     public enum VoidstrikeCoordinationMode {
         COORDINATED(
                 "Coordinated",
-                "Orbit carrier, form up at marshal point, strike together."),
+                "Orbit carrier, form up at marshal point, voidstrike together."),
         UNCOORDINATED(
                 "Uncoordinated",
-                "Attack immediately in successive waves.");
+                "Attack immediately in successive voidstrike waves.");
 
         public final String displayName;
         public final String summary;
@@ -690,7 +690,7 @@ public class PermanentDivisionManager {
         ARMED_RECONNAISSANCE(
                 "Armed Recon (Carrier)",
                 "Armed Recon",
-                "Send strike craft ahead to scout and strike.",
+                "Send strike craft ahead to scout and voidstrike.",
                 true,
                 LineStation.REAR),
         SPACE_SUPERIORITY(
@@ -706,21 +706,21 @@ public class PermanentDivisionManager {
                 true,
                 LineStation.REAR),
         CYCLIC_STRIKES(
-                "Cyclic Strikes (Carrier)",
-                "Cyclic Strikes",
-                "Cycle continuous strike waves on visible targets.",
+                "Cyclic Voidstrikes (Carrier)",
+                "Cyclic Voidstrikes",
+                "Cycle continuous voidstrike waves on visible targets.",
                 true,
                 LineStation.REAR),
         DECKLOAD_STRIKE(
-                "Deckload Strike (Carrier)",
-                "Deck Strike",
-                "Mass division wings into synchronized salvos.",
+                "Deckload Voidstrike (Carrier)",
+                "Deck Voidstrike",
+                "Mass division wings into synchronized voidstrikes.",
                 true,
                 LineStation.REAR),
         ALPHA_STRIKE(
-                "Alpha Strike (Carrier)",
-                "Alpha Strike",
-                "Coordinate full carrier strikes with Main Effort.",
+                "Alpha Voidstrike (Carrier)",
+                "Alpha Voidstrike",
+                "Coordinate full carrier voidstrikes with Main Effort.",
                 true,
                 LineStation.REAR),
 
@@ -1242,33 +1242,51 @@ public class PermanentDivisionManager {
         POSITIVE_CONTROL(
                 "Positive Control",
                 "Positive Control",
-                "Officer in Tactical Command orders directly override division missions.",
+                "The Officer in Tactical Command will directly control all division orders.",
+                "+ The Officer in Tactical Command will synchronize all fleet maneuvers and fire.",
+                "- Division commanders will not exercise independent initiative or mission autonomy.",
                 "otc_positive_control"),
         COMMAND_BY_DIRECTION(
                 "Command by Direction",
                 "Command by Direction",
-                "Assigns targets, stations, and flanks; commits reserves.",
+                "The Officer in Tactical Command will assign targets, stations, flanks, and reserves.",
+                "+ Balances fleet-wide coordination with each division's configured mission.",
+                "- Heavily engaged divisions may delay or adapt orders from the Officer in Tactical Command.",
                 "otc_command_by_direction"),
         COMMAND_BY_NEGATION(
                 "Command by Negation",
                 "Command by Negation",
-                "Sets focus targets; divisions act on local initiative.",
+                "The Officer in Tactical Command will designate targets while divisions act on initiative.",
+                "+ Division commanders will have full autonomy to exploit local tactical openings.",
+                "- The Officer in Tactical Command will only intervene to counter critical threats.",
                 "otc_command_by_negation"),
         FIRE_DISTRIBUTION_ONLY(
                 "Fire Distribution Only",
                 "Fire Distribution Only",
-                "Assigns targets and strikes without moving divisions.",
+                "The Officer in Tactical Command will assign targets and voidstrikes without moving divisions.",
+                "+ Divisions will strictly follow their own missions while sharing fleet target locks.",
+                "- The Officer in Tactical Command will not reposition divisions or commit reserves.",
                 "otc_fire_distribution_only");
 
         public final String dropdownLabel;
         public final String shortName;
         public final String summary;
+        public final String positiveText;
+        public final String negativeText;
         public final String iconKey;
 
-        OtcAuthority(String dropdownLabel, String shortName, String summary, String iconKey) {
+        OtcAuthority(
+                String dropdownLabel,
+                String shortName,
+                String summary,
+                String positiveText,
+                String negativeText,
+                String iconKey) {
             this.dropdownLabel = dropdownLabel;
             this.shortName = shortName;
             this.summary = summary;
+            this.positiveText = positiveText;
+            this.negativeText = negativeText;
             this.iconKey = iconKey;
         }
 
@@ -1324,7 +1342,7 @@ public class PermanentDivisionManager {
                 "Flankers attack the same target from opposite sides."),
         TIME_ON_TARGET_STRIKES(
                 "Time-on-Target Strikes",
-                "Missile and carrier divisions launch synchronized salvos."),
+                "Missile and carrier divisions launch synchronized salvos and voidstrikes."),
         RESERVE_AND_GENERAL_CHASE(
                 "Reserve & General Chase",
                 "Holds reserves for relief, then pursues broken enemies."),
