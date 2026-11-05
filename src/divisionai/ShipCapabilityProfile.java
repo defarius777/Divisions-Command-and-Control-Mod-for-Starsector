@@ -295,7 +295,12 @@ public class ShipCapabilityProfile {
             fp = ship.getFleetMember().getDeploymentPointsCost();
         }
         if (fp <= 0f) {
-            fp = defaultStrengthForHull(ship.getHullSize());
+            if ((ship.isStationModule() || ship.getParentStation() != null)
+                    && BattlefieldFirepowerEvaluator.isStationOrModuleCombatUnit(ship)) {
+                fp = 18f;
+            } else {
+                fp = defaultStrengthForHull(ship.getHullSize());
+            }
         }
         return Math.max(4f, fp);
     }

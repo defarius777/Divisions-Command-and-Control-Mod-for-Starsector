@@ -463,6 +463,22 @@ public class BattlefieldFirepowerEvaluator {
         return ship.isStation();
     }
 
+    public static boolean isStationOrModuleCombatUnit(ShipAPI ship) {
+        if (ship == null || !ship.isAlive() || ship.isHulk() || ship.isExpired()) return false;
+        if (ship.isFighter() || ship.isShuttlePod() || ship.isDrone()) return false;
+        if (ship.isStation() || ship.isStationModule() || ship.getParentStation() != null) {
+            return hasAnyUsableCombatWeapon(ship) || ship.getNumFighterBays() > 0;
+        }
+        return false;
+    }
+
+    public static boolean isStationBastionDivision(DivisionState div) {
+        if (div == null) return false;
+        if (div.id != null && div.id.startsWith("station_bastion_")) return true;
+        return div.flagship != null
+                && (div.flagship.isStation() || div.flagship.isStationModule() || div.flagship.getParentStation() != null);
+    }
+
     /**
      * Updates stabilized Polar Firepower Roses for all active ships and airborne strike-craft squadrons in the battle.
      * Called on the C2 evaluation cadence (~0.5s) from OtcAI.updateTelemetry / DivisionAICombatPlugin.
@@ -1325,7 +1341,8 @@ public class BattlefieldFirepowerEvaluator {
             Object obj = iter.next();
             if (!(obj instanceof ShipAPI)) continue;
             ShipAPI es = (ShipAPI) obj;
-            if (!DivisionAutoFormer.isEligibleCombatHull(es) || DivisionState.isShipUnable(es)) continue;
+            if ((!DivisionAutoFormer.isEligibleCombatHull(es) && !isStationOrModuleCombatUnit(es))
+                    || DivisionState.isShipUnable(es)) continue;
             if (es.getOwner() == div.side) continue;
             if (!OtcAI.isShipVisibleToSide(engine, div.side, es)) continue;
             nearbyEnemies.add(es);
@@ -1958,6 +1975,11 @@ public class BattlefieldFirepowerEvaluator {
     static float computeShipEffectiveHpInternal(ShipAPI ship, boolean maxOnly) {
         if (ship == null) return 1000f;
         HullSize size = ship.getHullSize() != null ? ship.getHullSize() : HullSize.DESTROYER;
+        if (size == HullSize.FRIGATE
+                && (ship.isStationModule() || ship.getParentStation() != null)
+                && isStationOrModuleCombatUnit(ship)) {
+            size = HullSize.CRUISER;
+        }
 
         // 1. Hull HP
         float defaultMaxHull;
@@ -2353,6 +2375,10 @@ public class BattlefieldFirepowerEvaluator {
             float rangeWeightSum = 0f;
             float fluxSum = 0f;
             float hullSum = 0f;
+            float combatModFluxSum = 0f;
+            float combatModHullSum = 0f;
+            int combatModCount = 0;
+            float totalEhp = 0f;
             int count = 0;
             for (int mIdx = 0; mIdx < bastion.members.size(); mIdx++) {
                 ShipAPI m = bastion.members.get(mIdx);
@@ -2362,10 +2388,19 @@ public class BattlefieldFirepowerEvaluator {
                     float d = distance(stLoc, m.getLocation()) + Math.max(40f, m.getCollisionRadius() * 0.65f);
                     if (d > maxSpread) maxSpread = d;
                 }
+                boolean armedOrCarrierMod = hasAnyUsableCombatWeapon(m) || m.getNumFighterBays() > 0;
                 float fp = ShipCapabilityProfile.resolveShipFpStrength(m);
-                totalFp += fp;
+                if (m == st || armedOrCarrierMod) {
+                    totalFp += fp;
+                    totalEhp += computeShipEffectiveHp(m);
+                }
                 fluxSum += m.getFluxLevel();
                 hullSum += m.getHullLevel();
+                if (armedOrCarrierMod && (!m.isStation() || bastion.members.size() == 1)) {
+                    combatModFluxSum += m.getFluxLevel();
+                    combatModHullSum += m.getHullLevel();
+                    combatModCount++;
+                }
 
                 List<WeaponAPI> weapons = m.getAllWeapons();
                 if (weapons != null) {
@@ -2382,13 +2417,21 @@ public class BattlefieldFirepowerEvaluator {
             }
             bastion.spreadRadius = clampVal(maxSpread, 240f, 850f);
             bastion.totalFpStrength = Math.max(36f, totalFp);
+            bastion.totalEffectiveHp = Math.max(8000f, totalEhp);
+            bastion.effectiveHpRatio = (combatModCount > 0)
+                    ? (combatModHullSum / combatModCount)
+                    : ((count > 0) ? (hullSum / count) : 1f);
             bastion.avgEngageRange = (rangeWeightSum > 0f)
                     ? clampVal(rangeWeightedSum / rangeWeightSum, 650f, 2400f)
                     : 1150f;
-            bastion.avgFluxLevel = (count > 0) ? (fluxSum / count) : 0f;
-            bastion.avgHullLevel = (count > 0) ? (hullSum / count) : 1f;
-            bastion.coreMemberCount = Math.max(1, count);
-            bastion.ableMemberCount = Math.max(1, count);
+            bastion.avgFluxLevel = (combatModCount > 0)
+                    ? (combatModFluxSum / combatModCount)
+                    : ((count > 0) ? (fluxSum / count) : 0f);
+            bastion.avgHullLevel = (combatModCount > 0)
+                    ? (combatModHullSum / combatModCount)
+                    : ((count > 0) ? (hullSum / count) : 1f);
+            bastion.coreMemberCount = Math.max(1, combatModCount > 0 ? combatModCount : count);
+            bastion.ableMemberCount = Math.max(1, combatModCount > 0 ? combatModCount : count);
             bastion.isUnableDivision = false;
             bastion.retreatingFraction = 0f;
 
@@ -2735,14 +2778,17 @@ public class BattlefieldFirepowerEvaluator {
             enemyCount++;
         }
 
-        int edgeEnemyCap = (enemyGroup != null) ? enemyGroup.divisions.size() : 0;
+        List<DivisionState> edgeEnemies = (enemyGroup != null)
+                ? getDivisionsAndStationBastionsForRendering(engine, enemyGroup)
+                : Collections.<DivisionState>emptyList();
+        int edgeEnemyCap = edgeEnemies.size();
         float[] edgeEUx = new float[edgeEnemyCap];
         float[] edgeEUy = new float[edgeEnemyCap];
         float[] edgeEDist = new float[edgeEnemyCap];
         int edgeEnemyCount = 0;
         if (enemyGroup != null) {
             for (int i = 0; i < edgeEnemyCap; i++) {
-                DivisionState eDiv = enemyGroup.divisions.get(i);
+                DivisionState eDiv = edgeEnemies.get(i);
                 if (eDiv == null || !eDiv.isCombatEffective()) continue;
                 if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
@@ -3426,7 +3472,7 @@ public class BattlefieldFirepowerEvaluator {
             }
         }
         if (enemyGroup != null) {
-            for (DivisionState e : enemyGroup.divisions) {
+            for (DivisionState e : getDivisionsAndStationBastionsForRendering(engine, enemyGroup)) {
                 if (e == null || !e.isCombatEffective()) continue;
                 if (!OtcAI.isDivisionVisibleToSide(engine, observerSide, e)) continue;
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, observerSide, e);

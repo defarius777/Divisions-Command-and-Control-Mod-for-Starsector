@@ -938,22 +938,27 @@ public final class ShipSystemCoordinator {
                                 }
                             }
                         } else if (prof.isDesignedToRam && effTarget != null) {
-                            // RAMMING DRIVE (e.g. Rambunctious JYD_ramdrive):
-                            // Aim for a glancing blow along the side of the target ship's body so both ships
-                            // physics themselves out of the way, and cut the toggle drive right after impact
-                            // or after passing the target's beam so shields and weapons immediately come back up!
-                            float toEx = effTarget.getLocation().x - ship.getLocation().x;
-                            float toEy = effTarget.getLocation().y - ship.getLocation().y;
-                            float distE = (float) Math.sqrt(toEx * toEx + toEy * toEy);
-                            float contactDist = (ship.getCollisionRadius() + effTarget.getCollisionRadius()) * 0.96f + 20f;
-                            double rad = Math.toRadians(ship.getFacing());
-                            float hdgX = (float) Math.cos(rad);
-                            float hdgY = (float) Math.sin(rad);
-                            float dot = (distE > 1f) ? ((toEx / distE) * hdgX + (toEy / distE) * hdgY) : 1f;
-                            if ((distE > 130f && dot < -0.05f)
-                                    || (distE <= contactDist && (currSpd < 330f || dot < 0.15f))
-                                    || ship.getFluxLevel() > 0.78f) {
+                            if (isStationOrStationModule(effTarget)) {
+                                // Never ram an immovable space station or station module!
                                 shouldCutToggle = true;
+                            } else {
+                                // RAMMING DRIVE (e.g. Rambunctious JYD_ramdrive):
+                                // Aim for a glancing blow along the side of the target ship's body so both ships
+                                // physics themselves out of the way, and cut the toggle drive right after impact
+                                // or after passing the target's beam so shields and weapons immediately come back up!
+                                float toEx = effTarget.getLocation().x - ship.getLocation().x;
+                                float toEy = effTarget.getLocation().y - ship.getLocation().y;
+                                float distE = (float) Math.sqrt(toEx * toEx + toEy * toEy);
+                                float contactDist = (ship.getCollisionRadius() + effTarget.getCollisionRadius()) * 0.96f + 20f;
+                                double rad = Math.toRadians(ship.getFacing());
+                                float hdgX = (float) Math.cos(rad);
+                                float hdgY = (float) Math.sin(rad);
+                                float dot = (distE > 1f) ? ((toEx / distE) * hdgX + (toEy / distE) * hdgY) : 1f;
+                                if ((distE > 130f && dot < -0.05f)
+                                        || (distE <= contactDist && (currSpd < 330f || dot < 0.15f))
+                                        || ship.getFluxLevel() > 0.78f) {
+                                    shouldCutToggle = true;
+                                }
                             }
                         } else if (!prof.isDesignedToRam && effTarget != null) {
                             // NON-RAMMING LINEAR DRIVE (e.g. Eagle/Dominator/Mora Burn Drive):
@@ -1005,7 +1010,7 @@ public final class ShipSystemCoordinator {
                     // opportunistic ram or an explicit Stage 2 Lance Charge), steer its movement vector toward the SIDE
                     // of the target ship's body (glancing sideswipe chord) so collision torque spins the target and
                     // deflects both ships cleanly out of each other's path instead of dead-stopping head-on!
-                    if (prof.isDesignedToRam && effTarget != null && flags != null && blockingFriendly == null) {
+                    if (prof.isDesignedToRam && effTarget != null && !isStationOrStationModule(effTarget) && flags != null && blockingFriendly == null) {
                         float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
                         if (distE <= 2000f) {
                             Vector2f glancingPt = computeGlancingSideRamPoint(ship, effTarget, sIdx, div.targetEnemyDivision);
@@ -1127,7 +1132,8 @@ public final class ShipSystemCoordinator {
                                 && div.localForceRatio >= 0.85f
                                 && ship.getFluxLevel() < 0.45f
                                 && ship.getHullLevel() > 0.62f
-                                && effTarget != null;
+                                && effTarget != null
+                                && !isStationOrStationModule(effTarget);
                         if (allowIndividualGlancingRam) {
                             float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
                             Vector2f glancingAim = computeGlancingSideRamPoint(ship, effTarget, sIdx, div.targetEnemyDivision);
@@ -1175,7 +1181,7 @@ public final class ShipSystemCoordinator {
                                 || div.doctrinalSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE
                                 || (div.otcOrder != null && div.otcOrder.isActive(now)
                                 && div.otcOrder.orderedSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE);
-                        if (prof.isDesignedToRam && explicitLanceRam) {
+                        if (prof.isDesignedToRam && explicitLanceRam && !isStationOrStationModule(effTarget)) {
                             // Explicit Lance Charge Ramming Pass: aim each ship at the glancing side-body chord of its target!
                             Vector2f glancingAim = computeGlancingSideRamPoint(ship, effTarget, sIdx, div.targetEnemyDivision);
                             if (distE >= 320f && distE <= 1850f
@@ -1501,18 +1507,24 @@ public final class ShipSystemCoordinator {
                 ship.getLocation().y + perpY * sideSign * offset - ny * 80f);
     }
 
+    private static boolean isStationOrStationModule(ShipAPI target) {
+        return target != null && (target.isStation() || target.isStationModule() || target.getParentStation() != null);
+    }
+
     private static boolean isForwardCorridorClearOfEnemies(
             CombatEngineAPI engine,
             ShipAPI ship,
             BattleGroupState enemyGroup,
             float checkDist) {
-        if (ship == null || ship.getLocation() == null || enemyGroup == null || enemyGroup.divisions == null) return true;
+        if (ship == null || ship.getLocation() == null || enemyGroup == null) return true;
+        List<DivisionState> effEnemyDivs = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
+        if (effEnemyDivs.isEmpty()) return true;
         double rad = Math.toRadians(ship.getFacing());
         float fx = (float) Math.cos(rad);
         float fy = (float) Math.sin(rad);
         float myR = Math.max(40f, ship.getCollisionRadius());
-        for (int dIdx = 0; dIdx < enemyGroup.divisions.size(); dIdx++) {
-            DivisionState eDiv = enemyGroup.divisions.get(dIdx);
+        for (int dIdx = 0; dIdx < effEnemyDivs.size(); dIdx++) {
+            DivisionState eDiv = effEnemyDivs.get(dIdx);
             if (eDiv == null) continue;
             List<ShipAPI> eMembers = eDiv.getAliveMembers();
             for (int i = 0; i < eMembers.size(); i++) {

@@ -1452,6 +1452,7 @@ public class DivisionCommanderAI {
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
                 && nearestEnemyDiv != null
                 && nearestEnemyDiv.isAbleCombatEffective()
+                && !BattlefieldFirepowerEvaluator.isStationBastionDivision(nearestEnemyDiv)
                 && (div.getAliveMembers().size() >= 4 || div.totalFpStrength >= 32f)) {
             if (prevIntent == DivisionIntentType.FEIGNED_RETREAT) {
                 float feignElapsed = now - div.feignedRetreatStartTime;
@@ -2287,7 +2288,9 @@ public class DivisionCommanderAI {
                 boolean outmatchedEhp = div.localForceRatio < 0.95f
                         || div.effectiveHpRatio < 0.70f
                         || (enemy.totalEffectiveHp > div.totalEffectiveHp * 1.35f && div.totalEffectiveHp > 100f);
-                boolean isRamDivision = div.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
+                boolean enemyIsStation = BattlefieldFirepowerEvaluator.isStationBastionDivision(enemy);
+                boolean isRamDivision = !enemyIsStation
+                        && div.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
                         && div.ramCapableMemberCount >= 1
                         && div.ramCapableMemberCount * 2 >= Math.max(1, div.getAliveMembers().size());
                 if (isRamDivision && (div.readySkillMemberRatio >= 0.50f || div.hasActiveLinearSkillBurn)
@@ -2297,7 +2300,9 @@ public class DivisionCommanderAI {
                 } else if (!isLightOrDd || !outmatchedEhp) {
                     if (div.currentIntent == DivisionIntentType.PRESS_HOME
                             || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE) {
-                        desired = DivisionSetpieceAttack.LANCE_CHARGE;
+                        desired = enemyIsStation
+                                ? DivisionSetpieceAttack.WALL_SALVO_PASS
+                                : DivisionSetpieceAttack.LANCE_CHARGE;
                     } else if (div.currentIntent == DivisionIntentType.TOT_MISSILE_STRIKE) {
                         desired = DivisionSetpieceAttack.WALL_SALVO_PASS;
                     }
@@ -2338,9 +2343,14 @@ public class DivisionCommanderAI {
         float perpX = -dirY;
         float perpY = dirX;
         float baseStandoff = Math.max(520f, div.standoffRange);
+        boolean enemyIsStationForPass = BattlefieldFirepowerEvaluator.isStationBastionDivision(enemy);
+        if (enemyIsStationForPass && !div.archetype.isCarrierArchetype() && div.avgEngageRange > 250f) {
+            baseStandoff = Math.min(baseStandoff, Math.max(540f, div.avgEngageRange * 0.86f));
+        }
 
         float stageElapsed = Math.max(0f, now - div.setpieceStageStartTime);
-        boolean isRamDivisionForPass = div.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
+        boolean isRamDivisionForPass = !enemyIsStationForPass
+                && div.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
                 && div.ramCapableMemberCount >= 1
                 && div.ramCapableMemberCount * 2 >= Math.max(1, div.getAliveMembers().size());
         if (div.setpieceStage == 1) {
@@ -2355,7 +2365,7 @@ public class DivisionCommanderAI {
             boolean dressed = div.stationKeepingRatio <= (isRamDivisionForPass ? 0.95f : 0.72f)
                     && distance(div.centroid, div.setpieceIpPoint) <= 460f;
             float maxDressTime = isRamDivisionForPass ? 1.8f : 3.8f;
-            float commitDist = isRamDivisionForPass ? 1480f : (baseStandoff * 0.85f);
+            float commitDist = isRamDivisionForPass ? 1480f : (enemyIsStationForPass ? Math.max(1350f, baseStandoff * 1.45f) : (baseStandoff * 0.85f));
             if (otcImmediateCommit || dressed || stageElapsed >= maxDressTime || distToEnemy < commitDist) {
                 div.setpieceStage = 2;
                 div.setpieceStageStartTime = now;
@@ -2749,8 +2759,8 @@ public class DivisionCommanderAI {
         Vector2f objLoc = (div.targetObjective != null && div.targetObjective.getLocation() != null)
                 ? div.targetObjective.getLocation()
                 : div.stationPoint;
-        if (enemyGroup != null && objLoc != null) {
-            for (DivisionState eDiv : enemyGroup.divisions) {
+        if (enemyGroup != null) {
+            for (DivisionState eDiv : OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup)) {
                 if (eDiv == null || !eDiv.isCombatEffective()) continue;
                 if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
@@ -3319,11 +3329,12 @@ public class DivisionCommanderAI {
                 }
             }
         }
-        if (enemyGroup != null && enemyGroup.divisions != null) {
-            for (int dIdx = 0; dIdx < enemyGroup.divisions.size(); dIdx++) {
-                DivisionState eDiv = enemyGroup.divisions.get(dIdx);
+        if (enemyGroup != null) {
+            List<DivisionState> effEnemyDivs = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
+            for (int dIdx = 0; dIdx < effEnemyDivs.size(); dIdx++) {
+                DivisionState eDiv = effEnemyDivs.get(dIdx);
                 if (eDiv == null || eDiv == targetEnemyDiv || !eDiv.isCombatEffective() || eDiv.centroid == null) continue;
-                if (eDiv.coreMemberCount < 2) continue;
+                if (eDiv.coreMemberCount < 2 && !BattlefieldFirepowerEvaluator.isStationBastionDivision(eDiv)) continue;
                 if (distance(shipLoc, eDiv.centroid) > 2600f) continue;
                 List<ShipAPI> eMembers = eDiv.getAliveMembers();
                 for (int i = 0; i < eMembers.size(); i++) {
@@ -3797,27 +3808,37 @@ public class DivisionCommanderAI {
 
         DivisionState best = null;
         float bestScore = -Float.MAX_VALUE;
+        List<DivisionState> enemyDivs = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
         boolean anyAbleVisibleEnemy = false;
-        for (DivisionState eDiv : enemyGroup.divisions) {
+        boolean anyAbleVisibleMobileCombatEnemy = false;
+        for (DivisionState eDiv : enemyDivs) {
             if (eDiv.isAbleCombatEffective() && OtcAI.isDivisionVisibleToSide(engine, myDiv.side, eDiv)) {
                 anyAbleVisibleEnemy = true;
-                break;
+                if (!BattlefieldFirepowerEvaluator.isStationBastionDivision(eDiv)
+                        && eDiv.archetype != DivisionArchetype.SERVICE_GROUP
+                        && eDiv.combatThreatWeight > 0.55f) {
+                    anyAbleVisibleMobileCombatEnemy = true;
+                }
             }
         }
 
-        for (DivisionState eDiv : enemyGroup.divisions) {
+        for (DivisionState eDiv : enemyDivs) {
             if (!eDiv.isCombatEffective()) continue;
             // Strict Fog of War check: cannot target enemy divisions hidden in the Fog of War!
             if (!OtcAI.isDivisionVisibleToSide(engine, myDiv.side, eDiv)) {
                 continue;
             }
 
+            boolean isStationBastion = BattlefieldFirepowerEvaluator.isStationBastionDivision(eDiv);
             Vector2f visCentroid = OtcAI.getVisibleCentroidForSide(engine, myDiv.side, eDiv);
             float rawVisFp = OtcAI.getVisibleFpForSide(engine, myDiv.side, eDiv);
             float threatW = Math.max(0.28f, eDiv.combatThreatWeight);
-            float visFp = rawVisFp * threatW;
+            float visFp = (isStationBastion ? Math.min(rawVisFp, 75f) : rawVisFp) * threatW;
             float dist = distance(myDiv.centroid, visCentroid);
             float score = -dist * (dist > 1500f ? 0.68f : 0.42f);
+            if (isStationBastion && anyAbleVisibleMobileCombatEnemy && dist > 1550f) {
+                score -= 380f;
+            }
 
             // Item F: Heavily deprioritize retreating ("unable") enemy divisions as long as able enemy divisions remain
             if (anyAbleVisibleEnemy
@@ -3841,7 +3862,7 @@ public class DivisionCommanderAI {
                     }
                 }
                 boolean otherUnderCapExists = false;
-                for (DivisionState otherE : enemyGroup.divisions) {
+                for (DivisionState otherE : enemyDivs) {
                     if (otherE == null || otherE == eDiv || !otherE.isAbleCombatEffective()) continue;
                     if (!OtcAI.isDivisionVisibleToSide(engine, myDiv.side, otherE)) continue;
                     if (!otherE.isOverkilled) {
@@ -4178,7 +4199,7 @@ public class DivisionCommanderAI {
         return best;
     }
 
-    static ShipAPI pickFocusEnemyShip(
+    public static ShipAPI pickFocusEnemyShip(
             CombatEngineAPI engine,
             int observerSide,
             DivisionState enemyDiv,
@@ -4186,7 +4207,7 @@ public class DivisionCommanderAI {
         return pickFocusEnemyShip(engine, observerSide, enemyDiv, fromPoint, false);
     }
 
-    static ShipAPI pickFocusEnemyShip(
+    public static ShipAPI pickFocusEnemyShip(
             CombatEngineAPI engine,
             int observerSide,
             DivisionState enemyDiv,
@@ -4194,6 +4215,18 @@ public class DivisionCommanderAI {
             boolean useConvergence) {
         if (enemyDiv == null) return null;
         List<ShipAPI> enemies = enemyDiv.getAliveMembers();
+        boolean isStationBastion = BattlefieldFirepowerEvaluator.isStationBastionDivision(enemyDiv);
+        boolean hasVisibleArmedStationModule = false;
+        if (isStationBastion) {
+            for (int i = 0; i < enemies.size(); i++) {
+                ShipAPI e = enemies.get(i);
+                if (e == null || e.isStation() || !OtcAI.isShipVisibleToSide(engine, observerSide, e)) continue;
+                if (BattlefieldFirepowerEvaluator.hasAnyUsableCombatWeapon(e) || e.getNumFighterBays() > 0) {
+                    hasVisibleArmedStationModule = true;
+                    break;
+                }
+            }
+        }
         ShipAPI best = null;
         float bestScore = -Float.MAX_VALUE;
         Vector2f refPt = (fromPoint != null) ? fromPoint : enemyDiv.centroid;
@@ -4201,6 +4234,26 @@ public class DivisionCommanderAI {
             if (!OtcAI.isShipVisibleToSide(engine, observerSide, e)) continue;
             float d = (refPt != null) ? distance(refPt, e.getLocation()) : 1000f;
             float inRangeBonus = (d <= 1150f) ? 280f : (d <= 1450f ? 120f : 0f);
+            float stationModAdjust = 0f;
+            if (isStationBastion && hasVisibleArmedStationModule) {
+                boolean armedOrCarrierMod = BattlefieldFirepowerEvaluator.hasAnyUsableCombatWeapon(e)
+                        || e.getNumFighterBays() > 0;
+                boolean neverDetachesStrut = e.getVariant() != null
+                        && e.getVariant().hasHullMod("never_detaches");
+                if (e.isStation() && !armedOrCarrierMod) {
+                    // Central shared_flux_sink station hub with no weapons of its own cannot be killed until modules die
+                    stationModAdjust = -2500f;
+                } else if (neverDetachesStrut && !armedOrCarrierMod) {
+                    // Structural station spurs (ii_module_strut) are invulnerable connectors
+                    stationModAdjust = -2200f;
+                } else if (armedOrCarrierMod && !e.isStation()) {
+                    // Prioritize active combat/hangar station modules facing our division!
+                    stationModAdjust = 450f;
+                } else if (!armedOrCarrierMod) {
+                    // Passive armor plates only take incidental fire unless blocking the line of fire
+                    stationModAdjust = -520f;
+                }
+            }
             float score;
             if (useConvergence) {
                 // Convergence Focus-Fire Synchronization:
@@ -4211,6 +4264,7 @@ public class DivisionCommanderAI {
                         : 0f;
                 score = -d * 0.72f
                         + inRangeBonus
+                        + stationModAdjust
                         + (ovl ? 750f : 0f)
                         + e.getFluxLevel() * 680f
                         + hardFrac * 380f
@@ -4218,7 +4272,7 @@ public class DivisionCommanderAI {
             } else {
                 // Standard Human Division Commander: strongly prefers the frontmost exposed/overloaded enemy ship in weapon range
                 boolean ovl = e.getFluxTracker() != null && e.getFluxTracker().isOverloadedOrVenting();
-                score = -d * 0.75f + inRangeBonus + (ovl ? 680f : 0f) + e.getFluxLevel() * 560f + (1f - e.getHullLevel()) * 440f;
+                score = -d * 0.75f + inRangeBonus + stationModAdjust + (ovl ? 680f : 0f) + e.getFluxLevel() * 560f + (1f - e.getHullLevel()) * 440f;
             }
             if (score > bestScore) {
                 bestScore = score;

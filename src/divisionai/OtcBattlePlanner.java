@@ -75,11 +75,15 @@ public class OtcBattlePlanner {
         }
         List<DivisionState> visibleEnemies = new ArrayList<>();
         boolean anyAbleVisibleEnemy = false;
-        for (DivisionState e : enemyGroup.divisions) {
+        boolean anyMobileVisibleEnemy = false;
+        for (DivisionState e : OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup)) {
             if (e.isCombatEffective() && OtcAI.isDivisionVisibleToSide(engine, myGroup.side, e)) {
                 visibleEnemies.add(e);
                 if (e.isAbleCombatEffective() && e.retreatingFraction < 0.5f) {
                     anyAbleVisibleEnemy = true;
+                }
+                if (!BattlefieldFirepowerEvaluator.isStationBastionDivision(e) && e.isAbleCombatEffective()) {
+                    anyMobileVisibleEnemy = true;
                 }
             }
         }
@@ -154,8 +158,10 @@ public class OtcBattlePlanner {
             assignGeneralChase(engine, myGroup, active, visibleEnemies, now, expires, tasked);
         }
 
-        // 4. Reserve hold (suspended during Full Assault or when frontline divisions are engaged and firepower uptime is needed)
-        if (reservePlay && !fullAssault) {
+        // 4. Reserve hold (suspended during Full Assault, when only a stationary station bastion remains to be besieged,
+        //    or when frontline divisions are engaged and firepower uptime is needed)
+        boolean stationOnlySiege = !visibleEnemies.isEmpty() && !anyMobileVisibleEnemy;
+        if (reservePlay && !fullAssault && !stationOnlySiege) {
             for (DivisionState d : active) {
                 if (tasked.contains(d)) continue;
                 // Item C: Never hold a division idle in reserve if enemies are already in range/contact with it
@@ -591,6 +597,9 @@ public class OtcBattlePlanner {
     }
 
     private static ShipAPI pickStrikeFocusShip(CombatEngineAPI engine, int side, DivisionState target) {
+        if (BattlefieldFirepowerEvaluator.isStationBastionDivision(target)) {
+            return DivisionCommanderAI.pickFocusEnemyShip(engine, side, target, null, true);
+        }
         ShipAPI best = null;
         float bestScore = -Float.MAX_VALUE;
         Vector2f refPt = target.centroid;
@@ -901,6 +910,15 @@ public class OtcBattlePlanner {
                     len = 1f;
                 }
                 float hold = Math.max(500f, main.standoffRange * 0.9f);
+                if (BattlefieldFirepowerEvaluator.isStationBastionDivision(primary)
+                        && !main.archetype.isCarrierArchetype()
+                        && main.avgEngageRange > 250f) {
+                    // A space station is stationary and will never close onto a high-standoff line; clamp fixing distance
+                    // to the Main Effort's actual gun envelope plus the station's module ring spread!
+                    float gunReach = Math.max(560f, main.avgEngageRange * 0.86f)
+                            + Math.min(260f, Math.max(0f, primary.spreadRadius - 180f) * 0.55f);
+                    hold = Math.min(hold, gunReach);
+                }
                 if (wedgeOrOblique && myGroup.forceRatio >= 1.12f) {
                     hold = Math.max(400f, hold * 0.78f);
                 }
@@ -1455,7 +1473,9 @@ public class OtcBattlePlanner {
         if (myGroup.forceRatio < 0.78f || myGroup.forceRatio > 1.55f) return;
 
         DivisionState target = myGroup.primaryThreatEnemyDivision;
-        if (target == null || !target.isAbleCombatEffective() || target.archetype.isCarrierArchetype()) return;
+        if (target == null || !target.isAbleCombatEffective()
+                || target.archetype.isCarrierArchetype()
+                || BattlefieldFirepowerEvaluator.isStationBastionDivision(target)) return;
         if (target.enemyFeignedRetreatSuspicion >= 0.50f || target.avgFluxLevel >= 0.55f) return;
 
         Vector2f tPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, target);

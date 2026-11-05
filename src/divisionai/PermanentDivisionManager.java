@@ -2748,8 +2748,8 @@ public class PermanentDivisionManager {
                 }
             }
 
-            // Also check carrier fighter/bomber engagement range if fitted with offensive wings
-            if (variant.getFittedWings() != null) {
+            // Also check carrier fighter/bomber engagement range if this is a Carrier division fitted with offensive wings
+            if (spec.archetype != null && spec.archetype.isCarrierArchetype() && variant.getFittedWings() != null) {
                 for (String wingId : variant.getFittedWings()) {
                     if (wingId == null) continue;
                     FighterWingSpecAPI wingSpec = Global.getSettings().getFighterWingSpec(wingId);

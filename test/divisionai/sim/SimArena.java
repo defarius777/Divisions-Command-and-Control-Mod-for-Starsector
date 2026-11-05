@@ -193,6 +193,10 @@ public class SimArena {
         public boolean detailedCombatModel = false;
         public boolean isPhaseShip = false;
         public boolean phased = false;
+        public boolean isStation = false;
+        public boolean isStationModule = false;
+        public ShipAPI parentStation = null;
+        public final List<ShipAPI> childModules = new ArrayList<>();
         public float phaseCloakCooldown = 0f;
         public float maxHullHp = 6000f;
         public float maxFluxCap = 5000f;
@@ -538,9 +542,13 @@ public class SimArena {
                         if (detailedCombatModel && "isDestroyer".equals(n)) return hullSize == HullSize.DESTROYER;
                         if (detailedCombatModel && "isCruiser".equals(n)) return hullSize == HullSize.CRUISER;
                         if (detailedCombatModel && "isCapital".equals(n)) return hullSize == HullSize.CAPITAL_SHIP;
+                        if ("isStation".equals(n)) return isStation;
+                        if ("isStationModule".equals(n)) return isStationModule;
+                        if ("getParentStation".equals(n)) return parentStation;
+                        if ("getChildModulesCopy".equals(n)) return new ArrayList<ShipAPI>(childModules);
                         if ("isExpired".equals(n) || "isRetreating".equals(n) || "isDirectRetreat".equals(n)
-                                || "isFighter".equals(n) || "isDrone".equals(n) || "isStation".equals(n)
-                                || "isStationModule".equals(n) || "isAlly".equals(n) || "isShuttlePod".equals(n)) {
+                                || "isFighter".equals(n) || "isDrone".equals(n)
+                                || "isAlly".equals(n) || "isShuttlePod".equals(n)) {
                             return Boolean.FALSE;
                         }
                         if ("getLocation".equals(n)) return location;

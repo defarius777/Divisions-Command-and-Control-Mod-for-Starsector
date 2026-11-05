@@ -78,6 +78,7 @@ public class DivisionAITestSuite {
         testFluidDivisionPolygonsAndOverlapStriping();
         testWeaponArcFirepowerSpaceAndCordonAvoidance();
         testHelmsmanshipMixedSpeedPacingExtractionAndPlayerC2();
+        testBabylonStationBastionTargetingAndModuleFocusFire();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -918,6 +919,103 @@ public class DivisionAITestSuite {
                 "Problem D: Contested mid-battle player CAPTURE order obeyed unconditionally (TAKE_AND_HOLD + lead ship pinned to point)",
                 String.format(Locale.ROOT, "intent=%s, underDirectOrder=%b, leadPinnedToCenter=%b",
                         cruCapDiv.currentIntent, cruCapDiv.underDirectObjectiveOrder, leadPinnedToObjectiveCenter));
+    }
+
+    /**
+     * Scenario 6d: Babylon Space Station Bastion Siege (OtcAI + OtcBattlePlanner + DivisionCommanderAI + Module Focus).
+     * Verifies that when all mobile enemy garrison divisions are destroyed and only a multi-module orbital station
+     * ("Babylon") remains:
+     *  1. OtcAI.getEffectiveEnemyDivisions & primaryThreatEnemyDivision select "Babylon" even when enemyGroup.divisions is empty.
+     *  2. Carrier divisions target "Babylon" (not "the contact zone" at reserveStation) and focus armed station modules.
+     *  3. Line Cruiser divisions with high custom standoffRange (1650u) clamp their station into gun range (< 1200u) of the station
+     *     and pick an armed combat module rather than the unarmed central hub or structural struts.
+     */
+    private static void testBabylonStationBastionTargetingAndModuleFocusFire() throws Exception {
+        System.out.println("\n--- Scenario 6d: Babylon Multi-Module Station Bastion Siege & Module Focus-Fire ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+        pGroup.authority = OtcAuthority.POSITIVE_CONTROL;
+
+        // Player divisions: Carrier Div 1 (standoff 2400) & Line Cruiser Div 1 (standoff 1650, gun range 1000)
+        DivisionState carrierDiv = new DivisionState("p_cv1", 0, 1,
+                DivisionArchetype.LIGHT_CARRIER_DIVISION, "Carrier Div 1", pCmdr);
+        carrierDiv.standoffRange = 2400f;
+        carrierDiv.openingMission = DivisionMissionType.DECKLOAD_STRIKE;
+        carrierDiv.mainMission = DivisionMissionType.DECKLOAD_STRIKE;
+        pGroup.divisions.add(carrierDiv);
+
+        DivisionState cruiserDiv = new DivisionState("p_cru1", 0, 2,
+                DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div 1", pCmdr);
+        cruiserDiv.standoffRange = 1650f;
+        cruiserDiv.openingMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        cruiserDiv.mainMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        pGroup.divisions.add(cruiserDiv);
+
+        SimArena arena = new SimArena("6d. Babylon Station Siege",
+                "Multi-module station bastion targeting & module focus-fire", pGroup, eGroup);
+        arena.addShip(carrierDiv, "cv_1", "RDS Manikin", "heron",
+                HullSize.CRUISER, -400f, -1800f, 90f, 900f, 0, 3);
+        arena.addShip(carrierDiv, "cv_2", "RDS Star Witch", "heron",
+                HullSize.CRUISER, 400f, -1800f, 90f, 900f, 0, 3);
+        arena.addShip(cruiserDiv, "cr_1", "RDS Terror", "champion",
+                HullSize.CRUISER, -220f, -1100f, 80f, 1000f, 2, 0);
+        arena.addShip(cruiserDiv, "cr_2", "RDS Warden", "eagle",
+                HullSize.CRUISER, 220f, -1100f, 80f, 1000f, 0, 0);
+
+        // Enemy side: enemyGroup.divisions is EMPTY (all mobile garrison ships destroyed!), only "Babylon" station + modules exist in engine.getShips()
+        SimShipState stationCore = new SimShipState(
+                "st_babylon", "Babylon", "ii_station4", 1, HullSize.CAPITAL_SHIP,
+                0f, 500f, 0f, 0f, 0, 0);
+        stationCore.isStation = true;
+        stationCore.weapons.clear();
+        stationCore.weaponMounts.clear();
+
+        SimShipState passiveArmor = new SimShipState(
+                "st_mod_armor", "Station Armour Module", "ii_module_armor_straight", 1, HullSize.FRIGATE,
+                0f, 260f, 0f, 0f, 0, 0);
+        passiveArmor.isStationModule = true;
+        passiveArmor.parentStation = stationCore.proxy;
+        passiveArmor.weapons.clear();
+        passiveArmor.weaponMounts.clear();
+
+        SimShipState armedBastionMod = new SimShipState(
+                "st_mod_superbastion", "Module, Magnum Support Bastion", "ii_module_superbastion", 1, HullSize.FRIGATE,
+                0f, 280f, 0f, 1200f, 4, 2);
+        armedBastionMod.isStationModule = true;
+        armedBastionMod.parentStation = stationCore.proxy;
+
+        stationCore.childModules.add(passiveArmor.proxy);
+        stationCore.childModules.add(armedBastionMod.proxy);
+        arena.ships.add(stationCore);
+        arena.ships.add(passiveArmor);
+        arena.ships.add(armedBastionMod);
+
+        arena.runSimulation(2.0f);
+
+        boolean primaryIsBabylon = pGroup.primaryThreatEnemyDivision != null
+                && "Babylon".equals(pGroup.primaryThreatEnemyDivision.displayName);
+        boolean carrierTargetsBabylon = carrierDiv.targetEnemyDivision != null
+                && "Babylon".equals(carrierDiv.targetEnemyDivision.displayName);
+        boolean cruiserTargetsBabylon = cruiserDiv.targetEnemyDivision != null
+                && "Babylon".equals(cruiserDiv.targetEnemyDivision.displayName)
+                && cruiserDiv.localEnemyStrength > 10f;
+        com.fs.starfarer.api.combat.ShipAPI focusShip = DivisionCommanderAI.pickFocusEnemyShip(
+                arena.engineProxy, 0, cruiserDiv.targetEnemyDivision, cruiserDiv.centroid, false);
+        boolean focusIsArmedModule = (focusShip == armedBastionMod.proxy);
+        float cruiserStandoffDist = dist(cruiserDiv.stationPoint, stationCore.location);
+
+        check(primaryIsBabylon && carrierTargetsBabylon && cruiserTargetsBabylon && focusIsArmedModule && cruiserStandoffDist <= 1350f,
+                "Scenario 6d: Station Bastion ('Babylon') targeted by OTC, Carriers & Cruisers when mobile garrison is dead, focusing armed module",
+                String.format(Locale.ROOT,
+                        "primary=%s, carrierTgt=%s, cruiserTgt=%s, localEnemyFp=%.1f, focusShip=%s, cruiserStandoff=%.0fu",
+                        pGroup.primaryThreatEnemyDivision != null ? pGroup.primaryThreatEnemyDivision.displayName : "null",
+                        carrierDiv.targetEnemyDivision != null ? carrierDiv.targetEnemyDivision.displayName : "null",
+                        cruiserDiv.targetEnemyDivision != null ? cruiserDiv.targetEnemyDivision.displayName : "null",
+                        cruiserDiv.localEnemyStrength,
+                        focusShip != null ? focusShip.getName() : "null",
+                        cruiserStandoffDist));
     }
 
     /**

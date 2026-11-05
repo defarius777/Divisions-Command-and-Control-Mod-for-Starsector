@@ -1064,8 +1064,15 @@ public class DivisionFormationNavigator {
         float dy = div.centroid.y - visEnemyPos.y;
         float len = (float) Math.sqrt(dx * dx + dy * dy);
         float standoff = Math.max(400f, div.standoffRange);
-        if (!div.archetype.isCarrierArchetype() && div.standoffRange <= 1050f && div.avgEngageRange > 250f) {
-            standoff = Math.min(standoff, Math.max(540f, div.avgEngageRange * 0.88f));
+        boolean enemyIsStation = BattlefieldFirepowerEvaluator.isStationBastionDivision(enemyDiv);
+        if (!div.archetype.isCarrierArchetype() && div.avgEngageRange > 250f) {
+            if (enemyIsStation) {
+                // Against a stationary orbital station (which never closes onto our line), clamp non-carrier gun
+                // divisions to their actual primary gun envelope so high custom standoff values don't park ships out of range!
+                standoff = Math.min(standoff, Math.max(540f, div.avgEngageRange * 0.86f));
+            } else if (div.standoffRange <= 1050f) {
+                standoff = Math.min(standoff, Math.max(540f, div.avgEngageRange * 0.88f));
+            }
         }
         LineStation lineStation = (div.lineStation != null) ? div.lineStation : LineStation.CENTER;
         boolean isLightOrDdDiv = div.archetype == DivisionArchetype.DESTROYER_DIVISION
@@ -1078,6 +1085,7 @@ public class DivisionFormationNavigator {
                 || (enemyDiv.totalEffectiveHp > div.totalEffectiveHp * 1.35f && div.totalEffectiveHp > 100f));
         boolean targetCorneredOrAuxiliary = !div.archetype.isCarrierArchetype()
                 && !outmatchedOrFragile
+                && !enemyIsStation
                 && div.avgFluxLevel < 0.60f
                 && (enemyDiv.edgeProximityPinch >= 0.28f
                 || enemyDiv.isUnableDivision
@@ -1089,31 +1097,31 @@ public class DivisionFormationNavigator {
         } else if (outmatchedOrFragile && div.avgEngageRange > 250f) {
             // Kite near the outer edge of our own gun envelope (never outside our own weapons!)
             standoff = Math.max(standoff, Math.min(1080f, div.avgEngageRange * 0.92f));
-        } else if (lineStation == LineStation.REAR) {
+        } else if (lineStation == LineStation.REAR && !enemyIsStation) {
             standoff = standoff * 1.12f;
         }
-        // Account for the forward hull projection of a multi-ship enemy division's front rank ahead of visEnemyPos
-        // (ignoring detached stragglers and compact 1-3 ship groups) so standoff is measured from the front rank
-        // of large spread-out enemy formations rather than their deep centroid!
+        // Account for the forward hull projection of a multi-ship enemy division's front rank (or a multi-module
+        // station's outer ring) ahead of visEnemyPos so standoff is measured from the front modules/rank!
         List<ShipAPI> eMembers = enemyDiv.getAliveMembers();
-        if (!targetCorneredOrAuxiliary && len > 1f && eMembers.size() >= 4) {
+        if (!targetCorneredOrAuxiliary && len > 1f && (eMembers.size() >= 4 || enemyIsStation)) {
             float ux = dx / len;
             float uy = dy / len;
             float maxEnemyFrontProj = 0f;
+            float maxMemberRad = enemyIsStation ? 950f : 680f;
             for (int i = 0; i < eMembers.size(); i++) {
                 ShipAPI es = eMembers.get(i);
                 if (es == null || !OtcAI.isShipVisibleToSide(engine, div.side, es) || es.getLocation() == null) continue;
                 if (enemyDiv.detachedStragglerIds != null && enemyDiv.detachedStragglerIds.contains(es.getId())) continue;
                 float rx = es.getLocation().x - visEnemyPos.x;
                 float ry = es.getLocation().y - visEnemyPos.y;
-                if (rx * rx + ry * ry > 680f * 680f) continue;
-                float proj = rx * ux + ry * uy;
+                if (rx * rx + ry * ry > maxMemberRad * maxMemberRad) continue;
+                float proj = rx * ux + ry * uy + (enemyIsStation ? Math.min(120f, es.getCollisionRadius() * 0.45f) : 0f);
                 if (proj > maxEnemyFrontProj) {
                     maxEnemyFrontProj = proj;
                 }
             }
-            if (maxEnemyFrontProj > 180f) {
-                float frontBuffer = Math.min(280f, (maxEnemyFrontProj - 180f) * 0.58f);
+            if (maxEnemyFrontProj > 160f) {
+                float frontBuffer = Math.min(340f, (maxEnemyFrontProj - 160f) * (enemyIsStation ? 0.72f : 0.58f));
                 standoff += frontBuffer;
             }
         }
