@@ -73,7 +73,13 @@ public class DivisionCommanderAI {
             // Re-evaluate on the commander's decision cadence, but hold a committed intent unless something urgent happens
             boolean cadenceDue = (now - div.lastIntentChangeTime) >= div.commander.decisionCadenceSeconds;
             boolean committed = now < div.intentCommitUntil;
-            if (cadenceDue && (!committed || hasUrgentTrigger(engine, div, myGroup, now))) {
+            boolean fullAssaultUrgent = OtcAI.isFullAssaultActive(engine, myGroup)
+                    && (div.archetype == null || !div.archetype.isCarrierArchetype())
+                    && !div.underDirectObjectiveOrder
+                    && div.avgFluxLevel < 0.86f
+                    && div.currentIntent != DivisionIntentType.PRESS_HOME
+                    && div.currentIntent != DivisionIntentType.GIVE_GENERAL_CHASE;
+            if (fullAssaultUrgent || (cadenceDue && (!committed || hasUrgentTrigger(engine, div, myGroup, now)))) {
                 DivisionIntentType prevIntent = div.currentIntent;
                 DivisionState prevEnemy = div.targetEnemyDivision;
                 DivisionState prevFriendly = div.targetFriendlyDivision;
@@ -139,7 +145,10 @@ public class DivisionCommanderAI {
                 : null;
 
         boolean martyrdom = isMartyrdomActive(div, myGroup, now);
+        boolean fullAssaultBreakup = OtcAI.isFullAssaultActive(engine, myGroup)
+                && (div.archetype == null || !div.archetype.isCarrierArchetype());
         boolean urgentBreakup = martyrdom
+                || fullAssaultBreakup
                 || div.currentIntent == DivisionIntentType.GIVE_GENERAL_CHASE
                 || div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                 || div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
@@ -412,9 +421,17 @@ public class DivisionCommanderAI {
     /** Events that break intent commitment and force an immediate re-evaluation. */
     static boolean hasUrgentTrigger(CombatEngineAPI engine, DivisionState div, BattleGroupState myGroup, float now) {
         if (div.otcOrder.version != div.appliedOtcOrderVersion) return true;
+        boolean fullAssault = OtcAI.isFullAssaultActive(engine, myGroup);
+        if (fullAssault
+                && (div.archetype == null || !div.archetype.isCarrierArchetype())
+                && !div.underDirectObjectiveOrder
+                && div.currentIntent != DivisionIntentType.PRESS_HOME
+                && div.currentIntent != DivisionIntentType.GIVE_GENERAL_CHASE) {
+            return true;
+        }
         boolean martyrdom = isMartyrdomActive(div, myGroup, now);
-        if (!martyrdom && isStrikeRunOver(div, now)) return true;
-        if (!martyrdom && isUnderHighFluxPressure(div, myGroup)
+        if (!martyrdom && !fullAssault && isStrikeRunOver(div, now)) return true;
+        if (!martyrdom && (!fullAssault || div.avgFluxLevel >= 0.86f) && isUnderHighFluxPressure(div, myGroup)
                 && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                 && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE) {
             return true;
@@ -674,6 +691,35 @@ public class DivisionCommanderAI {
             commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,
                     commandAssignedObj.getDisplayName(), "under direct orders", now);
             return;
+        }
+
+        // Step 1b: Player Full Assault Authority (unconditional aggressive attack across all non-carrier combat
+        // divisions unless critically overloaded >= 86% flux; suppresses standoff kiting, screening, reserve holds,
+        // trade-space-for-time, feigned retreat, and post-strike retirement).
+        boolean fullAssault = OtcAI.isFullAssaultActive(engine, myGroup);
+        if (fullAssault && !div.archetype.isCarrierArchetype() && div.archetype != DivisionArchetype.SERVICE_GROUP) {
+            if (div.avgFluxLevel < 0.86f) {
+                if (nearestEnemyDiv != null) {
+                    Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
+                    div.targetEnemyDivision = nearestEnemyDiv;
+                    div.stationPoint.set(visEnemyPos);
+                    commitIntent(engine, div, DivisionIntentType.PRESS_HOME,
+                            nearestEnemyDiv.displayName, "Full Assault", now);
+                    return;
+                }
+                if (uncapturedObj != null) {
+                    div.targetObjective = uncapturedObj;
+                    div.stationPoint.set(uncapturedObj.getLocation());
+                    commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,
+                            uncapturedObj.getDisplayName(), "Full Assault", now);
+                    return;
+                }
+                float scoutDirY = (div.side == 0) ? 1600f : -1600f;
+                div.stationPoint.set(div.centroid.x * 0.85f, div.centroid.y + scoutDirY);
+                commitIntent(engine, div, DivisionIntentType.CLOSE_AND_ENGAGE,
+                        "enemy forces", "Full Assault", now);
+                return;
+            }
         }
 
         // Steps 2 & 3: Post-strike retirement or high-flux line rotation / division extraction (HAUL_OUT_TO_VENT)
@@ -1834,9 +1880,10 @@ public class DivisionCommanderAI {
                 && OtcAI.isDivisionVisibleToSide(engine, div.side, enemy);
         boolean fullAssault = OtcAI.isFullAssaultActive(engine, myGroup);
         if (fullAssault && !div.archetype.isCarrierArchetype()
-                && (div.currentIntent == DivisionIntentType.HOLD_IN_RESERVE
-                || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX
-                || div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE)) {
+                && !div.underDirectObjectiveOrder
+                && div.avgFluxLevel < 0.86f
+                && div.currentIntent != DivisionIntentType.PRESS_HOME
+                && div.currentIntent != DivisionIntentType.GIVE_GENERAL_CHASE) {
             div.currentIntent = (enemyTrackable) ? DivisionIntentType.PRESS_HOME : DivisionIntentType.CLOSE_AND_ENGAGE;
         }
 
@@ -1861,9 +1908,13 @@ public class DivisionCommanderAI {
             case TOT_MISSILE_STRIKE:
             case TOT_ALPHA_STRIKE:
                 if (enemyTrackable) {
+                    Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, enemy);
+                    if (fullAssault && div.currentIntent == DivisionIntentType.PRESS_HOME) {
+                        div.stationPoint.set(ePos);
+                        break;
+                    }
                     // Close to an optimal weapon engagement band rather than diving into the middle of the enemy cluster
                     // (which exposed ships to 5x enemy guns at once); the fleet-wide lateral station is re-applied below.
-                    Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, enemy);
                     float pdx = div.centroid.x - ePos.x;
                     float pdy = div.centroid.y - ePos.y;
                     float plen = (float) Math.sqrt(pdx * pdx + pdy * pdy);
@@ -2240,6 +2291,7 @@ public class DivisionCommanderAI {
         boolean nonCombatOrRetiring = div.archetype == null
                 || div.archetype.isCarrierArchetype()
                 || div.archetype == DivisionArchetype.SERVICE_GROUP
+                || OtcAI.isFullAssaultActive(engine, myGroup)
                 || div.getAliveMembers().size() < 2
                 || !div.detachedStragglerIds.isEmpty()
                 || div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
@@ -2833,7 +2885,7 @@ public class DivisionCommanderAI {
         float effectiveContactDist = Math.min(shipDistToEnemy, nearestEnemyDist);
         div.inIndividualCombatMovementMode = (focusEnemyShip != null && effectiveContactDist <= individualEngageHorizon);
 
-        if (applyZoneVentingAndRankReliefFlags(ship, flags, slotPos, focusEnemyShip, div, myGroup, effectiveContactDist, now)) {
+        if (applyZoneVentingAndRankReliefFlags(engine, ship, flags, slotPos, focusEnemyShip, div, myGroup, effectiveContactDist, now)) {
             return;
         }
 
@@ -2875,7 +2927,7 @@ public class DivisionCommanderAI {
                 break;
 
             case PRESS_HOME:
-                applyPressHomeFlags(ship, shipIdx, flags, slotPos, focusEnemyShip, div, myGroup, structuredFormation, dressTol, now);
+                applyPressHomeFlags(engine, ship, shipIdx, flags, slotPos, focusEnemyShip, div, myGroup, structuredFormation, dressTol, now);
                 break;
 
             case BREAK_OFF_AND_RETIRE:
@@ -3019,6 +3071,7 @@ public class DivisionCommanderAI {
     }
 
     private static boolean applyZoneVentingAndRankReliefFlags(
+            CombatEngineAPI engine,
             ShipAPI ship,
             ShipwideAIFlags flags,
             Vector2f slotPos,
@@ -3030,12 +3083,16 @@ public class DivisionCommanderAI {
         String shipId = ship.getId();
         TacticalZoneType shipZone = (shipId != null) ? div.shipZoneTypeByShipId.get(shipId) : null;
         ShipRankState rankState = (shipId != null) ? div.shipRankStateByShipId.get(shipId) : null;
+        boolean fullAssault = OtcAI.isFullAssaultActive(engine, myGroup);
         if (shipZone == TacticalZoneType.SAFE_ZONE) {
             flags.unsetFlag(AIFlags.DO_NOT_VENT);
         } else if ((shipZone == TacticalZoneType.ENGAGEMENT_ZONE || shipZone == TacticalZoneType.KILL_ZONE)
                 && div.localEnemyStrength >= 8f
                 && ship.getFluxLevel() < 0.88f) {
             flags.setFlag(AIFlags.DO_NOT_VENT, FLAG_TTL);
+        }
+        if (fullAssault && ship.getFluxLevel() < 0.86f) {
+            return false;
         }
         boolean strikeCommitted = div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
                 || div.currentIntent == DivisionIntentType.PRESS_HOME
@@ -3257,6 +3314,7 @@ public class DivisionCommanderAI {
     }
 
     private static void applyPressHomeFlags(
+            CombatEngineAPI engine,
             ShipAPI ship,
             int shipIdx,
             ShipwideAIFlags flags,
@@ -3285,6 +3343,26 @@ public class DivisionCommanderAI {
             } else if (div.targetEnemyDivision != null) {
                 flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, div.stationPoint);
                 flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, div.stationPoint);
+            }
+            return;
+        }
+        boolean fullAssault = OtcAI.isFullAssaultActive(engine, myGroup);
+        if (fullAssault && ship.getFluxLevel() < 0.86f) {
+            flags.unsetFlag(AIFlags.BACK_OFF);
+            flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
+            flags.unsetFlag(AIFlags.RUN_QUICKLY);
+            flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL * 1.5f);
+            flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL * 1.5f);
+            flags.setFlag(AIFlags.PURSUING, FLAG_TTL * 1.5f);
+            if (focusEnemyShip != null) {
+                directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
+                float distToEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
+                float closePushBand = Math.max(460f, Math.min(720f, div.avgEngageRange * 0.58f));
+                if (distToEnemy > closePushBand) {
+                    flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, focusEnemyShip.getLocation());
+                }
+            } else if (div.targetEnemyDivision != null) {
+                flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, div.stationPoint);
             }
             return;
         }

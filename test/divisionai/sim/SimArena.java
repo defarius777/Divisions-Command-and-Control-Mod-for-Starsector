@@ -4,6 +4,8 @@ import com.fs.starfarer.api.combat.BattleObjectiveAPI;
 import com.fs.starfarer.api.combat.CollisionGridAPI;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
 import com.fs.starfarer.api.combat.CombatEntityAPI;
+import com.fs.starfarer.api.combat.CombatFleetManagerAPI;
+import com.fs.starfarer.api.combat.CombatTaskManagerAPI;
 import com.fs.starfarer.api.combat.FogOfWarAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
@@ -639,6 +641,8 @@ public class SimArena {
     public final CombatEngineAPI engineProxy;
     public final ScenarioRecording recording;
     public boolean fogOfWarEnabled = false;
+    public boolean fullAssaultSide0 = false;
+    public boolean fullAssaultSide1 = false;
     public float baseShipSightRadius = 3000f;
     private final java.util.Map<Object, float[]> customFogRevealsSide0 = new java.util.LinkedHashMap<>();
     private final java.util.Map<Object, float[]> customFogRevealsSide1 = new java.util.LinkedHashMap<>();
@@ -751,6 +755,50 @@ public class SimArena {
 
         final FogOfWarAPI fogProxy0 = createFogProxyForSide(0);
         final FogOfWarAPI fogProxy1 = createFogProxyForSide(1);
+        final CombatTaskManagerAPI tmProxy0 = (CombatTaskManagerAPI) Proxy.newProxyInstance(
+                CombatTaskManagerAPI.class.getClassLoader(),
+                new Class<?>[]{CombatTaskManagerAPI.class},
+                (p, m, a) -> {
+                    if ("isFullAssault".equals(m.getName())) return fullAssaultSide0;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final CombatTaskManagerAPI tmProxy1 = (CombatTaskManagerAPI) Proxy.newProxyInstance(
+                CombatTaskManagerAPI.class.getClassLoader(),
+                new Class<?>[]{CombatTaskManagerAPI.class},
+                (p, m, a) -> {
+                    if ("isFullAssault".equals(m.getName())) return fullAssaultSide1;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final CombatFleetManagerAPI fmProxy0 = (CombatFleetManagerAPI) Proxy.newProxyInstance(
+                CombatFleetManagerAPI.class.getClassLoader(),
+                new Class<?>[]{CombatFleetManagerAPI.class},
+                (p, m, a) -> {
+                    if ("getTaskManager".equals(m.getName())) return tmProxy0;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final CombatFleetManagerAPI fmProxy1 = (CombatFleetManagerAPI) Proxy.newProxyInstance(
+                CombatFleetManagerAPI.class.getClassLoader(),
+                new Class<?>[]{CombatFleetManagerAPI.class},
+                (p, m, a) -> {
+                    if ("getTaskManager".equals(m.getName())) return tmProxy1;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
 
         return (CombatEngineAPI) Proxy.newProxyInstance(
                 CombatEngineAPI.class.getClassLoader(),
@@ -768,6 +816,10 @@ public class SimArena {
                         return list;
                     }
                     if ("getAiGridShips".equals(n) || "getShipGrid".equals(n)) return gridProxy;
+                    if ("getFleetManager".equals(n)) {
+                        int side = (a != null && a.length > 0 && a[0] instanceof Integer) ? (Integer) a[0] : 0;
+                        return (side == 1) ? fmProxy1 : fmProxy0;
+                    }
                     if ("getFogOfWar".equals(n)) {
                         int side = (a != null && a.length > 0 && a[0] instanceof Integer) ? (Integer) a[0] : 0;
                         return (side == 1) ? fogProxy1 : fogProxy0;

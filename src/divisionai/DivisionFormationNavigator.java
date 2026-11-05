@@ -596,7 +596,8 @@ public class DivisionFormationNavigator {
                 || div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
                 || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
                 || div.currentIntent == DivisionIntentType.TOT_MISSILE_STRIKE
-                || div.currentIntent == DivisionIntentType.PRESS_HOME) {
+                || div.currentIntent == DivisionIntentType.PRESS_HOME
+                || div.currentIntent == DivisionIntentType.GIVE_GENERAL_CHASE) {
             return false;
         }
         if (div.targetEnemyDivision != null && div.targetEnemyDivision.isCombatEffective() && div.centroid != null) {

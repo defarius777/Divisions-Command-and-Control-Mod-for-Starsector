@@ -1016,6 +1016,31 @@ public class DivisionAITestSuite {
                         cruiserDiv.localEnemyStrength,
                         focusShip != null ? focusShip.getName() : "null",
                         cruiserStandoffDist));
+
+        // Verify Player Full Assault Authority (overrides high-flux trade-space/venting & formation leashes into PRESS_HOME with aggressive flags)
+        for (com.fs.starfarer.api.combat.ShipAPI m : cruiserDiv.getAliveMembers()) {
+            for (SimShipState s : arena.ships) {
+                if (s.proxy == m) {
+                    s.fluxLevel = 0.68f;
+                }
+            }
+        }
+        arena.fullAssaultSide0 = true;
+        arena.runSimulation(0.6f);
+        com.fs.starfarer.api.combat.ShipwideAIFlags cr1Flags = cruiserDiv.getAliveMembers().get(0).getAIFlags();
+        boolean fullAssaultIntentOk = cruiserDiv.currentIntent == DivisionIntentType.PRESS_HOME
+                && cruiserDiv.activeFormation == divisionai.PermanentDivisionManager.DivisionFormation.NONE
+                && pGroup.currentPhase == divisionai.DivisionModel.BattlePhase.GENERAL_CHASE;
+        boolean fullAssaultFlagsOk = cr1Flags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_BACK_OFF)
+                && cr1Flags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.HARASS_MOVE_IN)
+                && cr1Flags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.PURSUING)
+                && !cr1Flags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.BACK_OFF)
+                && !cr1Flags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_PURSUE);
+        check(fullAssaultIntentOk && fullAssaultFlagsOk,
+                "Full Assault Authority: immediately breaks formation leash, suppresses 68%-flux retreat, and drives ships in PRESS_HOME with DO_NOT_BACK_OFF + HARASS_MOVE_IN + PURSUING",
+                String.format(Locale.ROOT,
+                        "intent=%s, form=%s, phase=%s, flagsOk=%s",
+                        cruiserDiv.currentIntent, cruiserDiv.activeFormation, pGroup.currentPhase, fullAssaultFlagsOk));
     }
 
     /**

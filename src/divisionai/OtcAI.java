@@ -724,16 +724,20 @@ public class OtcAI {
                 && myGroup.forceRatio >= 1.20f && visibleEnemyFp >= 15f && minContactDist < 3600f;
         boolean strikeRunning = myGroup.strikePlan != null && myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES);
 
-        boolean pressuredForRetirement = endangeredDiv != null && worstLocalRatio < 0.55f && endangeredDiv.avgFluxLevel >= 0.35f;
+        boolean fullAssault = isFullAssaultActive(engine, myGroup);
+        boolean pressuredForRetirement = !fullAssault
+                && endangeredDiv != null && worstLocalRatio < 0.55f && endangeredDiv.avgFluxLevel >= 0.35f;
         BattlePhase nextPhase;
-        if (myGroup.missionContext == MissionContextType.REARGUARD_ACTION
+        if (fullAssault && anyEnemyVisible) {
+            nextPhase = BattlePhase.GENERAL_CHASE;
+        } else if (!fullAssault && (myGroup.missionContext == MissionContextType.REARGUARD_ACTION
                 || (anyEnemyVisible && now > 40f && myGroup.forceRatio < 0.45f && pressuredForRetirement
-                && myGroup.missionContext != MissionContextType.FIGHT_TO_THE_LAST)) {
+                && myGroup.missionContext != MissionContextType.FIGHT_TO_THE_LAST))) {
             nextPhase = BattlePhase.FIGHTING_RETIREMENT;
-        } else if (crisis || crisisPersists) {
+        } else if (!fullAssault && (crisis || crisisPersists)) {
             nextPhase = BattlePhase.REINFORCE_THE_LINE;
         } else if ((!anyEnemyVisible && now < 90f)
-                || (minContactDist > 3300f && hasUncapturedObjectives && now < 75f && myGroup.fleetEngagementLevel < 0.22f)) {
+                || (!fullAssault && minContactDist > 3300f && hasUncapturedObjectives && now < 75f && myGroup.fleetEngagementLevel < 0.22f)) {
             nextPhase = BattlePhase.APPROACH;
         } else if (generalChase || generalChasePersists) {
             nextPhase = BattlePhase.GENERAL_CHASE;
@@ -744,13 +748,14 @@ public class OtcAI {
         }
 
         // Minimum dwell: a phase holds for MIN_PHASE_DWELL seconds unless withdrawal is ordered, a severe crisis erupts,
-        // or the fleet was in APPROACH without enemy contact and has now spotted the enemy within engagement distance!
+        // Full Assault is active, or the fleet was in APPROACH without enemy contact and has now spotted the enemy within engagement distance!
         boolean dwellElapsed = (now - myGroup.phaseEnteredTime) >= MIN_PHASE_DWELL;
         boolean severeCrisis = endangeredDiv != null && worstLocalRatio < 0.45f;
         boolean approachContactEstablished = (current == BattlePhase.APPROACH)
                 && anyEnemyVisible
                 && minContactDist < 3200f;
         if (nextPhase != current && !dwellElapsed
+                && !fullAssault
                 && !approachContactEstablished
                 && nextPhase != BattlePhase.FIGHTING_RETIREMENT
                 && !(nextPhase == BattlePhase.REINFORCE_THE_LINE && severeCrisis)) {
