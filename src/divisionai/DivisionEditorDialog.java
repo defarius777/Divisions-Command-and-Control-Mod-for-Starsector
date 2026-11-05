@@ -123,6 +123,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     private String selectedOverviewDivisionId = null;
     String expandedDropdownKey = null;
     boolean carrierOptionsExpanded = false;
+    boolean rammingOptionsExpanded = false;
     private boolean closed = false;
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();

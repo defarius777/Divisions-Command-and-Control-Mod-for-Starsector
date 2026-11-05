@@ -18,6 +18,8 @@ import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
+import divisionai.PermanentDivisionManager.DivisionRammingMode;
+import divisionai.PermanentDivisionManager.DivisionRammingTargetScope;
 import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.LineStation;
@@ -376,6 +378,60 @@ final class DivisionConfigureSubscreen {
                 darkColor,
                 highlight,
                 positive);
+
+        DivisionRammingMode effRamMode =
+                PermanentDivisionManager.resolveEffectiveRammingMode(spec, doctrineCfg);
+        DivisionRammingTargetScope effRamScope =
+                PermanentDivisionManager.resolveEffectiveRammingTargetScope(spec, doctrineCfg);
+        int effRamSlots =
+                PermanentDivisionManager.resolveEffectiveMaxRammingSlots(spec, doctrineCfg);
+        addDivisionRammingOptionsToggleRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                dialog.rammingOptionsExpanded,
+                effRamMode,
+                effRamScope,
+                effRamSlots,
+                baseColor,
+                darkColor,
+                highlight,
+                positive,
+                gray);
+        if (dialog.rammingOptionsExpanded) {
+            addDivisionRammingModeRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effRamMode,
+                    spec.customRammingMode != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+            addDivisionRammingTargetScopeRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effRamScope,
+                    spec.customRammingTargetScope != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+            addDivisionVoidstrikeDepthRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Max Ram Slots: " + effRamSlots,
+                    effRamSlots,
+                    spec.customMaxRammingSlots != null,
+                    "DIV_RAM_SLOTS:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+        }
 
         // 5. Opening Mission Drop-Down (0 - openingDurationSeconds)
         addDivisionMissionDropdownRow(
@@ -967,6 +1023,115 @@ final class DivisionConfigureSubscreen {
                 "DIV_SKILL_COORD:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
     }
 
+    private static void addDivisionRammingOptionsToggleRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            boolean expanded,
+            DivisionRammingMode effRamMode,
+            DivisionRammingTargetScope effRamScope,
+            int effRamSlots,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        rowUi.addPara("Ramming Options:", 0f, baseColor).getPosition().inTL(4f, 4f);
+
+        String toggleAct = "TOGGLE_DIV_RAMMING_OPTIONS";
+        String btnText = (expanded ? "[^] " : "[v] ") + "Ramming Options";
+        ButtonAPI bToggle = dialog.registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        expanded ? highlight : (effRamMode != DivisionRammingMode.OFF ? positive : baseColor),
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        204f,
+                        21f,
+                        0f),
+                toggleAct);
+        if (expanded || effRamMode != DivisionRammingMode.OFF) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
+
+        String summary = (effRamMode == DivisionRammingMode.OFF)
+                ? "Off"
+                : String.format(
+                        Locale.ROOT,
+                        "%s / %s (Max %d)",
+                        effRamMode.displayName,
+                        effRamScope.displayName,
+                        effRamSlots);
+        rowUi.addPara(summary, 0f, effRamMode != DivisionRammingMode.OFF ? positive : gray)
+                .getPosition()
+                .inTL(CONTROL_COL_X + 212f, 4f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
+    private static void addDivisionRammingModeRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            DivisionRammingMode effMode,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        DivisionRammingMode[] opts = DivisionRammingMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].shortName;
+            acts[i] = "DIV_RAM_MODE:" + opts[i].name();
+            if (opts[i] == effMode) sel = i;
+        }
+        String labelText = "Ramming: " + effMode.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 72f, 20f, 76f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_RAM_MODE:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
+    private static void addDivisionRammingTargetScopeRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            DivisionRammingTargetScope effScope,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        DivisionRammingTargetScope[] opts = DivisionRammingTargetScope.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = "DIV_RAM_SCOPE:" + opts[i].name();
+            if (opts[i] == effScope) sel = i;
+        }
+        String labelText = "Ram Target: " + effScope.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 110f, 20f, 114f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_RAM_SCOPE:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
     private static void addDivisionVoidstrikeObservanceRow(
             final DivisionEditorDialog dialog,
             TooltipMakerAPI col,
@@ -1231,6 +1396,12 @@ final class DivisionConfigureSubscreen {
             dialog.rebuildContent();
             return true;
         }
+        if ("TOGGLE_DIV_RAMMING_OPTIONS".equals(cmd)) {
+            dialog.savePendingNameFieldIfAny();
+            dialog.rammingOptionsExpanded = !dialog.rammingOptionsExpanded;
+            dialog.rebuildContent();
+            return true;
+        }
         String activeDivisionId = dialog.activeDivisionId;
         if (cmd.startsWith("DIV_STATION_SPACING:") && activeDivisionId != null) {
             dialog.savePendingNameFieldIfAny();
@@ -1303,6 +1474,32 @@ final class DivisionConfigureSubscreen {
             ShipSkillCoordinationMode mode =
                     "INHERIT".equals(arg) ? null : ShipSkillCoordinationMode.valueOf(arg);
             PermanentDivisionManager.updateIndividualDivisionShipSkillCoordination(activeDivisionId, mode);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_RAM_MODE:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_RAM_MODE:".length());
+            DivisionRammingMode mode =
+                    "INHERIT".equals(arg) ? null : DivisionRammingMode.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionRammingMode(activeDivisionId, mode);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_RAM_SCOPE:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_RAM_SCOPE:".length());
+            DivisionRammingTargetScope scope =
+                    "INHERIT".equals(arg) ? null : DivisionRammingTargetScope.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionRammingTargetScope(activeDivisionId, scope);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_RAM_SLOTS:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_RAM_SLOTS:".length());
+            Integer slots = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
+            PermanentDivisionManager.updateIndividualDivisionMaxRammingSlots(activeDivisionId, slots);
             dialog.rebuildContent();
             return true;
         }

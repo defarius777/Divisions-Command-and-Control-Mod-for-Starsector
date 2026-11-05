@@ -2396,6 +2396,20 @@ public class UITestHarness {
             }
         }
 
+        for (PermanentDivisionManager.DivisionRammingMode rm : PermanentDivisionManager.DivisionRammingMode.values()) {
+            auditedStrings += 3;
+            if (rm.displayName.length() > 26 || rm.shortName.length() > 16 || rm.summary.length() > 95) {
+                violations.add("DivisionRammingMode." + rm.name() + " copy exceeds budget");
+            }
+        }
+
+        for (PermanentDivisionManager.DivisionRammingTargetScope rs : PermanentDivisionManager.DivisionRammingTargetScope.values()) {
+            auditedStrings += 3;
+            if (rs.displayName.length() > 26 || rs.shortName.length() > 16 || rs.summary.length() > 95) {
+                violations.add("DivisionRammingTargetScope." + rs.name() + " copy exceeds budget");
+            }
+        }
+
         res.record(
                 violations.isEmpty(),
                 "All UI enum titles, dropdown labels, and summaries pass succinctness & word-salad caps",
@@ -4095,6 +4109,23 @@ public class UITestHarness {
         skillDivSpec.customShipSkillCoordination = PermanentDivisionManager.ShipSkillCoordinationMode.INDEPENDENT;
         boolean customSkillCoordIndepOk = PermanentDivisionManager.resolveEffectiveShipSkillCoordination(skillDivSpec, skillDocCfg)
                 == PermanentDivisionManager.ShipSkillCoordinationMode.INDEPENDENT;
+
+        boolean defaultRamCfgOk = skillDocCfg.getRammingMode(PermanentDivisionManager.DoctrineDivisionType.DESTROYER)
+                == PermanentDivisionManager.DivisionRammingMode.OFF
+                && skillDocCfg.getRammingTargetScope(PermanentDivisionManager.DoctrineDivisionType.DESTROYER)
+                == PermanentDivisionManager.DivisionRammingTargetScope.SINGLE_SHIP
+                && skillDocCfg.getMaxRammingSlots(PermanentDivisionManager.DoctrineDivisionType.DESTROYER) == 1
+                && PermanentDivisionManager.resolveEffectiveRammingMode(skillDivSpec, skillDocCfg)
+                == PermanentDivisionManager.DivisionRammingMode.OFF;
+        skillDivSpec.customRammingMode = PermanentDivisionManager.DivisionRammingMode.GLANCING_SKIRMISH;
+        skillDivSpec.customRammingTargetScope = PermanentDivisionManager.DivisionRammingTargetScope.ENEMY_DIVISION;
+        skillDivSpec.customMaxRammingSlots = 6;
+        boolean customRamCfgOk = PermanentDivisionManager.resolveEffectiveRammingMode(skillDivSpec, skillDocCfg)
+                == PermanentDivisionManager.DivisionRammingMode.GLANCING_SKIRMISH
+                && PermanentDivisionManager.resolveEffectiveRammingTargetScope(skillDivSpec, skillDocCfg)
+                == PermanentDivisionManager.DivisionRammingTargetScope.ENEMY_DIVISION
+                && PermanentDivisionManager.resolveEffectiveMaxRammingSlots(skillDivSpec, skillDocCfg) == 6;
+        defaultSkillCoordSyncOk = defaultSkillCoordSyncOk && defaultRamCfgOk && customRamCfgOk;
 
         ShipAPI ramDdMock = createMockShipWithSystem("ram_1", "JYD_rambunctious", "JYD_ramdrive");
         ShipAPI burnCruiserMock = createMockShipWithSystem("burn_1", "dominator", "burndrive");

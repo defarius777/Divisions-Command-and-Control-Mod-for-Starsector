@@ -1259,6 +1259,89 @@ public class DivisionAITestSuite {
                         pGroup3.fleetFeignedRetreatActive, pGroup3.fleetFeignedRetreatStage, baitCruisers.currentIntent,
                         dist(baitCruisers.centroid, pursuingEnemy.centroid),
                         minimalSignaledFeignAndLargeTactics, minimalHudMessages));
+
+        // ------------------------------------------------------------------
+        // Sub-test 6f: Per-Division Ramming Options (Off by Default, Auto-Enabled on Ram Ships, 1..10 Attack Slots)
+        // ------------------------------------------------------------------
+        CommanderProfile pRamCmdr = new CommanderProfile(null, "aggressive");
+        CommanderProfile eRamCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroupRam = new BattleGroupState(0, pRamCmdr);
+        BattleGroupState eGroupRam = new BattleGroupState(1, eRamCmdr);
+
+        DivisionState stdDiv = new DivisionState(
+                "p_std_dd_div", 0, 1, DivisionArchetype.DESTROYER_DIVISION, "Standard Destroyer Div", pRamCmdr);
+        DivisionState ramDiv = new DivisionState(
+                "p_ram_dd_div", 0, 2, DivisionArchetype.DESTROYER_DIVISION, "Ram Destroyer Div", pRamCmdr);
+        DivisionState enemTgtDiv = new DivisionState(
+                "e_tgt_div", 1, 1, DivisionArchetype.DESTROYER_DIVISION, "Enemy Escort Div", eRamCmdr);
+        pGroupRam.divisions.add(stdDiv);
+        pGroupRam.divisions.add(ramDiv);
+        eGroupRam.divisions.add(enemTgtDiv);
+
+        SimArena arenaRam = new SimArena("6f. Per-Division Ramming Options", "Ramming modes & 1..10 attack slots", pGroupRam, eGroupRam);
+        arenaRam.addShip(stdDiv, "std_dd", "HSS Hammerhead", "hammerhead", HullSize.DESTROYER, -800f, -600f, 95f, 700f, 0, 0);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(stdDiv);
+        boolean defaultOffWithoutRamShips = (stdDiv.rammingMode == divisionai.PermanentDivisionManager.DivisionRammingMode.OFF)
+                && (stdDiv.ramCapableMemberCount == 0);
+
+        SimShipState ramDd1 = arenaRam.addShip(ramDiv, "jyd_rambunctious_1", "JYD Rambunctious 1", "JYD_rambunctious", HullSize.DESTROYER, -160f, -380f, 110f, 650f, 0, 0);
+        SimShipState ramDd2 = arenaRam.addShip(ramDiv, "jyd_rambunctious_2", "JYD Rambunctious 2", "JYD_rambunctious", HullSize.DESTROYER, 0f, -380f, 110f, 650f, 0, 0);
+        SimShipState ramDd3 = arenaRam.addShip(ramDiv, "jyd_rambunctious_3", "JYD Rambunctious 3", "JYD_rambunctious", HullSize.DESTROYER, 160f, -380f, 110f, 650f, 0, 0);
+        ramDd1.configureShipSystem("JYD_ramdrive", "Ram Drive", true);
+        ramDd2.configureShipSystem("JYD_ramdrive", "Ram Drive", true);
+        ramDd3.configureShipSystem("JYD_ramdrive", "Ram Drive", true);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(ramDiv);
+        boolean autoEnabledWithRamShips = (ramDiv.rammingMode == divisionai.PermanentDivisionManager.DivisionRammingMode.GLANCING_SKIRMISH)
+                && (ramDiv.ramCapableMemberCount == 3);
+
+        SimShipState enemTgt1 = arenaRam.addShip(enemTgtDiv, "e_tgt_1", "HSS Enforcer 1", "enforcer", HullSize.DESTROYER, -160f, 180f, 65f, 700f, 0, 0);
+        SimShipState enemTgt2 = arenaRam.addShip(enemTgtDiv, "e_tgt_2", "HSS Enforcer 2", "enforcer", HullSize.DESTROYER, 160f, 180f, 65f, 700f, 0, 0);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemTgtDiv);
+
+        ramDiv.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
+        ramDiv.targetEnemyDivision = enemTgtDiv;
+        ramDiv.inRangeFirepowerScore = 80f;
+        ramDiv.engagementLevel = 0.5f;
+        ramDiv.localForceRatio = 1.2f;
+        ramDiv.crossfireCordonIndex = 0.0f;
+        ramDd1.shipTarget = enemTgt1.proxy;
+        ramDd2.shipTarget = enemTgt1.proxy;
+        ramDd3.shipTarget = enemTgt1.proxy;
+
+        // 1. Verify Ramming: OFF blocks offensive ramming completely
+        ramDiv.rammingMode = divisionai.PermanentDivisionManager.DivisionRammingMode.OFF;
+        divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaRam.engineProxy, pGroupRam, null, eGroupRam, 20.0f);
+        boolean offModeBlockedAll = !ramDd1.systemActive && !ramDd2.systemActive && !ramDd3.systemActive;
+
+        // 2. Verify SINGLE_SHIP with maxRammingAttackSlots = 1 caps at 1 rammer per target ship (2 enemy ships -> 2 rammers active, 3rd held)
+        ramDiv.rammingMode = divisionai.PermanentDivisionManager.DivisionRammingMode.DIRECT_RAM;
+        ramDiv.rammingTargetScope = divisionai.PermanentDivisionManager.DivisionRammingTargetScope.SINGLE_SHIP;
+        ramDiv.maxRammingAttackSlots = 1;
+        divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaRam.engineProxy, pGroupRam, null, eGroupRam, 21.0f);
+        int activeSingle1 = (ramDd1.systemActive ? 1 : 0) + (ramDd2.systemActive ? 1 : 0) + (ramDd3.systemActive ? 1 : 0);
+        boolean singleSlot1Respected = (activeSingle1 == 2) && (ramDd1.shipTarget != ramDd2.shipTarget);
+
+        // 3. Reset drives and verify ENEMY_DIVISION with maxRammingAttackSlots = 1 caps the entire division at 1 active rammer total
+        ramDd1.systemActive = false; ramDd1.systemCooldownRemaining = 0f;
+        ramDd2.systemActive = false; ramDd2.systemCooldownRemaining = 0f;
+        ramDd3.systemActive = false; ramDd3.systemCooldownRemaining = 0f;
+        ramDiv.rammingTargetScope = divisionai.PermanentDivisionManager.DivisionRammingTargetScope.ENEMY_DIVISION;
+        ramDiv.maxRammingAttackSlots = 1;
+        divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaRam.engineProxy, pGroupRam, null, eGroupRam, 22.0f);
+        int activeDivSlot1 = (ramDd1.systemActive ? 1 : 0) + (ramDd2.systemActive ? 1 : 0) + (ramDd3.systemActive ? 1 : 0);
+
+        // 4. Increase ENEMY_DIVISION maxRammingAttackSlots to 3 -> all 3 rammers allowed to attack
+        ramDiv.maxRammingAttackSlots = 3;
+        divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaRam.engineProxy, pGroupRam, null, eGroupRam, 22.5f);
+        int activeDivSlot3 = (ramDd1.systemActive ? 1 : 0) + (ramDd2.systemActive ? 1 : 0) + (ramDd3.systemActive ? 1 : 0);
+
+        check(defaultOffWithoutRamShips && autoEnabledWithRamShips && offModeBlockedAll
+                        && singleSlot1Respected && activeDivSlot1 == 1 && activeDivSlot3 == 3,
+                "Scenario 6f: Per-Division Ramming Options default to OFF, auto-enable when ram ships detected, and enforce 1..10 slots against Single Ship or Enemy Division",
+                String.format(Locale.ROOT,
+                        "defaultOff=%b, autoEnabled=%b, offBlocked=%b, singleShip1SlotActive=%d (distinctTargets=%b), enemyDiv1SlotActive=%d, enemyDiv3SlotActive=%d",
+                        defaultOffWithoutRamShips, autoEnabledWithRamShips, offModeBlockedAll,
+                        activeSingle1, singleSlot1Respected, activeDivSlot1, activeDivSlot3));
     }
 
     /**

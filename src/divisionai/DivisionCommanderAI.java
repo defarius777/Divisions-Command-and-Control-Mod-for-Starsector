@@ -2416,6 +2416,7 @@ public class DivisionCommanderAI {
 
         float stageElapsed = Math.max(0f, now - div.setpieceStageStartTime);
         boolean isRamDivisionForPass = !enemyIsStationForPass
+                && div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
                 && div.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
                 && div.ramCapableMemberCount >= 1
                 && div.ramCapableMemberCount * 2 >= Math.max(1, div.getAliveMembers().size());

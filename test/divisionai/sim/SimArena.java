@@ -212,6 +212,11 @@ public class SimArena {
         public int fighterBays;
         public boolean alive = true;
         public ShipAPI shipTarget = null;
+        public String systemId = null;
+        public String systemName = null;
+        public boolean systemActive = false;
+        public boolean systemOnOff = false;
+        public float systemCooldownRemaining = 0f;
         public final ShipwideAIFlags aiFlags = new ShipwideAIFlags();
         public final List<WeaponAPI> weapons = new ArrayList<>();
         public final List<SimWeaponMount> weaponMounts = new ArrayList<>();
@@ -299,6 +304,12 @@ public class SimArena {
             this.weapons.clear();
             this.weaponMounts.clear();
             populateDefaultWeaponGroups();
+        }
+
+        public void configureShipSystem(String sysId, String sysName, boolean onOff) {
+            this.systemId = sysId;
+            this.systemName = sysName;
+            this.systemOnOff = onOff;
         }
 
         private static WeaponAPI createBaselineGun(final float range) {
@@ -526,6 +537,41 @@ public class SimArena {
                     })
                     : null;
 
+            final ShipSystemAPI sysProxy = (ShipSystemAPI) Proxy.newProxyInstance(
+                    ShipSystemAPI.class.getClassLoader(),
+                    new Class<?>[]{ShipSystemAPI.class},
+                    (sp, sm, sa) -> {
+                        String sn = sm.getName();
+                        if ("getId".equals(sn)) return systemId != null ? systemId : "";
+                        if ("getDisplayName".equals(sn)) return systemName != null ? systemName : "";
+                        if ("isActive".equals(sn) || "isOn".equals(sn)) return systemActive;
+                        if ("isStateActive".equals(sn)) return systemActive;
+                        if ("isCoolingDown".equals(sn)) return systemCooldownRemaining > 0f;
+                        if ("getCooldownRemaining".equals(sn)) return systemCooldownRemaining;
+                        if ("getAmmo".equals(sn) || "getMaxAmmo".equals(sn)) return Integer.MAX_VALUE;
+                        if ("getSpecAPI".equals(sn)) {
+                            return Proxy.newProxyInstance(
+                                    com.fs.starfarer.api.combat.ShipSystemSpecAPI.class.getClassLoader(),
+                                    new Class<?>[]{com.fs.starfarer.api.combat.ShipSystemSpecAPI.class},
+                                    (ssp, ssm, ssa) -> {
+                                        String ssn = ssm.getName();
+                                        if ("getId".equals(ssn)) return systemId != null ? systemId : "";
+                                        if ("getName".equals(ssn)) return systemName != null ? systemName : "";
+                                        if ("isToggle".equals(ssn)) return systemOnOff;
+                                        Class<?> ssrt = ssm.getReturnType();
+                                        if (ssrt == boolean.class) return false;
+                                        if (ssrt == int.class) return 0;
+                                        if (ssrt == float.class) return 0f;
+                                        return null;
+                                    });
+                        }
+                        Class<?> srt = sm.getReturnType();
+                        if (srt == boolean.class) return false;
+                        if (srt == int.class) return 0;
+                        if (srt == float.class) return 0f;
+                        return null;
+                    });
+
             return (ShipAPI) Proxy.newProxyInstance(
                     ShipAPI.class.getClassLoader(),
                     new Class<?>[]{ShipAPI.class},
@@ -540,6 +586,22 @@ public class SimArena {
                         if ("isPhased".equals(n)) return detailedCombatModel && phased;
                         if ("getShield".equals(n)) return detailedCombatModel ? shieldProxy : null;
                         if ("getPhaseCloak".equals(n)) return detailedCombatModel ? phaseProxy : null;
+                        if ("getSystem".equals(n)) return systemId != null ? sysProxy : null;
+                        if ("useSystem".equals(n)) {
+                            if (systemId != null && systemCooldownRemaining <= 0f) {
+                                if (systemOnOff) {
+                                    systemActive = !systemActive;
+                                } else {
+                                    systemActive = true;
+                                }
+                            }
+                            return null;
+                        }
+                        if ("getShipTarget".equals(n)) return shipTarget;
+                        if ("setShipTarget".equals(n)) {
+                            shipTarget = (a != null && a.length > 0 && a[0] instanceof ShipAPI) ? (ShipAPI) a[0] : null;
+                            return null;
+                        }
                         if (detailedCombatModel && "isFrigate".equals(n)) return hullSize == HullSize.FRIGATE;
                         if (detailedCombatModel && "isDestroyer".equals(n)) return hullSize == HullSize.DESTROYER;
                         if (detailedCombatModel && "isCruiser".equals(n)) return hullSize == HullSize.CRUISER;

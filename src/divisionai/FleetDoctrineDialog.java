@@ -29,6 +29,8 @@ import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
+import divisionai.PermanentDivisionManager.DivisionRammingMode;
+import divisionai.PermanentDivisionManager.DivisionRammingTargetScope;
 import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.FleetWideFormation;
@@ -124,6 +126,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
     private final Map<DivisionArchetype, TextFieldAPI> prefixTextFields = new LinkedHashMap<>();
     private final java.util.Set<DoctrineDivisionType> expandedCarrierOptionsTypes =
+            java.util.EnumSet.noneOf(DoctrineDivisionType.class);
+    private final java.util.Set<DoctrineDivisionType> expandedRammingOptionsTypes =
             java.util.EnumSet.noneOf(DoctrineDivisionType.class);
     private TextFieldAPI customOtcTitleField = null;
     private String pendingAction = null;
@@ -634,6 +638,71 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         positive,
                         gray);
+
+                if (!dt.isCarrierType() && dt != DoctrineDivisionType.SERVICE_GROUP) {
+                    DivisionRammingMode currRamMode = doctrine.getRammingMode(dt);
+                    DivisionRammingTargetScope currRamScope = doctrine.getRammingTargetScope(dt);
+                    int currRamSlots = doctrine.getMaxRammingSlots(dt);
+                    boolean ramOptsExpanded = expandedRammingOptionsTypes.contains(dt);
+                    addRammingOptionsToggleRow(
+                            body,
+                            bodyWidth - 16f,
+                            dt,
+                            ramOptsExpanded,
+                            currRamMode,
+                            currRamScope,
+                            currRamSlots,
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            positive,
+                            gray);
+                    if (ramOptsExpanded) {
+                        addRammingModeRow(
+                                body,
+                                bodyWidth - 16f,
+                                "Ramming: " + currRamMode.displayName,
+                                currRamMode,
+                                "SET_RAM_MODE:" + dt.name() + ":",
+                                baseColor,
+                                darkColor,
+                                positive,
+                                gray);
+                        addRammingTargetScopeRow(
+                                body,
+                                bodyWidth - 16f,
+                                "Ram Target: " + currRamScope.displayName,
+                                currRamScope,
+                                "SET_RAM_SCOPE:" + dt.name() + ":",
+                                baseColor,
+                                darkColor,
+                                highlight,
+                                gray);
+                        DivisionUiWidgets.addVoidstrikeDepthRow(
+                                body,
+                                bodyWidth - 16f,
+                                28f,
+                                CONTROL_COL_X,
+                                subPanelPlugin,
+                                buttonRegistrar,
+                                "Max Ram Slots: " + currRamSlots,
+                                highlight,
+                                6f,
+                                5f,
+                                currRamSlots,
+                                "SET_RAM_SLOTS:" + dt.name() + ":",
+                                true,
+                                false,
+                                true,
+                                28f,
+                                22f,
+                                32f,
+                                baseColor,
+                                darkColor,
+                                highlight,
+                                positive);
+                    }
+                }
 
                 // Row 5: Opening Mission Drop-Down Menu (30s - 60s)
                 addMissionDropdownRow(
@@ -2380,6 +2449,50 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             return;
         }
+        if (cmd.startsWith("TOGGLE_RAMMING_OPTS:")) {
+            try {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(cmd.substring("TOGGLE_RAMMING_OPTS:".length()));
+                if (!expandedRammingOptionsTypes.remove(dt)) {
+                    expandedRammingOptionsTypes.add(dt);
+                }
+                rebuildContent();
+            } catch (IllegalArgumentException ignored) {
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_RAM_MODE:")) {
+            String rest = cmd.substring("SET_RAM_MODE:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                DivisionRammingMode mode = DivisionRammingMode.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeRammingMode(dt, mode);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_RAM_SCOPE:")) {
+            String rest = cmd.substring("SET_RAM_SCOPE:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                DivisionRammingTargetScope scope = DivisionRammingTargetScope.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeRammingTargetScope(dt, scope);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_RAM_SLOTS:")) {
+            String rest = cmd.substring("SET_RAM_SLOTS:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                int slots = Integer.parseInt(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeMaxRammingSlots(dt, slots);
+                rebuildContent();
+            }
+            return;
+        }
         if (cmd.startsWith("SET_OTC_PLAY:")) {
             String rest = cmd.substring("SET_OTC_PLAY:".length());
             int sep = rest.indexOf(':');
@@ -2790,6 +2903,115 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 labels, acts, sel, 116f, 22f, 122f, baseColor, darkColor, activeValueColor,
                 null, true, 0f, activeValueColor,
                 currentCoord != null ? currentCoord.summary : null, gray, 6f);
+    }
+
+    private void addRammingOptionsToggleRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            DoctrineDivisionType dt,
+            boolean expanded,
+            DivisionRammingMode currRamMode,
+            DivisionRammingTargetScope currRamScope,
+            int currRamSlots,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+
+        rowUi.addPara("Ramming Options:", 0f, baseColor).getPosition().inTL(6f, 5f);
+
+        String toggleAct = "TOGGLE_RAMMING_OPTS:" + dt.name();
+        String btnText = (expanded ? "[^] " : "[v] ") + "Ramming Options";
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        expanded ? highlight : (currRamMode != DivisionRammingMode.OFF ? positive : baseColor),
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        204f,
+                        22f,
+                        0f),
+                toggleAct);
+        if (expanded || currRamMode != DivisionRammingMode.OFF) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        String summary = (currRamMode == DivisionRammingMode.OFF)
+                ? "Off (Auto-enabled when auto-assigner detects ram-capable ships in a division)"
+                : String.format(
+                        Locale.ROOT,
+                        "%s  |  %s  |  Max Slots: %d",
+                        currRamMode.displayName,
+                        currRamScope.displayName,
+                        currRamSlots);
+        rowUi.addPara(summary, 0f, currRamMode != DivisionRammingMode.OFF ? positive : gray)
+                .getPosition()
+                .inTL(CONTROL_COL_X + 216f, 5f);
+
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
+    private void addRammingModeRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            DivisionRammingMode currentMode,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        DivisionRammingMode[] opts = DivisionRammingMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].shortName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentMode) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 76f, 22f, 80f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentMode != null ? currentMode.summary : null, gray, 6f);
+    }
+
+    private void addRammingTargetScopeRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            DivisionRammingTargetScope currentScope,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        DivisionRammingTargetScope[] opts = DivisionRammingTargetScope.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentScope) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 116f, 22f, 122f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentScope != null ? currentScope.summary : null, gray, 6f);
     }
 
     private void addPreferredSpaceRow(
