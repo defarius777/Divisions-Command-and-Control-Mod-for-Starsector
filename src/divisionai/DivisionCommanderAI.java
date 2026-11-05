@@ -8,6 +8,7 @@ import com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo;
 import com.fs.starfarer.api.combat.CombatTaskManagerAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAIPlugin;
+import com.fs.starfarer.api.combat.ShipCommand;
 import com.fs.starfarer.api.combat.ShipwideAIFlags;
 import com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags;
 import divisionai.DivisionModel.BattlePhase;
@@ -489,14 +490,47 @@ public class DivisionCommanderAI {
                 && div.localForceRatio < 0.65f
                 && (div.avgFluxLevel >= 0.35f || div.maxMemberFluxLevel >= 0.45f || div.avgHullLevel < 0.75f);
 
-        // Protect fragile destroyer divisions (e.g. Hammerhead / Sunder packs) from fighting to the death
-        // when their Effective HP (Shield + Armor + Hull HP) is depleted against heavy enemy resistance!
+        // Protect fragile or ram-capable destroyer divisions (e.g. Hammerhead / Sunder / Rambunctious packs) from
+        // fighting to the death when their Effective HP or post-ram shields are depleted against heavy resistance!
         boolean isFragileDestroyerDiv = (div.archetype == DivisionArchetype.DESTROYER_DIVISION
                 || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
+        List<ShipAPI> alive = div.getAliveMembers();
+        int endangeredMemberCount = 0;
+        int postRamExposedCount = 0;
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI m = alive.get(i);
+            if (m == null || !m.isAlive() || m.isHulk()) continue;
+            boolean overloaded = m.getFluxTracker() != null && m.getFluxTracker().isOverloadedOrVenting();
+            boolean highFluxOrLowHull = m.getFluxLevel() >= 0.66f
+                    || (m.getHullLevel() < 0.58f && m.getFluxLevel() >= 0.40f);
+            boolean ramRecoveringUnderFire = false;
+            ShipSystemCoordinator.ShipSkillProfile sp = ShipSystemCoordinator.getSkillProfile(m);
+            if (sp.isDesignedToRam && m.getSystem() != null && !m.getSystem().isActive() && !m.getSystem().isChargeup()) {
+                if (m.getSystem().getCooldownRemaining() > 0.4f
+                        && div.localEnemyStrength >= 10f
+                        && (m.getFluxLevel() >= 0.58f
+                        || (m.getHullLevel() < 0.64f && m.getFluxLevel() >= 0.36f)
+                        || (div.localForceRatio < 0.68f && m.getFluxLevel() >= 0.45f))) {
+                    ramRecoveringUnderFire = true;
+                    postRamExposedCount++;
+                }
+            }
+            if (overloaded || highFluxOrLowHull || ramRecoveringUnderFire) {
+                endangeredMemberCount++;
+            }
+        }
+        boolean multiShipExtractionNeeded = div.localEnemyStrength >= 10f
+                && ((alive.size() >= 2 && endangeredMemberCount >= 2 && endangeredMemberCount * 2 >= alive.size()
+                && (div.localForceRatio < 0.85f || inCrossfireCordon || div.avgFluxLevel >= 0.56f))
+                || (postRamExposedCount >= 2 && (div.localForceRatio < 0.78f || inCrossfireCordon || div.avgFluxLevel >= 0.52f)));
+
         boolean ehpDepletedUnderFire = div.localEnemyStrength >= 10f
                 && div.avgHullLevel < 0.88f
                 && ((div.effectiveHpRatio < 0.48f && (div.avgFluxLevel >= 0.52f || div.localForceRatio < 0.72f))
-                || (isFragileDestroyerDiv && div.effectiveHpRatio < 0.54f && div.localForceRatio < 0.68f && div.avgFluxLevel >= 0.55f));
+                || (isFragileDestroyerDiv && div.effectiveHpRatio < 0.54f && div.localForceRatio < 0.68f && div.avgFluxLevel >= 0.55f)
+                || ((isFragileDestroyerDiv || div.ramCapableMemberCount >= 1)
+                && div.effectiveHpRatio < 0.64f && div.localForceRatio < 0.82f
+                && (div.avgFluxLevel >= 0.42f || div.maxMemberFluxLevel >= 0.58f)));
 
         boolean isHeavyLineDiv = div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
                 || div.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
@@ -506,26 +540,29 @@ public class DivisionCommanderAI {
         float effFluxThreshold = Math.max(0.64f, div.commander.rotationFluxThreshold);
         boolean highFluxPressure = div.avgFluxLevel >= effFluxThreshold
                 || loneFrigateOvermatched
+                || multiShipExtractionNeeded
                 || (!isHeavyLineDiv && ehpDepletedUnderFire)
-                || (!isHeavyLineDiv && div.maxMemberFluxLevel >= 0.78f && div.localEnemyStrength > 10f && (div.localForceRatio < 0.72f || inCrossfireCordon))
-                || (!isHeavyLineDiv && div.avgFluxLevel >= 0.56f && div.localEnemyStrength > 14f && div.localForceRatio < 0.50f && div.commander.aggressionBias < 1.35f)
-                || (!isHeavyLineDiv && inCrossfireCordon && (div.maxMemberFluxLevel >= 0.64f || (div.avgFluxLevel >= 0.38f && div.localForceRatio < 0.68f)));
+                || (!isHeavyLineDiv && div.maxMemberFluxLevel >= 0.76f && div.localEnemyStrength > 10f && (div.localForceRatio < 0.75f || inCrossfireCordon))
+                || (!isHeavyLineDiv && div.avgFluxLevel >= 0.52f && div.localEnemyStrength > 12f && div.localForceRatio < 0.62f && div.commander.aggressionBias < 1.35f)
+                || (!isHeavyLineDiv && inCrossfireCordon && (div.maxMemberFluxLevel >= 0.60f || (div.avgFluxLevel >= 0.36f && div.localForceRatio < 0.72f)));
         // Intra-Division Double-Line Rank Relief: if the division is NOT trapped in a 3-sided crossfire cordon
         // and still maintains its minimum healthy Front-Rank Engagement Zone (div.inDoubleLineRelief == true),
         // individual high-flux ships step back into the Rear-Rank Safe Zone while healthy ships keep firing in the
-        // Front Rank — never pull the entire division off the battleline while its Front Rank is still combat-effective!
+        // Front Rank — unless multiple ships or post-ram destroyers need full division extraction!
         if (highFluxPressure
                 && div.inDoubleLineRelief
                 && !inCrossfireCordon
                 && !loneFrigateOvermatched
+                && !multiShipExtractionNeeded
                 && div.avgFluxLevel < 0.74f) {
             highFluxPressure = false;
         }
         // Item C: If our division is actively delivering strong in-range firepower and trading favorably
-        // (and is NOT trapped in an L/U crossfire pocket), do not sacrifice gun uptime by hauling out unless flux is critical!
+        // (and is NOT trapped in an L/U crossfire pocket or multi-ship extraction crisis), do not sacrifice gun uptime!
         if (highFluxPressure
                 && !inCrossfireCordon
                 && !loneFrigateOvermatched
+                && !multiShipExtractionNeeded
                 && div.inRangeFirepowerScore > 40f
                 && div.firepowerExchangeRatio >= 0.85f
                 && div.avgFluxLevel < div.commander.rotationFluxThreshold
@@ -533,6 +570,7 @@ public class DivisionCommanderAI {
             highFluxPressure = false;
         }
         boolean canRotateOut = (div != myGroup.mainEffortDivision
+                || (!isHeavyLineDiv && multiShipExtractionNeeded)
                 || div.avgFluxLevel >= 0.75f
                 || div.effectiveHpRatio < 0.42f);
         return highFluxPressure && canRotateOut;
@@ -622,26 +660,25 @@ public class DivisionCommanderAI {
                 : Float.MAX_VALUE;
 
         boolean martyrdom = isMartyrdomActive(div, myGroup, now);
-
-        // Steps 1 & 2: Post-strike retirement or high-flux line rotation (HAUL_OUT_TO_VENT)
-        if (!martyrdom && trySelectWithdrawalOrVentIntent(
-                engine, div, myGroup, prevIntent, nearestEnemyDiv, heavyFriendlyToScreen, now)) {
-            return;
-        }
-
         DivisionMissionType activeMission = resolveActiveMission(div, now);
         String missionPhaseTag = isInOpeningWindow(div, now) ? "Opening: " : "Main: ";
         boolean isHeavyLineOrCarrier = (div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
                 || div.archetype.isCarrierArchetype());
 
-        // Step 3: Explicit Command Window objective order (player orders outrank the OTC; hysteresis prevents 18-FP boundary oscillation)
-        float maxDirectObjEnemyStrength = (prevIntent == DivisionIntentType.TAKE_AND_HOLD
-                && div.targetObjective == commandAssignedObj) ? 24f : 15f;
-        if (commandAssignedObj != null && !isHeavyLineOrCarrier && div.localEnemyStrength < maxDirectObjEnemyStrength) {
+        // Step 1: Explicit Command Window objective order (Player holds absolute C2 authority at all times!
+        // Never reject a player-ordered Control Point capture because of localEnemyStrength or OTC tasking;
+        // only yield if the division is critically fluxed out >= 82%).
+        if (commandAssignedObj != null && !div.archetype.isCarrierArchetype() && div.avgFluxLevel < 0.82f) {
             div.targetObjective = commandAssignedObj;
             div.stationPoint.set(commandAssignedObj.getLocation());
             commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,
                     commandAssignedObj.getDisplayName(), "under direct orders", now);
+            return;
+        }
+
+        // Steps 2 & 3: Post-strike retirement or high-flux line rotation / division extraction (HAUL_OUT_TO_VENT)
+        if (!martyrdom && trySelectWithdrawalOrVentIntent(
+                engine, div, myGroup, prevIntent, nearestEnemyDiv, heavyFriendlyToScreen, now)) {
             return;
         }
 
@@ -854,12 +891,20 @@ public class DivisionCommanderAI {
             }
 
             // Item C & E: If there is NO covering friendly division (ventBehindFriend == null) and enemies are actively
-            // shooting us in gun range, do not turn tail 1,400u to an uncovered reserve station unless flux is critical;
-            // instead, Trade Space for Time (offset centroid by dx, dy while keeping weapons bearing on the enemy)!
+            // shooting us in gun range, heavy line divisions (Cruisers/Battleships) with healthy hulls Trade Space for Time
+            // instead of turning tail; whereas Frigate/Destroyer/Ramming divisions execute a high-speed extraction!
+            boolean isLightOrRamDiv = div.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                    || div.archetype == DivisionArchetype.PHASE_DIVISION
+                    || div.archetype == DivisionArchetype.DESTROYER_DIVISION
+                    || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                    || div.ramCapableMemberCount >= 1;
             if (ventBehindFriend == null
+                    && !isLightOrRamDiv
                     && !fightingRetirementVent
                     && div.crossfireCordonIndex < 0.35f
                     && div.incomingInRangeFirepower > 35f
+                    && div.avgHullLevel >= 0.72f
                     && div.avgFluxLevel < div.commander.rotationFluxThreshold
                     && div.maxMemberFluxLevel < 0.86f) {
                 if (nearestEnemyDiv != null && nearestEnemyDiv.isCombatEffective()) {
@@ -896,6 +941,26 @@ public class DivisionCommanderAI {
                 float retreatDirY = (div.side == 0) ? -1f : 1f;
                 div.stationPoint.set(ventBehindFriend.centroid.x, ventBehindFriend.centroid.y + retreatDirY * 720f);
                 targetLabel = ventBehindFriend.displayName;
+            } else if (nearestEnemyDiv != null && nearestEnemyDiv.isCombatEffective()) {
+                // Compute a clear high-speed Escape Vector 1,350u away from the enemy threat (blended toward the fleet's
+                // safe corridor / rear) so faster divisions (e.g. Rambunctious DDs) sprint directly out of enemy gun range!
+                Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
+                float edx = div.centroid.x - ePos.x;
+                float edy = div.centroid.y - ePos.y;
+                float elen = (float) Math.sqrt(edx * edx + edy * edy);
+                float escDirX = (elen > 1f) ? (edx / elen) : 0f;
+                float escDirY = (elen > 1f) ? (edy / elen) : (div.side == 0 ? -1f : 1f);
+                float rearBiasY = (div.side == 0) ? -0.35f : 0.35f;
+                escDirY += rearBiasY;
+                float nLen = (float) Math.sqrt(escDirX * escDirX + escDirY * escDirY);
+                if (nLen > 0.01f) {
+                    escDirX /= nLen;
+                    escDirY /= nLen;
+                }
+                div.stationPoint.set(
+                        div.centroid.x + escDirX * 1350f,
+                        div.centroid.y + escDirY * 1350f);
+                targetLabel = "safe extraction corridor";
             } else {
                 div.stationPoint.set(myGroup.fleetSafeCorridorCenter.x != 0f || myGroup.fleetSafeCorridorCenter.y != 0f
                         ? myGroup.fleetSafeCorridorCenter
@@ -1889,6 +1954,23 @@ public class DivisionCommanderAI {
                 if (friend != null && friend.isCombatEffective()) {
                     float retreatDirY = (div.side == 0) ? -1f : 1f;
                     div.stationPoint.set(friend.centroid.x, friend.centroid.y + retreatDirY * 720f);
+                } else if (enemyTrackable) {
+                    Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, enemy);
+                    float edx = div.centroid.x - ePos.x;
+                    float edy = div.centroid.y - ePos.y;
+                    float elen = (float) Math.sqrt(edx * edx + edy * edy);
+                    float escDirX = (elen > 1f) ? (edx / elen) : 0f;
+                    float escDirY = (elen > 1f) ? (edy / elen) : (div.side == 0 ? -1f : 1f);
+                    float rearBiasY = (div.side == 0) ? -0.35f : 0.35f;
+                    escDirY += rearBiasY;
+                    float nLen = (float) Math.sqrt(escDirX * escDirX + escDirY * escDirY);
+                    if (nLen > 0.01f) {
+                        escDirX /= nLen;
+                        escDirY /= nLen;
+                    }
+                    div.stationPoint.set(
+                            div.centroid.x + escDirX * 1350f,
+                            div.centroid.y + escDirY * 1350f);
                 } else if (myGroup.fleetSafeCorridorCenter.x != 0f || myGroup.fleetSafeCorridorCenter.y != 0f) {
                     div.stationPoint.set(myGroup.fleetSafeCorridorCenter);
                 } else {
@@ -2388,6 +2470,42 @@ public class DivisionCommanderAI {
         VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(div, myGroup, focusEnemyShip, now);
         ShipSystemCoordinator.updateDivisionSkillManeuverState(engine, div, myGroup, enemyGroup, focusEnemyShip, now);
 
+        boolean outOfCombatMarch = DivisionFormationNavigator.isDivisionInOutOfCombatMarch(engine, div);
+        float minSustainableSpeed = outOfCombatMarch
+                ? DivisionFormationNavigator.computeDivisionSustainableSpeed(div, alive)
+                : 1000f;
+        float maxMemberSpeed = outOfCombatMarch
+                ? DivisionFormationNavigator.computeDivisionMaxMemberSpeed(div, alive)
+                : 0f;
+        boolean paceMixedDivisionSpeed = outOfCombatMarch
+                && alive.size() >= 2
+                && (maxMemberSpeed - minSustainableSpeed) > 16f
+                && maxMemberSpeed > minSustainableSpeed * 1.18f;
+
+        // Pre-scan for any division member requiring immediate extraction so healthy division mates can step onto
+        // the interposing line-of-fire chord to cover and screen its withdrawal!
+        ShipAPI extractingTeamMember = null;
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI cand = alive.get(i);
+            if (cand == null || !cand.isAlive() || cand.isHulk()) continue;
+            if (div.detachedStragglerIds != null && div.detachedStragglerIds.contains(cand.getId())) continue;
+            boolean ovl = cand.getFluxTracker() != null && cand.getFluxTracker().isOverloadedOrVenting();
+            ShipSystemCoordinator.ShipSkillProfile csp = ShipSystemCoordinator.getSkillProfile(cand);
+            boolean ramRecovering = csp.isDesignedToRam
+                    && cand.getSystem() != null
+                    && !cand.getSystem().isActive()
+                    && !cand.getSystem().isChargeup()
+                    && cand.getSystem().getCooldownRemaining() > 0.4f
+                    && div.localEnemyStrength >= 10f
+                    && (cand.getFluxLevel() >= 0.62f
+                    || (cand.getHullLevel() < 0.62f && cand.getFluxLevel() >= 0.38f)
+                    || (div.localForceRatio < 0.68f && cand.getFluxLevel() >= 0.48f));
+            if (ovl || ramRecovering || cand.getFluxLevel() >= 0.72f || (cand.getHullLevel() < 0.48f && cand.getFluxLevel() >= 0.38f)) {
+                extractingTeamMember = cand;
+                break;
+            }
+        }
+
         for (int shipIdx = 0; shipIdx < alive.size(); shipIdx++) {
             ShipAPI ship = alive.get(shipIdx);
 
@@ -2402,19 +2520,19 @@ public class DivisionCommanderAI {
                 continue;
             }
             CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(ship.isAlly()) : null;
-            if (hasExplicitCommandOrder(ship, div, tm)) {
+            if (hasExplicitCommandOrder(ship, div, myGroup, tm)) {
                 continue;
             }
 
             ShipwideAIFlags flags = ship.getAIFlags();
             if (flags == null) continue;
 
-            // Individual Ship Crisis Self-Preservation & Lone Frigate Anti-Suicide Valve:
-            //  1. If an individual ship is at >= 82% flux, overloaded/venting, or critically hull-damaged under fire,
-            //     let it back off and vent.
-            //  2. If a Frigate is alone (alive.size() == 1) or outnumbered (localForceRatio < 0.65f) under enemy fire,
-            //     prevent vanilla BasicShipAI's "helpless enemy overmatch" logic from making the lone frigate dive to
-            //     its death and get turned into swiss cheese — force BACK_OFF + DO_NOT_PURSUE + retreat vector!
+            // Individual Ship Crisis Self-Preservation & Intra-Division Covered Extraction:
+            //  1. If an individual ship is at >= 74% flux, overloaded/venting, critically hull-damaged under fire, or
+            //     a ramming destroyer with its ram drive on cooldown at close range, extract it at full forward speed
+            //     along a clear escape vector (unsetting MANEUVER_TARGET so it turns and burns away instead of reversing
+            //     at 35% speed while facing enemy guns!).
+            //  2. Healthy division mates step onto the interposing cover chord to screen the extracting ship!
             boolean martyrdom = isMartyrdomActive(div, myGroup, now)
                     || (myGroup.isPlayEnabled(OtcPlay.MARTYRDOM) && isVbiedOrFanaticHull(ship));
             boolean isDetachedStraggler = div.detachedStragglerIds.contains(ship.getId());
@@ -2451,6 +2569,10 @@ public class DivisionCommanderAI {
                 div.stragglerSkirtSideByShipId.remove(ship.getId());
             }
 
+            // Active Helmsmanship Collision Avoidance (fleet-wide): prevent this ship's velocity vector from slamming
+            // into any friendly ship in its own division or another division!
+            applyActiveHelmsmanshipCollisionAvoidance(engine, ship, flags, alive, div, myGroup);
+
             boolean isFrigateHull = ship.isFrigate();
             boolean isDestroyerHull = ship.isDestroyer();
             float shipCurrEhp = BattlefieldFirepowerEvaluator.computeShipEffectiveHp(ship);
@@ -2466,11 +2588,25 @@ public class DivisionCommanderAI {
                     && (ship.getFluxLevel() >= 0.44f
                     || hardFluxFrac >= 0.35f
                     || (ship.getHullLevel() < 0.72f && ship.getFluxLevel() >= 0.25f));
-            // Prevent fragile Destroyers (e.g. Hammerheads / Sunders) from suicidally pressing into heavy armor/shields
-            // when their Effective HP (Shield + Armor + Hull HP) or hard-flux headroom is depleted!
+            // Prevent fragile Destroyers (e.g. Hammerheads / Sunders / Rambunctious) from suicidally pressing into heavy
+            // armor/shields when their Effective HP, hard-flux headroom, or post-ram cooldown leaves them exposed!
+            ShipSystemCoordinator.ShipSkillProfile shipSkillProf = ShipSystemCoordinator.getSkillProfile(ship);
+            boolean postRamCooldownDanger = shipSkillProf.isDesignedToRam
+                    && ship.getSystem() != null
+                    && !ship.getSystem().isActive()
+                    && !ship.getSystem().isChargeup()
+                    && ship.getSystem().getCooldownRemaining() > 0.4f
+                    && div.localEnemyStrength >= 10f
+                    && focusEnemyShip != null
+                    && distance(ship.getLocation(), focusEnemyShip.getLocation()) <= 620f
+                    && (ship.getFluxLevel() >= 0.62f
+                    || (ship.getHullLevel() < 0.62f && ship.getFluxLevel() >= 0.38f)
+                    || (div.localForceRatio < 0.68f && ship.getFluxLevel() >= 0.48f));
             boolean destroyerInEhpDanger = isDestroyerHull
                     && div.localEnemyStrength >= 10f
-                    && ((shipEhpRatio < 0.52f && ship.getFluxLevel() >= 0.40f)
+                    && (postRamCooldownDanger
+                    || (ship.getHullLevel() < 0.68f && ship.getFluxLevel() >= 0.50f)
+                    || (shipEhpRatio < 0.52f && ship.getFluxLevel() >= 0.40f)
                     || (div.localForceRatio < 0.80f && shipEhpRatio < 0.58f && (ship.getFluxLevel() >= 0.48f || hardFluxFrac >= 0.38f))
                     || (div.localForceRatio < 0.72f && ship.getFluxLevel() >= 0.62f));
             float crisisFluxThreshold = (div.incomingInRangeFirepower > 35f || div.localEnemyStrength >= 14f) ? 0.74f : 0.80f;
@@ -2480,25 +2616,56 @@ public class DivisionCommanderAI {
                     && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
                     && (loneOrOutnumberedFrigateInDanger
                     || destroyerInEhpDanger
+                    || postRamCooldownDanger
                     || (ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting())
                     || ship.getFluxLevel() >= crisisFluxThreshold
                     || (ship.getHullLevel() < 0.42f && ship.getFluxLevel() >= 0.45f));
             if (shipInPersonalCrisis) {
+                Vector2f extractGoal = computePersonalExtractionPoint(ship, div, myGroup, focusEnemyShip);
                 flags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
                 flags.unsetFlag(AIFlags.HARASS_MOVE_IN);
                 flags.unsetFlag(AIFlags.PURSUING);
+                flags.unsetFlag(AIFlags.MANEUVER_TARGET);
                 flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL * 1.4f);
                 flags.setFlag(AIFlags.RUN_QUICKLY, FLAG_TTL * 1.4f);
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL * 1.4f);
-                if ((loneOrOutnumberedFrigateInDanger || destroyerInEhpDanger)
-                        && myGroup != null && myGroup.reserveStation != null) {
-                    flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, myGroup.reserveStation);
+                if (extractGoal != null) {
+                    flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, extractGoal);
+                    flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, extractGoal);
                 }
                 continue;
             }
 
             Vector2f slotPos = DivisionFormationNavigator.computeShipFormationSlot(engine, ship, shipIdx, alive, div, myGroup);
+            // Intra-Division Covering Screen: if a teammate in this division is actively extracting (`extractingTeamMember`),
+            // healthy peers with low flux step onto the interposing line-of-fire between the enemy and the extracting ship!
+            if (extractingTeamMember != null
+                    && extractingTeamMember != ship
+                    && focusEnemyShip != null
+                    && ship.getFluxLevel() < 0.46f
+                    && ship.getHullLevel() >= 0.68f
+                    && distance(ship.getLocation(), extractingTeamMember.getLocation()) <= 680f) {
+                Vector2f exLoc = extractingTeamMember.getLocation();
+                Vector2f enLoc = focusEnemyShip.getLocation();
+                float cdx = enLoc.x - exLoc.x;
+                float cdy = enLoc.y - exLoc.y;
+                float clen = (float) Math.sqrt(cdx * cdx + cdy * cdy);
+                if (clen > 180f) {
+                    float coverDist = Math.min(260f, clen * 0.35f);
+                    float coverX = exLoc.x + (cdx / clen) * coverDist;
+                    float coverY = exLoc.y + (cdy / clen) * coverDist;
+                    slotPos = new Vector2f(slotPos.x * 0.40f + coverX * 0.60f, slotPos.y * 0.40f + coverY * 0.60f);
+                }
+            }
             boolean crowdedByPeer = isShipCrowdedByDivisionPeer(ship, alive, div.stationSpacing * 0.72f);
+
+            // Out-of-Combat Mixed-Division Speed Governor:
+            // When marching out of combat in a mixed-speed division (e.g. Battle Division 1), govern faster ships that
+            // have reached or passed the slowest core member's rank so the entire division advances coherently at the
+            // greatest sustainable speed that all its ships can maintain! Once combat opens up, all bets are off.
+            if (paceMixedDivisionSpeed && ship.getMaxSpeed() > minSustainableSpeed + 4f) {
+                applyOutOfCombatSpeedGovernor(ship, flags, slotPos, alive, div, minSustainableSpeed);
+            }
 
             float distToDivCenter = distance(ship.getLocation(), div.centroid);
             boolean shipStraggling = div.coreMemberCount >= 2 && distToDivCenter > (div.stationKeepingRadius * 1.38f);
@@ -2702,16 +2869,37 @@ public class DivisionCommanderAI {
                 break;
 
             case BREAK_OFF_AND_RETIRE:
-            case HAUL_OUT_TO_VENT:
-                if (focusEnemyShip != null
-                        && ship.getFluxLevel() < 0.85f
+            case HAUL_OUT_TO_VENT: {
+                // Coordinated Division Extraction:
+                //  - At most 1 healthy, non-ramming ship (flux < 0.40, hull >= 0.78) acts as Rearguard Cover, keeping
+                //    weapons bearing on the enemy while backing toward slotPos.
+                //  - All other ships (especially fast/ram-capable hulls like Rambunctious DDs, or ships above 40% flux)
+                //    unset MANEUVER_TARGET and set RUN_QUICKLY + MOVEMENT_DEST = slotPos so they turn their bows toward
+                //    the extraction corridor and sprint out of danger at 100% forward speed + escape drive!
+                ShipSystemCoordinator.ShipSkillProfile sp = ShipSystemCoordinator.getSkillProfile(ship);
+                boolean actAsRearguardCover = (shipIdx == 0 && div.getAliveMembers().size() >= 2)
+                        && !sp.isDesignedToRam
+                        && ship.getFluxLevel() < 0.40f
+                        && ship.getHullLevel() >= 0.78f;
+                if (actAsRearguardCover
+                        && focusEnemyShip != null
                         && distance(ship.getLocation(), focusEnemyShip.getLocation()) <= Math.max(1400f, div.avgEngageRange * 1.20f)) {
                     directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
+                } else {
+                    flags.unsetFlag(AIFlags.MANEUVER_TARGET);
+                    flags.setFlag(AIFlags.RUN_QUICKLY, FLAG_TTL * 1.4f);
+                    if (distance(ship.getLocation(), slotPos) > 220f) {
+                        flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL * 1.4f, slotPos);
+                    }
                 }
+                flags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
+                flags.unsetFlag(AIFlags.HARASS_MOVE_IN);
+                flags.unsetFlag(AIFlags.PURSUING);
                 flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL * 1.4f);
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL * 1.4f);
                 flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL * 1.4f, slotPos);
                 break;
+            }
 
             case TRADE_SPACE_FOR_TIME:
             case FEIGNED_RETREAT:
@@ -2761,7 +2949,23 @@ public class DivisionCommanderAI {
             case TAKE_AND_HOLD: {
                 boolean cautiousAdvance = shouldAdvanceCautiouslyOnObjective(engine, div, myGroup, enemyGroup);
                 float distToGoal = distance(ship.getLocation(), div.stationPoint);
-                if (!cautiousAdvance && distToGoal > 850f) {
+                boolean objectiveStillUncaptured = div.targetObjective != null
+                        && div.targetObjective.getOwner() != div.side;
+                if (objectiveStillUncaptured && (div.underDirectObjectiveOrder || distToGoal <= 1350f)) {
+                    // Absolute Player Objective Authority & Reliable Point Capture:
+                    // Forbid ships from wandering off to chase nearby enemy ships while the Control Point is still
+                    // uncaptured, and pin the lead ship (shipIdx == 0) directly onto targetObjective.getLocation()
+                    // so a hull physically stands inside the capture circle until ownership flips!
+                    flags.unsetFlag(AIFlags.BACK_OFF);
+                    flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
+                    flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+                    Vector2f objLoc = div.targetObjective.getLocation();
+                    Vector2f capGoal = (shipIdx == 0) ? objLoc : slotPos;
+                    flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, capGoal);
+                    if (shipIdx == 0 && distance(ship.getLocation(), objLoc) > 120f) {
+                        flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, objLoc);
+                    }
+                } else if (!cautiousAdvance && distToGoal > 850f) {
                     flags.unsetFlag(AIFlags.BACK_OFF);
                     flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
                     if (distance(ship.getLocation(), slotPos) > (structuredFormation ? dressTol * 1.45f : Math.max(320f, div.stationSpacing * 0.65f)) || crowdedByPeer) {
@@ -3553,7 +3757,7 @@ public class DivisionCommanderAI {
         }
     }
 
-    static boolean hasExplicitCommandOrder(ShipAPI ship, DivisionState div, CombatTaskManagerAPI tm) {
+    static boolean hasExplicitCommandOrder(ShipAPI ship, DivisionState div, BattleGroupState myGroup, CombatTaskManagerAPI tm) {
         if (ship != null && (ship.isRetreating() || ship.isDirectRetreat())) return true;
         if (tm == null) return false;
         AssignmentInfo info = tm.getAssignmentFor(ship);
@@ -3568,13 +3772,16 @@ public class DivisionCommanderAI {
         // If the ship is assigned to capture/control/assault an objective and its division is already seizing that
         // exact objective, they are aligned.
         if (info.getTarget() instanceof BattleObjectiveAPI) {
-            if (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD && div.targetObjective == info.getTarget()) {
+            BattleObjectiveAPI obj = (BattleObjectiveAPI) info.getTarget();
+            if (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD && div.targetObjective == obj) {
                 return false;
             }
-            // Otherwise, ONLY yield to the objective if the player explicitly selected this ship and gave it a direct
-            // order! If vanilla CombatTaskManager.fillTasks() merely auto-assigned this ship from the fleet pool
-            // (which previously hijacked Battle Div 1's capitals onto Sensor Jammer Alpha in the NW corner), clear
-            // the pooled auto-assignment so the ship obeys its Division & OTC orders!
+            // If the objective still needs capturing and NO friendly division in myGroup is currently executing
+            // TAKE_AND_HOLD on it, do NOT clear the ship's objective order — honor the player's capture order!
+            boolean anyDivisionTakingObj = isObjectiveClaimedByOtherDivision(obj, null, myGroup);
+            if (!anyDivisionTakingObj && obj.getOwner() != ship.getOwner()) {
+                return true;
+            }
             return isDirectPlayerShipOrder(ship, tm, true);
         }
         return isDirectPlayerShipOrder(ship, tm, true);
@@ -4031,8 +4238,7 @@ public class DivisionCommanderAI {
             BattleGroupState myGroup,
             BattleObjectiveAPI previousObjective) {
         if (engine == null) return null;
-        if (div.archetype.isCarrierArchetype()
-                || div.archetype == DivisionArchetype.BATTLESHIP_DIVISION) {
+        if (div.archetype.isCarrierArchetype()) {
             return null;
         }
         boolean divIsAlly = (div.flagship != null && div.flagship.isAlly());
@@ -4054,13 +4260,11 @@ public class DivisionCommanderAI {
             }
         }
 
-        // 2. Check active objective assignments in CombatTaskManager for fast maneuver / destroyer divisions
-        if (div.archetype != DivisionArchetype.FRIGATE_DIVISION
-                && div.archetype != DivisionArchetype.PHASE_DIVISION
-                && div.archetype != DivisionArchetype.DESTROYER_DIVISION
-                && div.archetype != DivisionArchetype.MISSILE_DESTROYER_DIVISION) {
-            return null;
-        }
+        // 2. Check active objective assignments in CombatTaskManager:
+        //    To guarantee absolute player authority when the player orders a Control Point captured mid-battle,
+        //    select the best available non-carrier division in myGroup (strongly preferring Frigate/Phase/Destroyer
+        //    divisions first, then Cruisers/Force, and only falling back to Heavy/Battleship divisions if no lighter
+        //    division is alive or available).
         List<AssignmentInfo> all = tm.getAllAssignments();
         if (all != null) {
             BattleObjectiveAPI best = null;
@@ -4084,8 +4288,11 @@ public class DivisionCommanderAI {
                         || isObjectiveSecuredByOtherDivisions(engine, obj, div, myGroup))) {
                     continue;
                 }
+                if (!isBestDivisionForPooledObjectiveOrder(obj, div, myGroup, previousObjective)) {
+                    continue;
+                }
                 float d = distance(div.centroid, obj.getLocation());
-                float sticky = (obj == previousObjective) ? 450f : 0f;
+                float sticky = (obj == previousObjective) ? 600f : 0f;
                 float score = -d + sticky;
                 if (score > bestScore) {
                     bestScore = score;
@@ -4097,6 +4304,190 @@ public class DivisionCommanderAI {
             }
         }
         return null;
+    }
+
+    private static boolean isBestDivisionForPooledObjectiveOrder(
+            BattleObjectiveAPI obj,
+            DivisionState candidateDiv,
+            BattleGroupState myGroup,
+            BattleObjectiveAPI candidatePrevObj) {
+        if (obj == null || candidateDiv == null) return false;
+        if (myGroup == null || myGroup.divisions == null || myGroup.divisions.size() <= 1) {
+            return candidateDiv.archetype != DivisionArchetype.BATTLESHIP_DIVISION || myGroup == null || myGroup.divisions.size() == 1;
+        }
+        float myScore = scoreDivisionForObjectiveCapture(candidateDiv, obj, candidatePrevObj);
+        if (myScore <= -900000f) return false;
+        for (int i = 0; i < myGroup.divisions.size(); i++) {
+            DivisionState other = myGroup.divisions.get(i);
+            if (other == null || other == candidateDiv || !other.isCombatEffective()) continue;
+            if (other.archetype.isCarrierArchetype()) continue;
+            if (other.flagship != null && other.flagship.isAlly()) continue;
+            if (other.avgFluxLevel >= 0.80f) continue;
+            // If `other` is already committed to a DIFFERENT objective, don't count it as free for `obj`
+            if (other.currentIntent == DivisionIntentType.TAKE_AND_HOLD
+                    && other.targetObjective != null
+                    && other.targetObjective != obj) {
+                continue;
+            }
+            float otherScore = scoreDivisionForObjectiveCapture(other, obj, other.targetObjective);
+            if (otherScore > myScore + 1f) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static float scoreDivisionForObjectiveCapture(
+            DivisionState d,
+            BattleObjectiveAPI obj,
+            BattleObjectiveAPI prevObj) {
+        if (d == null || obj == null || d.archetype.isCarrierArchetype()) return -1000000f;
+        float roleBonus;
+        if (d.archetype == DivisionArchetype.FRIGATE_DIVISION
+                || d.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                || d.archetype == DivisionArchetype.PHASE_DIVISION
+                || d.archetype == DivisionArchetype.DESTROYER_DIVISION
+                || d.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION) {
+            roleBonus = 2200f;
+        } else if (d.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                || d.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION) {
+            roleBonus = -2400f;
+        } else {
+            roleBonus = 600f;
+        }
+        float dist = (d.centroid != null && obj.getLocation() != null)
+                ? distance(d.centroid, obj.getLocation())
+                : 3000f;
+        float sticky = (prevObj == obj || d.targetObjective == obj) ? 750f : 0f;
+        float fluxPenalty = d.avgFluxLevel * 800f;
+        return roleBonus + sticky - dist - fluxPenalty;
+    }
+
+    private static Vector2f computePersonalExtractionPoint(
+            ShipAPI ship,
+            DivisionState div,
+            BattleGroupState myGroup,
+            ShipAPI focusEnemyShip) {
+        if (ship == null || ship.getLocation() == null) {
+            return (myGroup != null) ? myGroup.reserveStation : null;
+        }
+        // Prefer extracting 680u behind a healthy friendly division or behind our own division's front rank
+        if (focusEnemyShip != null && focusEnemyShip.getLocation() != null) {
+            Vector2f sLoc = ship.getLocation();
+            Vector2f eLoc = focusEnemyShip.getLocation();
+            float dx = sLoc.x - eLoc.x;
+            float dy = sLoc.y - eLoc.y;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            float escX = len > 1f ? (dx / len) : 0f;
+            float escY = len > 1f ? (dy / len) : (div.side == 0 ? -1f : 1f);
+            float rearBias = (div.side == 0) ? -0.35f : 0.35f;
+            escY += rearBias;
+            float nLen = (float) Math.sqrt(escX * escX + escY * escY);
+            if (nLen > 0.01f) {
+                escX /= nLen;
+                escY /= nLen;
+            }
+            return new Vector2f(sLoc.x + escX * 950f, sLoc.y + escY * 950f);
+        }
+        return (myGroup != null && myGroup.reserveStation != null)
+                ? myGroup.reserveStation
+                : div.stationPoint;
+    }
+
+    private static void applyOutOfCombatSpeedGovernor(
+            ShipAPI ship,
+            ShipwideAIFlags flags,
+            Vector2f slotPos,
+            List<ShipAPI> alive,
+            DivisionState div,
+            float minSustainableSpeed) {
+        if (ship == null || ship.getLocation() == null || div == null || alive == null) return;
+        float fwdX = div.formationHeadingX;
+        float fwdY = div.formationHeadingY;
+        if (Math.abs(fwdX) < 0.01f && Math.abs(fwdY) < 0.01f) {
+            fwdY = (div.side == 0) ? 1f : -1f;
+        }
+        // Find the slowest core member's current forward projection along the march axis
+        float slowestFwdProj = Float.MAX_VALUE;
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI m = alive.get(i);
+            if (m == null || !m.isAlive() || m.isHulk() || m.getLocation() == null) continue;
+            if (div.detachedStragglerIds != null && div.detachedStragglerIds.contains(m.getId())) continue;
+            float p = m.getLocation().x * fwdX + m.getLocation().y * fwdY;
+            if (p < slowestFwdProj) {
+                slowestFwdProj = p;
+            }
+        }
+        if (slowestFwdProj >= Float.MAX_VALUE * 0.5f) return;
+
+        float myFwdProj = ship.getLocation().x * fwdX + ship.getLocation().y * fwdY;
+        float leadOverSlowest = myFwdProj - slowestFwdProj;
+        // Account for natural formation depth (e.g. Forward Wedge point ship is up to ~0.6 * stationSpacing ahead)
+        float allowedFormationDepthLead = Math.max(80f, div.stationSpacing * 0.45f);
+        float excessLead = leadOverSlowest - allowedFormationDepthLead;
+        if (excessLead > 15f) {
+            flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+            if (slotPos != null) {
+                flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
+            }
+            float curFwdVel = (ship.getVelocity() != null)
+                    ? (ship.getVelocity().x * fwdX + ship.getVelocity().y * fwdY)
+                    : 0f;
+            if (curFwdVel > minSustainableSpeed + 2f || (excessLead > 65f && curFwdVel > minSustainableSpeed * 0.78f)) {
+                ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
+                if (curFwdVel > minSustainableSpeed + 9f || excessLead > 105f) {
+                    ship.giveCommand(ShipCommand.DECELERATE, null, 0);
+                }
+            }
+        }
+    }
+
+    private static void applyActiveHelmsmanshipCollisionAvoidance(
+            CombatEngineAPI engine,
+            ShipAPI ship,
+            ShipwideAIFlags flags,
+            List<ShipAPI> alive,
+            DivisionState div,
+            BattleGroupState myGroup) {
+        if (ship == null || ship.getLocation() == null || ship.getVelocity() == null) return;
+        float vx = ship.getVelocity().x;
+        float vy = ship.getVelocity().y;
+        float spd = (float) Math.sqrt(vx * vx + vy * vy);
+        if (spd < 18f) return;
+
+        ShipAPI obstacle = ShipSystemCoordinator.findImminentFriendlyInForwardPath(
+                engine, ship, alive, myGroup, Math.max(240f, Math.min(540f, spd * 2.1f)));
+        if (obstacle == null || obstacle.getLocation() == null) return;
+
+        float dx = obstacle.getLocation().x - ship.getLocation().x;
+        float dy = obstacle.getLocation().y - ship.getLocation().y;
+        float dist = (float) Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1f) return;
+        float nx = dx / dist;
+        float ny = dy / dist;
+        float oVx = (obstacle.getVelocity() != null) ? obstacle.getVelocity().x : 0f;
+        float oVy = (obstacle.getVelocity() != null) ? obstacle.getVelocity().y : 0f;
+        float closingSpd = (vx - oVx) * nx + (vy - oVy) * ny;
+        float combinedR = Math.max(40f, ship.getCollisionRadius()) + Math.max(40f, obstacle.getCollisionRadius());
+
+        if (closingSpd > 15f && dist <= combinedR * 1.45f + 130f) {
+            ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
+            if (dist <= combinedR * 1.20f + 70f && closingSpd > 28f) {
+                ship.giveCommand(ShipCommand.DECELERATE, null, 0);
+            }
+            if (flags != null && dist <= combinedR * 1.30f + 90f) {
+                float perpX = -ny;
+                float perpY = nx;
+                double rad = Math.toRadians(ship.getFacing());
+                float hdgX = (float) Math.cos(rad);
+                float hdgY = (float) Math.sin(rad);
+                float sideSign = (hdgX * perpX + hdgY * perpY >= 0f) ? 1f : -1f;
+                Vector2f avoidPt = new Vector2f(
+                        ship.getLocation().x + perpX * sideSign * (combinedR + 110f) - nx * 60f,
+                        ship.getLocation().y + perpY * sideSign * (combinedR + 110f) - ny * 60f);
+                flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, avoidPt);
+            }
+        }
     }
 
     static BattleObjectiveAPI findNearestContestObjective(

@@ -9,6 +9,8 @@ import divisionai.TsfcWarroomRenderer;
 import divisionai.BattlefieldFirepowerEvaluator.PointFirepowerEval;
 import divisionai.BattlefieldFirepowerEvaluator.ShipFirepowerRose;
 import divisionai.DivisionCommanderAI;
+import divisionai.DivisionFormationNavigator;
+import divisionai.ShipSystemCoordinator;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
@@ -75,6 +77,7 @@ public class DivisionAITestSuite {
         testCulturalNomenclatureAndPrefixBuckets();
         testFluidDivisionPolygonsAndOverlapStriping();
         testWeaponArcFirepowerSpaceAndCordonAvoidance();
+        testHelmsmanshipMixedSpeedPacingExtractionAndPlayerC2();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -735,6 +738,186 @@ public class DivisionAITestSuite {
                 "Hammerhead division in U-cordon enters HAUL_OUT_TO_VENT and waits until both ships vent below 45% flux",
                 String.format(Locale.ROOT, "enteredHaulOut=%b, heldAtWingman56Pct=%b (intent=%s)",
                         enteredHaulOutInPocket, heldHaulOutWhileWingmanHighFlux, hhDiv.currentIntent));
+    }
+
+    /**
+     * Scenario 6c: Fleet-Wide Helmsmanship (A), Mixed-Division Out-of-Combat Speed Pacing (B),
+     * Covered Extraction & Escape Vector (C), and Absolute Player C2 Objective Capture Authority (D).
+     */
+    private static void testHelmsmanshipMixedSpeedPacingExtractionAndPlayerC2() {
+        System.out.println("\n--- Scenario 6c: Helmsmanship (A), Mixed-Speed Pacing (B), Covered Extraction (C) & Player Objective C2 (D) ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+
+        // --- Problem A: Cross-Division Friendly Collision Prevention ---
+        BattleGroupState pGroupA = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroupA = new BattleGroupState(1, eCmdr);
+        DivisionState ddDiv = new DivisionState("p_dd3", 0, 1, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 3", pCmdr);
+        DivisionState cruDiv = new DivisionState("p_cru1", 0, 2, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", pCmdr);
+        pGroupA.divisions.add(ddDiv);
+        pGroupA.divisions.add(cruDiv);
+        SimArena arenaA = new SimArena("6c-A. Helmsmanship", "Cross-division friendly collision check", pGroupA, eGroupA);
+        SimShipState rambunctious = arenaA.addShip(ddDiv, "dd_ram", "RDS Vanguard", "JYD_rambunctious", HullSize.DESTROYER, 0f, 0f, 110f, 700f, 0, 0);
+        rambunctious.facing = 90f;
+        rambunctious.velocity.set(0f, 95f);
+        // Place a friendly cruiser from Cruiser Div 1 directly in front of RDS Vanguard at (0, 220)
+        SimShipState friendlyCruiser = arenaA.addShip(cruDiv, "cru_block", "RDS Patient", "JYD_patient", HullSize.CRUISER, 0f, 220f, 55f, 1000f, 0, 0);
+        friendlyCruiser.facing = 90f;
+        friendlyCruiser.velocity.set(0f, 10f);
+        boolean crossDivCorridorBlocked = !ShipSystemCoordinator.isForwardCorridorClearOfFleetFriendlies(
+                arenaA.engineProxy, rambunctious.proxy, ddDiv.getAliveMembers(), pGroupA, 500f);
+        com.fs.starfarer.api.combat.ShipAPI detectedObstacle = ShipSystemCoordinator.findImminentFriendlyInForwardPath(
+                arenaA.engineProxy, rambunctious.proxy, ddDiv.getAliveMembers(), pGroupA, 450f);
+        check(crossDivCorridorBlocked && detectedObstacle == friendlyCruiser.proxy,
+                "Problem A: Fleet-wide helmsmanship detects cross-division friendly hull in forward velocity vector",
+                "corridorBlocked=" + crossDivCorridorBlocked + ", obstacle=" + (detectedObstacle != null ? detectedObstacle.getId() : "none"));
+
+        // --- Problem B: Mixed-Division Out-of-Combat Sustainable Speed Pacing ---
+        BattleGroupState pGroupB = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroupB = new BattleGroupState(1, eCmdr);
+        DivisionState battleDiv1 = new DivisionState("p_bat1", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Division 1", pCmdr);
+        battleDiv1.doctrinalFormation = divisionai.PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+        battleDiv1.activeFormation = divisionai.PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+        battleDiv1.openingMission = DivisionMissionType.SCOUTING;
+        battleDiv1.mainMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        battleDiv1.stationSpacing = 340f;
+        pGroupB.divisions.add(battleDiv1);
+        DivisionState farEnemy = new DivisionState("e_far", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Hegemony Line", eCmdr);
+        eGroupB.divisions.add(farEnemy);
+        SimArena arenaB = new SimArena("6c-B. Mixed-Division Pacing", "Battle Division 1 out-of-combat pacing", pGroupB, eGroupB);
+        SimShipState chinax = arenaB.addShip(battleDiv1, "b_chinax", "HSS Chinax", "SD_chinax", HullSize.CAPITAL_SHIP, -360f, -2000f, 45f, 1300f, 0, 0);
+        arenaB.addShip(battleDiv1, "b_dom1", "RDS Annihilator", "dominator", HullSize.CRUISER, -120f, -2000f, 60f, 1100f, 0, 0);
+        SimShipState erad = arenaB.addShip(battleDiv1, "b_erad", "RDS Abhorrent Violence", "eradicator", HullSize.CRUISER, 120f, -2000f, 95f, 1100f, 0, 0);
+        arenaB.addShip(battleDiv1, "b_dom2", "RDS The Culture", "dominator", HullSize.CRUISER, 360f, -2000f, 60f, 1100f, 0, 0);
+        arenaB.addShip(farEnemy, "e_onslaught", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, 2600f, 45f, 1350f, 0, 0);
+        for (int s = 0; s < 14; s++) {
+            arenaB.runSimulation(1.0f);
+        }
+        boolean outOfCombatDetected = DivisionFormationNavigator.isDivisionInOutOfCombatMarch(arenaB.engineProxy, battleDiv1);
+        float sustainableSpd = DivisionFormationNavigator.computeDivisionSustainableSpeed(battleDiv1, battleDiv1.getAliveMembers());
+        float alongLeadEradOverChinax = erad.location.y - chinax.location.y;
+        // Now simulate combat opening up (enemy in range & firing)
+        battleDiv1.inRangeFirepowerScore = 120f;
+        battleDiv1.engagementLevel = 0.55f;
+        boolean combatReleasesSpeedGovernor = !DivisionFormationNavigator.isDivisionInOutOfCombatMarch(arenaB.engineProxy, battleDiv1);
+        check(outOfCombatDetected && Math.abs(sustainableSpd - 45f) < 1f && alongLeadEradOverChinax < 260f && combatReleasesSpeedGovernor,
+                "Problem B: Mixed Battle Division 1 paces to slowest ship (45 su/s) out of combat and releases governor in combat",
+                String.format(Locale.ROOT, "outOfCombat=%b, sustainableSpd=%.0f, eradLeadOverChinax=%.0fu, releasedInCombat=%b",
+                        outOfCombatDetected, sustainableSpd, alongLeadEradOverChinax, combatReleasesSpeedGovernor));
+
+        // --- Problem C: Single/Multi-Ship Covered Extraction & High-Speed Escape Vector ---
+        BattleGroupState pGroupC = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroupC = new BattleGroupState(1, eCmdr);
+        DivisionState ramDiv = new DivisionState("p_dd4", 0, 1, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 4", pCmdr);
+        ramDiv.ramCapableMemberCount = 2;
+        pGroupC.divisions.add(ramDiv);
+        DivisionState hegCruisers = new DivisionState("e_heg", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Hegemony Cruisers", eCmdr);
+        eGroupC.divisions.add(hegCruisers);
+        SimArena arenaC = new SimArena("6c-C. Covered Extraction", "Rambunctious division extraction & covering screen", pGroupC, eGroupC);
+        SimShipState dd1 = arenaC.addShip(ramDiv, "dd_1", "RDS Pioneer", "JYD_rambunctious", HullSize.DESTROYER, -80f, 0f, 110f, 700f, 0, 0);
+        SimShipState dd2 = arenaC.addShip(ramDiv, "dd_2", "RDS Trailblazer", "JYD_rambunctious", HullSize.DESTROYER, 80f, 0f, 110f, 700f, 0, 0);
+        arenaC.addShip(hegCruisers, "e_heg1", "HSS Eagle", "eagle", HullSize.CRUISER, 0f, 520f, 55f, 1200f, 0, 0);
+        arenaC.addShip(hegCruisers, "e_heg2", "HSS Dominator", "dominator", HullSize.CRUISER, 140f, 560f, 50f, 1200f, 0, 0);
+        // Put both destroyers into high-flux / post-pass danger with no friendly battleship division nearby
+        dd1.fluxLevel = 0.72f;
+        dd1.hullLevel = 0.62f;
+        dd2.fluxLevel = 0.68f;
+        dd2.hullLevel = 0.64f;
+        arenaC.runSimulation(0.25f);
+        boolean enteredExtraction = (ramDiv.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT);
+        boolean escapeVectorAwayFromEnemy = (ramDiv.stationPoint.y < -600f);
+        boolean runQuicklySet = dd1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.RUN_QUICKLY);
+        check(enteredExtraction && escapeVectorAwayFromEnemy && runQuicklySet,
+                "Problem C: Endangered Destroyer division enters HAUL_OUT_TO_VENT along a 1,350u escape vector with RUN_QUICKLY",
+                String.format(Locale.ROOT, "intent=%s, stationY=%.0f, runQuickly=%b",
+                        ramDiv.currentIntent, ramDiv.stationPoint.y, runQuicklySet));
+
+        // --- Problem D: Absolute Player C2 Authority on Mid-Battle Control Point Capture ---
+        BattleGroupState pGroupD = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroupD = new BattleGroupState(1, eCmdr);
+        // Only a Cruiser Division is alive when the player orders a contested Control Point captured mid-battle!
+        DivisionState cruCapDiv = new DivisionState("p_cru_cap", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", pCmdr);
+        pGroupD.divisions.add(cruCapDiv);
+        DivisionState enemyDefenders = new DivisionState("e_def", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Hegemony Defenders", eCmdr);
+        eGroupD.divisions.add(enemyDefenders);
+        SimArena arenaD = new SimArena("6c-D. Player Objective C2", "Mid-battle contested Control Point capture", pGroupD, eGroupD);
+        SimShipState c1 = arenaD.addShip(cruCapDiv, "c_lead", "RDS Patient 1", "JYD_patient", HullSize.CRUISER, 0f, -600f, 65f, 1000f, 0, 0);
+        arenaD.addShip(cruCapDiv, "c_wing", "RDS Patient 2", "JYD_patient", HullSize.CRUISER, 160f, -640f, 65f, 1000f, 0, 0);
+        arenaD.addShip(enemyDefenders, "e_d1", "HSS Enforcer 1", "enforcer", HullSize.DESTROYER, 0f, 250f, 60f, 900f, 0, 0);
+        arenaD.addShip(enemyDefenders, "e_d2", "HSS Enforcer 2", "enforcer", HullSize.DESTROYER, 150f, 280f, 60f, 900f, 0, 0);
+        final Vector2f objCenter = new Vector2f(0f, 0f);
+        final com.fs.starfarer.api.combat.BattleObjectiveAPI contestedObj =
+                (com.fs.starfarer.api.combat.BattleObjectiveAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.BattleObjectiveAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.BattleObjectiveAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getLocation".equals(n)) return objCenter;
+                            if ("getOwner".equals(n)) return 1;
+                            if ("getDisplayName".equals(n)) return "Comm Relay Center";
+                            if ("getType".equals(n)) return "comm_relay";
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+        arenaD.objectives.add(contestedObj);
+        final com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo capAssignment =
+                (com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getType".equals(n)) return com.fs.starfarer.api.combat.CombatAssignmentType.CAPTURE;
+                            if ("getTarget".equals(n)) return contestedObj;
+                            return null;
+                        });
+        final com.fs.starfarer.api.combat.CombatTaskManagerAPI tmProxy =
+                (com.fs.starfarer.api.combat.CombatTaskManagerAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatTaskManagerAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatTaskManagerAPI.class},
+                        (p, m, a) -> {
+                            if ("getAllAssignments".equals(m.getName())) {
+                                return java.util.Collections.singletonList(capAssignment);
+                            }
+                            return null;
+                        });
+        final com.fs.starfarer.api.combat.CombatFleetManagerAPI fmProxy =
+                (com.fs.starfarer.api.combat.CombatFleetManagerAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatFleetManagerAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatFleetManagerAPI.class},
+                        (p, m, a) -> {
+                            if ("getTaskManager".equals(m.getName())) return tmProxy;
+                            return null;
+                        });
+        com.fs.starfarer.api.combat.CombatEngineAPI engineWithTm =
+                (com.fs.starfarer.api.combat.CombatEngineAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatEngineAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatEngineAPI.class},
+                        (p, m, a) -> {
+                            if ("getFleetManager".equals(m.getName())) {
+                                int side = (a != null && a.length > 0 && a[0] instanceof Integer) ? (Integer) a[0] : 0;
+                                return (side == 0) ? fmProxy : null;
+                            }
+                            return m.invoke(arenaD.engineProxy, a);
+                        });
+        arenaD.runSimulation(0.25f);
+        // Force heavy localEnemyStrength (> 24f) to verify player order is NEVER rejected due to enemy presence
+        cruCapDiv.localEnemyStrength = 32f;
+        cruCapDiv.lastIntentChangeTime = -10f;
+        cruCapDiv.intentCommitUntil = 0f;
+        DivisionCommanderAI.evaluateAndExecuteDivisions(engineWithTm, pGroupD, eGroupD, 5.0f);
+        boolean adoptedPlayerOrder = (cruCapDiv.currentIntent == DivisionIntentType.TAKE_AND_HOLD
+                && cruCapDiv.targetObjective == contestedObj
+                && cruCapDiv.underDirectObjectiveOrder);
+        Vector2f leadCamp = (Vector2f) c1.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION);
+        boolean leadPinnedToObjectiveCenter = (leadCamp != null && dist(leadCamp, contestedObj.getLocation()) < 5f)
+                && c1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_PURSUE);
+        check(adoptedPlayerOrder && leadPinnedToObjectiveCenter,
+                "Problem D: Contested mid-battle player CAPTURE order obeyed unconditionally (TAKE_AND_HOLD + lead ship pinned to point)",
+                String.format(Locale.ROOT, "intent=%s, underDirectOrder=%b, leadPinnedToCenter=%b",
+                        cruCapDiv.currentIntent, cruCapDiv.underDirectObjectiveOrder, leadPinnedToObjectiveCenter));
     }
 
     /**
