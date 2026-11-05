@@ -552,11 +552,11 @@ public class PermanentDivisionManager {
         SINGLE_SHIP(
                 "Single Ship",
                 "Ship",
-                "Cap simultaneous ramming attack slots per individual enemy ship."),
+                "Focus ramming attack slots (1-10) onto a single priority enemy target ship."),
         ENEMY_DIVISION(
                 "Enemy Division",
                 "Division",
-                "Cap simultaneous ramming attack slots across the target enemy division.");
+                "Select multiple targets in a localized space conducive to ramming (1-10 slots).");
 
         public final String displayName;
         public final String shortName;

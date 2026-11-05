@@ -548,6 +548,11 @@ public class SimArena {
                         if ("isStateActive".equals(sn)) return systemActive;
                         if ("isCoolingDown".equals(sn)) return systemCooldownRemaining > 0f;
                         if ("getCooldownRemaining".equals(sn)) return systemCooldownRemaining;
+                        if ("deactivate".equals(sn)) {
+                            systemActive = false;
+                            systemCooldownRemaining = 4.0f;
+                            return null;
+                        }
                         if ("getAmmo".equals(sn) || "getMaxAmmo".equals(sn)) return Integer.MAX_VALUE;
                         if ("getSpecAPI".equals(sn)) {
                             return Proxy.newProxyInstance(
@@ -649,6 +654,15 @@ public class SimArena {
                         }
                         if ("getHullSize".equals(n)) return hullSize;
                         if ("getMaxSpeed".equals(n)) return maxSpeed;
+                        if ("getAcceleration".equals(n)) return accel;
+                        if ("getDeceleration".equals(n)) return accel * 0.85f;
+                        if ("getCollisionRadius".equals(n)) {
+                            if (!detailedCombatModel && systemId == null) return 0f;
+                            if (hullSize == HullSize.CAPITAL_SHIP) return 210f;
+                            if (hullSize == HullSize.CRUISER) return 130f;
+                            if (hullSize == HullSize.DESTROYER) return 85f;
+                            return 55f;
+                        }
                         if ("getAIFlags".equals(n)) return aiFlags;
                         if ("getNumFighterBays".equals(n)) return fighterBays;
                         if ("getAllWeapons".equals(n)) return weapons;
@@ -981,6 +995,9 @@ public class SimArena {
     private void stepPhysics(float dt) {
         for (SimShipState s : ships) {
             if (!s.alive) continue;
+            if (s.systemCooldownRemaining > 0f) {
+                s.systemCooldownRemaining = Math.max(0f, s.systemCooldownRemaining - dt);
+            }
             ShipwideAIFlags flags = s.aiFlags;
 
             Vector2f desiredVel = new Vector2f(0f, 0f);
@@ -1001,14 +1018,15 @@ public class SimArena {
                 navGoal = ((ShipAPI) targetObj).getLocation();
             }
 
+            float effMaxSpeed = s.systemActive ? (s.maxSpeed + 260f) : s.maxSpeed;
             if (navGoal != null) {
                 float dx = navGoal.x - s.location.x;
                 float dy = navGoal.y - s.location.y;
                 float dist = (float) Math.sqrt(dx * dx + dy * dy);
-                if (dist > 25f) {
-                    float speedFactor = Math.min(1f, dist / 240f);
-                    desiredVel.x += (dx / dist) * s.maxSpeed * speedFactor;
-                    desiredVel.y += (dy / dist) * s.maxSpeed * speedFactor;
+                if (dist > 15f) {
+                    float speedFactor = s.systemActive ? 1.0f : Math.min(1f, dist / 240f);
+                    desiredVel.x += (dx / dist) * effMaxSpeed * speedFactor;
+                    desiredVel.y += (dy / dist) * effMaxSpeed * speedFactor;
                 }
             }
 
@@ -1022,18 +1040,18 @@ public class SimArena {
                     float dist = (float) Math.sqrt(dx * dx + dy * dy);
                     float dangerRadius = backOff ? (other.engageRange * 1.05f) : (other.engageRange * 0.82f);
                     if (dist > 1f && dist < dangerRadius) {
-                        float repelStrength = ((dangerRadius - dist) / dangerRadius) * s.maxSpeed * (backOff ? 1.55f : 1.15f);
+                        float repelStrength = ((dangerRadius - dist) / dangerRadius) * effMaxSpeed * (backOff ? 1.55f : 1.15f);
                         desiredVel.x += (dx / dist) * repelStrength;
                         desiredVel.y += (dy / dist) * repelStrength;
                     }
                 }
             }
 
-            // Clamp desired speed to maxSpeed
+            // Clamp desired speed to effMaxSpeed
             float dSpeed = (float) Math.sqrt(desiredVel.x * desiredVel.x + desiredVel.y * desiredVel.y);
-            if (dSpeed > s.maxSpeed) {
-                desiredVel.x = (desiredVel.x / dSpeed) * s.maxSpeed;
-                desiredVel.y = (desiredVel.y / dSpeed) * s.maxSpeed;
+            if (dSpeed > effMaxSpeed) {
+                desiredVel.x = (desiredVel.x / dSpeed) * effMaxSpeed;
+                desiredVel.y = (desiredVel.y / dSpeed) * effMaxSpeed;
             }
 
             // Smooth velocity integration

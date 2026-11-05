@@ -85,7 +85,24 @@ public class DivisionCommanderAI {
                 DivisionState prevFriendly = div.targetFriendlyDivision;
                 BattleObjectiveAPI prevObjective = div.targetObjective;
 
-                selectDivisionIntent(engine, div, myGroup, enemyGroup, now);
+                boolean midRamLanceCharge = div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
+                        && div.ramCapableMemberCount >= 1
+                        && div.avgFluxLevel < 0.72f
+                        && div.targetEnemyDivision != null
+                        && div.targetEnemyDivision.isCombatEffective()
+                        && ((div.synchronizedSkillManeuverActive && div.synchronizedSkillStage > 0)
+                        || (div.activeSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE && div.setpieceStage > 0)
+                        || div.hasActiveLinearSkillBurn);
+                if (midRamLanceCharge) {
+                    if (div.currentIntent != DivisionIntentType.PRESS_HOME
+                            && div.currentIntent != DivisionIntentType.CLOSE_AND_ENGAGE
+                            && div.currentIntent != DivisionIntentType.WORK_FLANK
+                            && div.currentIntent != DivisionIntentType.TOT_ALPHA_STRIKE) {
+                        div.currentIntent = DivisionIntentType.PRESS_HOME;
+                    }
+                } else {
+                    selectDivisionIntent(engine, div, myGroup, enemyGroup, now);
+                }
                 div.lastIntentChangeTime = now;
                 div.appliedOtcOrderVersion = div.otcOrder.version;
 
@@ -2356,12 +2373,20 @@ public class DivisionCommanderAI {
                         || (enemy.totalEffectiveHp > div.totalEffectiveHp * 1.35f && div.totalEffectiveHp > 100f);
                 boolean enemyIsStation = BattlefieldFirepowerEvaluator.isStationBastionDivision(enemy);
                 boolean isRamDivision = !enemyIsStation
+                        && div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
                         && div.shipSkillCoordination == PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED
                         && div.ramCapableMemberCount >= 1
                         && div.ramCapableMemberCount * 2 >= Math.max(1, div.getAliveMembers().size());
+                boolean lanceRamConfigured = isRamDivision
+                        && (div.rammingMode == PermanentDivisionManager.DivisionRammingMode.SYNCHRONIZED_LANCE
+                        || div.doctrinalSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE);
                 if (isRamDivision && (div.readySkillMemberRatio >= 0.50f || div.hasActiveLinearSkillBurn)
                         && (div.currentIntent == DivisionIntentType.PRESS_HOME
-                        || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE)) {
+                        || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
+                        || (lanceRamConfigured
+                                && (div.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE
+                                || div.currentIntent == DivisionIntentType.WORK_FLANK
+                                || div.currentIntent == DivisionIntentType.GIVE_GENERAL_CHASE)))) {
                     desired = DivisionSetpieceAttack.LANCE_CHARGE;
                 } else if (!isLightOrDd || !outmatchedEhp) {
                     if (div.currentIntent == DivisionIntentType.PRESS_HOME
@@ -2422,18 +2447,21 @@ public class DivisionCommanderAI {
                 && div.ramCapableMemberCount * 2 >= Math.max(1, div.getAliveMembers().size());
         if (div.setpieceStage == 1) {
             // Stage 1: Dress formation at Initial Point (IP)
-            float ipDist = isRamDivisionForPass ? Math.min(1380f, baseStandoff * 0.95f) : (baseStandoff * 1.05f);
+            float ipDist = isRamDivisionForPass ? Math.min(1180f, Math.max(820f, baseStandoff * 0.85f)) : (baseStandoff * 1.05f);
             float latShift = (div.activeSetpieceAttack == DivisionSetpieceAttack.BROADSIDE_ROLL) ? -280f : 0f;
             div.setpieceIpPoint.set(
                     visEnemyPos.x + dirX * ipDist + perpX * latShift,
                     visEnemyPos.y + dirY * ipDist + perpY * latShift);
             div.stationPoint.set(div.setpieceIpPoint);
 
-            boolean dressed = div.stationKeepingRatio <= (isRamDivisionForPass ? 0.95f : 0.72f)
-                    && distance(div.centroid, div.setpieceIpPoint) <= 460f;
+            boolean dressed = div.stationKeepingRatio <= (isRamDivisionForPass ? 0.90f : 0.72f)
+                    && distance(div.centroid, div.setpieceIpPoint) <= (isRamDivisionForPass ? 380f : 460f);
             float maxDressTime = isRamDivisionForPass ? 1.8f : 3.8f;
-            float commitDist = isRamDivisionForPass ? 1480f : (enemyIsStationForPass ? Math.max(1350f, baseStandoff * 1.45f) : (baseStandoff * 0.85f));
-            if (otcImmediateCommit || dressed || stageElapsed >= maxDressTime || distToEnemy < commitDist) {
+            float commitDist = isRamDivisionForPass
+                    ? 720f
+                    : (enemyIsStationForPass ? Math.max(1350f, baseStandoff * 1.45f) : (baseStandoff * 0.85f));
+            if (otcImmediateCommit || (dressed && stageElapsed >= (isRamDivisionForPass ? 0.45f : 0f))
+                    || stageElapsed >= maxDressTime || distToEnemy < commitDist) {
                 div.setpieceStage = 2;
                 div.setpieceStageStartTime = now;
                 stageElapsed = 0f;
@@ -2455,13 +2483,12 @@ public class DivisionCommanderAI {
         switch (div.activeSetpieceAttack) {
             case LANCE_CHARGE: {
                 if (isRamDivisionForPass) {
-                    // Ramming division Lance Charge: sweep along a glancing flank offset rather than stopping dead in the enemy center!
-                    float targetDist = Math.max(80f, 340f - 320f * passProgress);
-                    float sideSign = (div.divisionNumber % 2 == 0) ? -1f : 1f;
-                    float glancingLat = sideSign * (140f + 120f * passProgress);
+                    // Ramming division Lance Charge: drive the formation station right through the target cluster
+                    // so wingmen charge abreast through their assigned targets without turning sideways!
+                    float targetDist = 180f - 360f * passProgress;
                     div.setpiecePassTarget.set(
-                            visEnemyPos.x + dirX * targetDist + perpX * glancingLat,
-                            visEnemyPos.y + dirY * targetDist + perpY * glancingLat);
+                            visEnemyPos.x + dirX * targetDist,
+                            visEnemyPos.y + dirY * targetDist);
                 } else {
                     float targetDist = Math.max(440f, baseStandoff * (0.88f - 0.24f * passProgress));
                     div.setpiecePassTarget.set(
@@ -2612,7 +2639,18 @@ public class DivisionCommanderAI {
             //  2. Healthy division mates step onto the interposing cover chord to screen the extracting ship!
             boolean martyrdom = isMartyrdomActive(div, myGroup, now)
                     || (myGroup.isPlayEnabled(OtcPlay.MARTYRDOM) && isVbiedOrFanaticHull(ship));
-            boolean isDetachedStraggler = div.detachedStragglerIds.contains(ship.getId());
+            ShipSystemCoordinator.ShipSkillProfile shipSkillProf = ShipSystemCoordinator.getSkillProfile(ship);
+            boolean shipInRamCharge = shipSkillProf.isDesignedToRam
+                    && div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
+                    && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
+                    && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
+                    && ship.getFluxLevel() < 0.74f
+                    && ship.getHullLevel() > 0.38f
+                    && ((ship.getSystem() != null && (ship.getSystem().isActive() || ship.getSystem().isChargeup()))
+                    || (div.synchronizedSkillManeuverActive && div.synchronizedSkillStage > 0)
+                    || (div.activeSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE && div.setpieceStage > 0));
+
+            boolean isDetachedStraggler = !shipInRamCharge && div.detachedStragglerIds.contains(ship.getId());
             if (isDetachedStraggler) {
                 // Detached straggler: route around any intervening enemy battle line out of contact to rejoin the Core Cluster,
                 // without freezing the Core Cluster in CLOSE_UP!
@@ -2646,9 +2684,9 @@ public class DivisionCommanderAI {
                 div.stragglerSkirtSideByShipId.remove(ship.getId());
             }
 
-            // Active Helmsmanship Collision Avoidance (fleet-wide): prevent this ship's velocity vector from slamming
-            // into any friendly ship in its own division or another division!
-            applyActiveHelmsmanshipCollisionAvoidance(engine, ship, flags, alive, div, myGroup);
+                // Active Helmsmanship Collision Avoidance (fleet-wide): prevent this ship's velocity vector from slamming
+                // into any friendly ship in its own division or another division!
+                applyActiveHelmsmanshipCollisionAvoidance(engine, ship, flags, alive, div, myGroup);
 
             boolean isFrigateHull = ship.isFrigate();
             boolean isDestroyerHull = ship.isDestroyer();
@@ -2667,8 +2705,8 @@ public class DivisionCommanderAI {
                     || (ship.getHullLevel() < 0.72f && ship.getFluxLevel() >= 0.25f));
             // Prevent fragile Destroyers (e.g. Hammerheads / Sunders / Rambunctious) from suicidally pressing into heavy
             // armor/shields when their Effective HP, hard-flux headroom, or post-ram cooldown leaves them exposed!
-            ShipSystemCoordinator.ShipSkillProfile shipSkillProf = ShipSystemCoordinator.getSkillProfile(ship);
-            boolean postRamCooldownDanger = shipSkillProf.isDesignedToRam
+            boolean postRamCooldownDanger = !shipInRamCharge
+                    && shipSkillProf.isDesignedToRam
                     && ship.getSystem() != null
                     && !ship.getSystem().isActive()
                     && !ship.getSystem().isChargeup()
@@ -2679,7 +2717,8 @@ public class DivisionCommanderAI {
                     && (ship.getFluxLevel() >= 0.62f
                     || (ship.getHullLevel() < 0.62f && ship.getFluxLevel() >= 0.38f)
                     || (div.localForceRatio < 0.68f && ship.getFluxLevel() >= 0.48f));
-            boolean destroyerInEhpDanger = isDestroyerHull
+            boolean destroyerInEhpDanger = !shipInRamCharge
+                    && isDestroyerHull
                     && div.localEnemyStrength >= 10f
                     && (postRamCooldownDanger
                     || (ship.getHullLevel() < 0.68f && ship.getFluxLevel() >= 0.50f)
@@ -2745,7 +2784,9 @@ public class DivisionCommanderAI {
             }
 
             float distToDivCenter = distance(ship.getLocation(), div.centroid);
-            boolean shipStraggling = div.coreMemberCount >= 2 && distToDivCenter > (div.stationKeepingRadius * 1.38f);
+            boolean shipStraggling = !shipInRamCharge
+                    && div.coreMemberCount >= 2
+                    && distToDivCenter > (div.stationKeepingRadius * 1.38f);
 
             // Bounded pursuit & cohesion leash: prevent lone ships from chasing bait 3000u away
             if (shipStraggling && div.currentIntent != DivisionIntentType.HARASSING_MISSILE_ATTACK
@@ -2901,6 +2942,27 @@ public class DivisionCommanderAI {
         div.inIndividualCombatMovementMode = (focusEnemyShip != null && effectiveContactDist <= individualEngageHorizon);
 
         if (applyZoneVentingAndRankReliefFlags(engine, ship, flags, slotPos, focusEnemyShip, div, myGroup, effectiveContactDist, now)) {
+            return;
+        }
+
+        // If this ship is a ram-capable vessel that is actively executing or marshaling a ram charge (when rammingMode != OFF),
+        // do not let generic standoff/backoff/640u-gun-band rules pull it off its ram trajectory!
+        ShipSystemCoordinator.ShipSkillProfile ramCheckProf = ShipSystemCoordinator.getSkillProfile(ship);
+        boolean shipActivelyRammingOrCharging = ramCheckProf.isDesignedToRam
+                && div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
+                && ((ship.getSystem() != null && (ship.getSystem().isActive() || ship.getSystem().isChargeup()))
+                || (div.synchronizedSkillManeuverActive && div.synchronizedSkillStage > 0)
+                || (div.activeSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE && div.setpieceStage > 0));
+        if (shipActivelyRammingOrCharging
+                && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
+                && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
+                && ship.getFluxLevel() < 0.78f
+                && ship.getHullLevel() > 0.35f) {
+            flags.unsetFlag(AIFlags.BACK_OFF);
+            flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
+            flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
+            flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL);
+            flags.setFlag(AIFlags.PURSUING, FLAG_TTL);
             return;
         }
 
@@ -4646,6 +4708,19 @@ public class DivisionCommanderAI {
         ShipAPI obstacle = ShipSystemCoordinator.findImminentFriendlyInForwardPath(
                 engine, ship, alive, myGroup, Math.max(240f, Math.min(540f, spd * 2.1f)));
         if (obstacle == null || obstacle.getLocation() == null) return;
+
+        // During an active/marshaling division ram charge, same-division wingmen have non-crossing parallel target lanes;
+        // do not swerve sideways into a neighbor's lane unless the obstacle is directly dead ahead on our bow!
+        boolean sameDivPeer = alive != null && alive.contains(obstacle);
+        ShipSystemCoordinator.ShipSkillProfile ramProf = ShipSystemCoordinator.getSkillProfile(ship);
+        boolean inRamCharge = div != null && ramProf.isDesignedToRam
+                && div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
+                && ((ship.getSystem() != null && (ship.getSystem().isActive() || ship.getSystem().isChargeup()))
+                || (div.synchronizedSkillManeuverActive && div.synchronizedSkillStage > 0)
+                || (div.activeSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE && div.setpieceStage > 0));
+        if (sameDivPeer && inRamCharge) {
+            return;
+        }
 
         float dx = obstacle.getLocation().x - ship.getLocation().x;
         float dy = obstacle.getLocation().y - ship.getLocation().y;

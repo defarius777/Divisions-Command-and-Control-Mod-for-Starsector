@@ -1295,7 +1295,8 @@ public class DivisionAITestSuite {
                 && (ramDiv.ramCapableMemberCount == 3);
 
         SimShipState enemTgt1 = arenaRam.addShip(enemTgtDiv, "e_tgt_1", "HSS Enforcer 1", "enforcer", HullSize.DESTROYER, -160f, 180f, 65f, 700f, 0, 0);
-        SimShipState enemTgt2 = arenaRam.addShip(enemTgtDiv, "e_tgt_2", "HSS Enforcer 2", "enforcer", HullSize.DESTROYER, 160f, 180f, 65f, 700f, 0, 0);
+        SimShipState enemTgt2 = arenaRam.addShip(enemTgtDiv, "e_tgt_2", "HSS Enforcer 2", "enforcer", HullSize.DESTROYER, 0f, 180f, 65f, 700f, 0, 0);
+        SimShipState enemTgt3 = arenaRam.addShip(enemTgtDiv, "e_tgt_3", "HSS Enforcer 3", "enforcer", HullSize.DESTROYER, 160f, 180f, 65f, 700f, 0, 0);
         divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemTgtDiv);
 
         ramDiv.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
@@ -1304,24 +1305,22 @@ public class DivisionAITestSuite {
         ramDiv.engagementLevel = 0.5f;
         ramDiv.localForceRatio = 1.2f;
         ramDiv.crossfireCordonIndex = 0.0f;
-        ramDd1.shipTarget = enemTgt1.proxy;
-        ramDd2.shipTarget = enemTgt1.proxy;
-        ramDd3.shipTarget = enemTgt1.proxy;
 
         // 1. Verify Ramming: OFF blocks offensive ramming completely
         ramDiv.rammingMode = divisionai.PermanentDivisionManager.DivisionRammingMode.OFF;
         divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaRam.engineProxy, pGroupRam, null, eGroupRam, 20.0f);
         boolean offModeBlockedAll = !ramDd1.systemActive && !ramDd2.systemActive && !ramDd3.systemActive;
 
-        // 2. Verify SINGLE_SHIP with maxRammingAttackSlots = 1 caps at 1 rammer per target ship (2 enemy ships -> 2 rammers active, 3rd held)
+        // 2. Verify SINGLE_SHIP focuses attack slots onto ONE single target ship (slots=2 -> 2 rammers on same target, 3rd held)
         ramDiv.rammingMode = divisionai.PermanentDivisionManager.DivisionRammingMode.DIRECT_RAM;
         ramDiv.rammingTargetScope = divisionai.PermanentDivisionManager.DivisionRammingTargetScope.SINGLE_SHIP;
-        ramDiv.maxRammingAttackSlots = 1;
+        ramDiv.maxRammingAttackSlots = 2;
         divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaRam.engineProxy, pGroupRam, null, eGroupRam, 21.0f);
-        int activeSingle1 = (ramDd1.systemActive ? 1 : 0) + (ramDd2.systemActive ? 1 : 0) + (ramDd3.systemActive ? 1 : 0);
-        boolean singleSlot1Respected = (activeSingle1 == 2) && (ramDd1.shipTarget != ramDd2.shipTarget);
+        int activeSingle2 = (ramDd1.systemActive ? 1 : 0) + (ramDd2.systemActive ? 1 : 0) + (ramDd3.systemActive ? 1 : 0);
+        boolean singleShipFocusedSameTarget = (activeSingle2 == 2)
+                && (ramDd1.shipTarget != null && ramDd1.shipTarget == ramDd2.shipTarget);
 
-        // 3. Reset drives and verify ENEMY_DIVISION with maxRammingAttackSlots = 1 caps the entire division at 1 active rammer total
+        // 3. Reset drives and verify ENEMY_DIVISION selects MULTIPLE distinct targets in the localized space (1..10 slots)
         ramDd1.systemActive = false; ramDd1.systemCooldownRemaining = 0f;
         ramDd2.systemActive = false; ramDd2.systemCooldownRemaining = 0f;
         ramDd3.systemActive = false; ramDd3.systemCooldownRemaining = 0f;
@@ -1330,18 +1329,105 @@ public class DivisionAITestSuite {
         divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaRam.engineProxy, pGroupRam, null, eGroupRam, 22.0f);
         int activeDivSlot1 = (ramDd1.systemActive ? 1 : 0) + (ramDd2.systemActive ? 1 : 0) + (ramDd3.systemActive ? 1 : 0);
 
-        // 4. Increase ENEMY_DIVISION maxRammingAttackSlots to 3 -> all 3 rammers allowed to attack
+        // 4. Increase ENEMY_DIVISION maxRammingAttackSlots to 3 -> all 3 rammers attack 3 DISTINCT targets in the localized space!
+        ramDd1.systemActive = false; ramDd1.systemCooldownRemaining = 0f;
+        ramDd2.systemActive = false; ramDd2.systemCooldownRemaining = 0f;
+        ramDd3.systemActive = false; ramDd3.systemCooldownRemaining = 0f;
         ramDiv.maxRammingAttackSlots = 3;
         divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaRam.engineProxy, pGroupRam, null, eGroupRam, 22.5f);
         int activeDivSlot3 = (ramDd1.systemActive ? 1 : 0) + (ramDd2.systemActive ? 1 : 0) + (ramDd3.systemActive ? 1 : 0);
+        java.util.Set<com.fs.starfarer.api.combat.ShipAPI> distinctDivTargets = new java.util.HashSet<>();
+        if (ramDd1.shipTarget != null) distinctDivTargets.add(ramDd1.shipTarget);
+        if (ramDd2.shipTarget != null) distinctDivTargets.add(ramDd2.shipTarget);
+        if (ramDd3.shipTarget != null) distinctDivTargets.add(ramDd3.shipTarget);
+        boolean multiTargetInLocalizedSpace = (activeDivSlot3 == 3) && (distinctDivTargets.size() == 3);
+
+        // 5. Full Closed-Loop Rehearsal of SYNCHRONIZED_LANCE (Lance Charge) against an Enemy Division:
+        //    Start 3 Rambunctious destroyers at y=-820 (slightly misaligned headings so Stage 1 must dress & align them first),
+        //    verify zero piecemeal ignition during Stage 1, simultaneous 3-ship ignition in Stage 2, and physical hull impacts
+        //    on all 3 enemy ships!
+        ramDd1.systemActive = false; ramDd1.systemCooldownRemaining = 0f;
+        ramDd2.systemActive = false; ramDd2.systemCooldownRemaining = 0f;
+        ramDd3.systemActive = false; ramDd3.systemCooldownRemaining = 0f;
+        ramDd1.location.set(-180f, -820f); ramDd1.facing = 55f;  ramDd1.velocity.set(0f, 60f);
+        ramDd2.location.set(0f, -840f);    ramDd2.facing = 125f; ramDd2.velocity.set(0f, 60f);
+        ramDd3.location.set(180f, -820f);  ramDd3.facing = 50f;  ramDd3.velocity.set(0f, 60f);
+        enemTgt1.location.set(-180f, 180f); enemTgt1.velocity.set(0f, 0f);
+        enemTgt2.location.set(0f, 180f);    enemTgt2.velocity.set(0f, 0f);
+        enemTgt3.location.set(180f, 180f);  enemTgt3.velocity.set(0f, 0f);
+
+        ramDiv.rammingMode = divisionai.PermanentDivisionManager.DivisionRammingMode.SYNCHRONIZED_LANCE;
+        ramDiv.rammingTargetScope = divisionai.PermanentDivisionManager.DivisionRammingTargetScope.ENEMY_DIVISION;
+        ramDiv.maxRammingAttackSlots = 3;
+        ramDiv.shipSkillCoordination = divisionai.PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED;
+        ramDiv.synchronizedSkillManeuverActive = false;
+        ramDiv.synchronizedSkillStage = 0;
+        ramDiv.lastSynchronizedSkillEndTime = -20f;
+
+        boolean sawStage1HoldNoPiecemeal = false;
+        boolean sawSimultaneous3ShipLance = false;
+        boolean hitTgt1 = false, hitTgt2 = false, hitTgt3 = false;
+        float minD1 = 9999f, minD2 = 9999f, minD3 = 9999f;
+        for (int step = 0; step < 28; step++) {
+            float t = 30.0f + step * 0.25f;
+            divisionai.OtcAI.updateTelemetry(arenaRam.engineProxy, pGroupRam);
+            divisionai.OtcAI.updateTelemetry(arenaRam.engineProxy, eGroupRam);
+            ramDiv.currentIntent = DivisionIntentType.PRESS_HOME;
+            ramDiv.targetEnemyDivision = enemTgtDiv;
+            ramDiv.localForceRatio = 1.25f;
+            ramDiv.crossfireCordonIndex = 0.10f;
+            DivisionCommanderAI.evaluateAndExecuteDivisions(arenaRam.engineProxy, pGroupRam, eGroupRam, t);
+            divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaRam.engineProxy, pGroupRam, null, eGroupRam, t);
+
+            int actNow = (ramDd1.systemActive ? 1 : 0) + (ramDd2.systemActive ? 1 : 0) + (ramDd3.systemActive ? 1 : 0);
+            if (ramDiv.synchronizedSkillStage == 1 && actNow == 0) {
+                sawStage1HoldNoPiecemeal = true;
+            }
+            if (actNow == 3) {
+                sawSimultaneous3ShipLance = true;
+            }
+            // Step kinematics toward each ship's movement destination / target
+            SimShipState[] rammers = new SimShipState[]{ramDd1, ramDd2, ramDd3};
+            for (SimShipState rs : rammers) {
+                Vector2f md = (Vector2f) rs.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MOVEMENT_DEST);
+                if (md != null) {
+                    float dx = md.x - rs.location.x;
+                    float dy = md.y - rs.location.y;
+                    float d = (float) Math.sqrt(dx * dx + dy * dy);
+                    float desAng = (float) Math.toDegrees(Math.atan2(dy, dx));
+                    float diff = desAng - rs.facing;
+                    while (diff > 180f) diff -= 360f;
+                    while (diff < -180f) diff += 360f;
+                    float maxTurn = 45f * 0.25f;
+                    rs.facing += Math.max(-maxTurn, Math.min(maxTurn, diff));
+                    float spd = rs.systemActive ? (rs.maxSpeed + 260f) : rs.maxSpeed;
+                    if (d > 5f) {
+                        double rad = Math.toRadians(rs.facing);
+                        rs.velocity.set((float) Math.cos(rad) * spd, (float) Math.sin(rad) * spd);
+                        rs.location.x += rs.velocity.x * 0.25f;
+                        rs.location.y += rs.velocity.y * 0.25f;
+                    }
+                }
+                minD1 = Math.min(minD1, dist(rs.location, enemTgt1.location));
+                minD2 = Math.min(minD2, dist(rs.location, enemTgt2.location));
+                minD3 = Math.min(minD3, dist(rs.location, enemTgt3.location));
+                if (dist(rs.location, enemTgt1.location) <= 145f) hitTgt1 = true;
+                if (dist(rs.location, enemTgt2.location) <= 145f) hitTgt2 = true;
+                if (dist(rs.location, enemTgt3.location) <= 145f) hitTgt3 = true;
+            }
+        }
+        boolean lanceRehearsalPassed = sawStage1HoldNoPiecemeal && sawSimultaneous3ShipLance && hitTgt1 && hitTgt2 && hitTgt3;
 
         check(defaultOffWithoutRamShips && autoEnabledWithRamShips && offModeBlockedAll
-                        && singleSlot1Respected && activeDivSlot1 == 1 && activeDivSlot3 == 3,
-                "Scenario 6f: Per-Division Ramming Options default to OFF, auto-enable when ram ships detected, and enforce 1..10 slots against Single Ship or Enemy Division",
+                        && singleShipFocusedSameTarget && activeDivSlot1 == 1 && multiTargetInLocalizedSpace
+                        && lanceRehearsalPassed,
+                "Scenario 6f: Per-Division Ramming Options default to OFF, auto-enable when ram ships detected, select multiple targets in localized space for Enemy Division, and execute cohesive Lance Charge impacts",
                 String.format(Locale.ROOT,
-                        "defaultOff=%b, autoEnabled=%b, offBlocked=%b, singleShip1SlotActive=%d (distinctTargets=%b), enemyDiv1SlotActive=%d, enemyDiv3SlotActive=%d",
+                        "defaultOff=%b, autoEnabled=%b, offBlocked=%b, singleShipSameTgt=%b (act=%d), enemyDiv1Slot=%d, enemyDiv3MultiTgt=%b (distinct=%d), lanceRehearsal=%b (stage1Hold=%b, sync3=%b, hits=%b/%b/%b, minD=%.0f/%.0f/%.0f)",
                         defaultOffWithoutRamShips, autoEnabledWithRamShips, offModeBlockedAll,
-                        activeSingle1, singleSlot1Respected, activeDivSlot1, activeDivSlot3));
+                        singleShipFocusedSameTarget, activeSingle2, activeDivSlot1, multiTargetInLocalizedSpace, distinctDivTargets.size(),
+                        lanceRehearsalPassed, sawStage1HoldNoPiecemeal, sawSimultaneous3ShipLance, hitTgt1, hitTgt2, hitTgt3,
+                        minD1, minD2, minD3));
     }
 
     /**
