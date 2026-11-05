@@ -79,6 +79,7 @@ public class DivisionAITestSuite {
         testWeaponArcFirepowerSpaceAndCordonAvoidance();
         testHelmsmanshipMixedSpeedPacingExtractionAndPlayerC2();
         testBabylonStationBastionTargetingAndModuleFocusFire();
+        testFeignedRetreatForceDisparityFriendlyProtectionAndMinimalSignals();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -1041,6 +1042,223 @@ public class DivisionAITestSuite {
                 String.format(Locale.ROOT,
                         "intent=%s, form=%s, phase=%s, flagsOk=%s",
                         cruiserDiv.currentIntent, cruiserDiv.activeFormation, pGroup.currentPhase, fullAssaultFlagsOk));
+    }
+
+    /**
+     * Scenario 6e: Feigned Retreat Force-Disparity Checks, Friendly-Division Protection & Minimal Verbosity Signaling.
+     * Rehearses:
+     *  1. Latest-battle failure mode blocked: Line Cruiser Div 1 refuses to feign retreat when Destroyer Div 1 is
+     *     hard-pressed/withdrawing ahead of it or when no hammer division provides >= 1.28x combined trap superiority.
+     *  2. Overmatching bait blocked: Bait division with > 1.05x target strength does not feign retreat (enemy won't chase).
+     *  3. Valid multi-division trap (bait <= 1.05x enemy, combined bait+hammer >= 1.28x enemy, no friendly left behind)
+     *     executes Stage 1 Lure -> Stage 2 Spring Trap and signals the player on the HUD even at MINIMAL verbosity.
+     */
+    private static void testFeignedRetreatForceDisparityFriendlyProtectionAndMinimalSignals() {
+        System.out.println("\n--- Scenario 6e: Feigned Retreat Force Disparity, Friendly Protection & Minimal Verbosity Signals ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "aggressive");
+
+        // --- Subcase 1: Friendly Destroyer Div 1 exposed/hard-pressed ahead -> Feigned Retreat MUST be blocked ---
+        BattleGroupState pGroup1 = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup1 = new BattleGroupState(1, eCmdr);
+        pGroup1.authority = OtcAuthority.POSITIVE_CONTROL;
+        pGroup1.organizationRatio = 1.0f;
+
+        DivisionState cruiserBait1 = new DivisionState("p_cru1", 0, 1,
+                DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div 1", pCmdr);
+        DivisionState exposedDd1 = new DivisionState("p_dd1", 0, 2,
+                DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 1", pCmdr);
+        pGroup1.divisions.add(cruiserBait1);
+        pGroup1.divisions.add(exposedDd1);
+
+        DivisionState heavyEnemy1 = new DivisionState("e_hcru2", 1, 1,
+                DivisionArchetype.CRUISER_DIVISION, "Heavy Cruiser Div 2", eCmdr);
+        eGroup1.divisions.add(heavyEnemy1);
+
+        SimArena arena1 = new SimArena("6e-1. Feigned Retreat Blocked (Friendly Left Behind)",
+                "Line Cruiser Div 1 refuses to feign retreat while Destroyer Div 1 is hard-pressed ahead",
+                pGroup1, eGroup1);
+        arena1.addShip(cruiserBait1, "c1", "RDS Terror", "champion", HullSize.CRUISER, -120f, -1100f, 65f, 1000f, 2, 0);
+        arena1.addShip(cruiserBait1, "c2", "RDS Warden", "eagle", HullSize.CRUISER, 120f, -1100f, 65f, 1000f, 0, 0);
+        SimShipState dd1 = arena1.addShip(exposedDd1, "d1", "RDS Comet", "hammerhead", HullSize.DESTROYER, -80f, -820f, 90f, 900f, 0, 0);
+        SimShipState dd2 = arena1.addShip(exposedDd1, "d2", "RDS Vector", "sunder", HullSize.DESTROYER, 80f, -820f, 90f, 900f, 0, 0);
+        dd1.fluxLevel = 0.64f;
+        dd2.fluxLevel = 0.58f;
+
+        SimShipState e1 = arena1.addShip(heavyEnemy1, "e1", "HSS Dominator", "dominator", HullSize.CRUISER, -140f, 100f, 55f, 1100f, 2, 0);
+        SimShipState e2 = arena1.addShip(heavyEnemy1, "e2", "HSS Eagle", "eagle", HullSize.CRUISER, 0f, 100f, 65f, 1100f, 0, 0);
+        SimShipState e3 = arena1.addShip(heavyEnemy1, "e3", "HSS Mora", "mora", HullSize.CRUISER, 140f, 100f, 50f, 1100f, 0, 3);
+        e1.velocity.set(0f, -35f);
+        e2.velocity.set(0f, -35f);
+        e3.velocity.set(0f, -35f);
+
+        arena1.runSimulation(1.0f);
+        boolean friendlyExposedDetected = divisionai.OtcBattlePlanner.hasFriendlyDivisionLeftBehindOrExposed(
+                arena1.engineProxy, pGroup1, cruiserBait1, heavyEnemy1);
+        DivisionState invalidHammerWhenExposed = divisionai.OtcBattlePlanner.findValidFeignedRetreatHammer(
+                arena1.engineProxy, pGroup1, cruiserBait1, heavyEnemy1);
+        boolean feignBlockedWhenFriendlyExposed = friendlyExposedDetected
+                && invalidHammerWhenExposed == null
+                && !pGroup1.fleetFeignedRetreatActive
+                && cruiserBait1.currentIntent != DivisionIntentType.FEIGNED_RETREAT;
+
+        // --- Subcase 2: Bait division alone already outmatches target (> 1.05x) -> Feigned Retreat blocked ---
+        DivisionState weakEnemy = new DivisionState("e_weak", 1, 2,
+                DivisionArchetype.FRIGATE_DIVISION, "Frigate Screen", eCmdr);
+        weakEnemy.totalFpStrength = 14f;
+        weakEnemy.centroid.set(0f, 100f);
+        cruiserBait1.totalFpStrength = 36f;
+        DivisionState overmatchHammer = divisionai.OtcBattlePlanner.findValidFeignedRetreatHammer(
+                arena1.engineProxy, pGroup1, cruiserBait1, weakEnemy);
+        boolean overmatchingBaitBlocked = (overmatchHammer == null);
+
+        // --- Subcase 3: Valid Force-Disparity Trap (Bait <= 1.05x Enemy, Bait+Hammer >= 1.28x Enemy, No Friendly Exposed)
+        //     + MINIMAL Verbosity HUD Signaling ---
+        BattleGroupState pGroup3 = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup3 = new BattleGroupState(1, eCmdr);
+        pGroup3.authority = OtcAuthority.POSITIVE_CONTROL;
+        pGroup3.organizationRatio = 1.0f;
+
+        DivisionState baitCruisers = new DivisionState("p_bait", 0, 1,
+                DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div 1", pCmdr);
+        DivisionState hammerCruisers = new DivisionState("p_hammer", 0, 2,
+                DivisionArchetype.STRIKE_CRUISER_DIVISION, "Strike Cruiser Div 2", pCmdr);
+        hammerCruisers.isFastFlanker = true;
+        pGroup3.divisions.add(baitCruisers);
+        pGroup3.divisions.add(hammerCruisers);
+
+        DivisionState pursuingEnemy = new DivisionState("e_pursue", 1, 1,
+                DivisionArchetype.CRUISER_DIVISION, "Hegemony Vanguard", eCmdr);
+        eGroup3.divisions.add(pursuingEnemy);
+
+        SimArena arena3 = new SimArena("6e-3. Valid Feigned Retreat Trap & Minimal Signals",
+                "Bait lures pursuing enemy into Hammer division's alpha strike with Minimal HUD signals",
+                pGroup3, eGroup3);
+        arena3.addShip(baitCruisers, "bc1", "RDS Sentinel", "eagle", HullSize.CRUISER, -110f, -1100f, 70f, 1050f, 0, 0);
+        arena3.addShip(baitCruisers, "bc2", "RDS Bastion", "falcon", HullSize.CRUISER, 110f, -1100f, 75f, 1050f, 0, 0);
+        // Hammer division positioned behind/flank of bait at (-950, -1350) so it is NOT exposed ahead of bait
+        arena3.addShip(hammerCruisers, "hc1", "RDS Rapier", "fury", HullSize.CRUISER, -950f, -1350f, 85f, 1000f, 0, 0);
+        arena3.addShip(hammerCruisers, "hc2", "RDS Sabre", "aurora", HullSize.CRUISER, -780f, -1350f, 85f, 1000f, 0, 0);
+
+        SimShipState pe1 = arena3.addShip(pursuingEnemy, "pe1", "HSS Champion", "champion", HullSize.CRUISER, -100f, 120f, 65f, 1050f, 0, 0);
+        SimShipState pe2 = arena3.addShip(pursuingEnemy, "pe2", "HSS Eagle", "eagle", HullSize.CRUISER, 100f, 120f, 65f, 1050f, 0, 0);
+        SimShipState pe3 = arena3.addShip(pursuingEnemy, "pe3", "HSS Enforcer", "enforcer", HullSize.DESTROYER, 0f, 150f, 65f, 950f, 0, 0);
+        pe1.facing = 270f;
+        pe2.facing = 270f;
+        pe3.facing = 270f;
+        pe1.velocity.set(0f, -45f);
+        pe2.velocity.set(0f, -45f);
+        pe3.velocity.set(0f, -45f);
+
+        final List<String> minimalHudMessages = new ArrayList<>();
+        final com.fs.starfarer.api.combat.CombatUIAPI mockUi =
+                (com.fs.starfarer.api.combat.CombatUIAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatUIAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatUIAPI.class},
+                        (p, m, a) -> {
+                            if ("addMessage".equals(m.getName()) && a != null) {
+                                StringBuilder sb = new StringBuilder();
+                                for (Object arg : a) {
+                                    if (arg instanceof String) sb.append((String) arg);
+                                    else if (arg instanceof Object[]) {
+                                        for (Object sub : (Object[]) arg) {
+                                            if (sub instanceof String) sb.append((String) sub);
+                                        }
+                                    }
+                                }
+                                minimalHudMessages.add(sb.toString());
+                            }
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+        com.fs.starfarer.api.combat.CombatEngineAPI engineWithUi =
+                (com.fs.starfarer.api.combat.CombatEngineAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatEngineAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatEngineAPI.class},
+                        (p, m, a) -> {
+                            if ("getCombatUI".equals(m.getName())) return mockUi;
+                            return m.invoke(arena3.engineProxy, a);
+                        });
+
+        DivisionState resolvedHammer = null;
+        boolean validTrapInitiated = false;
+        boolean minimalSignaledFeignAndLargeTactics = false;
+        try {
+            divisionai.DivisionAISettings.testVerbosityOverride = divisionai.DivisionAISettings.ChatterVerbosity.MINIMAL;
+            arena3.runSimulation(0.5f);
+            pGroup3.organizationRatio = 1.0f;
+            pGroup3.forceRatio = 1.6f;
+            pursuingEnemy.closingSpeedToEnemy = 40f;
+            baitCruisers.avgFluxLevel = 0.18f;
+            baitCruisers.weaponReadinessRatio = 0.85f;
+            hammerCruisers.avgFluxLevel = 0.14f;
+            pGroup3.primaryThreatEnemyDivision = pursuingEnemy;
+            pGroup3.mainEffortDivision = baitCruisers;
+            pGroup3.strikePlan = null;
+            pGroup3.fleetFeignedRetreatActive = false;
+            pGroup3.fleetFeignedRetreatStage = 0;
+            pGroup3.lastFleetFeignedRetreatEndTime = -30f;
+            baitCruisers.otcOrder.clear();
+            hammerCruisers.otcOrder.clear();
+            baitCruisers.lastIntentChangeTime = -10f;
+            baitCruisers.intentCommitUntil = 0f;
+
+            resolvedHammer = divisionai.OtcBattlePlanner.findValidFeignedRetreatHammer(
+                    engineWithUi, pGroup3, baitCruisers, pursuingEnemy);
+            divisionai.OtcBattlePlanner.planBattle(engineWithUi, pGroup3, eGroup3, null, null, 30.0f);
+            DivisionCommanderAI.evaluateAndExecuteDivisions(engineWithUi, pGroup3, eGroup3, 30.0f);
+
+            validTrapInitiated = (resolvedHammer == hammerCruisers)
+                    && pGroup3.fleetFeignedRetreatActive
+                    && pGroup3.fleetFeignedRetreatStage == 1
+                    && baitCruisers.currentIntent == DivisionIntentType.FEIGNED_RETREAT;
+
+            // Advance 5.0s so the pursuing enemy closes into the kill zone and triggers Stage 2 (Spring Trap)
+            pursuingEnemy.closingSpeedToEnemy = 40f;
+            divisionai.OtcBattlePlanner.planBattle(engineWithUi, pGroup3, eGroup3, null, null, 35.0f);
+            boolean trapSprungStage2 = pGroup3.fleetFeignedRetreatActive && pGroup3.fleetFeignedRetreatStage == 2;
+            validTrapInitiated = validTrapInitiated && trapSprungStage2;
+
+            // Also emit a Setpiece and Trade Space order at MINIMAL verbosity to verify large-scale tactic signals
+            divisionai.DivisionCombatLog.logOtcOrder(engineWithUi, pGroup3,
+                    "Setpiece [Hammer and Anvil]: 2 divisions executing against \"Hegemony Vanguard\" (strike in 4.0s).");
+            divisionai.DivisionCombatLog.logOtcOrder(engineWithUi, pGroup3,
+                    "Tactical Retreat [Trade Space for Time]: 1 divisions offsetting centroid by (0, -600) against \"Hegemony Vanguard\".");
+
+            boolean sawFeignLureOnMinimalHud = false;
+            boolean sawFeignSpringOnMinimalHud = false;
+            boolean sawSetpieceOnMinimalHud = false;
+            boolean sawTradeSpaceOnMinimalHud = false;
+            for (String msg : minimalHudMessages) {
+                if (msg.contains("Feigned Retreat (Lure)") || msg.contains("Lure <-")) sawFeignLureOnMinimalHud = true;
+                if (msg.contains("Feigned Retreat: Spring Trap")) sawFeignSpringOnMinimalHud = true;
+                if (msg.contains("Setpiece [Hammer and Anvil]")) sawSetpieceOnMinimalHud = true;
+                if (msg.contains("Trade Space")) sawTradeSpaceOnMinimalHud = true;
+            }
+            minimalSignaledFeignAndLargeTactics = sawFeignLureOnMinimalHud
+                    && sawFeignSpringOnMinimalHud
+                    && sawSetpieceOnMinimalHud
+                    && sawTradeSpaceOnMinimalHud;
+        } finally {
+            divisionai.DivisionAISettings.testVerbosityOverride = null;
+        }
+        recordedScenarios.add(arena1.recording);
+        recordedScenarios.add(arena3.recording);
+
+        check(feignBlockedWhenFriendlyExposed && overmatchingBaitBlocked && validTrapInitiated && minimalSignaledFeignAndLargeTactics,
+                "Scenario 6e: Feigned Retreat enforces force disparity & no-friendly-left-behind and signals large-scale tactics at MINIMAL verbosity",
+                String.format(Locale.ROOT,
+                        "blockedWhenFriendlyExposed=%b, overmatchBlocked=%b, validTrapInitiated=%b (resHammer=%s, exp=%b, baitFp=%.1f, hamFp=%.1f, enemFp=%.1f, locEnem=%.1f, fleetFeign=%b, stage=%d, intent=%s, dist=%.0f), minimalSignals=%b (hud=%s)",
+                        feignBlockedWhenFriendlyExposed, overmatchingBaitBlocked, validTrapInitiated,
+                        resolvedHammer != null ? resolvedHammer.displayName : "null",
+                        divisionai.OtcBattlePlanner.hasFriendlyDivisionLeftBehindOrExposed(engineWithUi, pGroup3, baitCruisers, pursuingEnemy),
+                        baitCruisers.totalFpStrength, hammerCruisers.totalFpStrength, pursuingEnemy.totalFpStrength, baitCruisers.localEnemyStrength,
+                        pGroup3.fleetFeignedRetreatActive, pGroup3.fleetFeignedRetreatStage, baitCruisers.currentIntent,
+                        dist(baitCruisers.centroid, pursuingEnemy.centroid),
+                        minimalSignaledFeignAndLargeTactics, minimalHudMessages));
     }
 
     /**

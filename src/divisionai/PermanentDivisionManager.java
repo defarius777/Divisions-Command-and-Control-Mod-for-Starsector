@@ -652,37 +652,37 @@ public class PermanentDivisionManager {
         SCOUTING(
                 "Scouting",
                 "Scouting",
-                "Seize objectives and hold contact at range.",
+                "Captures objectives and holds enemy contact at range without overcommitting.",
                 false,
                 LineStation.VAN),
         CLOSE_ACTION(
                 "Close Action",
                 "Close Action",
-                "Close to decisive range and press attack.",
+                "Advances into effective weapon range to fix and destroy the enemy line.",
                 false,
                 LineStation.VAN),
         STANDOFF_ENGAGEMENT(
                 "Standoff Engagement",
                 "Standoff",
-                "Trade fire at max gun range; yield if pressed.",
+                "Exchanges fire at maximum gun range and gives ground when pressed.",
                 false,
                 LineStation.CENTER),
         ENVELOPMENT(
                 "Envelopment",
                 "Envelopment",
-                "Flank and roll up exposed enemy ships.",
+                "Sweeps wide around the enemy line to attack exposed flanks and rear.",
                 false,
                 LineStation.VAN),
         TOT_ALPHA_STRIKE(
                 "ToT Alpha Strike",
                 "ToT Alpha",
-                "Close rapidly, focus all weapons, break off.",
+                "Marshals outside range, surges in for a synchronized salvo, then breaks off.",
                 false,
                 LineStation.VAN),
         SCREEN(
                 "Screen",
                 "Screen",
-                "Screen ahead of friendly heavy divisions.",
+                "Screens ahead of friendly capitals and carriers against flankers and missiles.",
                 false,
                 LineStation.CENTER),
 
@@ -690,37 +690,37 @@ public class PermanentDivisionManager {
         ARMED_RECONNAISSANCE(
                 "Armed Recon (Carrier)",
                 "Armed Recon",
-                "Send strike craft ahead to scout and voidstrike.",
+                "Holds carriers astern while sending wings ahead to scout and voidstrike.",
                 true,
                 LineStation.REAR),
         SPACE_SUPERIORITY(
                 "Space Superiority (Carrier)",
                 "Space Sup.",
-                "Sweep enemy fighters and light escorts.",
+                "Sweeps enemy fighters, bombers, and light escorts from contested space.",
                 true,
                 LineStation.CENTER),
         COMBAT_SPACE_PATROL(
                 "Combat Space Patrol (Carrier)",
                 "CAP",
-                "Keep fighter cover over friendly divisions.",
+                "Maintains defensive fighter cover over friendly frontline and carrier divisions.",
                 true,
                 LineStation.REAR),
         CYCLIC_STRIKES(
                 "Cyclic Voidstrikes (Carrier)",
                 "Cyclic Voidstrikes",
-                "Cycle continuous voidstrike waves on visible targets.",
+                "Launches continuous voidstrike waves against visible enemy targets.",
                 true,
                 LineStation.REAR),
         DECKLOAD_STRIKE(
                 "Deckload Voidstrike (Carrier)",
                 "Deck Voidstrike",
-                "Mass division wings into synchronized voidstrikes.",
+                "Marshals all division wings into a single synchronized voidstrike.",
                 true,
                 LineStation.REAR),
         ALPHA_STRIKE(
                 "Alpha Voidstrike (Carrier)",
                 "Alpha Voidstrike",
-                "Coordinate full carrier voidstrikes with Main Effort.",
+                "Coordinates multi-division carrier voidstrikes against the Main Effort target.",
                 true,
                 LineStation.REAR),
 
@@ -728,7 +728,7 @@ public class PermanentDivisionManager {
         RESERVE(
                 "Reserve",
                 "Reserve",
-                "Hold astern until committed by the Officer in Tactical Command.",
+                "Holds astern of the battle line until committed by the Officer in Tactical Command.",
                 false,
                 LineStation.REAR),
 
@@ -736,7 +736,7 @@ public class PermanentDivisionManager {
         MARTYRDOM(
                 "Martyrdom",
                 "Martyrdom",
-                "Point-blank ramming and detonation charge.",
+                "Charges directly into point-blank range without backing off or venting.",
                 false,
                 LineStation.VAN);
 
@@ -2408,12 +2408,12 @@ public class PermanentDivisionManager {
     }
 
     public enum DoctrineOption {
-        ADAPTIVE("Adaptive", "Balanced: screens, flanks, or presses as needed."),
-        SPEARHEAD("Spearhead", "Closes early and presses local superiority."),
-        FIRE_SUPPORT("Fire Support", "Stands off at max gun or strike range."),
-        ESCORT_AND_SCREEN("Escort & Screen", "Screens friendly capitals and carriers."),
-        FLANKING_STRIKE("Flanking Strike", "Flanks enemy line with missile salvos."),
-        RESERVE("Reserve", "Holds astern until needed to reinforce.");
+        ADAPTIVE("Adaptive", "Follows its division type and mission normally, adapting to local combat."),
+        SPEARHEAD("Spearhead", "Presses attacks aggressively and commits to close action at lower odds."),
+        FIRE_SUPPORT("Fire Support", "Fights cautiously at standoff range and rotates out early at 65% flux."),
+        ESCORT_AND_SCREEN("Escort & Screen", "Stays with the battle line to screen capitals and carriers instead of flanking."),
+        FLANKING_STRIKE("Mobile Flanker", "Detaches from the main line to seize objectives, turn flanks, and pursue."),
+        RESERVE("Reserve", "Holds astern of the battle line until committed to reinforce.");
 
         public final String displayName;
         public final String summary;

@@ -1030,12 +1030,16 @@ public class DivisionCommanderAI {
                     && div.avgFluxLevel >= 0.30f
                     && div.avgFluxLevel < div.commander.rotationFluxThreshold;
             // Division-level battle-sequence chaining: after 4.5s of trading space, if the enemy has overextended
-            // (closing on us) and our flux has dropped below 0.52, escalate to a feigned retreat lure -> alpha strike!
+            // (closing on us), our flux has dropped below 0.52, no friendly division is left behind, and a friendly
+            // hammer division gives >= 1.28x combined trap superiority, escalate to a feigned retreat lure -> alpha strike!
+            DivisionState seqHammer = (prevIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME)
+                    ? OtcBattlePlanner.findValidFeignedRetreatHammer(engine, myGroup, div, nearestEnemyDiv)
+                    : null;
             boolean escalateToFeignedRetreat = prevIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME
                     && (now - div.tradeSpaceStartTime) >= 4.5f
                     && (div.getAliveMembers().size() >= 3 || div.totalFpStrength >= 28f)
                     && div.avgFluxLevel >= 0.28f && div.avgFluxLevel < 0.52f
-                    && div.localForceRatio >= 0.85f
+                    && seqHammer != null
                     && nearestEnemyDiv.closingSpeedToEnemy > 12f
                     && (now - div.lastFeignedRetreatEndTime) >= 20f;
             if (escalateToFeignedRetreat) {
@@ -1044,7 +1048,7 @@ public class DivisionCommanderAI {
                 div.fleetBattleSequenceStage = 2;
                 div.targetEnemyDivision = nearestEnemyDiv;
                 BattlefieldFirepowerEvaluator.computeFeignedRetreatBaitOffset(
-                        engine, div, nearestEnemyDiv, null, myGroup, div.spaceOffsetVector);
+                        engine, div, nearestEnemyDiv, seqHammer, myGroup, div.spaceOffsetVector);
                 div.stationPoint.set(
                         div.centroid.x + div.spaceOffsetVector.x,
                         div.centroid.y + div.spaceOffsetVector.y);
@@ -1054,14 +1058,17 @@ public class DivisionCommanderAI {
             boolean rankReliefHoldingFront = div.inDoubleLineRelief
                     && div.avgFluxLevel < 0.62f
                     && div.crossfireCordonIndex < 0.36f;
+            boolean friendlyExposedAhead = OtcBattlePlanner.hasFriendlyDivisionLeftBehindOrExposed(
+                    engine, myGroup, div, nearestEnemyDiv);
             boolean startTradeSpace = !rankReliefHoldingFront
+                    && !friendlyExposedAhead
                     && (now - div.lastTradeSpaceEndTime) >= 7.0f
                     && div.avgFluxLevel >= 0.52f
                     && div.avgFluxLevel < div.commander.rotationFluxThreshold
                     && div.incomingInRangeFirepower > 45f
                     && div.firepowerExchangeRatio < 0.72f
                     && div.localForceRatio < 0.78f;
-            if (continuingTradeSpace || startTradeSpace) {
+            if ((continuingTradeSpace && !friendlyExposedAhead) || startTradeSpace) {
                 div.targetEnemyDivision = nearestEnemyDiv;
                 BattlefieldFirepowerEvaluator.computeTradeSpaceForTimeOffset(
                         engine, div, nearestEnemyDiv, myGroup, div.spaceOffsetVector);
@@ -1493,16 +1500,22 @@ public class DivisionCommanderAI {
 
         // 12b. Item F (Autonomous Division-Level "Feigned Retreat" for Large Divisions):
         // Large divisions (aliveMembers >= 4 or totalFp >= 32) can autonomously execute a 2-stage Feigned Retreat
-        // (Stage 1: 4.5s bait withdrawal -> Stage 2: sudden ToT Alpha Strike once the enemy chases into gun range).
+        // ONLY when: (a) bait alone does not outmatch the enemy (<= 1.05x) so the enemy is pulled inward,
+        // (b) no friendly division is left behind/exposed ahead of us, and (c) at least one nearby friendly
+        // hammer division provides >= 1.28x combined trap superiority.
         if (!div.archetype.isCarrierArchetype()
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
                 && nearestEnemyDiv != null
                 && nearestEnemyDiv.isAbleCombatEffective()
                 && !BattlefieldFirepowerEvaluator.isStationBastionDivision(nearestEnemyDiv)
                 && (div.getAliveMembers().size() >= 4 || div.totalFpStrength >= 32f)) {
+            DivisionState validHammer = OtcBattlePlanner.findValidFeignedRetreatHammer(
+                    engine, myGroup, div, nearestEnemyDiv);
+            boolean friendlyExposed = OtcBattlePlanner.hasFriendlyDivisionLeftBehindOrExposed(
+                    engine, myGroup, div, nearestEnemyDiv);
             if (prevIntent == DivisionIntentType.FEIGNED_RETREAT) {
                 float feignElapsed = now - div.feignedRetreatStartTime;
-                if (div.avgFluxLevel < 0.60f && feignElapsed <= 9.5f) {
+                if (!friendlyExposed && div.avgFluxLevel < 0.60f && feignElapsed <= 9.5f) {
                     if (distToVisibleEnemy <= Math.max(960f, div.avgEngageRange * 0.94f)
                             || (feignElapsed >= 3.5f && nearestEnemyDiv.closingSpeedToEnemy > 25f)
                             || feignElapsed >= 5.0f) {
@@ -1515,11 +1528,11 @@ public class DivisionCommanderAI {
                         commitIntent(engine, div, DivisionIntentType.TOT_ALPHA_STRIKE,
                                 nearestEnemyDiv.displayName, "Feigned Retreat trap sprung", now);
                         return;
-                    } else {
+                    } else if (validHammer != null) {
                         // Continue Stage 1 bait lure
                         div.targetEnemyDivision = nearestEnemyDiv;
                         BattlefieldFirepowerEvaluator.computeFeignedRetreatBaitOffset(
-                                engine, div, nearestEnemyDiv, null, myGroup, div.spaceOffsetVector);
+                                engine, div, nearestEnemyDiv, validHammer, myGroup, div.spaceOffsetVector);
                         div.stationPoint.set(
                                 div.centroid.x + div.spaceOffsetVector.x,
                                 div.centroid.y + div.spaceOffsetVector.y);
@@ -1530,20 +1543,21 @@ public class DivisionCommanderAI {
                 }
                 div.feignedRetreatStage = 0;
                 div.lastFeignedRetreatEndTime = now;
-            } else if ((now - div.lastFeignedRetreatEndTime) >= 26.0f
+            } else if (validHammer != null
+                    && !friendlyExposed
+                    && (now - div.lastFeignedRetreatEndTime) >= 26.0f
                     && distToVisibleEnemy >= 920f
                     && distToVisibleEnemy <= 1600f
                     && div.avgFluxLevel < 0.34f
                     && div.weaponReadinessRatio >= 0.72f
                     && nearestEnemyDiv.enemyFeignedRetreatSuspicion < 0.45f
                     && nearestEnemyDiv.avgFluxLevel < 0.52f
-                    && div.localForceRatio >= 0.78f
-                    && div.localForceRatio <= 1.35f) {
+                    && nearestEnemyDiv.closingSpeedToEnemy > 12f) {
                 div.feignedRetreatStage = 1;
                 div.feignedRetreatStartTime = now;
                 div.targetEnemyDivision = nearestEnemyDiv;
                 BattlefieldFirepowerEvaluator.computeFeignedRetreatBaitOffset(
-                        engine, div, nearestEnemyDiv, null, myGroup, div.spaceOffsetVector);
+                        engine, div, nearestEnemyDiv, validHammer, myGroup, div.spaceOffsetVector);
                 div.stationPoint.set(
                         div.centroid.x + div.spaceOffsetVector.x,
                         div.centroid.y + div.spaceOffsetVector.y);

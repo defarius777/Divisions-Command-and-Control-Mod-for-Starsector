@@ -438,6 +438,7 @@ public class DivisionAISettings {
             case REINFORCE_DIVISION:
             case HAUL_OUT_TO_VENT:
             case BREAK_OFF_AND_RETIRE:
+            case FEIGNED_RETREAT:
                 return true;
             default:
                 return false;
@@ -521,6 +522,8 @@ public class DivisionAISettings {
             case LAUNCH_ALPHA_STRIKE:
             case FORM_LINE_AND_FIX:
             case MARSHAL_FOR_STRIKE:
+            case FEIGNED_RETREAT:
+            case TRADE_SPACE_FOR_TIME:
                 return true;
             case CLOSE_UP:
             case CLOSE_AND_ENGAGE:

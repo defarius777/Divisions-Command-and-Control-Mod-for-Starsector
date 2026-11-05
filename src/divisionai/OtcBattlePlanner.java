@@ -106,19 +106,20 @@ public class OtcBattlePlanner {
             myGroup.strikePlan.commitTime = now;
         }
 
-        // 1. Timed strikes (claims its participants first so nothing else re-tasks them mid-run)
-        if (myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES)) {
-            runStrikePlan(engine, myGroup, active, now, expires, tasked);
-        } else if (myGroup.strikePlan != null) {
-            endStrikePlan(myGroup, now);
-        }
-
-        // 1b. Item F (Fleet-Wide / Multi-Division "Feigned Retreat") & Item E ("Trade Space for Time"):
+        // 1a. Item F (Fleet-Wide / Multi-Division "Feigned Retreat") & Item E ("Trade Space for Time"):
         // Highly organized fleets (organizationRatio >= 0.75 or Convergence) can coordinate multi-division
-        // space-centroid offsets (Trade Space for Time) and 2-stage Feigned Retreat alpha-strike traps!
+        // space-centroid offsets (Trade Space for Time) and 2-stage Feigned Retreat alpha-strike traps
+        // before committing to a standard frontal strike plan.
         if (!fullAssault && auth.allowsPositioning()) {
             evaluateAndAssignFleetFeignedRetreat(engine, myGroup, active, visibleEnemies, now, expires, tasked);
             evaluateAndAssignFleetTradeSpaceForTime(engine, myGroup, active, visibleEnemies, now, expires, tasked);
+        }
+
+        // 1b. Timed strikes (claims its participants from remaining untasked divisions)
+        if (myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES) && !myGroup.fleetFeignedRetreatActive) {
+            runStrikePlan(engine, myGroup, active, now, expires, tasked);
+        } else if (myGroup.strikePlan != null) {
+            endStrikePlan(myGroup, now);
         }
 
         boolean reservePlay = myGroup.isPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE) && auth.allowsRetasking();
@@ -501,11 +502,14 @@ public class OtcBattlePlanner {
             plan.participants.add(d);
 
             float travel = Math.max(0f, DivisionUiWidgets.distance(d.centroid, new Vector2f(targetPos.x + offset.x, targetPos.y + offset.y)) - 250f);
-            float effectiveSpd = Math.max(45f, d.weightedTimeSpeed > 1f
-                    ? (d.weightedTimeSpeed * Math.max(0.45f, d.timeFreedomFactor))
-                    : (d.avgMaxSpeed * 0.8f));
+            float rawTimeSpd = (!Float.isNaN(d.weightedTimeSpeed) && d.weightedTimeSpeed > 1f)
+                    ? (d.weightedTimeSpeed * Math.max(0.45f, Float.isNaN(d.timeFreedomFactor) ? 1.0f : d.timeFreedomFactor))
+                    : (Float.isNaN(d.avgMaxSpeed) ? 60f : d.avgMaxSpeed * 0.8f);
+            float effectiveSpd = Math.max(45f, Float.isNaN(rawTimeSpd) ? 60f : rawTimeSpd);
             float eta = travel / effectiveSpd;
-            maxEta = Math.max(maxEta, eta);
+            if (!Float.isNaN(eta) && !Float.isInfinite(eta) && eta > maxEta) {
+                maxEta = eta;
+            }
         }
         boolean anyParticipantInCombatRange = false;
         for (DivisionState p : plan.participants) {
@@ -517,8 +521,9 @@ public class OtcBattlePlanner {
                 break;
             }
         }
-        plan.strikeTime = now + Math.max(2.0f, Math.min(8.0f, maxEta * 0.65f));
-        if (maxEta <= 3.5f || anyParticipantInCombatRange) {
+        float safeMaxEta = (Float.isNaN(maxEta) || Float.isInfinite(maxEta)) ? 4.0f : maxEta;
+        plan.strikeTime = now + Math.max(2.0f, Math.min(8.0f, safeMaxEta * 0.65f));
+        if (safeMaxEta <= 3.5f || anyParticipantInCombatRange) {
             plan.committed = true;
             plan.commitTime = now;
             plan.focusShip = pickStrikeFocusShip(engine, myGroup.side, plan.target);
@@ -1363,10 +1368,15 @@ public class OtcBattlePlanner {
         BattlefieldFirepowerEvaluator.computeTradeSpaceForTimeOffset(
                 engine, refDiv, primary, myGroup, myGroup.fleetSpaceOffsetVector);
 
+        int taskedCount = 0;
         for (DivisionState d : candidates) {
             // Healthy divisions (or divisions whose front rank is still holding via Double-Line Rank Relief)
             // stay on the line to cover the pressured divisions rather than retreating alongside them!
             if (d.avgFluxLevel < 0.48f || (d.inDoubleLineRelief && d.avgFluxLevel < 0.58f && d.crossfireCordonIndex < 0.36f)) {
+                continue;
+            }
+            // Never pull back in Trade Space if doing so leaves a friendly division stranded/exposed ahead of us
+            if (hasFriendlyDivisionLeftBehindOrExposed(engine, myGroup, d, primary)) {
                 continue;
             }
             d.spaceOffsetVector.set(myGroup.fleetSpaceOffsetVector);
@@ -1377,12 +1387,141 @@ public class OtcBattlePlanner {
                     d.centroid.x + myGroup.fleetSpaceOffsetVector.x,
                     d.centroid.y + myGroup.fleetSpaceOffsetVector.y);
             tasked.add(d);
+            taskedCount++;
+        }
+        if (taskedCount == 0) {
+            myGroup.fleetTradeSpaceActive = false;
+            return;
         }
         if (triggerFleetTradeSpace) {
             logOrder(engine, myGroup, "trade_space:" + primary.id, String.format(
                     "Tactical Retreat [Trade Space for Time]: %d divisions offsetting centroid by (%.0f, %.0f) against \"%s\".",
-                    candidates.size(), myGroup.fleetSpaceOffsetVector.x, myGroup.fleetSpaceOffsetVector.y, primary.displayName), now);
+                    taskedCount, myGroup.fleetSpaceOffsetVector.x, myGroup.fleetSpaceOffsetVector.y, primary.displayName), now);
         }
+    }
+
+    /**
+     * Returns true if {@code retreatingDiv} pulling back from {@code targetEnemy} would abandon or expose
+     * a friendly division (e.g., a division hauling out to vent behind it, a division it is covering, or a
+     * hard-pressed/slower friendly division positioned closer to the enemy that would be left behind).
+     */
+    public static boolean hasFriendlyDivisionLeftBehindOrExposed(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            DivisionState retreatingDiv,
+            DivisionState targetEnemy) {
+        if (myGroup == null || retreatingDiv == null || targetEnemy == null) return false;
+        if (retreatingDiv.isCoveringFriend) {
+            return true;
+        }
+        Vector2f targetPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, targetEnemy);
+        if (targetPos == null) {
+            targetPos = targetEnemy.centroid;
+        }
+        float retreatDistToEnemy = DivisionUiWidgets.distance(retreatingDiv.centroid, targetPos);
+        for (DivisionState other : myGroup.divisions) {
+            if (other == null || other == retreatingDiv || !other.isCombatEffective()) continue;
+            if (other.coveringFriendDivision == retreatingDiv) {
+                return true;
+            }
+            float distBetweenFriends = DivisionUiWidgets.distance(retreatingDiv.centroid, other.centroid);
+            if (distBetweenFriends > 1850f) continue;
+
+            float otherDistToEnemy = DivisionUiWidgets.distance(other.centroid, targetPos);
+            boolean otherAheadOrAbreast = otherDistToEnemy <= retreatDistToEnemy + 250f;
+            if (!otherAheadOrAbreast) continue;
+
+            boolean otherWithdrawing = other.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
+                    || other.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE;
+            boolean otherHardPressed = other.avgFluxLevel >= 0.52f
+                    || (other.localEnemyStrength >= 10f && other.localForceRatio < 0.85f)
+                    || other.effectiveHpRatio < 0.55f;
+            boolean otherMuchSlower = !other.archetype.isCarrierArchetype()
+                    && other.avgMaxSpeed > 1f
+                    && retreatingDiv.avgMaxSpeed > 1f
+                    && other.avgMaxSpeed < retreatingDiv.avgMaxSpeed * 0.82f
+                    && otherDistToEnemy < retreatDistToEnemy + 100f;
+            if (otherWithdrawing || otherHardPressed || otherMuchSlower) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Validates the two-part force disparity and friendly-protection rules required for a Feigned Retreat:
+     *  1. Lure Credibility (Bait vs. Target): {@code bait} alone must NOT outmatch {@code targetEnemy}
+     *     ({@code baitFp / enemyFp <= 1.05f} and {@code bait.localForceRatio <= 1.08f}), so the enemy has a
+     *     genuine local advantage to press inward, while {@code baitFp / enemyFp >= 0.35f} so the bait survives.
+     *  2. No Friendly Left Behind: {@link #hasFriendlyDivisionLeftBehindOrExposed} must be false.
+     *  3. Combined Trap Overmatch: at least one combat-ready friendly non-carrier hammer division must be
+     *     within 2,150u such that {@code (baitFp + readyHammerFp) / enemyFp >= 1.28f}.
+     * Returns the best supporting hammer division if valid, or {@code null} if Feigned Retreat is invalid.
+     */
+    public static DivisionState findValidFeignedRetreatHammer(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            DivisionState bait,
+            DivisionState targetEnemy) {
+        if (myGroup == null || bait == null || targetEnemy == null) return null;
+        if (!bait.isAbleCombatEffective() || !targetEnemy.isAbleCombatEffective()) return null;
+        if (bait.archetype.isCarrierArchetype() || bait.archetype == DivisionArchetype.SERVICE_GROUP) return null;
+        if (targetEnemy.archetype.isCarrierArchetype()
+                || targetEnemy.archetype == DivisionArchetype.SERVICE_GROUP
+                || BattlefieldFirepowerEvaluator.isStationBastionDivision(targetEnemy)) {
+            return null;
+        }
+        if (hasFriendlyDivisionLeftBehindOrExposed(engine, myGroup, bait, targetEnemy)) {
+            return null;
+        }
+
+        float enemyFp = Math.max(8f, targetEnemy.totalFpStrength);
+        float baitFp = Math.max(6f, bait.totalFpStrength);
+        float baitToEnemyRatio = baitFp / enemyFp;
+        // If bait alone already overmatches the enemy (> 1.05x), the enemy won't be pulled inward;
+        // if bait is < 0.35x of enemy strength, bait will be crushed before the trap can spring.
+        if (baitToEnemyRatio > 1.05f || baitToEnemyRatio < 0.35f) {
+            return null;
+        }
+        if (bait.localEnemyStrength >= 8f && (baitFp / bait.localEnemyStrength) > 1.08f) {
+            return null;
+        }
+
+        Vector2f targetPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, targetEnemy);
+        if (targetPos == null) {
+            targetPos = targetEnemy.centroid;
+        }
+
+        float totalSupportingHammerFp = 0f;
+        DivisionState bestHammer = null;
+        float bestHammerScore = -Float.MAX_VALUE;
+        for (DivisionState d : myGroup.divisions) {
+            if (d == null || d == bait || !d.isAbleCombatEffective()) continue;
+            if (d.archetype.isCarrierArchetype() || d.archetype == DivisionArchetype.SERVICE_GROUP) continue;
+            if (d.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
+                    || d.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) continue;
+            if (d.avgFluxLevel >= 0.48f || d.effectiveHpRatio < 0.58f) continue;
+
+            float distToBait = DivisionUiWidgets.distance(d.centroid, bait.centroid);
+            float distToTarget = DivisionUiWidgets.distance(d.centroid, targetPos);
+            if (distToBait > 2150f && distToTarget > 2150f) continue;
+
+            totalSupportingHammerFp += d.totalFpStrength;
+            float score = d.totalFpStrength * 4f - distToBait * 0.25f + (d.isFastFlanker ? 120f : 0f);
+            if (score > bestHammerScore) {
+                bestHammerScore = score;
+                bestHammer = d;
+            }
+        }
+
+        if (bestHammer == null) {
+            return null;
+        }
+        float combinedTrapRatio = (baitFp + totalSupportingHammerFp) / enemyFp;
+        if (combinedTrapRatio < 1.28f) {
+            return null;
+        }
+        return bestHammer;
     }
 
     /**
@@ -1408,10 +1547,13 @@ public class OtcBattlePlanner {
             DivisionState bait = myGroup.feignedRetreatBaitDivision;
             DivisionState target = myGroup.feignedRetreatTargetEnemy;
             float elapsed = now - myGroup.fleetFeignedRetreatStartTime;
+            boolean friendlyLeftBehindMidLure = (myGroup.fleetFeignedRetreatStage == 1)
+                    && hasFriendlyDivisionLeftBehindOrExposed(engine, myGroup, bait, target);
             if (bait == null || !bait.isAbleCombatEffective()
                     || target == null || !target.isCombatEffective()
                     || !OtcAI.isDivisionVisibleToSide(engine, myGroup.side, target)
                     || bait.avgFluxLevel >= 0.68f
+                    || friendlyLeftBehindMidLure
                     || elapsed > 14.0f) {
                 myGroup.fleetFeignedRetreatActive = false;
                 myGroup.fleetFeignedRetreatStage = 0;
@@ -1434,11 +1576,13 @@ public class OtcBattlePlanner {
 
             if (myGroup.fleetFeignedRetreatStage == 1) {
                 // Stage 1: Bait division lures backward while wing/hammer divisions converge on the flanks
-                DivisionState hammer = null;
-                for (DivisionState d : active) {
-                    if (d != bait && !d.archetype.isCarrierArchetype() && d.avgFluxLevel < 0.52f) {
-                        hammer = d;
-                        break;
+                DivisionState hammer = findValidFeignedRetreatHammer(engine, myGroup, bait, target);
+                if (hammer == null) {
+                    for (DivisionState d : active) {
+                        if (d != bait && !d.archetype.isCarrierArchetype() && d.avgFluxLevel < 0.52f) {
+                            hammer = d;
+                            break;
+                        }
                     }
                 }
                 BattlefieldFirepowerEvaluator.computeFeignedRetreatBaitOffset(
@@ -1470,13 +1614,14 @@ public class OtcBattlePlanner {
 
         // Check cooldown and conditions to initiate a new Fleet Feigned Retreat
         if ((now - myGroup.lastFleetFeignedRetreatEndTime) < 28.0f) return;
-        if (myGroup.forceRatio < 0.78f || myGroup.forceRatio > 1.55f) return;
+        if (myGroup.forceRatio < 0.78f || myGroup.forceRatio > 2.40f) return;
 
         DivisionState target = myGroup.primaryThreatEnemyDivision;
         if (target == null || !target.isAbleCombatEffective()
                 || target.archetype.isCarrierArchetype()
                 || BattlefieldFirepowerEvaluator.isStationBastionDivision(target)) return;
         if (target.enemyFeignedRetreatSuspicion >= 0.50f || target.avgFluxLevel >= 0.55f) return;
+        if (target.closingSpeedToEnemy < 10f) return;
 
         Vector2f tPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, target);
         DivisionState baitCandidate = null;
@@ -1487,10 +1632,13 @@ public class OtcBattlePlanner {
             }
             float dist = DivisionUiWidgets.distance(d.centroid, tPos);
             if (dist >= 880f && dist <= 1650f && d.avgFluxLevel < 0.36f && d.weaponReadinessRatio >= 0.68f) {
-                if (baitCandidate == null || d == myGroup.mainEffortDivision) {
+                DivisionState validHammer = findValidFeignedRetreatHammer(engine, myGroup, d, target);
+                if (validHammer != null) {
                     baitCandidate = d;
-                } else if (hammerCandidate == null) {
-                    hammerCandidate = d;
+                    hammerCandidate = validHammer;
+                    if (d == myGroup.mainEffortDivision) {
+                        break;
+                    }
                 }
             }
         }
@@ -1627,11 +1775,12 @@ public class OtcBattlePlanner {
                 return;
             }
             if (myGroup.fleetBattleSequenceStage == 1 && elapsed >= 5.0f) {
-                // Escalate Trade Space -> Feigned Retreat lure if the enemy is still pressing us
-                if (primary.closingSpeedToEnemy > 10f && !myGroup.fleetFeignedRetreatActive) {
+                // Escalate Trade Space -> Feigned Retreat lure ONLY if a valid Fleet Feigned Retreat lure is active
+                if (myGroup.fleetFeignedRetreatActive && myGroup.fleetFeignedRetreatStage == 1) {
                     myGroup.fleetBattleSequenceStage = 2;
-                    logOrder(engine, myGroup, "battleseq_feign:" + primary.id, String.format(
-                            "Battle sequence: Trade Space for Time -> Feigned Retreat lure on \"%s\".", primary.displayName), now);
+                    DivisionState feignTgt = myGroup.feignedRetreatTargetEnemy != null ? myGroup.feignedRetreatTargetEnemy : primary;
+                    logOrder(engine, myGroup, "battleseq_feign:" + feignTgt.id, String.format(
+                            "Battle sequence: Trade Space for Time -> Feigned Retreat lure on \"%s\".", feignTgt.displayName), now);
                 }
             }
             if (myGroup.fleetBattleSequenceStage == 2 && myGroup.fleetFeignedRetreatStage == 2) {

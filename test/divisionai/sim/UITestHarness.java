@@ -2665,7 +2665,11 @@ public class UITestHarness {
                 && !"close and engage".equals(DivisionModel.DivisionIntentType.CLOSE_AND_ENGAGE.mediumPhrase)
                 && !"close and engage".equals(DivisionModel.DivisionIntentType.CLOSE_AND_ENGAGE.minimalPhrase)
                 && "launching ToT missile strike on".equals(DivisionModel.DivisionIntentType.TOT_MISSILE_STRIKE.mediumPhrase)
-                && "ToT Salvo ->".equals(DivisionModel.DivisionIntentType.TOT_MISSILE_STRIKE.minimalPhrase);
+                && "ToT Salvo ->".equals(DivisionModel.DivisionIntentType.TOT_MISSILE_STRIKE.minimalPhrase)
+                && DivisionAISettings.isCriticalDivisionIntent(DivisionModel.DivisionIntentType.FEIGNED_RETREAT)
+                && "Mobile Flanker".equals(PermanentDivisionManager.DoctrineOption.FLANKING_STRIKE.displayName)
+                && DivisionEditorDialog.wrapTextToLines(
+                        PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION.negativeText, 68).size() >= 2;
 
         res.record(
                 csvHasRadio && allLogsPreserved && monotonicReduction && reasonsStrippedInNonVerbose && mediumAliasAndAlternativesOk,

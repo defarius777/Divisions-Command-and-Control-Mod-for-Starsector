@@ -277,6 +277,11 @@ public class DivisionCombatLog {
                 boolean isHighPriorityOrder = orderText.startsWith("Execute:")
                         || orderText.startsWith("Committing the reserve")
                         || orderText.startsWith("Time-on-target strike:")
+                        || orderText.startsWith("Feigned Retreat")
+                        || orderText.startsWith("Setpiece [")
+                        || orderText.startsWith("Tactical Retreat [Trade Space for Time]:")
+                        || orderText.startsWith("Battle sequence")
+                        || orderText.startsWith("Line passing:")
                         || orderText.contains("assumes Battle Group command");
                 if (verbosity == DivisionAISettings.ChatterVerbosity.MINIMAL) {
                     if (battleGroup.side != 0 || !isHighPriorityOrder) {
@@ -296,7 +301,12 @@ public class DivisionCombatLog {
             }
             if (!orderText.startsWith("Execute:")
                     && !orderText.startsWith("Committing the reserve")
-                    && !orderText.startsWith("Time-on-target strike:")) {
+                    && !orderText.startsWith("Time-on-target strike:")
+                    && !orderText.startsWith("Feigned Retreat")
+                    && !orderText.startsWith("Setpiece [")
+                    && !orderText.startsWith("Tactical Retreat [Trade Space for Time]:")
+                    && !orderText.startsWith("Battle sequence")
+                    && !orderText.startsWith("Line passing:")) {
                 battleGroup.lastOtcHudLogTime = now;
             }
             Color prefixColor = (battleGroup.side == 0) ? safePositiveHighlightColor() : safeNegativeHighlightColor();
@@ -567,6 +577,32 @@ public class DivisionCombatLog {
         }
         if (orderText.startsWith("Execute:")) {
             return firstQuoted.isEmpty() ? "Execute Strike!" : ("Execute Strike -> " + firstQuoted);
+        }
+        if (orderText.startsWith("Feigned Retreat [SPRING TRAP]:")) {
+            return firstQuoted.isEmpty() ? "Feigned Retreat: Spring Trap!" : ("Feigned Retreat: Spring Trap (" + firstQuoted + ")!");
+        }
+        if (orderText.startsWith("Feigned Retreat")) {
+            return firstQuoted.isEmpty() ? "Feigned Retreat (Lure)" : ("Feigned Retreat (Lure): " + firstQuoted);
+        }
+        if (orderText.startsWith("Setpiece [")) {
+            int closeBracket = orderText.indexOf(']');
+            String spTag = (closeBracket > 0) ? orderText.substring(0, closeBracket + 1) : "Setpiece";
+            return firstQuoted.isEmpty() ? spTag : (spTag + " -> " + firstQuoted);
+        }
+        if (orderText.startsWith("Tactical Retreat [Trade Space for Time]:")) {
+            return firstQuoted.isEmpty() ? "Trade Space for Time" : ("Trade Space <- " + firstQuoted);
+        }
+        if (orderText.startsWith("Battle sequence")) {
+            if (orderText.contains("Feigned Retreat -> synchronized Alpha Strike")) {
+                return firstQuoted.isEmpty() ? "Battle Sequence: Alpha Strike!" : ("Battle Sequence: Alpha Strike -> " + firstQuoted);
+            }
+            if (orderText.contains("Feigned Retreat lure")) {
+                return firstQuoted.isEmpty() ? "Battle Sequence: Feigned Retreat" : ("Battle Sequence: Feigned Retreat -> " + firstQuoted);
+            }
+            return firstQuoted.isEmpty() ? "Battle Sequence: Trade Space" : ("Battle Sequence: Trade Space <- " + firstQuoted);
+        }
+        if (orderText.startsWith("Line passing:")) {
+            return firstQuoted.isEmpty() ? "Line Pass Cover" : ("Line Pass: " + firstQuoted + " covers withdrawal");
         }
         if (orderText.startsWith("Committing the reserve") || orderText.startsWith("Reserve committed:")) {
             return firstQuoted.isEmpty() ? "Commit Reserve" : ("Reserve -> " + firstQuoted);
