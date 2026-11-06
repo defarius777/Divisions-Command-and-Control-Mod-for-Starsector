@@ -4,6 +4,8 @@ import com.fs.starfarer.api.combat.BattleObjectiveAPI;
 import com.fs.starfarer.api.combat.CollisionGridAPI;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
 import com.fs.starfarer.api.combat.CombatEntityAPI;
+import com.fs.starfarer.api.combat.CombatFleetManagerAPI;
+import com.fs.starfarer.api.combat.CombatTaskManagerAPI;
 import com.fs.starfarer.api.combat.FogOfWarAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
@@ -193,6 +195,10 @@ public class SimArena {
         public boolean detailedCombatModel = false;
         public boolean isPhaseShip = false;
         public boolean phased = false;
+        public boolean isStation = false;
+        public boolean isStationModule = false;
+        public ShipAPI parentStation = null;
+        public final List<ShipAPI> childModules = new ArrayList<>();
         public float phaseCloakCooldown = 0f;
         public float maxHullHp = 6000f;
         public float maxFluxCap = 5000f;
@@ -206,6 +212,11 @@ public class SimArena {
         public int fighterBays;
         public boolean alive = true;
         public ShipAPI shipTarget = null;
+        public String systemId = null;
+        public String systemName = null;
+        public boolean systemActive = false;
+        public boolean systemOnOff = false;
+        public float systemCooldownRemaining = 0f;
         public final ShipwideAIFlags aiFlags = new ShipwideAIFlags();
         public final List<WeaponAPI> weapons = new ArrayList<>();
         public final List<SimWeaponMount> weaponMounts = new ArrayList<>();
@@ -293,6 +304,12 @@ public class SimArena {
             this.weapons.clear();
             this.weaponMounts.clear();
             populateDefaultWeaponGroups();
+        }
+
+        public void configureShipSystem(String sysId, String sysName, boolean onOff) {
+            this.systemId = sysId;
+            this.systemName = sysName;
+            this.systemOnOff = onOff;
         }
 
         private static WeaponAPI createBaselineGun(final float range) {
@@ -520,6 +537,46 @@ public class SimArena {
                     })
                     : null;
 
+            final ShipSystemAPI sysProxy = (ShipSystemAPI) Proxy.newProxyInstance(
+                    ShipSystemAPI.class.getClassLoader(),
+                    new Class<?>[]{ShipSystemAPI.class},
+                    (sp, sm, sa) -> {
+                        String sn = sm.getName();
+                        if ("getId".equals(sn)) return systemId != null ? systemId : "";
+                        if ("getDisplayName".equals(sn)) return systemName != null ? systemName : "";
+                        if ("isActive".equals(sn) || "isOn".equals(sn)) return systemActive;
+                        if ("isStateActive".equals(sn)) return systemActive;
+                        if ("isCoolingDown".equals(sn)) return systemCooldownRemaining > 0f;
+                        if ("getCooldownRemaining".equals(sn)) return systemCooldownRemaining;
+                        if ("deactivate".equals(sn)) {
+                            systemActive = false;
+                            systemCooldownRemaining = 4.0f;
+                            return null;
+                        }
+                        if ("getAmmo".equals(sn) || "getMaxAmmo".equals(sn)) return Integer.MAX_VALUE;
+                        if ("getSpecAPI".equals(sn)) {
+                            return Proxy.newProxyInstance(
+                                    com.fs.starfarer.api.combat.ShipSystemSpecAPI.class.getClassLoader(),
+                                    new Class<?>[]{com.fs.starfarer.api.combat.ShipSystemSpecAPI.class},
+                                    (ssp, ssm, ssa) -> {
+                                        String ssn = ssm.getName();
+                                        if ("getId".equals(ssn)) return systemId != null ? systemId : "";
+                                        if ("getName".equals(ssn)) return systemName != null ? systemName : "";
+                                        if ("isToggle".equals(ssn)) return systemOnOff;
+                                        Class<?> ssrt = ssm.getReturnType();
+                                        if (ssrt == boolean.class) return false;
+                                        if (ssrt == int.class) return 0;
+                                        if (ssrt == float.class) return 0f;
+                                        return null;
+                                    });
+                        }
+                        Class<?> srt = sm.getReturnType();
+                        if (srt == boolean.class) return false;
+                        if (srt == int.class) return 0;
+                        if (srt == float.class) return 0f;
+                        return null;
+                    });
+
             return (ShipAPI) Proxy.newProxyInstance(
                     ShipAPI.class.getClassLoader(),
                     new Class<?>[]{ShipAPI.class},
@@ -534,13 +591,33 @@ public class SimArena {
                         if ("isPhased".equals(n)) return detailedCombatModel && phased;
                         if ("getShield".equals(n)) return detailedCombatModel ? shieldProxy : null;
                         if ("getPhaseCloak".equals(n)) return detailedCombatModel ? phaseProxy : null;
+                        if ("getSystem".equals(n)) return systemId != null ? sysProxy : null;
+                        if ("useSystem".equals(n)) {
+                            if (systemId != null && systemCooldownRemaining <= 0f) {
+                                if (systemOnOff) {
+                                    systemActive = !systemActive;
+                                } else {
+                                    systemActive = true;
+                                }
+                            }
+                            return null;
+                        }
+                        if ("getShipTarget".equals(n)) return shipTarget;
+                        if ("setShipTarget".equals(n)) {
+                            shipTarget = (a != null && a.length > 0 && a[0] instanceof ShipAPI) ? (ShipAPI) a[0] : null;
+                            return null;
+                        }
                         if (detailedCombatModel && "isFrigate".equals(n)) return hullSize == HullSize.FRIGATE;
                         if (detailedCombatModel && "isDestroyer".equals(n)) return hullSize == HullSize.DESTROYER;
                         if (detailedCombatModel && "isCruiser".equals(n)) return hullSize == HullSize.CRUISER;
                         if (detailedCombatModel && "isCapital".equals(n)) return hullSize == HullSize.CAPITAL_SHIP;
+                        if ("isStation".equals(n)) return isStation;
+                        if ("isStationModule".equals(n)) return isStationModule;
+                        if ("getParentStation".equals(n)) return parentStation;
+                        if ("getChildModulesCopy".equals(n)) return new ArrayList<ShipAPI>(childModules);
                         if ("isExpired".equals(n) || "isRetreating".equals(n) || "isDirectRetreat".equals(n)
-                                || "isFighter".equals(n) || "isDrone".equals(n) || "isStation".equals(n)
-                                || "isStationModule".equals(n) || "isAlly".equals(n) || "isShuttlePod".equals(n)) {
+                                || "isFighter".equals(n) || "isDrone".equals(n)
+                                || "isAlly".equals(n) || "isShuttlePod".equals(n)) {
                             return Boolean.FALSE;
                         }
                         if ("getLocation".equals(n)) return location;
@@ -577,6 +654,15 @@ public class SimArena {
                         }
                         if ("getHullSize".equals(n)) return hullSize;
                         if ("getMaxSpeed".equals(n)) return maxSpeed;
+                        if ("getAcceleration".equals(n)) return accel;
+                        if ("getDeceleration".equals(n)) return accel * 0.85f;
+                        if ("getCollisionRadius".equals(n)) {
+                            if (!detailedCombatModel && systemId == null) return 0f;
+                            if (hullSize == HullSize.CAPITAL_SHIP) return 210f;
+                            if (hullSize == HullSize.CRUISER) return 130f;
+                            if (hullSize == HullSize.DESTROYER) return 85f;
+                            return 55f;
+                        }
                         if ("getAIFlags".equals(n)) return aiFlags;
                         if ("getNumFighterBays".equals(n)) return fighterBays;
                         if ("getAllWeapons".equals(n)) return weapons;
@@ -631,6 +717,8 @@ public class SimArena {
     public final CombatEngineAPI engineProxy;
     public final ScenarioRecording recording;
     public boolean fogOfWarEnabled = false;
+    public boolean fullAssaultSide0 = false;
+    public boolean fullAssaultSide1 = false;
     public float baseShipSightRadius = 3000f;
     private final java.util.Map<Object, float[]> customFogRevealsSide0 = new java.util.LinkedHashMap<>();
     private final java.util.Map<Object, float[]> customFogRevealsSide1 = new java.util.LinkedHashMap<>();
@@ -743,6 +831,50 @@ public class SimArena {
 
         final FogOfWarAPI fogProxy0 = createFogProxyForSide(0);
         final FogOfWarAPI fogProxy1 = createFogProxyForSide(1);
+        final CombatTaskManagerAPI tmProxy0 = (CombatTaskManagerAPI) Proxy.newProxyInstance(
+                CombatTaskManagerAPI.class.getClassLoader(),
+                new Class<?>[]{CombatTaskManagerAPI.class},
+                (p, m, a) -> {
+                    if ("isFullAssault".equals(m.getName())) return fullAssaultSide0;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final CombatTaskManagerAPI tmProxy1 = (CombatTaskManagerAPI) Proxy.newProxyInstance(
+                CombatTaskManagerAPI.class.getClassLoader(),
+                new Class<?>[]{CombatTaskManagerAPI.class},
+                (p, m, a) -> {
+                    if ("isFullAssault".equals(m.getName())) return fullAssaultSide1;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final CombatFleetManagerAPI fmProxy0 = (CombatFleetManagerAPI) Proxy.newProxyInstance(
+                CombatFleetManagerAPI.class.getClassLoader(),
+                new Class<?>[]{CombatFleetManagerAPI.class},
+                (p, m, a) -> {
+                    if ("getTaskManager".equals(m.getName())) return tmProxy0;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final CombatFleetManagerAPI fmProxy1 = (CombatFleetManagerAPI) Proxy.newProxyInstance(
+                CombatFleetManagerAPI.class.getClassLoader(),
+                new Class<?>[]{CombatFleetManagerAPI.class},
+                (p, m, a) -> {
+                    if ("getTaskManager".equals(m.getName())) return tmProxy1;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
 
         return (CombatEngineAPI) Proxy.newProxyInstance(
                 CombatEngineAPI.class.getClassLoader(),
@@ -760,6 +892,10 @@ public class SimArena {
                         return list;
                     }
                     if ("getAiGridShips".equals(n) || "getShipGrid".equals(n)) return gridProxy;
+                    if ("getFleetManager".equals(n)) {
+                        int side = (a != null && a.length > 0 && a[0] instanceof Integer) ? (Integer) a[0] : 0;
+                        return (side == 1) ? fmProxy1 : fmProxy0;
+                    }
                     if ("getFogOfWar".equals(n)) {
                         int side = (a != null && a.length > 0 && a[0] instanceof Integer) ? (Integer) a[0] : 0;
                         return (side == 1) ? fogProxy1 : fogProxy0;
@@ -859,6 +995,9 @@ public class SimArena {
     private void stepPhysics(float dt) {
         for (SimShipState s : ships) {
             if (!s.alive) continue;
+            if (s.systemCooldownRemaining > 0f) {
+                s.systemCooldownRemaining = Math.max(0f, s.systemCooldownRemaining - dt);
+            }
             ShipwideAIFlags flags = s.aiFlags;
 
             Vector2f desiredVel = new Vector2f(0f, 0f);
@@ -879,14 +1018,15 @@ public class SimArena {
                 navGoal = ((ShipAPI) targetObj).getLocation();
             }
 
+            float effMaxSpeed = s.systemActive ? (s.maxSpeed + 260f) : s.maxSpeed;
             if (navGoal != null) {
                 float dx = navGoal.x - s.location.x;
                 float dy = navGoal.y - s.location.y;
                 float dist = (float) Math.sqrt(dx * dx + dy * dy);
-                if (dist > 25f) {
-                    float speedFactor = Math.min(1f, dist / 240f);
-                    desiredVel.x += (dx / dist) * s.maxSpeed * speedFactor;
-                    desiredVel.y += (dy / dist) * s.maxSpeed * speedFactor;
+                if (dist > 15f) {
+                    float speedFactor = s.systemActive ? 1.0f : Math.min(1f, dist / 240f);
+                    desiredVel.x += (dx / dist) * effMaxSpeed * speedFactor;
+                    desiredVel.y += (dy / dist) * effMaxSpeed * speedFactor;
                 }
             }
 
@@ -900,18 +1040,18 @@ public class SimArena {
                     float dist = (float) Math.sqrt(dx * dx + dy * dy);
                     float dangerRadius = backOff ? (other.engageRange * 1.05f) : (other.engageRange * 0.82f);
                     if (dist > 1f && dist < dangerRadius) {
-                        float repelStrength = ((dangerRadius - dist) / dangerRadius) * s.maxSpeed * (backOff ? 1.55f : 1.15f);
+                        float repelStrength = ((dangerRadius - dist) / dangerRadius) * effMaxSpeed * (backOff ? 1.55f : 1.15f);
                         desiredVel.x += (dx / dist) * repelStrength;
                         desiredVel.y += (dy / dist) * repelStrength;
                     }
                 }
             }
 
-            // Clamp desired speed to maxSpeed
+            // Clamp desired speed to effMaxSpeed
             float dSpeed = (float) Math.sqrt(desiredVel.x * desiredVel.x + desiredVel.y * desiredVel.y);
-            if (dSpeed > s.maxSpeed) {
-                desiredVel.x = (desiredVel.x / dSpeed) * s.maxSpeed;
-                desiredVel.y = (desiredVel.y / dSpeed) * s.maxSpeed;
+            if (dSpeed > effMaxSpeed) {
+                desiredVel.x = (desiredVel.x / dSpeed) * effMaxSpeed;
+                desiredVel.y = (desiredVel.y / dSpeed) * effMaxSpeed;
             }
 
             // Smooth velocity integration

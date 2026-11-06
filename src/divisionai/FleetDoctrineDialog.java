@@ -29,6 +29,8 @@ import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
+import divisionai.PermanentDivisionManager.DivisionRammingMode;
+import divisionai.PermanentDivisionManager.DivisionRammingTargetScope;
 import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.FleetWideFormation;
@@ -123,6 +125,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
     private final Map<DivisionArchetype, TextFieldAPI> prefixTextFields = new LinkedHashMap<>();
+    private final java.util.Set<DoctrineDivisionType> expandedCarrierOptionsTypes =
+            java.util.EnumSet.noneOf(DoctrineDivisionType.class);
+    private final java.util.Set<DoctrineDivisionType> expandedRammingOptionsTypes =
+            java.util.EnumSet.noneOf(DoctrineDivisionType.class);
     private TextFieldAPI customOtcTitleField = null;
     private String pendingAction = null;
 
@@ -196,6 +202,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private ButtonAPI registerButton(ButtonAPI button, String actionId) {
         if (button != null && actionId != null) {
             activeButtons.put(button, actionId);
+            DivisionUiWidgets.attachActionTooltip(null, button, actionId);
         }
         return button;
     }
@@ -249,16 +256,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         topCloseUi.setHeightSoFar(24f);
         contentContainer.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
 
-        // 1. Header & Subtitle
-        TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 48f, false);
+        // 1. Header (subtitle removed per UI Item A)
+        TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 28f, false);
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET DOCTRINE", baseColor);
-        header.addPara(
-                "Officer in Tactical Command, division defaults, auto-assigner, hull limits (max %s/div), and nomenclature.",
-                3f,
-                highlight,
-                String.valueOf(PermanentDivisionManager.MAX_DIVISION_SIZE));
-        header.setHeightSoFar(48f);
+        header.setHeightSoFar(28f);
         contentContainer.addUIElement(header).inTL(12f, 8f);
 
         // 2. Top Toolbar (Left: 5 Filter Tabs with 8px gaps | Right: 3 Action Buttons with 150px separation)
@@ -403,7 +405,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         tb.setHeightSoFar(30f);
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
-        contentContainer.addComponent(toolbarRow).inTL(12f, 58f);
+        contentContainer.addComponent(toolbarRow).inTL(12f, 38f);
 
         if (pendingConfirmationCmd != null) {
             buildConfirmationScreen(contentContainer, baseColor, darkColor, highlight);
@@ -411,7 +413,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
 
         // 3. Scrollable Body
-        float bodyTop = 94f;
+        float bodyTop = 74f;
         float bodyHeight = DIALOG_HEIGHT - bodyTop - 14f;
         float bodyWidth = DIALOG_WIDTH - 24f;
 
@@ -638,6 +640,71 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         positive,
                         gray);
 
+                if (!dt.isCarrierType() && dt != DoctrineDivisionType.SERVICE_GROUP) {
+                    DivisionRammingMode currRamMode = doctrine.getRammingMode(dt);
+                    DivisionRammingTargetScope currRamScope = doctrine.getRammingTargetScope(dt);
+                    int currRamSlots = doctrine.getMaxRammingSlots(dt);
+                    boolean ramOptsExpanded = expandedRammingOptionsTypes.contains(dt);
+                    addRammingOptionsToggleRow(
+                            body,
+                            bodyWidth - 16f,
+                            dt,
+                            ramOptsExpanded,
+                            currRamMode,
+                            currRamScope,
+                            currRamSlots,
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            positive,
+                            gray);
+                    if (ramOptsExpanded) {
+                        addRammingModeRow(
+                                body,
+                                bodyWidth - 16f,
+                                "Ramming: " + currRamMode.displayName,
+                                currRamMode,
+                                "SET_RAM_MODE:" + dt.name() + ":",
+                                baseColor,
+                                darkColor,
+                                positive,
+                                gray);
+                        addRammingTargetScopeRow(
+                                body,
+                                bodyWidth - 16f,
+                                "Ram Target: " + currRamScope.displayName,
+                                currRamScope,
+                                "SET_RAM_SCOPE:" + dt.name() + ":",
+                                baseColor,
+                                darkColor,
+                                highlight,
+                                gray);
+                        DivisionUiWidgets.addVoidstrikeDepthRow(
+                                body,
+                                bodyWidth - 16f,
+                                28f,
+                                CONTROL_COL_X,
+                                subPanelPlugin,
+                                buttonRegistrar,
+                                "Max Ram Slots: " + currRamSlots,
+                                highlight,
+                                6f,
+                                5f,
+                                currRamSlots,
+                                "SET_RAM_SLOTS:" + dt.name() + ":",
+                                true,
+                                false,
+                                true,
+                                28f,
+                                22f,
+                                32f,
+                                baseColor,
+                                darkColor,
+                                highlight,
+                                positive);
+                    }
+                }
+
                 // Row 5: Opening Mission Drop-Down Menu (30s - 60s)
                 addMissionDropdownRow(
                         body,
@@ -666,7 +733,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         highlight,
                         gray);
 
-                // Rows 7a-7g: Carrier & Wing Voidstrike Behavior Doctrine (Items C, D, E, D2, F, G, H)
+                // Rows 7a-7g: Carrier & Wing Voidstrike Behavior Doctrine (collapsed under "Carrier Options" button per UI Items D & E)
                 VoidstrikeTargetObservance currVsObs = doctrine.getVoidstrikeObservance(dt);
                 VoidstrikeCoordinationMode currVsCoord = doctrine.getVoidstrikeCoordination(dt);
                 SquadronFormation currFtrFm = doctrine.getFighterFormation(dt);
@@ -676,91 +743,113 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 int currVsDepth = doctrine.getVoidstrikeSquadronDepth(dt);
                 int currVsWidth = doctrine.getVoidstrikeSquadronWidth(dt);
 
-                addVoidstrikeObservanceRow(
+                boolean carrierOptsExpanded = expandedCarrierOptionsTypes.contains(dt);
+                addCarrierOptionsToggleRow(
                         body,
                         bodyWidth - 16f,
-                        "Strike Focus: " + currVsObs.displayName,
+                        dt,
+                        carrierOptsExpanded,
                         currVsObs,
-                        "SET_VS_OBS:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        positive,
-                        gray);
-
-                addVoidstrikeCoordinationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Strike Launch: " + currVsCoord.displayName,
                         currVsCoord,
-                        "SET_VS_COORD:" + dt.name() + ":",
+                        currFtrFm,
+                        currFtrVsFm,
+                        currBmbFm,
+                        currBmbVsFm,
+                        currVsDepth,
+                        currVsWidth,
                         baseColor,
                         darkColor,
                         highlight,
+                        positive,
                         gray);
 
-                addSquadronFormationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Fighter Form.: " + currFtrFm.shortName,
-                        currFtrFm,
-                        SquadronFormation.FIGHTER_GENERAL_OPTIONS,
-                        "SET_FTR_FM:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        positive);
+                if (carrierOptsExpanded) {
+                    addVoidstrikeObservanceRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Voidstrike Focus: " + currVsObs.displayName,
+                            currVsObs,
+                            "SET_VS_OBS:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive,
+                            gray);
 
-                addSquadronFormationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Fighter Strike: " + currFtrVsFm.shortName,
-                        currFtrVsFm,
-                        SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
-                        "SET_FTR_VS_FM:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        highlight);
+                    addVoidstrikeCoordinationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Voidstrike Launch: " + currVsCoord.displayName,
+                            currVsCoord,
+                            "SET_VS_COORD:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            gray);
 
-                addSquadronFormationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Bomber Form.: " + currBmbFm.shortName,
-                        currBmbFm,
-                        SquadronFormation.BOMBER_GENERAL_OPTIONS,
-                        "SET_BMB_FM:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        positive);
+                    addSquadronFormationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Fighter Form.: " + currFtrFm.shortName,
+                            currFtrFm,
+                            SquadronFormation.FIGHTER_GENERAL_OPTIONS,
+                            "SET_FTR_FM:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive);
 
-                addSquadronFormationRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Bomber Strike: " + currBmbVsFm.shortName,
-                        currBmbVsFm,
-                        SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
-                        "SET_BMB_VS_FM:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        highlight);
+                    addSquadronFormationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Fighter Voidstrike: " + currFtrVsFm.shortName,
+                            currFtrVsFm,
+                            SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
+                            "SET_FTR_VS_FM:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight);
 
-                addVoidstrikeDepthRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Strike Depth: " + currVsDepth,
-                        currVsDepth,
-                        "SET_VS_DEPTH:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        positive);
+                    addSquadronFormationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Bomber Form.: " + currBmbFm.shortName,
+                            currBmbFm,
+                            SquadronFormation.BOMBER_GENERAL_OPTIONS,
+                            "SET_BMB_FM:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive);
 
-                addVoidstrikeDepthRow(
-                        body,
-                        bodyWidth - 16f,
-                        "Strike Width: " + currVsWidth,
-                        currVsWidth,
-                        "SET_VS_WIDTH:" + dt.name() + ":",
-                        baseColor,
-                        darkColor,
-                        highlight);
+                    addSquadronFormationRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Bomber Voidstrike: " + currBmbVsFm.shortName,
+                            currBmbVsFm,
+                            SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
+                            "SET_BMB_VS_FM:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight);
+
+                    addVoidstrikeDepthRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Voidstrike Depth: " + currVsDepth,
+                            currVsDepth,
+                            "SET_VS_DEPTH:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive);
+
+                    addVoidstrikeDepthRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Voidstrike Width: " + currVsWidth,
+                            currVsWidth,
+                            "SET_VS_WIDTH:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight);
+                }
             }
         }
 
@@ -783,6 +872,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     darkColor,
                     Alignment.LMID,
                     10f);
+            body.addPara(
+                    "Sets the minimum and maximum ships of each hull class that Fleet Organization and Auto-Assign will group into a single division (up to %s ships total per division).",
+                    4f,
+                    gray,
+                    highlight,
+                    String.valueOf(PermanentDivisionManager.MAX_DIVISION_SIZE));
 
             for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
                 int currMin = doctrine.getMin(cat);
@@ -1395,7 +1490,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         final float cardGap = 24f;
         final float totalCardsW = allAuths.length * cardW + (allAuths.length - 1) * cardGap;
         final float startX = Math.max(CONTROL_COL_X, Math.round((rowWidth - totalCardsW) * 0.5f));
-        final float bannerPanelH = 228f;
+        final float bannerPanelH = 266f;
         final CustomPanelAPI[] bannerRef = new CustomPanelAPI[1];
 
         BaseCustomUIPanelPlugin bannerPlugin = new BaseCustomUIPanelPlugin() {
@@ -1425,11 +1520,28 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         headerLbl.setColor(new Color(255, 222, 90, 255));
         headerLbl.setAlignment(Alignment.MID);
         bannerPanel.addComponent((UIComponentAPI) headerLbl).setSize(rowWidth - 20f, 22f).inTL(10f, 180f);
+        DivisionUiWidgets.addTooltip(
+                body,
+                (UIComponentAPI) headerLbl,
+                "OTC Command Style: " + current.dropdownLabel,
+                current.summary + " Click any of the four naval pennants above to switch command authority.",
+                current.positiveText,
+                current.negativeText);
 
         LabelAPI summaryLbl = Global.getSettings().createLabel(current.summary, Fonts.GROUP_NUM_FONT);
         summaryLbl.setColor(new Color(195, 220, 240, 245));
         summaryLbl.setAlignment(Alignment.MID);
         bannerPanel.addComponent((UIComponentAPI) summaryLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 204f);
+
+        LabelAPI posLbl = Global.getSettings().createLabel(current.positiveText, Fonts.GROUP_NUM_FONT);
+        posLbl.setColor(Misc.getPositiveHighlightColor());
+        posLbl.setAlignment(Alignment.MID);
+        bannerPanel.addComponent((UIComponentAPI) posLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 223f);
+
+        LabelAPI negLbl = Global.getSettings().createLabel(current.negativeText, Fonts.GROUP_NUM_FONT);
+        negLbl.setColor(Misc.getNegativeHighlightColor());
+        negLbl.setAlignment(Alignment.MID);
+        bannerPanel.addComponent((UIComponentAPI) negLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 242f);
 
         body.addCustom(bannerPanel, 4f);
     }
@@ -1468,7 +1580,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         CustomPanelAPI rowPanel = createFleetFormationIconRow(rowWidth, 30f, current);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
-        rowUi.addPara("Fleet Formation:", 0f, baseColor).getPosition().inTL(6f, 6f);
+        LabelAPI fwLbl = rowUi.addPara("Fleet Formation:", 0f, baseColor);
+        fwLbl.getPosition().inTL(6f, 6f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) fwLbl, "Fleet Formation:");
 
         String toggleAct = "TOGGLE_DD:" + ddKey;
         String btnText = (expanded ? "[^] " : "[v] ") + current.displayName;
@@ -1488,6 +1602,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             bToggle.highlight();
         }
         bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+        DivisionUiWidgets.addTooltip(
+                rowUi,
+                bToggle,
+                "Fleet Formation: " + current.displayName,
+                current.summary);
 
         String depAct = "SET_ORCHESTRATED_ADVANCE:" + (deployInFormation ? "OFF" : "ON");
         ButtonAPI bDep = registerButton(
@@ -1559,7 +1678,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
-        rowUi.addPara("Multi-Div Setpiece:", 0f, baseColor).getPosition().inTL(6f, 6f);
+        LabelAPI mspLbl = rowUi.addPara("Multi-Div Setpiece:", 0f, baseColor);
+        mspLbl.getPosition().inTL(6f, 6f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) mspLbl, "Multi-Div Setpiece:");
 
         String toggleAct = "TOGGLE_DD:" + ddKey;
         String btnText = (expanded ? "[^] " : "[v] ") + current.displayName;
@@ -1579,6 +1700,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             bToggle.highlight();
         }
         bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+        DivisionUiWidgets.addTooltip(
+                rowUi,
+                bToggle,
+                "Multi-Div Setpiece: " + current.displayName,
+                current.summary);
 
         rowUi.addPara(current.summary, 0f, expanded ? activeValueColor : gray)
                 .getPosition()
@@ -1637,7 +1763,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
 
         String label = play.displayName;
-        rowUi.addPara(label, 0f, enabled ? activeValueColor : gray, label).getPosition().inTL(6f, 6f);
+        LabelAPI playLbl = rowUi.addPara(label, 0f, enabled ? activeValueColor : gray, label);
+        playLbl.getPosition().inTL(6f, 6f);
+        DivisionUiWidgets.addTooltip(
+                rowUi,
+                (UIComponentAPI) playLbl,
+                "Tactical Play: " + play.displayName,
+                play.summary);
 
         String onAct = "SET_OTC_PLAY:" + play.name() + ":ON";
         ButtonAPI bOn = registerButton(
@@ -1731,7 +1863,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         rowPanelRef[0] = rowPanel;
 
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+        LabelAPI fmLbl = rowUi.addPara(labelText, 0f, activeValueColor, labelText);
+        fmLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) fmLbl, labelText);
         float summaryX = CONTROL_COL_X + cols * (btnW + btnGap) + 8f;
         rowUi.addPara(currentFormation.summary, 0f, gray).getPosition().inTL(summaryX, 16f);
 
@@ -1954,7 +2088,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+        LabelAPI unitLbl = rowUi.addPara(labelText, 0f, activeValueColor, labelText);
+        unitLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) unitLbl, labelText);
 
         float xCursor = CONTROL_COL_X;
 
@@ -2034,12 +2170,14 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara(
+        LabelAPI limLbl = rowUi.addPara(
                 "%s:  %s",
                 0f,
                 activeValueColor,
                 labelText,
-                String.valueOf(currentValue)).getPosition().inTL(6f, 5f);
+                String.valueOf(currentValue));
+        limLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) limLbl, labelText);
 
         float xCursor = CONTROL_COL_X;
 
@@ -2345,6 +2483,50 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             return;
         }
+        if (cmd.startsWith("TOGGLE_RAMMING_OPTS:")) {
+            try {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(cmd.substring("TOGGLE_RAMMING_OPTS:".length()));
+                if (!expandedRammingOptionsTypes.remove(dt)) {
+                    expandedRammingOptionsTypes.add(dt);
+                }
+                rebuildContent();
+            } catch (IllegalArgumentException ignored) {
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_RAM_MODE:")) {
+            String rest = cmd.substring("SET_RAM_MODE:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                DivisionRammingMode mode = DivisionRammingMode.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeRammingMode(dt, mode);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_RAM_SCOPE:")) {
+            String rest = cmd.substring("SET_RAM_SCOPE:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                DivisionRammingTargetScope scope = DivisionRammingTargetScope.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeRammingTargetScope(dt, scope);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_RAM_SLOTS:")) {
+            String rest = cmd.substring("SET_RAM_SLOTS:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                int slots = Integer.parseInt(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeMaxRammingSlots(dt, slots);
+                rebuildContent();
+            }
+            return;
+        }
         if (cmd.startsWith("SET_OTC_PLAY:")) {
             String rest = cmd.substring("SET_OTC_PLAY:".length());
             int sep = rest.indexOf(':');
@@ -2418,6 +2600,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             PermanentDivisionManager.resetFleetDoctrineToDefaults();
             expandedDropdownKey = null;
             rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("TOGGLE_CARRIER_OPTS:")) {
+            try {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(cmd.substring("TOGGLE_CARRIER_OPTS:".length()));
+                if (!expandedCarrierOptionsTypes.remove(dt)) {
+                    expandedCarrierOptionsTypes.add(dt);
+                }
+                rebuildContent();
+            } catch (IllegalArgumentException ignored) {
+            }
             return;
         }
         if (cmd.startsWith("TOGGLE_DD:")) {
@@ -2746,6 +2939,117 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 currentCoord != null ? currentCoord.summary : null, gray, 6f);
     }
 
+    private void addRammingOptionsToggleRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            DoctrineDivisionType dt,
+            boolean expanded,
+            DivisionRammingMode currRamMode,
+            DivisionRammingTargetScope currRamScope,
+            int currRamSlots,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+
+        LabelAPI ramOptLbl = rowUi.addPara("Ramming Options:", 0f, baseColor);
+        ramOptLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) ramOptLbl, "Ramming Options:");
+
+        String toggleAct = "TOGGLE_RAMMING_OPTS:" + dt.name();
+        String btnText = (expanded ? "[^] " : "[v] ") + "Ramming Options";
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        expanded ? highlight : (currRamMode != DivisionRammingMode.OFF ? positive : baseColor),
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        204f,
+                        22f,
+                        0f),
+                toggleAct);
+        if (expanded || currRamMode != DivisionRammingMode.OFF) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        String summary = (currRamMode == DivisionRammingMode.OFF)
+                ? "Off (Auto-enabled when auto-assigner detects ram-capable ships in a division)"
+                : String.format(
+                        Locale.ROOT,
+                        "%s  |  %s  |  Max Slots: %d",
+                        currRamMode.displayName,
+                        currRamScope.displayName,
+                        currRamSlots);
+        rowUi.addPara(summary, 0f, currRamMode != DivisionRammingMode.OFF ? positive : gray)
+                .getPosition()
+                .inTL(CONTROL_COL_X + 216f, 5f);
+
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
+    private void addRammingModeRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            DivisionRammingMode currentMode,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        DivisionRammingMode[] opts = DivisionRammingMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].shortName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentMode) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 76f, 22f, 80f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentMode != null ? currentMode.summary : null, gray, 6f);
+    }
+
+    private void addRammingTargetScopeRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            DivisionRammingTargetScope currentScope,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        DivisionRammingTargetScope[] opts = DivisionRammingTargetScope.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentScope) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 116f, 22f, 122f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentScope != null ? currentScope.summary : null, gray, 6f);
+    }
+
     private void addPreferredSpaceRow(
             TooltipMakerAPI body,
             float rowWidth,
@@ -2796,6 +3100,69 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 labels, acts, sel, 74f, 22f, 80f, baseColor, darkColor, activeValueColor,
                 null, true, 0f, activeValueColor,
                 currentStickiness != null ? currentStickiness.summary : null, gray, 6f);
+    }
+
+    private void addCarrierOptionsToggleRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            DoctrineDivisionType dt,
+            boolean expanded,
+            VoidstrikeTargetObservance currVsObs,
+            VoidstrikeCoordinationMode currVsCoord,
+            SquadronFormation currFtrFm,
+            SquadronFormation currFtrVsFm,
+            SquadronFormation currBmbFm,
+            SquadronFormation currBmbVsFm,
+            int currVsDepth,
+            int currVsWidth,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+
+        LabelAPI carOptLbl = rowUi.addPara("Carrier Options:", 0f, baseColor);
+        carOptLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) carOptLbl, "Carrier Options:");
+
+        String toggleAct = "TOGGLE_CARRIER_OPTS:" + dt.name();
+        String btnText = (expanded ? "[^] " : "[v] ") + "Carrier Options";
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        expanded ? highlight : positive,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        204f,
+                        22f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        String summary = String.format(
+                Locale.ROOT,
+                "Voidstrike: %s / %s  |  %dx%d  |  Ftr: %s/%s  |  Bmb: %s/%s",
+                currVsObs.displayName,
+                currVsCoord.displayName,
+                currVsDepth,
+                currVsWidth,
+                currFtrFm.shortName,
+                currFtrVsFm.shortName,
+                currBmbFm.shortName,
+                currBmbVsFm.shortName);
+        rowUi.addPara(summary, 0f, expanded ? highlight : gray).getPosition().inTL(CONTROL_COL_X + 216f, 5f);
+
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
     }
 
     private void addVoidstrikeObservanceRow(

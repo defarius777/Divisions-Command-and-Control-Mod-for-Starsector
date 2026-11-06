@@ -462,22 +462,19 @@ public class DivisionFormationNavigator {
 
                 float slotX = worldSlots[assignedSlotIdx].x;
                 float slotY = worldSlots[assignedSlotIdx].y;
+                boolean outOfCombatMarch = isDivisionInOutOfCombatMarch(engine, div);
 
-                // Item A: Longitudinal & Lateral Formation Dressing while Marching!
-                // Previously, when marching toward an objective 3000u away, every slot had a CAMP_LOCATION 1500-1950u ahead of
-                // the division centroid. Because BasicShipAI accelerates at 100% full speed whenever CAMP_LOCATION is > 450u away,
-                // faster ships (Omen/Wolf) raced ahead of slower ships (Hound/Kite/Dram) in LINE_ABREAST, and rear echelon ships
-                // in ECHELON_RIGHT (ly < 0) raced side-by-side with the flagship instead of stepping back into echelon depth!
-                // Fix: Measure each ship's along-track position relative to its true formation rank around the division reference.
-                // If a ship is AHEAD of its formation rank (alongError > 25u), pull its slot forward lead back into BasicShipAI's
-                // proportional speed-matching zone around its true lateral lane so it dresses back/laterally into exact Line Abreast
-                // or Echelon Right while ships behind the rank burn at 100% speed to catch up!
+                // Item A & Mixed-Division Sustainable Speed Pacing: Longitudinal & Lateral Formation Dressing while Marching!
+                // Out of combat, mixed divisions (e.g. Battle Division 1 with ships of different top speeds) must move at
+                // the greatest sustainable speed that ALL ships in the division can maintain, anchoring the formation rank
+                // to the slowest core member so faster ships never outrun slower ships during the opening advance!
+                // Once combat opens up (outOfCombatMarch == false), all bets are off and ships use their full combat speed.
                 if (!closingUp
                 && !shipInSafeReliefRank
                 && !div.inDoubleLineRelief
                 && formation != DivisionFormation.NONE
                 && n >= 2
-                && marchDist > 260f
+                && marchDist > 220f
                 && (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
                 || div.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE
                 || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX)) {
@@ -490,15 +487,42 @@ public class DivisionFormationNavigator {
                 float refY = (refShip != null)
                 ? (refShip.getLocation().y * 0.55f + curCenterY * 0.45f)
                 : curCenterY;
-                // Subtract the reference point's own formation offset (leadIdx for refShip, meanSlot for curCenter)
-                // so a perfectly formed division in REVERSE_SEMICIRCLE, REVERSE_WEDGE, or ECHELON has zero error
-                // and NEVER places trueRank behind the ships!
                 float refOffLx = (refShip != null)
                 ? (slotLx[leadIdx] * 0.55f + meanSlotLx * 0.45f)
                 : meanSlotLx;
                 float refOffLy = (refShip != null)
                 ? (slotLy[leadIdx] * 0.55f + meanSlotLy * 0.45f)
                 : meanSlotLy;
+
+                // When marching out of combat with mixed ship speeds, anchor the longitudinal reference to the slowest
+                // core member's rank progress so fast ships dress onto the slowest ship's sustainable pace!
+                float minSpd = computeDivisionSustainableSpeed(div, alive);
+                float maxSpd = computeDivisionMaxMemberSpeed(div, alive);
+                boolean mixedSpeedOutOfCombat = outOfCombatMarch
+                        && (maxSpd - minSpd) > 16f
+                        && maxSpd > minSpd * 1.18f;
+                if (mixedSpeedOutOfCombat) {
+                    int[] allSlots = (n > 1)
+                            ? resolvePersistentSlots(div, alive, leadIdx, currentCentroidSlots, formation)
+                            : new int[]{0};
+                    float refFwdProj = refX * fwdX + refY * fwdY - refOffLy;
+                    float slowestRankProj = refFwdProj;
+                    for (int mIdx = 0; mIdx < n; mIdx++) {
+                        ShipAPI m = alive.get(mIdx);
+                        if (m == null || !m.isAlive() || m.isHulk() || m.getLocation() == null) continue;
+                        if (div.detachedStragglerIds != null && div.detachedStragglerIds.contains(m.getId())) continue;
+                        if (DivisionCommanderAI.distance(m.getLocation(), div.centroid) > div.stationKeepingRadius * 1.35f) continue;
+                        int mSlot = (mIdx < allSlots.length) ? allSlots[mIdx] : mIdx;
+                        float mRankProj = (m.getLocation().x * fwdX + m.getLocation().y * fwdY) - slotLy[mSlot];
+                        if (mRankProj < slowestRankProj) {
+                            slowestRankProj = mRankProj;
+                        }
+                    }
+                    float rankPullBack = Math.max(0f, Math.min(340f, refFwdProj - slowestRankProj));
+                    refX -= fwdX * rankPullBack;
+                    refY -= fwdY * rankPullBack;
+                }
+
                 float relSlotLx = slotLx[assignedSlotIdx] - refOffLx;
                 float relSlotLy = slotLy[assignedSlotIdx] - refOffLy;
                 float trueRankX = refX + latX * relSlotLx + fwdX * relSlotLy;
@@ -509,11 +533,14 @@ public class DivisionFormationNavigator {
                 float alongError = errX * fwdX + errY * fwdY;
                 float latError = Math.abs(errX * latX + errY * latY);
 
-                if (alongError > 45f) {
-                // Ship is ahead of its assigned rank: place its target along its true lateral lane, but ALWAYS keep the
-                // waypoint ahead of the ship itself along fwd (never behind the ship, which caused REVERSE_SEMICIRCLE
-                // divisions to reverse/stall in a corner!).
-                float aheadOfShipLead = Math.min(marchDist, Math.max(260f, 580f - alongError * 0.45f - latError * 0.20f));
+                float alongThreshold = mixedSpeedOutOfCombat ? 15f : 45f;
+                if (alongError > alongThreshold) {
+                // Ship is ahead of its assigned rank: place its target along its true lateral lane.
+                // When pacing a mixed-speed division out of combat, pull aheadOfShipLead tight (45..185u) so BasicShipAI
+                // enters its proportional arrival-braking zone and matches the slowest ship's sustainable speed!
+                float aheadOfShipLead = mixedSpeedOutOfCombat
+                        ? Math.min(marchDist, Math.max(45f, 185f - alongError * 0.85f - latError * 0.15f))
+                        : Math.min(marchDist, Math.max(260f, 580f - alongError * 0.45f - latError * 0.20f));
                 float dressLead = alongError + aheadOfShipLead;
                 if (dressLead < marchDist) {
                 slotX = trueRankX + fwdX * dressLead;
@@ -530,8 +557,8 @@ public class DivisionFormationNavigator {
                 }
                 }
 
-        // Intra-division peer anti-collision: when practicing a structured formation, only nudge if two ships are
-        // actually encroaching within 0.48 * effectiveSlotSpacing so we never warp the formation's geometry.
+        // Intra-division & Inter-division Helmsmanship Anti-Collision:
+        // Ensure a ship's station and movement vector never cause it to slam into another friendly ship in the division or fleet!
         float repelThreshold = (formation == DivisionFormation.NONE)
                 ? (effectiveSlotSpacing * 0.85f)
                 : (effectiveSlotSpacing * 0.48f);
@@ -547,6 +574,182 @@ public class DivisionFormationNavigator {
             }
         }
 
+        Vector2f helmSlot = applyFleetHelmsmanshipVectorAvoidance(
+                engine, ship, slotX, slotY, fwdX, fwdY, latX, latY, alive, div, myGroup);
+        return helmSlot;
+    }
+
+    /**
+     * Returns true when {@code div} is marching out of combat (no weapons in range, not taking fire, low engagement level,
+     * and enemy main body still outside standoff approach horizon), so mixed-speed divisions pace to their slowest member.
+     * Once combat opens up, returns false ("all bets are off").
+     */
+    public static boolean isDivisionInOutOfCombatMarch(CombatEngineAPI engine, DivisionState div) {
+        if (div == null) return false;
+        if (div.inRangeFirepowerScore > 0f
+                || div.incomingInRangeFirepower > 2f
+                || div.engagementLevel >= 0.12f
+                || div.localEnemyStrength >= 6f) {
+            return false;
+        }
+        if (div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
+                || div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
+                || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
+                || div.currentIntent == DivisionIntentType.TOT_MISSILE_STRIKE
+                || div.currentIntent == DivisionIntentType.PRESS_HOME
+                || div.currentIntent == DivisionIntentType.GIVE_GENERAL_CHASE) {
+            return false;
+        }
+        if (div.targetEnemyDivision != null && div.targetEnemyDivision.isCombatEffective() && div.centroid != null) {
+            Vector2f visE = OtcAI.getVisibleCentroidForSide(engine, div.side, div.targetEnemyDivision);
+            float distE = DivisionCommanderAI.distance(div.centroid, visE);
+            if (distE <= Math.max(1450f, div.standoffRange * 1.30f)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Computes the greatest sustainable speed that ALL non-straggler core members of {@code div} can maintain.
+     */
+    public static float computeDivisionSustainableSpeed(DivisionState div, List<ShipAPI> alive) {
+        if (alive == null || alive.isEmpty()) return 100f;
+        float minSpd = Float.MAX_VALUE;
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI s = alive.get(i);
+            if (s == null || !s.isAlive() || s.isHulk()) continue;
+            if (div != null && div.detachedStragglerIds != null && div.detachedStragglerIds.contains(s.getId())) continue;
+            float spd = Math.max(20f, s.getMaxSpeed());
+            if (spd < minSpd) {
+                minSpd = spd;
+            }
+        }
+        return minSpd < Float.MAX_VALUE ? minSpd : 100f;
+    }
+
+    public static float computeDivisionMaxMemberSpeed(DivisionState div, List<ShipAPI> alive) {
+        if (alive == null || alive.isEmpty()) return 100f;
+        float maxSpd = 20f;
+        for (int i = 0; i < alive.size(); i++) {
+            ShipAPI s = alive.get(i);
+            if (s == null || !s.isAlive() || s.isHulk()) continue;
+            if (div != null && div.detachedStragglerIds != null && div.detachedStragglerIds.contains(s.getId())) continue;
+            float spd = Math.max(20f, s.getMaxSpeed());
+            if (spd > maxSpd) {
+                maxSpd = spd;
+            }
+        }
+        return maxSpd;
+    }
+
+    /**
+     * Fleet-wide Helmsmanship Anti-Collision: inspects both intra-division peers and friendly ships in other divisions
+     * across {@code myGroup}. If another friendly ship sits on {@code (slotX, slotY)} or lies directly in {@code ship}'s
+     * travel chord / velocity vector toward {@code (slotX, slotY)}, deflects the slot laterally around the friendly hull
+     * and prevents rear-ending slower friendly ships!
+     */
+    private static Vector2f applyFleetHelmsmanshipVectorAvoidance(
+            CombatEngineAPI engine,
+            ShipAPI ship,
+            float slotX,
+            float slotY,
+            float fwdX,
+            float fwdY,
+            float latX,
+            float latY,
+            List<ShipAPI> alive,
+            DivisionState div,
+            BattleGroupState myGroup) {
+        if (ship == null || ship.getLocation() == null) {
+            return new Vector2f(slotX, slotY);
+        }
+        float sx = ship.getLocation().x;
+        float sy = ship.getLocation().y;
+        float myR = Math.max(40f, ship.getCollisionRadius());
+        float toSlotX = slotX - sx;
+        float toSlotY = slotY - sy;
+        float distToSlot = (float) Math.sqrt(toSlotX * toSlotX + toSlotY * toSlotY);
+        float dirX = distToSlot > 1f ? (toSlotX / distToSlot) : fwdX;
+        float dirY = distToSlot > 1f ? (toSlotY / distToSlot) : fwdY;
+        float perpX = -dirY;
+        float perpY = dirX;
+
+        float vx = (ship.getVelocity() != null) ? ship.getVelocity().x : 0f;
+        float vy = (ship.getVelocity() != null) ? ship.getVelocity().y : 0f;
+
+        if (myGroup != null && myGroup.divisions != null) {
+            for (int dIdx = 0; dIdx < myGroup.divisions.size(); dIdx++) {
+                DivisionState otherDiv = myGroup.divisions.get(dIdx);
+                if (otherDiv == null) continue;
+                List<ShipAPI> members = otherDiv.getAliveMembers();
+                for (int i = 0; i < members.size(); i++) {
+                    ShipAPI other = members.get(i);
+                    if (other == null || other == ship || !other.isAlive() || other.isHulk() || other.isFighter() || other.getLocation() == null) {
+                        continue;
+                    }
+                    boolean sameDiv = (otherDiv == div);
+                    float otherR = Math.max(40f, other.getCollisionRadius());
+                    float combinedR = myR + otherR;
+                    float ox = other.getLocation().x;
+                    float oy = other.getLocation().y;
+                    float ovx = (other.getVelocity() != null) ? other.getVelocity().x : 0f;
+                    float ovy = (other.getVelocity() != null) ? other.getVelocity().y : 0f;
+
+                    // 1. Direct inter-division hull clearance & slot de-confliction
+                    if (!sameDiv) {
+                        float dsx = sx - ox;
+                        float dsy = sy - oy;
+                        float curDist = (float) Math.sqrt(dsx * dsx + dsy * dsy);
+                        float hullSafeDist = combinedR * 1.22f + 45f;
+                        if (curDist > 1f && curDist < hullSafeDist) {
+                            float push = (hullSafeDist - curDist) * 0.80f;
+                            slotX += (dsx / curDist) * push;
+                            slotY += (dsy / curDist) * push;
+                        }
+
+                        float slotDx = slotX - ox;
+                        float slotDy = slotY - oy;
+                        float slotDist = (float) Math.sqrt(slotDx * slotDx + slotDy * slotDy);
+                        float minSlotClearance = combinedR * 1.18f + 45f;
+                        if (slotDist > 1f && slotDist < minSlotClearance) {
+                            float push = (minSlotClearance - slotDist) * 0.80f;
+                            slotX += (slotDx / slotDist) * push;
+                            slotY += (slotDy / slotDist) * push;
+                        }
+                    }
+
+                    // 2. True Velocity-Vector Closest-Point-of-Approach (CPA) Helmsmanship Avoidance:
+                    //    If our relative velocity vector (V_my - V_other) is closing on `other` and will bring our
+                    //    hulls within safe clearance inside the next 2.6 seconds, deflect our slot laterally away from
+                    //    the collision trajectory!
+                    float rvx = vx - ovx;
+                    float rvy = vy - ovy;
+                    float relSpdSq = rvx * rvx + rvy * rvy;
+                    if (relSpdSq > 144f) { // > 12 su/s relative speed
+                        float relOx = ox - sx;
+                        float relOy = oy - sy;
+                        float tca = (relOx * rvx + relOy * rvy) / relSpdSq;
+                        if (tca > 0f && tca < 2.6f) {
+                            float cpaX = relOx - rvx * tca;
+                            float cpaY = relOy - rvy * tca;
+                            float cpaDist = (float) Math.sqrt(cpaX * cpaX + cpaY * cpaY);
+                            float safePassDist = combinedR * 1.15f + 38f;
+                            if (cpaDist < safePassDist) {
+                                float relSpd = (float) Math.sqrt(relSpdSq);
+                                float rPerpX = -rvy / relSpd;
+                                float rPerpY = rvx / relSpd;
+                                float latSigned = relOx * rPerpX + relOy * rPerpY;
+                                float avoidSign = (latSigned >= 0f) ? -1f : 1f;
+                                float latDeflect = (safePassDist - cpaDist) * 1.25f + 40f;
+                                slotX += rPerpX * avoidSign * latDeflect - (rvx / relSpd) * 35f;
+                                slotY += rPerpY * avoidSign * latDeflect - (rvy / relSpd) * 35f;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         return new Vector2f(slotX, slotY);
     }
 
@@ -862,8 +1065,15 @@ public class DivisionFormationNavigator {
         float dy = div.centroid.y - visEnemyPos.y;
         float len = (float) Math.sqrt(dx * dx + dy * dy);
         float standoff = Math.max(400f, div.standoffRange);
-        if (!div.archetype.isCarrierArchetype() && div.standoffRange <= 1050f && div.avgEngageRange > 250f) {
-            standoff = Math.min(standoff, Math.max(540f, div.avgEngageRange * 0.88f));
+        boolean enemyIsStation = BattlefieldFirepowerEvaluator.isStationBastionDivision(enemyDiv);
+        if (!div.archetype.isCarrierArchetype() && div.avgEngageRange > 250f) {
+            if (enemyIsStation) {
+                // Against a stationary orbital station (which never closes onto our line), clamp non-carrier gun
+                // divisions to their actual primary gun envelope so high custom standoff values don't park ships out of range!
+                standoff = Math.min(standoff, Math.max(540f, div.avgEngageRange * 0.86f));
+            } else if (div.standoffRange <= 1050f) {
+                standoff = Math.min(standoff, Math.max(540f, div.avgEngageRange * 0.88f));
+            }
         }
         LineStation lineStation = (div.lineStation != null) ? div.lineStation : LineStation.CENTER;
         boolean isLightOrDdDiv = div.archetype == DivisionArchetype.DESTROYER_DIVISION
@@ -876,6 +1086,7 @@ public class DivisionFormationNavigator {
                 || (enemyDiv.totalEffectiveHp > div.totalEffectiveHp * 1.35f && div.totalEffectiveHp > 100f));
         boolean targetCorneredOrAuxiliary = !div.archetype.isCarrierArchetype()
                 && !outmatchedOrFragile
+                && !enemyIsStation
                 && div.avgFluxLevel < 0.60f
                 && (enemyDiv.edgeProximityPinch >= 0.28f
                 || enemyDiv.isUnableDivision
@@ -887,31 +1098,31 @@ public class DivisionFormationNavigator {
         } else if (outmatchedOrFragile && div.avgEngageRange > 250f) {
             // Kite near the outer edge of our own gun envelope (never outside our own weapons!)
             standoff = Math.max(standoff, Math.min(1080f, div.avgEngageRange * 0.92f));
-        } else if (lineStation == LineStation.REAR) {
+        } else if (lineStation == LineStation.REAR && !enemyIsStation) {
             standoff = standoff * 1.12f;
         }
-        // Account for the forward hull projection of a multi-ship enemy division's front rank ahead of visEnemyPos
-        // (ignoring detached stragglers and compact 1-3 ship groups) so standoff is measured from the front rank
-        // of large spread-out enemy formations rather than their deep centroid!
+        // Account for the forward hull projection of a multi-ship enemy division's front rank (or a multi-module
+        // station's outer ring) ahead of visEnemyPos so standoff is measured from the front modules/rank!
         List<ShipAPI> eMembers = enemyDiv.getAliveMembers();
-        if (!targetCorneredOrAuxiliary && len > 1f && eMembers.size() >= 4) {
+        if (!targetCorneredOrAuxiliary && len > 1f && (eMembers.size() >= 4 || enemyIsStation)) {
             float ux = dx / len;
             float uy = dy / len;
             float maxEnemyFrontProj = 0f;
+            float maxMemberRad = enemyIsStation ? 950f : 680f;
             for (int i = 0; i < eMembers.size(); i++) {
                 ShipAPI es = eMembers.get(i);
                 if (es == null || !OtcAI.isShipVisibleToSide(engine, div.side, es) || es.getLocation() == null) continue;
                 if (enemyDiv.detachedStragglerIds != null && enemyDiv.detachedStragglerIds.contains(es.getId())) continue;
                 float rx = es.getLocation().x - visEnemyPos.x;
                 float ry = es.getLocation().y - visEnemyPos.y;
-                if (rx * rx + ry * ry > 680f * 680f) continue;
-                float proj = rx * ux + ry * uy;
+                if (rx * rx + ry * ry > maxMemberRad * maxMemberRad) continue;
+                float proj = rx * ux + ry * uy + (enemyIsStation ? Math.min(120f, es.getCollisionRadius() * 0.45f) : 0f);
                 if (proj > maxEnemyFrontProj) {
                     maxEnemyFrontProj = proj;
                 }
             }
-            if (maxEnemyFrontProj > 180f) {
-                float frontBuffer = Math.min(280f, (maxEnemyFrontProj - 180f) * 0.58f);
+            if (maxEnemyFrontProj > 160f) {
+                float frontBuffer = Math.min(340f, (maxEnemyFrontProj - 160f) * (enemyIsStation ? 0.72f : 0.58f));
                 standoff += frontBuffer;
             }
         }

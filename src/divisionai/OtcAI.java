@@ -422,7 +422,15 @@ public class OtcAI {
             battleGroup.independentProjectedCentroid.set(battleGroup.independentCentroid);
         }
 
-        battleGroup.totalFriendlyStrength = totalCombinedFp;
+        float stationFp = 0f;
+        List<DivisionState> friendlyBastions = BattlefieldFirepowerEvaluator.syncAndGetStationBastionsForGroup(engine, battleGroup);
+        for (int i = 0; i < friendlyBastions.size(); i++) {
+            DivisionState sb = friendlyBastions.get(i);
+            if (sb != null && sb.isCombatEffective()) {
+                stationFp += sb.totalFpStrength;
+            }
+        }
+        battleGroup.totalFriendlyStrength = totalCombinedFp + stationFp;
         if (totalFriendlyFp > 0f) {
             float orgCenterX = fleetWeightedX / totalFriendlyFp;
             float orgCenterY = fleetWeightedY / totalFriendlyFp;
@@ -434,7 +442,16 @@ public class OtcAI {
             battleGroup.fleetCentroid.set(orgCenterX, orgCenterY);
         } else if (indepFp > 0f) {
             battleGroup.fleetCentroid.set(battleGroup.independentCentroid);
+        } else if (!friendlyBastions.isEmpty() && friendlyBastions.get(0) != null) {
+            battleGroup.fleetCentroid.set(friendlyBastions.get(0).centroid);
         }
+    }
+
+    public static List<DivisionState> getEffectiveEnemyDivisions(
+            CombatEngineAPI engine,
+            BattleGroupState enemyGroup) {
+        if (enemyGroup == null) return java.util.Collections.emptyList();
+        return BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, enemyGroup);
     }
 
     private static void updateReserveAndEngagementCorridors(
@@ -494,7 +511,8 @@ public class OtcAI {
             Object obj = iter.next();
             if (!(obj instanceof ShipAPI)) continue;
             ShipAPI s = (ShipAPI) obj;
-            if (!DivisionAutoFormer.isEligibleCombatHull(s)) continue;
+            if (!DivisionAutoFormer.isEligibleCombatHull(s)
+                    && !BattlefieldFirepowerEvaluator.isStationOrModuleCombatUnit(s)) continue;
             if (DivisionState.isShipUnable(s)) continue;
 
             float dx = s.getLocation().x - div.centroid.x;
@@ -602,7 +620,7 @@ public class OtcAI {
         updateEnemyOverkillAndCenterOfGravity(engine, myGroup, enemyGroup);
 
         float visibleEnemyFp = 0f;
-        for (DivisionState eDiv : enemyGroup.divisions) {
+        for (DivisionState eDiv : getEffectiveEnemyDivisions(engine, enemyGroup)) {
             visibleEnemyFp += getVisibleFpForSide(engine, myGroup.side, eDiv);
         }
         myGroup.totalEnemyStrength = visibleEnemyFp;
@@ -706,16 +724,20 @@ public class OtcAI {
                 && myGroup.forceRatio >= 1.20f && visibleEnemyFp >= 15f && minContactDist < 3600f;
         boolean strikeRunning = myGroup.strikePlan != null && myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES);
 
-        boolean pressuredForRetirement = endangeredDiv != null && worstLocalRatio < 0.55f && endangeredDiv.avgFluxLevel >= 0.35f;
+        boolean fullAssault = isFullAssaultActive(engine, myGroup);
+        boolean pressuredForRetirement = !fullAssault
+                && endangeredDiv != null && worstLocalRatio < 0.55f && endangeredDiv.avgFluxLevel >= 0.35f;
         BattlePhase nextPhase;
-        if (myGroup.missionContext == MissionContextType.REARGUARD_ACTION
+        if (fullAssault && anyEnemyVisible) {
+            nextPhase = BattlePhase.GENERAL_CHASE;
+        } else if (!fullAssault && (myGroup.missionContext == MissionContextType.REARGUARD_ACTION
                 || (anyEnemyVisible && now > 40f && myGroup.forceRatio < 0.45f && pressuredForRetirement
-                && myGroup.missionContext != MissionContextType.FIGHT_TO_THE_LAST)) {
+                && myGroup.missionContext != MissionContextType.FIGHT_TO_THE_LAST))) {
             nextPhase = BattlePhase.FIGHTING_RETIREMENT;
-        } else if (crisis || crisisPersists) {
+        } else if (!fullAssault && (crisis || crisisPersists)) {
             nextPhase = BattlePhase.REINFORCE_THE_LINE;
         } else if ((!anyEnemyVisible && now < 90f)
-                || (minContactDist > 3300f && hasUncapturedObjectives && now < 75f && myGroup.fleetEngagementLevel < 0.22f)) {
+                || (!fullAssault && minContactDist > 3300f && hasUncapturedObjectives && now < 75f && myGroup.fleetEngagementLevel < 0.22f)) {
             nextPhase = BattlePhase.APPROACH;
         } else if (generalChase || generalChasePersists) {
             nextPhase = BattlePhase.GENERAL_CHASE;
@@ -726,13 +748,14 @@ public class OtcAI {
         }
 
         // Minimum dwell: a phase holds for MIN_PHASE_DWELL seconds unless withdrawal is ordered, a severe crisis erupts,
-        // or the fleet was in APPROACH without enemy contact and has now spotted the enemy within engagement distance!
+        // Full Assault is active, or the fleet was in APPROACH without enemy contact and has now spotted the enemy within engagement distance!
         boolean dwellElapsed = (now - myGroup.phaseEnteredTime) >= MIN_PHASE_DWELL;
         boolean severeCrisis = endangeredDiv != null && worstLocalRatio < 0.45f;
         boolean approachContactEstablished = (current == BattlePhase.APPROACH)
                 && anyEnemyVisible
                 && minContactDist < 3200f;
         if (nextPhase != current && !dwellElapsed
+                && !fullAssault
                 && !approachContactEstablished
                 && nextPhase != BattlePhase.FIGHTING_RETIREMENT
                 && !(nextPhase == BattlePhase.REINFORCE_THE_LINE && severeCrisis)) {
@@ -2168,14 +2191,15 @@ public class OtcAI {
             BattleGroupState enemyGroup) {
         if (myGroup == null || enemyGroup == null) return;
         myGroup.hasEnemyCenterOfGravity = false;
-        if (enemyGroup.divisions.isEmpty()) return;
+        List<DivisionState> enemyDivs = getEffectiveEnemyDivisions(engine, enemyGroup);
+        if (enemyDivs.isEmpty()) return;
 
         float cogSumX = 0f;
         float cogSumY = 0f;
         float cogWeightSum = 0f;
         int visibleAbleEnemyCount = 0;
 
-        for (DivisionState eDiv : enemyGroup.divisions) {
+        for (DivisionState eDiv : enemyDivs) {
             if (eDiv == null) continue;
             eDiv.committedFriendlyFpAgainst = 0f;
             eDiv.isOverkilled = false;
@@ -2194,7 +2218,7 @@ public class OtcAI {
                         || eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
                         || eDiv.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
                         || eDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) ? 1.35f : 1.0f;
-                float w = Math.max(1f, visFp * eDiv.combatThreatWeight * lineMult);
+                float w = Math.max(1f, Math.min(visFp, 95f) * eDiv.combatThreatWeight * lineMult);
                 cogSumX += visPos.x * w;
                 cogSumY += visPos.y * w;
                 cogWeightSum += w;
@@ -2207,8 +2231,12 @@ public class OtcAI {
         }
 
         // Compute per-enemy-division Overkill FP cap and committed friendly FP
-        for (DivisionState eDiv : enemyGroup.divisions) {
+        for (DivisionState eDiv : enemyDivs) {
             if (eDiv == null || !eDiv.isCombatEffective() || !isDivisionVisibleToSide(engine, myGroup.side, eDiv)) {
+                continue;
+            }
+            if (BattlefieldFirepowerEvaluator.isStationBastionDivision(eDiv)) {
+                eDiv.overkillCapFp = 999f;
                 continue;
             }
             Vector2f visPos = getVisibleCentroidForSide(engine, myGroup.side, eDiv);
@@ -2242,7 +2270,7 @@ public class OtcAI {
 
         if (visibleAbleEnemyCount >= 2) {
             boolean anyUnderAllocatedAbleEnemy = false;
-            for (DivisionState eDiv : enemyGroup.divisions) {
+            for (DivisionState eDiv : enemyDivs) {
                 if (eDiv == null || !eDiv.isAbleCombatEffective() || !isDivisionVisibleToSide(engine, myGroup.side, eDiv)) {
                     continue;
                 }
@@ -2252,7 +2280,7 @@ public class OtcAI {
                 }
             }
             if (anyUnderAllocatedAbleEnemy) {
-                for (DivisionState eDiv : enemyGroup.divisions) {
+                for (DivisionState eDiv : enemyDivs) {
                     if (eDiv == null || !eDiv.isCombatEffective()) continue;
                     eDiv.isOverkilled = eDiv.committedFriendlyFpAgainst >= eDiv.overkillCapFp;
                 }
@@ -2329,22 +2357,30 @@ public class OtcAI {
                 ? myGroup.mainEffortDivision
                 : (!myGroup.divisions.isEmpty() ? myGroup.divisions.get(0) : null);
 
+        List<DivisionState> enemyDivs = getEffectiveEnemyDivisions(engine, enemyGroup);
         boolean anyAbleVisibleEnemy = false;
+        boolean anyAbleVisibleMobileCombatEnemy = false;
         int ableVisibleEnemyCount = 0;
-        for (DivisionState eDiv : enemyGroup.divisions) {
+        for (DivisionState eDiv : enemyDivs) {
             if (eDiv.isAbleCombatEffective() && isDivisionVisibleToSide(engine, myGroup.side, eDiv)) {
                 anyAbleVisibleEnemy = true;
                 ableVisibleEnemyCount++;
+                if (!BattlefieldFirepowerEvaluator.isStationBastionDivision(eDiv)
+                        && eDiv.archetype != DivisionArchetype.SERVICE_GROUP
+                        && eDiv.combatThreatWeight > 0.55f) {
+                    anyAbleVisibleMobileCombatEnemy = true;
+                }
             }
         }
 
-        for (DivisionState eDiv : enemyGroup.divisions) {
+        for (DivisionState eDiv : enemyDivs) {
             if (!eDiv.isCombatEffective()) continue;
             if (!isDivisionVisibleToSide(engine, myGroup.side, eDiv)) continue;
+            boolean isStationBastion = BattlefieldFirepowerEvaluator.isStationBastionDivision(eDiv);
             Vector2f visCentroid = getVisibleCentroidForSide(engine, myGroup.side, eDiv);
             float rawVisFp = getVisibleFpForSide(engine, myGroup.side, eDiv);
             float threatWeight = Math.max(0.28f, eDiv.combatThreatWeight);
-            float visFp = rawVisFp * threatWeight;
+            float visFp = (isStationBastion ? Math.min(rawVisFp, 75f) : rawVisFp) * threatWeight;
             float dist = (anchorDiv != null)
                     ? DivisionUiWidgets.distance(anchorDiv.centroid, visCentroid)
                     : DivisionUiWidgets.distance(myGroup.fleetCentroid, visCentroid);
@@ -2411,6 +2447,11 @@ public class OtcAI {
             }
             float frontlineContactBonus = (minDivDist <= 1450f ? (1450f - minDivDist) * 0.32f : 0f)
                     + (eDiv.inRangeFirepowerScore > 25f ? 180f * threatWeight : 0f);
+            // While able mobile enemy combat divisions are actively screening in front of an orbital station (> 1550u away),
+            // defeat the mobile garrison first; once within 1550u of the station or the garrison is cleared, focus the station!
+            float stationBehindScreenPenalty = (isStationBastion && anyAbleVisibleMobileCombatEnemy && minDivDist > 1550f)
+                    ? -420f
+                    : 0f;
             // Item F Defensive Counter: if an enemy division is suspected of feigning retreat, discount its lure priority
             float feignPenalty = (eDiv.enemyFeignedRetreatSuspicion >= 0.60f) ? -320f : 0f;
 
@@ -2431,7 +2472,8 @@ public class OtcAI {
                         : 0f;
                 score = visFp * 9.5f + avgConv * 0.55f + collapseBonus + auxPenalty + unablePenalty
                         + edgePinchBonus + cogBonus + overkillPrimaryPenalty
-                        + indepAlignmentBonus + frontlineContactBonus + feignPenalty - minDivDist * 0.52f;
+                        + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
+                        + feignPenalty - minDivDist * 0.52f;
             } else {
                 // Human OTC decision-making: weights Firepower value, Space Strongpoint/Weak Point seams, Time pinning, and Map-Edge pinching.
                 // Multi-division target synthesis scales smoothly with the square of organizationRatio (the fraction of the fleet in divisions).
@@ -2453,7 +2495,8 @@ public class OtcAI {
                         : 0f;
                 score = visFp * 9.5f + avgConv * 0.65f + isolationBonus + spaceSeamBonus + pinnedBonus + collapseBonus + edgePinchBonus
                         + cogBonus + overkillPrimaryPenalty
-                        + indepAlignmentBonus + frontlineContactBonus + feignPenalty + auxPenalty + unablePenalty
+                        + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
+                        + feignPenalty + auxPenalty + unablePenalty
                         - minDivDist * 0.52f;
             }
             if (score > bestScore) {
@@ -2491,7 +2534,7 @@ public class OtcAI {
             if (d < minDist) minDist = d;
         }
         if (!a.friendlyIndependentShips.isEmpty()) {
-            for (DivisionState eDiv : b.divisions) {
+            for (DivisionState eDiv : getEffectiveEnemyDivisions(engine, b)) {
                 if (!eDiv.isCombatEffective() || !isDivisionVisibleToSide(engine, a.side, eDiv)) continue;
                 Vector2f visCentroid = getVisibleCentroidForSide(engine, a.side, eDiv);
                 float d = DivisionUiWidgets.distance(a.independentCentroid, visCentroid);
@@ -2506,7 +2549,7 @@ public class OtcAI {
             DivisionState myDiv,
             BattleGroupState enemyGroup) {
         float minDist = Float.MAX_VALUE;
-        for (DivisionState eDiv : enemyGroup.divisions) {
+        for (DivisionState eDiv : getEffectiveEnemyDivisions(engine, enemyGroup)) {
             if (!eDiv.isCombatEffective()) continue;
             if (!isDivisionVisibleToSide(engine, myDiv.side, eDiv)) continue;
             Vector2f visCentroid = getVisibleCentroidForSide(engine, myDiv.side, eDiv);

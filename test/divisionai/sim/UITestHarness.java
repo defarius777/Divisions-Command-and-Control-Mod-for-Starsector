@@ -427,15 +427,65 @@ public class UITestHarness {
                 "Item A: 'Division Editor' renamed to 'Fleet Organization' and placed below 'Fleet Doctrine' in Fleet UI",
                 "doctrineBtnIdx=" + docBtnIdx + " < fleetOrgBtnIdx=" + orgBtnIdx);
 
-        // B. Configure Division screen QA pass (1320x800, 15 archetypes in 2x8 grid, single-line controls)
+        // B. Configure Division screen QA pass (1320x800, Division Type drop-down menu, Carrier Options button, aligned controls)
         boolean itemBOk = DivisionEditorDialog.DIALOG_WIDTH == 1320f
                 && DivisionEditorDialog.DIALOG_HEIGHT == 800f
-                && edSrc.contains("colIdx * 162f")
+                && edSrc.contains("\"DIV_ARCH_DD\"")
+                && edSrc.contains("\"TOGGLE_DIV_CARRIER_OPTIONS\"")
                 && edSrc.contains("CONTROL_COL_X = 250f");
         res.record(
                 itemBOk,
-                "Item B: Configure Division screen enlarged to 1320x800 with 2x8 archetype grid and aligned controls",
+                "Item B: Configure Division screen enlarged to 1320x800 with Division Type drop-down menu, Carrier Options toggle, and aligned controls",
                 String.format(Locale.ROOT, "dialog=%.0fx%.0fpx", DivisionEditorDialog.DIALOG_WIDTH, DivisionEditorDialog.DIALOG_HEIGHT));
+
+        // Verify UI Polish Items A-G (Fleet Doctrine subtitle removal, Command Scheme green/red pros/cons & Standard English,
+        // Voidstrike terminology, Carrier Options collapse, Hull Limits description, Division Type dropdown)
+        boolean uiItemA_noSubtitle = !docSrc.contains("Officer in Tactical Command, division defaults, auto-assigner, hull limits");
+        boolean uiItemBC_otcEnglishAndProsCons = true;
+        for (OtcAuthority a : OtcAuthority.values()) {
+            if (!a.summary.startsWith("The Officer in Tactical Command will ")
+                    || a.positiveText == null || !a.positiveText.startsWith("+ ")
+                    || a.negativeText == null || !a.negativeText.startsWith("- ")) {
+                uiItemBC_otcEnglishAndProsCons = false;
+            }
+        }
+        uiItemBC_otcEnglishAndProsCons = uiItemBC_otcEnglishAndProsCons
+                && docSrc.contains("current.positiveText")
+                && docSrc.contains("current.negativeText")
+                && edSrc.contains("current.positiveText")
+                && edSrc.contains("current.negativeText");
+        boolean uiItemD_voidstrikeTerms = docSrc.contains("\"Voidstrike Focus: \"")
+                && docSrc.contains("\"Voidstrike Launch: \"")
+                && docSrc.contains("\"Fighter Voidstrike: \"")
+                && docSrc.contains("\"Bomber Voidstrike: \"")
+                && docSrc.contains("\"Voidstrike Depth: \"")
+                && docSrc.contains("\"Voidstrike Width: \"")
+                && edSrc.contains("\"Voidstrike Focus: \"")
+                && edSrc.contains("\"Voidstrike Launch: \"")
+                && edSrc.contains("\"Fighter Voidstrike\"")
+                && edSrc.contains("\"Bomber Voidstrike\"")
+                && edSrc.contains("\"Voidstrike Depth: \"")
+                && edSrc.contains("\"Voidstrike Width: \"")
+                && "Cyclic Voidstrikes (Carrier)".equals(DivisionMissionType.CYCLIC_STRIKES.dropdownLabel)
+                && "Deckload Voidstrike (Carrier)".equals(DivisionMissionType.DECKLOAD_STRIKE.dropdownLabel)
+                && "Alpha Voidstrike (Carrier)".equals(DivisionMissionType.ALPHA_STRIKE.dropdownLabel);
+        boolean uiItemE_carrierOptionsBtn = docSrc.contains("TOGGLE_CARRIER_OPTS:")
+                && docSrc.contains("\"Carrier Options\"")
+                && edSrc.contains("TOGGLE_DIV_CARRIER_OPTIONS")
+                && edSrc.contains("\"Carrier Options\"");
+        boolean uiItemF_hullLimitsDesc = docSrc.contains(
+                "Sets the minimum and maximum ships of each hull class that Fleet Organization and Auto-Assign will group into a single division");
+        boolean uiItemG_divTypeDropdown = edSrc.contains("addDivisionArchetypeDropdownRow")
+                && edSrc.contains("\"DIV_ARCH_DD\"")
+                && !edSrc.contains("colIdx * 162f");
+        res.record(
+                uiItemA_noSubtitle && uiItemBC_otcEnglishAndProsCons && uiItemD_voidstrikeTerms
+                        && uiItemE_carrierOptionsBtn && uiItemF_hullLimitsDesc && uiItemG_divTypeDropdown,
+                "v1.0.5b UI Overhaul (Items A-G): Subtitle removed, OTC green/red pros & cons + Standard English, Voidstrike terms, Carrier Options button, Hull Limits description, Division Type dropdown",
+                String.format(Locale.ROOT,
+                        "A_noSub=%b, BC_otc=%b, D_voidstrike=%b, E_carrierBtn=%b, F_hullDesc=%b, G_archDropdown=%b",
+                        uiItemA_noSubtitle, uiItemBC_otcEnglishAndProsCons, uiItemD_voidstrikeTerms,
+                        uiItemE_carrierOptionsBtn, uiItemF_hullLimitsDesc, uiItemG_divTypeDropdown));
 
         // C & D. Line Cruiser Division default + 4 new Missile division types
         boolean itemCDOk = "Line Cruiser Div".equals(DivisionArchetype.CRUISER_DIVISION.shortPrefix)
@@ -559,6 +609,48 @@ public class UITestHarness {
                 "v0.6.8 Fleet Screen Button Icons: icon_gold-star next to 'Fleet Doctrine' and icon_gold-wing next to 'Fleet Organization'",
                 "starImg->Fleet Doctrine and wingImg->Fleet Organization layout verified");
 
+        // Multi-mod Fleet Tab sidebar non-overlap verification (RAT Artifact slot + SiC: Auxiliaries 4-row Fleet composition data
+        // + vanilla Disengage label + FleetBuilder CTRL-F search & SF Sort/Settings, both initial & Frame-2 late shift)
+        float panelTopY = 980f;
+        final float[] injY = new float[]{482f}; // Old overlapping Y (right over Fleet composition data & disengage text!)
+        final float injH = 68f;
+        final float[] inTlRef = new float[]{430f};
+        com.fs.starfarer.api.ui.PositionAPI panelPos = createMockSidebarPos(20f, 0f, 340f, panelTopY, null, 0f);
+        com.fs.starfarer.api.ui.UIPanelAPI mockLeftPanel = (com.fs.starfarer.api.ui.UIPanelAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.UIPanelAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.UIPanelAPI.class},
+                (p, m, a) -> "getPosition".equals(m.getName()) ? panelPos : null);
+        com.fs.starfarer.api.ui.ButtonAPI mockAutoBtn = createMockSidebarButton(20f, 720f, 320f, 30f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockRatArtifact = createMockSidebarComp(20f, 630f, 300f, 60f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockSicTable = createMockSidebarComp(20f, 480f, 320f, 130f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockDisengageLbl = createMockSidebarComp(20f, 435f, 310f, 35f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockFbSearch = createMockSidebarComp(20f, 398f, 320f, 26f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockFbSort = createMockSidebarComp(20f, 356f, 150f, 30f);
+        com.fs.starfarer.api.ui.UIComponentAPI mockInjected = (com.fs.starfarer.api.ui.UIComponentAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.UIComponentAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.UIComponentAPI.class},
+                new java.lang.reflect.InvocationHandler() {
+                    final com.fs.starfarer.api.ui.PositionAPI pos = createMockSidebarPos(20f, injY[0], 320f, injH, inTlY -> {
+                        injY[0] = panelTopY - inTlY - injH;
+                    }, injH);
+                    @Override
+                    public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
+                        if ("getPosition".equals(method.getName())) return pos;
+                        return null;
+                    }
+                });
+        List<com.fs.starfarer.api.ui.UIComponentAPI> mockSidebarChildren = java.util.Arrays.asList(
+                mockAutoBtn, mockRatArtifact, mockSicTable, mockDisengageLbl, mockFbSearch, mockFbSort, mockInjected);
+        boolean healedLateShift = divisionai.DivisionFleetTabInjector.alignPanelBelowSidebarSiblings(
+                mockLeftPanel, mockAutoBtn, mockInjected, mockSidebarChildren, null, inTlRef, false);
+        float healedTopY = injY[0] + injH;
+        boolean noModOverlap = healedLateShift && healedTopY <= 346.5f && injY[0] >= 270f;
+        res.record(
+                noModOverlap,
+                "v1.0.5b Fleet Tab Sidebar Dynamic Layout: zero overlap with RAT Artifacts, SiC: Auxiliaries table, Disengage text & FleetBuilder search/sort",
+                String.format(Locale.ROOT, "healed=%s, injectedSpan=[%.0f..%.0f] cleanly below SF Sort bottom=356",
+                        healedLateShift, injY[0], healedTopY));
+
         String overlayJava = new String(Files.readAllBytes(new File("src/divisionai/DivisionTacticalMapOverlay.java").toPath()), StandardCharsets.UTF_8);
         boolean tabStarsOk = overlayJava.contains("renderFlagshipStarsOnTopLayer")
                 && overlayJava.contains("resolveFleetFlagships")
@@ -571,6 +663,45 @@ public class UITestHarness {
                 tabStarsOk,
                 "v0.6.8 Tab Command Screen Flagship Stars: silver star on Division flagships & gold star on Fleet flagship(s) upper-right corner",
                 "renderFlagshipStarsOnTopLayer + gold-over-silver precedence verified");
+    }
+
+    private static com.fs.starfarer.api.ui.PositionAPI createMockSidebarPos(
+            float x, float initialY, float w, float h,
+            java.util.function.Consumer<Float> onInTlY, float compH) {
+        final float[] curY = new float[]{initialY};
+        return (com.fs.starfarer.api.ui.PositionAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.PositionAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.PositionAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getX".equals(n)) return x;
+                    if ("getY".equals(n)) return curY[0];
+                    if ("getWidth".equals(n)) return w;
+                    if ("getHeight".equals(n)) return h;
+                    if ("inTL".equals(n) && a != null && a.length >= 2) {
+                        float inTlY = ((Number) a[1]).floatValue();
+                        curY[0] = 980f - inTlY - compH;
+                        if (onInTlY != null) onInTlY.accept(inTlY);
+                        return p;
+                    }
+                    return p;
+                });
+    }
+
+    private static com.fs.starfarer.api.ui.UIComponentAPI createMockSidebarComp(float x, float y, float w, float h) {
+        final com.fs.starfarer.api.ui.PositionAPI pos = createMockSidebarPos(x, y, w, h, null, h);
+        return (com.fs.starfarer.api.ui.UIComponentAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.UIComponentAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.UIComponentAPI.class},
+                (p, m, a) -> "getPosition".equals(m.getName()) ? pos : null);
+    }
+
+    private static com.fs.starfarer.api.ui.ButtonAPI createMockSidebarButton(float x, float y, float w, float h) {
+        final com.fs.starfarer.api.ui.PositionAPI pos = createMockSidebarPos(x, y, w, h, null, h);
+        return (com.fs.starfarer.api.ui.ButtonAPI) java.lang.reflect.Proxy.newProxyInstance(
+                com.fs.starfarer.api.ui.ButtonAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.ui.ButtonAPI.class},
+                (p, m, a) -> "getPosition".equals(m.getName()) ? pos : null);
     }
 
     private static void auditV069StarsAutoAssignSchemesPolygonsAndRename(UIAuditResult res) throws Exception {
@@ -1720,6 +1851,177 @@ public class UITestHarness {
                         battleSummaryLogged, combatHandlesVerified));
 
         auditFeaturesABCDE_OtcSuccessionAlphaCoreAndUndeployedPenalties(res);
+        auditTooltipsDivisionLeaderColorsAndCampaignBattleSafety(res);
+    }
+
+    private static void auditTooltipsDivisionLeaderColorsAndCampaignBattleSafety(UIAuditResult res) {
+        // 1. Verify Task B: Friendly "Division leader ... destroyed!" is GREEN, Enemy "Enemy division leader ... destroyed!" is RED
+        final List<Color> capturedColors = new ArrayList<>();
+        final List<String> capturedTexts = new ArrayList<>();
+        final CombatUIAPI colorCheckUi = (CombatUIAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatUIAPI.class},
+                (p, m, a) -> {
+                    if ("addMessage".equals(m.getName()) && a != null) {
+                        Color c = null;
+                        StringBuilder sb = new StringBuilder();
+                        for (Object o : a) {
+                            if (o instanceof Color && c == null) {
+                                c = (Color) o;
+                            } else if (o instanceof String) {
+                                sb.append((String) o);
+                            } else if (o instanceof Object[]) {
+                                for (Object sub : (Object[]) o) {
+                                    if (sub instanceof Color && c == null) {
+                                        c = (Color) sub;
+                                    } else if (sub instanceof String) {
+                                        sb.append((String) sub);
+                                    }
+                                }
+                            }
+                        }
+                        capturedColors.add(c != null ? c : Color.WHITE);
+                        capturedTexts.add(sb.toString());
+                    }
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        final CombatEngineAPI colorEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    if ("getCombatUI".equals(m.getName())) return colorCheckUi;
+                    if ("getTotalElapsedTime".equals(m.getName())) return 25f;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        final boolean[] deadHolder = new boolean[]{false};
+        com.fs.starfarer.api.characters.PersonAPI fCapt = createMockPersonForOtcTest("Capt. Valen", false, null, false, 5);
+        com.fs.starfarer.api.fleet.FleetMemberAPI fMem = createMockMemberForOtcTest("f_div_ldr_m", "HSS Dauntless", fCapt, HullSize.CRUISER, 20f, false);
+        ShipAPI fDeadLeader = createMockShipForOtcTest("f_div_ldr_s", "HSS Dauntless", 0, fMem, fCapt, HullSize.CRUISER, deadHolder);
+        BattleGroupState friendlyGroup = new BattleGroupState(0, new CommanderProfile(null, "Player OTC"));
+        DivisionState friendlyDiv = new DivisionState("f_div_1", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", new CommanderProfile(fCapt, "Capt. Valen"));
+        friendlyDiv.flagship = fDeadLeader;
+        friendlyDiv.members.add(fDeadLeader);
+        friendlyGroup.divisions.add(friendlyDiv);
+
+        com.fs.starfarer.api.characters.PersonAPI eCapt = createMockPersonForOtcTest("Warlord Korg", false, null, false, 5);
+        com.fs.starfarer.api.fleet.FleetMemberAPI eMem = createMockMemberForOtcTest("e_div_ldr_m", "pirates_dominator", eCapt, HullSize.CRUISER, 20f, false);
+        ShipAPI eDeadLeader = createMockShipForOtcTest("e_div_ldr_s", "Merciless", 1, eMem, eCapt, HullSize.CRUISER, deadHolder);
+        BattleGroupState enemyGroup = new BattleGroupState(1, new CommanderProfile(null, "Enemy OTC"));
+        DivisionState enemyDiv = new DivisionState("e_div_1", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Raider Squadron 1", new CommanderProfile(eCapt, "Warlord Korg"));
+        enemyDiv.flagship = eDeadLeader;
+        enemyDiv.members.add(eDeadLeader);
+        enemyGroup.divisions.add(enemyDiv);
+
+        divisionai.DivisionOtcCommandManager.checkDivisionFlagshipsDestroyed(colorEngine, friendlyGroup, 25f);
+        divisionai.DivisionOtcCommandManager.checkDivisionFlagshipsDestroyed(colorEngine, enemyGroup, 25f);
+
+        boolean friendlyLeaderGreenOk = false;
+        boolean enemyLeaderRedOk = false;
+        for (int i = 0; i < capturedTexts.size(); i++) {
+            String msg = capturedTexts.get(i);
+            Color c = capturedColors.get(i);
+            if (msg.contains("Division leader") && msg.contains("HSS Dauntless") && !msg.contains("Enemy")) {
+                friendlyLeaderGreenOk = (c.getGreen() > c.getRed());
+            }
+            if (msg.contains("Enemy division leader") && msg.contains("Merciless")) {
+                enemyLeaderRedOk = (c.getRed() > c.getGreen());
+            }
+        }
+
+        // 2. Verify Task A: Centralized UI tooltip descriptors cover all major UI controls and row labels
+        String[] sampleActions = new String[]{
+                "TAB:ALL", "TAB:OTC_COMMAND", "TAB:HULLS", "TAB:NAMING",
+                "SET_OTC_AUTH:COMMAND_BY_DIRECTION", "SET_OTC_AUTH:POSITIVE_CONTROL",
+                "SET_FLEET_FORMATION:GRAND_LINE_ABREAST", "SET_FTR_FM:FLEET_CARRIER:WEDGE",
+                "SET_OPEN_MIS:BATTLESHIP:STANDOFF_ENGAGEMENT", "SET_MAIN_MIS:CRUISER:CLOSE_ACTION",
+                "SET_STICKINESS:DESTROYER:STRICT", "SET_DOC:SPEARHEAD", "AUTO_ASSIGN", "CREATE_DIV",
+                "CLEAR_ALL_DIVS", "OPEN_DIV:div_1", "DELETE_DIV:div_1",
+                "OTC_CHANGE", "OTC_AUTH_PREV", "FLEET_FORMATION_NEXT", "FLEET_ORCHESTRATED_ADVANCE",
+                "DIV_STATION_SPACING:300", "DIV_FORMATION:FORWARD_WEDGE", "SET_ARCH:CRUISER_DIVISION"
+        };
+        boolean allActionTooltipsOk = true;
+        for (String act : sampleActions) {
+            String[] spec = divisionai.DivisionUiWidgets.resolveActionTooltipSpec(act);
+            if (spec == null || spec.length < 2 || spec[0] == null || spec[0].isEmpty() || spec[1] == null || spec[1].isEmpty()) {
+                allActionTooltipsOk = false;
+                break;
+            }
+        }
+        String[] sampleLabels = new String[]{
+                "Battle Line Structure:", "Squadron Formation:", "Line Spacing:", "Opening Mission:",
+                "Main Mission:", "Division Cohesion:", "Ramming Options:", "Carrier Options:",
+                "Reserve Depth:", "Standoff Range:", "Callsign:", "Posture:", "Division Type:"
+        };
+        boolean allLabelTooltipsOk = true;
+        for (String lbl : sampleLabels) {
+            String[] spec = divisionai.DivisionUiWidgets.resolveRowLabelTooltipSpec(lbl);
+            if (spec == null || spec.length < 2 || spec[0] == null || spec[0].isEmpty() || spec[1] == null || spec[1].isEmpty()) {
+                allLabelTooltipsOk = false;
+                break;
+            }
+        }
+
+        // 3. Verify Task C: Campaign fleet in-battle guard prevents FactionFleetDoctrines from mutating FleetData during battle/inflation
+        final int[] removeMemberCalls = new int[]{0};
+        final List<com.fs.starfarer.api.fleet.FleetMemberAPI> battleMembers = Arrays.asList(fMem, eMem);
+        final com.fs.starfarer.api.campaign.FleetDataAPI battleFleetData =
+                (com.fs.starfarer.api.campaign.FleetDataAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.campaign.FleetDataAPI.class},
+                        (p, m, a) -> {
+                            if ("getMembersListCopy".equals(m.getName())) return new ArrayList<>(battleMembers);
+                            if ("removeFleetMember".equals(m.getName()) || "addFleetMember".equals(m.getName())) {
+                                removeMemberCalls[0]++;
+                                return null;
+                            }
+                            if (m.getReturnType() == boolean.class) return false;
+                            return null;
+                        });
+        final com.fs.starfarer.api.campaign.BattleAPI activeBattle =
+                (com.fs.starfarer.api.campaign.BattleAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.campaign.BattleAPI.class},
+                        (p, m, a) -> {
+                            if (m.getReturnType() == boolean.class) return false;
+                            return null;
+                        });
+        final com.fs.starfarer.api.campaign.CampaignFleetAPI fleetInBattle =
+                (com.fs.starfarer.api.campaign.CampaignFleetAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.campaign.CampaignFleetAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getId".equals(n)) return "npc_fleet_in_battle";
+                            if ("getFleetData".equals(n)) return battleFleetData;
+                            if ("getBattle".equals(n)) return activeBattle;
+                            if ("isPlayerFleet".equals(n)) return false;
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == float.class) return 0f;
+                            if (m.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        FactionFleetDoctrines.ensureFleetDivisionsSorted(fleetInBattle);
+        boolean battleFleetNeverMutatedOk = (removeMemberCalls[0] == 0);
+
+        res.record(
+                friendlyLeaderGreenOk && enemyLeaderRedOk && allActionTooltipsOk && allLabelTooltipsOk && battleFleetNeverMutatedOk,
+                "Division Leader Destroyed Colors (Friendly Green / Enemy Red), UI Tooltip Coverage & In-Battle Fleet Guard",
+                String.format(
+                        Locale.ROOT,
+                        "friendlyLeaderGreen=%b, enemyLeaderRed=%b, actionTooltips=%b, labelTooltips=%b, battleFleetGuard=%b",
+                        friendlyLeaderGreenOk,
+                        enemyLeaderRedOk,
+                        allActionTooltipsOk,
+                        allLabelTooltipsOk,
+                        battleFleetNeverMutatedOk));
     }
 
     private static com.fs.starfarer.api.characters.PersonAPI createMockPersonForOtcTest(
@@ -2265,6 +2567,20 @@ public class UITestHarness {
             }
         }
 
+        for (PermanentDivisionManager.DivisionRammingMode rm : PermanentDivisionManager.DivisionRammingMode.values()) {
+            auditedStrings += 3;
+            if (rm.displayName.length() > 26 || rm.shortName.length() > 16 || rm.summary.length() > 95) {
+                violations.add("DivisionRammingMode." + rm.name() + " copy exceeds budget");
+            }
+        }
+
+        for (PermanentDivisionManager.DivisionRammingTargetScope rs : PermanentDivisionManager.DivisionRammingTargetScope.values()) {
+            auditedStrings += 3;
+            if (rs.displayName.length() > 26 || rs.shortName.length() > 16 || rs.summary.length() > 95) {
+                violations.add("DivisionRammingTargetScope." + rs.name() + " copy exceeds budget");
+            }
+        }
+
         res.record(
                 violations.isEmpty(),
                 "All UI enum titles, dropdown labels, and summaries pass succinctness & word-salad caps",
@@ -2534,7 +2850,11 @@ public class UITestHarness {
                 && !"close and engage".equals(DivisionModel.DivisionIntentType.CLOSE_AND_ENGAGE.mediumPhrase)
                 && !"close and engage".equals(DivisionModel.DivisionIntentType.CLOSE_AND_ENGAGE.minimalPhrase)
                 && "launching ToT missile strike on".equals(DivisionModel.DivisionIntentType.TOT_MISSILE_STRIKE.mediumPhrase)
-                && "ToT Salvo ->".equals(DivisionModel.DivisionIntentType.TOT_MISSILE_STRIKE.minimalPhrase);
+                && "ToT Salvo ->".equals(DivisionModel.DivisionIntentType.TOT_MISSILE_STRIKE.minimalPhrase)
+                && DivisionAISettings.isCriticalDivisionIntent(DivisionModel.DivisionIntentType.FEIGNED_RETREAT)
+                && "Mobile Flanker".equals(PermanentDivisionManager.DoctrineOption.FLANKING_STRIKE.displayName)
+                && DivisionEditorDialog.wrapTextToLines(
+                        PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION.negativeText, 68).size() >= 2;
 
         res.record(
                 csvHasRadio && allLogsPreserved && monotonicReduction && reasonsStrippedInNonVerbose && mediumAliasAndAlternativesOk,
@@ -3305,7 +3625,10 @@ public class UITestHarness {
                 && (scLines.length == 2)
                 && (unLines.length == 1 && "Unassigned".equals(unLines[0]))
                 && tooltipSrc.contains("p1.setSize(safeW1, lineH);")
-                && tooltipSrc.contains("line3Label.setText(l3);");
+                && tooltipSrc.contains("line3Label.setText(l3);")
+                && tooltipSrc.contains("sanitizePositionTree")
+                && tooltipSrc.contains("prepareContentContainerBeforeClear")
+                && tooltipSrc.contains("setSuspendRecompute");
 
         // - Item C: Warroom formation icon inline with division text ("[symbol] Strike Cruiser Div 1")
         //   and centered on the exact horizontal plane of the division name capital letters
@@ -3960,6 +4283,23 @@ public class UITestHarness {
         skillDivSpec.customShipSkillCoordination = PermanentDivisionManager.ShipSkillCoordinationMode.INDEPENDENT;
         boolean customSkillCoordIndepOk = PermanentDivisionManager.resolveEffectiveShipSkillCoordination(skillDivSpec, skillDocCfg)
                 == PermanentDivisionManager.ShipSkillCoordinationMode.INDEPENDENT;
+
+        boolean defaultRamCfgOk = skillDocCfg.getRammingMode(PermanentDivisionManager.DoctrineDivisionType.DESTROYER)
+                == PermanentDivisionManager.DivisionRammingMode.OFF
+                && skillDocCfg.getRammingTargetScope(PermanentDivisionManager.DoctrineDivisionType.DESTROYER)
+                == PermanentDivisionManager.DivisionRammingTargetScope.SINGLE_SHIP
+                && skillDocCfg.getMaxRammingSlots(PermanentDivisionManager.DoctrineDivisionType.DESTROYER) == 1
+                && PermanentDivisionManager.resolveEffectiveRammingMode(skillDivSpec, skillDocCfg)
+                == PermanentDivisionManager.DivisionRammingMode.OFF;
+        skillDivSpec.customRammingMode = PermanentDivisionManager.DivisionRammingMode.GLANCING_SKIRMISH;
+        skillDivSpec.customRammingTargetScope = PermanentDivisionManager.DivisionRammingTargetScope.ENEMY_DIVISION;
+        skillDivSpec.customMaxRammingSlots = 6;
+        boolean customRamCfgOk = PermanentDivisionManager.resolveEffectiveRammingMode(skillDivSpec, skillDocCfg)
+                == PermanentDivisionManager.DivisionRammingMode.GLANCING_SKIRMISH
+                && PermanentDivisionManager.resolveEffectiveRammingTargetScope(skillDivSpec, skillDocCfg)
+                == PermanentDivisionManager.DivisionRammingTargetScope.ENEMY_DIVISION
+                && PermanentDivisionManager.resolveEffectiveMaxRammingSlots(skillDivSpec, skillDocCfg) == 6;
+        defaultSkillCoordSyncOk = defaultSkillCoordSyncOk && defaultRamCfgOk && customRamCfgOk;
 
         ShipAPI ramDdMock = createMockShipWithSystem("ram_1", "JYD_rambunctious", "JYD_ramdrive");
         ShipAPI burnCruiserMock = createMockShipWithSystem("burn_1", "dominator", "burndrive");

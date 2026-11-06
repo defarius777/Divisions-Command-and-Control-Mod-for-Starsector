@@ -731,6 +731,9 @@ public class StarsectorUISimulator {
             // 4. Simulate DivisionEditorDialog 1:1
             boolean divisionEditorDialogOk = simulateDivisionEditorDialog1To1();
 
+            // 5. Simulate CampaignFleetTooltipOrganizer 1:1 (normal, foreign mod overlay sibling anchor, duplicates, station fleet)
+            boolean campaignTooltipSimOk = simulateCampaignFleetTooltipOrganizer1To1(hullSpec, humanCmdr);
+
             boolean allSimOk = allFormationSpritesCenteredOk
                     && verifiedSprites == 22
                     && allFleetFormationSpritesOk
@@ -741,14 +744,15 @@ public class StarsectorUISimulator {
                     && alphaDeploymentOk
                     && midBattleDeploymentOk
                     && fleetDoctrineDialogOk
-                    && divisionEditorDialogOk;
+                    && divisionEditorDialogOk
+                    && campaignTooltipSimOk;
 
             res.record(
                     allSimOk,
                     "1:1 Starsector Obfuscated UI Simulation (Deployment formation selector, campaign dialogs & 30 formation sprites)",
                     String.format(
                             Locale.ROOT,
-                            "divisionSprites=%d, fleetSprites=%d(%b), deployStd=%b, deployAlpha=%b, deployMidBattle=%b, doctrineDialog=%b, editorDialog=%b",
+                            "divisionSprites=%d, fleetSprites=%d(%b), deployStd=%b, deployAlpha=%b, deployMidBattle=%b, doctrineDialog=%b, editorDialog=%b, campaignTooltip1To1=%b",
                             verifiedSprites,
                             verifiedFleetSprites,
                             allFleetFormationSpritesOk,
@@ -756,7 +760,8 @@ public class StarsectorUISimulator {
                             alphaDeploymentOk,
                             midBattleDeploymentOk,
                             fleetDoctrineDialogOk,
-                            divisionEditorDialogOk));
+                            divisionEditorDialogOk,
+                            campaignTooltipSimOk));
             UITestHarness.auditLateCombatWarroomPerformanceAndStateIntegrityAfterUISim(res);
         } catch (Throwable t) {
             t.printStackTrace(System.out);
@@ -1496,6 +1501,15 @@ public class StarsectorUISimulator {
             }
         }
 
+        if (!assertPositionTreeInvariantsAndRecompute(fdd.getPosition())) {
+            System.out.println("FAIL fdd position tree sibling-anchor invariant or recompute");
+            return false;
+        }
+        if (!verifyAttachedTooltipsInTree(fdd, 5)) {
+            System.out.println("FAIL fdd attached tooltips verification");
+            return false;
+        }
+
         return true;
     }
 
@@ -1505,8 +1519,9 @@ public class StarsectorUISimulator {
         FleetDoctrineDialog dialog = new FleetDoctrineDialog(hostCoreUI);
         dialog.show();
 
-        for (String tabCmd : new String[]{"TAB:ALL", "TAB:OTC_COMMAND", "TAB:NAMING", "TAB:ALL"}) {
+        for (String tabCmd : new String[]{"TAB:ALL", "TOGGLE_CARRIER_OPTS:FLEET_CARRIER", "TAB:OTC_COMMAND", "TAB:HULLS", "TAB:NAMING", "TAB:ALL"}) {
             dialog.buttonPressed(tabCmd);
+            dialog.advance(0.1f);
             List<LabelAPI> labels = new ArrayList<>();
             List<ButtonAPI> buttons = new ArrayList<>();
             collectLabelsAndButtonsRecursive(hostCoreUI, labels, buttons);
@@ -1523,6 +1538,12 @@ public class StarsectorUISimulator {
                     return false;
                 }
             }
+            if (!assertPositionTreeInvariantsAndRecompute(hostCoreUI.getPosition())) {
+                return false;
+            }
+            if (!verifyAttachedTooltipsInTree(hostCoreUI, 8)) {
+                return false;
+            }
         }
         dialog.close();
         return true;
@@ -1534,7 +1555,7 @@ public class StarsectorUISimulator {
         DivisionEditorDialog dialog = new DivisionEditorDialog(hostCoreUI);
         dialog.show();
 
-        for (String cmd : new String[]{null, "SET_OTC_AUTH:POSITIVE_CONTROL", "SET_OTC_AUTH:COMMAND_BY_DIRECTION", "EDIT:div_1", "BACK_TO_OVERVIEW"}) {
+        for (String cmd : new String[]{null, "SET_OTC_AUTH:POSITIVE_CONTROL", "SET_OTC_AUTH:COMMAND_BY_DIRECTION", "OPEN_DIV:div_1", "TOGGLE_DD:DIV_ARCH_DD", "TOGGLE_DIV_CARRIER_OPTIONS", "BACK_TO_LIST"}) {
             if (cmd != null) {
                 dialog.buttonPressed(cmd);
                 dialog.advance(0.1f);
@@ -1563,8 +1584,245 @@ public class StarsectorUISimulator {
                     return false;
                 }
             }
+            if (!assertPositionTreeInvariantsAndRecompute(hostCoreUI.getPosition())) {
+                return false;
+            }
+            if (!verifyAttachedTooltipsInTree(hostCoreUI, 6)) {
+                return false;
+            }
         }
         dialog.close();
+        return true;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean assertPositionTreeInvariantsAndRecompute(PositionAPI rootPos) throws Throwable {
+        if (!(rootPos instanceof OO0O)) return false;
+        Field childrenField = OO0O.class.getDeclaredField("\u00d400000");
+        childrenField.setAccessible(true);
+        Set<OO0O> visited = Collections.newSetFromMap(new IdentityHashMap<OO0O, Boolean>());
+        return verifyOO0ONodeRecursive((OO0O) rootPos, childrenField, visited);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean verifyOO0ONodeRecursive(OO0O node, Field childrenField, Set<OO0O> visited) throws Throwable {
+        if (node == null || !visited.add(node)) return true;
+        node.setSuspendRecompute(false);
+        node.recompute();
+        List<OO0O> children = (List<OO0O>) childrenField.get(node);
+        if (children == null || children.isEmpty()) return true;
+        Set<OO0O> siblingSet = Collections.newSetFromMap(new IdentityHashMap<OO0O, Boolean>());
+        for (OO0O ch : children) {
+            if (ch != null) siblingSet.add(ch);
+        }
+        for (OO0O ch : new ArrayList<OO0O>(children)) {
+            if (ch == null) continue;
+            OO0O base = ch.getBase();
+            if (base != null && !siblingSet.contains(base)) {
+                System.out.println("FAIL dangling OO0O sibling anchor detected: child=" + ch + " base=" + base);
+                return false;
+            }
+            if (!verifyOO0ONodeRecursive(ch, childrenField, visited)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static com.fs.starfarer.ui.f extractAttachedTooltip(Object comp) {
+        if (comp instanceof com.fs.starfarer.ui.OOOo) {
+            return ((com.fs.starfarer.ui.OOOo) comp).getTooltip();
+        }
+        if (comp != null) {
+            for (Class<?> cl = comp.getClass(); cl != null && cl != Object.class; cl = cl.getSuperclass()) {
+                for (Field f : cl.getDeclaredFields()) {
+                    if (f.getType() == com.fs.starfarer.ui.f.class) {
+                        try {
+                            f.setAccessible(true);
+                            return (com.fs.starfarer.ui.f) f.get(comp);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean verifyAttachedTooltipsInTree(Object rootComp, int minExpectedTooltips) throws Throwable {
+        List<LabelAPI> labels = new ArrayList<>();
+        List<ButtonAPI> buttons = new ArrayList<>();
+        collectLabelsAndButtonsRecursive(rootComp, labels, buttons);
+        int tooltipCount = 0;
+        List<Object> allCheckComps = new ArrayList<>();
+        allCheckComps.addAll(buttons);
+        allCheckComps.addAll(labels);
+        for (Object comp : allCheckComps) {
+            com.fs.starfarer.ui.f tt = extractAttachedTooltip(comp);
+            if (tt instanceof com.fs.starfarer.ui.impl.StandardTooltipV2Expandable) {
+                tooltipCount++;
+                com.fs.starfarer.ui.impl.StandardTooltipV2Expandable exp =
+                        (com.fs.starfarer.ui.impl.StandardTooltipV2Expandable) tt;
+                exp.beforeShown();
+                List<LabelAPI> ttLabels = new ArrayList<>();
+                List<ButtonAPI> ttButtons = new ArrayList<>();
+                collectLabelsAndButtonsRecursive(exp.getPanel(), ttLabels, ttButtons);
+                if (ttLabels.isEmpty()) {
+                    System.out.println("FAIL attached tooltip built 0 labels for component: " + comp);
+                    return false;
+                }
+                for (LabelAPI tl : ttLabels) {
+                    if (!isPurePrintableAscii(tl.getText())) {
+                        System.out.println("FAIL non-ascii text in attached tooltip: " + tl.getText());
+                        return false;
+                    }
+                }
+                if (exp.getPosition() != null && !assertPositionTreeInvariantsAndRecompute(exp.getPosition())) {
+                    return false;
+                }
+            }
+        }
+        if (tooltipCount < minExpectedTooltips) {
+            System.out.println("FAIL expected at least " + minExpectedTooltips + " attached tooltips, found " + tooltipCount);
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean simulateCampaignFleetTooltipOrganizer1To1(g hullSpec, final PersonAPI flagshipCaptain) throws Throwable {
+        final List<FleetMember> members = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            SimFleetMember m = SimFleetMember.create(
+                    "sim_ship_" + i,
+                    i == 0 ? "HSS Sovereign" : ("HSS Escort " + i),
+                    i < 4 ? 40f : 15f,
+                    i == 0,
+                    i < 4 ? HullSize.CAPITAL_SHIP : HullSize.CRUISER,
+                    hullSpec,
+                    i == 0 ? flagshipCaptain : null);
+            members.add(m);
+        }
+        final FleetDataAPI fleetData = (FleetDataAPI) Proxy.newProxyInstance(
+                StarsectorUISimulator.class.getClassLoader(),
+                new Class<?>[]{FleetDataAPI.class},
+                (p, m, a) -> "getMembersListCopy".equals(m.getName()) ? new ArrayList<>(members) : null);
+        final FactionAPI simFaction = (FactionAPI) Proxy.newProxyInstance(
+                StarsectorUISimulator.class.getClassLoader(),
+                new Class<?>[]{FactionAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "player";
+                    if ("getDisplayName".equals(n)) return "Player";
+                    if ("getBaseUIColor".equals(n)) return new Color(110, 210, 255, 255);
+                    if ("getBrightUIColor".equals(n)) return new Color(170, 235, 255, 255);
+                    if ("getDarkUIColor".equals(n)) return new Color(35, 75, 105, 255);
+                    if ("getGridUIColor".equals(n)) return new Color(60, 125, 165, 255);
+                    if ("getSecondaryUIColor".equals(n)) return new Color(110, 210, 255, 255);
+                    if (m.getReturnType() == Color.class) return new Color(110, 210, 255, 255);
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        final boolean[] stationModeRef = new boolean[]{false};
+        final CampaignFleetAPI fleet = (CampaignFleetAPI) Proxy.newProxyInstance(
+                StarsectorUISimulator.class.getClassLoader(),
+                new Class<?>[]{CampaignFleetAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "sim_campaign_fleet";
+                    if ("getFleetData".equals(n)) return fleetData;
+                    if ("getFlagship".equals(n)) return members.get(0);
+                    if ("getCommander".equals(n)) return flagshipCaptain;
+                    if ("getFaction".equals(n)) return simFaction;
+                    if ("isPlayerFleet".equals(n)) return true;
+                    if ("isStationMode".equals(n)) return stationModeRef[0];
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+
+        divisionai.CampaignFleetTooltipOrganizer organizer = new divisionai.CampaignFleetTooltipOrganizer();
+
+        // Scenario 1: Normal multi-division campaign fleet tooltip + 6x CampaignEngine.renderInScreenCoords recompute loop
+        com.fs.starfarer.ui.impl.StandardTooltipV2 tooltip1 =
+                com.fs.starfarer.ui.impl.StandardTooltipV2Expandable.createTextTooltip(420f, "Fleet Tooltip");
+        tooltip1.beforeShown();
+        interfacenew contents1 = (interfacenew) tooltip1.getContents();
+        S sGrid1 = buildRealShipGrid(null, 410f, 180f, 7, members);
+        contents1.add(sGrid1).inTL(5f, 24f);
+        if (!organizer.organizeTooltipForTesting(fleet, tooltip1, contents1, sGrid1)) {
+            System.out.println("FAIL CampaignFleetTooltipOrganizer scenario 1 returned false");
+            return false;
+        }
+        for (int pass = 0; pass < 6; pass++) {
+            tooltip1.getPosition().setLocation(100f + pass, 120f + pass);
+            if (!assertPositionTreeInvariantsAndRecompute(tooltip1.getPosition())) {
+                System.out.println("FAIL CampaignFleetTooltipOrganizer scenario 1 recompute pass " + pass);
+                return false;
+            }
+        }
+
+        // Scenario 2: Foreign mod overlay component injected directly into g$Oo and anchored via belowLeft to a ship cell
+        // (Reproduces exact 'RuntimeException: May only anchor on siblings' crash condition!)
+        com.fs.starfarer.ui.impl.StandardTooltipV2 tooltip2 =
+                com.fs.starfarer.ui.impl.StandardTooltipV2Expandable.createTextTooltip(420f, "Fleet Tooltip With Foreign Overlay");
+        tooltip2.beforeShown();
+        interfacenew contents2 = (interfacenew) tooltip2.getContents();
+        S sGrid2 = buildRealShipGrid(null, 410f, 180f, 7, members);
+        contents2.add(sGrid2).inTL(5f, 24f);
+        v vTable2 = sGrid2.getList();
+        c firstShipCell = vTable2.getItems().get(0);
+        interfacenew contentContainer2 = vTable2.getScroller().getContentContainer();
+        interfacenew foreignOverlay = new interfacenew(18f, 18f);
+        contentContainer2.add(foreignOverlay).belowLeft(firstShipCell, 2f);
+        if (!organizer.organizeTooltipForTesting(fleet, tooltip2, contents2, sGrid2)) {
+            System.out.println("FAIL CampaignFleetTooltipOrganizer scenario 2 (foreign sibling anchor) returned false");
+            return false;
+        }
+        if (!assertPositionTreeInvariantsAndRecompute(tooltip2.getPosition())) {
+            System.out.println("FAIL CampaignFleetTooltipOrganizer scenario 2 recompute after foreign sibling anchor");
+            return false;
+        }
+
+        // Scenario 3: Duplicate FleetMember entries in S.getMembers() (joint/combined fleet tooltip edge case)
+        com.fs.starfarer.ui.impl.StandardTooltipV2 tooltip3 =
+                com.fs.starfarer.ui.impl.StandardTooltipV2Expandable.createTextTooltip(420f, "Fleet Tooltip With Duplicates");
+        tooltip3.beforeShown();
+        interfacenew contents3 = (interfacenew) tooltip3.getContents();
+        List<FleetMember> dupMembers = new ArrayList<>(members);
+        dupMembers.add(members.get(0));
+        dupMembers.add(members.get(2));
+        S sGrid3 = buildRealShipGrid(null, 410f, 180f, 7, dupMembers);
+        contents3.add(sGrid3).inTL(5f, 24f);
+        if (!organizer.organizeTooltipForTesting(fleet, tooltip3, contents3, sGrid3)) {
+            System.out.println("FAIL CampaignFleetTooltipOrganizer scenario 3 (duplicate members) returned false");
+            return false;
+        }
+        if (!assertPositionTreeInvariantsAndRecompute(tooltip3.getPosition())) {
+            System.out.println("FAIL CampaignFleetTooltipOrganizer scenario 3 recompute after duplicate members");
+            return false;
+        }
+
+        // Scenario 4: Station fleet skip & deliberate dangling-anchor sanitization
+        stationModeRef[0] = true;
+        int itemsBeforeStationSkip = sGrid3.getList().getItems().size();
+        if (!organizer.organizeTooltipForTesting(fleet, tooltip3, contents3, sGrid3)
+                || sGrid3.getList().getItems().size() != itemsBeforeStationSkip) {
+            System.out.println("FAIL CampaignFleetTooltipOrganizer scenario 4 station fleet skip");
+            return false;
+        }
+        stationModeRef[0] = false;
+
+        // Deliberately corrupt a child's OO0O base anchor to point to a removed node, then run sanitizeTooltipForTesting
+        interfacenew orphanTarget = new interfacenew(10f, 10f);
+        interfacenew anchoredChild = new interfacenew(10f, 10f);
+        contents3.add(orphanTarget).inTL(0f, 0f);
+        contents3.add(anchoredChild).rightOfTop(orphanTarget, 4f);
+        contents3.remove(orphanTarget);
+        organizer.sanitizeTooltipForTesting(tooltip3.getPosition());
+        if (!assertPositionTreeInvariantsAndRecompute(tooltip3.getPosition())) {
+            System.out.println("FAIL CampaignFleetTooltipOrganizer scenario 4 sanitizeTooltipForTesting did not repair dangling anchor");
+            return false;
+        }
+
         return true;
     }
 }

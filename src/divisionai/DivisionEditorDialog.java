@@ -122,6 +122,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     // Selected division on Screen 1 (Overview) for quick right-click ship assignment
     private String selectedOverviewDivisionId = null;
     String expandedDropdownKey = null;
+    boolean carrierOptionsExpanded = false;
+    boolean rammingOptionsExpanded = false;
     private boolean closed = false;
 
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
@@ -159,6 +161,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     ButtonAPI registerButton(ButtonAPI button, String actionId) {
         if (button != null && actionId != null) {
             activeButtons.put(button, actionId);
+            DivisionUiWidgets.attachActionTooltip(null, button, actionId);
         }
         return button;
     }
@@ -612,7 +615,14 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         final float cardGap = 14f;
         final float totalCardsW = allAuths.length * cardW + (allAuths.length - 1) * cardGap;
         final float startX = Math.max(8f, Math.round((panelWidth - totalCardsW) * 0.5f));
-        final float panelHeight = 160f;
+        final float textWidth = panelWidth - 16f;
+        final int wrapChars = Math.max(48, (int) Math.floor(textWidth / 7.2f));
+        final List<String> descLines = wrapTextToLines(current.summary, wrapChars);
+        final List<String> posLines = wrapTextToLines(current.positiveText, wrapChars);
+        final List<String> negLines = wrapTextToLines(current.negativeText, wrapChars);
+        final int totalWrappedLines = descLines.size() + posLines.size() + negLines.size();
+        final float lineStep = 15f;
+        final float panelHeight = 142f + totalWrappedLines * lineStep + 14f;
         final CustomPanelAPI[] panelRef = new CustomPanelAPI[1];
 
         BaseCustomUIPanelPlugin plugin = new BaseCustomUIPanelPlugin() {
@@ -669,14 +679,68 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         LabelAPI headerLbl = Global.getSettings().createLabel(current.dropdownLabel, Fonts.ORBITRON_20AA);
         headerLbl.setColor(new Color(255, 222, 90, 255));
         headerLbl.setAlignment(Alignment.MID);
-        panel.addComponent((UIComponentAPI) headerLbl).setSize(panelWidth - 16f, 22f).inTL(8f, 114f);
+        panel.addComponent((UIComponentAPI) headerLbl).setSize(textWidth, 22f).inTL(8f, 114f);
+        DivisionUiWidgets.addTooltip(
+                null,
+                (UIComponentAPI) headerLbl,
+                "OTC Command Style: " + current.dropdownLabel,
+                current.summary + " Click any of the four naval pennants above to switch command authority.",
+                current.positiveText,
+                current.negativeText);
 
-        LabelAPI descLbl = Global.getSettings().createLabel(current.summary, Fonts.GROUP_NUM_FONT);
-        descLbl.setColor(new Color(195, 220, 240, 245));
-        descLbl.setAlignment(Alignment.MID);
-        panel.addComponent((UIComponentAPI) descLbl).setSize(panelWidth - 16f, 16f).inTL(8f, 138f);
+        float textY = 138f;
+        Color descColor = new Color(195, 220, 240, 245);
+        for (String line : descLines) {
+            LabelAPI lbl = Global.getSettings().createLabel(line, Fonts.GROUP_NUM_FONT);
+            lbl.setColor(descColor);
+            lbl.setAlignment(Alignment.MID);
+            panel.addComponent((UIComponentAPI) lbl).setSize(textWidth, 15f).inTL(8f, textY);
+            textY += lineStep;
+        }
+        textY += 3f;
+        Color posColor = Misc.getPositiveHighlightColor();
+        for (String line : posLines) {
+            LabelAPI lbl = Global.getSettings().createLabel(line, Fonts.GROUP_NUM_FONT);
+            lbl.setColor(posColor);
+            lbl.setAlignment(Alignment.MID);
+            panel.addComponent((UIComponentAPI) lbl).setSize(textWidth, 15f).inTL(8f, textY);
+            textY += lineStep;
+        }
+        textY += 3f;
+        Color negColor = Misc.getNegativeHighlightColor();
+        for (String line : negLines) {
+            LabelAPI lbl = Global.getSettings().createLabel(line, Fonts.GROUP_NUM_FONT);
+            lbl.setColor(negColor);
+            lbl.setAlignment(Alignment.MID);
+            panel.addComponent((UIComponentAPI) lbl).setSize(textWidth, 15f).inTL(8f, textY);
+            textY += lineStep;
+        }
 
         return panel;
+    }
+
+    public static List<String> wrapTextToLines(String text, int maxCharsPerLine) {
+        List<String> lines = new ArrayList<>();
+        if (text == null || text.trim().isEmpty()) {
+            return lines;
+        }
+        String remaining = text.trim();
+        int limit = Math.max(24, maxCharsPerLine);
+        while (remaining.length() > limit) {
+            int splitIdx = remaining.lastIndexOf(' ', limit);
+            if (splitIdx <= 0) {
+                splitIdx = remaining.indexOf(' ', limit);
+            }
+            if (splitIdx <= 0) {
+                break;
+            }
+            lines.add(remaining.substring(0, splitIdx).trim());
+            remaining = remaining.substring(splitIdx + 1).trim();
+        }
+        if (!remaining.isEmpty()) {
+            lines.add(remaining);
+        }
+        return lines;
     }
 
     private CustomPanelAPI createDivisionCardPanel(
@@ -843,6 +907,15 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 effOpen.shortName,
                 effMain.shortName);
         sub1.getPosition().inTL(26f, 30f);
+        DivisionUiWidgets.addTooltip(
+                topUi,
+                (UIComponentAPI) sub1,
+                spec.name + " (" + spec.archetype.shortPrefix + ")",
+                "Commander: " + rawCmdrDesc
+                        + " | Line Station: " + effSpace.displayName + " (" + effSpace.summary + ")"
+                        + " | Station Spacing: " + effIntra + "u | Standoff Range: " + effStandoff + "u"
+                        + " | Opening Mission: " + effOpen.dropdownLabel
+                        + " -> Main Mission: " + effMain.dropdownLabel + ".");
 
         final boolean flagshipDivCard = isFlagshipDivision(spec, members);
         final CustomPanelAPI[] badgeRef = new CustomPanelAPI[1];
@@ -869,6 +942,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         });
         badgeRef[0] = formBadge;
         cardPanel.addComponent(formBadge).inTL(6f, 30f);
+        DivisionUiWidgets.addTooltip(
+                topUi,
+                formBadge,
+                "Division Formation: " + effForm.displayName,
+                effForm.summary);
 
         topUi.setHeightSoFar(56f);
         cardPanel.addUIElement(topUi).inTL(2f, 2f);
@@ -1178,6 +1256,22 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         int maxHullChars = 12;
         LabelAPI botLbl = textUi.addPara(truncateText(hullName, maxHullChars), baseColor, 0f);
         botLbl.getPosition().inTL(3f, height - 17f);
+
+        String officerDesc = hasCommander
+                ? (captain.getNameString()
+                + (captain.getPersonalityAPI() != null ? " [" + captain.getPersonalityAPI().getDisplayName() + "]" : "")
+                + (commanderLevel > 0 ? " (Lvl " + commanderLevel + ")" : ""))
+                : "No Officer";
+        String roleDesc = isFlagship
+                ? "Division Leader (*LDR)"
+                : (sourceDivisionId != null ? "Assigned Division Member" : "Unassigned Fleet Pool");
+        String tileTipTitle = (member.getShipName() != null ? member.getShipName() + " - " : "")
+                + hullName + String.format(Locale.ROOT, " (%.0f DP)", member.getDeploymentPointsCost());
+        String tileTipBody = "Officer: " + officerDesc + " | Status: " + roleDesc
+                + ". Left-Click: Set Division Leader (in division) or assign to selected division. "
+                + "Right-Click: Quick-assign or unassign. Drag & Drop: Move between divisions or swap order.";
+        DivisionUiWidgets.addTooltip(textUi, (UIComponentAPI) topLbl, tileTipTitle, tileTipBody);
+        DivisionUiWidgets.addTooltip(textUi, (UIComponentAPI) botLbl, tileTipTitle, tileTipBody);
 
         if (showCommanderLevel) {
             // Match vanilla Fleet screen (com.fs.starfarer.coreui.OOoo): Victor 10 font at top-right of the portrait box
@@ -1554,6 +1648,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 PermanentDivisionManager.updateDivisionMetadata(activeDivisionId, null, arch, null);
             } catch (IllegalArgumentException ignored) {
             }
+            expandedDropdownKey = null;
             rebuildContent();
             return;
         }

@@ -585,6 +585,11 @@ public class DivisionModel {
                 PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED;
         public PermanentDivisionManager.ShipSkillCoordinationMode shipSkillCoordination =
                 PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED;
+        public PermanentDivisionManager.DivisionRammingMode rammingMode =
+                PermanentDivisionManager.DivisionRammingMode.OFF;
+        public PermanentDivisionManager.DivisionRammingTargetScope rammingTargetScope =
+                PermanentDivisionManager.DivisionRammingTargetScope.SINGLE_SHIP;
+        public int maxRammingAttackSlots = 1;
 
         // Synchronized Ship Skill telemetry & active maneuver state
         public int ramCapableMemberCount = 0;

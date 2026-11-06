@@ -18,6 +18,8 @@ import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
+import divisionai.PermanentDivisionManager.DivisionRammingMode;
+import divisionai.PermanentDivisionManager.DivisionRammingTargetScope;
 import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.LineStation;
@@ -61,7 +63,7 @@ final class DivisionConfigureSubscreen {
 
         buildDivisionHeaderSection(dialog, container, spec, baseColor, darkColor, highlight, positive);
 
-        float bodyTop = 186f;
+        float bodyTop = 108f;
         float bodyHeight = DIALOG_HEIGHT - bodyTop - 12f;
         float colWidth = (DIALOG_WIDTH - 36f) * 0.5f;
 
@@ -100,8 +102,8 @@ final class DivisionConfigureSubscreen {
         topCloseUi.setHeightSoFar(24f);
         container.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
 
-        // 1. Top Control & Doctrine Header (height 188f)
-        float headerH = 188f;
+        // 1. Top Control & Doctrine Header (height 96f; Division Type moved to dropdown per UI Item G)
+        float headerH = 96f;
         TooltipMakerAPI top = container.createUIElement(DIALOG_WIDTH - 24f, headerH, false);
 
         // Row A: Back button ("<- Fleet Organization"), Title, Disband button, Close button
@@ -162,7 +164,9 @@ final class DivisionConfigureSubscreen {
         // Row B: Editable Callsign TextField + Rename Button + Doctrine Posture Buttons on the same row
         CustomPanelAPI nameRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, dialog.subPanelPlugin);
         TooltipMakerAPI nameUi = nameRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
-        nameUi.addPara("Callsign:", 0f, baseColor).getPosition().inTL(2f, 5f);
+        LabelAPI callLbl = nameUi.addPara("Callsign:", 0f, baseColor);
+        callLbl.getPosition().inTL(2f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(nameUi, (com.fs.starfarer.api.ui.UIComponentAPI) callLbl, "Callsign:");
         dialog.activeNameField = nameUi.addTextField(230f, Fonts.DEFAULT_SMALL, 0f);
         dialog.activeNameField.setText(spec.name);
         dialog.activeNameField.setMaxChars(32);
@@ -182,7 +186,9 @@ final class DivisionConfigureSubscreen {
                 "APPLY_NAME");
         bSaveName.getPosition().inTL(304f, 3f);
 
-        nameUi.addPara("Posture:", 0f, baseColor).getPosition().inTL(416f, 5f);
+        LabelAPI postLbl = nameUi.addPara("Posture:", 0f, baseColor);
+        postLbl.getPosition().inTL(416f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(nameUi, (com.fs.starfarer.api.ui.UIComponentAPI) postLbl, "Posture:");
         DoctrineOption[] doctrines = DoctrineOption.values();
         float dx = 478f;
         for (DoctrineOption doc : doctrines) {
@@ -209,56 +215,6 @@ final class DivisionConfigureSubscreen {
         nameUi.setHeightSoFar(28f);
         nameRow.addUIElement(nameUi).inTL(0f, 0f);
         top.addCustom(nameRow, 4f);
-
-        // Row C: Division Archetype Selector (2 clean rows of 8 columns covering all 16 Division Types)
-        DivisionArchetype[] archetypes = new DivisionArchetype[]{
-                DivisionArchetype.BATTLESHIP_DIVISION,
-                DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
-                DivisionArchetype.CRUISER_DIVISION,
-                DivisionArchetype.MISSILE_CRUISER_DIVISION,
-                DivisionArchetype.STRIKE_CRUISER_DIVISION,
-                DivisionArchetype.DESTROYER_DIVISION,
-                DivisionArchetype.MISSILE_DESTROYER_DIVISION,
-                DivisionArchetype.FRIGATE_DIVISION,
-                DivisionArchetype.MISSILE_FRIGATE_DIVISION,
-                DivisionArchetype.FLEET_CARRIER_DIVISION,
-                DivisionArchetype.LIGHT_CARRIER_DIVISION,
-                DivisionArchetype.ESCORT_CARRIER_DIVISION,
-                DivisionArchetype.CARRIER_GROUP,
-                DivisionArchetype.PHASE_DIVISION,
-                DivisionArchetype.SERVICE_GROUP,
-                DivisionArchetype.FORCE_DIVISION
-        };
-        CustomPanelAPI archRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 50f, dialog.subPanelPlugin);
-        TooltipMakerAPI archUi = archRow.createUIElement(DIALOG_WIDTH - 24f, 50f, false);
-        for (int i = 0; i < archetypes.length; i++) {
-            DivisionArchetype arch = archetypes[i];
-            int colIdx = i % 8;
-            int rowIdx = i / 8;
-            float ax = colIdx * 162f;
-            float ay = 2f + rowIdx * 24f;
-            boolean selected = (spec.archetype == arch);
-            Color fg = selected ? highlight : baseColor;
-            Color battleGroup = selected ? baseColor.darker() : darkColor;
-            String archAct = "SET_ARCH:" + arch.name();
-            ButtonAPI bArch = dialog.registerButton(
-                    archUi.addButton(
-                            arch.shortPrefix,
-                            archAct,
-                            fg,
-                            battleGroup,
-                            Alignment.MID,
-                            CutStyle.TL_BR,
-                            156f,
-                            21f,
-                            0f),
-                    archAct);
-            if (selected) bArch.highlight();
-            bArch.getPosition().inTL(ax, ay);
-        }
-        archUi.setHeightSoFar(50f);
-        archRow.addUIElement(archUi).inTL(0f, 0f);
-        top.addCustom(archRow, 4f);
 
         top.addPara(
                 "%s - %s",
@@ -306,6 +262,18 @@ final class DivisionConfigureSubscreen {
                 darkColor,
                 Alignment.LMID,
                 2f);
+
+        // 0. Division Type Drop-Down Menu (UI Item G)
+        addDivisionArchetypeDropdownRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                spec.archetype,
+                baseColor,
+                darkColor,
+                highlight,
+                positive,
+                gray);
 
         // 1. Intra-division spacing row
         addDivisionSpacingRow(
@@ -415,6 +383,60 @@ final class DivisionConfigureSubscreen {
                 highlight,
                 positive);
 
+        DivisionRammingMode effRamMode =
+                PermanentDivisionManager.resolveEffectiveRammingMode(spec, doctrineCfg);
+        DivisionRammingTargetScope effRamScope =
+                PermanentDivisionManager.resolveEffectiveRammingTargetScope(spec, doctrineCfg);
+        int effRamSlots =
+                PermanentDivisionManager.resolveEffectiveMaxRammingSlots(spec, doctrineCfg);
+        addDivisionRammingOptionsToggleRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                dialog.rammingOptionsExpanded,
+                effRamMode,
+                effRamScope,
+                effRamSlots,
+                baseColor,
+                darkColor,
+                highlight,
+                positive,
+                gray);
+        if (dialog.rammingOptionsExpanded) {
+            addDivisionRammingModeRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effRamMode,
+                    spec.customRammingMode != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+            addDivisionRammingTargetScopeRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effRamScope,
+                    spec.customRammingTargetScope != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+            addDivisionVoidstrikeDepthRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Max Ram Slots: " + effRamSlots,
+                    effRamSlots,
+                    spec.customMaxRammingSlots != null,
+                    "DIV_RAM_SLOTS:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+        }
+
         // 5. Opening Mission Drop-Down (0 - openingDurationSeconds)
         addDivisionMissionDropdownRow(
                 dialog,
@@ -447,14 +469,7 @@ final class DivisionConfigureSubscreen {
                 highlight,
                 gray);
 
-        // 7. Carrier & Wing Voidstrike Behavior Settings (Items C, D, E, D2, F, G, H)
-        leftCol.addSectionHeading(
-                "Strike Craft & Voidstrike",
-                highlight,
-                darkColor,
-                Alignment.LMID,
-                6f);
-
+        // 7. Carrier & Wing Voidstrike Behavior Settings (collapsed under "Carrier Options" button per UI Items D & E)
         VoidstrikeTargetObservance effVsObs =
                 PermanentDivisionManager.resolveEffectiveVoidstrikeObservance(spec, doctrineCfg);
         VoidstrikeCoordinationMode effVsCoord =
@@ -472,108 +487,125 @@ final class DivisionConfigureSubscreen {
         int effVsWidth =
                 PermanentDivisionManager.resolveEffectiveVoidstrikeSquadronWidth(spec, doctrineCfg);
 
-        addDivisionVoidstrikeObservanceRow(
+        addDivisionCarrierOptionsToggleRow(
                 dialog,
                 leftCol,
                 colWidth - 16f,
+                dialog.carrierOptionsExpanded,
                 effVsObs,
-                spec.customVoidstrikeObservance != null,
-                baseColor,
-                darkColor,
-                positive);
-
-        addDivisionVoidstrikeCoordinationRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
                 effVsCoord,
-                spec.customVoidstrikeCoordination != null,
-                baseColor,
-                darkColor,
-                highlight,
-                positive);
-
-        addDivisionSquadronFormationRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                "Fighter Form.",
-                effFtrFm,
-                SquadronFormation.FIGHTER_GENERAL_OPTIONS,
-                spec.customFighterFormation != null,
-                "DIV_FTR_FM:",
-                baseColor,
-                darkColor,
-                highlight,
-                positive);
-
-        addDivisionSquadronFormationRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                "Fighter Strike",
-                effFtrVsFm,
-                SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
-                spec.customFighterVoidstrikeFormation != null,
-                "DIV_FTR_VS_FM:",
-                baseColor,
-                darkColor,
-                highlight,
-                positive);
-
-        addDivisionSquadronFormationRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                "Bomber Form.",
-                effBmbFm,
-                SquadronFormation.BOMBER_GENERAL_OPTIONS,
-                spec.customBomberFormation != null,
-                "DIV_BMB_FM:",
-                baseColor,
-                darkColor,
-                highlight,
-                positive);
-
-        addDivisionSquadronFormationRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                "Bomber Strike",
-                effBmbVsFm,
-                SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
-                spec.customBomberVoidstrikeFormation != null,
-                "DIV_BMB_VS_FM:",
-                baseColor,
-                darkColor,
-                highlight,
-                positive);
-
-        addDivisionVoidstrikeDepthRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                "Strike Depth: " + effVsDepth,
                 effVsDepth,
-                spec.customVoidstrikeSquadronDepth != null,
-                "DIV_VS_DEPTH:",
-                baseColor,
-                darkColor,
-                highlight,
-                positive);
-
-        addDivisionVoidstrikeDepthRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                "Strike Width: " + effVsWidth,
                 effVsWidth,
-                spec.customVoidstrikeSquadronWidth != null,
-                "DIV_VS_WIDTH:",
                 baseColor,
                 darkColor,
                 highlight,
-                positive);
+                positive,
+                gray);
+
+        if (dialog.carrierOptionsExpanded) {
+            addDivisionVoidstrikeObservanceRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effVsObs,
+                    spec.customVoidstrikeObservance != null,
+                    baseColor,
+                    darkColor,
+                    positive);
+
+            addDivisionVoidstrikeCoordinationRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effVsCoord,
+                    spec.customVoidstrikeCoordination != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionSquadronFormationRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Fighter Form.",
+                    effFtrFm,
+                    SquadronFormation.FIGHTER_GENERAL_OPTIONS,
+                    spec.customFighterFormation != null,
+                    "DIV_FTR_FM:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionSquadronFormationRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Fighter Voidstrike",
+                    effFtrVsFm,
+                    SquadronFormation.FIGHTER_VOIDSTRIKE_OPTIONS,
+                    spec.customFighterVoidstrikeFormation != null,
+                    "DIV_FTR_VS_FM:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionSquadronFormationRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Bomber Form.",
+                    effBmbFm,
+                    SquadronFormation.BOMBER_GENERAL_OPTIONS,
+                    spec.customBomberFormation != null,
+                    "DIV_BMB_FM:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionSquadronFormationRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Bomber Voidstrike",
+                    effBmbVsFm,
+                    SquadronFormation.BOMBER_VOIDSTRIKE_OPTIONS,
+                    spec.customBomberVoidstrikeFormation != null,
+                    "DIV_BMB_VS_FM:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionVoidstrikeDepthRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Voidstrike Depth: " + effVsDepth,
+                    effVsDepth,
+                    spec.customVoidstrikeSquadronDepth != null,
+                    "DIV_VS_DEPTH:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionVoidstrikeDepthRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Voidstrike Width: " + effVsWidth,
+                    effVsWidth,
+                    spec.customVoidstrikeSquadronWidth != null,
+                    "DIV_VS_WIDTH:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+        }
 
         // Visual Ship Icon Bay in Deep Division Editor
         leftCol.addSectionHeading(
@@ -697,7 +729,9 @@ final class DivisionConfigureSubscreen {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
+        LabelAPI unitLbl = rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText);
+        unitLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) unitLbl, labelText);
 
         float x = CONTROL_COL_X;
         String decAct = actionPrefix + Math.max(minVal, currentVal - step);
@@ -744,7 +778,9 @@ final class DivisionConfigureSubscreen {
         String label = longestGunRange > 0
                 ? String.format(Locale.ROOT, "Standoff: %du (Guns %du)", effStandoff, longestGunRange)
                 : String.format(Locale.ROOT, "Standoff: %du", effStandoff);
-        rowUi.addPara(label, 0f, isCustom ? highlight : baseColor, label).getPosition().inTL(4f, 4f);
+        LabelAPI stLbl = rowUi.addPara(label, 0f, isCustom ? highlight : baseColor, label);
+        stLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) stLbl, "Standoff Range:");
 
         float x = CONTROL_COL_X;
         String decAct = "DIV_STANDOFF_RANGE:" + Math.max(PermanentDivisionManager.MIN_STANDOFF_RANGE_UNITS, effStandoff - 100);
@@ -841,7 +877,9 @@ final class DivisionConfigureSubscreen {
 
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
         String labelText = "Formation: " + effFormation.shortName;
-        rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
+        LabelAPI fmLbl = rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText);
+        fmLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) fmLbl, labelText);
 
         String inhAct = "DIV_FORMATION:INHERIT";
         ButtonAPI bInh = dialog.registerButton(
@@ -995,6 +1033,117 @@ final class DivisionConfigureSubscreen {
                 "DIV_SKILL_COORD:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
     }
 
+    private static void addDivisionRammingOptionsToggleRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            boolean expanded,
+            DivisionRammingMode effRamMode,
+            DivisionRammingTargetScope effRamScope,
+            int effRamSlots,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        LabelAPI ramLbl = rowUi.addPara("Ramming Options:", 0f, baseColor);
+        ramLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) ramLbl, "Ramming Options:");
+
+        String toggleAct = "TOGGLE_DIV_RAMMING_OPTIONS";
+        String btnText = (expanded ? "[^] " : "[v] ") + "Ramming Options";
+        ButtonAPI bToggle = dialog.registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        expanded ? highlight : (effRamMode != DivisionRammingMode.OFF ? positive : baseColor),
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        204f,
+                        21f,
+                        0f),
+                toggleAct);
+        if (expanded || effRamMode != DivisionRammingMode.OFF) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
+
+        String summary = (effRamMode == DivisionRammingMode.OFF)
+                ? "Off"
+                : String.format(
+                        Locale.ROOT,
+                        "%s / %s (Max %d)",
+                        effRamMode.displayName,
+                        effRamScope.displayName,
+                        effRamSlots);
+        rowUi.addPara(summary, 0f, effRamMode != DivisionRammingMode.OFF ? positive : gray)
+                .getPosition()
+                .inTL(CONTROL_COL_X + 212f, 4f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
+    private static void addDivisionRammingModeRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            DivisionRammingMode effMode,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        DivisionRammingMode[] opts = DivisionRammingMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].shortName;
+            acts[i] = "DIV_RAM_MODE:" + opts[i].name();
+            if (opts[i] == effMode) sel = i;
+        }
+        String labelText = "Ramming: " + effMode.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 72f, 20f, 76f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_RAM_MODE:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
+    private static void addDivisionRammingTargetScopeRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            DivisionRammingTargetScope effScope,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        DivisionRammingTargetScope[] opts = DivisionRammingTargetScope.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = "DIV_RAM_SCOPE:" + opts[i].name();
+            if (opts[i] == effScope) sel = i;
+        }
+        String labelText = "Ram Target: " + effScope.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 110f, 20f, 114f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_RAM_SCOPE:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
     private static void addDivisionVoidstrikeObservanceRow(
             final DivisionEditorDialog dialog,
             TooltipMakerAPI col,
@@ -1013,7 +1162,7 @@ final class DivisionConfigureSubscreen {
             acts[i] = "DIV_VS_OBS:" + opts[i].name();
             if (opts[i] == effObs) sel = i;
         }
-        String labelText = "Strike Focus: " + effObs.displayName;
+        String labelText = "Voidstrike Focus: " + effObs.displayName;
         DivisionUiWidgets.addOptionStripRow(
                 col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
                 labelText, labelText, isCustom ? activeColor : baseColor, 4f, 4f, CONTROL_COL_X,
@@ -1040,7 +1189,7 @@ final class DivisionConfigureSubscreen {
             acts[i] = "DIV_VS_COORD:" + opts[i].name();
             if (opts[i] == effCoord) sel = i;
         }
-        String labelText = "Strike Launch: " + effCoord.displayName;
+        String labelText = "Voidstrike Launch: " + effCoord.displayName;
         DivisionUiWidgets.addOptionStripRow(
                 col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
                 labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
@@ -1087,6 +1236,153 @@ final class DivisionConfigureSubscreen {
                 baseColor, darkColor, highlight, activeColor);
     }
 
+    private static final DivisionArchetype[] CONFIGURABLE_ARCHETYPES = new DivisionArchetype[]{
+            DivisionArchetype.BATTLESHIP_DIVISION,
+            DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
+            DivisionArchetype.CRUISER_DIVISION,
+            DivisionArchetype.MISSILE_CRUISER_DIVISION,
+            DivisionArchetype.STRIKE_CRUISER_DIVISION,
+            DivisionArchetype.DESTROYER_DIVISION,
+            DivisionArchetype.MISSILE_DESTROYER_DIVISION,
+            DivisionArchetype.FRIGATE_DIVISION,
+            DivisionArchetype.MISSILE_FRIGATE_DIVISION,
+            DivisionArchetype.FLEET_CARRIER_DIVISION,
+            DivisionArchetype.LIGHT_CARRIER_DIVISION,
+            DivisionArchetype.ESCORT_CARRIER_DIVISION,
+            DivisionArchetype.CARRIER_GROUP,
+            DivisionArchetype.PHASE_DIVISION,
+            DivisionArchetype.SERVICE_GROUP,
+            DivisionArchetype.FORCE_DIVISION
+    };
+
+    private static void addDivisionArchetypeDropdownRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            DivisionArchetype currentArchetype,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        String dropdownKey = "DIV_ARCH_DD";
+        boolean expanded = dropdownKey.equals(dialog.expandedDropdownKey);
+        DivisionArchetype curr = currentArchetype != null ? currentArchetype : DivisionArchetype.FORCE_DIVISION;
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        LabelAPI archLbl = rowUi.addPara("Division Type:", 0f, baseColor);
+        archLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) archLbl, "Division Type:");
+
+        String toggleAct = "TOGGLE_DD:" + dropdownKey;
+        String btnText = (expanded ? "[^] " : "[v] ") + curr.shortPrefix;
+        ButtonAPI bToggle = dialog.registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        highlight,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        286f,
+                        21f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+
+        if (expanded) {
+            for (DivisionArchetype arch : CONFIGURABLE_ARCHETYPES) {
+                boolean selected = (arch == curr);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 24f, dialog.subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
+                String selAct = "SET_ARCH:" + arch.name();
+                ButtonAPI bOpt = dialog.registerButton(
+                        optUi.addButton(
+                                (selected ? "* " : "   ") + arch.shortPrefix,
+                                selAct,
+                                selected ? positive : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                274f,
+                                20f,
+                                0f),
+                        selAct);
+                if (selected) {
+                    bOpt.highlight();
+                }
+                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 2f);
+                optUi.setHeightSoFar(24f);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                col.addCustom(optPanel, 1f);
+            }
+        }
+    }
+
+    private static void addDivisionCarrierOptionsToggleRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            boolean expanded,
+            VoidstrikeTargetObservance effVsObs,
+            VoidstrikeCoordinationMode effVsCoord,
+            int effVsDepth,
+            int effVsWidth,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        LabelAPI carLbl = rowUi.addPara("Carrier Options:", 0f, baseColor);
+        carLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) carLbl, "Carrier Options:");
+
+        String toggleAct = "TOGGLE_DIV_CARRIER_OPTIONS";
+        String btnText = (expanded ? "[^] " : "[v] ") + "Carrier Options";
+        ButtonAPI bToggle = dialog.registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        expanded ? highlight : positive,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        204f,
+                        21f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
+
+        String summary = String.format(
+                Locale.ROOT,
+                "%s / %s  |  %dx%d",
+                effVsObs.displayName,
+                effVsCoord.displayName,
+                effVsDepth,
+                effVsWidth);
+        rowUi.addPara(summary, 0f, expanded ? highlight : gray).getPosition().inTL(CONTROL_COL_X + 212f, 4f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
     private static void addDivisionMissionDropdownRow(
             final DivisionEditorDialog dialog,
             TooltipMakerAPI col,
@@ -1110,6 +1406,18 @@ final class DivisionConfigureSubscreen {
     }
 
     static boolean handleDivisionOverrideAction(DivisionEditorDialog dialog, String cmd) {
+        if ("TOGGLE_DIV_CARRIER_OPTIONS".equals(cmd)) {
+            dialog.savePendingNameFieldIfAny();
+            dialog.carrierOptionsExpanded = !dialog.carrierOptionsExpanded;
+            dialog.rebuildContent();
+            return true;
+        }
+        if ("TOGGLE_DIV_RAMMING_OPTIONS".equals(cmd)) {
+            dialog.savePendingNameFieldIfAny();
+            dialog.rammingOptionsExpanded = !dialog.rammingOptionsExpanded;
+            dialog.rebuildContent();
+            return true;
+        }
         String activeDivisionId = dialog.activeDivisionId;
         if (cmd.startsWith("DIV_STATION_SPACING:") && activeDivisionId != null) {
             dialog.savePendingNameFieldIfAny();
@@ -1182,6 +1490,32 @@ final class DivisionConfigureSubscreen {
             ShipSkillCoordinationMode mode =
                     "INHERIT".equals(arg) ? null : ShipSkillCoordinationMode.valueOf(arg);
             PermanentDivisionManager.updateIndividualDivisionShipSkillCoordination(activeDivisionId, mode);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_RAM_MODE:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_RAM_MODE:".length());
+            DivisionRammingMode mode =
+                    "INHERIT".equals(arg) ? null : DivisionRammingMode.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionRammingMode(activeDivisionId, mode);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_RAM_SCOPE:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_RAM_SCOPE:".length());
+            DivisionRammingTargetScope scope =
+                    "INHERIT".equals(arg) ? null : DivisionRammingTargetScope.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionRammingTargetScope(activeDivisionId, scope);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_RAM_SLOTS:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_RAM_SLOTS:".length());
+            Integer slots = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
+            PermanentDivisionManager.updateIndividualDivisionMaxRammingSlots(activeDivisionId, slots);
             dialog.rebuildContent();
             return true;
         }

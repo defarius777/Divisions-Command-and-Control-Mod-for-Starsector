@@ -506,6 +506,7 @@ public class DivisionAutoFormer {
         int missileShips = 0;
         int pdShips = 0;
         int carrierShips = 0;
+        int ramShips = 0;
 
         for (ShipCapabilityProfile p : div.profiles) {
             fpSum += p.fpStrength;
@@ -514,6 +515,13 @@ public class DivisionAutoFormer {
             if (p.hasHeavyMissileLoadout) missileShips++;
             if (p.isPdScreenCapable) pdShips++;
             if (p.isCarrier) carrierShips++;
+            if (p.ship != null && ShipSystemCoordinator.getSkillProfile(p.ship).isDesignedToRam) {
+                ramShips++;
+            }
+        }
+        div.ramCapableMemberCount = ramShips;
+        if (ramShips > 0 && div.rammingMode == PermanentDivisionManager.DivisionRammingMode.OFF) {
+            div.rammingMode = PermanentDivisionManager.DivisionRammingMode.GLANCING_SKIRMISH;
         }
 
         int count = Math.max(1, div.profiles.size());

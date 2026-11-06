@@ -307,6 +307,14 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         // the deployment dialog) so they form divisions and zoom into battle in formation immediately
         interceptNewlyDeployedWaves(now);
 
+        if (tacticalOverlay != null) {
+            tacticalOverlay.pruneLeakedWarroomOrderArrows();
+        }
+        if (initializedBattle) {
+            DivisionCommanderAI.scrubPooledAutoAssignmentsEveryFrame(engine, playerGroup);
+            DivisionCommanderAI.scrubPooledAutoAssignmentsEveryFrame(engine, alliedAiGroup);
+        }
+
         if (engine.isPaused()) {
             if (musicController != null && initializedBattle) {
                 BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())

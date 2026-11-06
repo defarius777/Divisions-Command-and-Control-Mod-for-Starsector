@@ -499,6 +499,84 @@ public class PermanentDivisionManager {
     public static final int MAX_VOIDSTRIKE_SQUADRON_DEPTH = 10;
     public static final int MIN_VOIDSTRIKE_SQUADRON_WIDTH = 1;
     public static final int MAX_VOIDSTRIKE_SQUADRON_WIDTH = 10;
+    public static final int MIN_RAMMING_ATTACK_SLOTS = 1;
+    public static final int MAX_RAMMING_ATTACK_SLOTS = 10;
+
+    /**
+     * Per-division and doctrinal ramming mode.
+     * Defaults to OFF unless the auto-assigner detects ram-capable ships in a division.
+     */
+    public enum DivisionRammingMode {
+        OFF(
+                "Off",
+                "Off",
+                "Forbid offensive ramming; use ram drives only for catch-up and extraction."),
+        GLANCING_SKIRMISH(
+                "Glancing Pass",
+                "Glancing",
+                "Sideswipe enemy flanks at low flux out of crossfire up to the slot cap."),
+        SYNCHRONIZED_LANCE(
+                "Lance Charge",
+                "Lance",
+                "Marshal the division first, then surge together up to the attack slot cap."),
+        DIRECT_RAM(
+                "Direct Ram",
+                "Direct",
+                "Execute direct center-mass ramming passes whenever ready up to the slot cap.");
+
+        public final String displayName;
+        public final String shortName;
+        public final String summary;
+
+        DivisionRammingMode(String displayName, String shortName, String summary) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.summary = summary;
+        }
+
+        public static DivisionRammingMode fromId(String id, DivisionRammingMode fallback) {
+            if (id == null) return fallback;
+            try {
+                return DivisionRammingMode.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Whether a division's maximum ramming attack slots (1..10) apply against a single ship target
+     * or across the entire target enemy division.
+     */
+    public enum DivisionRammingTargetScope {
+        SINGLE_SHIP(
+                "Single Ship",
+                "Ship",
+                "Focus ramming attack slots (1-10) onto a single priority enemy target ship."),
+        ENEMY_DIVISION(
+                "Enemy Division",
+                "Division",
+                "Select multiple targets in a localized space conducive to ramming (1-10 slots).");
+
+        public final String displayName;
+        public final String shortName;
+        public final String summary;
+
+        DivisionRammingTargetScope(String displayName, String shortName, String summary) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.summary = summary;
+        }
+
+        public static DivisionRammingTargetScope fromId(String id, DivisionRammingTargetScope fallback) {
+            if (id == null) return fallback;
+            try {
+                return DivisionRammingTargetScope.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
 
     /**
      * Item C: How closely strike craft obey the order to destroy the designated target in a Voidstrike.
@@ -539,10 +617,10 @@ public class PermanentDivisionManager {
     public enum VoidstrikeCoordinationMode {
         COORDINATED(
                 "Coordinated",
-                "Orbit carrier, form up at marshal point, strike together."),
+                "Orbit carrier, form up at marshal point, voidstrike together."),
         UNCOORDINATED(
                 "Uncoordinated",
-                "Attack immediately in successive waves.");
+                "Attack immediately in successive voidstrike waves.");
 
         public final String displayName;
         public final String summary;
@@ -652,37 +730,37 @@ public class PermanentDivisionManager {
         SCOUTING(
                 "Scouting",
                 "Scouting",
-                "Seize objectives and hold contact at range.",
+                "Captures objectives and holds enemy contact at range without overcommitting.",
                 false,
                 LineStation.VAN),
         CLOSE_ACTION(
                 "Close Action",
                 "Close Action",
-                "Close to decisive range and press attack.",
+                "Advances into effective weapon range to fix and destroy the enemy line.",
                 false,
                 LineStation.VAN),
         STANDOFF_ENGAGEMENT(
                 "Standoff Engagement",
                 "Standoff",
-                "Trade fire at max gun range; yield if pressed.",
+                "Exchanges fire at maximum gun range and gives ground when pressed.",
                 false,
                 LineStation.CENTER),
         ENVELOPMENT(
                 "Envelopment",
                 "Envelopment",
-                "Flank and roll up exposed enemy ships.",
+                "Sweeps wide around the enemy line to attack exposed flanks and rear.",
                 false,
                 LineStation.VAN),
         TOT_ALPHA_STRIKE(
                 "ToT Alpha Strike",
                 "ToT Alpha",
-                "Close rapidly, focus all weapons, break off.",
+                "Marshals outside range, surges in for a synchronized salvo, then breaks off.",
                 false,
                 LineStation.VAN),
         SCREEN(
                 "Screen",
                 "Screen",
-                "Screen ahead of friendly heavy divisions.",
+                "Screens ahead of friendly capitals and carriers against flankers and missiles.",
                 false,
                 LineStation.CENTER),
 
@@ -690,37 +768,37 @@ public class PermanentDivisionManager {
         ARMED_RECONNAISSANCE(
                 "Armed Recon (Carrier)",
                 "Armed Recon",
-                "Send strike craft ahead to scout and strike.",
+                "Holds carriers astern while sending wings ahead to scout and voidstrike.",
                 true,
                 LineStation.REAR),
         SPACE_SUPERIORITY(
                 "Space Superiority (Carrier)",
                 "Space Sup.",
-                "Sweep enemy fighters and light escorts.",
+                "Sweeps enemy fighters, bombers, and light escorts from contested space.",
                 true,
                 LineStation.CENTER),
         COMBAT_SPACE_PATROL(
                 "Combat Space Patrol (Carrier)",
                 "CAP",
-                "Keep fighter cover over friendly divisions.",
+                "Maintains defensive fighter cover over friendly frontline and carrier divisions.",
                 true,
                 LineStation.REAR),
         CYCLIC_STRIKES(
-                "Cyclic Strikes (Carrier)",
-                "Cyclic Strikes",
-                "Cycle continuous strike waves on visible targets.",
+                "Cyclic Voidstrikes (Carrier)",
+                "Cyclic Voidstrikes",
+                "Launches continuous voidstrike waves against visible enemy targets.",
                 true,
                 LineStation.REAR),
         DECKLOAD_STRIKE(
-                "Deckload Strike (Carrier)",
-                "Deck Strike",
-                "Mass division wings into synchronized salvos.",
+                "Deckload Voidstrike (Carrier)",
+                "Deck Voidstrike",
+                "Marshals all division wings into a single synchronized voidstrike.",
                 true,
                 LineStation.REAR),
         ALPHA_STRIKE(
-                "Alpha Strike (Carrier)",
-                "Alpha Strike",
-                "Coordinate full carrier strikes with Main Effort.",
+                "Alpha Voidstrike (Carrier)",
+                "Alpha Voidstrike",
+                "Coordinates multi-division carrier voidstrikes against the Main Effort target.",
                 true,
                 LineStation.REAR),
 
@@ -728,7 +806,7 @@ public class PermanentDivisionManager {
         RESERVE(
                 "Reserve",
                 "Reserve",
-                "Hold astern until committed by the Officer in Tactical Command.",
+                "Holds astern of the battle line until committed by the Officer in Tactical Command.",
                 false,
                 LineStation.REAR),
 
@@ -736,7 +814,7 @@ public class PermanentDivisionManager {
         MARTYRDOM(
                 "Martyrdom",
                 "Martyrdom",
-                "Point-blank ramming and detonation charge.",
+                "Charges directly into point-blank range without backing off or venting.",
                 false,
                 LineStation.VAN);
 
@@ -1242,33 +1320,51 @@ public class PermanentDivisionManager {
         POSITIVE_CONTROL(
                 "Positive Control",
                 "Positive Control",
-                "Officer in Tactical Command orders directly override division missions.",
+                "The Officer in Tactical Command will directly control all division orders.",
+                "+ The Officer in Tactical Command will synchronize all fleet maneuvers and fire.",
+                "- Division commanders will not exercise independent initiative or mission autonomy.",
                 "otc_positive_control"),
         COMMAND_BY_DIRECTION(
                 "Command by Direction",
                 "Command by Direction",
-                "Assigns targets, stations, and flanks; commits reserves.",
+                "The Officer in Tactical Command will assign targets, stations, flanks, and reserves.",
+                "+ Balances fleet-wide coordination with each division's configured mission.",
+                "- Heavily engaged divisions may delay or adapt orders from the Officer in Tactical Command.",
                 "otc_command_by_direction"),
         COMMAND_BY_NEGATION(
                 "Command by Negation",
                 "Command by Negation",
-                "Sets focus targets; divisions act on local initiative.",
+                "The Officer in Tactical Command will designate targets while divisions act on initiative.",
+                "+ Division commanders will have full autonomy to exploit local tactical openings.",
+                "- The Officer in Tactical Command will only intervene to counter critical threats.",
                 "otc_command_by_negation"),
         FIRE_DISTRIBUTION_ONLY(
                 "Fire Distribution Only",
                 "Fire Distribution Only",
-                "Assigns targets and strikes without moving divisions.",
+                "The Officer in Tactical Command will assign targets and voidstrikes without moving divisions.",
+                "+ Divisions will strictly follow their own missions while sharing fleet target locks.",
+                "- The Officer in Tactical Command will not reposition divisions or commit reserves.",
                 "otc_fire_distribution_only");
 
         public final String dropdownLabel;
         public final String shortName;
         public final String summary;
+        public final String positiveText;
+        public final String negativeText;
         public final String iconKey;
 
-        OtcAuthority(String dropdownLabel, String shortName, String summary, String iconKey) {
+        OtcAuthority(
+                String dropdownLabel,
+                String shortName,
+                String summary,
+                String positiveText,
+                String negativeText,
+                String iconKey) {
             this.dropdownLabel = dropdownLabel;
             this.shortName = shortName;
             this.summary = summary;
+            this.positiveText = positiveText;
+            this.negativeText = negativeText;
             this.iconKey = iconKey;
         }
 
@@ -1324,7 +1420,7 @@ public class PermanentDivisionManager {
                 "Flankers attack the same target from opposite sides."),
         TIME_ON_TARGET_STRIKES(
                 "Time-on-Target Strikes",
-                "Missile and carrier divisions launch synchronized salvos."),
+                "Missile and carrier divisions launch synchronized salvos and voidstrikes."),
         RESERVE_AND_GENERAL_CHASE(
                 "Reserve & General Chase",
                 "Holds reserves for relief, then pursues broken enemies."),
@@ -1395,6 +1491,9 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, Integer> voidstrikeSquadronWidthByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionSetpieceAttack> setpieceAttackByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, ShipSkillCoordinationMode> shipSkillCoordinationByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, DivisionRammingMode> rammingModeByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, DivisionRammingTargetScope> rammingTargetScopeByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Integer> maxRammingSlotsByType = new LinkedHashMap<>();
         private final Set<OtcPlay> enabledPlays = EnumSet.of(
                 OtcPlay.LINE_AND_FIRE_DISTRIBUTION,
                 OtcPlay.DOUBLING,
@@ -1434,6 +1533,9 @@ public class PermanentDivisionManager {
                 voidstrikeSquadronWidthByType.put(dt, defaultVoidstrikeSquadronWidthFor(dt));
                 setpieceAttackByType.put(dt, defaultSetpieceAttackFor(dt));
                 shipSkillCoordinationByType.put(dt, defaultShipSkillCoordinationFor(dt));
+                rammingModeByType.put(dt, defaultRammingModeFor(dt));
+                rammingTargetScopeByType.put(dt, defaultRammingTargetScopeFor(dt));
+                maxRammingSlotsByType.put(dt, defaultMaxRammingSlotsFor(dt));
             }
             for (AutoAssignCapability cap : AutoAssignCapability.values()) {
                 for (AutoAssignHull hull : AutoAssignHull.values()) {
@@ -1639,6 +1741,18 @@ public class PermanentDivisionManager {
             return ShipSkillCoordinationMode.SYNCHRONIZED;
         }
 
+        public static DivisionRammingMode defaultRammingModeFor(DoctrineDivisionType dt) {
+            return DivisionRammingMode.OFF;
+        }
+
+        public static DivisionRammingTargetScope defaultRammingTargetScopeFor(DoctrineDivisionType dt) {
+            return DivisionRammingTargetScope.SINGLE_SHIP;
+        }
+
+        public static int defaultMaxRammingSlotsFor(DoctrineDivisionType dt) {
+            return 1;
+        }
+
         public static SquadronFormation defaultFighterFormationFor(DoctrineDivisionType dt) {
             if (dt == DoctrineDivisionType.ESCORT_CARRIER || dt == DoctrineDivisionType.CARRIER_GROUP) {
                 return SquadronFormation.SEMICIRCLE;
@@ -1710,6 +1824,41 @@ public class PermanentDivisionManager {
         public void setShipSkillCoordination(DoctrineDivisionType dt, ShipSkillCoordinationMode mode) {
             if (dt == null || mode == null) return;
             shipSkillCoordinationByType.put(dt, mode);
+        }
+
+        public DivisionRammingMode getRammingMode(DoctrineDivisionType dt) {
+            if (dt == null) return DivisionRammingMode.OFF;
+            DivisionRammingMode v = rammingModeByType.get(dt);
+            return v != null ? v : defaultRammingModeFor(dt);
+        }
+
+        public void setRammingMode(DoctrineDivisionType dt, DivisionRammingMode mode) {
+            if (dt == null || mode == null) return;
+            rammingModeByType.put(dt, mode);
+        }
+
+        public DivisionRammingTargetScope getRammingTargetScope(DoctrineDivisionType dt) {
+            if (dt == null) return DivisionRammingTargetScope.SINGLE_SHIP;
+            DivisionRammingTargetScope v = rammingTargetScopeByType.get(dt);
+            return v != null ? v : defaultRammingTargetScopeFor(dt);
+        }
+
+        public void setRammingTargetScope(DoctrineDivisionType dt, DivisionRammingTargetScope scope) {
+            if (dt == null || scope == null) return;
+            rammingTargetScopeByType.put(dt, scope);
+        }
+
+        public int getMaxRammingSlots(DoctrineDivisionType dt) {
+            if (dt == null) return 1;
+            Integer v = maxRammingSlotsByType.get(dt);
+            int raw = v != null ? v : defaultMaxRammingSlotsFor(dt);
+            return Math.max(MIN_RAMMING_ATTACK_SLOTS, Math.min(MAX_RAMMING_ATTACK_SLOTS, raw));
+        }
+
+        public void setMaxRammingSlots(DoctrineDivisionType dt, int slots) {
+            if (dt == null) return;
+            int clamped = Math.max(MIN_RAMMING_ATTACK_SLOTS, Math.min(MAX_RAMMING_ATTACK_SLOTS, slots));
+            maxRammingSlotsByType.put(dt, clamped);
         }
 
         public SquadronFormation getFighterFormation(DoctrineDivisionType dt) {
@@ -2063,6 +2212,20 @@ public class PermanentDivisionManager {
                     cfg.setShipSkillCoordination(dt, ShipSkillCoordinationMode.fromId(
                             (String) skCoordObj, FleetDoctrineConfig.defaultShipSkillCoordinationFor(dt)));
                 }
+                Object ramModeObj = map.get("ram_mode_" + dt.name());
+                if (ramModeObj instanceof String) {
+                    cfg.setRammingMode(dt, DivisionRammingMode.fromId(
+                            (String) ramModeObj, FleetDoctrineConfig.defaultRammingModeFor(dt)));
+                }
+                Object ramScopeObj = map.get("ram_scope_" + dt.name());
+                if (ramScopeObj instanceof String) {
+                    cfg.setRammingTargetScope(dt, DivisionRammingTargetScope.fromId(
+                            (String) ramScopeObj, FleetDoctrineConfig.defaultRammingTargetScopeFor(dt)));
+                }
+                Object ramSlotsObj = map.get("ram_slots_" + dt.name());
+                if (ramSlotsObj instanceof Number) {
+                    cfg.setMaxRammingSlots(dt, ((Number) ramSlotsObj).intValue());
+                }
             }
         }
         return cfg;
@@ -2125,6 +2288,9 @@ public class PermanentDivisionManager {
             serialized.put("vs_width_" + dt.name(), cfg.getVoidstrikeSquadronWidth(dt));
             serialized.put("setpiece_atk_" + dt.name(), cfg.getSetpieceAttack(dt).name());
             serialized.put("skill_coord_" + dt.name(), cfg.getShipSkillCoordination(dt).name());
+            serialized.put("ram_mode_" + dt.name(), cfg.getRammingMode(dt).name());
+            serialized.put("ram_scope_" + dt.name(), cfg.getRammingTargetScope(dt).name());
+            serialized.put("ram_slots_" + dt.name(), cfg.getMaxRammingSlots(dt));
         }
         return serialized;
     }
@@ -2261,6 +2427,33 @@ public class PermanentDivisionManager {
         saveFleetDoctrine(cfg);
     }
 
+    public static void updateDivisionTypeRammingMode(
+            DoctrineDivisionType dt,
+            DivisionRammingMode mode) {
+        if (dt == null || mode == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setRammingMode(dt, mode);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeRammingTargetScope(
+            DoctrineDivisionType dt,
+            DivisionRammingTargetScope scope) {
+        if (dt == null || scope == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setRammingTargetScope(dt, scope);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeMaxRammingSlots(
+            DoctrineDivisionType dt,
+            int slots) {
+        if (dt == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setMaxRammingSlots(dt, slots);
+        saveFleetDoctrine(cfg);
+    }
+
     public static void updateDivisionTypeFighterFormation(
             DoctrineDivisionType dt,
             SquadronFormation formation) {
@@ -2390,12 +2583,12 @@ public class PermanentDivisionManager {
     }
 
     public enum DoctrineOption {
-        ADAPTIVE("Adaptive", "Balanced: screens, flanks, or presses as needed."),
-        SPEARHEAD("Spearhead", "Closes early and presses local superiority."),
-        FIRE_SUPPORT("Fire Support", "Stands off at max gun or strike range."),
-        ESCORT_AND_SCREEN("Escort & Screen", "Screens friendly capitals and carriers."),
-        FLANKING_STRIKE("Flanking Strike", "Flanks enemy line with missile salvos."),
-        RESERVE("Reserve", "Holds astern until needed to reinforce.");
+        ADAPTIVE("Adaptive", "Follows its division type and mission normally, adapting to local combat."),
+        SPEARHEAD("Spearhead", "Presses attacks aggressively and commits to close action at lower odds."),
+        FIRE_SUPPORT("Fire Support", "Fights cautiously at standoff range and rotates out early at 65% flux."),
+        ESCORT_AND_SCREEN("Escort & Screen", "Stays with the battle line to screen capitals and carriers instead of flanking."),
+        FLANKING_STRIKE("Mobile Flanker", "Detaches from the main line to seize objectives, turn flanks, and pursue."),
+        RESERVE("Reserve", "Holds astern of the battle line until committed to reinforce.");
 
         public final String displayName;
         public final String summary;
@@ -2450,6 +2643,9 @@ public class PermanentDivisionManager {
         public Integer customVoidstrikeSquadronWidth = null;
         public DivisionSetpieceAttack customSetpieceAttack = null;
         public ShipSkillCoordinationMode customShipSkillCoordination = null;
+        public DivisionRammingMode customRammingMode = null;
+        public DivisionRammingTargetScope customRammingTargetScope = null;
+        public Integer customMaxRammingSlots = null;
 
         /**
          * Members temporarily absent from the player fleet (disabled awaiting recovery, mid
@@ -2625,6 +2821,72 @@ public class PermanentDivisionManager {
         return cfg != null ? cfg.getShipSkillCoordination(dt) : FleetDoctrineConfig.defaultShipSkillCoordinationFor(dt);
     }
 
+    public static DivisionRammingMode resolveEffectiveRammingMode(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customRammingMode != null) {
+            return spec.customRammingMode;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        DivisionRammingMode docMode = cfg != null ? cfg.getRammingMode(dt) : FleetDoctrineConfig.defaultRammingModeFor(dt);
+        if (docMode != DivisionRammingMode.OFF) {
+            return docMode;
+        }
+        if (spec != null && Global.getSector() != null && Global.getSector().getPlayerFleet() != null) {
+            if (countRamCapableShipsInDivision(spec, Global.getSector().getPlayerFleet()) > 0) {
+                return DivisionRammingMode.GLANCING_SKIRMISH;
+            }
+        }
+        return DivisionRammingMode.OFF;
+    }
+
+    public static DivisionRammingTargetScope resolveEffectiveRammingTargetScope(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customRammingTargetScope != null) {
+            return spec.customRammingTargetScope;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getRammingTargetScope(dt) : FleetDoctrineConfig.defaultRammingTargetScopeFor(dt);
+    }
+
+    public static int resolveEffectiveMaxRammingSlots(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customMaxRammingSlots != null) {
+            return Math.max(MIN_RAMMING_ATTACK_SLOTS, Math.min(MAX_RAMMING_ATTACK_SLOTS, spec.customMaxRammingSlots));
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getMaxRammingSlots(dt) : FleetDoctrineConfig.defaultMaxRammingSlotsFor(dt);
+    }
+
+    public static int countRamCapableShipsInDivision(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+        if (spec == null || spec.memberIds == null || spec.memberIds.isEmpty() || fleet == null) return 0;
+        int count = 0;
+        for (FleetMemberAPI m : getMembersInDivision(spec, fleet)) {
+            if (m != null && ShipSystemCoordinator.isFleetMemberDesignedToRam(m)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public static void autoEnableRammingIfDivisionHasRamShips(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+        if (spec == null || fleet == null) return;
+        int ramShips = countRamCapableShipsInDivision(spec, fleet);
+        if (ramShips > 0) {
+            if (spec.customRammingMode == null) {
+                spec.customRammingMode = DivisionRammingMode.GLANCING_SKIRMISH;
+            }
+            if (spec.customRammingTargetScope == null) {
+                spec.customRammingTargetScope = DivisionRammingTargetScope.SINGLE_SHIP;
+            }
+            if (spec.customMaxRammingSlots == null) {
+                spec.customMaxRammingSlots = 1;
+            }
+        }
+    }
+
     public static DivisionMovementStickiness resolveEffectiveMovementStickiness(
             PermanentDivisionSpec spec,
             FleetDoctrineConfig cfg) {
@@ -2748,8 +3010,8 @@ public class PermanentDivisionManager {
                 }
             }
 
-            // Also check carrier fighter/bomber engagement range if fitted with offensive wings
-            if (variant.getFittedWings() != null) {
+            // Also check carrier fighter/bomber engagement range if this is a Carrier division fitted with offensive wings
+            if (spec.archetype != null && spec.archetype.isCarrierArchetype() && variant.getFittedWings() != null) {
                 for (String wingId : variant.getFittedWings()) {
                     if (wingId == null) continue;
                     FighterWingSpecAPI wingSpec = Global.getSettings().getFighterWingSpec(wingId);
@@ -2997,6 +3259,41 @@ public class PermanentDivisionManager {
         });
     }
 
+    public static void updateIndividualDivisionRammingMode(
+            String divisionId,
+            final DivisionRammingMode mode) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                spec.customRammingMode = mode;
+            }
+        });
+    }
+
+    public static void updateIndividualDivisionRammingTargetScope(
+            String divisionId,
+            final DivisionRammingTargetScope scope) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                spec.customRammingTargetScope = scope;
+            }
+        });
+    }
+
+    public static void updateIndividualDivisionMaxRammingSlots(
+            String divisionId,
+            final Integer slots) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                spec.customMaxRammingSlots = (slots != null)
+                        ? Math.max(MIN_RAMMING_ATTACK_SLOTS, Math.min(MAX_RAMMING_ATTACK_SLOTS, slots))
+                        : null;
+            }
+        });
+    }
+
     public static void updateIndividualDivisionFighterFormation(
             String divisionId,
             final SquadronFormation formation) {
@@ -3142,6 +3439,12 @@ public class PermanentDivisionManager {
         CampaignFleetAPI playerFleet = sector.getPlayerFleet();
         Map<String, Object> pdata = sector.getPersistentData();
         Object raw = pdata != null ? pdata.get(PERSISTENT_DIVISIONS_KEY) : null;
+        if (raw != null && raw == cachedSpecsRawRef && cachedSpecsList != null
+                && BattlefieldFirepowerEvaluator.isRealCombatEngine(Global.getCombatEngine())) {
+            // During active combat, campaign fleet membership does not change frame-to-frame; avoid allocating
+            // fleet.getFleetData().getMembersListCopy() on every UI frame while the Deployment Dialog is open.
+            return new ArrayList<>(cachedSpecsList);
+        }
         int fleetSig = computePlayerFleetSignature(playerFleet);
         if (raw != null && raw == cachedSpecsRawRef && fleetSig == cachedSpecsFleetSig && cachedSpecsList != null) {
             return new ArrayList<>(cachedSpecsList);
@@ -3395,6 +3698,7 @@ public class PermanentDivisionManager {
             if (s.customStandoffRange == null) {
                 recalculateDivisionStandoffRangeFromGuns(s, fleet);
             }
+            autoEnableRammingIfDivisionHasRamShips(s, fleet);
         }
         sortDivisionsByWeightClassAndRole(specs, fleet);
         saveSpecsToPersistentData(pdata, specs);
@@ -3489,6 +3793,7 @@ public class PermanentDivisionManager {
             created.memberIds.add(optionalFirstMemberId);
             created.flagshipMemberId = optionalFirstMemberId;
             recalculateDivisionStandoffRangeFromGuns(created, sector.getPlayerFleet());
+            autoEnableRammingIfDivisionHasRamShips(created, sector.getPlayerFleet());
         }
         sortDivisionsByWeightClassAndRole(specs, sector.getPlayerFleet());
         saveSpecsToPersistentData(pdata, specs);
@@ -3530,6 +3835,7 @@ public class PermanentDivisionManager {
             target.memberIds.add(memberId);
             ensureValidFlagship(target, fleet);
             recalculateDivisionStandoffRangeFromGuns(target, fleet);
+            autoEnableRammingIfDivisionHasRamShips(target, fleet);
         }
         sortDivisionsByWeightClassAndRole(specs, fleet);
         saveSpecsToPersistentData(pdata, specs);
@@ -4025,6 +4331,27 @@ public class PermanentDivisionManager {
         div.shipSkillCoordination = (optionalSpec != null)
                 ? resolveEffectiveShipSkillCoordination(optionalSpec, cfg)
                 : cfg.getShipSkillCoordination(dt);
+        if (optionalSpec != null) {
+            div.rammingMode = resolveEffectiveRammingMode(optionalSpec, cfg);
+            div.rammingTargetScope = resolveEffectiveRammingTargetScope(optionalSpec, cfg);
+            div.maxRammingAttackSlots = resolveEffectiveMaxRammingSlots(optionalSpec, cfg);
+        } else {
+            DivisionRammingMode docRam = cfg.getRammingMode(dt);
+            if (docRam != DivisionRammingMode.OFF) {
+                div.rammingMode = docRam;
+            } else {
+                boolean anyRamMember = false;
+                for (ShipAPI m : div.members) {
+                    if (m != null && ShipSystemCoordinator.getSkillProfile(m).isDesignedToRam) {
+                        anyRamMember = true;
+                        break;
+                    }
+                }
+                div.rammingMode = anyRamMember ? DivisionRammingMode.GLANCING_SKIRMISH : DivisionRammingMode.OFF;
+            }
+            div.rammingTargetScope = cfg.getRammingTargetScope(dt);
+            div.maxRammingAttackSlots = cfg.getMaxRammingSlots(dt);
+        }
 
         if (div.openingMission == DivisionMissionType.RESERVE
                 || div.mainMission == DivisionMissionType.RESERVE) {
@@ -4273,8 +4600,12 @@ public class PermanentDivisionManager {
         FleetMemberAPI bestFlagship = null;
         float bestScore = -1f;
         boolean preferCarrier = archetype != null && archetype.isCarrierArchetype();
+        boolean anyRamShip = false;
         for (FleetMemberAPI m : members) {
             spec.memberIds.add(m.getId());
+            if (ShipSystemCoordinator.isFleetMemberDesignedToRam(m)) {
+                anyRamShip = true;
+            }
             float score = computeFlagshipCandidateScore(m, preferCarrier);
             if (score > bestScore) {
                 bestScore = score;
@@ -4282,6 +4613,11 @@ public class PermanentDivisionManager {
             }
         }
         spec.flagshipMemberId = (bestFlagship != null) ? bestFlagship.getId() : members.get(0).getId();
+        if (anyRamShip) {
+            spec.customRammingMode = DivisionRammingMode.GLANCING_SKIRMISH;
+            spec.customRammingTargetScope = DivisionRammingTargetScope.SINGLE_SHIP;
+            spec.customMaxRammingSlots = 1;
+        }
     }
 
     private static PermanentDivisionSpec createNewDivisionInternal(
@@ -4800,6 +5136,19 @@ public class PermanentDivisionManager {
         if (cSkillCoord instanceof String) {
             spec.customShipSkillCoordination = ShipSkillCoordinationMode.fromId((String) cSkillCoord, null);
         }
+        Object cRamMode = map.get("customRammingMode");
+        if (cRamMode instanceof String) {
+            spec.customRammingMode = DivisionRammingMode.fromId((String) cRamMode, null);
+        }
+        Object cRamScope = map.get("customRammingTargetScope");
+        if (cRamScope instanceof String) {
+            spec.customRammingTargetScope = DivisionRammingTargetScope.fromId((String) cRamScope, null);
+        }
+        Object cRamSlots = map.get("customMaxRammingSlots");
+        if (cRamSlots instanceof Number) {
+            spec.customMaxRammingSlots = Math.max(MIN_RAMMING_ATTACK_SLOTS,
+                    Math.min(MAX_RAMMING_ATTACK_SLOTS, ((Number) cRamSlots).intValue()));
+        }
 
         Object dormantObj = map.get("dormantMembers");
         if (dormantObj instanceof List) {
@@ -4894,6 +5243,9 @@ public class PermanentDivisionManager {
         if (spec.customVoidstrikeSquadronWidth != null) map.put("customVoidstrikeSquadronWidth", spec.customVoidstrikeSquadronWidth);
         if (spec.customSetpieceAttack != null) map.put("customSetpieceAttack", spec.customSetpieceAttack.name());
         if (spec.customShipSkillCoordination != null) map.put("customShipSkillCoordination", spec.customShipSkillCoordination.name());
+        if (spec.customRammingMode != null) map.put("customRammingMode", spec.customRammingMode.name());
+        if (spec.customRammingTargetScope != null) map.put("customRammingTargetScope", spec.customRammingTargetScope.name());
+        if (spec.customMaxRammingSlots != null) map.put("customMaxRammingSlots", spec.customMaxRammingSlots);
         return map;
     }
 }
