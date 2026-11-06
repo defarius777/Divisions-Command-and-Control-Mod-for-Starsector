@@ -810,6 +810,9 @@ public final class FactionFleetDoctrines {
         String currentSig = sigBuilder.toString();
         MemoryAPI mem = fleet.getMemoryWithoutUpdate();
         List<PermanentDivisionSpec> existingDivs = readNpcDivisionsFromMemory(mem);
+        if (fleet.getBattle() != null && !existingDivs.isEmpty()) {
+            return existingDivs;
+        }
         if (mem != null) {
             Object cachedSig = mem.get(MEM_NPC_SIGNATURE_KEY);
             if (currentSig.equals(cachedSig) && !existingDivs.isEmpty()) {
@@ -874,7 +877,11 @@ public final class FactionFleetDoctrines {
      * fleets so whole divisions are transferred intact whenever possible.
      */
     public static void consolidateWholeDivisionTransfersWithNearbyFleets(CampaignFleetAPI childFleet) {
-        if (childFleet == null || childFleet.isPlayerFleet() || childFleet.getFleetData() == null) return;
+        if (childFleet == null || childFleet.isPlayerFleet() || childFleet.isStationMode()
+                || childFleet.getBattle() != null || childFleet.getFleetData() == null
+                || isStoryOrSpecialFleet(childFleet)) {
+            return;
+        }
         LocationAPI loc = childFleet.getContainingLocation();
         if (loc == null || loc.getFleets() == null) return;
         String factionId = childFleet.getFaction() != null ? childFleet.getFaction().getId() : null;
@@ -890,8 +897,10 @@ public final class FactionFleetDoctrines {
 
         for (CampaignFleetAPI other : loc.getFleets()) {
             if (other == null || other == childFleet || other.isPlayerFleet() || other.isStationMode()) continue;
+            if (other.getBattle() != null || isStoryOrSpecialFleet(other)) continue;
             if (other.getFaction() == null || !factionId.equals(other.getFaction().getId())) continue;
             if (other.getFleetData() == null) continue;
+            if (Misc.getDistance(childFleet, other) > 600f) continue;
 
             MemoryAPI otherMem = other.getMemoryWithoutUpdate();
             if (otherMem == null) continue;
@@ -933,6 +942,7 @@ public final class FactionFleetDoctrines {
                 for (String mId : new ArrayList<>(majDiv.memberIds)) {
                     FleetMemberAPI stayInParent = parentById.get(mId);
                     if (stayInParent == null || stayInParent.isFlagship()) continue;
+                    if (stayInParent.getCaptain() != null && !stayInParent.getCaptain().isDefault()) continue;
                     HullSize targetSize = stayInParent.getHullSpec() != null
                             ? stayInParent.getHullSpec().getHullSize()
                             : HullSize.FRIGATE;
@@ -942,6 +952,7 @@ public final class FactionFleetDoctrines {
                         for (String cId : minDiv.memberIds) {
                             FleetMemberAPI cand = childById.get(cId);
                             if (cand != null && !cand.isFlagship()
+                                    && (cand.getCaptain() == null || cand.getCaptain().isDefault())
                                     && cand.getHullSpec() != null
                                     && cand.getHullSpec().getHullSize() == targetSize) {
                                 swapFromChild = cand;

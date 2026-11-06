@@ -202,6 +202,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private ButtonAPI registerButton(ButtonAPI button, String actionId) {
         if (button != null && actionId != null) {
             activeButtons.put(button, actionId);
+            DivisionUiWidgets.attachActionTooltip(null, button, actionId);
         }
         return button;
     }
@@ -1519,6 +1520,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         headerLbl.setColor(new Color(255, 222, 90, 255));
         headerLbl.setAlignment(Alignment.MID);
         bannerPanel.addComponent((UIComponentAPI) headerLbl).setSize(rowWidth - 20f, 22f).inTL(10f, 180f);
+        DivisionUiWidgets.addTooltip(
+                body,
+                (UIComponentAPI) headerLbl,
+                "OTC Command Style: " + current.dropdownLabel,
+                current.summary + " Click any of the four naval pennants above to switch command authority.",
+                current.positiveText,
+                current.negativeText);
 
         LabelAPI summaryLbl = Global.getSettings().createLabel(current.summary, Fonts.GROUP_NUM_FONT);
         summaryLbl.setColor(new Color(195, 220, 240, 245));
@@ -1572,7 +1580,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         CustomPanelAPI rowPanel = createFleetFormationIconRow(rowWidth, 30f, current);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
-        rowUi.addPara("Fleet Formation:", 0f, baseColor).getPosition().inTL(6f, 6f);
+        LabelAPI fwLbl = rowUi.addPara("Fleet Formation:", 0f, baseColor);
+        fwLbl.getPosition().inTL(6f, 6f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) fwLbl, "Fleet Formation:");
 
         String toggleAct = "TOGGLE_DD:" + ddKey;
         String btnText = (expanded ? "[^] " : "[v] ") + current.displayName;
@@ -1592,6 +1602,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             bToggle.highlight();
         }
         bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+        DivisionUiWidgets.addTooltip(
+                rowUi,
+                bToggle,
+                "Fleet Formation: " + current.displayName,
+                current.summary);
 
         String depAct = "SET_ORCHESTRATED_ADVANCE:" + (deployInFormation ? "OFF" : "ON");
         ButtonAPI bDep = registerButton(
@@ -1663,7 +1678,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
-        rowUi.addPara("Multi-Div Setpiece:", 0f, baseColor).getPosition().inTL(6f, 6f);
+        LabelAPI mspLbl = rowUi.addPara("Multi-Div Setpiece:", 0f, baseColor);
+        mspLbl.getPosition().inTL(6f, 6f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) mspLbl, "Multi-Div Setpiece:");
 
         String toggleAct = "TOGGLE_DD:" + ddKey;
         String btnText = (expanded ? "[^] " : "[v] ") + current.displayName;
@@ -1683,6 +1700,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             bToggle.highlight();
         }
         bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+        DivisionUiWidgets.addTooltip(
+                rowUi,
+                bToggle,
+                "Multi-Div Setpiece: " + current.displayName,
+                current.summary);
 
         rowUi.addPara(current.summary, 0f, expanded ? activeValueColor : gray)
                 .getPosition()
@@ -1741,7 +1763,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
 
         String label = play.displayName;
-        rowUi.addPara(label, 0f, enabled ? activeValueColor : gray, label).getPosition().inTL(6f, 6f);
+        LabelAPI playLbl = rowUi.addPara(label, 0f, enabled ? activeValueColor : gray, label);
+        playLbl.getPosition().inTL(6f, 6f);
+        DivisionUiWidgets.addTooltip(
+                rowUi,
+                (UIComponentAPI) playLbl,
+                "Tactical Play: " + play.displayName,
+                play.summary);
 
         String onAct = "SET_OTC_PLAY:" + play.name() + ":ON";
         ButtonAPI bOn = registerButton(
@@ -1835,7 +1863,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         rowPanelRef[0] = rowPanel;
 
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+        LabelAPI fmLbl = rowUi.addPara(labelText, 0f, activeValueColor, labelText);
+        fmLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) fmLbl, labelText);
         float summaryX = CONTROL_COL_X + cols * (btnW + btnGap) + 8f;
         rowUi.addPara(currentFormation.summary, 0f, gray).getPosition().inTL(summaryX, 16f);
 
@@ -2058,7 +2088,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara(labelText, 0f, activeValueColor, labelText).getPosition().inTL(6f, 5f);
+        LabelAPI unitLbl = rowUi.addPara(labelText, 0f, activeValueColor, labelText);
+        unitLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) unitLbl, labelText);
 
         float xCursor = CONTROL_COL_X;
 
@@ -2138,12 +2170,14 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara(
+        LabelAPI limLbl = rowUi.addPara(
                 "%s:  %s",
                 0f,
                 activeValueColor,
                 labelText,
-                String.valueOf(currentValue)).getPosition().inTL(6f, 5f);
+                String.valueOf(currentValue));
+        limLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) limLbl, labelText);
 
         float xCursor = CONTROL_COL_X;
 
@@ -2922,7 +2956,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara("Ramming Options:", 0f, baseColor).getPosition().inTL(6f, 5f);
+        LabelAPI ramOptLbl = rowUi.addPara("Ramming Options:", 0f, baseColor);
+        ramOptLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) ramOptLbl, "Ramming Options:");
 
         String toggleAct = "TOGGLE_RAMMING_OPTS:" + dt.name();
         String btnText = (expanded ? "[^] " : "[v] ") + "Ramming Options";
@@ -3088,7 +3124,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        rowUi.addPara("Carrier Options:", 0f, baseColor).getPosition().inTL(6f, 5f);
+        LabelAPI carOptLbl = rowUi.addPara("Carrier Options:", 0f, baseColor);
+        carOptLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) carOptLbl, "Carrier Options:");
 
         String toggleAct = "TOGGLE_CARRIER_OPTS:" + dt.name();
         String btnText = (expanded ? "[^] " : "[v] ") + "Carrier Options";

@@ -1571,7 +1571,7 @@ public class DivisionOtcCommandManager {
                         }
                         notifyPlayer(engine, String.format(Locale.ROOT,
                                 "Enemy division leader \"%s\" (%s) destroyed!",
-                                shipName, divName), true);
+                                shipName, divName), false);
                     } else {
                         String sidePrefix = group.isAlliedAi ? "Allied division leader" : "Division leader";
                         String shipName = f.getName() != null ? f.getName() : "Division Leader";
@@ -1587,7 +1587,7 @@ public class DivisionOtcCommandManager {
                         }
                         notifyPlayer(engine, String.format(Locale.ROOT,
                                 "%s \"%s\" (%s) destroyed!",
-                                sidePrefix, shipName, divName), false);
+                                sidePrefix, shipName, divName), true);
                     }
                 }
             }

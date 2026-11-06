@@ -238,6 +238,11 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 btnH,
                 0f);
         fleetDoctrineButton.getPosition().inTL(5f + iconW + iconGap, 0f);
+        DivisionUiWidgets.addTooltip(
+                tt,
+                fleetDoctrineButton,
+                "Fleet Doctrine & Battle Group Command",
+                "Configure Officer in Tactical Command (OTC) authority, fleet-wide formations, doctrinal division modifiers, auto-assign schemes, hull limits, and division nomenclature.");
 
         float row2Y = btnH + rowGap;
         tt.addImage(wingIconPath, iconW, iconH, 0f);
@@ -257,6 +262,11 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 btnH,
                 0f);
         divisionEditorButton.getPosition().inTL(5f + iconW + iconGap, row2Y);
+        DivisionUiWidgets.addTooltip(
+                tt,
+                divisionEditorButton,
+                "Fleet Organization (Divisions)",
+                "Organize your fleet into permanent tactical divisions, designate Division Leaders, and customize individual division missions, formations, spacing, and standoff ranges.");
 
         injectedButtonPanel.addUIElement(tt).inTL(-5f, 0f);
 

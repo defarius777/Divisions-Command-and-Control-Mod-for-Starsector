@@ -1851,6 +1851,177 @@ public class UITestHarness {
                         battleSummaryLogged, combatHandlesVerified));
 
         auditFeaturesABCDE_OtcSuccessionAlphaCoreAndUndeployedPenalties(res);
+        auditTooltipsDivisionLeaderColorsAndCampaignBattleSafety(res);
+    }
+
+    private static void auditTooltipsDivisionLeaderColorsAndCampaignBattleSafety(UIAuditResult res) {
+        // 1. Verify Task B: Friendly "Division leader ... destroyed!" is GREEN, Enemy "Enemy division leader ... destroyed!" is RED
+        final List<Color> capturedColors = new ArrayList<>();
+        final List<String> capturedTexts = new ArrayList<>();
+        final CombatUIAPI colorCheckUi = (CombatUIAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatUIAPI.class},
+                (p, m, a) -> {
+                    if ("addMessage".equals(m.getName()) && a != null) {
+                        Color c = null;
+                        StringBuilder sb = new StringBuilder();
+                        for (Object o : a) {
+                            if (o instanceof Color && c == null) {
+                                c = (Color) o;
+                            } else if (o instanceof String) {
+                                sb.append((String) o);
+                            } else if (o instanceof Object[]) {
+                                for (Object sub : (Object[]) o) {
+                                    if (sub instanceof Color && c == null) {
+                                        c = (Color) sub;
+                                    } else if (sub instanceof String) {
+                                        sb.append((String) sub);
+                                    }
+                                }
+                            }
+                        }
+                        capturedColors.add(c != null ? c : Color.WHITE);
+                        capturedTexts.add(sb.toString());
+                    }
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        final CombatEngineAPI colorEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    if ("getCombatUI".equals(m.getName())) return colorCheckUi;
+                    if ("getTotalElapsedTime".equals(m.getName())) return 25f;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        final boolean[] deadHolder = new boolean[]{false};
+        com.fs.starfarer.api.characters.PersonAPI fCapt = createMockPersonForOtcTest("Capt. Valen", false, null, false, 5);
+        com.fs.starfarer.api.fleet.FleetMemberAPI fMem = createMockMemberForOtcTest("f_div_ldr_m", "HSS Dauntless", fCapt, HullSize.CRUISER, 20f, false);
+        ShipAPI fDeadLeader = createMockShipForOtcTest("f_div_ldr_s", "HSS Dauntless", 0, fMem, fCapt, HullSize.CRUISER, deadHolder);
+        BattleGroupState friendlyGroup = new BattleGroupState(0, new CommanderProfile(null, "Player OTC"));
+        DivisionState friendlyDiv = new DivisionState("f_div_1", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", new CommanderProfile(fCapt, "Capt. Valen"));
+        friendlyDiv.flagship = fDeadLeader;
+        friendlyDiv.members.add(fDeadLeader);
+        friendlyGroup.divisions.add(friendlyDiv);
+
+        com.fs.starfarer.api.characters.PersonAPI eCapt = createMockPersonForOtcTest("Warlord Korg", false, null, false, 5);
+        com.fs.starfarer.api.fleet.FleetMemberAPI eMem = createMockMemberForOtcTest("e_div_ldr_m", "pirates_dominator", eCapt, HullSize.CRUISER, 20f, false);
+        ShipAPI eDeadLeader = createMockShipForOtcTest("e_div_ldr_s", "Merciless", 1, eMem, eCapt, HullSize.CRUISER, deadHolder);
+        BattleGroupState enemyGroup = new BattleGroupState(1, new CommanderProfile(null, "Enemy OTC"));
+        DivisionState enemyDiv = new DivisionState("e_div_1", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Raider Squadron 1", new CommanderProfile(eCapt, "Warlord Korg"));
+        enemyDiv.flagship = eDeadLeader;
+        enemyDiv.members.add(eDeadLeader);
+        enemyGroup.divisions.add(enemyDiv);
+
+        divisionai.DivisionOtcCommandManager.checkDivisionFlagshipsDestroyed(colorEngine, friendlyGroup, 25f);
+        divisionai.DivisionOtcCommandManager.checkDivisionFlagshipsDestroyed(colorEngine, enemyGroup, 25f);
+
+        boolean friendlyLeaderGreenOk = false;
+        boolean enemyLeaderRedOk = false;
+        for (int i = 0; i < capturedTexts.size(); i++) {
+            String msg = capturedTexts.get(i);
+            Color c = capturedColors.get(i);
+            if (msg.contains("Division leader") && msg.contains("HSS Dauntless") && !msg.contains("Enemy")) {
+                friendlyLeaderGreenOk = (c.getGreen() > c.getRed());
+            }
+            if (msg.contains("Enemy division leader") && msg.contains("Merciless")) {
+                enemyLeaderRedOk = (c.getRed() > c.getGreen());
+            }
+        }
+
+        // 2. Verify Task A: Centralized UI tooltip descriptors cover all major UI controls and row labels
+        String[] sampleActions = new String[]{
+                "TAB:ALL", "TAB:OTC_COMMAND", "TAB:HULLS", "TAB:NAMING",
+                "SET_OTC_AUTH:COMMAND_BY_DIRECTION", "SET_OTC_AUTH:POSITIVE_CONTROL",
+                "SET_FLEET_FORMATION:GRAND_LINE_ABREAST", "SET_FTR_FM:FLEET_CARRIER:WEDGE",
+                "SET_OPEN_MIS:BATTLESHIP:STANDOFF_ENGAGEMENT", "SET_MAIN_MIS:CRUISER:CLOSE_ACTION",
+                "SET_STICKINESS:DESTROYER:STRICT", "SET_DOC:SPEARHEAD", "AUTO_ASSIGN", "CREATE_DIV",
+                "CLEAR_ALL_DIVS", "OPEN_DIV:div_1", "DELETE_DIV:div_1",
+                "OTC_CHANGE", "OTC_AUTH_PREV", "FLEET_FORMATION_NEXT", "FLEET_ORCHESTRATED_ADVANCE",
+                "DIV_STATION_SPACING:300", "DIV_FORMATION:FORWARD_WEDGE", "SET_ARCH:CRUISER_DIVISION"
+        };
+        boolean allActionTooltipsOk = true;
+        for (String act : sampleActions) {
+            String[] spec = divisionai.DivisionUiWidgets.resolveActionTooltipSpec(act);
+            if (spec == null || spec.length < 2 || spec[0] == null || spec[0].isEmpty() || spec[1] == null || spec[1].isEmpty()) {
+                allActionTooltipsOk = false;
+                break;
+            }
+        }
+        String[] sampleLabels = new String[]{
+                "Battle Line Structure:", "Squadron Formation:", "Line Spacing:", "Opening Mission:",
+                "Main Mission:", "Division Cohesion:", "Ramming Options:", "Carrier Options:",
+                "Reserve Depth:", "Standoff Range:", "Callsign:", "Posture:", "Division Type:"
+        };
+        boolean allLabelTooltipsOk = true;
+        for (String lbl : sampleLabels) {
+            String[] spec = divisionai.DivisionUiWidgets.resolveRowLabelTooltipSpec(lbl);
+            if (spec == null || spec.length < 2 || spec[0] == null || spec[0].isEmpty() || spec[1] == null || spec[1].isEmpty()) {
+                allLabelTooltipsOk = false;
+                break;
+            }
+        }
+
+        // 3. Verify Task C: Campaign fleet in-battle guard prevents FactionFleetDoctrines from mutating FleetData during battle/inflation
+        final int[] removeMemberCalls = new int[]{0};
+        final List<com.fs.starfarer.api.fleet.FleetMemberAPI> battleMembers = Arrays.asList(fMem, eMem);
+        final com.fs.starfarer.api.campaign.FleetDataAPI battleFleetData =
+                (com.fs.starfarer.api.campaign.FleetDataAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.campaign.FleetDataAPI.class},
+                        (p, m, a) -> {
+                            if ("getMembersListCopy".equals(m.getName())) return new ArrayList<>(battleMembers);
+                            if ("removeFleetMember".equals(m.getName()) || "addFleetMember".equals(m.getName())) {
+                                removeMemberCalls[0]++;
+                                return null;
+                            }
+                            if (m.getReturnType() == boolean.class) return false;
+                            return null;
+                        });
+        final com.fs.starfarer.api.campaign.BattleAPI activeBattle =
+                (com.fs.starfarer.api.campaign.BattleAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.campaign.BattleAPI.class},
+                        (p, m, a) -> {
+                            if (m.getReturnType() == boolean.class) return false;
+                            return null;
+                        });
+        final com.fs.starfarer.api.campaign.CampaignFleetAPI fleetInBattle =
+                (com.fs.starfarer.api.campaign.CampaignFleetAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.campaign.CampaignFleetAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getId".equals(n)) return "npc_fleet_in_battle";
+                            if ("getFleetData".equals(n)) return battleFleetData;
+                            if ("getBattle".equals(n)) return activeBattle;
+                            if ("isPlayerFleet".equals(n)) return false;
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == float.class) return 0f;
+                            if (m.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        FactionFleetDoctrines.ensureFleetDivisionsSorted(fleetInBattle);
+        boolean battleFleetNeverMutatedOk = (removeMemberCalls[0] == 0);
+
+        res.record(
+                friendlyLeaderGreenOk && enemyLeaderRedOk && allActionTooltipsOk && allLabelTooltipsOk && battleFleetNeverMutatedOk,
+                "Division Leader Destroyed Colors (Friendly Green / Enemy Red), UI Tooltip Coverage & In-Battle Fleet Guard",
+                String.format(
+                        Locale.ROOT,
+                        "friendlyLeaderGreen=%b, enemyLeaderRed=%b, actionTooltips=%b, labelTooltips=%b, battleFleetGuard=%b",
+                        friendlyLeaderGreenOk,
+                        enemyLeaderRedOk,
+                        allActionTooltipsOk,
+                        allLabelTooltipsOk,
+                        battleFleetNeverMutatedOk));
     }
 
     private static com.fs.starfarer.api.characters.PersonAPI createMockPersonForOtcTest(
@@ -3454,7 +3625,10 @@ public class UITestHarness {
                 && (scLines.length == 2)
                 && (unLines.length == 1 && "Unassigned".equals(unLines[0]))
                 && tooltipSrc.contains("p1.setSize(safeW1, lineH);")
-                && tooltipSrc.contains("line3Label.setText(l3);");
+                && tooltipSrc.contains("line3Label.setText(l3);")
+                && tooltipSrc.contains("sanitizePositionTree")
+                && tooltipSrc.contains("prepareContentContainerBeforeClear")
+                && tooltipSrc.contains("setSuspendRecompute");
 
         // - Item C: Warroom formation icon inline with division text ("[symbol] Strike Cruiser Div 1")
         //   and centered on the exact horizontal plane of the division name capital letters

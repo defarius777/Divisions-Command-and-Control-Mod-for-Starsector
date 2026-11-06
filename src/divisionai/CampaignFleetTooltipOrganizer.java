@@ -24,8 +24,10 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,6 +48,7 @@ public final class CampaignFleetTooltipOrganizer {
 
     private boolean handlesResolved = false;
     private boolean handleResolutionFailed = false;
+    private boolean loggedOrganizeWarning = false;
 
     private Class<?> sPanelClass;
     private Class<?> vGridClass;
@@ -57,7 +60,9 @@ public final class CampaignFleetTooltipOrganizer {
 
     private MethodHandle getTooltipContentsHandle;
     private MethodHandle updateTooltipSizeHandle;
+    private MethodHandle tooltipBeforeShownHandle;
     private MethodHandle getPanelChildrenCopyHandle;
+    private MethodHandle panelRemoveHandle;
 
     private MethodHandle gridGetMembersHandle;
     private MethodHandle gridGetButtonForMemberHandle;
@@ -67,8 +72,17 @@ public final class CampaignFleetTooltipOrganizer {
     private MethodHandle listGetColumnsHandle;
     private MethodHandle listGetItemWidthHandle;
     private MethodHandle listGetItemHeightHandle;
+    private MethodHandle listGetItemsHandle;
+    private MethodHandle listGetDataHandle;
+    private MethodHandle listGetScrollerHandle;
     private MethodHandle listClearHandle;
     private MethodHandle listAddItemHandle;
+
+    private MethodHandle scrollerGetContentContainerHandle;
+    private MethodHandle posSetSuspendRecomputeHandle;
+    private MethodHandle posRecomputeHandle;
+    private MethodHandle posGetBaseHandle;
+    private MethodHandle posChildrenListGetterHandle;
 
     private Object lastOrganizedSPanel = null;
     private final List<ThreatHeaderBinding> activeThreatHeaders = new ArrayList<>();
@@ -531,13 +545,78 @@ public final class CampaignFleetTooltipOrganizer {
                 return;
             }
 
-            organizeFleetTooltip(fleet, activeTooltip, (UIPanelAPI) contentsObj, sPanel);
             lastOrganizedSPanel = sPanel;
-        } catch (Throwable t) {
-            if (!handleResolutionFailed) {
-                handleResolutionFailed = true;
-                LOG.warn("[DivisionAI] Error organizing campaign fleet mouseover tooltip", t);
+            try {
+                organizeFleetTooltip(fleet, activeTooltip, (UIPanelAPI) contentsObj, sPanel);
+            } catch (Throwable orgErr) {
+                if (!loggedOrganizeWarning) {
+                    loggedOrganizeWarning = true;
+                    LOG.warn("[DivisionAI] Error organizing campaign fleet mouseover tooltip; restoring vanilla tooltip", orgErr);
+                }
+                recoverTooltipAfterError(activeTooltip, (UIPanelAPI) contentsObj);
             }
+        } catch (Throwable t) {
+            if (!loggedOrganizeWarning) {
+                loggedOrganizeWarning = true;
+                LOG.warn("[DivisionAI] Error in campaign fleet tooltip organizer advance", t);
+            }
+        }
+    }
+
+    public boolean organizeTooltipForTesting(
+            CampaignFleetAPI fleet,
+            Object activeTooltip,
+            UIPanelAPI contentsPanel,
+            Object sPanel) throws Throwable {
+        if (!resolveHandlesIfNeeded()) {
+            return false;
+        }
+        if (fleet == null || fleet.isStationMode() || fleet.getFleetData() == null) {
+            return true;
+        }
+        try {
+            organizeFleetTooltip(fleet, activeTooltip, contentsPanel, sPanel);
+            return true;
+        } catch (Throwable orgErr) {
+            recoverTooltipAfterError(activeTooltip, contentsPanel);
+            throw orgErr;
+        }
+    }
+
+    public void sanitizeTooltipForTesting(PositionAPI rootPos) {
+        if (resolveHandlesIfNeeded()) {
+            sanitizePositionTree(rootPos);
+        }
+    }
+
+    private void recoverTooltipAfterError(Object activeTooltip, UIPanelAPI contentsPanel) {
+        try {
+            if (activeTooltip instanceof UIComponentAPI) {
+                sanitizePositionTree(((UIComponentAPI) activeTooltip).getPosition());
+            } else if (contentsPanel != null) {
+                sanitizePositionTree(contentsPanel.getPosition());
+            }
+            if (tooltipBeforeShownHandle != null && activeTooltip != null) {
+                tooltipBeforeShownHandle.invoke(activeTooltip);
+                if (activeTooltip instanceof UIComponentAPI) {
+                    sanitizePositionTree(((UIComponentAPI) activeTooltip).getPosition());
+                }
+                Object newContents = getTooltipContentsHandle != null
+                        ? getTooltipContentsHandle.invoke(activeTooltip)
+                        : contentsPanel;
+                if (newContents != null && getPanelChildrenCopyHandle != null) {
+                    List<?> rebuiltChildren = (List<?>) getPanelChildrenCopyHandle.invoke(newContents);
+                    if (rebuiltChildren != null) {
+                        for (Object child : rebuiltChildren) {
+                            if (child != null && sPanelClass != null && sPanelClass.isInstance(child)) {
+                                lastOrganizedSPanel = child;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -553,6 +632,9 @@ public final class CampaignFleetTooltipOrganizer {
             Class<?> stClass = Class.forName("com.fs.starfarer.ui.impl.StandardTooltipV2", false, cl);
             Class<?> uiCompClass = Class.forName("com.fs.starfarer.ui.c", false, cl);
             Class<?> ifNewClass = Class.forName("com.fs.starfarer.ui.interfacenew", false, cl);
+            Class<?> posClass = Class.forName("com.fs.starfarer.ui.OO0O", false, cl);
+            Class<?> scrollerClass = Class.forName("com.fs.starfarer.ui.g", false, cl);
+            Class<?> contentContainerClass = Class.forName("com.fs.starfarer.ui.g$Oo", false, cl);
             Class<?> buttonImplClass = Class.forName("com.fs.starfarer.ui.n", false, cl);
             Class<?> fleetMemberImplClass = Class.forName("com.fs.starfarer.campaign.fleet.FleetMember", false, cl);
             Class<?> iconClass = Class.forName("com.fs.starfarer.ui.B.new", false, cl);
@@ -598,10 +680,24 @@ public final class CampaignFleetTooltipOrganizer {
                     stClass,
                     "updateSize",
                     MethodType.methodType(void.class));
+            try {
+                tooltipBeforeShownHandle = pubLookup.findVirtual(
+                        stClass,
+                        "beforeShown",
+                        MethodType.methodType(void.class));
+            } catch (Throwable ignored) {
+            }
             getPanelChildrenCopyHandle = pubLookup.findVirtual(
                     ifNewClass,
                     "getChildrenCopy",
                     MethodType.methodType(List.class));
+            try {
+                panelRemoveHandle = pubLookup.findVirtual(
+                        ifNewClass,
+                        "remove",
+                        MethodType.methodType(void.class, uiCompClass));
+            } catch (Throwable ignored) {
+            }
 
             gridGetMembersHandle = pubLookup.findVirtual(
                     sPanelClass,
@@ -632,6 +728,25 @@ public final class CampaignFleetTooltipOrganizer {
                     vGridClass,
                     "getItemHeight",
                     MethodType.methodType(float.class));
+            try {
+                listGetItemsHandle = pubLookup.findVirtual(
+                        vGridClass,
+                        "getItems",
+                        MethodType.methodType(List.class));
+                listGetDataHandle = pubLookup.findVirtual(
+                        vGridClass,
+                        "getData",
+                        MethodType.methodType(Object.class, uiCompClass));
+                listGetScrollerHandle = pubLookup.findVirtual(
+                        vGridClass,
+                        "getScroller",
+                        MethodType.methodType(scrollerClass));
+                scrollerGetContentContainerHandle = pubLookup.findVirtual(
+                        scrollerClass,
+                        "getContentContainer",
+                        MethodType.methodType(contentContainerClass));
+            } catch (Throwable ignored) {
+            }
             listClearHandle = pubLookup.findVirtual(
                     vGridClass,
                     "clear",
@@ -640,6 +755,27 @@ public final class CampaignFleetTooltipOrganizer {
                     vGridClass,
                     "addItem",
                     MethodType.methodType(int.class, uiCompClass, Object.class));
+
+            try {
+                posSetSuspendRecomputeHandle = pubLookup.findVirtual(
+                        posClass,
+                        "setSuspendRecompute",
+                        MethodType.methodType(void.class, boolean.class));
+                posRecomputeHandle = pubLookup.findVirtual(
+                        posClass,
+                        "recompute",
+                        MethodType.methodType(void.class));
+                posGetBaseHandle = pubLookup.findVirtual(
+                        posClass,
+                        "getBase",
+                        MethodType.methodType(posClass));
+                MethodHandles.Lookup posLookup = MethodHandles.privateLookupIn(posClass, pubLookup);
+                posChildrenListGetterHandle = posLookup.findGetter(
+                        posClass,
+                        "\u00d400000",
+                        List.class);
+            } catch (Throwable ignored) {
+            }
 
             handlesResolved = true;
             return true;
@@ -651,6 +787,86 @@ public final class CampaignFleetTooltipOrganizer {
     }
 
     @SuppressWarnings("unchecked")
+    private void sanitizePositionTree(PositionAPI rootPos) {
+        if (rootPos == null || posChildrenListGetterHandle == null || posGetBaseHandle == null) {
+            return;
+        }
+        try {
+            Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<Object, Boolean>());
+            sanitizePositionNodeRecursive(rootPos, visited);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void sanitizePositionNodeRecursive(Object posNode, Set<Object> visited) throws Throwable {
+        if (posNode == null || !visited.add(posNode)) {
+            return;
+        }
+        List<?> children = (List<?>) posChildrenListGetterHandle.invoke(posNode);
+        if (children == null || children.isEmpty()) {
+            return;
+        }
+        Set<Object> childSet = Collections.newSetFromMap(new IdentityHashMap<Object, Boolean>());
+        for (Object ch : children) {
+            if (ch != null) {
+                childSet.add(ch);
+            }
+        }
+        for (Object ch : new ArrayList<Object>(children)) {
+            if (ch == null) continue;
+            Object basePos = posGetBaseHandle.invoke(ch);
+            if (basePos != null && !childSet.contains(basePos) && ch instanceof PositionAPI) {
+                PositionAPI p = (PositionAPI) ch;
+                p.inTL(0f, 0f);
+            }
+            sanitizePositionNodeRecursive(ch, visited);
+        }
+    }
+
+    private void prepareContentContainerBeforeClear(Object scrollingList, Object contentContainer, List<MemberIconEntry> allEntries) {
+        if (contentContainer == null || getPanelChildrenCopyHandle == null) {
+            return;
+        }
+        try {
+            Set<Object> knownButtons = Collections.newSetFromMap(new IdentityHashMap<Object, Boolean>());
+            if (allEntries != null) {
+                for (MemberIconEntry e : allEntries) {
+                    if (e != null && e.button != null) {
+                        knownButtons.add(e.button);
+                    }
+                }
+            }
+            if (listGetItemsHandle != null && scrollingList != null) {
+                List<?> vItems = (List<?>) listGetItemsHandle.invoke(scrollingList);
+                if (vItems != null) {
+                    for (Object item : vItems) {
+                        if (item != null) {
+                            knownButtons.add(item);
+                        }
+                    }
+                }
+            }
+            List<?> rawChildren = (List<?>) getPanelChildrenCopyHandle.invoke(contentContainer);
+            if (rawChildren == null || rawChildren.isEmpty()) {
+                return;
+            }
+            for (Object child : new ArrayList<Object>(rawChildren)) {
+                if (child == null) continue;
+                if (child instanceof UIComponentAPI) {
+                    PositionAPI cPos = ((UIComponentAPI) child).getPosition();
+                    if (cPos != null && posGetBaseHandle != null && posGetBaseHandle.invoke(cPos) != null) {
+                        cPos.inTL(0f, 0f);
+                    }
+                }
+                if (!knownButtons.contains(child) && panelRemoveHandle != null) {
+                    panelRemoveHandle.invoke(contentContainer, child);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @SuppressWarnings("unchecked")
     private void organizeFleetTooltip(
             CampaignFleetAPI fleet,
             Object standardTooltipV2,
@@ -658,6 +874,9 @@ public final class CampaignFleetTooltipOrganizer {
             Object sPanelObj) throws Throwable {
 
         activeThreatHeaders.clear();
+        if (fleet == null || fleet.isStationMode() || fleet.getFleetData() == null) {
+            return;
+        }
         List<PermanentDivisionSpec> divisions = FactionFleetDoctrines.ensureFleetDivisionsSorted(fleet);
         if (divisions == null || divisions.isEmpty()) {
             // Player fleet with 0 divisions or empty fleet: leave vanilla layout untouched
@@ -669,13 +888,31 @@ public final class CampaignFleetTooltipOrganizer {
             return;
         }
 
+        Object scrollingList = gridGetListHandle.invoke(sPanelObj);
+        if (scrollingList == null) return;
+
+        List<?> vItems = listGetItemsHandle != null ? (List<?>) listGetItemsHandle.invoke(scrollingList) : null;
+        Set<Object> seenButtons = Collections.newSetFromMap(new IdentityHashMap<Object, Boolean>());
+
         Map<String, List<MemberIconEntry>> entriesByMemberId = new HashMap<>();
         List<MemberIconEntry> allEntries = new ArrayList<>(membersList.size());
-        for (FleetMemberAPI m : new ArrayList<>(membersList)) {
+        List<FleetMemberAPI> membersSnapshot = new ArrayList<>(membersList);
+        for (int i = 0; i < membersSnapshot.size(); i++) {
+            FleetMemberAPI m = membersSnapshot.get(i);
             if (m == null) continue;
             Object btn = gridGetButtonForMemberHandle.invoke(sPanelObj, m);
             Object icon = gridGetIconForMemberHandle.invoke(sPanelObj, m);
-            if (btn != null && icon != null) {
+            if ((btn == null || seenButtons.contains(btn)) && vItems != null && i < vItems.size()) {
+                Object candBtn = vItems.get(i);
+                if (candBtn != null && !seenButtons.contains(candBtn) && listGetDataHandle != null) {
+                    Object candIcon = listGetDataHandle.invoke(scrollingList, candBtn);
+                    if (candIcon != null) {
+                        btn = candBtn;
+                        icon = candIcon;
+                    }
+                }
+            }
+            if (btn != null && icon != null && seenButtons.add(btn)) {
                 MemberIconEntry entry = new MemberIconEntry(m, btn, icon);
                 allEntries.add(entry);
                 if (m.getId() != null) {
@@ -691,9 +928,6 @@ public final class CampaignFleetTooltipOrganizer {
         if (allEntries.isEmpty()) {
             return;
         }
-
-        Object scrollingList = gridGetListHandle.invoke(sPanelObj);
-        if (scrollingList == null) return;
 
         int totalCols = (int) listGetColumnsHandle.invoke(scrollingList);
         if (totalCols < 4) totalCols = 8;
@@ -761,103 +995,162 @@ public final class CampaignFleetTooltipOrganizer {
                 ? faction.getBrightUIColor()
                 : factionColor;
 
-        listClearHandle.invoke(scrollingList, false);
+        Object scroller = listGetScrollerHandle != null ? listGetScrollerHandle.invoke(scrollingList) : null;
+        Object contentContainer = (scroller != null && scrollerGetContentContainerHandle != null)
+                ? scrollerGetContentContainerHandle.invoke(scroller)
+                : null;
+        PositionAPI scrollerPos = scroller instanceof UIComponentAPI
+                ? ((UIComponentAPI) scroller).getPosition()
+                : null;
+        PositionAPI contentPos = contentContainer instanceof UIComponentAPI
+                ? ((UIComponentAPI) contentContainer).getPosition()
+                : null;
+
         List<FleetMemberAPI> orderedMembers = new ArrayList<>(allEntries.size());
         int currentSlotIndex = 0;
         long timeBucket = System.currentTimeMillis() / 240L;
         lastThreatTimeBucket = timeBucket;
         int lastPlacedColInRow = 0;
 
-        for (int dIdx = 0; dIdx < nonEmptySpecs.size(); dIdx++) {
-            PermanentDivisionSpec spec = nonEmptySpecs.get(dIdx);
-            List<MemberIconEntry> divEntries = entriesPerDivision.get(dIdx);
+        try {
+            if (posSetSuspendRecomputeHandle != null) {
+                if (scrollerPos != null) posSetSuspendRecomputeHandle.invoke(scrollerPos, true);
+                if (contentPos != null) posSetSuspendRecomputeHandle.invoke(contentPos, true);
+            }
+            prepareContentContainerBeforeClear(scrollingList, contentContainer, allEntries);
+            listClearHandle.invoke(scrollingList, false);
 
-            int rowsForDiv = Math.max(1, (divEntries.size() + shipsPerDivRow - 1) / shipsPerDivRow);
-            int maxShipsInDivRow = Math.min(shipsPerDivRow, divEntries.size());
-            float boxWidth = itemW * HEADER_COLS;
-            float boxHeight = itemH * rowsForDiv;
-            float divisionSpanWidth = itemW * (HEADER_COLS + maxShipsInDivRow);
-            Color divColor = resolveDivisionCardColor(spec.archetype, nomCat, factionColor);
-            Color divTextColor = resolveDivisionTextColor(nomCat, factionBrightColor, divColor);
+            for (int dIdx = 0; dIdx < nonEmptySpecs.size(); dIdx++) {
+                PermanentDivisionSpec spec = nonEmptySpecs.get(dIdx);
+                List<MemberIconEntry> divEntries = entriesPerDivision.get(dIdx);
 
-            int idx = 0;
-            boolean firstRowOfDiv = true;
-            while (idx < divEntries.size()) {
+                int rowsForDiv = Math.max(1, (divEntries.size() + shipsPerDivRow - 1) / shipsPerDivRow);
+                int maxShipsInDivRow = Math.min(shipsPerDivRow, divEntries.size());
+                float boxWidth = itemW * HEADER_COLS;
+                float boxHeight = itemH * rowsForDiv;
+                float divisionSpanWidth = itemW * (HEADER_COLS + maxShipsInDivRow);
+                Color divColor = resolveDivisionCardColor(spec.archetype, nomCat, factionColor);
+                Color divTextColor = resolveDivisionTextColor(nomCat, factionBrightColor, divColor);
+
+                int idx = 0;
+                boolean firstRowOfDiv = true;
+                while (idx < divEntries.size()) {
+                    while ((currentSlotIndex % totalCols) != 0) {
+                        addEmptySpacerCell(scrollingList);
+                        currentSlotIndex++;
+                    }
+
+                    if (firstRowOfDiv) {
+                        addExpandedDivisionHeaderCard(
+                                scrollingList,
+                                spec,
+                                dIdx + 1,
+                                nomCat,
+                                divColor,
+                                divTextColor,
+                                boxWidth,
+                                boxHeight,
+                                divisionSpanWidth);
+                        currentSlotIndex++;
+
+                        for (int hc = 1; hc < HEADER_COLS; hc++) {
+                            addEmptySpacerCell(scrollingList);
+                            currentSlotIndex++;
+                        }
+                        firstRowOfDiv = false;
+                    } else {
+                        // Multi-row division: the single expanded box from row 0 spans across these columns
+                        for (int hc = 0; hc < HEADER_COLS; hc++) {
+                            addEmptySpacerCell(scrollingList);
+                            currentSlotIndex++;
+                        }
+                    }
+
+                    int countInRow = 0;
+                    while (idx < divEntries.size() && countInRow < shipsPerDivRow) {
+                        MemberIconEntry entry = divEntries.get(idx++);
+                        listAddItemHandle.invoke(scrollingList, entry.button, entry.icon);
+                        orderedMembers.add(entry.member);
+                        lastPlacedColInRow = currentSlotIndex % totalCols;
+                        currentSlotIndex++;
+                        countInRow++;
+                    }
+
+                    while ((currentSlotIndex % totalCols) != 0) {
+                        addEmptySpacerCell(scrollingList);
+                        currentSlotIndex++;
+                    }
+                }
+            }
+
+            // Render unassigned ships (and fighter wings) as normal in the last row(s) starting at column 0!
+            if (!unassignedEntries.isEmpty()) {
                 while ((currentSlotIndex % totalCols) != 0) {
                     addEmptySpacerCell(scrollingList);
                     currentSlotIndex++;
                 }
-
-                if (firstRowOfDiv) {
-                    addExpandedDivisionHeaderCard(
-                            scrollingList,
-                            spec,
-                            dIdx + 1,
-                            nomCat,
-                            divColor,
-                            divTextColor,
-                            boxWidth,
-                            boxHeight,
-                            divisionSpanWidth);
-                    currentSlotIndex++;
-
-                    for (int hc = 1; hc < HEADER_COLS; hc++) {
-                        addEmptySpacerCell(scrollingList);
-                        currentSlotIndex++;
-                    }
-                    firstRowOfDiv = false;
-                } else {
-                    // Multi-row division: the single expanded box from row 0 spans across these columns
-                    for (int hc = 0; hc < HEADER_COLS; hc++) {
-                        addEmptySpacerCell(scrollingList);
-                        currentSlotIndex++;
-                    }
-                }
-
-                int countInRow = 0;
-                while (idx < divEntries.size() && countInRow < shipsPerDivRow) {
-                    MemberIconEntry entry = divEntries.get(idx++);
+                for (MemberIconEntry entry : unassignedEntries) {
                     listAddItemHandle.invoke(scrollingList, entry.button, entry.icon);
                     orderedMembers.add(entry.member);
                     lastPlacedColInRow = currentSlotIndex % totalCols;
                     currentSlotIndex++;
-                    countInRow++;
                 }
-
                 while ((currentSlotIndex % totalCols) != 0) {
                     addEmptySpacerCell(scrollingList);
                     currentSlotIndex++;
                 }
             }
-        }
 
-        // Render unassigned ships (and fighter wings) as normal in the last row(s) starting at column 0!
-        if (!unassignedEntries.isEmpty()) {
-            while ((currentSlotIndex % totalCols) != 0) {
-                addEmptySpacerCell(scrollingList);
-                currentSlotIndex++;
+            // If the fleet has more members/wings than displayed (compact tooltip "+N" badge in bottom-right cell)
+            // and the last row occupied the rightmost column, reserve an extra row so "+N" never overlaps a ship.
+            int totalFleetMembers = fleet.getMembersWithFightersCopy() != null
+                    ? fleet.getMembersWithFightersCopy().size()
+                    : fleet.getFleetData().getMembersListCopy().size();
+            if (totalFleetMembers > allEntries.size() && lastPlacedColInRow == totalCols - 1) {
+                for (int c = 0; c < totalCols; c++) {
+                    addEmptySpacerCell(scrollingList);
+                    currentSlotIndex++;
+                }
             }
-            for (MemberIconEntry entry : unassignedEntries) {
-                listAddItemHandle.invoke(scrollingList, entry.button, entry.icon);
-                orderedMembers.add(entry.member);
-                lastPlacedColInRow = currentSlotIndex % totalCols;
-                currentSlotIndex++;
+        } finally {
+            if (contentPos != null) {
+                sanitizePositionTree(contentPos);
             }
-            while ((currentSlotIndex % totalCols) != 0) {
-                addEmptySpacerCell(scrollingList);
-                currentSlotIndex++;
+            if (scrollerPos != null) {
+                sanitizePositionTree(scrollerPos);
             }
-        }
-
-        // If the fleet has more members/wings than displayed (compact tooltip "+N" badge in bottom-right cell)
-        // and the last row occupied the rightmost column, reserve an extra row so "+N" never overlaps a ship.
-        int totalFleetMembers = fleet.getMembersWithFightersCopy() != null
-                ? fleet.getMembersWithFightersCopy().size()
-                : fleet.getFleetData().getMembersListCopy().size();
-        if (totalFleetMembers > allEntries.size() && lastPlacedColInRow == totalCols - 1) {
-            for (int c = 0; c < totalCols; c++) {
-                addEmptySpacerCell(scrollingList);
-                currentSlotIndex++;
+            if (standardTooltipV2 instanceof UIComponentAPI) {
+                sanitizePositionTree(((UIComponentAPI) standardTooltipV2).getPosition());
+            } else if (contentsPanel != null) {
+                sanitizePositionTree(contentsPanel.getPosition());
+            }
+            if (posSetSuspendRecomputeHandle != null) {
+                if (contentPos != null) {
+                    try {
+                        posSetSuspendRecomputeHandle.invoke(contentPos, false);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (scrollerPos != null) {
+                    try {
+                        posSetSuspendRecomputeHandle.invoke(scrollerPos, false);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            if (posRecomputeHandle != null) {
+                if (contentPos != null) {
+                    try {
+                        posRecomputeHandle.invoke(contentPos);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (scrollerPos != null) {
+                    try {
+                        posRecomputeHandle.invoke(scrollerPos);
+                    } catch (Throwable ignored) {
+                    }
+                }
             }
         }
 
@@ -877,7 +1170,11 @@ public final class CampaignFleetTooltipOrganizer {
         float deltaH = newSHeight - oldSHeight;
         if (Math.abs(deltaH) > 0.5f) {
             PositionAPI cPos = contentsPanel.getPosition();
+            sanitizePositionTree(cPos);
             cPos.setSize(cPos.getWidth(), cPos.getHeight() + deltaH);
+            if (standardTooltipV2 instanceof UIComponentAPI) {
+                sanitizePositionTree(((UIComponentAPI) standardTooltipV2).getPosition());
+            }
             updateTooltipSizeHandle.invoke(standardTooltipV2);
 
             UIComponentAPI tooltipComp = (UIComponentAPI) standardTooltipV2;

@@ -164,7 +164,9 @@ final class DivisionConfigureSubscreen {
         // Row B: Editable Callsign TextField + Rename Button + Doctrine Posture Buttons on the same row
         CustomPanelAPI nameRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, dialog.subPanelPlugin);
         TooltipMakerAPI nameUi = nameRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
-        nameUi.addPara("Callsign:", 0f, baseColor).getPosition().inTL(2f, 5f);
+        LabelAPI callLbl = nameUi.addPara("Callsign:", 0f, baseColor);
+        callLbl.getPosition().inTL(2f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(nameUi, (com.fs.starfarer.api.ui.UIComponentAPI) callLbl, "Callsign:");
         dialog.activeNameField = nameUi.addTextField(230f, Fonts.DEFAULT_SMALL, 0f);
         dialog.activeNameField.setText(spec.name);
         dialog.activeNameField.setMaxChars(32);
@@ -184,7 +186,9 @@ final class DivisionConfigureSubscreen {
                 "APPLY_NAME");
         bSaveName.getPosition().inTL(304f, 3f);
 
-        nameUi.addPara("Posture:", 0f, baseColor).getPosition().inTL(416f, 5f);
+        LabelAPI postLbl = nameUi.addPara("Posture:", 0f, baseColor);
+        postLbl.getPosition().inTL(416f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(nameUi, (com.fs.starfarer.api.ui.UIComponentAPI) postLbl, "Posture:");
         DoctrineOption[] doctrines = DoctrineOption.values();
         float dx = 478f;
         for (DoctrineOption doc : doctrines) {
@@ -725,7 +729,9 @@ final class DivisionConfigureSubscreen {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText).getPosition().inTL(4f, 4f);
+        LabelAPI unitLbl = rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText);
+        unitLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) unitLbl, labelText);
 
         float x = CONTROL_COL_X;
         String decAct = actionPrefix + Math.max(minVal, currentVal - step);
@@ -772,7 +778,9 @@ final class DivisionConfigureSubscreen {
         String label = longestGunRange > 0
                 ? String.format(Locale.ROOT, "Standoff: %du (Guns %du)", effStandoff, longestGunRange)
                 : String.format(Locale.ROOT, "Standoff: %du", effStandoff);
-        rowUi.addPara(label, 0f, isCustom ? highlight : baseColor, label).getPosition().inTL(4f, 4f);
+        LabelAPI stLbl = rowUi.addPara(label, 0f, isCustom ? highlight : baseColor, label);
+        stLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) stLbl, "Standoff Range:");
 
         float x = CONTROL_COL_X;
         String decAct = "DIV_STANDOFF_RANGE:" + Math.max(PermanentDivisionManager.MIN_STANDOFF_RANGE_UNITS, effStandoff - 100);
@@ -869,7 +877,9 @@ final class DivisionConfigureSubscreen {
 
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
         String labelText = "Formation: " + effFormation.shortName;
-        rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText).getPosition().inTL(4f, 4f);
+        LabelAPI fmLbl = rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText);
+        fmLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) fmLbl, labelText);
 
         String inhAct = "DIV_FORMATION:INHERIT";
         ButtonAPI bInh = dialog.registerButton(
@@ -1040,7 +1050,9 @@ final class DivisionConfigureSubscreen {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        rowUi.addPara("Ramming Options:", 0f, baseColor).getPosition().inTL(4f, 4f);
+        LabelAPI ramLbl = rowUi.addPara("Ramming Options:", 0f, baseColor);
+        ramLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) ramLbl, "Ramming Options:");
 
         String toggleAct = "TOGGLE_DIV_RAMMING_OPTIONS";
         String btnText = (expanded ? "[^] " : "[v] ") + "Ramming Options";
@@ -1260,7 +1272,9 @@ final class DivisionConfigureSubscreen {
 
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
-        rowUi.addPara("Division Type:", 0f, baseColor).getPosition().inTL(4f, 4f);
+        LabelAPI archLbl = rowUi.addPara("Division Type:", 0f, baseColor);
+        archLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) archLbl, "Division Type:");
 
         String toggleAct = "TOGGLE_DD:" + dropdownKey;
         String btnText = (expanded ? "[^] " : "[v] ") + curr.shortPrefix;
@@ -1332,7 +1346,9 @@ final class DivisionConfigureSubscreen {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        rowUi.addPara("Carrier Options:", 0f, baseColor).getPosition().inTL(4f, 4f);
+        LabelAPI carLbl = rowUi.addPara("Carrier Options:", 0f, baseColor);
+        carLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) carLbl, "Carrier Options:");
 
         String toggleAct = "TOGGLE_DIV_CARRIER_OPTIONS";
         String btnText = (expanded ? "[^] " : "[v] ") + "Carrier Options";

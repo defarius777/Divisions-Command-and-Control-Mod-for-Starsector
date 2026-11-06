@@ -887,6 +887,7 @@ public final class FleetCommandPanel {
         changeOtcButtonRef[0].getPosition().inTL(portraitX, portraitTopY + portraitH + 5f);
         changeOtcButtonRef[0].setEnabled(!DivisionOtcCommandManager.isPlayerOtcLockedByAlphaCoreInBattle(
                 engine, currentFlagshipRef[0], playerGroup, preBattle));
+        DivisionUiWidgets.attachActionTooltip(leftButtons, changeOtcButtonRef[0], "OTC_CHANGE");
         leftButtons.setHeightSoFar(height);
         panel.addUIElement(leftButtons).inTL(0f, 0f);
 
@@ -899,6 +900,18 @@ public final class FleetCommandPanel {
                     .setSize(rightMaxW, 15f).inTL(rightLabelX, 118f);
             panel.addComponent((UIComponentAPI) phaseLabel)
                     .setSize(rightMaxW, 14f).inTL(rightLabelX, 146f);
+            DivisionUiWidgets.addTooltip(leftButtons, (UIComponentAPI) engagementLabel,
+                    "Battlefield Engagement Intensity",
+                    "Measures the proportion of deployed forces actively exchanging fire or in close tactical contact.");
+            DivisionUiWidgets.addTooltip(leftButtons, (UIComponentAPI) commitmentLabel,
+                    "Fleet Force Commitment",
+                    "Percentage and Deployment Points (DP) of your battle group currently deployed on the battlefield versus held in reserve.");
+            DivisionUiWidgets.addTooltip(leftButtons, (UIComponentAPI) cohesionLabel,
+                    "Division Cohesion & Readiness",
+                    "Average formation dressing and flux readiness across your active combat-effective divisions.");
+            DivisionUiWidgets.addTooltip(leftButtons, (UIComponentAPI) phaseLabel,
+                    "Operational Battle Phase",
+                    "Current battle group phase directed by your Officer in Tactical Command (Approach, General Engagement, Coordinated Strike, Reinforce the Line, General Chase, or Fighting Retirement).");
         } else {
             TooltipMakerAPI buttons = panel.createUIElement(width, height, false);
             authPrevButtonRef[0] = buttons.addButton("<", "OTC_AUTH_PREV", base, dark,
@@ -916,6 +929,11 @@ public final class FleetCommandPanel {
             prevButtonRef[0].getPosition().inTL(formColX + 4f, topBarH + 22f);
             nextButtonRef[0].getPosition().inTL(formColX + formColW - 28f, topBarH + 22f);
             entryButtonRef[0].getPosition().inTL(formColX + 6f, height - 24f);
+            DivisionUiWidgets.attachActionTooltip(buttons, authPrevButtonRef[0], "OTC_AUTH_PREV");
+            DivisionUiWidgets.attachActionTooltip(buttons, authNextButtonRef[0], "OTC_AUTH_NEXT");
+            DivisionUiWidgets.attachActionTooltip(buttons, prevButtonRef[0], "FLEET_FORMATION_PREV");
+            DivisionUiWidgets.attachActionTooltip(buttons, nextButtonRef[0], "FLEET_FORMATION_NEXT");
+            DivisionUiWidgets.attachActionTooltip(buttons, entryButtonRef[0], "FLEET_ORCHESTRATED_ADVANCE");
             buttons.setHeightSoFar(height);
             panel.addUIElement(buttons).inTL(0f, 0f);
         }

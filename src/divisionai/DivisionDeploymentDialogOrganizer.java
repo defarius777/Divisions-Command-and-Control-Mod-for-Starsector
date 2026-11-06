@@ -29,7 +29,9 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.awt.Color;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -131,7 +133,12 @@ public class DivisionDeploymentDialogOrganizer {
     private MethodHandle scrollerSetShowGridHandle;
     private MethodHandle scrollerPackHandle;
     private MethodHandle scrollerClampOffsetHandle;
+    private MethodHandle scrollerGetContentContainerHandle;
+    private MethodHandle panelRemoveHandle;
+    private MethodHandle posSetSuspendRecomputeHandle;
     private MethodHandle posRecomputeHandle;
+    private MethodHandle posGetBaseHandle;
+    private MethodHandle posChildrenListGetterHandle;
     private MethodHandle compSetOpacityHandle;
     private MethodHandle panelSetSizeHandle;
     private MethodHandle listSetColsFieldHandle;
@@ -382,6 +389,31 @@ public class DivisionDeploymentDialogOrganizer {
                     posClass,
                     "recompute",
                     MethodType.methodType(void.class));
+            try {
+                Class<?> contentContainerClass = Class.forName("com.fs.starfarer.ui.g$Oo", false, cl);
+                this.scrollerGetContentContainerHandle = lookup.findVirtual(
+                        scrollerClass,
+                        "getContentContainer",
+                        MethodType.methodType(contentContainerClass));
+                this.panelRemoveHandle = lookup.findVirtual(
+                        panelClass,
+                        "remove",
+                        MethodType.methodType(void.class, uiCompBaseClass));
+                this.posSetSuspendRecomputeHandle = lookup.findVirtual(
+                        posClass,
+                        "setSuspendRecompute",
+                        MethodType.methodType(void.class, boolean.class));
+                this.posGetBaseHandle = lookup.findVirtual(
+                        posClass,
+                        "getBase",
+                        MethodType.methodType(posClass));
+                MethodHandles.Lookup posLookup = MethodHandles.privateLookupIn(posClass, lookup);
+                this.posChildrenListGetterHandle = posLookup.findGetter(
+                        posClass,
+                        "\u00d400000",
+                        List.class);
+            } catch (Throwable ignored) {
+            }
 
             try {
                 Class<?> o0ooClass = Class.forName("com.fs.starfarer.renderers.O0OO", false, cl);
@@ -837,7 +869,7 @@ public class DivisionDeploymentDialogOrganizer {
             }
             Object deployedScrollingList = gridGetListHandle.invoke(deployedGrid);
             if (deployedScrollingList != null) {
-                listClearHandle.invoke(deployedScrollingList, false);
+                safeClearScrollingList(deployedScrollingList);
                 Object depScroller = listGetScrollerHandle.invoke(deployedScrollingList);
                 if (depScroller != null) {
                     try {
@@ -887,7 +919,7 @@ public class DivisionDeploymentDialogOrganizer {
         IndexedMemberList indexedReserveMembers = new IndexedMemberList();
 
         // Clear the ScrollingList UI items (while keeping scroll position)
-        listClearHandle.invoke(scrollingList, false);
+        safeClearScrollingList(scrollingList);
 
         int currentSlotIndex = 0;
         int labelCols = LABEL_COLS; // Columns 0..1 (116px wide) hold the Division Row Header card
@@ -994,6 +1026,9 @@ public class DivisionDeploymentDialogOrganizer {
         int totalRows = (currentSlotIndex + totalCols - 1) / totalCols;
         Object scroller = listGetScrollerHandle.invoke(scrollingList);
         if (scroller != null) {
+            if (scroller instanceof UIComponentAPI) {
+                sanitizePositionTree(((UIComponentAPI) scroller).getPosition());
+            }
             try {
                 scrollerSetShowGridHandle.invoke(scroller, itemW, itemH, false);
             } catch (Throwable ignored) {
@@ -1008,6 +1043,122 @@ public class DivisionDeploymentDialogOrganizer {
         this.lastIndexedReserveMembers = indexedReserveMembers;
         reserveMembersList.clear();
         reserveMembersList.addAll(orderedReserveMembers);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void safeClearScrollingList(Object scrollingList) throws Throwable {
+        if (scrollingList == null) return;
+        Object scroller = listGetScrollerHandle != null ? listGetScrollerHandle.invoke(scrollingList) : null;
+        Object contentContainer = (scroller != null && scrollerGetContentContainerHandle != null)
+                ? scrollerGetContentContainerHandle.invoke(scroller)
+                : null;
+        PositionAPI scrollerPos = scroller instanceof UIComponentAPI
+                ? ((UIComponentAPI) scroller).getPosition()
+                : null;
+        PositionAPI contentPos = contentContainer instanceof UIComponentAPI
+                ? ((UIComponentAPI) contentContainer).getPosition()
+                : null;
+        try {
+            if (posSetSuspendRecomputeHandle != null) {
+                if (scrollerPos != null) posSetSuspendRecomputeHandle.invoke(scrollerPos, true);
+                if (contentPos != null) posSetSuspendRecomputeHandle.invoke(contentPos, true);
+            }
+            if (contentContainer != null && panelGetChildrenCopyHandle != null) {
+                Set<Object> vItemSet = Collections.newSetFromMap(new IdentityHashMap<Object, Boolean>());
+                if (listGetItemsHandle != null) {
+                    List<?> vItems = (List<?>) listGetItemsHandle.invoke(scrollingList);
+                    if (vItems != null) {
+                        for (Object it : vItems) {
+                            if (it != null) vItemSet.add(it);
+                        }
+                    }
+                }
+                List<?> rawChildren = (List<?>) panelGetChildrenCopyHandle.invoke(contentContainer);
+                if (rawChildren != null) {
+                    for (Object child : new ArrayList<Object>(rawChildren)) {
+                        if (child == null) continue;
+                        if (child instanceof UIComponentAPI) {
+                            PositionAPI cPos = ((UIComponentAPI) child).getPosition();
+                            if (cPos != null && posGetBaseHandle != null && posGetBaseHandle.invoke(cPos) != null) {
+                                cPos.inTL(0f, 0f);
+                            }
+                        }
+                        if (!vItemSet.contains(child) && panelRemoveHandle != null) {
+                            panelRemoveHandle.invoke(contentContainer, child);
+                        }
+                    }
+                }
+            }
+            listClearHandle.invoke(scrollingList, false);
+        } finally {
+            if (contentPos != null) sanitizePositionTree(contentPos);
+            if (scrollerPos != null) sanitizePositionTree(scrollerPos);
+            if (posSetSuspendRecomputeHandle != null) {
+                if (contentPos != null) {
+                    try {
+                        posSetSuspendRecomputeHandle.invoke(contentPos, false);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (scrollerPos != null) {
+                    try {
+                        posSetSuspendRecomputeHandle.invoke(scrollerPos, false);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            if (posRecomputeHandle != null) {
+                if (contentPos != null) {
+                    try {
+                        posRecomputeHandle.invoke(contentPos);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (scrollerPos != null) {
+                    try {
+                        posRecomputeHandle.invoke(scrollerPos);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void sanitizePositionTree(PositionAPI rootPos) {
+        if (rootPos == null || posChildrenListGetterHandle == null || posGetBaseHandle == null) {
+            return;
+        }
+        try {
+            Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<Object, Boolean>());
+            sanitizePositionNodeRecursive(rootPos, visited);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void sanitizePositionNodeRecursive(Object posNode, Set<Object> visited) throws Throwable {
+        if (posNode == null || !visited.add(posNode)) {
+            return;
+        }
+        List<?> children = (List<?>) posChildrenListGetterHandle.invoke(posNode);
+        if (children == null || children.isEmpty()) {
+            return;
+        }
+        Set<Object> childSet = Collections.newSetFromMap(new IdentityHashMap<Object, Boolean>());
+        for (Object ch : children) {
+            if (ch != null) {
+                childSet.add(ch);
+            }
+        }
+        for (Object ch : new ArrayList<Object>(children)) {
+            if (ch == null) continue;
+            Object basePos = posGetBaseHandle.invoke(ch);
+            if (basePos != null && !childSet.contains(basePos) && ch instanceof PositionAPI) {
+                PositionAPI p = (PositionAPI) ch;
+                p.inTL(0f, 0f);
+            }
+            sanitizePositionNodeRecursive(ch, visited);
+        }
     }
 
     private int appendRowGroupToScrollingList(
@@ -1297,6 +1448,14 @@ public class DivisionDeploymentDialogOrganizer {
                 16f,
                 0f);
         btn.getPosition().inTL(5f, 35f);
+        String rowTipTitle = isDivisionRow && divSpec != null
+                ? (title + " (" + divSpec.archetype.shortPrefix + " | " + String.format(Locale.ROOT, "%.0f DP", totalDp) + ")")
+                : (title + String.format(Locale.ROOT, " (%.0f DP)", totalDp));
+        String rowTipBody = isDivisionRow && divFm != null
+                ? ("Formation: " + divFm.displayName + " (" + divFm.summary + ") Click to select or deselect all deployable ships in this division row.")
+                : "Click to select or deselect all deployable unassigned ships in this row.";
+        DivisionUiWidgets.addTooltip(tt, btn, rowTipTitle, rowTipBody);
+        DivisionUiWidgets.addTooltip(tt, (UIComponentAPI) line1Label, rowTipTitle, rowTipBody);
         toggleBtnHolder[0] = btn;
 
         tt.setHeightSoFar(cardH);

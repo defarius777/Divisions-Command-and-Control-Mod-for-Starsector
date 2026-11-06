@@ -161,6 +161,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     ButtonAPI registerButton(ButtonAPI button, String actionId) {
         if (button != null && actionId != null) {
             activeButtons.put(button, actionId);
+            DivisionUiWidgets.attachActionTooltip(null, button, actionId);
         }
         return button;
     }
@@ -679,6 +680,13 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         headerLbl.setColor(new Color(255, 222, 90, 255));
         headerLbl.setAlignment(Alignment.MID);
         panel.addComponent((UIComponentAPI) headerLbl).setSize(textWidth, 22f).inTL(8f, 114f);
+        DivisionUiWidgets.addTooltip(
+                null,
+                (UIComponentAPI) headerLbl,
+                "OTC Command Style: " + current.dropdownLabel,
+                current.summary + " Click any of the four naval pennants above to switch command authority.",
+                current.positiveText,
+                current.negativeText);
 
         float textY = 138f;
         Color descColor = new Color(195, 220, 240, 245);
@@ -899,6 +907,15 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 effOpen.shortName,
                 effMain.shortName);
         sub1.getPosition().inTL(26f, 30f);
+        DivisionUiWidgets.addTooltip(
+                topUi,
+                (UIComponentAPI) sub1,
+                spec.name + " (" + spec.archetype.shortPrefix + ")",
+                "Commander: " + rawCmdrDesc
+                        + " | Line Station: " + effSpace.displayName + " (" + effSpace.summary + ")"
+                        + " | Station Spacing: " + effIntra + "u | Standoff Range: " + effStandoff + "u"
+                        + " | Opening Mission: " + effOpen.dropdownLabel
+                        + " -> Main Mission: " + effMain.dropdownLabel + ".");
 
         final boolean flagshipDivCard = isFlagshipDivision(spec, members);
         final CustomPanelAPI[] badgeRef = new CustomPanelAPI[1];
@@ -925,6 +942,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         });
         badgeRef[0] = formBadge;
         cardPanel.addComponent(formBadge).inTL(6f, 30f);
+        DivisionUiWidgets.addTooltip(
+                topUi,
+                formBadge,
+                "Division Formation: " + effForm.displayName,
+                effForm.summary);
 
         topUi.setHeightSoFar(56f);
         cardPanel.addUIElement(topUi).inTL(2f, 2f);
@@ -1234,6 +1256,22 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         int maxHullChars = 12;
         LabelAPI botLbl = textUi.addPara(truncateText(hullName, maxHullChars), baseColor, 0f);
         botLbl.getPosition().inTL(3f, height - 17f);
+
+        String officerDesc = hasCommander
+                ? (captain.getNameString()
+                + (captain.getPersonalityAPI() != null ? " [" + captain.getPersonalityAPI().getDisplayName() + "]" : "")
+                + (commanderLevel > 0 ? " (Lvl " + commanderLevel + ")" : ""))
+                : "No Officer";
+        String roleDesc = isFlagship
+                ? "Division Leader (*LDR)"
+                : (sourceDivisionId != null ? "Assigned Division Member" : "Unassigned Fleet Pool");
+        String tileTipTitle = (member.getShipName() != null ? member.getShipName() + " - " : "")
+                + hullName + String.format(Locale.ROOT, " (%.0f DP)", member.getDeploymentPointsCost());
+        String tileTipBody = "Officer: " + officerDesc + " | Status: " + roleDesc
+                + ". Left-Click: Set Division Leader (in division) or assign to selected division. "
+                + "Right-Click: Quick-assign or unassign. Drag & Drop: Move between divisions or swap order.";
+        DivisionUiWidgets.addTooltip(textUi, (UIComponentAPI) topLbl, tileTipTitle, tileTipBody);
+        DivisionUiWidgets.addTooltip(textUi, (UIComponentAPI) botLbl, tileTipTitle, tileTipBody);
 
         if (showCommanderLevel) {
             // Match vanilla Fleet screen (com.fs.starfarer.coreui.OOoo): Victor 10 font at top-right of the portrait box

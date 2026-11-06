@@ -174,6 +174,12 @@ public final class OtcSelectionModalDialog {
         closeBtnRef[0] = topBtnBar.addButton("Close", "OTC_WINDOW_CLOSE", base, dark,
                 Alignment.MID, CutStyle.ALL, 68f, 18f, 0f);
         closeBtnRef[0].getPosition().inTL(width - 76f, 4f);
+        DivisionUiWidgets.attachActionTooltip(topBtnBar, closeBtnRef[0], "OTC_WINDOW_CLOSE");
+        DivisionUiWidgets.addTooltip(
+                topBtnBar,
+                (UIComponentAPI) costLbl,
+                "OTC Reassignment & Deployment Rules",
+                "Pre-battle or emergency OTC selection is free (0 CP). Voluntary mid-battle OTC reassignment costs 75% of max Command Points. If your designated OTC ship is not deployed into battle, your fleet suffers -75% Max CP and -50% CP regeneration.");
         topBtnBar.setHeightSoFar(topBarH);
         winPanel.addUIElement(topBtnBar).inTL(0f, 0f);
 
@@ -584,6 +590,14 @@ public final class OtcSelectionModalDialog {
         if (isCurrentOtc) {
             selectBtn.highlight();
         }
+        DivisionUiWidgets.addTooltip(
+                btnHolder,
+                selectBtn,
+                (cand.alphaCore ? "Alpha Core OTC: " : "Officer in Tactical Command: ") + cand.commanderName,
+                "Ship: " + cand.shipName + " | Personality: " + persText + " | Division: " + cand.divisionTitle
+                        + ". Click to designate this commander as your battle group's Officer in Tactical Command (OTC).",
+                cand.alphaCore ? "+ Alpha Core OTC unlocks Time-Space-Firepower Convergence." : null,
+                "- If this ship is not deployed into battle, your fleet suffers -75% Max CP and -50% CP regeneration.");
         btnHolder.setHeightSoFar(cardH);
         card.addUIElement(btnHolder).inTL(0f, 0f);
 
