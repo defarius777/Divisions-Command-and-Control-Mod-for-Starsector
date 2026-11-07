@@ -4411,6 +4411,7 @@ public class UITestHarness {
         int overlayStarsIdx = overlaySrc.indexOf("renderFlagshipStarsOnTopLayer(cachedFleetFlagships");
         boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")
                 && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
+                && overlaySrc.contains("syncRegularCommandSpritesVisibility(anyTsfcVisible)")
                 && overlayTsfcIdx > 0
                 && overlayHullAboveIdx > overlayTsfcIdx
                 && overlayStarsIdx > overlayHullAboveIdx;

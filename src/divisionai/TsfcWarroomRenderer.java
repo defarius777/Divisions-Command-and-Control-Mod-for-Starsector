@@ -1270,10 +1270,12 @@ public class TsfcWarroomRenderer {
         // Sliding opacity based on the highest seen firepower values in the battle + active fleet density attenuation
         float slidingOpacityScale = BattlefieldFirepowerEvaluator.computeShipSlidingOpacityScale(
                 rose, interpPeakSust, interpPeakShort, interpPeakAlpha);
-        float readinessFade = Math.max(0.20f, interpReadiness)
+        float readinessFade = Math.max(0.30f, interpReadiness)
                 * fade
-                * slidingOpacityScale
-                * (0.62f + 0.38f * dmgWeight);
+                * slidingOpacityScale;
+        float contourFade = Math.max(0.35f, interpReadiness)
+                * fade
+                * (0.55f + 0.45f * slidingOpacityScale);
 
         // Normalize sector intensity against both the ship's own peak and the highest values seen in the battle
         float battleMaxSust = BattlefieldFirepowerEvaluator.getBattleMaxShipSustainedPeak();
@@ -1433,11 +1435,11 @@ public class TsfcWarroomRenderer {
             }
         }
 
-        // Plane 1: Sustained DoT Outer Polar Plane (lower base opacity + sliding battle-high scaling)
+        // Plane 1: Sustained DoT Outer Polar Plane (sliding battle-high scaling)
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(sustR, sustG, sustB, 0.080f * readinessFade);
+        GL11.glColor4f(sustR, sustG, sustB, 0.17f * readinessFade);
         GL11.glVertex2f(cx, cy);
-        GL11.glColor4f(sustR, sustG, sustB, 0.036f * readinessFade);
+        GL11.glColor4f(sustR, sustG, sustB, 0.085f * readinessFade);
         for (int i = 0; i <= contourSteps; i++) {
             int idx = i % contourSteps;
             GL11.glVertex2f(sustX[idx], sustY[idx]);
@@ -1445,8 +1447,8 @@ public class TsfcWarroomRenderer {
         GL11.glEnd();
 
         // Outer Sustained DoT contour line (line weight scaled by potentialDamageWeight)
-        GL11.glLineWidth(1.05f + 0.42f * dmgWeight);
-        GL11.glColor4f(sustR, sustG, sustB, 0.26f * readinessFade);
+        GL11.glLineWidth(1.15f + 0.45f * dmgWeight);
+        GL11.glColor4f(sustR, sustG, sustB, 0.52f * contourFade);
         GL11.glBegin(GL11.GL_LINE_LOOP);
         for (int i = 0; i < contourSteps; i++) {
             GL11.glVertex2f(sustX[i], sustY[i]);
@@ -1455,17 +1457,17 @@ public class TsfcWarroomRenderer {
 
         // Plane 2: Short DoT (4-6s Burst) Mid Polar Plane + Detailed Mid-Horizon Iso-Damage Contour
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(shortR, shortG, shortB, 0.092f * readinessFade);
+        GL11.glColor4f(shortR, shortG, shortB, 0.19f * readinessFade);
         GL11.glVertex2f(cx, cy);
-        GL11.glColor4f(shortR, shortG, shortB, 0.046f * readinessFade);
+        GL11.glColor4f(shortR, shortG, shortB, 0.10f * readinessFade);
         for (int i = 0; i <= contourSteps; i++) {
             int idx = i % contourSteps;
             GL11.glVertex2f(shortX[idx], shortY[idx]);
         }
         GL11.glEnd();
 
-        GL11.glLineWidth(1.00f + 0.32f * dmgWeight);
-        GL11.glColor4f(shortR, shortG, shortB, 0.23f * readinessFade);
+        GL11.glLineWidth(1.10f + 0.38f * dmgWeight);
+        GL11.glColor4f(shortR, shortG, shortB, 0.48f * contourFade);
         GL11.glBegin(GL11.GL_LINE_LOOP);
         for (int i = 0; i < contourSteps; i++) {
             GL11.glVertex2f(shortX[i], shortY[i]);
@@ -1474,9 +1476,9 @@ public class TsfcWarroomRenderer {
 
         // Plane 3: Alpha Strike (0-2s Salvo) Hot Inner Core + High-Lethality Salvo Contour
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(alphaR, alphaG, alphaB, 0.120f * readinessFade);
+        GL11.glColor4f(alphaR, alphaG, alphaB, 0.24f * readinessFade);
         GL11.glVertex2f(cx, cy);
-        GL11.glColor4f(alphaR, alphaG, alphaB, 0.058f * readinessFade);
+        GL11.glColor4f(alphaR, alphaG, alphaB, 0.125f * readinessFade);
         for (int i = 0; i <= contourSteps; i++) {
             int idx = i % contourSteps;
             GL11.glVertex2f(alphaX[idx], alphaY[idx]);
@@ -1484,8 +1486,8 @@ public class TsfcWarroomRenderer {
         GL11.glEnd();
 
         if (interpPeakAlpha >= 140f) {
-            GL11.glLineWidth(1.10f + 0.38f * dmgWeight);
-            GL11.glColor4f(alphaR, alphaG, alphaB, 0.30f * readinessFade);
+            GL11.glLineWidth(1.20f + 0.42f * dmgWeight);
+            GL11.glColor4f(alphaR, alphaG, alphaB, 0.60f * contourFade);
             GL11.glBegin(GL11.GL_LINE_LOOP);
             for (int i = 0; i < contourSteps; i++) {
                 GL11.glVertex2f(alphaX[i], alphaY[i]);
@@ -1495,8 +1497,8 @@ public class TsfcWarroomRenderer {
 
         // Plane 4: Point Defense (PD) Dashed Inner Ring (Violet-Gold)
         if (hasPd) {
-            GL11.glLineWidth(1.25f);
-            GL11.glColor4f(0.92f, 0.78f, 1.00f, 0.32f * readinessFade);
+            GL11.glLineWidth(1.30f);
+            GL11.glColor4f(0.92f, 0.78f, 1.00f, 0.56f * contourFade);
             GL11.glBegin(GL11.GL_LINES);
             for (int i = 0; i < contourSteps; i += 2) {
                 int next = (i + 1) % contourSteps;
@@ -1535,7 +1537,6 @@ public class TsfcWarroomRenderer {
         for (int i = 0, n = ships.size(); i < n; i++) {
             ShipAPI s = ships.get(i);
             if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
-            if (s.isFighter()) continue;
             SpriteAPI sprite = s.getSpriteAPI();
             if (sprite == null) continue;
             Vector2f loc = s.getLocation();
@@ -1570,13 +1571,19 @@ public class TsfcWarroomRenderer {
                     ? WARROOM_HULL_ENEMY_TINT
                     : (s.isAlly() ? WARROOM_HULL_ALLY_TINT : WARROOM_HULL_FRIENDLY_TINT);
 
+            float minFloorPx = s.isFighter() ? 4.5f : 6.5f;
+            float drawW = Math.max(minFloorPx, origW * scale);
+            float drawH = Math.max(minFloorPx, origH * scale);
+            float ratioW = (origW > 1e-4f) ? (drawW / origW) : scale;
+            float ratioH = (origH > 1e-4f) ? (drawH / origH) : scale;
+
             try {
-                sprite.setSize(origW * scale, origH * scale);
-                sprite.setCenter(origCX * scale, origCY * scale);
+                sprite.setSize(drawW, drawH);
+                sprite.setCenter(origCX * ratioW, origCY * ratioH);
                 sprite.setAngle(s.getFacing() - 90f);
                 sprite.setColor(tint);
                 sprite.setNormalBlend();
-                sprite.setAlphaMult(hullAlpha * 0.88f);
+                sprite.setAlphaMult(hullAlpha * 0.94f);
                 sprite.renderAtCenter(sx, sy);
             } finally {
                 sprite.setSize(origW, origH);

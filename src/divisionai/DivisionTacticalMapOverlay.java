@@ -348,6 +348,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         this.lastStripeRebuildSimTime = -1000f;
         this.perDivisionGeometryCache.clear();
         this.perDivisionStrikeCraftCache.clear();
+        this.regularCommandSpritesSuppressed = false;
     }
 
     private boolean attachedToWarroom = false;
@@ -363,6 +364,21 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private List<?> warroomFadingArrowsList = null;
     private MethodHandle arrowEntryFaderGetter = null;
     private MethodHandle faderIsFadedOutHandle = null;
+
+    // Handles to disable regular Warroom command sprites (com.fs.starfarer.combat.new.A / com.fs.starfarer.ui.B.new)
+    // while TSFC overlays are active so only the mini 1:1 red/green/yellow hull sprites render above TSFC.
+    private Class<?> warroomShipIconClass = null;
+    private MethodHandle mdIconSetGetter = null;
+    private MethodHandle shipIconBNewGetter = null;
+    private MethodHandle shipIconArrowSpriteGetter = null;
+    private MethodHandle bNewSpriteGetter = null;
+    private MethodHandle bNewHoloSetter = null;
+    private MethodHandle bNewModulesSetter = null;
+    private MethodHandle bNewStatusSetter = null;
+    private MethodHandle spriteTexGetter = null;
+    private MethodHandle spriteTexSetter = null;
+    private MethodHandle spriteReadResolveHandle = null;
+    private boolean regularCommandSpritesSuppressed = false;
 
     public DivisionTacticalMapOverlay(CombatEngineAPI engine) {
         this.engine = engine;
@@ -466,6 +482,34 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 }
             } catch (Throwable ignored) {
                 this.warroomFadingArrowsList = null;
+            }
+
+            try {
+                Class<?> shipIconCls = Class.forName("com.fs.starfarer.combat.new.A", false, cl);
+                Class<?> bNewCls = Class.forName("com.fs.starfarer.ui.B.new", false, cl);
+                Class<?> spriteCls = Class.forName("com.fs.graphics.Sprite", false, cl);
+                Class<?> texObjCls = Class.forName("com.fs.graphics.Object", false, cl);
+                MethodHandles.Lookup mdLookup2 = MethodHandles.privateLookupIn(mdClass, lookup);
+                MethodHandles.Lookup spriteLookup = MethodHandles.privateLookupIn(spriteCls, lookup);
+                this.warroomShipIconClass = shipIconCls;
+                this.mdIconSetGetter = mdLookup2.findGetter(mdClass, "\u00d2o0000", Set.class);
+                this.shipIconBNewGetter = lookup.findVirtual(shipIconCls, "\u00d3O0000", MethodType.methodType(bNewCls));
+                this.bNewSpriteGetter = lookup.findVirtual(bNewCls, "\u00d2o0000", MethodType.methodType(spriteCls));
+                this.bNewHoloSetter = lookup.findVirtual(bNewCls, "\u00d4O0000", MethodType.methodType(void.class, boolean.class));
+                this.bNewModulesSetter = lookup.findVirtual(bNewCls, "\u00f400000", MethodType.methodType(void.class, boolean.class));
+                this.bNewStatusSetter = lookup.findVirtual(bNewCls, "\u00d500000", MethodType.methodType(void.class, boolean.class));
+                this.spriteTexGetter = spriteLookup.findGetter(spriteCls, "texture", texObjCls);
+                this.spriteTexSetter = spriteLookup.findSetter(spriteCls, "texture", texObjCls);
+                this.spriteReadResolveHandle = spriteLookup.findVirtual(spriteCls, "readResolve", MethodType.methodType(Object.class));
+                try {
+                    MethodHandles.Lookup aLookup = MethodHandles.privateLookupIn(shipIconCls, lookup);
+                    this.shipIconArrowSpriteGetter = aLookup.findGetter(shipIconCls, "interface.new", spriteCls);
+                } catch (Throwable ignored) {
+                    this.shipIconArrowSpriteGetter = null;
+                }
+            } catch (Throwable ignored) {
+                this.warroomShipIconClass = null;
+                this.mdIconSetGetter = null;
             }
 
             UIPanelAPI warroomPanel = (UIPanelAPI) wr;
@@ -729,17 +773,22 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         long tAfterPolys = System.nanoTime();
 
+        boolean anyTsfcVisible = TsfcWarroomRenderer.isAnyTsfcOverlayVisible();
+        syncRegularCommandSpritesVisibility(anyTsfcVisible);
+
         // 3. Render Time, Space, Firepower, and Convergence map layers (when toggled ON) UNDER ship sprites & waypoints
         TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
         TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
 
-        // 3b. Re-render ship hull sprites and tactical status bars above TSFC when any TSFC layer is active
-        //     so TSFC always renders underneath ship sprites without invoking heavy weapon-turret draw loops.
-        if (TsfcWarroomRenderer.isAnyTsfcOverlayVisible()) {
+        // 3b. When TSFC is active, regular command sprites are disabled and replaced by mini red/green/yellow
+        //     1:1 hull sprites + status bars above TSFC. When TSFC is off, render regular command sprites above polygons.
+        if (anyTsfcVisible) {
             TsfcWarroomRenderer.renderWarroomShipSpritesAboveTsfc(engine, scale, offsetX, offsetY, fade);
             renderShipBarsAboveTsfc(renderedPolys, scale, offsetX, offsetY, fade);
+        } else {
+            renderShipSpritesOnTopLayer(renderedPolys, scale, offsetX, offsetY, fade);
         }
 
         long tAfterTsfc = System.nanoTime();
@@ -3083,6 +3132,76 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         } finally {
             GL11.glPopMatrix();
             GL11.glPopAttrib();
+        }
+    }
+
+    /**
+     * Disables vanilla Warroom regular command sprites ({@code com.fs.starfarer.combat.new.A} /
+     * {@code com.fs.starfarer.ui.B.new}) when any TSFC overlay is active so that only the crisp
+     * 1:1 mini red/green/yellow ship silhouettes render above TSFC, and restores them when TSFC is turned off.
+     */
+    void syncRegularCommandSpritesVisibility(boolean tsfcActive) {
+        if (mapDisplayInstance == null
+                || mdIconSetGetter == null
+                || warroomShipIconClass == null
+                || shipIconBNewGetter == null
+                || bNewSpriteGetter == null
+                || spriteTexGetter == null
+                || spriteTexSetter == null
+                || spriteReadResolveHandle == null) {
+            return;
+        }
+        if (!tsfcActive && !regularCommandSpritesSuppressed) {
+            return;
+        }
+        try {
+            Object setObj = mdIconSetGetter.invoke(mapDisplayInstance);
+            if (!(setObj instanceof Set)) return;
+            Set<?> iconSet = (Set<?>) setObj;
+            if (tsfcActive) {
+                for (Object icon : iconSet) {
+                    if (icon == null || !warroomShipIconClass.isInstance(icon)) continue;
+                    Object bNew = shipIconBNewGetter.invoke(icon);
+                    if (bNew != null) {
+                        Object sprite = bNewSpriteGetter.invoke(bNew);
+                        if (sprite != null && spriteTexGetter.invoke(sprite) != null) {
+                            spriteTexSetter.invoke(sprite, (Object) null);
+                        }
+                        if (bNewHoloSetter != null) bNewHoloSetter.invoke(bNew, false);
+                        if (bNewModulesSetter != null) bNewModulesSetter.invoke(bNew, false);
+                        if (bNewStatusSetter != null) bNewStatusSetter.invoke(bNew, false);
+                    }
+                    if (shipIconArrowSpriteGetter != null) {
+                        Object arrowSprite = shipIconArrowSpriteGetter.invoke(icon);
+                        if (arrowSprite != null && spriteTexGetter.invoke(arrowSprite) != null) {
+                            spriteTexSetter.invoke(arrowSprite, (Object) null);
+                        }
+                    }
+                }
+                regularCommandSpritesSuppressed = true;
+            } else {
+                for (Object icon : iconSet) {
+                    if (icon == null || !warroomShipIconClass.isInstance(icon)) continue;
+                    Object bNew = shipIconBNewGetter.invoke(icon);
+                    if (bNew != null) {
+                        Object sprite = bNewSpriteGetter.invoke(bNew);
+                        if (sprite != null && spriteTexGetter.invoke(sprite) == null) {
+                            spriteReadResolveHandle.invoke(sprite);
+                        }
+                        if (bNewHoloSetter != null) bNewHoloSetter.invoke(bNew, true);
+                        if (bNewModulesSetter != null) bNewModulesSetter.invoke(bNew, true);
+                        if (bNewStatusSetter != null) bNewStatusSetter.invoke(bNew, true);
+                    }
+                    if (shipIconArrowSpriteGetter != null) {
+                        Object arrowSprite = shipIconArrowSpriteGetter.invoke(icon);
+                        if (arrowSprite != null && spriteTexGetter.invoke(arrowSprite) == null) {
+                            spriteReadResolveHandle.invoke(arrowSprite);
+                        }
+                    }
+                }
+                regularCommandSpritesSuppressed = false;
+            }
+        } catch (Throwable ignored) {
         }
     }
 

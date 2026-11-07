@@ -169,7 +169,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         TsfcWarroomRenderer.processInputEvents(engine, events);
     }
 
-    public static final float BATTLE_SCREEN_TSFC_OPACITY_MULT = 0.18f;
+    public static final float BATTLE_SCREEN_TSFC_OPACITY_MULT = 0.24f;
 
     @Override
     public void renderInUICoords(ViewportAPI viewport) {

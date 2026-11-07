@@ -417,13 +417,13 @@ public class BattlefieldFirepowerEvaluator {
             float interpPeakSust,
             float interpPeakShort,
             float interpPeakAlpha) {
-        if (rose == null) return 0.35f;
+        if (rose == null) return 0.55f;
         float combined = interpPeakSust * 0.45f + interpPeakShort * 0.35f + (interpPeakAlpha * 0.35f) * 0.20f;
         float relToBattleMax = clampVal(combined / Math.max(200f, battleMaxShipCombinedPower), 0.0f, 1.0f);
-        float slidingWeight = 0.20f + 0.80f * (float) Math.sqrt(relToBattleMax);
+        float slidingWeight = 0.38f + 0.62f * (float) Math.sqrt(relToBattleMax);
         float crowdAtten = clampVal(
-                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveFirepowerUnitCount / 7.5f)),
-                0.38f,
+                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveFirepowerUnitCount / 14.0f)),
+                0.58f,
                 1.0f);
         return slidingWeight * crowdAtten;
     }
