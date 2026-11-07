@@ -413,9 +413,16 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         try {
             ClassLoader cl = ui.getClass().getClassLoader();
-            Class<?> wrClass = Class.forName("com.fs.starfarer.combat.new.OoOO", false, cl);
-            Class<?> mdClass = Class.forName("com.fs.starfarer.combat.new.b", false, cl);
-            Class<?> iconClass = Class.forName("com.fs.starfarer.combat.new.OOoO", false, cl);
+            Class<?> wrClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.new.OoOO", ui.getClass().getName(), "getWarroom");
+            Class<?> mdClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.new.b", wrClass.getName(), "getMapDisplay");
+            Class<?> iconClass = null;
+            try {
+                iconClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                        cl, "com.fs.starfarer.combat.new.OOoO", wrClass.getName(), "findClosestIcon");
+            } catch (Throwable ignored) {
+            }
 
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             MethodHandle getWarroomHandle = lookup.findVirtual(
@@ -439,33 +446,51 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
             this.warroomInstance = wr;
             this.mapDisplayInstance = md;
-            this.isShowingVideoFeedHandle = lookup.findVirtual(
-                    wrClass,
-                    "isShowingVideoFeed",
-                    MethodType.methodType(boolean.class));
+            try {
+                this.isShowingVideoFeedHandle = lookup.findVirtual(
+                        wrClass,
+                        "isShowingVideoFeed",
+                        MethodType.methodType(boolean.class));
+            } catch (Throwable ignored) {
+                this.isShowingVideoFeedHandle = null;
+            }
+            String worldToMapScreenName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, mdClass, "o00000", "(Lorg/lwjgl/util/vector/Vector2f;)Lorg/lwjgl/util/vector/Vector2f;");
             this.worldToMapScreenHandle = lookup.findVirtual(
                     mdClass,
-                    "o00000",
+                    worldToMapScreenName,
                     MethodType.methodType(Vector2f.class, Vector2f.class));
-            this.mapGetIconHandle = lookup.findVirtual(
-                    mdClass,
-                    "o00000",
-                    MethodType.methodType(iconClass, Object.class));
-            this.iconRenderSpriteHandle = lookup.findVirtual(
-                    iconClass,
-                    "\u00d300000",
-                    MethodType.methodType(void.class, boolean.class, float.class, float.class));
-            this.iconRenderBarsHandle = lookup.findVirtual(
-                    iconClass,
-                    "\u00d200000",
-                    MethodType.methodType(void.class, boolean.class, float.class, float.class));
-            try {
-                this.iconGetRadiusHandle = lookup.findVirtual(
-                        iconClass,
-                        "super",
-                        MethodType.methodType(float.class, float.class));
-            } catch (Throwable ignored) {
-                this.iconGetRadiusHandle = null;
+            if (iconClass != null) {
+                try {
+                    String mapGetIconName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                            cl, mdClass, "o00000", "(Ljava/lang/Object;)" + ObfuscatedBytecodeBridge.toDescriptor(iconClass));
+                    this.mapGetIconHandle = lookup.findVirtual(
+                            mdClass,
+                            mapGetIconName,
+                            MethodType.methodType(iconClass, Object.class));
+                    this.iconRenderSpriteHandle = lookup.findVirtual(
+                            iconClass,
+                            "\u00d300000",
+                            MethodType.methodType(void.class, boolean.class, float.class, float.class));
+                    this.iconRenderBarsHandle = lookup.findVirtual(
+                            iconClass,
+                            "\u00d200000",
+                            MethodType.methodType(void.class, boolean.class, float.class, float.class));
+                } catch (Throwable ignored) {
+                    this.mapGetIconHandle = null;
+                    this.iconRenderSpriteHandle = null;
+                    this.iconRenderBarsHandle = null;
+                }
+                try {
+                    String radiusMethodName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                            cl, iconClass, "super", "(F)F");
+                    this.iconGetRadiusHandle = lookup.findVirtual(
+                            iconClass,
+                            radiusMethodName,
+                            MethodType.methodType(float.class, float.class));
+                } catch (Throwable ignored) {
+                    this.iconGetRadiusHandle = null;
+                }
             }
             try {
                 Class<?> arrowMgrClass = Class.forName("com.fs.starfarer.combat.new.O0OO", false, cl);

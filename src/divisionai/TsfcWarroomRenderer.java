@@ -324,7 +324,15 @@ public class TsfcWarroomRenderer {
         // 1. Render per-ship Polar Firepower Roses (Sustained DoT outer plane, Short DoT mid plane, Alpha core, PD ring)
         for (ShipFirepowerRose rose : BattlefieldFirepowerEvaluator.rosesByShipId.values()) {
             ShipAPI s = rose.ship;
-            if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+            if (s == null) continue;
+            if ((!s.isAlive() || s.isHulk() || s.isExpired()) && s.isFighter() && s.getWing() != null) {
+                ShipAPI nextLeader = BattlefieldFirepowerEvaluator.resolveAliveWingLeader(s.getWing());
+                if (nextLeader != null) {
+                    rose.ship = nextLeader;
+                    s = nextLeader;
+                }
+            }
+            if (!s.isAlive() || s.isHulk() || s.isExpired()) continue;
             // Anything past 2.0 seconds is thrown into the bin
             float kfBlend = rose.computeKeyframeBlendFactor(now);
             if (kfBlend < 0f) continue;
@@ -332,10 +340,12 @@ public class TsfcWarroomRenderer {
             float maxWorldR = Math.max(rose.maxGeneralRange, rose.maxPdRange);
             if (maxWorldR <= 80f) continue;
 
-            Vector2f unitLoc = (s.isFighter() && s.getWing() != null)
+            boolean isSquadron = s.isFighter() && s.getWing() != null;
+            Vector2f unitLoc = isSquadron
                     ? BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(s.getWing(), s, SCRATCH_SQUADRON_CENTROID)
                     : s.getLocation();
-            float sqSpread = (s.isFighter() && s.getWing() != null)
+            if (unitLoc == null) continue;
+            float sqSpread = isSquadron
                     ? BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(s.getWing(), unitLoc)
                     : 0f;
             float sx = offsetX + unitLoc.x * scale;
@@ -355,7 +365,8 @@ public class TsfcWarroomRenderer {
                 roseFade *= BattlefieldFirepowerEvaluator.getEnemyShipStickyVisibilityAlpha(engine, s, playerFog);
             }
 
-            renderSingleShipFirepowerRose(engine, rose, s, isEnemy, isAlly, scale, offsetX, offsetY, roseFade, kfBlend);
+            renderSingleShipFirepowerRose(
+                    engine, rose, s, isEnemy, isAlly, scale, offsetX, offsetY, roseFade, kfBlend, unitLoc, sqSpread);
         }
 
         // 2. Render L-Cordon / U-Cordon crossfire pocket indicators for divisions experiencing crossfire
@@ -589,6 +600,7 @@ public class TsfcWarroomRenderer {
     }
 
     static void populateDirectionalTimeScratchCoords(float cx, float cy, DivisionState div, float scale, float kfBlend) {
+        lastSpaceScratchDiv = null;
         boolean init = div.directionalTimeInitialized;
         boolean hasKf = div.tsfcKeyframesInitialized && kfBlend < 0.999f;
         float effR = hasKf
@@ -876,16 +888,12 @@ public class TsfcWarroomRenderer {
                         0.155f * convFade * activeBoost,
                         0.50f * convFade * activeBoost);
 
-                // Render the iconic Convergence battle glyph: an inscribed triangle inside an inscribed square inside the pinched envelope
-                float minEdgeClear = Math.min(
-                        BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(engine, cWorld, 1f, 0f, 110f),
-                        Math.min(
-                                BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(engine, cWorld, -1f, 0f, 110f),
-                                Math.min(
-                                        BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(engine, cWorld, 0f, 1f, 110f),
-                                        BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(engine, cWorld, 0f, -1f, 110f))));
-                float glyphWorldR = BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(convWorldRad, minEdgeClear);
-                float glyphRadPx = Math.max(18f, glyphWorldR * scale);
+                // Render the iconic Convergence battle glyph: an inscribed triangle inside an inscribed square inside
+                // the pinched envelope, using the minimum cardinal directional radius already computed in
+                // drawDirectionalConvergenceEnvelope (eliminating 4 redundant boundary clearance scans per division).
+                float glyphRadPx = (lastConvergenceMinDirectionalRadPx > 0f)
+                        ? Math.max(18f, Math.min(radPx, lastConvergenceMinDirectionalRadPx))
+                        : Math.max(18f, radPx);
                 float sqHalf = glyphRadPx * 0.70710678f; // inscribed square half-side = R / sqrt(2)
                 GL11.glLineWidth(1.35f);
                 GL11.glColor4f(r, g, b, 0.44f * convFade * activeBoost);
@@ -960,11 +968,33 @@ public class TsfcWarroomRenderer {
         }
     }
 
+    private static DivisionState lastSpaceScratchDiv = null;
+    private static int lastSpaceScratchTier = -1;
+    private static float lastSpaceScratchCx = Float.NaN;
+    private static float lastSpaceScratchCy = Float.NaN;
+    private static float lastSpaceScratchScale = Float.NaN;
+    private static float lastSpaceScratchKfBlend = Float.NaN;
+    private static float lastConvergenceMinDirectionalRadPx = -1f;
+
     static void populateDirectionalSpaceScratchCoords(float cx, float cy, DivisionState div, int tier, float scale) {
         populateDirectionalSpaceScratchCoords(cx, cy, div, tier, scale, 1.0f);
     }
 
     static void populateDirectionalSpaceScratchCoords(float cx, float cy, DivisionState div, int tier, float scale, float kfBlend) {
+        if (div == lastSpaceScratchDiv
+                && tier == lastSpaceScratchTier
+                && Math.abs(cx - lastSpaceScratchCx) < 1e-3f
+                && Math.abs(cy - lastSpaceScratchCy) < 1e-3f
+                && Math.abs(scale - lastSpaceScratchScale) < 1e-6f
+                && Math.abs(kfBlend - lastSpaceScratchKfBlend) < 1e-4f) {
+            return;
+        }
+        lastSpaceScratchDiv = div;
+        lastSpaceScratchTier = tier;
+        lastSpaceScratchCx = cx;
+        lastSpaceScratchCy = cy;
+        lastSpaceScratchScale = scale;
+        lastSpaceScratchKfBlend = kfBlend;
         boolean init = div.directionalSpaceInitialized;
         boolean hasKf = div.tsfcKeyframesInitialized && kfBlend < 0.999f;
         float fallbackWorldR;
@@ -1107,8 +1137,10 @@ public class TsfcWarroomRenderer {
             float centerAlpha,
             float outlineAlpha) {
         if (div == null || scale <= 1e-5f) return;
+        lastSpaceScratchDiv = null;
         boolean hasKf = div.tsfcKeyframesInitialized && kfBlend < 0.999f;
         float weaponPart = 0.24f * Math.max(500f, div.avgEngageRange);
+        float minCardinalRadPx = Float.MAX_VALUE;
         for (int i = 0; i < 48; i++) {
             int s0 = i >> 1;
             int s1 = (s0 + 1) % DivisionState.TIME_DIRECTIONS;
@@ -1143,12 +1175,16 @@ public class TsfcWarroomRenderer {
                 worldR = BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(worldR, edgeDist);
             }
             float outerRadPx = Math.max(16f, worldR * scale);
+            if ((i % 12) == 0 && outerRadPx < minCardinalRadPx) {
+                minCardinalRadPx = outerRadPx;
+            }
             float midRadPx = outerRadPx * 0.55f;
             SCRATCH_TIME_OUTER_X[i] = cx + cos * outerRadPx;
             SCRATCH_TIME_OUTER_Y[i] = cy + sin * outerRadPx;
             SCRATCH_TIME_MID_X[i] = cx + cos * midRadPx;
             SCRATCH_TIME_MID_Y[i] = cy + sin * midRadPx;
         }
+        lastConvergenceMinDirectionalRadPx = (minCardinalRadPx < Float.MAX_VALUE) ? minCardinalRadPx : -1f;
         renderScratchDirectionalGradient(cx, cy, r, g, b, centerAlpha);
 
         drawDirectionalTimeOutline(cx, cy, div, scale, 1.0f, r, g, b, outlineAlpha, 1.5f, 48, false);
@@ -1307,14 +1343,34 @@ public class TsfcWarroomRenderer {
             float offsetY,
             float fade,
             float kfBlend) {
+        renderSingleShipFirepowerRose(engine, rose, ship, isEnemy, isAlly, scale, offsetX, offsetY, fade, kfBlend, null, -1f);
+    }
+
+    static void renderSingleShipFirepowerRose(
+            CombatEngineAPI engine,
+            ShipFirepowerRose rose,
+            ShipAPI ship,
+            boolean isEnemy,
+            boolean isAlly,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade,
+            float kfBlend,
+            Vector2f precomputedUnitWorldLoc,
+            float precomputedSquadronSpreadWorld) {
 
         boolean isSquadron = ship != null && ship.isFighter() && ship.getWing() != null;
-        Vector2f unitWorldLoc = isSquadron
-                ? BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(ship.getWing(), ship, SCRATCH_SQUADRON_CENTROID)
-                : ship.getLocation();
-        float squadronSpreadWorld = isSquadron
-                ? BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(ship.getWing(), unitWorldLoc)
-                : 0f;
+        Vector2f unitWorldLoc = (precomputedUnitWorldLoc != null)
+                ? precomputedUnitWorldLoc
+                : (isSquadron
+                        ? BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(ship.getWing(), ship, SCRATCH_SQUADRON_CENTROID)
+                        : ship.getLocation());
+        float squadronSpreadWorld = (precomputedSquadronSpreadWorld >= 0f)
+                ? precomputedSquadronSpreadWorld
+                : (isSquadron
+                        ? BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(ship.getWing(), unitWorldLoc)
+                        : 0f);
         float cx = offsetX + unitWorldLoc.x * scale;
         float cy = offsetY + unitWorldLoc.y * scale;
         float baseShipRadWorld = Math.max(80f, ship.getCollisionRadius() * 0.55f + squadronSpreadWorld * 0.85f);
@@ -1682,8 +1738,11 @@ public class TsfcWarroomRenderer {
         if (includeHulks) {
             for (int i = 0, n = ships.size(); i < n; i++) {
                 ShipAPI s = ships.get(i);
-                if (!isMainOrLargestDestroyedHulk(s, ships)) continue;
+                if (s == null || s.isExpired()) continue;
+                if (!s.isHulk() && s.isAlive()) continue;
+                if (s.isFighter() || s.isDrone() || s.isShuttlePod()) continue;
                 if (playerFog != null && !playerFog.isVisible(s)) continue;
+                if (!isMainOrLargestDestroyedHulk(s, ships)) continue;
                 renderSingleWarroomHullSprite(s, true, scale, offsetX, offsetY, fade, screenW, screenH, playerFog, engine);
             }
         }

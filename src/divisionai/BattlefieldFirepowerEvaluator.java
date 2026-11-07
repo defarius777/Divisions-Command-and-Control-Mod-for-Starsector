@@ -732,10 +732,16 @@ public class BattlefieldFirepowerEvaluator {
     private static final float[] SCRATCH_RAW_SHORT_RANGE = new float[NUM_SECTORS];
     private static final float[] SCRATCH_RAW_ALPHA_RANGE = new float[NUM_SECTORS];
 
+    private static int lastRoseUpdateShipCount = -1;
+    private static final Vector2f SCRATCH_EVAL_SQ_CENTROID = new Vector2f();
+
     public static boolean hasAnyMissingEligibleShipRose(CombatEngineAPI engine) {
         if (engine == null) return false;
         List<ShipAPI> ships = engine.getShips();
         if (ships == null || ships.isEmpty()) return false;
+        if (engine == lastRoseUpdateEngine && !rosesByShipId.isEmpty() && ships.size() == lastRoseUpdateShipCount) {
+            return false;
+        }
         for (int i = 0, n = ships.size(); i < n; i++) {
             ShipAPI ship = ships.get(i);
             if (!isEligibleFirepowerUnit(ship)) continue;
@@ -744,6 +750,7 @@ public class BattlefieldFirepowerEvaluator {
                 return true;
             }
         }
+        lastRoseUpdateShipCount = ships.size();
         return false;
     }
 
@@ -755,6 +762,7 @@ public class BattlefieldFirepowerEvaluator {
         if (engine == null) return;
         if (lastRoseUpdateEngine != null && lastRoseUpdateEngine != engine) {
             rosesByShipId.clear();
+            lastRoseUpdateShipCount = -1;
             battleMaxShipSustainedPeak = 220f;
             battleMaxShipShortDotPeak = 300f;
             battleMaxShipAlphaPeak = 480f;
@@ -765,6 +773,7 @@ public class BattlefieldFirepowerEvaluator {
         lastRoseUpdateTime = now;
         List<ShipAPI> ships = engine.getShips();
         if (ships != null && !ships.isEmpty()) {
+            lastRoseUpdateShipCount = ships.size();
             for (int i = 0, n = ships.size(); i < n; i++) {
                 ShipAPI ship = ships.get(i);
                 if (!isEligibleFirepowerUnit(ship)) continue;
@@ -772,6 +781,7 @@ public class BattlefieldFirepowerEvaluator {
                 updateSingleShipRose(rose, ship, now);
             }
         } else if (engine.getAiGridShips() != null) {
+            lastRoseUpdateShipCount = -1;
             Iterator<Object> iter = engine.getAiGridShips().getCheckIterator(new Vector2f(0f, 0f), 40000f, 40000f);
             while (iter != null && iter.hasNext()) {
                 Object obj = iter.next();
@@ -1041,6 +1051,10 @@ public class BattlefieldFirepowerEvaluator {
             float[] rawHybridRange) {
         if (weapons == null || weapons.isEmpty()) return;
         float hullOmega = Math.abs(ship.getAngularVelocity());
+        boolean isSquadronCraft = ship.isFighter() && ship.getWing() != null;
+        float fighterHeadingDelta = isSquadronCraft
+                ? shortestAngleDiffDeg(resolveSquadronMeanFacingDeg(ship.getWing(), ship), ship.getFacing())
+                : 0f;
         for (WeaponAPI w : weapons) {
             if (!isUsableCombatWeapon(w)) continue;
             if (w.isPermanentlyDisabled()) continue;
@@ -1126,9 +1140,8 @@ public class BattlefieldFirepowerEvaluator {
             float wSustainedDot = sustDps * typeMult * shipFluxSustainability * ammoEndurance * mountStatusMult;
 
             float arcFacingRel = normalizeAngle360(w.getArcFacing());
-            if (ship.isFighter() && ship.getWing() != null) {
-                float sqHeading = resolveSquadronMeanFacingDeg(ship.getWing(), ship);
-                arcFacingRel = normalizeAngle360(w.getArcFacing() + shortestAngleDiffDeg(sqHeading, ship.getFacing()));
+            if (isSquadronCraft) {
+                arcFacingRel = normalizeAngle360(w.getArcFacing() + fighterHeadingDelta);
             }
             float rawArc = w.getArc();
             if (rawArc <= 0f) {
@@ -1430,14 +1443,25 @@ public class BattlefieldFirepowerEvaluator {
 
         for (ShipFirepowerRose rose : rosesByShipId.values()) {
             ShipAPI s = rose.ship;
-            if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+            if (s == null) continue;
+            if ((!s.isAlive() || s.isHulk() || s.isExpired()) && s.isFighter() && s.getWing() != null) {
+                ShipAPI nextLeader = resolveAliveWingLeader(s.getWing());
+                if (nextLeader != null) {
+                    rose.ship = nextLeader;
+                    s = nextLeader;
+                }
+            }
+            if (!s.isAlive() || s.isHulk() || s.isExpired()) continue;
 
             boolean isFriendly = (s.getOwner() == observerSide);
             if (!isFriendly && !OtcAI.isShipVisibleToSide(engine, observerSide, s)) {
                 continue;
             }
 
-            Vector2f sLoc = s.getLocation();
+            Vector2f sLoc = (s.isFighter() && s.getWing() != null)
+                    ? resolveSquadronLiveCentroid(s.getWing(), s, SCRATCH_EVAL_SQ_CENTROID)
+                    : s.getLocation();
+            if (sLoc == null) continue;
             float dx = point.x - sLoc.x;
             float dy = point.y - sLoc.y;
             float dist = (float) Math.sqrt(dx * dx + dy * dy);

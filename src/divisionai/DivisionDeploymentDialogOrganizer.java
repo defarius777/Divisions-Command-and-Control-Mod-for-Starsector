@@ -245,9 +245,12 @@ public class DivisionDeploymentDialogOrganizer {
         try {
             MethodHandles.Lookup lookup = MethodHandles.lookup();
 
-            Class<?> panelClass = Class.forName("com.fs.starfarer.ui.interfacenew", false, cl);
-            Class<?> uiCompBaseClass = Class.forName("com.fs.starfarer.ui.c", false, cl);
-            Class<?> posClass = Class.forName("com.fs.starfarer.ui.OO0O", false, cl);
+            Class<?> panelClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.interfacenew", combatUiClass.getName(), "getWidgetPanel");
+            Class<?> uiCompBaseClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.c", "com.fs.starfarer.ui.impl.StandardTooltipV2", "getContents");
+            Class<?> posClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.OO0O", uiCompBaseClass.getName(), "getPosition");
             Class<?> buttonImplClass = Class.forName("com.fs.starfarer.ui.n", false, cl);
             Class<?> fleetMemberImplClass = Class.forName("com.fs.starfarer.campaign.fleet.FleetMember", false, cl);
             Class<?> iconClass = Class.forName("com.fs.starfarer.ui.B.new", false, cl);

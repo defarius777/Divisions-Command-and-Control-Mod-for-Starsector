@@ -205,13 +205,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (scale <= 1e-5f) {
             return;
         }
-        // Transform TsfcWarroomRenderer's screen-space coordinates (sx = offsetX + wx * scale, sy = offsetY + wy * scale)
-        // directly back into world coordinates (wx, wy) on GL_MODELVIEW so Starsector's active world-space GL_PROJECTION
-        // renders them 1:1 with ship sprites at every zoom level and UI scale without overflowing GL_PROJECTION stack.
+        // Transform TsfcWarroomRenderer's screen-space coordinates (sx = offsetX + wx * scale = (wx - llx) * scale,
+        // sy = offsetY + wy * scale = (wy - lly) * scale) into Starsector's camera-relative world coordinates
+        // (wx - llx, wy - lly) on GL_MODELVIEW by scaling by 1 / scale (without a second translation, since offsetX/Y
+        // already subtract llx/lly), matching Starsector's active world-space GL_PROJECTION 1:1 at every camera position.
         org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
         org.lwjgl.opengl.GL11.glPushMatrix();
         org.lwjgl.opengl.GL11.glLoadIdentity();
-        org.lwjgl.opengl.GL11.glTranslatef(-offsetX / scale, -offsetY / scale, 0f);
         org.lwjgl.opengl.GL11.glScalef(1f / scale, 1f / scale, 1f);
         try {
             renderBattleScreenTsfcOverlay(viewport);
@@ -629,6 +629,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         // Enforce 60 Hz frame-accurate ship system coordination, standoff braking cutoffs, and scouting discipline
         ShipSystemCoordinator.advanceEveryFrame(engine, playerGroup, alliedAiGroup, enemyGroup, now);
 
+        // Ensure every active FighterWing has a non-null leader and non-null leaderFlockingAI so vanilla
+        // FighterAI.advance never throws a NullPointerException when a wing leader is killed while returning
+        // to carrier (RETURN_TO_CARRIER) and a replacement fighter spawns.
+        ensureAllFighterWingsHaveValidLeaders(engine);
+
         // Advance dynamic engagement-driven battle music every frame
         if (musicController != null) {
             BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
@@ -639,6 +644,138 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         // Maintain HUD status on the player flagship ONLY if the player fleet has at least 1 active division
         maintainPlayerHudStatus();
+    }
+
+    private static MethodHandle mhWingSetLeader;
+    private static MethodHandle mhWingGetLeaderFlockingAI;
+    private static MethodHandle mhWingSetLeaderFlockingAI;
+    private static MethodHandle mhFighterAIGetFlockingAI;
+    private static boolean mhFighterWingHandlesResolved = false;
+
+    /**
+     * Guards against a vanilla Starsector 0.98a crash in {@code com.fs.starfarer.combat.ai.FighterAI.advance}:
+     * When a fighter wing has order {@code RETURN_TO_CARRIER} (e.g. {@code carrier.isPullBackFighters() == true})
+     * and its previous wing leader dies, vanilla {@code M.selectNewLeader()} skips all returning wingmates and
+     * returns {@code null}. If a replacement fighter spawns into that wing, {@code M.getLeaderFlockingAI()} is
+     * {@code null} and {@code M.isLeader(ship)} is {@code false} for every member, causing {@code FighterAI.advance}
+     * to throw {@code NullPointerException: Cannot invoke "...A.o00000(float)" because the return value of
+     * "com.fs.starfarer.combat.ai.M.getLeaderFlockingAI()" is null}.
+     */
+    public static void ensureAllFighterWingsHaveValidLeaders(CombatEngineAPI engine) {
+        if (engine == null) return;
+        List<ShipAPI> ships = engine.getShips();
+        if (ships == null || ships.isEmpty()) return;
+        for (int i = 0, n = ships.size(); i < n; i++) {
+            ShipAPI s = ships.get(i);
+            if (s == null || !s.isAlive()) continue;
+            if (s.isFighter()) {
+                com.fs.starfarer.api.combat.FighterWingAPI wing = s.getWing();
+                if (wing != null) {
+                    ensureFighterWingLeaderAndFlockingAI(wing);
+                }
+            } else if (s.hasLaunchBays()) {
+                List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
+                if (wings != null) {
+                    for (int w = 0, wn = wings.size(); w < wn; w++) {
+                        com.fs.starfarer.api.combat.FighterWingAPI wing = wings.get(w);
+                        if (wing != null) {
+                            ensureFighterWingLeaderAndFlockingAI(wing);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public static ShipAPI ensureFighterWingLeaderAndFlockingAI(com.fs.starfarer.api.combat.FighterWingAPI wing) {
+        if (wing == null) return null;
+        List<ShipAPI> members = wing.getWingMembers();
+        if (members == null || members.isEmpty()) return null;
+
+        ShipAPI leader = wing.getLeader();
+        if (leader == null || !leader.isAlive() || leader.isHulk()) {
+            ShipAPI fallback = null;
+            for (int i = 0, n = members.size(); i < n; i++) {
+                ShipAPI m = members.get(i);
+                if (m != null && m.isAlive() && !m.isHulk()) {
+                    fallback = m;
+                    break;
+                }
+            }
+            if (fallback == null) {
+                return null;
+            }
+            leader = fallback;
+            resolveFighterWingHandlesIfNeeded(wing, leader);
+            if (mhWingSetLeader != null) {
+                try {
+                    mhWingSetLeader.invoke(wing, leader);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        resolveFighterWingHandlesIfNeeded(wing, leader);
+        if (mhWingGetLeaderFlockingAI != null && mhWingSetLeaderFlockingAI != null && mhFighterAIGetFlockingAI != null) {
+            try {
+                Object leaderFlocking = mhWingGetLeaderFlockingAI.invoke(wing);
+                if (leaderFlocking == null) {
+                    for (int i = -1, n = members.size(); i < n; i++) {
+                        ShipAPI candidate = (i < 0) ? leader : members.get(i);
+                        if (candidate == null || !candidate.isAlive()) continue;
+                        Object shipAi = candidate.getShipAI();
+                        if (shipAi != null && "com.fs.starfarer.combat.ai.FighterAI".equals(shipAi.getClass().getName())) {
+                            Object flockAi = mhFighterAIGetFlockingAI.invoke(shipAi);
+                            if (flockAi != null) {
+                                mhWingSetLeaderFlockingAI.invoke(wing, flockAi);
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return leader;
+    }
+
+    private static void resolveFighterWingHandlesIfNeeded(
+            com.fs.starfarer.api.combat.FighterWingAPI wing,
+            ShipAPI sampleFighter) {
+        if (mhFighterWingHandlesResolved || wing == null || sampleFighter == null) return;
+        String wingClassName = wing.getClass().getName();
+        if (!wingClassName.startsWith("com.fs.starfarer.combat.")) return;
+        mhFighterWingHandlesResolved = true;
+        try {
+            ClassLoader cl = wing.getClass().getClassLoader();
+            Class<?> wingClass = wing.getClass();
+            Class<?> shipImplClass = ObfuscatedBytecodeBridge.resolveMethodReturnClass(
+                    cl, wingClassName, "getLeader", "()");
+            if (shipImplClass == null) {
+                shipImplClass = Class.forName("com.fs.starfarer.combat.entities.Ship", false, cl);
+            }
+            Class<?> flockingAiClass = ObfuscatedBytecodeBridge.resolveMethodReturnClass(
+                    cl, wingClassName, "getLeaderFlockingAI", "()");
+            Class<?> fighterAiClass = Class.forName("com.fs.starfarer.combat.ai.FighterAI", false, cl);
+            if (flockingAiClass == null) {
+                flockingAiClass = ObfuscatedBytecodeBridge.resolveMethodReturnClass(
+                        cl, fighterAiClass.getName(), "getFlockingAI", "()");
+            }
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            if (shipImplClass != null) {
+                mhWingSetLeader = lookup.findVirtual(
+                        wingClass, "setLeader", MethodType.methodType(void.class, shipImplClass));
+            }
+            if (flockingAiClass != null) {
+                mhWingGetLeaderFlockingAI = lookup.findVirtual(
+                        wingClass, "getLeaderFlockingAI", MethodType.methodType(flockingAiClass));
+                mhWingSetLeaderFlockingAI = lookup.findVirtual(
+                        wingClass, "setLeaderFlockingAI", MethodType.methodType(void.class, flockingAiClass));
+                mhFighterAIGetFlockingAI = lookup.findVirtual(
+                        fighterAiClass, "getFlockingAI", MethodType.methodType(flockingAiClass));
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private static MethodHandle mhExecuteAdds;

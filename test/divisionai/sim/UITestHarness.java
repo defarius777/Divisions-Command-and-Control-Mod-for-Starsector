@@ -4579,8 +4579,48 @@ public class UITestHarness {
                 && sqSpread > 90f && sqSpread < 120f
                 && Math.abs(sqFacing - 90f) < 0.5f;
 
+        // Verify cross-platform ObfuscatedBytecodeBridge (macOS / Linux obfuscated class & descriptor fallback)
+        // and FighterWing leader / flocking-AI NPE guard:
+        ClassLoader testCl = UITestHarness.class.getClassLoader();
+        boolean bridgeAndFighterGuardOk = false;
+        try {
+            Class<?> wrFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.combat.new.__MacLinuxRenamedWarroom__",
+                    "com.fs.starfarer.combat.CombatState", "getWarroom");
+            Class<?> panelFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.ui.__MacLinuxRenamedPanel__",
+                    "com.fs.starfarer.combat.CombatState", "getWidgetPanel");
+            Class<?> coreFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.ui.newui.__MacLinuxRenamedCore__",
+                    "com.fs.starfarer.campaign.CampaignState", "getCore");
+            Class<?> tmFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.campaign.__MacLinuxRenamedTM__",
+                    "com.fs.starfarer.campaign.CampaignEngine", "getTooltipManager");
+            com.fs.starfarer.api.combat.FighterWingAPI mockNullLeaderWing =
+                    (com.fs.starfarer.api.combat.FighterWingAPI) java.lang.reflect.Proxy.newProxyInstance(
+                            testCl,
+                            new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                            (proxy, method, args) -> {
+                                String mName = method.getName();
+                                if ("getWingMembers".equals(mName)) return sqMembers;
+                                if ("getWingLeader".equals(mName) || "getLeader".equals(mName)) return null;
+                                return null;
+                            });
+            ShipAPI recoveredLeader = divisionai.DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(mockNullLeaderWing);
+            bridgeAndFighterGuardOk = (wrFallback != null)
+                    && (panelFallback != null)
+                    && (coreFallback != null)
+                    && (tmFallback != null)
+                    && (recoveredLeader == sqM1);
+        } catch (Throwable ignored) {
+            bridgeAndFighterGuardOk = false;
+        }
+
         boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")
                 && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
+                && !combatPluginSrc.contains("glTranslatef(-offsetX / scale")
+                && combatPluginSrc.contains("ensureAllFighterWingsHaveValidLeaders(engine)")
+                && bridgeAndFighterGuardOk
                 && combatPluginSrc.contains("snapshotGroupDivisionKeyframesBeforeUpdate")
                 && combatPluginSrc.contains("tacticalOverlay.isShowingVideoFeed()")
                 && !combatPluginSrc.contains("renderWarroomShipSpritesAboveTsfc")

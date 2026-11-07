@@ -1466,8 +1466,8 @@ public class DynamicBattleMusicController {
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             ClassLoader cl = Global.class.getClassLoader();
             Class<?> jsonObjClass = Class.forName("org.json.JSONObject", false, cl);
-            Class<?> soundHClass = Class.forName("sound.H", false, cl);
-            Class<?> soundOClass = Class.forName("sound.O", false, cl);
+            Class<?> soundHClass = ObfuscatedBytecodeBridge.resolveFirstAvailableClass(cl, "sound.H", "sound.OooO");
+            Class<?> soundOClass = ObfuscatedBytecodeBridge.resolveFirstAvailableClass(cl, "sound.O", "sound.oo0O");
             Class<?> streamDescClass = Class.forName("com.fs.starfarer.loading.int", false, cl);
 
             // sound.H.\u00d200000() -> singleton sound.H
