@@ -300,7 +300,8 @@ public class TsfcWarroomRenderer {
         if (BattlefieldFirepowerEvaluator.rosesByShipId.isEmpty()
                 || engine != BattlefieldFirepowerEvaluator.lastRoseUpdateEngine
                 || BattlefieldFirepowerEvaluator.lastRoseUpdateTime < 0f
-                || (now - BattlefieldFirepowerEvaluator.lastRoseUpdateTime) >= BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL * 1.45f) {
+                || (now - BattlefieldFirepowerEvaluator.lastRoseUpdateTime) >= BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL * 1.45f
+                || BattlefieldFirepowerEvaluator.hasAnyMissingEligibleShipRose(engine)) {
             BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
         }
 
@@ -1322,20 +1323,20 @@ public class TsfcWarroomRenderer {
         // Sliding opacity based on the highest seen firepower values in the battle + active fleet density attenuation
         float slidingOpacityScale = BattlefieldFirepowerEvaluator.computeShipSlidingOpacityScale(
                 rose, interpPeakSust, interpPeakShort, interpPeakAlpha);
-        float readinessFade = Math.max(0.32f, interpReadiness)
+        float readinessMod = 0.65f + 0.35f * Math.max(0.25f, interpReadiness);
+        float readinessFade = readinessMod
                 * fade
                 * slidingOpacityScale;
-        float contourFade = Math.max(0.38f, interpReadiness)
+        float contourFade = (0.72f + 0.28f * Math.max(0.30f, interpReadiness))
                 * fade
-                * (0.55f + 0.45f * slidingOpacityScale);
+                * (0.68f + 0.32f * slidingOpacityScale);
 
-        // Normalize sector intensity against both the ship's own peak and the highest values seen in the battle
-        float battleMaxSust = BattlefieldFirepowerEvaluator.getBattleMaxShipSustainedPeak();
-        float battleMaxShort = BattlefieldFirepowerEvaluator.getBattleMaxShipShortDotPeak();
-        float battleMaxAlpha = BattlefieldFirepowerEvaluator.getBattleMaxShipAlphaPeak();
-        float normSust = Math.max(95f, interpPeakSust * 0.58f + battleMaxSust * 0.24f + 240f * 0.18f);
-        float normShort = Math.max(120f, interpPeakShort * 0.58f + battleMaxShort * 0.24f + 330f * 0.18f);
-        float normAlpha = Math.max(185f, interpPeakAlpha * 0.58f + battleMaxAlpha * 0.24f + 560f * 0.18f);
+        // Normalize sector intensity against the ship's own directional peak + a modest class baseline
+        // (never against battleMax*, which would shrink smaller ships' weapon range envelopes inside their hull sprites
+        // when heavy reinforcements or bomber wings arrive!)
+        float normSust = Math.max(95f, interpPeakSust * 0.72f + 220f * 0.28f);
+        float normShort = Math.max(120f, interpPeakShort * 0.72f + 300f * 0.28f);
+        float normAlpha = Math.max(185f, interpPeakAlpha * 0.72f + 500f * 0.28f);
 
         float[] sustX = SCRATCH_SUST_X;
         float[] sustY = SCRATCH_SUST_Y;
@@ -1446,24 +1447,26 @@ public class TsfcWarroomRenderer {
             float shortIntensity = Math.min(1.18f, shortVal / normShort);
             float alphaIntensity = Math.min(1.18f, alphaVal / normAlpha);
 
-            // Smooth continuous ramps from 0 so low-intensity sectors never jump off a cliff at 0.03 / 0.04 / 0.05
+            // Smooth continuous ramps from 0 so low-intensity sectors never jump off a cliff at 0.03 / 0.04 / 0.05,
+            // and active weapon sectors always extend outside the ship hull sprite (which renders on top of TSFC).
+            float activeHullClearWorld = Math.max(baseShipRadWorld, ship.getCollisionRadius() * 0.78f);
             float effSustReachWorld = sustReachWorld * 0.75f + genReachWorld * 0.25f;
-            float sustRamp = BattlefieldFirepowerEvaluator.clampVal(sustIntensity / 0.05f, 0f, 1f);
-            float sustFactor = sustRamp * (0.44f + 0.56f * (float) Math.sqrt(Math.min(1f, sustIntensity)));
+            float sustRamp = BattlefieldFirepowerEvaluator.clampVal(sustIntensity / 0.04f, 0f, 1f);
+            float sustFactor = sustRamp * (0.48f + 0.52f * (float) Math.sqrt(Math.min(1f, sustIntensity)));
             float rSustWorld = (effSustReachWorld > 20f && sustIntensity > 1e-4f)
-                    ? (baseShipRadWorld * 0.45f + Math.max(0f, effSustReachWorld - baseShipRadWorld * 0.45f) * sustFactor)
+                    ? Math.max(activeHullClearWorld * 0.90f, baseShipRadWorld * 0.45f + Math.max(0f, effSustReachWorld - baseShipRadWorld * 0.45f) * sustFactor)
                     : baseShipRadWorld * 0.45f;
 
-            float shortRamp = BattlefieldFirepowerEvaluator.clampVal(shortIntensity / 0.06f, 0f, 1f);
-            float shortFactor = shortRamp * (0.42f + 0.52f * (float) Math.sqrt(Math.min(1f, shortIntensity)));
+            float shortRamp = BattlefieldFirepowerEvaluator.clampVal(shortIntensity / 0.045f, 0f, 1f);
+            float shortFactor = shortRamp * (0.46f + 0.50f * (float) Math.sqrt(Math.min(1f, shortIntensity)));
             float rShortWorld = (shortReachWorld > 20f && shortIntensity > 1e-4f)
-                    ? Math.min(rSustWorld * 1.06f, baseShipRadWorld * 0.35f + Math.max(0f, shortReachWorld - baseShipRadWorld * 0.35f) * shortFactor)
+                    ? Math.min(rSustWorld * 1.06f, Math.max(activeHullClearWorld * 0.80f, baseShipRadWorld * 0.35f + Math.max(0f, shortReachWorld - baseShipRadWorld * 0.35f) * shortFactor))
                     : baseShipRadWorld * 0.35f;
 
-            float alphaRamp = BattlefieldFirepowerEvaluator.clampVal(alphaIntensity / 0.07f, 0f, 1f);
-            float alphaFactor = alphaRamp * (0.36f + 0.56f * (float) Math.sqrt(Math.min(1f, alphaIntensity)));
+            float alphaRamp = BattlefieldFirepowerEvaluator.clampVal(alphaIntensity / 0.05f, 0f, 1f);
+            float alphaFactor = alphaRamp * (0.42f + 0.52f * (float) Math.sqrt(Math.min(1f, alphaIntensity)));
             float rAlphaWorld = (alphaReachWorld > 20f && alphaIntensity > 1e-4f)
-                    ? Math.min(Math.max(rSustWorld, alphaReachWorld) * 1.04f, baseShipRadWorld * 0.25f + Math.max(0f, alphaReachWorld - baseShipRadWorld * 0.25f) * alphaFactor)
+                    ? Math.min(Math.max(rSustWorld, alphaReachWorld) * 1.04f, Math.max(activeHullClearWorld * 0.70f, baseShipRadWorld * 0.25f + Math.max(0f, alphaReachWorld - baseShipRadWorld * 0.25f) * alphaFactor))
                     : baseShipRadWorld * 0.25f;
 
             // Map-Edge Pinching for Firepower Roses in WORLD UNITS before converting to screen pixels
@@ -1508,9 +1511,9 @@ public class TsfcWarroomRenderer {
 
         // Plane 1: Sustained DoT Outer Polar Plane (sliding battle-high scaling)
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(sustR, sustG, sustB, 0.17f * readinessFade);
+        GL11.glColor4f(sustR, sustG, sustB, 0.22f * readinessFade);
         GL11.glVertex2f(cx, cy);
-        GL11.glColor4f(sustR, sustG, sustB, 0.085f * readinessFade);
+        GL11.glColor4f(sustR, sustG, sustB, 0.115f * readinessFade);
         for (int i = 0; i <= contourSteps; i++) {
             int idx = i % contourSteps;
             GL11.glVertex2f(sustX[idx], sustY[idx]);
@@ -1519,7 +1522,7 @@ public class TsfcWarroomRenderer {
 
         // Outer Sustained DoT contour line (line weight scaled by potentialDamageWeight)
         GL11.glLineWidth(1.15f + 0.45f * dmgWeight);
-        GL11.glColor4f(sustR, sustG, sustB, 0.52f * contourFade);
+        GL11.glColor4f(sustR, sustG, sustB, 0.58f * contourFade);
         GL11.glBegin(GL11.GL_LINE_LOOP);
         for (int i = 0; i < contourSteps; i++) {
             GL11.glVertex2f(sustX[i], sustY[i]);
@@ -1528,9 +1531,9 @@ public class TsfcWarroomRenderer {
 
         // Plane 2: Short DoT (4-6s Burst) Mid Polar Plane + Detailed Mid-Horizon Iso-Damage Contour
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(shortR, shortG, shortB, 0.19f * readinessFade);
+        GL11.glColor4f(shortR, shortG, shortB, 0.24f * readinessFade);
         GL11.glVertex2f(cx, cy);
-        GL11.glColor4f(shortR, shortG, shortB, 0.10f * readinessFade);
+        GL11.glColor4f(shortR, shortG, shortB, 0.13f * readinessFade);
         for (int i = 0; i <= contourSteps; i++) {
             int idx = i % contourSteps;
             GL11.glVertex2f(shortX[idx], shortY[idx]);
@@ -1538,7 +1541,7 @@ public class TsfcWarroomRenderer {
         GL11.glEnd();
 
         GL11.glLineWidth(1.10f + 0.38f * dmgWeight);
-        GL11.glColor4f(shortR, shortG, shortB, 0.48f * contourFade);
+        GL11.glColor4f(shortR, shortG, shortB, 0.54f * contourFade);
         GL11.glBegin(GL11.GL_LINE_LOOP);
         for (int i = 0; i < contourSteps; i++) {
             GL11.glVertex2f(shortX[i], shortY[i]);
@@ -1547,9 +1550,9 @@ public class TsfcWarroomRenderer {
 
         // Plane 3: Alpha Strike (0-2s Salvo) Hot Inner Core + High-Lethality Salvo Contour
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(alphaR, alphaG, alphaB, 0.24f * readinessFade);
+        GL11.glColor4f(alphaR, alphaG, alphaB, 0.30f * readinessFade);
         GL11.glVertex2f(cx, cy);
-        GL11.glColor4f(alphaR, alphaG, alphaB, 0.125f * readinessFade);
+        GL11.glColor4f(alphaR, alphaG, alphaB, 0.16f * readinessFade);
         for (int i = 0; i <= contourSteps; i++) {
             int idx = i % contourSteps;
             GL11.glVertex2f(alphaX[idx], alphaY[idx]);
@@ -1557,9 +1560,9 @@ public class TsfcWarroomRenderer {
         GL11.glEnd();
 
         if (interpPeakAlpha >= 20f) {
-            float alphaContourRamp = BattlefieldFirepowerEvaluator.clampVal(interpPeakAlpha / 140f, 0.25f, 1.0f);
+            float alphaContourRamp = BattlefieldFirepowerEvaluator.clampVal(interpPeakAlpha / 140f, 0.35f, 1.0f);
             GL11.glLineWidth(1.20f + 0.42f * dmgWeight);
-            GL11.glColor4f(alphaR, alphaG, alphaB, 0.60f * contourFade * alphaContourRamp);
+            GL11.glColor4f(alphaR, alphaG, alphaB, 0.66f * contourFade * alphaContourRamp);
             GL11.glBegin(GL11.GL_LINE_LOOP);
             for (int i = 0; i < contourSteps; i++) {
                 GL11.glVertex2f(alphaX[i], alphaY[i]);
@@ -1633,14 +1636,12 @@ public class TsfcWarroomRenderer {
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
-        // Pass 1: Destroyed wrecks/hulks rendered first (underneath live ships) in truescale
+        // Pass 1: Destroyed wrecks/hulks rendered first (underneath live ships) in truescale.
+        // Only the "main" or largest part of a broken-up ship renders its ship sprite.
         if (includeHulks) {
             for (int i = 0, n = ships.size(); i < n; i++) {
                 ShipAPI s = ships.get(i);
-                if (s == null || s.isExpired()) continue;
-                boolean isHulk = s.isHulk() || !s.isAlive();
-                if (!isHulk) continue;
-                if (s.isFighter() || s.isDrone() || s.isShuttlePod()) continue;
+                if (!isMainOrLargestDestroyedHulk(s, ships)) continue;
                 if (playerFog != null && !playerFog.isVisible(s)) continue;
                 renderSingleWarroomHullSprite(s, true, scale, offsetX, offsetY, fade, screenW, screenH, playerFog, engine);
             }
@@ -1654,6 +1655,87 @@ public class TsfcWarroomRenderer {
                 renderSingleWarroomHullSprite(s, false, scale, offsetX, offsetY, fade, screenW, screenH, playerFog, engine);
             }
         }
+    }
+
+    /**
+     * Returns true iff {@code s} is a destroyed ship hulk and is the "main" or largest piece of a broken-up ship.
+     * In Starsector's {@code Ship.splitShip()}, when a ship breaks into pieces, every piece clones the full ship
+     * {@code Sprite}; the main/largest piece keeps {@code getParentPieceId() == null} while broken-off smaller
+     * fragments have {@code setParentPieceId(mainPiece.getId())}. If multiple hulk pieces share a parent piece ID
+     * or fleet member ID, only the single largest piece (preferring {@code parentPieceId == null}, then largest
+     * collision radius and mass) is selected so a broken-up hulk displays only one ship sprite.
+     */
+    public static boolean isMainOrLargestDestroyedHulk(ShipAPI s, List<ShipAPI> allShips) {
+        if (s == null || s.isExpired()) return false;
+        boolean isHulk = s.isHulk() || !s.isAlive();
+        if (!isHulk) return false;
+        if (s.isFighter() || s.isDrone() || s.isShuttlePod()) return false;
+        if (s.isStationModule() || s.getParentStation() != null) return false;
+
+        String myId = s.getId();
+        String myParentId = s.getParentPieceId();
+        String myFleetMemberId = s.getFleetMemberId();
+
+        // Fast path: intact (non-split) hulk with no parent piece and not a piece
+        if (!s.isPiece() && myParentId == null && myFleetMemberId == null) {
+            return true;
+        }
+        if (allShips == null || allShips.size() <= 1) {
+            return myParentId == null;
+        }
+
+        float myScore = computeHulkPieceDominanceScore(s);
+        for (int i = 0, n = allShips.size(); i < n; i++) {
+            ShipAPI other = allShips.get(i);
+            if (other == null || other == s || other.isExpired()) continue;
+            if (other.isFighter() || other.isDrone() || other.isShuttlePod()) continue;
+            if (other.isStationModule() || other.getParentStation() != null) continue;
+            boolean otherHulk = other.isHulk() || !other.isAlive();
+            if (!otherHulk) continue;
+
+            if (!areHulkPiecesFromSameShip(s, myId, myParentId, myFleetMemberId, other)) {
+                continue;
+            }
+            float otherScore = computeHulkPieceDominanceScore(other);
+            if (otherScore > myScore + 1e-3f) {
+                return false;
+            }
+            if (Math.abs(otherScore - myScore) <= 1e-3f) {
+                String otherId = other.getId();
+                if (myId != null && otherId != null && otherId.compareTo(myId) < 0) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean areHulkPiecesFromSameShip(
+            ShipAPI a,
+            String aId,
+            String aParentId,
+            String aFleetMemberId,
+            ShipAPI b) {
+        String bId = b.getId();
+        String bParentId = b.getParentPieceId();
+        String bFleetMemberId = b.getFleetMemberId();
+        if (aParentId != null) {
+            if (aParentId.equals(bId) || aParentId.equals(bParentId)) return true;
+        }
+        if (bParentId != null && aId != null && bParentId.equals(aId)) {
+            return true;
+        }
+        if (aFleetMemberId != null && bFleetMemberId != null && aFleetMemberId.equals(bFleetMemberId)) {
+            return true;
+        }
+        return false;
+    }
+
+    private static float computeHulkPieceDominanceScore(ShipAPI s) {
+        float rootBonus = (s.getParentPieceId() == null) ? 1.0e6f : 0f;
+        float colRad = Math.max(0f, s.getCollisionRadius());
+        float mass = Math.max(0f, s.getMass());
+        return rootBonus + colRad * 100f + mass * 0.1f;
     }
 
     private static void renderSingleWarroomHullSprite(

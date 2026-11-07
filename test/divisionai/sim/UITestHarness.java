@@ -4441,12 +4441,81 @@ public class UITestHarness {
         float spreadAfterNext = kfDiv.spreadRadius;
         boolean zeroHeartbeatOk = Math.abs(spreadAfter020 - spreadAfterNext) < 0.01f && domAfter020 > 300f;
 
-        // Item C: Destroyed wrecks/hulks rendered in truescale when any TSFC overlay is active
+        // Item C: Destroyed wrecks/hulks rendered in truescale when any TSFC overlay is active,
+        // and ONLY on the "main" or largest part of a broken-up ship!
         String tsfcRendererSrc = new String(
                 Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()),
                 StandardCharsets.UTF_8);
+        ShipAPI mainHulkPiece = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return "hulk_main_1";
+                    if ("getParentPieceId".equals(m)) return null;
+                    if ("getFleetMemberId".equals(m)) return "fm_broken_1";
+                    if ("isHulk".equals(m) || "isPiece".equals(m)) return true;
+                    if ("isAlive".equals(m) || "isExpired".equals(m) || "isFighter".equals(m)
+                            || "isDrone".equals(m) || "isShuttlePod".equals(m) || "isStationModule".equals(m)) return false;
+                    if ("getCollisionRadius".equals(m)) return 145f;
+                    if ("getMass".equals(m)) return 1800f;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == float.class) return 0f;
+                    if (method.getReturnType() == int.class) return 100;
+                    return null;
+                });
+        ShipAPI smallHulkPiece1 = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return "hulk_sub_1";
+                    if ("getParentPieceId".equals(m)) return "hulk_main_1";
+                    if ("getFleetMemberId".equals(m)) return "fm_broken_1";
+                    if ("isHulk".equals(m) || "isPiece".equals(m)) return true;
+                    if ("isAlive".equals(m) || "isExpired".equals(m) || "isFighter".equals(m)
+                            || "isDrone".equals(m) || "isShuttlePod".equals(m) || "isStationModule".equals(m)) return false;
+                    if ("getCollisionRadius".equals(m)) return 65f;
+                    if ("getMass".equals(m)) return 420f;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == float.class) return 0f;
+                    if (method.getReturnType() == int.class) return 100;
+                    return null;
+                });
+        ShipAPI smallHulkPiece2 = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return "hulk_sub_2";
+                    if ("getParentPieceId".equals(m)) return "hulk_sub_1";
+                    if ("getFleetMemberId".equals(m)) return "fm_broken_1";
+                    if ("isHulk".equals(m) || "isPiece".equals(m)) return true;
+                    if ("isAlive".equals(m) || "isExpired".equals(m) || "isFighter".equals(m)
+                            || "isDrone".equals(m) || "isShuttlePod".equals(m) || "isStationModule".equals(m)) return false;
+                    if ("getCollisionRadius".equals(m)) return 40f;
+                    if ("getMass".equals(m)) return 210f;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == float.class) return 0f;
+                    if (method.getReturnType() == int.class) return 100;
+                    return null;
+                });
+        List<ShipAPI> brokenHulkList = java.util.Arrays.asList(smallHulkPiece1, mainHulkPiece, smallHulkPiece2);
+        boolean mainPieceSelectedOk = TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(mainHulkPiece, brokenHulkList)
+                && !TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(smallHulkPiece1, brokenHulkList)
+                && !TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(smallHulkPiece2, brokenHulkList);
+        // Also verify if root piece expired, only the largest remaining piece is selected
+        List<ShipAPI> orphanPiecesList = java.util.Arrays.asList(smallHulkPiece1, smallHulkPiece2);
+        boolean largestOrphanPieceSelectedOk = TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(smallHulkPiece1, orphanPiecesList)
+                && !TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(smallHulkPiece2, orphanPiecesList);
+
         boolean hulkSpritesOk = tsfcRendererSrc.contains("WARROOM_HULL_WRECK_TINT")
                 && tsfcRendererSrc.contains("renderWarroomHulkSpritesAboveTsfc")
+                && tsfcRendererSrc.contains("isMainOrLargestDestroyedHulk")
+                && !tsfcRendererSrc.contains("battleMaxSust * 0.24f")
+                && lowShipOpacity >= 0.48f
+                && mainPieceSelectedOk
+                && largestOrphanPieceSelectedOk
                 && overlaySrc.contains("TsfcWarroomRenderer.renderWarroomHulkSpritesAboveTsfc(");
 
         boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")

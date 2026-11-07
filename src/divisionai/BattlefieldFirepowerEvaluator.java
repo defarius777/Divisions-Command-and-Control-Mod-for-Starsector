@@ -443,19 +443,19 @@ public class BattlefieldFirepowerEvaluator {
             float interpPeakSust,
             float interpPeakShort,
             float interpPeakAlpha) {
-        if (rose == null) return 0.55f;
+        if (rose == null) return 0.72f;
         float combined = interpPeakSust * 0.45f + interpPeakShort * 0.35f + (interpPeakAlpha * 0.35f) * 0.20f;
-        float relToBattleMax = clampVal(combined / Math.max(200f, battleMaxShipCombinedPower), 0.0f, 1.0f);
-        float slidingWeight = 0.38f + 0.62f * (float) Math.sqrt(relToBattleMax);
+        float relToBattleMax = clampVal(combined / Math.max(220f, battleMaxShipCombinedPower), 0.0f, 1.0f);
+        float slidingWeight = 0.48f + 0.52f * (float) Math.pow(relToBattleMax, 0.65);
         float crowdAtten = clampVal(
-                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveFirepowerUnitCount / 14.0f)),
-                0.58f,
+                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveFirepowerUnitCount / 16.0f)),
+                0.78f,
                 1.0f);
         return slidingWeight * crowdAtten;
     }
 
     public static float computeShipSlidingOpacityScale(ShipFirepowerRose rose) {
-        if (rose == null) return 0.35f;
+        if (rose == null) return 0.65f;
         return computeShipSlidingOpacityScale(
                 rose, rose.peakSectorSustained, rose.peakSectorShortDot, rose.peakSectorAlpha);
     }
@@ -688,12 +688,35 @@ public class BattlefieldFirepowerEvaluator {
     private static final float[] SCRATCH_RAW_SHORT_RANGE = new float[NUM_SECTORS];
     private static final float[] SCRATCH_RAW_ALPHA_RANGE = new float[NUM_SECTORS];
 
+    public static boolean hasAnyMissingEligibleShipRose(CombatEngineAPI engine) {
+        if (engine == null) return false;
+        List<ShipAPI> ships = engine.getShips();
+        if (ships == null || ships.isEmpty()) return false;
+        for (int i = 0, n = ships.size(); i < n; i++) {
+            ShipAPI ship = ships.get(i);
+            if (!isEligibleFirepowerUnit(ship)) continue;
+            String id = ship.getId();
+            if (id != null && !rosesByShipId.containsKey(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Updates stabilized Polar Firepower Roses for all active ships and airborne strike-craft squadrons in the battle.
      * Called on the 0.10s TSFC keyframe cadence (and C2 evaluation cadence); keyframes older than 2.0s are thrown into the bin.
      */
     public static void updateBattlefieldRoses(CombatEngineAPI engine, float now) {
         if (engine == null) return;
+        if (lastRoseUpdateEngine != null && lastRoseUpdateEngine != engine) {
+            rosesByShipId.clear();
+            battleMaxShipSustainedPeak = 220f;
+            battleMaxShipShortDotPeak = 300f;
+            battleMaxShipAlphaPeak = 480f;
+            battleMaxShipCombinedPower = 300f;
+            battleActiveFirepowerUnitCount = 1;
+        }
         lastRoseUpdateEngine = engine;
         lastRoseUpdateTime = now;
         List<ShipAPI> ships = engine.getShips();
@@ -729,6 +752,7 @@ public class BattlefieldFirepowerEvaluator {
         }
 
         // Prune expired/destroyed ships and any rose whose keyframe is older than 2.0 seconds (thrown into the bin)
+        FogOfWarAPI playerFog = engine.getFogOfWar(0);
         int activeCount = 0;
         float liveMaxSust = 220f;
         float liveMaxShort = 300f;
@@ -745,6 +769,14 @@ public class BattlefieldFirepowerEvaluator {
                     || (r.currKeyframeTime >= -50f && (now - r.currKeyframeTime) > TSFC_KEYFRAME_MAX_AGE)) {
                 it.remove();
             } else {
+                // Only count visible warships/stations (not 5x-multiplied fighter squadrons or unspotted enemy
+                // reinforcements hidden in fog of war) toward battle-wide opacity watermarks & crowd attenuation.
+                if (r.ship.isFighter()) {
+                    continue;
+                }
+                if (r.ship.getOwner() == 1 && playerFog != null && !isEnemyShipVisibleSticky(engine, r.ship, playerFog)) {
+                    continue;
+                }
                 activeCount++;
                 if (r.peakSectorSustained > liveMaxSust) {
                     liveMaxSust = r.peakSectorSustained;
@@ -762,17 +794,17 @@ public class BattlefieldFirepowerEvaluator {
             }
         }
         battleMaxShipSustainedPeak = (liveMaxSust >= battleMaxShipSustainedPeak)
-                ? liveMaxSust
-                : Math.max(220f, battleMaxShipSustainedPeak * 0.96f + liveMaxSust * 0.04f);
+                ? (battleMaxShipSustainedPeak * 0.35f + liveMaxSust * 0.65f)
+                : Math.max(220f, battleMaxShipSustainedPeak * 0.84f + liveMaxSust * 0.16f);
         battleMaxShipShortDotPeak = (liveMaxShort >= battleMaxShipShortDotPeak)
-                ? liveMaxShort
-                : Math.max(300f, battleMaxShipShortDotPeak * 0.96f + liveMaxShort * 0.04f);
+                ? (battleMaxShipShortDotPeak * 0.35f + liveMaxShort * 0.65f)
+                : Math.max(300f, battleMaxShipShortDotPeak * 0.84f + liveMaxShort * 0.16f);
         battleMaxShipAlphaPeak = (liveMaxAlpha >= battleMaxShipAlphaPeak)
-                ? liveMaxAlpha
-                : Math.max(480f, battleMaxShipAlphaPeak * 0.96f + liveMaxAlpha * 0.04f);
+                ? (battleMaxShipAlphaPeak * 0.35f + liveMaxAlpha * 0.65f)
+                : Math.max(480f, battleMaxShipAlphaPeak * 0.84f + liveMaxAlpha * 0.16f);
         battleMaxShipCombinedPower = (liveMaxComb >= battleMaxShipCombinedPower)
-                ? liveMaxComb
-                : Math.max(300f, battleMaxShipCombinedPower * 0.96f + liveMaxComb * 0.04f);
+                ? (battleMaxShipCombinedPower * 0.35f + liveMaxComb * 0.65f)
+                : Math.max(300f, battleMaxShipCombinedPower * 0.84f + liveMaxComb * 0.16f);
         battleActiveFirepowerUnitCount = Math.max(1, activeCount);
     }
 
@@ -782,7 +814,12 @@ public class BattlefieldFirepowerEvaluator {
         if (rose.initialized && (rawElapsed > TSFC_KEYFRAME_MAX_AGE || rawElapsed < -1e-4f)) {
             rose.initialized = false;
         }
-        boolean advancingKeyframe = rose.initialized && (now - rose.currKeyframeTime) > 1e-4f;
+        // If already evaluated within the current half-tick (e.g. when a reinforcement wave triggers an immediate
+        // mid-frame update), do not re-step the EMA or collapse existing ships' keyframe spans.
+        if (rose.initialized && rawElapsed >= 0f && rawElapsed < TSFC_EVAL_INTERVAL * 0.45f) {
+            return;
+        }
+        boolean advancingKeyframe = rose.initialized && (now - rose.currKeyframeTime) >= TSFC_EVAL_INTERVAL * 0.45f;
         if (advancingKeyframe) {
             float blendAtNow = rose.computeKeyframeBlendFactor(now);
             if (blendAtNow < 0f) blendAtNow = 1.0f;
@@ -952,7 +989,7 @@ public class BattlefieldFirepowerEvaluator {
                 if (w.getAmmoPerSecond() > 0f) {
                     mountStatusMult *= 0.35f;
                 } else {
-                    continue;
+                    mountStatusMult *= 0.25f;
                 }
             }
 
@@ -1110,7 +1147,7 @@ public class BattlefieldFirepowerEvaluator {
                     rawSustRangeWeightedSum[s] *= mult;
                 }
             }
-        } else if (!ship.isFighter()) {
+        } else if (!ship.isFighter() && !hasAnyUsableCombatWeapon(ship)) {
             List<com.fs.starfarer.api.combat.FighterWingAPI> wings = ship.getAllWings();
             int bays = ship.getNumFighterBays();
             if (wings != null && !wings.isEmpty()) {

@@ -529,6 +529,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     if (tacticalOverlay != null) tacticalOverlay.invalidateGeometryCache();
                 }
             }
+            if (!playerHasDivisions && !alliedAiHasDivisions && !enemyHasDivisions) {
+                BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
+            }
             markTelemetryNs = System.nanoTime();
 
             // Build passive opposing threat views for both sides so OTC/Division Commanders can always spot, fix,
@@ -811,6 +814,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 }
             }
         }
+        // Always ensure newly deployed reinforcement ships get their Firepower Rose initialized immediately
+        // even if no side currently has a multi-ship division.
+        BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
     }
 
     /**
