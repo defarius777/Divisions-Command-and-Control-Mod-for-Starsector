@@ -471,12 +471,12 @@ public class BattlefieldFirepowerEvaluator {
      * relative to the highest division Space dominance weight seen in the battle.
      */
     public static float computeDivisionSpaceSlidingOpacityScale(DivisionState div, float interpDomWeight) {
-        if (div == null) return 0.45f;
+        if (div == null) return 0.58f;
         float rel = clampVal(interpDomWeight / Math.max(20f, battleMaxDivisionSpaceDominance), 0.0f, 1.0f);
-        float slidingWeight = 0.28f + 0.72f * (float) Math.sqrt(rel);
+        float slidingWeight = 0.42f + 0.58f * (float) Math.sqrt(rel);
         float crowdAtten = clampVal(
-                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveDivisionCount / 4.0f)),
-                0.48f,
+                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveDivisionCount / 6.0f)),
+                0.68f,
                 1.0f);
         return slidingWeight * crowdAtten;
     }
@@ -486,12 +486,12 @@ public class BattlefieldFirepowerEvaluator {
      * relative to the highest division mobility reach and dominance seen in the battle.
      */
     public static float computeDivisionTimeSlidingOpacityScale(DivisionState div, float interpFreeTimeRad) {
-        if (div == null) return 0.50f;
+        if (div == null) return 0.62f;
         float rel = clampVal(interpFreeTimeRad / Math.max(600f, battleMaxDivisionFreeTimeRadius), 0.0f, 1.0f);
-        float slidingWeight = 0.34f + 0.66f * (float) Math.sqrt(rel);
+        float slidingWeight = 0.46f + 0.54f * (float) Math.sqrt(rel);
         float crowdAtten = clampVal(
-                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveDivisionCount / 4.0f)),
-                0.48f,
+                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveDivisionCount / 6.0f)),
+                0.68f,
                 1.0f);
         return slidingWeight * crowdAtten;
     }
@@ -672,16 +672,11 @@ public class BattlefieldFirepowerEvaluator {
             return hasAnyUsableCombatWeapon(ship);
         }
         if (ship.isFighter()) {
-            // Represent each airborne Strike Craft squadron (FighterWingAPI) via its Wing Leader so strike craft
-            // project a cohesive squadron Firepower Rose without 6x duplicate per-fighter clutter
+            // Represent each airborne Strike Craft squadron (FighterWingAPI) via its live representative so the whole
+            // squadron projects a unified, centroid-anchored Firepower Rose without 6x duplicate per-fighter clutter
             com.fs.starfarer.api.combat.FighterWingAPI wing = ship.getWing();
             if (wing == null) return true;
-            ShipAPI leader = wing.getLeader();
-            if (leader != null && leader.isAlive() && !leader.isHulk()) {
-                return ship == leader;
-            }
-            List<ShipAPI> members = wing.getWingMembers();
-            return members != null && !members.isEmpty() && members.get(0) == ship;
+            return ship == resolveAliveWingLeader(wing);
         }
         return DivisionAutoFormer.isEligibleCombatHull(ship);
     }
@@ -773,13 +768,7 @@ public class BattlefieldFirepowerEvaluator {
             for (int i = 0, n = ships.size(); i < n; i++) {
                 ShipAPI ship = ships.get(i);
                 if (!isEligibleFirepowerUnit(ship)) continue;
-                ShipFirepowerRose rose = rosesByShipId.get(ship.getId());
-                if (rose == null) {
-                    rose = new ShipFirepowerRose(ship);
-                    rosesByShipId.put(ship.getId(), rose);
-                } else {
-                    rose.ship = ship;
-                }
+                ShipFirepowerRose rose = findOrCreateUnitRose(ship);
                 updateSingleShipRose(rose, ship, now);
             }
         } else if (engine.getAiGridShips() != null) {
@@ -789,13 +778,7 @@ public class BattlefieldFirepowerEvaluator {
                 if (!(obj instanceof ShipAPI)) continue;
                 ShipAPI ship = (ShipAPI) obj;
                 if (!isEligibleFirepowerUnit(ship)) continue;
-                ShipFirepowerRose rose = rosesByShipId.get(ship.getId());
-                if (rose == null) {
-                    rose = new ShipFirepowerRose(ship);
-                    rosesByShipId.put(ship.getId(), rose);
-                } else {
-                    rose.ship = ship;
-                }
+                ShipFirepowerRose rose = findOrCreateUnitRose(ship);
                 updateSingleShipRose(rose, ship, now);
             }
         }
@@ -857,6 +840,35 @@ public class BattlefieldFirepowerEvaluator {
         battleActiveFirepowerUnitCount = Math.max(1, activeCount);
     }
 
+    private static ShipFirepowerRose findOrCreateUnitRose(ShipAPI ship) {
+        ShipFirepowerRose rose = rosesByShipId.get(ship.getId());
+        if (rose != null) {
+            rose.ship = ship;
+            return rose;
+        }
+        // If this is a Strike Craft squadron whose previous wing leader died or rotated, migrate the existing
+        // squadron rose to the new wing representative so keyframe interpolation stays seamless across the squadron
+        if (ship.isFighter() && ship.getWing() != null) {
+            com.fs.starfarer.api.combat.FighterWingAPI wing = ship.getWing();
+            Iterator<Map.Entry<String, ShipFirepowerRose>> it = rosesByShipId.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<String, ShipFirepowerRose> entry = it.next();
+                ShipFirepowerRose existing = entry.getValue();
+                if (existing != null && existing.ship != null
+                        && existing.ship.isFighter()
+                        && existing.ship.getWing() == wing) {
+                    it.remove();
+                    existing.ship = ship;
+                    rosesByShipId.put(ship.getId(), existing);
+                    return existing;
+                }
+            }
+        }
+        rose = new ShipFirepowerRose(ship);
+        rosesByShipId.put(ship.getId(), rose);
+        return rose;
+    }
+
     static void updateSingleShipRose(ShipFirepowerRose rose, ShipAPI ship, float now) {
         // Anything past 2.0 seconds is thrown into the bin (discard stale keyframe history)
         float rawElapsed = now - rose.lastUpdateTime;
@@ -895,7 +907,9 @@ public class BattlefieldFirepowerEvaluator {
         float dt = rose.initialized ? Math.max(0.02f, Math.min(TSFC_KEYFRAME_MAX_AGE, rawElapsed)) : TSFC_EVAL_INTERVAL;
         rose.lastUpdateTime = now;
 
-        float rawFacing = normalizeAngle360(ship.getFacing());
+        float rawFacing = (ship.isFighter() && ship.getWing() != null)
+                ? normalizeAngle360(resolveSquadronMeanFacingDeg(ship.getWing(), ship))
+                : normalizeAngle360(ship.getFacing());
         if (!rose.initialized) {
             rose.smoothedFacingDeg = rawFacing;
             rose.prevFacingDeg = rawFacing;
@@ -1112,6 +1126,10 @@ public class BattlefieldFirepowerEvaluator {
             float wSustainedDot = sustDps * typeMult * shipFluxSustainability * ammoEndurance * mountStatusMult;
 
             float arcFacingRel = normalizeAngle360(w.getArcFacing());
+            if (ship.isFighter() && ship.getWing() != null) {
+                float sqHeading = resolveSquadronMeanFacingDeg(ship.getWing(), ship);
+                arcFacingRel = normalizeAngle360(w.getArcFacing() + shortestAngleDiffDeg(sqHeading, ship.getFacing()));
+            }
             float rawArc = w.getArc();
             if (rawArc <= 0f) {
                 rawArc = isStrike ? 90f : 210f;
@@ -1183,9 +1201,25 @@ public class BattlefieldFirepowerEvaluator {
             float[] rawPdRange) {
         if (ship.isFighter() && ship.getWing() != null && ship.getWing().getWingMembers() != null) {
             List<ShipAPI> wingmates = ship.getWing().getWingMembers();
-            int extraAlive = Math.max(0, wingmates.size() - 1);
-            if (extraAlive > 0) {
-                float mult = 1.0f + extraAlive * 0.85f;
+            int extraAliveWithWeapons = 0;
+            int extraAliveTotal = 0;
+            for (int i = 0, n = wingmates.size(); i < n; i++) {
+                ShipAPI wm = wingmates.get(i);
+                if (wm == null || wm == ship || !wm.isAlive() || wm.isHulk() || wm.isExpired()) continue;
+                extraAliveTotal++;
+                List<WeaponAPI> wmWeapons = wm.getAllWeapons();
+                if (wmWeapons != null && !wmWeapons.isEmpty()) {
+                    extraAliveWithWeapons++;
+                    accumulateShipDirectWeaponSectors(
+                            wm, wmWeapons, wm.isPhased(), readiness * 0.88f, 0.85f,
+                            rawAlpha, rawShort, rawSustained, rawPd, SCRATCH_RAW_HYBRID,
+                            rawGenRange, rawSustRangeWeightedSum, rawShortRangeWeightedSum, rawAlphaRangeWeightedSum,
+                            rawPdRange, SCRATCH_RAW_HYBRID_RANGE);
+                }
+            }
+            int extraUnmodeled = Math.max(0, extraAliveTotal - extraAliveWithWeapons);
+            if (extraUnmodeled > 0) {
+                float mult = 1.0f + extraUnmodeled * 0.85f;
                 for (int s = 0; s < NUM_SECTORS; s++) {
                     rawAlpha[s] *= mult;
                     rawShort[s] *= mult;
@@ -4388,6 +4422,145 @@ public class BattlefieldFirepowerEvaluator {
             }
         }
         return null;
+    }
+
+    /**
+     * Resolves the live center-of-mass centroid of an airborne Strike Craft squadron ({@link com.fs.starfarer.api.combat.FighterWingAPI})
+     * across all alive squadron members, rejecting any lone replacement straggler > 520u from the core formation
+     * so the Firepower, Time, Space, and Convergence overlays follow the whole squadron rather than a single fighter.
+     */
+    public static Vector2f resolveSquadronLiveCentroid(
+            com.fs.starfarer.api.combat.FighterWingAPI wing,
+            ShipAPI fallbackShip,
+            Vector2f out) {
+        if (out == null) {
+            out = new Vector2f(0f, 0f);
+        }
+        if (wing != null) {
+            List<ShipAPI> members = wing.getWingMembers();
+            if (members != null && !members.isEmpty()) {
+                float sumX = 0f;
+                float sumY = 0f;
+                int count = 0;
+                for (int i = 0, n = members.size(); i < n; i++) {
+                    ShipAPI fm = members.get(i);
+                    if (fm != null && fm.isAlive() && !fm.isHulk() && !fm.isExpired() && fm.getLocation() != null) {
+                        sumX += fm.getLocation().x;
+                        sumY += fm.getLocation().y;
+                        count++;
+                    }
+                }
+                if (count == 1) {
+                    out.set(sumX, sumY);
+                    return out;
+                } else if (count >= 2) {
+                    float meanX = sumX / count;
+                    float meanY = sumY / count;
+                    if (count >= 3) {
+                        float coreSumX = 0f;
+                        float coreSumY = 0f;
+                        int coreCount = 0;
+                        for (int i = 0, n = members.size(); i < n; i++) {
+                            ShipAPI fm = members.get(i);
+                            if (fm != null && fm.isAlive() && !fm.isHulk() && !fm.isExpired() && fm.getLocation() != null) {
+                                float dx = fm.getLocation().x - meanX;
+                                float dy = fm.getLocation().y - meanY;
+                                if (dx * dx + dy * dy <= 520f * 520f) {
+                                    coreSumX += fm.getLocation().x;
+                                    coreSumY += fm.getLocation().y;
+                                    coreCount++;
+                                }
+                            }
+                        }
+                        if (coreCount >= 2) {
+                            out.set(coreSumX / coreCount, coreSumY / coreCount);
+                            return out;
+                        }
+                    }
+                    out.set(meanX, meanY);
+                    return out;
+                }
+            }
+            ShipAPI lead = resolveAliveWingLeader(wing);
+            if (lead != null && lead.getLocation() != null) {
+                out.set(lead.getLocation());
+                return out;
+            }
+        }
+        if (fallbackShip != null && fallbackShip.getLocation() != null) {
+            out.set(fallbackShip.getLocation());
+        } else {
+            out.set(0f, 0f);
+        }
+        return out;
+    }
+
+    /**
+     * Computes the live formation spread radius of an airborne Strike Craft squadron around its centroid
+     * so its Firepower Rose base and range contours envelop the entire squadron footprint.
+     */
+    public static float computeSquadronSpreadRadius(
+            com.fs.starfarer.api.combat.FighterWingAPI wing,
+            Vector2f squadronCentroid) {
+        if (wing == null || squadronCentroid == null) return 0f;
+        List<ShipAPI> members = wing.getWingMembers();
+        if (members == null || members.isEmpty()) return 0f;
+        float sumSq = 0f;
+        float maxDist = 0f;
+        float sumColRad = 0f;
+        int coreCount = 0;
+        for (int i = 0, n = members.size(); i < n; i++) {
+            ShipAPI fm = members.get(i);
+            if (fm == null || !fm.isAlive() || fm.isHulk() || fm.isExpired() || fm.getLocation() == null) continue;
+            float dx = fm.getLocation().x - squadronCentroid.x;
+            float dy = fm.getLocation().y - squadronCentroid.y;
+            float distSq = dx * dx + dy * dy;
+            if (distSq <= 540f * 540f) {
+                float dist = (float) Math.sqrt(distSq);
+                sumSq += distSq;
+                if (dist > maxDist) maxDist = dist;
+                sumColRad += Math.max(18f, fm.getCollisionRadius());
+                coreCount++;
+            }
+        }
+        if (coreCount <= 1) return 0f;
+        float rms = (float) Math.sqrt(sumSq / coreCount);
+        float avgCol = sumColRad / coreCount;
+        float spread = Math.max(rms * 1.15f, maxDist * 0.85f) + avgCol * 0.55f;
+        return clampVal(spread, 0f, 360f);
+    }
+
+    /**
+     * Resolves the circular mean heading (in degrees [0, 360)) of all alive strike craft in a squadron.
+     */
+    public static float resolveSquadronMeanFacingDeg(
+            com.fs.starfarer.api.combat.FighterWingAPI wing,
+            ShipAPI fallbackShip) {
+        if (wing != null) {
+            List<ShipAPI> members = wing.getWingMembers();
+            if (members != null && !members.isEmpty()) {
+                float sumCos = 0f;
+                float sumSin = 0f;
+                int count = 0;
+                for (int i = 0, n = members.size(); i < n; i++) {
+                    ShipAPI fm = members.get(i);
+                    if (fm != null && fm.isAlive() && !fm.isHulk() && !fm.isExpired()) {
+                        double rad = Math.toRadians(fm.getFacing());
+                        sumCos += (float) Math.cos(rad);
+                        sumSin += (float) Math.sin(rad);
+                        count++;
+                    }
+                }
+                if (count > 0 && (Math.abs(sumCos) > 1e-4f || Math.abs(sumSin) > 1e-4f)) {
+                    return normalizeAngle360((float) Math.toDegrees(Math.atan2(sumSin, sumCos)));
+                }
+            }
+            ShipAPI lead = resolveAliveWingLeader(wing);
+            if (lead != null) {
+                return normalizeAngle360(lead.getFacing());
+            }
+        }
+        return fallbackShip != null ? normalizeAngle360(fallbackShip.getFacing()) : 0f;
     }
 
     /**

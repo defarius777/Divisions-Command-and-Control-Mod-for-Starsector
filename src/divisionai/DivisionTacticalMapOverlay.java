@@ -542,20 +542,28 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
+    public boolean isShowingVideoFeed() {
+        if (!attachedToWarroom) {
+            ensureAttachedToWarroomUI();
+        }
+        if (warroomInstance != null && isShowingVideoFeedHandle != null) {
+            try {
+                return (boolean) isShowingVideoFeedHandle.invoke(warroomInstance);
+            } catch (Throwable ignored) {
+            }
+        }
+        return false;
+    }
+
     @Override
     public void processInput(List<InputEventAPI> events) {
         if (!attachedToWarroom || !BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) {
             return;
         }
-        if (warroomInstance != null && isShowingVideoFeedHandle != null) {
-            try {
-                if ((boolean) isShowingVideoFeedHandle.invoke(warroomInstance)) {
-                    return;
-                }
-            } catch (Throwable ignored) {
-            }
-        }
         TsfcWarroomRenderer.processInputEvents(engine, events);
+        if (isShowingVideoFeed()) {
+            return;
+        }
         syncRegularCommandSpritesVisibility(
                 TsfcWarroomRenderer.isAnyTsfcOverlayVisible() && DivisionAISettings.isTsfcMiniShipSpritesEnabled());
     }
@@ -619,17 +627,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             return;
         }
 
-        // Do not render if the player is viewing a live sprite Video Feed inside the Command UI
-        if (warroomInstance != null && isShowingVideoFeedHandle != null) {
-            try {
-                boolean showingFeed = (boolean) isShowingVideoFeedHandle.invoke(warroomInstance);
-                if (showingFeed) {
-                    cachedPolyPaused = false;
-                    cachedPolyNow = -1000f;
-                    return;
-                }
-            } catch (Throwable ignored) {
-            }
+        // Do not render Warroom polygons or truescale ship/hulk icons if the player is viewing a live sprite
+        // Video Feed ("F" key) inside the Command UI; instead, battle-screen TSFC renders underneath the live ships
+        // on CombatEngineLayers.BELOW_SHIPS_LAYER, and we keep only the right-side TSFC toggle buttons accessible.
+        if (isShowingVideoFeed()) {
+            cachedPolyPaused = false;
+            cachedPolyNow = -1000f;
+            TsfcWarroomRenderer.renderToggleButtonAndLegendUI(engine, Math.min(1f, cmdOpacity * alphaMult));
+            return;
         }
 
         if (mapDisplayInstance == null || worldToMapScreenHandle == null) {

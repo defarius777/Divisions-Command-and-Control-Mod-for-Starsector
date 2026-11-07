@@ -65,6 +65,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private boolean loggedEnemyOtcInit = false;
     private boolean preRenderHookAttached = false;
     private CombatEngineAPI preRenderHookEngine = null;
+    private boolean renderedBelowShipsLayerThisFrame = false;
     private boolean loggedBattleSummary = false;
     private final java.util.Set<String> loggedObfuscatedHookFailures = new java.util.HashSet<>();
 
@@ -94,6 +95,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
         }
         this.preRenderHookAttached = false;
+        this.renderedBelowShipsLayerThisFrame = false;
         ensurePreRenderDeploymentHook();
     }
 
@@ -106,42 +108,41 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private void ensurePreRenderDeploymentHook() {
         if (engine == null) return;
         if (preRenderHookAttached && preRenderHookEngine == engine) return;
-        try {
-            if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) return;
-        } catch (Throwable ignored) {
-            return;
-        }
         final DivisionAICombatPlugin owner = this;
         final CombatEngineAPI hookEngine = engine;
-        engine.addLayeredRenderingPlugin(new BaseCombatLayeredRenderingPlugin(CombatEngineLayers.BELOW_PLANETS) {
-            @Override
-            public EnumSet<CombatEngineLayers> getActiveLayers() {
-                return EnumSet.of(
-                        CombatEngineLayers.BELOW_PLANETS,
-                        CombatEngineLayers.BELOW_SHIPS_LAYER);
-            }
-
-            @Override
-            public float getRenderRadius() {
-                return 1.0e7f;
-            }
-
-            @Override
-            public boolean isExpired() {
-                return owner.engine != hookEngine;
-            }
-
-            @Override
-            public void render(CombatEngineLayers layer, com.fs.starfarer.api.combat.ViewportAPI viewport) {
-                if (layer == CombatEngineLayers.BELOW_PLANETS) {
-                    owner.interceptBeforeRender();
-                } else if (layer == CombatEngineLayers.BELOW_SHIPS_LAYER) {
-                    owner.renderBattleScreenTsfcBelowShipsLayer(viewport);
+        try {
+            engine.addLayeredRenderingPlugin(new BaseCombatLayeredRenderingPlugin(CombatEngineLayers.BELOW_PLANETS) {
+                @Override
+                public EnumSet<CombatEngineLayers> getActiveLayers() {
+                    return EnumSet.of(
+                            CombatEngineLayers.BELOW_PLANETS,
+                            CombatEngineLayers.BELOW_SHIPS_LAYER);
                 }
-            }
-        });
-        preRenderHookAttached = true;
-        preRenderHookEngine = engine;
+
+                @Override
+                public float getRenderRadius() {
+                    return 1.0e7f;
+                }
+
+                @Override
+                public boolean isExpired() {
+                    return owner.engine != hookEngine;
+                }
+
+                @Override
+                public void render(CombatEngineLayers layer, com.fs.starfarer.api.combat.ViewportAPI viewport) {
+                    if (layer == CombatEngineLayers.BELOW_PLANETS) {
+                        owner.interceptBeforeRender();
+                    } else if (layer == CombatEngineLayers.BELOW_SHIPS_LAYER) {
+                        owner.renderedBelowShipsLayerThisFrame = true;
+                        owner.renderBattleScreenTsfcBelowShipsLayer(viewport);
+                    }
+                }
+            });
+            preRenderHookAttached = true;
+            preRenderHookEngine = engine;
+        } catch (Throwable ignored) {
+        }
     }
 
     /** Runs the deployment-wave interception from render hooks (before ships are drawn). */
@@ -156,11 +157,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     @Override
     public void renderInWorldCoords(ViewportAPI viewport) {
-        // Fallback only in case the layered hook could not be attached
-        if (!preRenderHookAttached) {
+        ensurePreRenderDeploymentHook();
+        // Fallback in case BELOW_SHIPS_LAYER has not yet been flushed by executeAdds() on the very first frame
+        if (!renderedBelowShipsLayerThisFrame) {
             interceptBeforeRender();
             renderBattleScreenTsfcBelowShipsLayer(viewport);
         }
+        renderedBelowShipsLayerThisFrame = false;
     }
 
     @Override
@@ -182,7 +185,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     /**
      * Renders the Battle Screen TSFC overlays on {@link CombatEngineLayers#BELOW_SHIPS_LAYER} so that
-     * Time, Space, Firepower, and Convergence geometries render underneath ship sprites, shields, and fighters.
+     * Time, Space, Firepower, and Convergence geometries render underneath ship sprites, shields, and fighters
+     * when the player is captaining a ship or using the camera feed ("F" key) on a friendly ship, without
+     * rendering Warroom truescale ship/hulk icons on the battle graphics layer.
      */
     void renderBattleScreenTsfcBelowShipsLayer(ViewportAPI viewport) {
         if (engine == null || !initializedBattle || engine.isCombatOver() || viewport == null) {
@@ -200,30 +205,19 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (scale <= 1e-5f) {
             return;
         }
-        float screenW = Math.max(1f, viewport.getVisibleWidth() * scale);
-        float screenH = Math.max(1f, viewport.getVisibleHeight() * scale);
-        try {
-            if (org.lwjgl.opengl.Display.isCreated()) {
-                screenW = Math.max(1f, (float) org.lwjgl.opengl.Display.getWidth());
-                screenH = Math.max(1f, (float) org.lwjgl.opengl.Display.getHeight());
-            }
-        } catch (Throwable ignored) {
-        }
-        org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
-        org.lwjgl.opengl.GL11.glPushMatrix();
-        org.lwjgl.opengl.GL11.glLoadIdentity();
-        org.lwjgl.opengl.GL11.glOrtho(0.0, screenW, 0.0, screenH, -1.0, 1.0);
+        // Transform TsfcWarroomRenderer's screen-space coordinates (sx = offsetX + wx * scale, sy = offsetY + wy * scale)
+        // directly back into world coordinates (wx, wy) on GL_MODELVIEW so Starsector's active world-space GL_PROJECTION
+        // renders them 1:1 with ship sprites at every zoom level and UI scale without overflowing GL_PROJECTION stack.
         org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
         org.lwjgl.opengl.GL11.glPushMatrix();
         org.lwjgl.opengl.GL11.glLoadIdentity();
+        org.lwjgl.opengl.GL11.glTranslatef(-offsetX / scale, -offsetY / scale, 0f);
+        org.lwjgl.opengl.GL11.glScalef(1f / scale, 1f / scale, 1f);
         try {
             renderBattleScreenTsfcOverlay(viewport);
         } finally {
             org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
             org.lwjgl.opengl.GL11.glPopMatrix();
-            org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
-            org.lwjgl.opengl.GL11.glPopMatrix();
-            org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
         }
     }
 
@@ -244,11 +238,17 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (ui != null && ui.isShowingDeploymentDialog()) {
             return;
         }
-        float cmdOpacity = (ui != null && ui.isShowingCommandUI()) ? ui.getCommandUIOpacity() : 0f;
-        if (cmdOpacity >= 0.95f) {
+        // When the player is using the camera feed ("F" key) on a friendly ship inside the Command UI
+        // (warroom.isShowingVideoFeed() == true), ui.isShowingCommandUI() remains true and getCommandUIOpacity() is 1.0f,
+        // even though the tactical map is hidden and the live battle graphics layer is displayed.
+        boolean showingCameraFeed = (tacticalOverlay != null && tacticalOverlay.isShowingVideoFeed());
+        float cmdMapOpacity = (ui != null && ui.isShowingCommandUI() && !showingCameraFeed)
+                ? ui.getCommandUIOpacity()
+                : 0f;
+        if (cmdMapOpacity >= 0.95f) {
             return;
         }
-        float battleFade = BATTLE_SCREEN_TSFC_OPACITY_MULT * Math.max(0f, 1f - cmdOpacity);
+        float battleFade = BATTLE_SCREEN_TSFC_OPACITY_MULT * Math.max(0f, 1f - cmdMapOpacity);
         if (battleFade <= 0.04f) {
             return;
         }
@@ -258,6 +258,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (scale <= 1e-5f) {
             return;
         }
+        // Render only the TSFC overlays (Time, Space, Convergence, Firepower) on the battle graphics layer;
+        // never render Warroom truescale ship or hulk icons on the battle graphics layer.
         TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
                 engine, scale, offsetX, offsetY, battleFade, playerGroup, alliedAiGroup, enemyGroup);
         TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(

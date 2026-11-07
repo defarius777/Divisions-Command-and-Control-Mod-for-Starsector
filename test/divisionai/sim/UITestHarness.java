@@ -4541,9 +4541,55 @@ public class UITestHarness {
                 && largestOrphanPieceSelectedOk
                 && overlaySrc.contains("TsfcWarroomRenderer.renderWarroomHulkSpritesAboveTsfc(");
 
+        // Verify whole-squadron strike craft Firepower Rose centroid, spread, and mean heading
+        java.util.function.BiFunction<String, Vector2f, ShipAPI> makeFighterProxy = (id, loc) -> (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return id;
+                    if ("getLocation".equals(m)) return loc;
+                    if ("getFacing".equals(m)) return 90f;
+                    if ("isAlive".equals(m) || "isFighter".equals(m)) return true;
+                    if ("isHulk".equals(m) || "isExpired".equals(m)) return false;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == float.class) return 0f;
+                    if (method.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        ShipAPI sqM1 = makeFighterProxy.apply("sq_m1", new Vector2f(1000f, 2000f));
+        ShipAPI sqM2 = makeFighterProxy.apply("sq_m2", new Vector2f(1100f, 2000f));
+        ShipAPI sqM3 = makeFighterProxy.apply("sq_m3", new Vector2f(1200f, 2000f));
+        java.util.List<ShipAPI> sqMembers = java.util.Arrays.<ShipAPI>asList(sqM1, sqM2, sqM3);
+        com.fs.starfarer.api.combat.FighterWingAPI mockWing = (com.fs.starfarer.api.combat.FighterWingAPI) java.lang.reflect.Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                (proxy, method, args) -> {
+                    String mName = method.getName();
+                    if ("getWingMembers".equals(mName)) return sqMembers;
+                    if ("getLeader".equals(mName)) return sqM1;
+                    return null;
+                });
+        Vector2f sqCentroid = new Vector2f();
+        BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(mockWing, sqM1, sqCentroid);
+        float sqSpread = BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(mockWing, sqCentroid);
+        float sqFacing = BattlefieldFirepowerEvaluator.resolveSquadronMeanFacingDeg(mockWing, sqM1);
+        boolean squadronRoseOk = Math.abs(sqCentroid.x - 1100f) < 0.5f
+                && Math.abs(sqCentroid.y - 2000f) < 0.5f
+                && sqSpread > 90f && sqSpread < 120f
+                && Math.abs(sqFacing - 90f) < 0.5f;
+
         boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")
                 && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
                 && combatPluginSrc.contains("snapshotGroupDivisionKeyframesBeforeUpdate")
+                && combatPluginSrc.contains("tacticalOverlay.isShowingVideoFeed()")
+                && !combatPluginSrc.contains("renderWarroomShipSpritesAboveTsfc")
+                && !combatPluginSrc.contains("renderWarroomHulkSpritesAboveTsfc")
+                && tsfcRendererSrc.contains("resolveSquadronLiveCentroid")
+                && tsfcRendererSrc.contains("computeSquadronSpreadRadius")
+                && tsfcRendererSrc.contains("resolveSquadronMeanFacingDeg")
+                && timeOpacityAfterAll >= 0.36f
+                && spaceOpacityAfterAll >= 0.34f
                 && overlaySrc.contains("syncRegularCommandSpritesVisibility(useMiniSpritesForTsfc)")
                 && overlaySrc.contains("lookup.findVirtual(mdClass, \"class\", MethodType.methodType(Map.class))")
                 && overlaySrc.contains("bNewLookup.findGetter(bNewCls, \"\\u00d4\\u00d50000\", spriteCls)")
@@ -4552,6 +4598,7 @@ public class UITestHarness {
                 && boundaryClearanceAll360Ok
                 && zeroHeartbeatOk
                 && hulkSpritesOk
+                && squadronRoseOk
                 && overlayTsfcIdx > 0
                 && overlayHullAboveIdx > overlayTsfcIdx
                 && overlayStarsIdx > overlayHullAboveIdx;
