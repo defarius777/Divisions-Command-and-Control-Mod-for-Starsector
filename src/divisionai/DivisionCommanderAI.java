@@ -3844,7 +3844,8 @@ public class DivisionCommanderAI {
             obfShipClass = Class.forName("com.fs.starfarer.combat.entities.Ship", false, cl);
             obfFleetManagerClass = Class.forName("com.fs.starfarer.combat.CombatFleetManager", false, cl);
             obfTaskManagerClass = Class.forName("com.fs.starfarer.combat.tasks.CombatTaskManager", false, cl);
-            obfDeployedMemberClass = Class.forName("com.fs.starfarer.combat.CombatFleetManager$O0", false, cl);
+            obfDeployedMemberClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.CombatFleetManager$O0", obfFleetManagerClass.getName(), "getBiggestStation");
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             getDeployedFleetMemberHandle = lookup.findVirtual(
                     obfFleetManagerClass,
@@ -3873,7 +3874,8 @@ public class DivisionCommanderAI {
             Class<?> shipCls = Class.forName("com.fs.starfarer.combat.entities.Ship", false, cl);
             Class<?> fmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager", false, cl);
             Class<?> tmCls = Class.forName("com.fs.starfarer.combat.tasks.CombatTaskManager", false, cl);
-            Class<?> dfmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager$O0", false, cl);
+            Class<?> dfmCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.CombatFleetManager$O0", fmCls.getName(), "getBiggestStation");
             Class<?> basicAiCls = Class.forName("com.fs.starfarer.combat.ai.BasicShipAI", false, cl);
             Class<?> wrapperCls = Class.forName("com.fs.starfarer.combat.entities.Ship$ShipAIWrapper", false, cl);
             Class<?> wrMapCls = Class.forName("com.fs.starfarer.combat.new.b", false, cl);

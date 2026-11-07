@@ -44,16 +44,19 @@ public final class ObfuscatedBytecodeBridge {
         public final String superInternalName;
         public final List<MemberEntry> fields;
         public final List<MemberEntry> methods;
+        public final List<String> referencedInternalClasses;
 
         public ClassBytecodeInfo(
                 String internalName,
                 String superInternalName,
                 List<MemberEntry> fields,
-                List<MemberEntry> methods) {
+                List<MemberEntry> methods,
+                List<String> referencedInternalClasses) {
             this.internalName = internalName;
             this.superInternalName = superInternalName;
             this.fields = fields;
             this.methods = methods;
+            this.referencedInternalClasses = referencedInternalClasses;
         }
     }
 
@@ -84,6 +87,122 @@ public final class ObfuscatedBytecodeBridge {
     }
 
     /**
+     * Tries {@code Class.forName(preferredClassName, false, cl)} first; if not found, inspects
+     * {@code ownerClassName}'s field table for an unobfuscated field {@code fieldName} and loads its type class.
+     */
+    public static Class<?> resolveClassOrFieldType(
+            ClassLoader cl,
+            String preferredClassName,
+            String ownerClassName,
+            String fieldName) throws ClassNotFoundException {
+        try {
+            return Class.forName(preferredClassName, false, cl);
+        } catch (ClassNotFoundException firstEx) {
+            ClassBytecodeInfo info = readClassInfo(cl, ownerClassName);
+            if (info != null && fieldName != null) {
+                for (int i = 0, n = info.fields.size(); i < n; i++) {
+                    MemberEntry f = info.fields.get(i);
+                    if (fieldName.equals(f.name) && f.descriptor.startsWith("L") && f.descriptor.endsWith(";")) {
+                        String clsName = f.descriptor.substring(1, f.descriptor.length() - 1).replace('/', '.');
+                        return Class.forName(clsName, false, cl);
+                    }
+                }
+            }
+            throw firstEx;
+        }
+    }
+
+    /**
+     * Tries {@code Class.forName(preferredClassName, false, cl)} first; if not found, inspects
+     * {@code ownerClassName}'s field table for a field whose object type starts with {@code packagePrefix}
+     * (e.g. {@code "com.fs.starfarer.campaign.ui."} or {@code "com.fs.starfarer.renderers."}).
+     */
+    public static Class<?> resolveClassOrFieldByPackage(
+            ClassLoader cl,
+            String preferredClassName,
+            String ownerClassName,
+            String packagePrefix) throws ClassNotFoundException {
+        try {
+            return Class.forName(preferredClassName, false, cl);
+        } catch (ClassNotFoundException firstEx) {
+            ClassBytecodeInfo info = readClassInfo(cl, ownerClassName);
+            if (info != null && packagePrefix != null) {
+                String internalPrefix = "L" + packagePrefix.replace('.', '/');
+                for (int i = 0, n = info.fields.size(); i < n; i++) {
+                    MemberEntry f = info.fields.get(i);
+                    if (f.descriptor.startsWith(internalPrefix) && f.descriptor.endsWith(";")) {
+                        String clsName = f.descriptor.substring(1, f.descriptor.length() - 1).replace('/', '.');
+                        return Class.forName(clsName, false, cl);
+                    }
+                }
+            }
+            throw firstEx;
+        }
+    }
+
+    /**
+     * Tries {@code Class.forName(preferredClassName, false, cl)} first; if not found, inspects
+     * {@code ownerClassName}'s method {@code methodName} and loads its {@code paramIndex}-th parameter object class.
+     */
+    public static Class<?> resolveClassOrMethodParam(
+            ClassLoader cl,
+            String preferredClassName,
+            String ownerClassName,
+            String methodName,
+            int paramIndex) throws ClassNotFoundException {
+        try {
+            return Class.forName(preferredClassName, false, cl);
+        } catch (ClassNotFoundException firstEx) {
+            ClassBytecodeInfo info = readClassInfo(cl, ownerClassName);
+            if (info != null && methodName != null) {
+                for (int i = 0, n = info.methods.size(); i < n; i++) {
+                    MemberEntry m = info.methods.get(i);
+                    if (!methodName.equals(m.name)) continue;
+                    List<String> paramClasses = extractParameterObjectClassNames(m.descriptor);
+                    if (paramIndex >= 0 && paramIndex < paramClasses.size()) {
+                        String clsName = paramClasses.get(paramIndex);
+                        if (clsName != null) {
+                            return Class.forName(clsName, false, cl);
+                        }
+                    }
+                }
+            }
+            throw firstEx;
+        }
+    }
+
+    private static List<String> extractParameterObjectClassNames(String methodDescriptor) {
+        List<String> out = new ArrayList<>();
+        if (methodDescriptor == null || !methodDescriptor.startsWith("(")) return out;
+        int end = methodDescriptor.indexOf(')');
+        if (end < 0) return out;
+        int idx = 1;
+        while (idx < end) {
+            char c = methodDescriptor.charAt(idx);
+            if (c == 'L') {
+                int semi = methodDescriptor.indexOf(';', idx);
+                if (semi < 0 || semi > end) break;
+                out.add(methodDescriptor.substring(idx + 1, semi).replace('/', '.'));
+                idx = semi + 1;
+            } else if (c == '[') {
+                while (idx < end && methodDescriptor.charAt(idx) == '[') idx++;
+                if (idx < end && methodDescriptor.charAt(idx) == 'L') {
+                    int semi = methodDescriptor.indexOf(';', idx);
+                    if (semi < 0 || semi > end) break;
+                    idx = semi + 1;
+                } else {
+                    idx++;
+                }
+                out.add(null);
+            } else {
+                out.add(null);
+                idx++;
+            }
+        }
+        return out;
+    }
+
+    /**
      * Tries each candidate class name in order, throwing the first {@link ClassNotFoundException} only if all fail.
      */
     public static Class<?> resolveFirstAvailableClass(ClassLoader cl, String... candidateClassNames)
@@ -103,8 +222,95 @@ public final class ObfuscatedBytecodeBridge {
     }
 
     /**
-     * Parses {@code ownerClassName}'s bytecode and loads the return type {@link Class} of {@code methodName}.
+     * Resolves the music controller singleton class ({@code sound.H} on Windows, {@code sound.OooO} on macOS)
+     * by checking candidate names first and falling back to inspecting {@code com.fs.starfarer.combat.CombatMain}'s
+     * constant pool for a {@code sound/*} class containing a {@link Thread} field.
      */
+    public static Class<?> resolveSoundHClass(ClassLoader cl) throws ClassNotFoundException {
+        try {
+            return resolveFirstAvailableClass(cl, "sound.H", "sound.OooO");
+        } catch (ClassNotFoundException firstEx) {
+            ClassBytecodeInfo cmInfo = readClassInfo(cl, "com.fs.starfarer.combat.CombatMain");
+            if (cmInfo != null) {
+                for (int i = 0, n = cmInfo.referencedInternalClasses.size(); i < n; i++) {
+                    String ref = cmInfo.referencedInternalClasses.get(i);
+                    if (ref != null && ref.startsWith("sound/") && ref.indexOf('$') < 0) {
+                        String dotName = ref.replace('/', '.');
+                        ClassBytecodeInfo sInfo = readClassInfo(cl, dotName);
+                        if (sInfo != null) {
+                            for (int f = 0, fn = sInfo.fields.size(); f < fn; f++) {
+                                if ("Ljava/lang/Thread;".equals(sInfo.fields.get(f).descriptor)) {
+                                    return Class.forName(dotName, false, cl);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            throw firstEx;
+        }
+    }
+
+    /**
+     * Resolves the audio stream player class ({@code sound.O} on Windows, {@code sound.oo0O} on macOS)
+     * by checking candidate names first and falling back to inspecting {@code soundHClass}'s fields for
+     * a {@code sound/*} field type.
+     */
+    public static Class<?> resolveSoundOClass(ClassLoader cl, Class<?> soundHClass) throws ClassNotFoundException {
+        try {
+            return resolveFirstAvailableClass(cl, "sound.O", "sound.oo0O");
+        } catch (ClassNotFoundException firstEx) {
+            if (soundHClass != null) {
+                Class<?> fromField = resolveClassOrFieldByPackage(cl, "sound.O", soundHClass.getName(), "sound.");
+                if (fromField != null && fromField != soundHClass) {
+                    return fromField;
+                }
+            }
+            throw firstEx;
+        }
+    }
+
+    /**
+     * Resolves the music stream descriptor class ({@code com.fs.starfarer.loading.int} on Windows)
+     * by trying {@code Class.forName} first and falling back to scanning {@code com.fs.starfarer.loading.SpecStore}'s
+     * constant pool for a {@code com/fs/starfarer/loading/*} class with a {@code (Lorg/json/JSONObject;)V} constructor
+     * and a method returning {@code soundOClass}.
+     */
+    public static Class<?> resolveStreamDescriptorClass(ClassLoader cl, Class<?> soundOClass)
+            throws ClassNotFoundException {
+        try {
+            return Class.forName("com.fs.starfarer.loading.int", false, cl);
+        } catch (ClassNotFoundException firstEx) {
+            if (soundOClass != null) {
+                String soundORetSuffix = ")" + toDescriptor(soundOClass);
+                ClassBytecodeInfo ssInfo = readClassInfo(cl, "com.fs.starfarer.loading.SpecStore");
+                if (ssInfo != null) {
+                    for (int i = 0, n = ssInfo.referencedInternalClasses.size(); i < n; i++) {
+                        String ref = ssInfo.referencedInternalClasses.get(i);
+                        if (ref != null && ref.startsWith("com/fs/starfarer/loading/") && ref.indexOf('$') < 0) {
+                            String dotName = ref.replace('/', '.');
+                            ClassBytecodeInfo cand = readClassInfo(cl, dotName);
+                            if (cand == null) continue;
+                            boolean hasJsonCtor = false;
+                            boolean returnsSoundO = false;
+                            for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
+                                MemberEntry me = cand.methods.get(m);
+                                if ("<init>".equals(me.name) && "(Lorg/json/JSONObject;)V".equals(me.descriptor)) {
+                                    hasJsonCtor = true;
+                                } else if (me.descriptor.endsWith(soundORetSuffix)) {
+                                    returnsSoundO = true;
+                                }
+                            }
+                            if (hasJsonCtor && returnsSoundO) {
+                                return Class.forName(dotName, false, cl);
+                            }
+                        }
+                    }
+                }
+            }
+            throw firstEx;
+        }
+    }
     public static Class<?> resolveMethodReturnClass(
             ClassLoader cl,
             String ownerClassName,
@@ -327,7 +533,16 @@ public final class ObfuscatedBytecodeBridge {
                 methods.add(new MemberEntry(mAccess, mName, mDesc));
             }
 
-            ClassBytecodeInfo info = new ClassBytecodeInfo(thisInternal, superInternal, fields, methods);
+            List<String> referencedInternalClasses = new ArrayList<>();
+            for (int i = 1; i < cpCount; i++) {
+                int nameIdx = classNameIndexPool[i];
+                if (nameIdx > 0 && nameIdx < cpCount && utf8Pool[nameIdx] != null) {
+                    referencedInternalClasses.add(utf8Pool[nameIdx]);
+                }
+            }
+
+            ClassBytecodeInfo info = new ClassBytecodeInfo(
+                    thisInternal, superInternal, fields, methods, referencedInternalClasses);
             CACHE.put(className, info);
             return info;
         } catch (Throwable ignored) {

@@ -251,15 +251,22 @@ public class DivisionDeploymentDialogOrganizer {
                     cl, "com.fs.starfarer.ui.c", "com.fs.starfarer.ui.impl.StandardTooltipV2", "getContents");
             Class<?> posClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
                     cl, "com.fs.starfarer.ui.OO0O", uiCompBaseClass.getName(), "getPosition");
-            Class<?> buttonImplClass = Class.forName("com.fs.starfarer.ui.n", false, cl);
             Class<?> fleetMemberImplClass = Class.forName("com.fs.starfarer.campaign.fleet.FleetMember", false, cl);
-            Class<?> iconClass = Class.forName("com.fs.starfarer.ui.B.new", false, cl);
-            Class<?> inputEventImplClass = Class.forName("com.fs.starfarer.util.A.C", false, cl);
-            Class<?> scrollingListClass = Class.forName("com.fs.starfarer.coreui.v", false, cl);
-            Class<?> scrollerClass = Class.forName("com.fs.starfarer.ui.g", false, cl);
 
-            this.fddClass = Class.forName("com.fs.starfarer.ui.impl.oO0O", false, cl);
-            this.shipGridClass = Class.forName("com.fs.starfarer.campaign.ui.S", false, cl);
+            this.fddClass = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                    cl, "com.fs.starfarer.ui.impl.oO0O", combatUiClass.getName(), "fdd");
+            this.shipGridClass = ObfuscatedBytecodeBridge.resolveClassOrFieldByPackage(
+                    cl, "com.fs.starfarer.campaign.ui.S", fddClass.getName(), "com.fs.starfarer.campaign.ui.");
+            Class<?> buttonImplClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.n", shipGridClass.getName(), "getButtonForMember");
+            Class<?> iconClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.B.new", shipGridClass.getName(), "getIconForMember");
+            Class<?> inputEventImplClass = ObfuscatedBytecodeBridge.resolveClassOrMethodParam(
+                    cl, "com.fs.starfarer.util.A.C", fddClass.getName(), "fleetMemberClicked", 2);
+            Class<?> scrollingListClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.coreui.v", shipGridClass.getName(), "getList");
+            Class<?> scrollerClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.g", scrollingListClass.getName(), "getScroller");
 
             this.isShowingDeploymentDialogHandle = lookup.findVirtual(
                     combatUiClass,
@@ -393,7 +400,8 @@ public class DivisionDeploymentDialogOrganizer {
                     "recompute",
                     MethodType.methodType(void.class));
             try {
-                Class<?> contentContainerClass = Class.forName("com.fs.starfarer.ui.g$Oo", false, cl);
+                Class<?> contentContainerClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                        cl, "com.fs.starfarer.ui.g$Oo", scrollerClass.getName(), "getContentContainer");
                 this.scrollerGetContentContainerHandle = lookup.findVirtual(
                         scrollerClass,
                         "getContentContainer",
@@ -411,30 +419,41 @@ public class DivisionDeploymentDialogOrganizer {
                         "getBase",
                         MethodType.methodType(posClass));
                 MethodHandles.Lookup posLookup = MethodHandles.privateLookupIn(posClass, lookup);
+                String posChildrenField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, posClass, "Ljava/util/List;", "\u00d400000");
                 this.posChildrenListGetterHandle = posLookup.findGetter(
                         posClass,
-                        "\u00d400000",
+                        posChildrenField,
                         List.class);
             } catch (Throwable ignored) {
             }
 
             try {
-                Class<?> o0ooClass = Class.forName("com.fs.starfarer.renderers.O0OO", false, cl);
+                Class<?> o0ooClass = ObfuscatedBytecodeBridge.resolveClassOrFieldByPackage(
+                        cl, "com.fs.starfarer.renderers.O0OO", iconClass.getName(), "com.fs.starfarer.renderers.");
+                String getO0ooMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, iconClass, "\u00d2O0000", "()" + ObfuscatedBytecodeBridge.toDescriptor(o0ooClass));
                 this.iconGetO0OOHandle = lookup.findVirtual(
                         iconClass,
-                        "\u00d2O0000",
+                        getO0ooMethod,
                         MethodType.methodType(o0ooClass));
+                String setColorsMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, o0ooClass, "o00000", "(Ljava/awt/Color;Ljava/awt/Color;)V");
                 this.o0ooSetColorsHandle = lookup.findVirtual(
                         o0ooClass,
-                        "o00000",
+                        setColorsMethod,
                         MethodType.methodType(void.class, Color.class, Color.class));
+                String setDeployStateMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, iconClass, "Object", "(I)V");
                 this.iconSetDeployStateHandle = lookup.findVirtual(
                         iconClass,
-                        "Object",
+                        setDeployStateMethod,
                         MethodType.methodType(void.class, int.class));
+                String setDeployTextMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, iconClass, "Object", "(Ljava/lang/String;)V");
                 this.iconSetDeployTextHandle = lookup.findVirtual(
                         iconClass,
-                        "Object",
+                        setDeployTextMethod,
                         MethodType.methodType(void.class, String.class));
             } catch (Throwable ignored) {
             }

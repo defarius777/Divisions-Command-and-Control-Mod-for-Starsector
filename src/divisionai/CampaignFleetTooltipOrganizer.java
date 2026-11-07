@@ -639,13 +639,19 @@ public final class CampaignFleetTooltipOrganizer {
                     cl, "com.fs.starfarer.ui.interfacenew", "com.fs.starfarer.campaign.CampaignState", "getScreenPanel");
             Class<?> posClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
                     cl, "com.fs.starfarer.ui.OO0O", uiCompClass.getName(), "getPosition");
-            Class<?> contentContainerClass = Class.forName("com.fs.starfarer.ui.g$Oo", false, cl);
-            Class<?> buttonImplClass = Class.forName("com.fs.starfarer.ui.n", false, cl);
+            Class<?> contentContainerClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.g$Oo", scrollerClass.getName(), "getContentContainer");
             Class<?> fleetMemberImplClass = Class.forName("com.fs.starfarer.campaign.fleet.FleetMember", false, cl);
-            Class<?> iconClass = Class.forName("com.fs.starfarer.ui.B.new", false, cl);
-
-            sPanelClass = Class.forName("com.fs.starfarer.campaign.ui.S", false, cl);
-            vGridClass = Class.forName("com.fs.starfarer.coreui.v", false, cl);
+            Class<?> fddCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                    cl, "com.fs.starfarer.ui.impl.oO0O", "com.fs.starfarer.combat.CombatState", "fdd");
+            sPanelClass = ObfuscatedBytecodeBridge.resolveClassOrFieldByPackage(
+                    cl, "com.fs.starfarer.campaign.ui.S", fddCls.getName(), "com.fs.starfarer.campaign.ui.");
+            Class<?> buttonImplClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.n", sPanelClass.getName(), "getButtonForMember");
+            Class<?> iconClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.B.new", sPanelClass.getName(), "getIconForMember");
+            vGridClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.coreui.v", sPanelClass.getName(), "getList");
 
             MethodHandles.Lookup pubLookup = MethodHandles.lookup();
             MethodHandles.Lookup tmLookup = MethodHandles.privateLookupIn(tmClass, pubLookup);
@@ -780,9 +786,11 @@ public final class CampaignFleetTooltipOrganizer {
                         "getBase",
                         MethodType.methodType(posClass));
                 MethodHandles.Lookup posLookup = MethodHandles.privateLookupIn(posClass, pubLookup);
+                String posChildrenField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, posClass, "Ljava/util/List;", "\u00d400000");
                 posChildrenListGetterHandle = posLookup.findGetter(
                         posClass,
-                        "\u00d400000",
+                        posChildrenField,
                         List.class);
             } catch (Throwable ignored) {
             }

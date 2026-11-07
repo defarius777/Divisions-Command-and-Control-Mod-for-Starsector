@@ -4596,6 +4596,18 @@ public class UITestHarness {
             Class<?> tmFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
                     testCl, "com.fs.starfarer.campaign.__MacLinuxRenamedTM__",
                     "com.fs.starfarer.campaign.CampaignEngine", "getTooltipManager");
+            Class<?> fddFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                    testCl, "com.fs.starfarer.ui.impl.__MacLinuxRenamedFdd__",
+                    "com.fs.starfarer.combat.CombatState", "fdd");
+            Class<?> sGridFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrFieldByPackage(
+                    testCl, "com.fs.starfarer.campaign.ui.__MacLinuxRenamedShipGrid__",
+                    fddFallback.getName(), "com.fs.starfarer.campaign.ui.");
+            Class<?> dfmFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.combat.__MacLinuxRenamedDfm__",
+                    "com.fs.starfarer.combat.CombatFleetManager", "getBiggestStation");
+            Class<?> soundHFallback = divisionai.ObfuscatedBytecodeBridge.resolveSoundHClass(testCl);
+            Class<?> soundOFallback = divisionai.ObfuscatedBytecodeBridge.resolveSoundOClass(testCl, soundHFallback);
+            Class<?> streamDescFallback = divisionai.ObfuscatedBytecodeBridge.resolveStreamDescriptorClass(testCl, soundOFallback);
             com.fs.starfarer.api.combat.FighterWingAPI mockNullLeaderWing =
                     (com.fs.starfarer.api.combat.FighterWingAPI) java.lang.reflect.Proxy.newProxyInstance(
                             testCl,
@@ -4611,6 +4623,12 @@ public class UITestHarness {
                     && (panelFallback != null)
                     && (coreFallback != null)
                     && (tmFallback != null)
+                    && (fddFallback != null)
+                    && (sGridFallback != null)
+                    && (dfmFallback != null)
+                    && (soundHFallback != null)
+                    && (soundOFallback != null)
+                    && (streamDescFallback != null)
                     && (recoveredLeader == sqM1);
         } catch (Throwable ignored) {
             bridgeAndFighterGuardOk = false;
@@ -4631,7 +4649,7 @@ public class UITestHarness {
                 && timeOpacityAfterAll >= 0.36f
                 && spaceOpacityAfterAll >= 0.34f
                 && overlaySrc.contains("syncRegularCommandSpritesVisibility(useMiniSpritesForTsfc)")
-                && overlaySrc.contains("lookup.findVirtual(mdClass, \"class\", MethodType.methodType(Map.class))")
+                && overlaySrc.contains("lookup.findVirtual(mdClass, iconsMapMethod, MethodType.methodType(Map.class))")
                 && overlaySrc.contains("bNewLookup.findGetter(bNewCls, \"\\u00d4\\u00d50000\", spriteCls)")
                 && defaultMiniSpritesOk
                 && disabledMiniSpritesOk

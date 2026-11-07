@@ -515,19 +515,31 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
 
             try {
+                Class<?> fddCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                        cl, "com.fs.starfarer.ui.impl.oO0O", ui.getClass().getName(), "fdd");
+                Class<?> sGridCls = ObfuscatedBytecodeBridge.resolveClassOrFieldByPackage(
+                        cl, "com.fs.starfarer.campaign.ui.S", fddCls.getName(), "com.fs.starfarer.campaign.ui.");
+                Class<?> bNewCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                        cl, "com.fs.starfarer.ui.B.new", sGridCls.getName(), "getIconForMember");
+                Class<?> spriteCls = Class.forName("com.fs.graphics.Sprite", false, cl);
+                Class<?> texObjCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                        cl, "com.fs.graphics.Object", spriteCls.getName(), "texture");
                 Class<?> shipIconCls = Class.forName("com.fs.starfarer.combat.new.A", false, cl);
                 Class<?> fighterIconCls = Class.forName("com.fs.starfarer.combat.new.o0Oo", false, cl);
-                Class<?> bNewCls = Class.forName("com.fs.starfarer.ui.B.new", false, cl);
-                Class<?> spriteCls = Class.forName("com.fs.graphics.Sprite", false, cl);
-                Class<?> texObjCls = Class.forName("com.fs.graphics.Object", false, cl);
                 MethodHandles.Lookup mdLookup2 = MethodHandles.privateLookupIn(mdClass, lookup);
                 MethodHandles.Lookup bNewLookup = MethodHandles.privateLookupIn(bNewCls, lookup);
                 MethodHandles.Lookup spriteLookup = MethodHandles.privateLookupIn(spriteCls, lookup);
                 this.warroomShipIconClass = shipIconCls;
                 this.warroomFighterIconClass = fighterIconCls;
-                this.mdIconsMapGetter = lookup.findVirtual(mdClass, "class", MethodType.methodType(Map.class));
-                this.mdIconSetGetter = mdLookup2.findGetter(mdClass, "\u00d2o0000", Set.class);
-                this.shipIconBNewGetter = lookup.findVirtual(shipIconCls, "\u00d3O0000", MethodType.methodType(bNewCls));
+                String iconsMapMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, mdClass, "class", "()Ljava/util/Map;");
+                this.mdIconsMapGetter = lookup.findVirtual(mdClass, iconsMapMethod, MethodType.methodType(Map.class));
+                String iconSetField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, mdClass, "Ljava/util/Set;", "\u00d2o0000");
+                this.mdIconSetGetter = mdLookup2.findGetter(mdClass, iconSetField, Set.class);
+                String shipIconBNewMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, shipIconCls, "\u00d3O0000", "()" + ObfuscatedBytecodeBridge.toDescriptor(bNewCls));
+                this.shipIconBNewGetter = lookup.findVirtual(shipIconCls, shipIconBNewMethod, MethodType.methodType(bNewCls));
                 this.bNewSpriteGetter = bNewLookup.findGetter(bNewCls, "\u00d4\u00d50000", spriteCls);
                 this.bNewHoloSetter = lookup.findVirtual(bNewCls, "\u00d4O0000", MethodType.methodType(void.class, boolean.class));
                 this.bNewModulesSetter = lookup.findVirtual(bNewCls, "\u00f400000", MethodType.methodType(void.class, boolean.class));
@@ -543,12 +555,13 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 }
                 try {
                     MethodHandles.Lookup fighterLookup = MethodHandles.privateLookupIn(fighterIconCls, lookup);
-                    this.fighterIconSpriteGetter = fighterLookup.findGetter(fighterIconCls, "float.super", spriteCls);
+                    String fighterSpriteField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                            cl, fighterIconCls, ObfuscatedBytecodeBridge.toDescriptor(spriteCls), "float.super");
+                    this.fighterIconSpriteGetter = fighterLookup.findGetter(fighterIconCls, fighterSpriteField, spriteCls);
                 } catch (Throwable ignored) {
                     this.fighterIconSpriteGetter = null;
                 }
             } catch (Throwable t) {
-                LOG.warn("[DivisionAI] Failed to resolve Warroom command sprite handles", t);
                 this.warroomShipIconClass = null;
                 this.mdIconsMapGetter = null;
                 this.mdIconSetGetter = null;
