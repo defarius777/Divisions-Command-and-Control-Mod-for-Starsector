@@ -539,14 +539,24 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             // when fighting a 0%-organization fleet)!
             BattleGroupState side0OpposingView = buildSide0OpposingViewForEnemy(playerHulls);
             BattleGroupState side1OpposingView = buildSide1OpposingViewForPlayer(enemyHulls);
+            BattlefieldFirepowerEvaluator.setActiveOpposingViews(side1OpposingView, side0OpposingView);
             markViewNs = System.nanoTime();
+
+            // Evaluate cross-group Time/Space/Convergence ONCE for all active battle groups before OTC & Division AI
+            // run so every group's TSFC keyframes and battleActiveDivisionCount are 100% consistent on every tick.
+            BattlefieldFirepowerEvaluator.evaluateAllGroupsTimeSpaceConvergenceOncePerTick(
+                    engine,
+                    now,
+                    playerGroup,
+                    alliedAiGroup,
+                    enemyGroup,
+                    side1OpposingView,
+                    side0OpposingView);
 
             // 3. Run OTC strategy ONLY for battlegroups that have at least 1 division
             boolean anyNewDivs = !newPlayerDivs.isEmpty() || !newAlliedAiDivs.isEmpty() || !newEnemyDivs.isEmpty();
-            boolean ranOtcThisTick = false;
             if (otcTimer >= OTC_EVAL_INTERVAL || anyNewDivs) {
                 otcTimer = 0f;
-                ranOtcThisTick = true;
                 if (playerHasDivisions) {
                     OtcAI.evaluateOtcStrategy(engine, playerGroup, side1OpposingView, now);
                 }
@@ -556,24 +566,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 if (enemyHasDivisions && !enemyGroup.isPassiveOpposingView) {
                     OtcAI.evaluateOtcStrategy(engine, enemyGroup, side0OpposingView, now);
                 }
-            }
-
-            // On 0.20s ticks where OTC strategy did not run (or for groups with station bastions), evaluate
-            // cross-group Time/Space/Convergence exactly ONCE using the same opposing views so EMA filters
-            // and spreadRadius never double-step or oscillate against different opposing groups.
-            if (!ranOtcThisTick || !playerHasDivisions) {
-                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(
-                        engine, playerGroup, side1OpposingView != null ? side1OpposingView : enemyGroup);
-            }
-            if (!ranOtcThisTick || !alliedAiHasDivisions) {
-                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(
-                        engine, alliedAiGroup, side1OpposingView != null ? side1OpposingView : enemyGroup);
-            }
-            if (!ranOtcThisTick || !enemyHasDivisions) {
-                BattleGroupState opp0 = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
-                        ? side0OpposingView
-                        : ((playerGroup != null && !playerGroup.divisions.isEmpty()) ? playerGroup : alliedAiGroup);
-                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, opp0);
             }
 
             markOtcNs = System.nanoTime();
@@ -587,6 +579,14 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             if (enemyHasDivisions && !side0OpposingView.divisions.isEmpty()) {
                 DivisionCommanderAI.evaluateAndExecuteDivisions(engine, enemyGroup, side0OpposingView, now);
             }
+            // Refresh Convergence focal points (if Division Commanders switched targets on their 2.5s cadence)
+            // and finalize deterministic division watermarks across all active battle groups.
+            BattlefieldFirepowerEvaluator.refreshConvergenceTargetsAndWatermarksAfterC2(
+                    engine,
+                    now,
+                    playerGroup,
+                    alliedAiGroup,
+                    enemyGroup);
 
             markDivNs = System.nanoTime();
             // 5. Update active Voidstrike instantiation, multi-division merging, and return cleanup
@@ -747,6 +747,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
         }
 
+        BattlefieldFirepowerEvaluator.snapshotGroupDivisionKeyframesBeforeUpdate(
+                engine, now, playerGroup, alliedAiGroup, enemyGroup);
+
         if (newPlayerWave != null && playerGroup != null) {
             PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
             if (doctrine != null) {
@@ -815,8 +818,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
         }
         // Always ensure newly deployed reinforcement ships get their Firepower Rose initialized immediately
-        // even if no side currently has a multi-ship division.
+        // even if no side currently has a multi-ship division, and keep cross-group TSFC pinched & watermarked.
         BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
+        BattleGroupState s0View = buildSide0OpposingViewForEnemy(playerHulls);
+        BattleGroupState s1View = buildSide1OpposingViewForPlayer(enemyHulls);
+        BattlefieldFirepowerEvaluator.setActiveOpposingViews(s1View, s0View);
+        BattlefieldFirepowerEvaluator.evaluateAllGroupsTimeSpaceConvergenceOncePerTick(
+                engine, now, playerGroup, alliedAiGroup, enemyGroup, s1View, s0View);
     }
 
     /**

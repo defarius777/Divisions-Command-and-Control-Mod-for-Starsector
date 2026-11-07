@@ -4439,7 +4439,30 @@ public class UITestHarness {
         // Simulate 0.10s kinematics refresh via updateCrossGroupTimeSpaceConvergence consistency
         divisionai.OtcAI.updateTelemetry(null, hbGroup);
         float spreadAfterNext = kfDiv.spreadRadius;
-        boolean zeroHeartbeatOk = Math.abs(spreadAfter020 - spreadAfterNext) < 0.01f && domAfter020 > 300f;
+        // Also verify that evaluating playerGroup, empty alliedAiGroup, and enemyGroup (as on OTC / 2.5s C2 ticks)
+        // never drops playerGroup from battleActiveDivisionCount or flashes Time/Space/Convergence sliding opacity!
+        BattleGroupState emptyAlliedGroup = new BattleGroupState(0, cmdr);
+        emptyAlliedGroup.isAlliedAi = true;
+        BattleGroupState mockEnemyGroup = new BattleGroupState(1, cmdr);
+        ShipAPI mockEnShip = createMockNamedShip("en_flash_1", "HSS Dominator", HullSize.CRUISER, 0f, 1800f, 50f, 1, humanCapt);
+        DivisionState mockEnDiv = new DivisionState("en_div_flash", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Cruiser Div 1", cmdr);
+        mockEnDiv.flagship = mockEnShip;
+        mockEnDiv.members.add(mockEnShip);
+        mockEnemyGroup.divisions.add(mockEnDiv);
+        divisionai.OtcAI.updateTelemetry(null, mockEnemyGroup);
+        BattlefieldFirepowerEvaluator.evaluateAllGroupsTimeSpaceConvergenceOncePerTick(
+                null, 2.50f, hbGroup, emptyAlliedGroup, mockEnemyGroup, mockEnemyGroup, hbGroup);
+        float timeOpacityAfterAll = BattlefieldFirepowerEvaluator.computeDivisionTimeSlidingOpacityScale(kfDiv, kfDiv.freeTimeRadius);
+        float spaceOpacityAfterAll = BattlefieldFirepowerEvaluator.computeDivisionSpaceSlidingOpacityScale(kfDiv, kfDiv.spaceDominanceWeight);
+        // Now call updateCrossGroupTimeSpaceConvergence on emptyAlliedGroup alone (which previously clobbered battleActiveDivisionCount!)
+        BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(null, emptyAlliedGroup, mockEnemyGroup);
+        float timeOpacityAfterEmptyAlly = BattlefieldFirepowerEvaluator.computeDivisionTimeSlidingOpacityScale(kfDiv, kfDiv.freeTimeRadius);
+        float spaceOpacityAfterEmptyAlly = BattlefieldFirepowerEvaluator.computeDivisionSpaceSlidingOpacityScale(kfDiv, kfDiv.spaceDominanceWeight);
+        boolean zeroFlash25sOk = Math.abs(timeOpacityAfterAll - timeOpacityAfterEmptyAlly) < 1e-4f
+                && Math.abs(spaceOpacityAfterAll - spaceOpacityAfterEmptyAlly) < 1e-4f;
+        boolean zeroHeartbeatOk = Math.abs(spreadAfter020 - spreadAfterNext) < 0.01f
+                && domAfter020 > 300f
+                && zeroFlash25sOk;
 
         // Item C: Destroyed wrecks/hulks rendered in truescale when any TSFC overlay is active,
         // and ONLY on the "main" or largest part of a broken-up ship!

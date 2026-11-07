@@ -622,7 +622,11 @@ public class OtcAI {
 
         // Each side's OTC evaluates only its own divisions against the enemy; the enemy OTC does the reverse on its own
         // update. Running enemy->my here too mutated directional radii mid-frame and made results depend on update order.
-        BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, myGroup, enemyGroup);
+        // If DivisionAICombatPlugin already evaluated cross-group Time/Space/Convergence for this tick at `now`, skip
+        // re-evaluating here so EMA filters and TSFC keyframes never double-step on OTC ticks.
+        if (!BattlefieldFirepowerEvaluator.isGroupTimeSpaceUpToDateForTick(myGroup, now)) {
+            BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, myGroup, enemyGroup);
+        }
         BattlefieldFirepowerEvaluator.updateEnemyFeignedRetreatSuspicion(engine, myGroup, enemyGroup);
         updateEnemyOverkillAndCenterOfGravity(engine, myGroup, enemyGroup);
 

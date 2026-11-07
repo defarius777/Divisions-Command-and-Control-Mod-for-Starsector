@@ -74,6 +74,7 @@ public class BattlefieldFirepowerEvaluator {
     static CombatEngineAPI lastRoseUpdateEngine = null;
     static float lastTimeSpaceConvUpdateTime = -100f;
     static float lastRoseUpdateTime = -100f;
+    static float lastDivisionWatermarkDecayTime = -100f;
     static int lastTimeSpaceConvDivCountSig = -1;
 
     // Sliding opacity battle-high watermarks (track highest values seen in the current battle)
@@ -103,6 +104,8 @@ public class BattlefieldFirepowerEvaluator {
     static BattleGroupState activePlayerGroupRef = null;
     static BattleGroupState activeAlliedGroupRef = null;
     static BattleGroupState activeEnemyGroupRef = null;
+    static BattleGroupState activeSide1OpposingViewRef = null;
+    static BattleGroupState activeSide0OpposingViewRef = null;
 
     static final Map<String, ShipFirepowerRose> rosesByShipId = new HashMap<>();
     static final Map<String, DivisionState> stationBastionsByShipId = new HashMap<>();
@@ -387,12 +390,15 @@ public class BattlefieldFirepowerEvaluator {
         activePlayerGroupRef = null;
         activeAlliedGroupRef = null;
         activeEnemyGroupRef = null;
+        activeSide1OpposingViewRef = null;
+        activeSide0OpposingViewRef = null;
         rosesByShipId.clear();
         stationBastionsByShipId.clear();
         lastTimeSpaceConvEngine = null;
         lastRoseUpdateEngine = null;
         lastTimeSpaceConvUpdateTime = -100f;
         lastRoseUpdateTime = -100f;
+        lastDivisionWatermarkDecayTime = -100f;
         lastTimeSpaceConvDivCountSig = -1;
         battleMaxShipSustainedPeak = 220f;
         battleMaxShipShortDotPeak = 300f;
@@ -499,6 +505,32 @@ public class BattlefieldFirepowerEvaluator {
         activeEnemyGroupRef = enemyGroup;
     }
 
+    public static void setActiveOpposingViews(
+            BattleGroupState side1OpposingView,
+            BattleGroupState side0OpposingView) {
+        activeSide1OpposingViewRef = side1OpposingView;
+        activeSide0OpposingViewRef = side0OpposingView;
+    }
+
+    public static BattleGroupState resolveOpposingGroupForSide0(BattleGroupState fallbackEnemyGroup) {
+        if (activeSide1OpposingViewRef != null && !activeSide1OpposingViewRef.divisions.isEmpty()) {
+            return activeSide1OpposingViewRef;
+        }
+        return fallbackEnemyGroup != null ? fallbackEnemyGroup : activeEnemyGroupRef;
+    }
+
+    public static BattleGroupState resolveOpposingGroupForSide1(
+            BattleGroupState fallbackPlayerGroup,
+            BattleGroupState fallbackAlliedGroup) {
+        if (activeSide0OpposingViewRef != null && !activeSide0OpposingViewRef.divisions.isEmpty()) {
+            return activeSide0OpposingViewRef;
+        }
+        if (fallbackPlayerGroup != null && !fallbackPlayerGroup.divisions.isEmpty()) {
+            return fallbackPlayerGroup;
+        }
+        return fallbackAlliedGroup != null ? fallbackAlliedGroup : fallbackPlayerGroup;
+    }
+
 
 
 
@@ -569,6 +601,23 @@ public class BattlefieldFirepowerEvaluator {
             }
         }
         return false;
+    }
+
+    public static float getEnemyDivisionStickyVisibilityAlpha(
+            CombatEngineAPI engine,
+            DivisionState div,
+            FogOfWarAPI playerFog) {
+        if (div == null) return 0f;
+        if (playerFog == null) return 1.0f;
+        float bestAlpha = 0f;
+        for (ShipAPI s : div.getAliveMembers()) {
+            float a = getEnemyShipStickyVisibilityAlpha(engine, s, playerFog);
+            if (a > bestAlpha) {
+                bestAlpha = a;
+                if (bestAlpha >= 0.999f) break;
+            }
+        }
+        return bestAlpha;
     }
 
     public static Vector2f getSmoothedVisibleCentroidForEnemyDivision(
@@ -2657,9 +2706,7 @@ public class BattlefieldFirepowerEvaluator {
             if (cached != null) {
                 return cached;
             }
-        } else if (engine != lastStationBastionSyncEngine
-                || shipsSize != lastStationBastionShipsSize
-                || Math.abs(now - lastStationBastionSyncTime) >= 0.25f) {
+        } else {
             lastStationBastionSyncEngine = engine;
             lastStationBastionShipsSize = shipsSize;
             lastStationBastionSyncTime = now;
@@ -2789,7 +2836,9 @@ public class BattlefieldFirepowerEvaluator {
             bastion.incomingShortDotThreat = eval.incomingShortDot;
             bastion.crossfireCordonIndex = eval.cordonIndex;
 
-            updateDivisionBaseTimeSpace(bastion);
+            if (bastion.freeTimeRadius <= 1f || !bastion.tsfcKeyframesInitialized) {
+                updateDivisionBaseTimeSpace(bastion);
+            }
             bastions.add(bastion);
         }
         cachedStationBastionsByGroup.put(group, bastions);
@@ -2893,7 +2942,9 @@ public class BattlefieldFirepowerEvaluator {
         for (int i = 0, n = myEffectiveDivs.size(); i < n; i++) {
             DivisionState d = myEffectiveDivs.get(i);
             if (d.isCombatEffective()) {
-                activeDivsTotal++;
+                if (d.id == null || !d.id.startsWith("unassigned_")) {
+                    activeDivsTotal++;
+                }
                 if (d.freeTimeRadius <= 1f) {
                     updateDivisionBaseTimeSpace(d);
                 }
@@ -2902,13 +2953,22 @@ public class BattlefieldFirepowerEvaluator {
         for (int i = 0, n = enemyEffectiveDivs.size(); i < n; i++) {
             DivisionState e = enemyEffectiveDivs.get(i);
             if (e.isCombatEffective()) {
-                activeDivsTotal++;
+                if (e.id == null || !e.id.startsWith("unassigned_")) {
+                    activeDivsTotal++;
+                }
                 if (e.freeTimeRadius <= 1f) {
                     updateDivisionBaseTimeSpace(e);
                 }
             }
         }
-        battleActiveDivisionCount = Math.max(1, activeDivsTotal);
+        // Only use fallback activeDivsTotal when active battle group references are not registered (e.g. unit test);
+        // in live combat, updateDivisionTsfcWatermarks computes a deterministic, call-order-independent count across
+        // playerGroup, alliedAiGroup, and enemyGroup so empty alliedAiGroup calls never drop playerGroup from the count!
+        if (activePlayerGroupRef != null || activeAlliedGroupRef != null || activeEnemyGroupRef != null) {
+            updateDivisionTsfcWatermarks(engine, activePlayerGroupRef, activeAlliedGroupRef, activeEnemyGroupRef);
+        } else {
+            battleActiveDivisionCount = Math.max(1, activeDivsTotal);
+        }
 
         for (int divIdx = 0, divLen = myEffectiveDivs.size(); divIdx < divLen; divIdx++) {
             DivisionState div = myEffectiveDivs.get(divIdx);
@@ -3023,32 +3083,54 @@ public class BattlefieldFirepowerEvaluator {
                     || enemySpaceOverlap > div.spaceDominanceWeight * 0.90f);
 
             // 6. Update Convergence focal point & score
-            DivisionState focusEnemy = (div.targetEnemyDivision != null && div.targetEnemyDivision.isCombatEffective())
-                    ? div.targetEnemyDivision
-                    : myGroup.primaryThreatEnemyDivision;
-            if (focusEnemy != null && focusEnemy.isCombatEffective()
-                    && OtcAI.isDivisionVisibleToSide(engine, div.side, focusEnemy)) {
-                div.convergenceScore = computeConvergenceTargetScore(engine, div, focusEnemy, myGroup);
-                Vector2f visEnemy = OtcAI.getVisibleCentroidForSide(engine, div.side, focusEnemy);
-                float lookahead = clampVal(
-                        distance(div.centroid, visEnemy) / Math.max(65f, div.weightedTimeSpeed * div.timeFreedomFactor * 1.4f),
-                        1.5f,
-                        8.0f);
-                float fx = visEnemy.x + focusEnemy.velocity.x * lookahead * 0.65f;
-                float fy = visEnemy.y + focusEnemy.velocity.y * lookahead * 0.65f;
-                if (engine != null) {
-                    float maxW = Math.max(1500f, getMapHalfWidth(engine) - 350f);
-                    float maxH = Math.max(1500f, getMapHalfHeight(engine) - 350f);
-                    fx = clampVal(fx, -maxW, maxW);
-                    fy = clampVal(fy, -maxH, maxH);
-                }
-                div.convergenceFocalPoint.set(fx, fy);
-            } else {
-                div.convergenceScore = 0f;
-                div.convergenceFocalPoint.set(div.stationPoint);
-            }
+            updateSingleDivisionConvergenceTargetAndWatermarks(engine, div, myGroup);
 
-            // Update battle-high watermarks for sliding opacity scaling
+            finalizeDivisionKeyframeAfterUpdate(div, evalNow, advancingDivKeyframe);
+        }
+        if (activePlayerGroupRef != null || activeAlliedGroupRef != null || activeEnemyGroupRef != null) {
+            updateDivisionTsfcWatermarks(engine, activePlayerGroupRef, activeAlliedGroupRef, activeEnemyGroupRef);
+        }
+    }
+
+    static void updateSingleDivisionConvergenceTargetAndWatermarks(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup) {
+        if (div == null || myGroup == null) return;
+        DivisionState focusEnemy = (div.targetEnemyDivision != null && div.targetEnemyDivision.isCombatEffective())
+                ? div.targetEnemyDivision
+                : myGroup.primaryThreatEnemyDivision;
+        if (focusEnemy != null && focusEnemy.isCombatEffective()
+                && OtcAI.isDivisionVisibleToSide(engine, div.side, focusEnemy)) {
+            div.convergenceScore = computeConvergenceTargetScore(engine, div, focusEnemy, myGroup);
+            Vector2f visEnemy = OtcAI.getVisibleCentroidForSide(engine, div.side, focusEnemy);
+            float lookahead = clampVal(
+                    distance(div.centroid, visEnemy) / Math.max(65f, div.weightedTimeSpeed * div.timeFreedomFactor * 1.4f),
+                    1.5f,
+                    8.0f);
+            float fx = visEnemy.x + focusEnemy.velocity.x * lookahead * 0.65f;
+            float fy = visEnemy.y + focusEnemy.velocity.y * lookahead * 0.65f;
+            if (engine != null) {
+                float maxW = Math.max(1500f, getMapHalfWidth(engine) - 350f);
+                float maxH = Math.max(1500f, getMapHalfHeight(engine) - 350f);
+                fx = clampVal(fx, -maxW, maxW);
+                fy = clampVal(fy, -maxH, maxH);
+            }
+            if (div.tsfcKeyframesInitialized
+                    && (Math.abs(div.convergenceFocalPoint.x) > 1f || Math.abs(div.convergenceFocalPoint.y) > 1f)
+                    && distance(div.convergenceFocalPoint, new Vector2f(fx, fy)) <= 2400f) {
+                div.convergenceFocalPoint.set(
+                        div.convergenceFocalPoint.x * 0.35f + fx * 0.65f,
+                        div.convergenceFocalPoint.y * 0.35f + fy * 0.65f);
+            } else {
+                div.convergenceFocalPoint.set(fx, fy);
+            }
+        } else {
+            div.convergenceScore = 0f;
+            div.convergenceFocalPoint.set(div.stationPoint);
+        }
+
+        if (div.id == null || !div.id.startsWith("unassigned_")) {
             if (div.spaceDominanceWeight > battleMaxDivisionSpaceDominance) {
                 battleMaxDivisionSpaceDominance = div.spaceDominanceWeight;
             }
@@ -3058,9 +3140,154 @@ public class BattlefieldFirepowerEvaluator {
             if (div.convergenceScore > battleMaxDivisionConvergenceScore) {
                 battleMaxDivisionConvergenceScore = div.convergenceScore;
             }
-
-            finalizeDivisionKeyframeAfterUpdate(div, evalNow, advancingDivKeyframe);
         }
+    }
+
+    /**
+     * Deterministically computes {@link #battleActiveDivisionCount} and division sliding-opacity watermarks
+     * across all active battle groups (excluding passive {@code unassigned_*} contact clusters and unspotted
+     * fog-of-war enemy divisions), with gentle late-battle watermark decay when divisions are destroyed.
+     */
+    public static void updateDivisionTsfcWatermarks(
+            CombatEngineAPI engine,
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup) {
+        FogOfWarAPI playerFog = (engine != null) ? engine.getFogOfWar(0) : null;
+        int count = 0;
+        float frameMaxDom = 20f;
+        float frameMaxTime = 850f;
+        float frameMaxConv = 15f;
+
+        BattleGroupState[] groups = new BattleGroupState[]{playerGroup, alliedAiGroup, enemyGroup};
+        for (int gIdx = 0; gIdx < groups.length; gIdx++) {
+            BattleGroupState g = groups[gIdx];
+            if (g == null) continue;
+            boolean isEnemy = (g.side == 1);
+            List<DivisionState> divs = getDivisionsAndStationBastionsForRendering(engine, g);
+            for (int i = 0, n = divs.size(); i < n; i++) {
+                DivisionState d = divs.get(i);
+                if (d == null || !d.isCombatEffective()) continue;
+                if (d.id != null && d.id.startsWith("unassigned_")) continue;
+                if (isEnemy && playerFog != null && !isEnemyDivisionVisibleSticky(engine, d, playerFog)) {
+                    continue;
+                }
+                count++;
+                if (d.spaceDominanceWeight > frameMaxDom) frameMaxDom = d.spaceDominanceWeight;
+                if (d.freeTimeRadius > frameMaxTime) frameMaxTime = d.freeTimeRadius;
+                if (d.convergenceScore > frameMaxConv) frameMaxConv = d.convergenceScore;
+            }
+        }
+        battleActiveDivisionCount = Math.max(1, count);
+        float now = (engine != null) ? engine.getTotalElapsedTime(false) : lastTimeSpaceConvUpdateTime;
+        boolean allowDecayStep = (now >= 0f && Math.abs(now - lastDivisionWatermarkDecayTime) >= TSFC_EVAL_INTERVAL * 0.85f);
+        if (allowDecayStep) {
+            lastDivisionWatermarkDecayTime = now;
+        }
+        if (frameMaxDom > battleMaxDivisionSpaceDominance) {
+            battleMaxDivisionSpaceDominance = frameMaxDom;
+        } else if (allowDecayStep && count > 0 && frameMaxDom > 20f && battleMaxDivisionSpaceDominance > frameMaxDom * 1.30f) {
+            battleMaxDivisionSpaceDominance = battleMaxDivisionSpaceDominance * 0.96f
+                    + Math.max(frameMaxDom * 1.12f, battleMaxDivisionSpaceDominance * 0.60f) * 0.04f;
+        }
+        if (frameMaxTime > battleMaxDivisionFreeTimeRadius) {
+            battleMaxDivisionFreeTimeRadius = frameMaxTime;
+        } else if (allowDecayStep && count > 0 && frameMaxTime > 850f && battleMaxDivisionFreeTimeRadius > frameMaxTime * 1.25f) {
+            battleMaxDivisionFreeTimeRadius = battleMaxDivisionFreeTimeRadius * 0.96f
+                    + Math.max(frameMaxTime * 1.10f, battleMaxDivisionFreeTimeRadius * 0.65f) * 0.04f;
+        }
+        if (frameMaxConv > battleMaxDivisionConvergenceScore) {
+            battleMaxDivisionConvergenceScore = frameMaxConv;
+        }
+    }
+
+    public static boolean isGroupTimeSpaceUpToDateForTick(BattleGroupState group, float now) {
+        if (group == null || group.divisions.isEmpty() || now < 0f) return false;
+        for (int i = 0, n = group.divisions.size(); i < n; i++) {
+            DivisionState d = group.divisions.get(i);
+            if (d != null && d.isCombatEffective()) {
+                return d.tsfcKeyframesInitialized
+                        && d.directionalTimeInitialized
+                        && d.directionalSpaceInitialized
+                        && Math.abs(now - d.currTsfcKeyframeTime) <= 1e-4f;
+            }
+        }
+        return false;
+    }
+
+    public static void evaluateAllGroupsTimeSpaceConvergenceOncePerTick(
+            CombatEngineAPI engine,
+            float now,
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup,
+            BattleGroupState side1OpposingView,
+            BattleGroupState side0OpposingView) {
+        activePlayerGroupRef = playerGroup;
+        activeAlliedGroupRef = alliedAiGroup;
+        activeEnemyGroupRef = enemyGroup;
+        activeSide1OpposingViewRef = side1OpposingView;
+        activeSide0OpposingViewRef = side0OpposingView;
+
+        BattleGroupState oppForSide0 = (side1OpposingView != null && !side1OpposingView.divisions.isEmpty())
+                ? side1OpposingView
+                : enemyGroup;
+        if (playerGroup != null) {
+            updateCrossGroupTimeSpaceConvergence(engine, playerGroup, oppForSide0);
+        }
+        if (alliedAiGroup != null) {
+            updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, oppForSide0);
+        }
+        if (enemyGroup != null) {
+            BattleGroupState primarySide0 = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
+                    ? side0OpposingView
+                    : ((playerGroup != null && !playerGroup.divisions.isEmpty()) ? playerGroup : alliedAiGroup);
+            updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, primarySide0);
+        }
+        updateDivisionTsfcWatermarks(engine, playerGroup, alliedAiGroup, enemyGroup);
+        if (engine != null) {
+            lastTimeSpaceConvEngine = engine;
+            lastTimeSpaceConvUpdateTime = now;
+            lastTimeSpaceConvDivCountSig = computeDivisionCountSignature(playerGroup, alliedAiGroup, enemyGroup);
+        }
+    }
+
+    public static void refreshConvergenceTargetsAndWatermarksAfterC2(
+            CombatEngineAPI engine,
+            float now,
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup) {
+        BattleGroupState[] groups = new BattleGroupState[]{playerGroup, alliedAiGroup, enemyGroup};
+        for (int gIdx = 0; gIdx < groups.length; gIdx++) {
+            BattleGroupState g = groups[gIdx];
+            if (g == null) continue;
+            List<DivisionState> divs = getDivisionsAndStationBastionsForRendering(engine, g);
+            for (int i = 0, n = divs.size(); i < n; i++) {
+                DivisionState d = divs.get(i);
+                if (d == null || !d.isCombatEffective()) continue;
+                updateSingleDivisionConvergenceTargetAndWatermarks(engine, d, g);
+                if (Math.abs(d.currTsfcKeyframeTime - d.prevTsfcKeyframeTime) <= 1e-4f) {
+                    d.prevConvergenceScore = d.convergenceScore;
+                    d.prevConvergenceFocalPoint.set(d.convergenceFocalPoint);
+                }
+            }
+        }
+        updateDivisionTsfcWatermarks(engine, playerGroup, alliedAiGroup, enemyGroup);
+        if (engine != null) {
+            lastTimeSpaceConvEngine = engine;
+            lastTimeSpaceConvUpdateTime = now;
+            lastTimeSpaceConvDivCountSig = computeDivisionCountSignature(playerGroup, alliedAiGroup, enemyGroup);
+        }
+    }
+
+    public static int computeDivisionCountSignature(
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup) {
+        return ((playerGroup != null ? playerGroup.divisions.size() : 0) << 16)
+                ^ ((alliedAiGroup != null ? alliedAiGroup.divisions.size() : 0) << 8)
+                ^ (enemyGroup != null ? enemyGroup.divisions.size() : 0);
     }
 
     /**
@@ -3181,6 +3408,8 @@ public class BattlefieldFirepowerEvaluator {
         activePlayerGroupRef = playerGroup;
         activeAlliedGroupRef = alliedAiGroup;
         activeEnemyGroupRef = enemyGroup;
+        if (side1OpposingView != null) activeSide1OpposingViewRef = side1OpposingView;
+        if (side0OpposingView != null) activeSide0OpposingViewRef = side0OpposingView;
 
         if ((now - lastRoseUpdateTime) >= TSFC_EVAL_INTERVAL * 0.85f || lastRoseUpdateTime < 0f) {
             updateBattlefieldRoses(engine, now);
@@ -3188,21 +3417,28 @@ public class BattlefieldFirepowerEvaluator {
         refreshGroupBaseTimeSpaceForTsfcTick(engine, playerGroup);
         refreshGroupBaseTimeSpaceForTsfcTick(engine, alliedAiGroup);
         refreshGroupBaseTimeSpaceForTsfcTick(engine, enemyGroup);
+        refreshPassiveOpposingContactsForTsfcTick(side1OpposingView);
+        refreshPassiveOpposingContactsForTsfcTick(side0OpposingView);
 
-        BattleGroupState oppForSide0 = (side1OpposingView != null && !side1OpposingView.divisions.isEmpty())
-                ? side1OpposingView
-                : enemyGroup;
-        if (playerGroup != null) {
-            updateCrossGroupTimeSpaceConvergence(engine, playerGroup, oppForSide0);
-        }
-        if (alliedAiGroup != null) {
-            updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, oppForSide0);
-        }
-        if (enemyGroup != null) {
-            BattleGroupState primarySide0 = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
-                    ? side0OpposingView
-                    : ((playerGroup != null && !playerGroup.divisions.isEmpty()) ? playerGroup : alliedAiGroup);
-            updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, primarySide0);
+        evaluateAllGroupsTimeSpaceConvergenceOncePerTick(
+                engine,
+                now,
+                playerGroup,
+                alliedAiGroup,
+                enemyGroup,
+                side1OpposingView != null ? side1OpposingView : activeSide1OpposingViewRef,
+                side0OpposingView != null ? side0OpposingView : activeSide0OpposingViewRef);
+    }
+
+    private static void refreshPassiveOpposingContactsForTsfcTick(BattleGroupState opposingView) {
+        if (opposingView == null || opposingView.divisions.isEmpty()) return;
+        for (int i = 0, n = opposingView.divisions.size(); i < n; i++) {
+            DivisionState div = opposingView.divisions.get(i);
+            if (div == null || !div.isCombatEffective()) continue;
+            if (div.id != null && div.id.startsWith("unassigned_")) {
+                refreshDivisionLiveKinematicsForTsfcTick(div);
+                updateDivisionBaseTimeSpace(div);
+            }
         }
     }
 
@@ -3234,11 +3470,13 @@ public class BattlefieldFirepowerEvaluator {
     private static void refreshGroupBaseTimeSpaceForTsfcTick(CombatEngineAPI engine, BattleGroupState group) {
         if (group == null) return;
         float evalNow = engine != null ? engine.getTotalElapsedTime(false) : 0f;
-        for (int i = 0, n = group.divisions.size(); i < n; i++) {
-            DivisionState div = group.divisions.get(i);
+        List<DivisionState> divs = getDivisionsAndStationBastionsForRendering(engine, group);
+        for (int i = 0, n = divs.size(); i < n; i++) {
+            DivisionState div = divs.get(i);
             if (div == null || !div.isCombatEffective()) continue;
             captureOrBinDivisionKeyframeBeforeUpdate(div, evalNow);
             refreshDivisionLiveKinematicsForTsfcTick(div);
+            updateDivisionFirepowerTelemetry(engine, div);
             float avgShieldArc = computeDivisionAvgShieldArc(div);
             PointFirepowerEval eval = evaluatePoint(engine, group.side, div.centroid, avgShieldArc);
             div.incomingShortDotThreat = eval.incomingShortDot;

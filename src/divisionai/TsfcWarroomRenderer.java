@@ -397,21 +397,22 @@ public class TsfcWarroomRenderer {
 
         // Throttle cross-group Time/Space/Convergence telemetry recomputation to the 0.10s TSFC keyframe cadence
         float now = engine.getTotalElapsedTime(false);
-        int divCountSig = ((playerGroup != null ? playerGroup.divisions.size() : 0) << 16)
-                ^ ((alliedAiGroup != null ? alliedAiGroup.divisions.size() : 0) << 8)
-                ^ (enemyGroup != null ? enemyGroup.divisions.size() : 0);
+        int divCountSig = BattlefieldFirepowerEvaluator.computeDivisionCountSignature(
+                playerGroup, alliedAiGroup, enemyGroup);
         boolean staleTime = engine != BattlefieldFirepowerEvaluator.lastTimeSpaceConvEngine
                 || divCountSig != BattlefieldFirepowerEvaluator.lastTimeSpaceConvDivCountSig
                 || BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime < 0f
                 || Math.abs(now - BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime) >= BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL * 1.45f;
         if (staleTime) {
+            BattleGroupState oppForSide0 = BattlefieldFirepowerEvaluator.resolveOpposingGroupForSide0(enemyGroup);
+            BattleGroupState oppForSide1 = BattlefieldFirepowerEvaluator.resolveOpposingGroupForSide1(playerGroup, alliedAiGroup);
             if (playerGroup != null) {
                 for (DivisionState d : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, playerGroup)) {
                     if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
                         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(d);
                     }
                 }
-                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, playerGroup, enemyGroup);
+                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, playerGroup, oppForSide0);
             }
             if (alliedAiGroup != null) {
                 for (DivisionState d : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, alliedAiGroup)) {
@@ -419,7 +420,7 @@ public class TsfcWarroomRenderer {
                         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(d);
                     }
                 }
-                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, enemyGroup);
+                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, oppForSide0);
             }
             if (enemyGroup != null) {
                 for (DivisionState e : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, enemyGroup)) {
@@ -427,8 +428,9 @@ public class TsfcWarroomRenderer {
                         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(e);
                     }
                 }
-                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, playerGroup);
+                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, oppForSide1);
             }
+            BattlefieldFirepowerEvaluator.updateDivisionTsfcWatermarks(engine, playerGroup, alliedAiGroup, enemyGroup);
             BattlefieldFirepowerEvaluator.lastTimeSpaceConvEngine = engine;
             BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime = now;
             BattlefieldFirepowerEvaluator.lastTimeSpaceConvDivCountSig = divCountSig;
@@ -521,7 +523,10 @@ public class TsfcWarroomRenderer {
             float effRadPx = Math.max(18f, interpEffTimeR * scale);
             float freeRadPx = Math.max(effRadPx, interpFreeTimeR * scale);
             float timeSlide = BattlefieldFirepowerEvaluator.computeDivisionTimeSlidingOpacityScale(div, interpFreeTimeR);
-            float timeFade = fade * timeSlide;
+            float visAlpha = (isEnemy && playerFog != null)
+                    ? BattlefieldFirepowerEvaluator.getEnemyDivisionStickyVisibilityAlpha(engine, div, playerFog)
+                    : 1.0f;
+            float timeFade = fade * timeSlide * visAlpha;
 
             float r, g, b;
             if (isEnemy) {
@@ -727,7 +732,10 @@ public class TsfcWarroomRenderer {
             float domRadPx = Math.max(inRadPx + 8f, interpDomR * scale);
             float potRadPx = Math.max(domRadPx + 8f, interpPotR * scale);
             float spaceSlide = BattlefieldFirepowerEvaluator.computeDivisionSpaceSlidingOpacityScale(div, interpDomWeight);
-            float spaceFade = fade * spaceSlide;
+            float visAlpha = (isEnemy && playerFog != null)
+                    ? BattlefieldFirepowerEvaluator.getEnemyDivisionStickyVisibilityAlpha(engine, div, playerFog)
+                    : 1.0f;
+            float spaceFade = fade * spaceSlide * visAlpha;
 
             float r, g, b;
             if (isEnemy) {
@@ -830,7 +838,10 @@ public class TsfcWarroomRenderer {
                     + 0.24f * Math.max(500f, div.avgEngageRange);
             float radPx = Math.max(24f, convWorldRad * scale);
             float convSlide = BattlefieldFirepowerEvaluator.computeDivisionTimeSlidingOpacityScale(div, interpFreeTimeR);
-            float convFade = fade * convSlide;
+            float visAlpha = (isEnemy && playerFog != null)
+                    ? BattlefieldFirepowerEvaluator.getEnemyDivisionStickyVisibilityAlpha(engine, div, playerFog)
+                    : 1.0f;
+            float convFade = fade * convSlide * visAlpha;
 
             float r, g, b;
             if (isEnemy) {
@@ -1847,7 +1858,10 @@ public class TsfcWarroomRenderer {
             float r = 1.0f;
             float g = isUCordon ? 0.22f : 0.62f;
             float b = 0.15f;
-            float a = Math.min(0.85f, (0.38f + interpCordon * 0.45f) * fade);
+            float visAlpha = (isEnemy && playerFog != null)
+                    ? BattlefieldFirepowerEvaluator.getEnemyDivisionStickyVisibilityAlpha(engine, div, playerFog)
+                    : 1.0f;
+            float a = Math.min(0.85f, (0.38f + interpCordon * 0.45f) * fade * visAlpha);
 
             // Dashed warning ring around division centroid caught in L/U crossfire
             GL11.glLineWidth(2.2f);
