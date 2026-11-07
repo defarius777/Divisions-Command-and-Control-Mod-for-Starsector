@@ -65,15 +65,33 @@ public class BattlefieldFirepowerEvaluator {
 
     public static final int NUM_SECTORS = 24; // 15 degrees per sector around ship hull
     public static final float SECTOR_DEG = 360f / NUM_SECTORS;
+    // 0.10s TSFC keyframe cadence & 2.0s maximum keyframe age (keyframes older than 2.0s are binned/discarded)
+    public static final float TSFC_EVAL_INTERVAL = 0.10f;
+    public static final float TSFC_KEYFRAME_MAX_AGE = 2.0f;
+
     // Render-pass caches to avoid recomputing O(D^2 * 24) telemetry or copying FleetData lists every 60 FPS frame
     static CombatEngineAPI lastTimeSpaceConvEngine = null;
+    static CombatEngineAPI lastRoseUpdateEngine = null;
     static float lastTimeSpaceConvUpdateTime = -100f;
+    static float lastRoseUpdateTime = -100f;
     static int lastTimeSpaceConvDivCountSig = -1;
-    // Asymmetric temporal stabilization time constants (seconds)
-    static final float TAU_HEADING_SMOOTH = 0.42f;
-    static final float TAU_RISE = 0.35f;
-    static final float TAU_FALL = 1.75f;
-    static final float TAU_VENT_DROP = 0.18f;
+
+    // Sliding opacity battle-high watermarks (track highest values seen in the current battle)
+    static float battleMaxShipSustainedPeak = 220f;
+    static float battleMaxShipShortDotPeak = 300f;
+    static float battleMaxShipAlphaPeak = 480f;
+    static float battleMaxShipCombinedPower = 300f;
+    static float battleMaxDivisionSpaceDominance = 30f;
+    static float battleMaxDivisionFreeTimeRadius = 1200f;
+    static float battleMaxDivisionConvergenceScore = 25f;
+    static int battleActiveFirepowerUnitCount = 1;
+    static int battleActiveDivisionCount = 1;
+
+    // Asymmetric temporal stabilization time constants (seconds) tuned for 0.10s keyframe sampling
+    static final float TAU_HEADING_SMOOTH = 0.22f;
+    static final float TAU_RISE = 0.24f;
+    static final float TAU_FALL = 1.15f;
+    static final float TAU_VENT_DROP = 0.14f;
 
     // Tactical Time Horizon for Division Mobility (seconds)
     public static final float TIME_HORIZON_SECONDS = 18.0f;
@@ -180,6 +198,24 @@ public class BattlefieldFirepowerEvaluator {
         public boolean initialized = false;
         public float lastUpdateTime = -100f;
 
+        // 0.10s Keyframe timestamps & previous-keyframe buffers (anything > 2.0s old is thrown into the bin)
+        public float prevKeyframeTime = -100f;
+        public float currKeyframeTime = -100f;
+        public float prevFacingDeg;
+        public float prevReadinessMult = 1f;
+        public float prevPeakShortDot = 1f;
+        public float prevPeakAlpha = 1f;
+        public float prevPeakSustained = 1f;
+        public final float[] prevAlpha = new float[NUM_SECTORS];
+        public final float[] prevShortDot = new float[NUM_SECTORS];
+        public final float[] prevSustainedDot = new float[NUM_SECTORS];
+        public final float[] prevPdScore = new float[NUM_SECTORS];
+        public final float[] prevGeneralRange = new float[NUM_SECTORS];
+        public final float[] prevSustainedRange = new float[NUM_SECTORS];
+        public final float[] prevShortRange = new float[NUM_SECTORS];
+        public final float[] prevAlphaRange = new float[NUM_SECTORS];
+        public final float[] prevPdRange = new float[NUM_SECTORS];
+
         // Smoothed 3-horizon General scores, PD score, & Hybrid score per 15-degree sector
         public final float[] alpha = new float[NUM_SECTORS];
         public final float[] shortDot = new float[NUM_SECTORS];
@@ -211,7 +247,46 @@ public class BattlefieldFirepowerEvaluator {
         public ShipFirepowerRose(ShipAPI ship) {
             this.shipId = ship.getId();
             this.ship = ship;
-            this.smoothedFacingDeg = normalizeAngle360(ship.getFacing());
+            float f = normalizeAngle360(ship.getFacing());
+            this.smoothedFacingDeg = f;
+            this.prevFacingDeg = f;
+        }
+
+        /**
+         * Returns the C1 smoothstep keyframe interpolation factor in [0.0, 1.0] at {@code renderNow},
+         * or -1.0f if this rose is uninitialized or its latest keyframe is older than {@link #TSFC_KEYFRAME_MAX_AGE}
+         * (2.0 seconds — thrown into the bin).
+         */
+        public float computeKeyframeBlendFactor(float renderNow) {
+            if (!initialized || currKeyframeTime < -50f) return -1f;
+            float elapsedSinceCurr = renderNow - currKeyframeTime;
+            if (elapsedSinceCurr > TSFC_KEYFRAME_MAX_AGE) {
+                return -1f;
+            }
+            float span = currKeyframeTime - prevKeyframeTime;
+            if (span <= 1e-4f || span > TSFC_KEYFRAME_MAX_AGE) {
+                return 1.0f;
+            }
+            float u = clampVal(elapsedSinceCurr / span, 0.0f, 1.0f);
+            return u * u * (3.0f - 2.0f * u);
+        }
+
+        public float getInterpolatedFacingDeg(float kfBlend) {
+            if (kfBlend >= 0.999f) return smoothedFacingDeg;
+            if (kfBlend <= 0.001f) return prevFacingDeg;
+            float diff = shortestAngleDiffDeg(prevFacingDeg, smoothedFacingDeg);
+            return normalizeAngle360(prevFacingDeg + diff * kfBlend);
+        }
+
+        static float sampleInterpolatedArrayAtRelAngle(float[] prevArr, float[] currArr, float kfBlend, float relAngleDeg) {
+            float exactIdx = (relAngleDeg / SECTOR_DEG);
+            int idx0 = ((int) Math.floor(exactIdx)) % NUM_SECTORS;
+            if (idx0 < 0) idx0 += NUM_SECTORS;
+            int idx1 = (idx0 + 1) % NUM_SECTORS;
+            float frac = exactIdx - (float) Math.floor(exactIdx);
+            float v0 = prevArr[idx0] + (currArr[idx0] - prevArr[idx0]) * kfBlend;
+            float v1 = prevArr[idx1] + (currArr[idx1] - prevArr[idx1]) * kfBlend;
+            return v0 * (1f - frac) + v1 * frac;
         }
 
 
@@ -289,12 +364,104 @@ public class BattlefieldFirepowerEvaluator {
         rosesByShipId.clear();
         stationBastionsByShipId.clear();
         lastTimeSpaceConvEngine = null;
+        lastRoseUpdateEngine = null;
         lastTimeSpaceConvUpdateTime = -100f;
+        lastRoseUpdateTime = -100f;
         lastTimeSpaceConvDivCountSig = -1;
+        battleMaxShipSustainedPeak = 220f;
+        battleMaxShipShortDotPeak = 300f;
+        battleMaxShipAlphaPeak = 480f;
+        battleMaxShipCombinedPower = 300f;
+        battleMaxDivisionSpaceDominance = 30f;
+        battleMaxDivisionFreeTimeRadius = 1200f;
+        battleMaxDivisionConvergenceScore = 25f;
+        battleActiveFirepowerUnitCount = 1;
+        battleActiveDivisionCount = 1;
         weaponFireClassCache.clear();
         weaponMaxDirectRangeCache.clear();
         shipStaticWeaponProfileCache.clear();
         shipStaticLiveMaxFpCache.clear();
+    }
+
+    public static float getBattleMaxShipSustainedPeak() {
+        return battleMaxShipSustainedPeak;
+    }
+
+    public static float getBattleMaxShipShortDotPeak() {
+        return battleMaxShipShortDotPeak;
+    }
+
+    public static float getBattleMaxShipAlphaPeak() {
+        return battleMaxShipAlphaPeak;
+    }
+
+    public static float getBattleMaxShipCombinedPower() {
+        return battleMaxShipCombinedPower;
+    }
+
+    public static float getBattleMaxDivisionSpaceDominance() {
+        return battleMaxDivisionSpaceDominance;
+    }
+
+    public static float getBattleMaxDivisionFreeTimeRadius() {
+        return battleMaxDivisionFreeTimeRadius;
+    }
+
+    /**
+     * Computes the sliding opacity multiplier for a single ship's Firepower Rose relative to the
+     * highest firepower values seen in the battle so far, attenuated by total active firepower units
+     * on the battlefield so large fleet engagements remain legible at a glance.
+     */
+    public static float computeShipSlidingOpacityScale(
+            ShipFirepowerRose rose,
+            float interpPeakSust,
+            float interpPeakShort,
+            float interpPeakAlpha) {
+        if (rose == null) return 0.35f;
+        float combined = interpPeakSust * 0.45f + interpPeakShort * 0.35f + (interpPeakAlpha * 0.35f) * 0.20f;
+        float relToBattleMax = clampVal(combined / Math.max(200f, battleMaxShipCombinedPower), 0.0f, 1.0f);
+        float slidingWeight = 0.20f + 0.80f * (float) Math.sqrt(relToBattleMax);
+        float crowdAtten = clampVal(
+                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveFirepowerUnitCount / 7.5f)),
+                0.38f,
+                1.0f);
+        return slidingWeight * crowdAtten;
+    }
+
+    public static float computeShipSlidingOpacityScale(ShipFirepowerRose rose) {
+        if (rose == null) return 0.35f;
+        return computeShipSlidingOpacityScale(
+                rose, rose.peakSectorSustained, rose.peakSectorShortDot, rose.peakSectorAlpha);
+    }
+
+    /**
+     * Computes the sliding opacity multiplier for a division's Space (Zone of Control) overlay
+     * relative to the highest division Space dominance weight seen in the battle.
+     */
+    public static float computeDivisionSpaceSlidingOpacityScale(DivisionState div, float interpDomWeight) {
+        if (div == null) return 0.45f;
+        float rel = clampVal(interpDomWeight / Math.max(20f, battleMaxDivisionSpaceDominance), 0.0f, 1.0f);
+        float slidingWeight = 0.28f + 0.72f * (float) Math.sqrt(rel);
+        float crowdAtten = clampVal(
+                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveDivisionCount / 4.0f)),
+                0.48f,
+                1.0f);
+        return slidingWeight * crowdAtten;
+    }
+
+    /**
+     * Computes the sliding opacity multiplier for a division's Time & Convergence overlays
+     * relative to the highest division mobility reach and dominance seen in the battle.
+     */
+    public static float computeDivisionTimeSlidingOpacityScale(DivisionState div, float interpFreeTimeRad) {
+        if (div == null) return 0.50f;
+        float rel = clampVal(interpFreeTimeRad / Math.max(600f, battleMaxDivisionFreeTimeRadius), 0.0f, 1.0f);
+        float slidingWeight = 0.34f + 0.66f * (float) Math.sqrt(rel);
+        float crowdAtten = clampVal(
+                1.0f / (float) Math.sqrt(Math.max(1.0f, battleActiveDivisionCount / 4.0f)),
+                0.48f,
+                1.0f);
+        return slidingWeight * crowdAtten;
     }
 
     public static void setActiveBattleGroups(
@@ -479,15 +646,34 @@ public class BattlefieldFirepowerEvaluator {
                 && (div.flagship.isStation() || div.flagship.isStationModule() || div.flagship.getParentStation() != null);
     }
 
+    // Preallocated zero-allocation scratch buffers for updateSingleShipRose (eliminates 14 float[24] allocations per ship every 0.10s)
+    private static final float[] SCRATCH_RAW_ALPHA = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_SHORT = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_SUST = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_PD = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_HYBRID = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_GEN_RANGE = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_SUST_RANGE_SUM = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_SHORT_RANGE_SUM = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_ALPHA_RANGE_SUM = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_PD_RANGE = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_HYBRID_RANGE = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_SUST_RANGE = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_SHORT_RANGE = new float[NUM_SECTORS];
+    private static final float[] SCRATCH_RAW_ALPHA_RANGE = new float[NUM_SECTORS];
+
     /**
      * Updates stabilized Polar Firepower Roses for all active ships and airborne strike-craft squadrons in the battle.
-     * Called on the C2 evaluation cadence (~0.5s) from OtcAI.updateTelemetry / DivisionAICombatPlugin.
+     * Called on the 0.10s TSFC keyframe cadence (and C2 evaluation cadence); keyframes older than 2.0s are thrown into the bin.
      */
     public static void updateBattlefieldRoses(CombatEngineAPI engine, float now) {
         if (engine == null) return;
+        lastRoseUpdateEngine = engine;
+        lastRoseUpdateTime = now;
         List<ShipAPI> ships = engine.getShips();
         if (ships != null && !ships.isEmpty()) {
-            for (ShipAPI ship : ships) {
+            for (int i = 0, n = ships.size(); i < n; i++) {
+                ShipAPI ship = ships.get(i);
                 if (!isEligibleFirepowerUnit(ship)) continue;
                 ShipFirepowerRose rose = rosesByShipId.get(ship.getId());
                 if (rose == null) {
@@ -516,23 +702,74 @@ public class BattlefieldFirepowerEvaluator {
             }
         }
 
-        // Prune expired/destroyed ships
+        // Prune expired/destroyed ships and any rose whose keyframe is older than 2.0 seconds (thrown into the bin)
+        int activeCount = 0;
         Iterator<Map.Entry<String, ShipFirepowerRose>> it = rosesByShipId.entrySet().iterator();
         while (it.hasNext()) {
             ShipFirepowerRose r = it.next().getValue();
-            if (r.ship == null || !r.ship.isAlive() || r.ship.isHulk() || r.ship.isExpired()) {
+            if (r.ship == null
+                    || !r.ship.isAlive()
+                    || r.ship.isHulk()
+                    || r.ship.isExpired()
+                    || (r.currKeyframeTime >= -50f && (now - r.currKeyframeTime) > TSFC_KEYFRAME_MAX_AGE)) {
                 it.remove();
+            } else {
+                activeCount++;
+                if (r.peakSectorSustained > battleMaxShipSustainedPeak) {
+                    battleMaxShipSustainedPeak = r.peakSectorSustained;
+                }
+                if (r.peakSectorShortDot > battleMaxShipShortDotPeak) {
+                    battleMaxShipShortDotPeak = r.peakSectorShortDot;
+                }
+                if (r.peakSectorAlpha > battleMaxShipAlphaPeak) {
+                    battleMaxShipAlphaPeak = r.peakSectorAlpha;
+                }
+                float comb = r.peakSectorSustained * 0.45f + r.peakSectorShortDot * 0.35f + (r.peakSectorAlpha * 0.35f) * 0.20f;
+                if (comb > battleMaxShipCombinedPower) {
+                    battleMaxShipCombinedPower = comb;
+                }
             }
         }
+        battleActiveFirepowerUnitCount = Math.max(1, activeCount);
     }
 
     static void updateSingleShipRose(ShipFirepowerRose rose, ShipAPI ship, float now) {
-        float dt = rose.initialized ? Math.max(0.05f, Math.min(2.0f, now - rose.lastUpdateTime)) : 0.5f;
+        // Anything past 2.0 seconds is thrown into the bin (discard stale keyframe history)
+        float rawElapsed = now - rose.lastUpdateTime;
+        if (rose.initialized && (rawElapsed > TSFC_KEYFRAME_MAX_AGE || rawElapsed < -1e-4f)) {
+            rose.initialized = false;
+        }
+        boolean advancingKeyframe = rose.initialized && (now - rose.currKeyframeTime) > 1e-4f;
+        if (advancingKeyframe) {
+            float blendAtNow = rose.computeKeyframeBlendFactor(now);
+            if (blendAtNow < 0f) blendAtNow = 1.0f;
+            rose.prevFacingDeg = rose.getInterpolatedFacingDeg(blendAtNow);
+            rose.prevReadinessMult = rose.prevReadinessMult + (rose.liveReadinessMult - rose.prevReadinessMult) * blendAtNow;
+            rose.prevPeakShortDot = rose.prevPeakShortDot + (rose.peakSectorShortDot - rose.prevPeakShortDot) * blendAtNow;
+            rose.prevPeakAlpha = rose.prevPeakAlpha + (rose.peakSectorAlpha - rose.prevPeakAlpha) * blendAtNow;
+            rose.prevPeakSustained = rose.prevPeakSustained + (rose.peakSectorSustained - rose.prevPeakSustained) * blendAtNow;
+            for (int s = 0; s < NUM_SECTORS; s++) {
+                rose.prevAlpha[s] = rose.prevAlpha[s] + (rose.alpha[s] - rose.prevAlpha[s]) * blendAtNow;
+                rose.prevShortDot[s] = rose.prevShortDot[s] + (rose.shortDot[s] - rose.prevShortDot[s]) * blendAtNow;
+                rose.prevSustainedDot[s] = rose.prevSustainedDot[s] + (rose.sustainedDot[s] - rose.prevSustainedDot[s]) * blendAtNow;
+                rose.prevPdScore[s] = rose.prevPdScore[s] + (rose.pdScore[s] - rose.prevPdScore[s]) * blendAtNow;
+                rose.prevGeneralRange[s] = rose.prevGeneralRange[s] + (rose.generalRange[s] - rose.prevGeneralRange[s]) * blendAtNow;
+                rose.prevSustainedRange[s] = rose.prevSustainedRange[s] + (rose.sustainedRange[s] - rose.prevSustainedRange[s]) * blendAtNow;
+                rose.prevShortRange[s] = rose.prevShortRange[s] + (rose.shortRange[s] - rose.prevShortRange[s]) * blendAtNow;
+                rose.prevAlphaRange[s] = rose.prevAlphaRange[s] + (rose.alphaRange[s] - rose.prevAlphaRange[s]) * blendAtNow;
+                rose.prevPdRange[s] = rose.prevPdRange[s] + (rose.pdRange[s] - rose.prevPdRange[s]) * blendAtNow;
+            }
+            rose.prevKeyframeTime = rose.currKeyframeTime;
+            rose.currKeyframeTime = now;
+        }
+
+        float dt = rose.initialized ? Math.max(0.02f, Math.min(TSFC_KEYFRAME_MAX_AGE, rawElapsed)) : TSFC_EVAL_INTERVAL;
         rose.lastUpdateTime = now;
 
         float rawFacing = normalizeAngle360(ship.getFacing());
         if (!rose.initialized) {
             rose.smoothedFacingDeg = rawFacing;
+            rose.prevFacingDeg = rawFacing;
         } else {
             float diff = shortestAngleDiffDeg(rose.smoothedFacingDeg, rawFacing);
             float headingAlpha = Math.min(1.0f, dt / (TAU_HEADING_SMOOTH + dt));
@@ -576,7 +813,8 @@ public class BattlefieldFirepowerEvaluator {
         List<WeaponAPI> weapons = ship.getAllWeapons();
         float totalGenFluxPerSec = 0f;
         if (weapons != null) {
-            for (WeaponAPI w : weapons) {
+            for (int i = 0, n = weapons.size(); i < n; i++) {
+                WeaponAPI w = weapons.get(i);
                 if (!isUsableCombatWeapon(w)) continue;
                 DerivedWeaponStatsAPI derived = w.getDerivedStats();
                 if (derived != null && derived.getSustainedFluxPerSecond() > 0f) {
@@ -588,35 +826,55 @@ public class BattlefieldFirepowerEvaluator {
         }
         float shipFluxSustainability = Math.max(0.35f, Math.min(1.0f, shipDissipation / Math.max(1f, totalGenFluxPerSec)));
 
-        float[] rawAlpha = new float[NUM_SECTORS];
-        float[] rawShort = new float[NUM_SECTORS];
-        float[] rawSustained = new float[NUM_SECTORS];
-        float[] rawPd = new float[NUM_SECTORS];
-        float[] rawHybrid = new float[NUM_SECTORS];
-        float[] rawGenRange = new float[NUM_SECTORS];
-        float[] rawSustRangeWeightedSum = new float[NUM_SECTORS];
-        float[] rawShortRangeWeightedSum = new float[NUM_SECTORS];
-        float[] rawAlphaRangeWeightedSum = new float[NUM_SECTORS];
-        float[] rawPdRange = new float[NUM_SECTORS];
-        float[] rawHybridRange = new float[NUM_SECTORS];
+        java.util.Arrays.fill(SCRATCH_RAW_ALPHA, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_SHORT, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_SUST, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_PD, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_HYBRID, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_GEN_RANGE, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_SUST_RANGE_SUM, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_SHORT_RANGE_SUM, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_ALPHA_RANGE_SUM, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_PD_RANGE, 0f);
+        java.util.Arrays.fill(SCRATCH_RAW_HYBRID_RANGE, 0f);
 
         accumulateShipDirectWeaponSectors(
                 ship, weapons, isPhaseShip, readiness, shipFluxSustainability,
-                rawAlpha, rawShort, rawSustained, rawPd, rawHybrid,
-                rawGenRange, rawSustRangeWeightedSum, rawShortRangeWeightedSum, rawAlphaRangeWeightedSum,
-                rawPdRange, rawHybridRange);
+                SCRATCH_RAW_ALPHA, SCRATCH_RAW_SHORT, SCRATCH_RAW_SUST, SCRATCH_RAW_PD, SCRATCH_RAW_HYBRID,
+                SCRATCH_RAW_GEN_RANGE, SCRATCH_RAW_SUST_RANGE_SUM, SCRATCH_RAW_SHORT_RANGE_SUM, SCRATCH_RAW_ALPHA_RANGE_SUM,
+                SCRATCH_RAW_PD_RANGE, SCRATCH_RAW_HYBRID_RANGE);
 
         accumulateShipFighterWingSectors(
                 rose, ship, readiness,
-                rawAlpha, rawShort, rawSustained, rawPd,
-                rawGenRange, rawSustRangeWeightedSum, rawShortRangeWeightedSum, rawAlphaRangeWeightedSum,
-                rawPdRange);
+                SCRATCH_RAW_ALPHA, SCRATCH_RAW_SHORT, SCRATCH_RAW_SUST, SCRATCH_RAW_PD,
+                SCRATCH_RAW_GEN_RANGE, SCRATCH_RAW_SUST_RANGE_SUM, SCRATCH_RAW_SHORT_RANGE_SUM, SCRATCH_RAW_ALPHA_RANGE_SUM,
+                SCRATCH_RAW_PD_RANGE);
 
+        boolean wasColdInit = !rose.initialized;
         applySectorEmaAndUpdateRosePeaks(
                 rose, dt, overloadedOrVenting, ovldVentRemaining,
-                rawAlpha, rawShort, rawSustained, rawPd, rawHybrid,
-                rawGenRange, rawSustRangeWeightedSum, rawShortRangeWeightedSum, rawAlphaRangeWeightedSum,
-                rawPdRange, rawHybridRange);
+                SCRATCH_RAW_ALPHA, SCRATCH_RAW_SHORT, SCRATCH_RAW_SUST, SCRATCH_RAW_PD, SCRATCH_RAW_HYBRID,
+                SCRATCH_RAW_GEN_RANGE, SCRATCH_RAW_SUST_RANGE_SUM, SCRATCH_RAW_SHORT_RANGE_SUM, SCRATCH_RAW_ALPHA_RANGE_SUM,
+                SCRATCH_RAW_PD_RANGE, SCRATCH_RAW_HYBRID_RANGE);
+
+        if (wasColdInit || Math.abs(rose.currKeyframeTime - rose.prevKeyframeTime) <= 1e-4f) {
+            rose.prevKeyframeTime = now;
+            rose.currKeyframeTime = now;
+            rose.prevFacingDeg = rose.smoothedFacingDeg;
+            rose.prevReadinessMult = rose.liveReadinessMult;
+            rose.prevPeakShortDot = rose.peakSectorShortDot;
+            rose.prevPeakAlpha = rose.peakSectorAlpha;
+            rose.prevPeakSustained = rose.peakSectorSustained;
+            System.arraycopy(rose.alpha, 0, rose.prevAlpha, 0, NUM_SECTORS);
+            System.arraycopy(rose.shortDot, 0, rose.prevShortDot, 0, NUM_SECTORS);
+            System.arraycopy(rose.sustainedDot, 0, rose.prevSustainedDot, 0, NUM_SECTORS);
+            System.arraycopy(rose.pdScore, 0, rose.prevPdScore, 0, NUM_SECTORS);
+            System.arraycopy(rose.generalRange, 0, rose.prevGeneralRange, 0, NUM_SECTORS);
+            System.arraycopy(rose.sustainedRange, 0, rose.prevSustainedRange, 0, NUM_SECTORS);
+            System.arraycopy(rose.shortRange, 0, rose.prevShortRange, 0, NUM_SECTORS);
+            System.arraycopy(rose.alphaRange, 0, rose.prevAlphaRange, 0, NUM_SECTORS);
+            System.arraycopy(rose.pdRange, 0, rose.prevPdRange, 0, NUM_SECTORS);
+        }
     }
 
     private static void accumulateShipDirectWeaponSectors(
@@ -901,9 +1159,9 @@ public class BattlefieldFirepowerEvaluator {
             float[] rawAlphaRangeWeightedSum,
             float[] rawPdRange,
             float[] rawHybridRange) {
-        float[] rawSustRange = new float[NUM_SECTORS];
-        float[] rawShortRange = new float[NUM_SECTORS];
-        float[] rawAlphaRange = new float[NUM_SECTORS];
+        float[] rawSustRange = SCRATCH_RAW_SUST_RANGE;
+        float[] rawShortRange = SCRATCH_RAW_SHORT_RANGE;
+        float[] rawAlphaRange = SCRATCH_RAW_ALPHA_RANGE;
         for (int s = 0; s < NUM_SECTORS; s++) {
             float maxR = rawGenRange[s];
             rawSustRange[s] = (rawSustained[s] > 1f)
@@ -2521,9 +2779,12 @@ public class BattlefieldFirepowerEvaluator {
             BattleGroupState enemyGroup) {
 
         if (myGroup == null) return;
+        float evalNow = (engine != null)
+                ? engine.getTotalElapsedTime(false)
+                : (lastTimeSpaceConvUpdateTime >= 0f ? lastTimeSpaceConvUpdateTime + TSFC_EVAL_INTERVAL : 0f);
         if (engine != null) {
             lastTimeSpaceConvEngine = engine;
-            lastTimeSpaceConvUpdateTime = engine.getTotalElapsedTime(false);
+            lastTimeSpaceConvUpdateTime = evalNow;
         }
         DivisionOtcCommandManager.updateConvergenceCommandStates(engine, myGroup);
         if (enemyGroup != null) {
@@ -2536,19 +2797,32 @@ public class BattlefieldFirepowerEvaluator {
                 ? collectPeerDivisionsAndStations(engine, enemyGroup, myGroup.side == 1)
                 : Collections.<DivisionState>emptyList();
 
-        for (DivisionState d : myEffectiveDivs) {
-            if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
-                updateDivisionBaseTimeSpace(d);
+        int activeDivsTotal = 0;
+        for (int i = 0, n = myEffectiveDivs.size(); i < n; i++) {
+            DivisionState d = myEffectiveDivs.get(i);
+            if (d.isCombatEffective()) {
+                activeDivsTotal++;
+                if (d.freeTimeRadius <= 1f) {
+                    updateDivisionBaseTimeSpace(d);
+                }
             }
         }
-        for (DivisionState e : enemyEffectiveDivs) {
-            if (e.isCombatEffective() && e.freeTimeRadius <= 1f) {
-                updateDivisionBaseTimeSpace(e);
+        for (int i = 0, n = enemyEffectiveDivs.size(); i < n; i++) {
+            DivisionState e = enemyEffectiveDivs.get(i);
+            if (e.isCombatEffective()) {
+                activeDivsTotal++;
+                if (e.freeTimeRadius <= 1f) {
+                    updateDivisionBaseTimeSpace(e);
+                }
             }
         }
+        battleActiveDivisionCount = Math.max(1, activeDivsTotal);
 
-        for (DivisionState div : myEffectiveDivs) {
+        for (int divIdx = 0, divLen = myEffectiveDivs.size(); divIdx < divLen; divIdx++) {
+            DivisionState div = myEffectiveDivs.get(divIdx);
             if (!div.isCombatEffective()) continue;
+
+            boolean advancingDivKeyframe = captureOrBinDivisionKeyframeBeforeUpdate(div, evalNow);
 
             // 1. Friendly Space mutual support from sibling divisions & friendly stations (excluding retreating/unable divisions)
             float friendlySupport = 0f;
@@ -2681,6 +2955,157 @@ public class BattlefieldFirepowerEvaluator {
                 div.convergenceScore = 0f;
                 div.convergenceFocalPoint.set(div.stationPoint);
             }
+
+            // Update battle-high watermarks for sliding opacity scaling
+            if (div.spaceDominanceWeight > battleMaxDivisionSpaceDominance) {
+                battleMaxDivisionSpaceDominance = div.spaceDominanceWeight;
+            }
+            if (div.freeTimeRadius > battleMaxDivisionFreeTimeRadius) {
+                battleMaxDivisionFreeTimeRadius = div.freeTimeRadius;
+            }
+            if (div.convergenceScore > battleMaxDivisionConvergenceScore) {
+                battleMaxDivisionConvergenceScore = div.convergenceScore;
+            }
+
+            finalizeDivisionKeyframeAfterUpdate(div, evalNow, advancingDivKeyframe);
+        }
+    }
+
+    /**
+     * Captures the division's current interpolated TSFC state into its {@code prev*} keyframe buffers
+     * prior to a new 0.10s evaluation pass. If the existing keyframe is older than {@link #TSFC_KEYFRAME_MAX_AGE}
+     * (2.0 seconds), it is thrown into the bin (discarded) so stale data is never interpolated.
+     */
+    static boolean captureOrBinDivisionKeyframeBeforeUpdate(DivisionState div, float evalNow) {
+        if (div == null) return false;
+        float elapsedSinceCurr = evalNow - div.currTsfcKeyframeTime;
+        if (div.tsfcKeyframesInitialized
+                && (elapsedSinceCurr > TSFC_KEYFRAME_MAX_AGE || elapsedSinceCurr < -1e-4f)) {
+            div.tsfcKeyframesInitialized = false;
+            div.directionalTimeInitialized = false;
+            div.directionalSpaceInitialized = false;
+        }
+        boolean advancing = div.tsfcKeyframesInitialized && elapsedSinceCurr > 1e-4f;
+        if (advancing) {
+            float blend = computeDivisionKeyframeBlendFactor(div, evalNow);
+            if (blend < 0f) blend = 1.0f;
+            div.prevFreeTimeRadius = div.prevFreeTimeRadius + (div.freeTimeRadius - div.prevFreeTimeRadius) * blend;
+            div.prevEffectiveTimeRadius = div.prevEffectiveTimeRadius + (div.effectiveTimeRadius - div.prevEffectiveTimeRadius) * blend;
+            div.prevEngagementLevel = div.prevEngagementLevel + (div.engagementLevel - div.prevEngagementLevel) * blend;
+            div.prevSpaceInnerRadius = div.prevSpaceInnerRadius + (div.spaceInnerRadius - div.prevSpaceInnerRadius) * blend;
+            div.prevSpaceDominatedRadius = div.prevSpaceDominatedRadius + (div.spaceDominatedRadius - div.prevSpaceDominatedRadius) * blend;
+            div.prevSpacePotentialRadius = div.prevSpacePotentialRadius + (div.spacePotentialRadius - div.prevSpacePotentialRadius) * blend;
+            div.prevSpaceDominanceWeight = div.prevSpaceDominanceWeight + (div.spaceDominanceWeight - div.prevSpaceDominanceWeight) * blend;
+            div.prevCrossfireCordonIndex = div.prevCrossfireCordonIndex + (div.crossfireCordonIndex - div.prevCrossfireCordonIndex) * blend;
+            div.prevConvergenceScore = div.prevConvergenceScore + (div.convergenceScore - div.prevConvergenceScore) * blend;
+            div.prevConvergenceFocalPoint.set(
+                    div.prevConvergenceFocalPoint.x + (div.convergenceFocalPoint.x - div.prevConvergenceFocalPoint.x) * blend,
+                    div.prevConvergenceFocalPoint.y + (div.convergenceFocalPoint.y - div.prevConvergenceFocalPoint.y) * blend);
+            int nDirs = DivisionState.TIME_DIRECTIONS;
+            for (int s = 0; s < nDirs; s++) {
+                div.prevDirectionalTimeRadii[s] = div.prevDirectionalTimeRadii[s]
+                        + (div.directionalTimeRadii[s] - div.prevDirectionalTimeRadii[s]) * blend;
+                div.prevDirectionalSpaceInnerRadii[s] = div.prevDirectionalSpaceInnerRadii[s]
+                        + (div.directionalSpaceInnerRadii[s] - div.prevDirectionalSpaceInnerRadii[s]) * blend;
+                div.prevDirectionalSpaceDominatedRadii[s] = div.prevDirectionalSpaceDominatedRadii[s]
+                        + (div.directionalSpaceDominatedRadii[s] - div.prevDirectionalSpaceDominatedRadii[s]) * blend;
+                div.prevDirectionalSpacePotentialRadii[s] = div.prevDirectionalSpacePotentialRadii[s]
+                        + (div.directionalSpacePotentialRadii[s] - div.prevDirectionalSpacePotentialRadii[s]) * blend;
+            }
+            div.prevTsfcKeyframeTime = div.currTsfcKeyframeTime;
+            div.currTsfcKeyframeTime = evalNow;
+        }
+        return advancing;
+    }
+
+    static void finalizeDivisionKeyframeAfterUpdate(DivisionState div, float evalNow, boolean wasAdvancing) {
+        if (div == null) return;
+        if (!wasAdvancing || !div.tsfcKeyframesInitialized || Math.abs(div.currTsfcKeyframeTime - div.prevTsfcKeyframeTime) <= 1e-4f) {
+            div.prevTsfcKeyframeTime = evalNow;
+            div.currTsfcKeyframeTime = evalNow;
+            div.prevFreeTimeRadius = div.freeTimeRadius;
+            div.prevEffectiveTimeRadius = div.effectiveTimeRadius;
+            div.prevEngagementLevel = div.engagementLevel;
+            div.prevSpaceInnerRadius = div.spaceInnerRadius;
+            div.prevSpaceDominatedRadius = div.spaceDominatedRadius;
+            div.prevSpacePotentialRadius = div.spacePotentialRadius;
+            div.prevSpaceDominanceWeight = div.spaceDominanceWeight;
+            div.prevCrossfireCordonIndex = div.crossfireCordonIndex;
+            div.prevConvergenceScore = div.convergenceScore;
+            div.prevConvergenceFocalPoint.set(div.convergenceFocalPoint);
+            int nDirs = DivisionState.TIME_DIRECTIONS;
+            System.arraycopy(div.directionalTimeRadii, 0, div.prevDirectionalTimeRadii, 0, nDirs);
+            System.arraycopy(div.directionalSpaceInnerRadii, 0, div.prevDirectionalSpaceInnerRadii, 0, nDirs);
+            System.arraycopy(div.directionalSpaceDominatedRadii, 0, div.prevDirectionalSpaceDominatedRadii, 0, nDirs);
+            System.arraycopy(div.directionalSpacePotentialRadii, 0, div.prevDirectionalSpacePotentialRadii, 0, nDirs);
+            div.tsfcKeyframesInitialized = true;
+        }
+    }
+
+    /**
+     * Returns the C1 smoothstep keyframe interpolation factor in [0.0, 1.0] for {@code div} at {@code renderNow},
+     * or -1.0f if keyframes are uninitialized or older than {@link #TSFC_KEYFRAME_MAX_AGE} (2.0s — thrown into the bin).
+     */
+    public static float computeDivisionKeyframeBlendFactor(DivisionState div, float renderNow) {
+        if (div == null || !div.tsfcKeyframesInitialized || div.currTsfcKeyframeTime < -50f) return -1f;
+        float elapsedSinceCurr = renderNow - div.currTsfcKeyframeTime;
+        if (elapsedSinceCurr > TSFC_KEYFRAME_MAX_AGE) {
+            return -1f;
+        }
+        float span = div.currTsfcKeyframeTime - div.prevTsfcKeyframeTime;
+        if (span <= 1e-4f || span > TSFC_KEYFRAME_MAX_AGE) {
+            return 1.0f;
+        }
+        float u = clampVal(elapsedSinceCurr / span, 0.0f, 1.0f);
+        return u * u * (3.0f - 2.0f * u);
+    }
+
+    /**
+     * Lightweight 0.10s TSFC keyframe update for intermediate ticks between 0.20s Division C2 evaluations.
+     * Refreshes ship Firepower Roses, base division Time/Space radii, and cross-group Time/Space/Convergence envelopes
+     * so 60+ FPS rendering smoothly interpolates between 0.10s keyframes.
+     */
+    public static void updateTsfcKeyframeTick(
+            CombatEngineAPI engine,
+            float now,
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup) {
+        if (engine == null) return;
+        activePlayerGroupRef = playerGroup;
+        activeAlliedGroupRef = alliedAiGroup;
+        activeEnemyGroupRef = enemyGroup;
+
+        if ((now - lastRoseUpdateTime) >= TSFC_EVAL_INTERVAL * 0.85f || lastRoseUpdateTime < 0f) {
+            updateBattlefieldRoses(engine, now);
+        }
+        refreshGroupBaseTimeSpaceForTsfcTick(engine, playerGroup);
+        refreshGroupBaseTimeSpaceForTsfcTick(engine, alliedAiGroup);
+        refreshGroupBaseTimeSpaceForTsfcTick(engine, enemyGroup);
+
+        if (playerGroup != null) {
+            updateCrossGroupTimeSpaceConvergence(engine, playerGroup, enemyGroup);
+        }
+        if (alliedAiGroup != null) {
+            updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, enemyGroup);
+        }
+        if (enemyGroup != null) {
+            BattleGroupState primarySide0 = (playerGroup != null && !playerGroup.divisions.isEmpty())
+                    ? playerGroup
+                    : alliedAiGroup;
+            updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, primarySide0);
+        }
+    }
+
+    private static void refreshGroupBaseTimeSpaceForTsfcTick(CombatEngineAPI engine, BattleGroupState group) {
+        if (group == null) return;
+        for (int i = 0, n = group.divisions.size(); i < n; i++) {
+            DivisionState div = group.divisions.get(i);
+            if (div == null || !div.isCombatEffective()) continue;
+            PointFirepowerEval eval = evaluatePoint(engine, group.side, div.centroid, div.spreadRadius);
+            div.incomingShortDotThreat = eval.incomingShortDot;
+            div.crossfireCordonIndex = eval.cordonIndex;
+            updateDivisionBaseTimeSpace(div);
         }
     }
 

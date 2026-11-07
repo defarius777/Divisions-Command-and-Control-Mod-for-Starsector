@@ -41,6 +41,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     private static final float DIVISION_EVAL_INTERVAL = 0.50f;
     private static final float OTC_EVAL_INTERVAL = 1.50f;
+    public static final float TSFC_EVAL_INTERVAL = BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL; // 0.10s keyframe cadence
 
     private CombatEngineAPI engine;
     private BattleGroupState playerGroup;
@@ -56,6 +57,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     private float divisionTimer = 0f;
     private float otcTimer = 0f;
+    private float tsfcTimer = 0f;
     private boolean initializedBattle = false;
     private int lastConvStateSyncShipsCount = -1;
     private boolean loggedPlayerOtcInit = false;
@@ -76,6 +78,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.loggedEnemyOtcInit = false;
         this.divisionTimer = 0f;
         this.otcTimer = 0f;
+        this.tsfcTimer = 0f;
         this.loggedBattleSummary = false;
         this.loggedObfuscatedHookFailures.clear();
         this.passiveContactGroups.clear();
@@ -113,7 +116,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         engine.addLayeredRenderingPlugin(new BaseCombatLayeredRenderingPlugin(CombatEngineLayers.BELOW_PLANETS) {
             @Override
             public EnumSet<CombatEngineLayers> getActiveLayers() {
-                return EnumSet.of(CombatEngineLayers.BELOW_PLANETS);
+                return EnumSet.of(
+                        CombatEngineLayers.BELOW_PLANETS,
+                        CombatEngineLayers.BELOW_SHIPS_LAYER);
             }
 
             @Override
@@ -128,7 +133,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             @Override
             public void render(CombatEngineLayers layer, com.fs.starfarer.api.combat.ViewportAPI viewport) {
-                owner.interceptBeforeRender();
+                if (layer == CombatEngineLayers.BELOW_PLANETS) {
+                    owner.interceptBeforeRender();
+                } else if (layer == CombatEngineLayers.BELOW_SHIPS_LAYER) {
+                    owner.renderBattleScreenTsfcBelowShipsLayer(viewport);
+                }
             }
         });
         preRenderHookAttached = true;
@@ -150,6 +159,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         // Fallback only in case the layered hook could not be attached
         if (!preRenderHookAttached) {
             interceptBeforeRender();
+            renderBattleScreenTsfcBelowShipsLayer(viewport);
         }
     }
 
@@ -159,13 +169,62 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         TsfcWarroomRenderer.processInputEvents(engine, events);
     }
 
-    public static final float BATTLE_SCREEN_TSFC_OPACITY_MULT = 0.22f;
+    public static final float BATTLE_SCREEN_TSFC_OPACITY_MULT = 0.18f;
 
     @Override
     public void renderInUICoords(ViewportAPI viewport) {
-        // Render TSFC (Time, Space, Firepower, Convergence) in the live Battle Screen (outside the Warroom)
-        // at vastly reduced opacity so a player manually piloting their ship can still read TSFC geometry.
-        renderBattleScreenTsfcOverlay(viewport);
+        // Battle screen TSFC now renders underneath ship sprites on CombatEngineLayers.BELOW_SHIPS_LAYER.
+        // Only fall back to UI-layer rendering if the layered rendering hook could not be attached.
+        if (!preRenderHookAttached) {
+            renderBattleScreenTsfcOverlay(viewport);
+        }
+    }
+
+    /**
+     * Renders the Battle Screen TSFC overlays on {@link CombatEngineLayers#BELOW_SHIPS_LAYER} so that
+     * Time, Space, Firepower, and Convergence geometries render underneath ship sprites, shields, and fighters.
+     */
+    void renderBattleScreenTsfcBelowShipsLayer(ViewportAPI viewport) {
+        if (engine == null || !initializedBattle || engine.isCombatOver() || viewport == null) {
+            return;
+        }
+        if (!TsfcWarroomRenderer.isTimeOverlayVisible()
+                && !TsfcWarroomRenderer.isSpaceOverlayVisible()
+                && !TsfcWarroomRenderer.isOverlayVisible()
+                && !TsfcWarroomRenderer.isConvergenceOverlayVisible()) {
+            return;
+        }
+        float offsetX = viewport.convertWorldXtoScreenX(0f);
+        float offsetY = viewport.convertWorldYtoScreenY(0f);
+        float scale = (viewport.convertWorldXtoScreenX(1000f) - offsetX) / 1000f;
+        if (scale <= 1e-5f) {
+            return;
+        }
+        float screenW = Math.max(1f, viewport.getVisibleWidth() * scale);
+        float screenH = Math.max(1f, viewport.getVisibleHeight() * scale);
+        try {
+            if (org.lwjgl.opengl.Display.isCreated()) {
+                screenW = Math.max(1f, (float) org.lwjgl.opengl.Display.getWidth());
+                screenH = Math.max(1f, (float) org.lwjgl.opengl.Display.getHeight());
+            }
+        } catch (Throwable ignored) {
+        }
+        org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
+        org.lwjgl.opengl.GL11.glPushMatrix();
+        org.lwjgl.opengl.GL11.glLoadIdentity();
+        org.lwjgl.opengl.GL11.glOrtho(0.0, screenW, 0.0, screenH, -1.0, 1.0);
+        org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
+        org.lwjgl.opengl.GL11.glPushMatrix();
+        org.lwjgl.opengl.GL11.glLoadIdentity();
+        try {
+            renderBattleScreenTsfcOverlay(viewport);
+        } finally {
+            org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
+            org.lwjgl.opengl.GL11.glPopMatrix();
+            org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
+            org.lwjgl.opengl.GL11.glPopMatrix();
+            org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
+        }
     }
 
     public void renderBattleScreenTsfcOverlay(ViewportAPI viewport) {
@@ -327,9 +386,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         divisionTimer += amount;
         otcTimer += amount;
+        tsfcTimer += amount;
 
         if (divisionTimer >= DIVISION_EVAL_INTERVAL) {
             divisionTimer = 0f;
+            tsfcTimer = 0f;
             long tickStartNs = System.nanoTime();
             long markSyncNs = 0L, markTelemetryNs = 0L, markViewNs = 0L, markOtcNs = 0L, markDivNs = 0L, markVoidNs = 0L;
 
@@ -510,6 +571,14 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                         engine.getShips() != null ? engine.getShips().size() : 0,
                         BattlefieldFirepowerEvaluator.getRoseCount()));
             }
+        } else if (tsfcTimer >= TSFC_EVAL_INTERVAL) {
+            tsfcTimer = 0f;
+            BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(
+                    engine,
+                    now,
+                    playerGroup,
+                    alliedAiGroup,
+                    enemyGroup);
         }
 
         // Enforce 60 Hz frame-accurate ship system coordination, standoff braking cutoffs, and scouting discipline

@@ -539,6 +539,25 @@ public class DivisionModel {
         public float convergenceScore = 0f;
         public final Vector2f convergenceFocalPoint = new Vector2f();
 
+        // 0.10s TSFC Keyframe Interpolation State (keyframes older than 2.0s are binned/discarded)
+        public float prevTsfcKeyframeTime = -100f;
+        public float currTsfcKeyframeTime = -100f;
+        public boolean tsfcKeyframesInitialized = false;
+        public float prevFreeTimeRadius = 0f;
+        public float prevEffectiveTimeRadius = 0f;
+        public float prevEngagementLevel = 0f;
+        public float prevSpaceInnerRadius = 0f;
+        public float prevSpaceDominatedRadius = 0f;
+        public float prevSpacePotentialRadius = 0f;
+        public float prevSpaceDominanceWeight = 0f;
+        public float prevCrossfireCordonIndex = 0f;
+        public float prevConvergenceScore = 0f;
+        public final Vector2f prevConvergenceFocalPoint = new Vector2f();
+        public final float[] prevDirectionalTimeRadii = new float[TIME_DIRECTIONS];
+        public final float[] prevDirectionalSpaceInnerRadii = new float[TIME_DIRECTIONS];
+        public final float[] prevDirectionalSpaceDominatedRadii = new float[TIME_DIRECTIONS];
+        public final float[] prevDirectionalSpacePotentialRadii = new float[TIME_DIRECTIONS];
+
         // Current C2 orders, station endpoint, and out-of-contact wide-arc route waypoint
         public DivisionIntentType currentIntent = DivisionIntentType.CLOSE_UP;
         public DivisionState targetEnemyDivision;

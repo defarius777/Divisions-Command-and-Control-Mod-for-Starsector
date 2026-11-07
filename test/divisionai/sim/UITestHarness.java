@@ -4366,6 +4366,67 @@ public class UITestHarness {
                         musicProfilesOk, musicFadeOutAndCessationOk, taskADeploymentAndNamingOk, taskBReDesignateRenameOk, taskFStrikeCraftSpaceOk,
                         carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk,
                         convergenceIconAndTsfcOptOk, tsfcGraphicsSettingOk));
+
+        // TSFC Readability & Clarity Gate (A-D):
+        //  A & B: Sliding opacity based on highest seen values in a battle + lower base opacity
+        //  C: TSFC renders under ship sprites (BELOW_SHIPS_LAYER in battle screen + renderWarroomShipSpritesAboveTsfc in warroom)
+        //  D: 0.10s evaluation cadence with C1 keyframe interpolation, anything past 2.0s thrown into the bin
+        boolean cadenceAndBinConstOk = Math.abs(BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL - 0.10f) < 1e-5f
+                && Math.abs(divisionai.DivisionAICombatPlugin.TSFC_EVAL_INTERVAL - 0.10f) < 1e-5f
+                && Math.abs(BattlefieldFirepowerEvaluator.TSFC_KEYFRAME_MAX_AGE - 2.0f) < 1e-5f;
+
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+        ShipAPI kfShip = createMockNamedShip("kf_ship_1", "HSS Onslaught", HullSize.CAPITAL_SHIP, 0f, 0f, 0f, 0, humanCapt);
+        BattlefieldFirepowerEvaluator.ShipFirepowerRose kfRose = new BattlefieldFirepowerEvaluator.ShipFirepowerRose(kfShip);
+        kfRose.initialized = true;
+        kfRose.prevKeyframeTime = 1.00f;
+        kfRose.currKeyframeTime = 1.10f;
+        kfRose.prevFacingDeg = 0f;
+        kfRose.smoothedFacingDeg = 20f;
+        float kfMidBlend = kfRose.computeKeyframeBlendFactor(1.15f); // 0.05s into the 0.10s window after 1.10f
+        float kfMidFacing = kfRose.getInterpolatedFacingDeg(kfMidBlend);
+        float kfExpiredBlend = kfRose.computeKeyframeBlendFactor(3.15f); // 2.05s > 2.0s -> thrown into the bin (-1f)
+        boolean roseKeyframeAndBinOk = Math.abs(kfMidBlend - 0.50f) < 0.02f
+                && Math.abs(kfMidFacing - 10f) < 0.5f
+                && kfExpiredBlend < 0f;
+
+        DivisionState kfDiv = new DivisionState("kf_div_1", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", cmdr);
+        kfDiv.members.add(kfShip);
+        kfDiv.flagship = kfShip;
+        kfDiv.tsfcKeyframesInitialized = true;
+        kfDiv.prevTsfcKeyframeTime = 2.00f;
+        kfDiv.currTsfcKeyframeTime = 2.10f;
+        float divMidBlend = BattlefieldFirepowerEvaluator.computeDivisionKeyframeBlendFactor(kfDiv, 2.15f);
+        float divExpiredBlend = BattlefieldFirepowerEvaluator.computeDivisionKeyframeBlendFactor(kfDiv, 4.15f); // > 2.0s old
+        boolean divKeyframeAndBinOk = Math.abs(divMidBlend - 0.50f) < 0.02f && divExpiredBlend < 0f;
+
+        float lowShipOpacity = BattlefieldFirepowerEvaluator.computeShipSlidingOpacityScale(kfRose, 60f, 80f, 120f);
+        float highShipOpacity = BattlefieldFirepowerEvaluator.computeShipSlidingOpacityScale(kfRose, 420f, 560f, 900f);
+        boolean slidingOpacityOk = highShipOpacity > lowShipOpacity * 1.40f
+                && lowShipOpacity > 0.15f
+                && highShipOpacity <= 1.0f;
+
+        int overlayTsfcIdx = overlaySrc.indexOf("TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(");
+        int overlayHullAboveIdx = overlaySrc.indexOf("TsfcWarroomRenderer.renderWarroomShipSpritesAboveTsfc(");
+        int overlayStarsIdx = overlaySrc.indexOf("renderFlagshipStarsOnTopLayer(cachedFleetFlagships");
+        boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")
+                && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
+                && overlayTsfcIdx > 0
+                && overlayHullAboveIdx > overlayTsfcIdx
+                && overlayStarsIdx > overlayHullAboveIdx;
+
+        res.record(
+                cadenceAndBinConstOk && roseKeyframeAndBinOk && divKeyframeAndBinOk && slidingOpacityOk && underShipSpritesOk,
+                "TSFC Readability & Clarity: 0.10s Keyframe Interpolation, 2.0s Max-Age Bin, Sliding Opacity & Under-Ship Rendering",
+                String.format(
+                        Locale.ROOT,
+                        "interval=%.2fs, maxAge=%.1fs, roseKf=[mid=%.2f,deg=%.1f,exp=%.1f], divKf=[mid=%.2f,exp=%.1f], slideOpacity=[low=%.2f < high=%.2f], underShips=%b",
+                        BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL,
+                        BattlefieldFirepowerEvaluator.TSFC_KEYFRAME_MAX_AGE,
+                        kfMidBlend, kfMidFacing, kfExpiredBlend,
+                        divMidBlend, divExpiredBlend,
+                        lowShipOpacity, highShipOpacity,
+                        underShipSpritesOk));
     }
 
     private static ShipAPI createMockShipWithSystem(final String shipId, final String hullId, final String systemId) {

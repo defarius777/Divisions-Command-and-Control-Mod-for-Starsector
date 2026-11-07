@@ -724,32 +724,45 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             renderStrikeCraftDivisionPolygons(strikeCraftPolys, basePolyAlpha, fade);
         }
 
-        // 3. Render division waypoints & tactical intent vectors for friendly divisions (once per division, from primary droplet)
-        for (RenderedDivisionPolygon rp : renderedPolys) {
-            if (!rp.isEnemy && rp.isPrimaryDroplet) {
-                renderDivisionWaypointsAndIntent(rp, scale, offsetX, offsetY, friendlyLineAlpha, playerFog);
-            }
-        }
-
         GL11.glPopMatrix();
         GL11.glPopAttrib();
 
         long tAfterPolys = System.nanoTime();
 
-        // 4. Render Fleet Flagship (gold star) and Division Leader (silver star) badges
-        // (Vanilla mapDisplay already renders all ship sprites, weapon turrets, and status bars directly underneath
-        // our low-alpha 8%-14% division polygons; skipping duplicate 134-ship re-rendering avoids 2x weapon-turret draw stalls.)
-        renderFlagshipStarsOnTopLayer(cachedFleetFlagships, cachedDivisionFlagships, scale, offsetX, offsetY, fade);
-
-        long tAfterStars = System.nanoTime();
-
-        // 4c. Render Time, Space, Firepower, and Convergence map layers (when toggled ON)
+        // 3. Render Time, Space, Firepower, and Convergence map layers (when toggled ON) UNDER ship sprites & waypoints
         TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
         TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
 
+        // 3b. Re-render ship hull sprites and tactical status bars above TSFC when any TSFC layer is active
+        //     so TSFC always renders underneath ship sprites without invoking heavy weapon-turret draw loops.
+        if (TsfcWarroomRenderer.isAnyTsfcOverlayVisible()) {
+            TsfcWarroomRenderer.renderWarroomShipSpritesAboveTsfc(engine, scale, offsetX, offsetY, fade);
+            renderShipBarsAboveTsfc(renderedPolys, scale, offsetX, offsetY, fade);
+        }
+
         long tAfterTsfc = System.nanoTime();
+
+        // 4. Render division waypoints & tactical intent vectors for friendly divisions above TSFC & ship sprites
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glPushMatrix();
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glEnable(GL11.GL_LINE_SMOOTH);
+        for (RenderedDivisionPolygon rp : renderedPolys) {
+            if (!rp.isEnemy && rp.isPrimaryDroplet) {
+                renderDivisionWaypointsAndIntent(rp, scale, offsetX, offsetY, friendlyLineAlpha, playerFog);
+            }
+        }
+        GL11.glPopMatrix();
+        GL11.glPopAttrib();
+
+        // 4b. Render Fleet Flagship (gold star) and Division Leader (silver star) badges on top of ship sprites & TSFC
+        renderFlagshipStarsOnTopLayer(cachedFleetFlagships, cachedDivisionFlagships, scale, offsetX, offsetY, fade);
+
+        long tAfterStars = System.nanoTime();
 
         // 5. Render de-conflicted division labels anchored to the primary division droplet entity
         for (RenderedDivisionPolygon rp : renderedPolys) {
@@ -802,9 +815,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float totalMs = (tFrameEnd - tFrameStart) / 1e6f;
         float geomMs = (tAfterGeom - tFrameStart) / 1e6f;
         float polyMs = (tAfterPolys - tAfterGeom) / 1e6f;
-        float starsMs = (tAfterStars - tAfterPolys) / 1e6f;
-        float tsfcMs = (tAfterTsfc - tAfterStars) / 1e6f;
-        float labelsMs = (tAfterLabels - tAfterTsfc) / 1e6f;
+        float tsfcMs = (tAfterTsfc - tAfterPolys) / 1e6f;
+        float starsMs = (tAfterStars - tAfterTsfc) / 1e6f;
+        float labelsMs = (tAfterLabels - tAfterStars) / 1e6f;
         float uiMs = (tFrameEnd - tAfterLabels) / 1e6f;
 
         int ringIdx = perfWindowCount % PERF_WINDOW_FRAMES;
@@ -3023,6 +3036,48 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
             for (int i = 0, n = resolvedIcons.size(); i < n; i++) {
                 iconRenderBarsHandle.invoke(resolvedIcons.get(i), false, scale, fade);
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            GL11.glPopMatrix();
+            GL11.glPopAttrib();
+        }
+    }
+
+    /**
+     * Renders only the lightweight Warroom tactical HP/flux/CR status bars above TSFC overlays
+     * (paired with {@link TsfcWarroomRenderer#renderWarroomShipSpritesAboveTsfc}) so TSFC stays
+     * underneath ship sprites and status bars without invoking vanilla's weapon-turret loop.
+     */
+    private void renderShipBarsAboveTsfc(
+            List<RenderedDivisionPolygon> renderedPolys,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade) {
+        if (mapDisplayInstance == null
+                || mapGetIconHandle == null
+                || iconRenderBarsHandle == null
+                || renderedPolys.isEmpty()) {
+            return;
+        }
+
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glPushMatrix();
+        GL11.glTranslatef((float) ((int) offsetX), (float) ((int) offsetY), 0.0f);
+
+        try {
+            for (int pIdx = 0, pLen = renderedPolys.size(); pIdx < pLen; pIdx++) {
+                RenderedDivisionPolygon rp = renderedPolys.get(pIdx);
+                List<ShipAPI> members = rp.hullMembers;
+                for (int sIdx = 0, sLen = members.size(); sIdx < sLen; sIdx++) {
+                    ShipAPI ship = members.get(sIdx);
+                    if (ship == null || !ship.isAlive()) continue;
+                    Object icon = mapGetIconHandle.invoke(mapDisplayInstance, (Object) ship);
+                    if (icon != null) {
+                        iconRenderBarsHandle.invoke(icon, false, scale, fade);
+                    }
+                }
             }
         } catch (Throwable ignored) {
         } finally {

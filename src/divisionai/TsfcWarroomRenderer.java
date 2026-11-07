@@ -273,9 +273,14 @@ public class TsfcWarroomRenderer {
         }
     }
 
+    public static boolean isAnyTsfcOverlayVisible() {
+        return timeOverlayVisible || spaceOverlayVisible || overlayVisible || convergenceOverlayVisible;
+    }
+
     /**
      * Renders stabilized Polar Firepower Roses / Planes for all visible combat ships in screen space
      * (worldToScreen: sx = offsetX + wx * scale, sy = offsetY + wy * scale).
+     * Evaluates on a 0.10s cadence and smoothly keyframe-interpolates between snapshots (anything > 2.0s old is thrown in the bin).
      */
     public static void renderFirepowerRosesScreenSpace(
             CombatEngineAPI engine,
@@ -289,9 +294,12 @@ public class TsfcWarroomRenderer {
 
         if (!overlayVisible || engine == null || scale <= 1e-5f || fade <= 0.04f) return;
 
-        // Ensure roses exist even if toggled on while paused before the first 0.5s tick
-        if (BattlefieldFirepowerEvaluator.rosesByShipId.isEmpty()) {
-            BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, engine.getTotalElapsedTime(false));
+        float now = engine.getTotalElapsedTime(false);
+        // Ensure roses exist and refresh on the 0.10s keyframe cadence if needed
+        if (BattlefieldFirepowerEvaluator.rosesByShipId.isEmpty()
+                || engine != BattlefieldFirepowerEvaluator.lastRoseUpdateEngine
+                || (now - BattlefieldFirepowerEvaluator.lastRoseUpdateTime) >= BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL) {
+            BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
         }
 
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
@@ -312,6 +320,10 @@ public class TsfcWarroomRenderer {
         for (ShipFirepowerRose rose : BattlefieldFirepowerEvaluator.rosesByShipId.values()) {
             ShipAPI s = rose.ship;
             if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+            // Anything past 2.0 seconds is thrown into the bin
+            float kfBlend = rose.computeKeyframeBlendFactor(now);
+            if (kfBlend < 0f) continue;
+
             float maxWorldR = Math.max(rose.maxGeneralRange, rose.maxPdRange);
             if (maxWorldR <= 80f) continue;
 
@@ -332,7 +344,7 @@ public class TsfcWarroomRenderer {
                 roseFade *= BattlefieldFirepowerEvaluator.getEnemyShipStickyVisibilityAlpha(engine, s, playerFog);
             }
 
-            renderSingleShipFirepowerRose(rose, s, isEnemy, isAlly, scale, offsetX, offsetY, roseFade);
+            renderSingleShipFirepowerRose(rose, s, isEnemy, isAlly, scale, offsetX, offsetY, roseFade, kfBlend);
         }
 
         // 2. Render L-Cordon / U-Cordon crossfire pocket indicators for divisions experiencing crossfire
@@ -380,14 +392,14 @@ public class TsfcWarroomRenderer {
         BattlefieldFirepowerEvaluator.setActiveBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
         if (!timeOverlayVisible && !spaceOverlayVisible && !convergenceOverlayVisible) return;
 
-        // Throttle cross-group Time/Space/Convergence telemetry recomputation so it does NOT run 3x on every 60+ FPS render frame
+        // Throttle cross-group Time/Space/Convergence telemetry recomputation to the 0.10s TSFC keyframe cadence
         float now = engine.getTotalElapsedTime(false);
         int divCountSig = ((playerGroup != null ? playerGroup.divisions.size() : 0) << 16)
                 ^ ((alliedAiGroup != null ? alliedAiGroup.divisions.size() : 0) << 8)
                 ^ (enemyGroup != null ? enemyGroup.divisions.size() : 0);
         boolean staleTime = engine != BattlefieldFirepowerEvaluator.lastTimeSpaceConvEngine
                 || divCountSig != BattlefieldFirepowerEvaluator.lastTimeSpaceConvDivCountSig
-                || Math.abs(now - BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime) >= 0.24f;
+                || Math.abs(now - BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime) >= BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL;
         if (staleTime) {
             if (playerGroup != null) {
                 for (DivisionState d : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, playerGroup)) {
@@ -477,18 +489,37 @@ public class TsfcWarroomRenderer {
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
+        float now = engine.getTotalElapsedTime(false);
 
         for (DivisionState div : renderDivs) {
             if (!div.isCombatEffective()) continue;
             if (isEnemy && !BattlefieldFirepowerEvaluator.isEnemyDivisionVisibleSticky(engine, div, playerFog)) continue;
+            float kfBlend = BattlefieldFirepowerEvaluator.computeDivisionKeyframeBlendFactor(div, now);
+            if (kfBlend < 0f) {
+                if (div.tsfcKeyframesInitialized) continue; // > 2.0s old keyframe thrown into the bin
+                kfBlend = 1.0f;
+            }
+
             Vector2f cWorld = isEnemy
                     ? BattlefieldFirepowerEvaluator.getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
                     : div.centroid;
 
+            float interpEffTimeR = div.tsfcKeyframesInitialized
+                    ? (div.prevEffectiveTimeRadius + (div.effectiveTimeRadius - div.prevEffectiveTimeRadius) * kfBlend)
+                    : div.effectiveTimeRadius;
+            float interpFreeTimeR = div.tsfcKeyframesInitialized
+                    ? (div.prevFreeTimeRadius + (div.freeTimeRadius - div.prevFreeTimeRadius) * kfBlend)
+                    : div.freeTimeRadius;
+            float interpEng = div.tsfcKeyframesInitialized
+                    ? (div.prevEngagementLevel + (div.engagementLevel - div.prevEngagementLevel) * kfBlend)
+                    : div.engagementLevel;
+
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
-            float effRadPx = Math.max(18f, div.effectiveTimeRadius * scale);
-            float freeRadPx = Math.max(effRadPx, div.freeTimeRadius * scale);
+            float effRadPx = Math.max(18f, interpEffTimeR * scale);
+            float freeRadPx = Math.max(effRadPx, interpFreeTimeR * scale);
+            float timeSlide = BattlefieldFirepowerEvaluator.computeDivisionTimeSlidingOpacityScale(div, interpFreeTimeR);
+            float timeFade = fade * timeSlide;
 
             float r, g, b;
             if (isEnemy) {
@@ -502,15 +533,15 @@ public class TsfcWarroomRenderer {
             if (isCircleVisibleOnScreen(cx, cy, freeRadPx + 16f, screenW, screenH)) {
                 // Increasingly transparent directional Time contour: pinched toward the enemy / Enemy Space,
                 // open laterally (sideways) and backward away from the fighting!
-                drawDirectionalTimeGradient(cx, cy, div, scale, r, g, b, 0.22f * fade, 48);
+                drawDirectionalTimeGradient(cx, cy, div, scale, kfBlend, r, g, b, 0.14f * timeFade, 48);
 
                 // Crisp inner horizon contour at 50% directional Time horizon and outer directional Time contour
-                drawDirectionalTimeOutline(cx, cy, div, scale, 0.50f, r, g, b, 0.18f * fade, 1.1f, 48, true);
-                drawDirectionalTimeOutline(cx, cy, div, scale, 1.00f, r, g, b, 0.48f * fade, 1.55f, 48, false);
+                drawDirectionalTimeOutline(cx, cy, div, scale, 0.50f, r, g, b, 0.14f * timeFade, 1.1f, 48, true);
+                drawDirectionalTimeOutline(cx, cy, div, scale, 1.00f, r, g, b, 0.36f * timeFade, 1.45f, 48, false);
 
                 // When Engagement Level pinches any sector of the Time circle, render the unencumbered freeTimeRadius as a faint dashed ring
-                if (div.engagementLevel > 0.06f && freeRadPx > 20f) {
-                    drawCircleOutline(cx, cy, freeRadPx, r, g * 0.75f, b * 0.75f, 0.26f * fade, 1.15f, 36, true);
+                if (interpEng > 0.06f && freeRadPx > 20f) {
+                    drawCircleOutline(cx, cy, freeRadPx, r, g * 0.75f, b * 0.75f, 0.20f * timeFade, 1.10f, 36, true);
                 }
             }
 
@@ -527,27 +558,44 @@ public class TsfcWarroomRenderer {
                     float wSpd = Math.max(180f, wLead.getMaxSpeed());
                     float wTimeRadPx = Math.max(12f, (wSpd * 3.8f) * scale);
                     if (!isCircleVisibleOnScreen(wx, wy, wTimeRadPx + 8f, screenW, screenH)) continue;
-                    drawIncreasinglyTransparentCircle(wx, wy, wTimeRadPx, r, g, b, 0.15f * fade, 24);
-                    drawCircleOutline(wx, wy, wTimeRadPx, r, g, b, 0.36f * fade, 1.2f, 24, true);
+                    drawIncreasinglyTransparentCircle(wx, wy, wTimeRadPx, r, g, b, 0.10f * timeFade, 24);
+                    drawCircleOutline(wx, wy, wTimeRadPx, r, g, b, 0.26f * timeFade, 1.15f, 24, true);
                 }
             }
         }
     }
 
     static void populateDirectionalTimeScratchCoords(float cx, float cy, DivisionState div, float scale) {
+        populateDirectionalTimeScratchCoords(cx, cy, div, scale, 1.0f);
+    }
+
+    static void populateDirectionalTimeScratchCoords(float cx, float cy, DivisionState div, float scale, float kfBlend) {
         boolean init = div.directionalTimeInitialized;
-        float fallbackWorldR = Math.max(100f, div.effectiveTimeRadius > 1f ? div.effectiveTimeRadius : div.freeTimeRadius);
+        boolean hasKf = div.tsfcKeyframesInitialized && kfBlend < 0.999f;
+        float effR = hasKf
+                ? (div.prevEffectiveTimeRadius + (div.effectiveTimeRadius - div.prevEffectiveTimeRadius) * kfBlend)
+                : div.effectiveTimeRadius;
+        float freeR = hasKf
+                ? (div.prevFreeTimeRadius + (div.freeTimeRadius - div.prevFreeTimeRadius) * kfBlend)
+                : div.freeTimeRadius;
+        float fallbackWorldR = Math.max(100f, effR > 1f ? effR : freeR);
         for (int i = 0; i < 48; i++) {
             float worldR;
             if (!init) {
                 worldR = fallbackWorldR;
             } else {
                 int s0 = i >> 1;
+                float r0 = hasKf
+                        ? (div.prevDirectionalTimeRadii[s0] + (div.directionalTimeRadii[s0] - div.prevDirectionalTimeRadii[s0]) * kfBlend)
+                        : div.directionalTimeRadii[s0];
                 if ((i & 1) == 0) {
-                    worldR = div.directionalTimeRadii[s0];
+                    worldR = r0;
                 } else {
                     int s1 = (s0 + 1) % DivisionState.TIME_DIRECTIONS;
-                    worldR = 0.5f * (div.directionalTimeRadii[s0] + div.directionalTimeRadii[s1]);
+                    float r1 = hasKf
+                            ? (div.prevDirectionalTimeRadii[s1] + (div.directionalTimeRadii[s1] - div.prevDirectionalTimeRadii[s1]) * kfBlend)
+                            : div.directionalTimeRadii[s1];
+                    worldR = 0.5f * (r0 + r1);
                 }
             }
             float outerRadPx = Math.max(14f, worldR * scale);
@@ -571,8 +619,22 @@ public class TsfcWarroomRenderer {
             float b,
             float centerAlpha,
             int segs) {
+        drawDirectionalTimeGradient(cx, cy, div, scale, 1.0f, r, g, b, centerAlpha, segs);
+    }
+
+    static void drawDirectionalTimeGradient(
+            float cx,
+            float cy,
+            DivisionState div,
+            float scale,
+            float kfBlend,
+            float r,
+            float g,
+            float b,
+            float centerAlpha,
+            int segs) {
         if (div == null || scale <= 1e-5f || centerAlpha <= 0.002f) return;
-        populateDirectionalTimeScratchCoords(cx, cy, div, scale);
+        populateDirectionalTimeScratchCoords(cx, cy, div, scale, kfBlend);
         renderScratchDirectionalGradient(cx, cy, r, g, b, centerAlpha);
     }
 
@@ -631,19 +693,41 @@ public class TsfcWarroomRenderer {
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
+        float now = engine.getTotalElapsedTime(false);
 
         for (DivisionState div : renderDivs) {
             if (!div.isCombatEffective()) continue;
             if (isEnemy && !BattlefieldFirepowerEvaluator.isEnemyDivisionVisibleSticky(engine, div, playerFog)) continue;
+            float kfBlend = BattlefieldFirepowerEvaluator.computeDivisionKeyframeBlendFactor(div, now);
+            if (kfBlend < 0f) {
+                if (div.tsfcKeyframesInitialized) continue; // > 2.0s old keyframe thrown into the bin
+                kfBlend = 1.0f;
+            }
+
             Vector2f cWorld = isEnemy
                     ? BattlefieldFirepowerEvaluator.getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
                     : div.centroid;
 
+            float interpInR = div.tsfcKeyframesInitialized
+                    ? (div.prevSpaceInnerRadius + (div.spaceInnerRadius - div.prevSpaceInnerRadius) * kfBlend)
+                    : div.spaceInnerRadius;
+            float interpDomR = div.tsfcKeyframesInitialized
+                    ? (div.prevSpaceDominatedRadius + (div.spaceDominatedRadius - div.prevSpaceDominatedRadius) * kfBlend)
+                    : div.spaceDominatedRadius;
+            float interpPotR = div.tsfcKeyframesInitialized
+                    ? (div.prevSpacePotentialRadius + (div.spacePotentialRadius - div.prevSpacePotentialRadius) * kfBlend)
+                    : div.spacePotentialRadius;
+            float interpDomWeight = div.tsfcKeyframesInitialized
+                    ? (div.prevSpaceDominanceWeight + (div.spaceDominanceWeight - div.prevSpaceDominanceWeight) * kfBlend)
+                    : div.spaceDominanceWeight;
+
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
-            float inRadPx = Math.max(14f, div.spaceInnerRadius * scale);
-            float domRadPx = Math.max(inRadPx + 8f, div.spaceDominatedRadius * scale);
-            float potRadPx = Math.max(domRadPx + 8f, div.spacePotentialRadius * scale);
+            float inRadPx = Math.max(14f, interpInR * scale);
+            float domRadPx = Math.max(inRadPx + 8f, interpDomR * scale);
+            float potRadPx = Math.max(domRadPx + 8f, interpPotR * scale);
+            float spaceSlide = BattlefieldFirepowerEvaluator.computeDivisionSpaceSlidingOpacityScale(div, interpDomWeight);
+            float spaceFade = fade * spaceSlide;
 
             float r, g, b;
             if (isEnemy) {
@@ -656,22 +740,22 @@ public class TsfcWarroomRenderer {
 
             if (isCircleVisibleOnScreen(cx, cy, potRadPx + 16f, screenW, screenH)) {
                 // Tier 3 (Outer): Potentially Dominated Space given Time to maneuver (directional, non-circular, map-edge pinched)
-                drawDirectionalSpaceTierGradient(cx, cy, div, 2, scale, r, g, b, 0.11f * fade);
-                drawDirectionalSpaceTierOutline(cx, cy, div, 2, scale, 1.0f, r, g, b, 0.22f * fade, 1.1f, true);
+                drawDirectionalSpaceTierGradient(cx, cy, div, 2, scale, kfBlend, r, g, b, 0.068f * spaceFade);
+                drawDirectionalSpaceTierOutline(cx, cy, div, 2, scale, kfBlend, 1.0f, r, g, b, 0.16f * spaceFade, 1.05f, true);
 
                 // Tier 2 (Middle): Dominated Nearby Space (directional, non-circular, map-edge pinched)
-                drawDirectionalSpaceTierGradient(cx, cy, div, 1, scale, r, g, b, 0.16f * fade);
-                drawDirectionalSpaceTierOutline(cx, cy, div, 1, scale, 1.0f, r, g, b, 0.38f * fade, 1.4f, false);
+                drawDirectionalSpaceTierGradient(cx, cy, div, 1, scale, kfBlend, r, g, b, 0.098f * spaceFade);
+                drawDirectionalSpaceTierOutline(cx, cy, div, 1, scale, kfBlend, 1.0f, r, g, b, 0.28f * spaceFade, 1.30f, false);
 
                 // Tier 1 (Inner Core): Directly Dominated Up Close Space (directional, non-circular, map-edge pinched)
-                drawDirectionalSpaceTierGradient(cx, cy, div, 0, scale, r, g, b, 0.20f * fade);
-                drawDirectionalSpaceTierOutline(cx, cy, div, 0, scale, 1.0f, r, g, b, 0.52f * fade, 1.6f, false);
+                drawDirectionalSpaceTierGradient(cx, cy, div, 0, scale, kfBlend, r, g, b, 0.125f * spaceFade);
+                drawDirectionalSpaceTierOutline(cx, cy, div, 0, scale, kfBlend, 1.0f, r, g, b, 0.40f * spaceFade, 1.50f, false);
 
                 // Highlight Strongpoint (bastion) or Weak Point (seam) on the inner Space perimeter
                 if (div.isStrongpoint) {
-                    drawDirectionalSpaceTierOutline(cx, cy, div, 0, scale, 0.75f, 0.45f, 0.98f, 0.88f, 0.55f * fade, 1.8f, false);
+                    drawDirectionalSpaceTierOutline(cx, cy, div, 0, scale, kfBlend, 0.75f, 0.45f, 0.98f, 0.88f, 0.45f * spaceFade, 1.7f, false);
                 } else if (div.isWeakPoint) {
-                    drawDirectionalSpaceTierOutline(cx, cy, div, 0, scale, 0.82f, 1.00f, 0.75f, 0.22f, 0.60f * fade, 1.8f, true);
+                    drawDirectionalSpaceTierOutline(cx, cy, div, 0, scale, kfBlend, 0.82f, 1.00f, 0.75f, 0.22f, 0.48f * spaceFade, 1.7f, true);
                 }
             }
 
@@ -689,8 +773,8 @@ public class TsfcWarroomRenderer {
                     float wy = offsetY + wLead.getLocation().y * scale;
                     float wDomPx = Math.max(12f, 480f * scale);
                     if (!isCircleVisibleOnScreen(wx, wy, wDomPx + 8f, screenW, screenH)) continue;
-                    drawIncreasinglyTransparentCircle(wx, wy, wDomPx, r, g, b, 0.09f * fade, 24);
-                    drawCircleOutline(wx, wy, wDomPx, r, g, b, 0.28f * fade, 1.10f, 24, true);
+                    drawIncreasinglyTransparentCircle(wx, wy, wDomPx, r, g, b, 0.06f * spaceFade, 24);
+                    drawCircleOutline(wx, wy, wDomPx, r, g, b, 0.22f * spaceFade, 1.05f, 24, true);
                 }
             }
         }
@@ -712,21 +796,43 @@ public class TsfcWarroomRenderer {
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
+        float now = engine.getTotalElapsedTime(false);
 
         for (DivisionState div : renderDivs) {
             if (!div.isCombatEffective()) continue;
             if (isEnemy && !BattlefieldFirepowerEvaluator.isEnemyDivisionVisibleSticky(engine, div, playerFog)) continue;
+            float kfBlend = BattlefieldFirepowerEvaluator.computeDivisionKeyframeBlendFactor(div, now);
+            if (kfBlend < 0f) {
+                if (div.tsfcKeyframesInitialized) continue; // > 2.0s old keyframe thrown into the bin
+                kfBlend = 1.0f;
+            }
+
             Vector2f cWorld = isEnemy
                     ? BattlefieldFirepowerEvaluator.getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
                     : div.centroid;
 
+            float interpEffTimeR = div.tsfcKeyframesInitialized
+                    ? (div.prevEffectiveTimeRadius + (div.effectiveTimeRadius - div.prevEffectiveTimeRadius) * kfBlend)
+                    : div.effectiveTimeRadius;
+            float interpFreeTimeR = div.tsfcKeyframesInitialized
+                    ? (div.prevFreeTimeRadius + (div.freeTimeRadius - div.prevFreeTimeRadius) * kfBlend)
+                    : div.freeTimeRadius;
+            float interpDomR = div.tsfcKeyframesInitialized
+                    ? (div.prevSpaceDominatedRadius + (div.spaceDominatedRadius - div.prevSpaceDominatedRadius) * kfBlend)
+                    : div.spaceDominatedRadius;
+            float interpConvScore = div.tsfcKeyframesInitialized
+                    ? (div.prevConvergenceScore + (div.convergenceScore - div.prevConvergenceScore) * kfBlend)
+                    : div.convergenceScore;
+
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
             // Convergence radius synthesizes Time, Space, and Firepower into a unified phase envelope
-            float convWorldRad = 0.38f * div.effectiveTimeRadius
-                    + 0.38f * div.spaceDominatedRadius
+            float convWorldRad = 0.38f * interpEffTimeR
+                    + 0.38f * interpDomR
                     + 0.24f * Math.max(500f, div.avgEngageRange);
             float radPx = Math.max(24f, convWorldRad * scale);
+            float convSlide = BattlefieldFirepowerEvaluator.computeDivisionTimeSlidingOpacityScale(div, interpFreeTimeR);
+            float convFade = fade * convSlide;
 
             float r, g, b;
             if (isEnemy) {
@@ -738,11 +844,13 @@ public class TsfcWarroomRenderer {
                 r = 0.38f; g = 0.92f; b = 1.00f;
             }
 
-            float activeBoost = (group.useConvergence || div.useConvergence) ? 1.18f : 0.85f;
-            int divSegs = DivisionAISettings.isTsfcHighGraphics() ? 48 : 36;
+            float activeBoost = (group.useConvergence || div.useConvergence) ? 1.15f : 0.82f;
             if (isCircleVisibleOnScreen(cx, cy, radPx + 16f, screenW, screenH)) {
                 // Directional & map-edge-pinched Convergence envelope
-                drawDirectionalConvergenceEnvelope(engine, cx, cy, cWorld, div, scale, r, g, b, 0.18f * fade * activeBoost, 0.52f * fade * activeBoost);
+                drawDirectionalConvergenceEnvelope(
+                        engine, cx, cy, cWorld, div, scale, kfBlend, r, g, b,
+                        0.11f * convFade * activeBoost,
+                        0.38f * convFade * activeBoost);
 
                 // Render the iconic Convergence battle glyph: an inscribed triangle inside an inscribed square inside the pinched envelope
                 float minEdgeClear = Math.min(
@@ -755,8 +863,8 @@ public class TsfcWarroomRenderer {
                 float glyphWorldR = BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(convWorldRad, minEdgeClear);
                 float glyphRadPx = Math.max(18f, glyphWorldR * scale);
                 float sqHalf = glyphRadPx * 0.70710678f; // inscribed square half-side = R / sqrt(2)
-                GL11.glLineWidth(1.35f);
-                GL11.glColor4f(r, g, b, 0.42f * fade * activeBoost);
+                GL11.glLineWidth(1.30f);
+                GL11.glColor4f(r, g, b, 0.32f * convFade * activeBoost);
                 GL11.glBegin(GL11.GL_LINE_LOOP);
                 GL11.glVertex2f(cx - sqHalf, cy - sqHalf);
                 GL11.glVertex2f(cx + sqHalf, cy - sqHalf);
@@ -765,8 +873,8 @@ public class TsfcWarroomRenderer {
                 GL11.glEnd();
 
                 // Inscribed equilateral triangle inside the square
-                GL11.glLineWidth(1.45f);
-                GL11.glColor4f(r, g, b, 0.56f * fade * activeBoost);
+                GL11.glLineWidth(1.40f);
+                GL11.glColor4f(r, g, b, 0.44f * convFade * activeBoost);
                 GL11.glBegin(GL11.GL_LINE_LOOP);
                 GL11.glVertex2f(cx, cy + sqHalf * 0.94f);
                 GL11.glVertex2f(cx - sqHalf * 0.88f, cy - sqHalf * 0.78f);
@@ -775,12 +883,18 @@ public class TsfcWarroomRenderer {
             }
 
             // Phase-locked Convergence vector to focal point when targeting an enemy division
-            if (!isEnemy && div.convergenceScore > 1f
+            if (!isEnemy && interpConvScore > 1f
                     && (div.convergenceFocalPoint.x != 0f || div.convergenceFocalPoint.y != 0f)) {
-                float fx = offsetX + div.convergenceFocalPoint.x * scale;
-                float fy = offsetY + div.convergenceFocalPoint.y * scale;
-                GL11.glLineWidth(1.5f);
-                GL11.glColor4f(r, g, b, 0.48f * fade * activeBoost);
+                float focalWx = div.tsfcKeyframesInitialized
+                        ? (div.prevConvergenceFocalPoint.x + (div.convergenceFocalPoint.x - div.prevConvergenceFocalPoint.x) * kfBlend)
+                        : div.convergenceFocalPoint.x;
+                float focalWy = div.tsfcKeyframesInitialized
+                        ? (div.prevConvergenceFocalPoint.y + (div.convergenceFocalPoint.y - div.prevConvergenceFocalPoint.y) * kfBlend)
+                        : div.convergenceFocalPoint.y;
+                float fx = offsetX + focalWx * scale;
+                float fy = offsetY + focalWy * scale;
+                GL11.glLineWidth(1.45f);
+                GL11.glColor4f(r, g, b, 0.38f * convFade * activeBoost);
                 GL11.glBegin(GL11.GL_LINES);
                 GL11.glVertex2f(cx, cy);
                 GL11.glVertex2f(fx, fy);
@@ -800,9 +914,9 @@ public class TsfcWarroomRenderer {
                     float wRadPx = Math.max(12f, 380f * scale);
                     if (!isCircleVisibleOnScreen(wx, wy, wRadPx + 8f, screenW, screenH)) continue;
                     float wSq = wRadPx * 0.70710678f;
-                    drawCircleOutline(wx, wy, wRadPx, r, g, b, 0.42f * fade * activeBoost, 1.2f, 28, false);
-                    GL11.glLineWidth(1.1f);
-                    GL11.glColor4f(r, g, b, 0.36f * fade * activeBoost);
+                    drawCircleOutline(wx, wy, wRadPx, r, g, b, 0.32f * convFade * activeBoost, 1.15f, 28, false);
+                    GL11.glLineWidth(1.05f);
+                    GL11.glColor4f(r, g, b, 0.28f * convFade * activeBoost);
                     GL11.glBegin(GL11.GL_LINE_LOOP);
                     GL11.glVertex2f(wx - wSq, wy - wSq);
                     GL11.glVertex2f(wx + wSq, wy - wSq);
@@ -820,24 +934,46 @@ public class TsfcWarroomRenderer {
     }
 
     static void populateDirectionalSpaceScratchCoords(float cx, float cy, DivisionState div, int tier, float scale) {
+        populateDirectionalSpaceScratchCoords(cx, cy, div, tier, scale, 1.0f);
+    }
+
+    static void populateDirectionalSpaceScratchCoords(float cx, float cy, DivisionState div, int tier, float scale, float kfBlend) {
         boolean init = div.directionalSpaceInitialized;
-        float fallbackWorldR = (tier == 0)
-                ? Math.max(100f, div.spaceInnerRadius)
-                : ((tier == 1) ? Math.max(200f, div.spaceDominatedRadius) : Math.max(300f, div.spacePotentialRadius));
+        boolean hasKf = div.tsfcKeyframesInitialized && kfBlend < 0.999f;
+        float fallbackWorldR;
+        if (tier == 0) {
+            float inR = hasKf ? (div.prevSpaceInnerRadius + (div.spaceInnerRadius - div.prevSpaceInnerRadius) * kfBlend) : div.spaceInnerRadius;
+            fallbackWorldR = Math.max(100f, inR);
+        } else if (tier == 1) {
+            float domR = hasKf ? (div.prevSpaceDominatedRadius + (div.spaceDominatedRadius - div.prevSpaceDominatedRadius) * kfBlend) : div.spaceDominatedRadius;
+            fallbackWorldR = Math.max(200f, domR);
+        } else {
+            float potR = hasKf ? (div.prevSpacePotentialRadius + (div.spacePotentialRadius - div.prevSpacePotentialRadius) * kfBlend) : div.spacePotentialRadius;
+            fallbackWorldR = Math.max(300f, potR);
+        }
         float[] src = (tier == 0)
                 ? div.directionalSpaceInnerRadii
                 : ((tier == 1) ? div.directionalSpaceDominatedRadii : div.directionalSpacePotentialRadii);
+        float[] prevSrc = (tier == 0)
+                ? div.prevDirectionalSpaceInnerRadii
+                : ((tier == 1) ? div.prevDirectionalSpaceDominatedRadii : div.prevDirectionalSpacePotentialRadii);
         for (int i = 0; i < 48; i++) {
             float worldR;
             if (!init || src == null) {
                 worldR = fallbackWorldR;
             } else {
                 int s0 = i >> 1;
+                float r0 = (hasKf && prevSrc != null)
+                        ? (prevSrc[s0] + (src[s0] - prevSrc[s0]) * kfBlend)
+                        : src[s0];
                 if ((i & 1) == 0) {
-                    worldR = src[s0];
+                    worldR = r0;
                 } else {
                     int s1 = (s0 + 1) % DivisionState.TIME_DIRECTIONS;
-                    worldR = 0.5f * (src[s0] + src[s1]);
+                    float r1 = (hasKf && prevSrc != null)
+                            ? (prevSrc[s1] + (src[s1] - prevSrc[s1]) * kfBlend)
+                            : src[s1];
+                    worldR = 0.5f * (r0 + r1);
                 }
             }
             float outerRadPx = Math.max(12f, worldR * scale);
@@ -861,8 +997,22 @@ public class TsfcWarroomRenderer {
             float g,
             float b,
             float centerAlpha) {
+        drawDirectionalSpaceTierGradient(cx, cy, div, tier, scale, 1.0f, r, g, b, centerAlpha);
+    }
+
+    static void drawDirectionalSpaceTierGradient(
+            float cx,
+            float cy,
+            DivisionState div,
+            int tier,
+            float scale,
+            float kfBlend,
+            float r,
+            float g,
+            float b,
+            float centerAlpha) {
         if (div == null || scale <= 1e-5f || centerAlpha <= 0.002f) return;
-        populateDirectionalSpaceScratchCoords(cx, cy, div, tier, scale);
+        populateDirectionalSpaceScratchCoords(cx, cy, div, tier, scale, kfBlend);
         renderScratchDirectionalGradient(cx, cy, r, g, b, centerAlpha);
     }
 
@@ -879,8 +1029,25 @@ public class TsfcWarroomRenderer {
             float alpha,
             float lineWidth,
             boolean dashed) {
+        drawDirectionalSpaceTierOutline(cx, cy, div, tier, scale, 1.0f, radScale, r, g, b, alpha, lineWidth, dashed);
+    }
+
+    static void drawDirectionalSpaceTierOutline(
+            float cx,
+            float cy,
+            DivisionState div,
+            int tier,
+            float scale,
+            float kfBlend,
+            float radScale,
+            float r,
+            float g,
+            float b,
+            float alpha,
+            float lineWidth,
+            boolean dashed) {
         if (div == null || scale <= 1e-5f || alpha <= 0.002f) return;
-        populateDirectionalSpaceScratchCoords(cx, cy, div, tier, scale);
+        populateDirectionalSpaceScratchCoords(cx, cy, div, tier, scale, kfBlend);
         drawDirectionalTimeOutline(cx, cy, div, scale, radScale, r, g, b, alpha, lineWidth, 48, dashed);
     }
 
@@ -896,12 +1063,51 @@ public class TsfcWarroomRenderer {
             float b,
             float centerAlpha,
             float outlineAlpha) {
+        drawDirectionalConvergenceEnvelope(engine, cx, cy, cWorld, div, scale, 1.0f, r, g, b, centerAlpha, outlineAlpha);
+    }
+
+    static void drawDirectionalConvergenceEnvelope(
+            CombatEngineAPI engine,
+            float cx,
+            float cy,
+            Vector2f cWorld,
+            DivisionState div,
+            float scale,
+            float kfBlend,
+            float r,
+            float g,
+            float b,
+            float centerAlpha,
+            float outlineAlpha) {
         if (div == null || scale <= 1e-5f) return;
+        boolean hasKf = div.tsfcKeyframesInitialized && kfBlend < 0.999f;
         float weaponPart = 0.24f * Math.max(500f, div.avgEngageRange);
         for (int i = 0; i < 48; i++) {
-            float deg = i * (360f / 48f);
-            float tR = BattlefieldFirepowerEvaluator.getDirectionalTimeRadius(div, deg);
-            float sR = BattlefieldFirepowerEvaluator.getDirectionalSpaceDominatedRadius(div, deg);
+            int s0 = i >> 1;
+            int s1 = (s0 + 1) % DivisionState.TIME_DIRECTIONS;
+            float tR0 = hasKf
+                    ? (div.prevDirectionalTimeRadii[s0] + (div.directionalTimeRadii[s0] - div.prevDirectionalTimeRadii[s0]) * kfBlend)
+                    : div.directionalTimeRadii[s0];
+            float sR0 = hasKf
+                    ? (div.prevDirectionalSpaceDominatedRadii[s0] + (div.directionalSpaceDominatedRadii[s0] - div.prevDirectionalSpaceDominatedRadii[s0]) * kfBlend)
+                    : div.directionalSpaceDominatedRadii[s0];
+            float tR;
+            float sR;
+            if ((i & 1) == 0) {
+                tR = tR0;
+                sR = sR0;
+            } else {
+                float tR1 = hasKf
+                        ? (div.prevDirectionalTimeRadii[s1] + (div.directionalTimeRadii[s1] - div.prevDirectionalTimeRadii[s1]) * kfBlend)
+                        : div.directionalTimeRadii[s1];
+                float sR1 = hasKf
+                        ? (div.prevDirectionalSpaceDominatedRadii[s1] + (div.directionalSpaceDominatedRadii[s1] - div.prevDirectionalSpaceDominatedRadii[s1]) * kfBlend)
+                        : div.directionalSpaceDominatedRadii[s1];
+                tR = 0.5f * (tR0 + tR1);
+                sR = 0.5f * (sR0 + sR1);
+            }
+            if (!div.directionalTimeInitialized) tR = Math.max(200f, div.effectiveTimeRadius);
+            if (!div.directionalSpaceInitialized) sR = Math.max(300f, div.spaceDominatedRadius);
             float worldR = 0.38f * tR + 0.38f * sR + weaponPart;
             float cos = UNIT_COS_48[i];
             float sin = UNIT_SIN_48[i];
@@ -918,7 +1124,7 @@ public class TsfcWarroomRenderer {
         }
         renderScratchDirectionalGradient(cx, cy, r, g, b, centerAlpha);
 
-        drawDirectionalTimeOutline(cx, cy, div, scale, 1.0f, r, g, b, outlineAlpha, 1.6f, 48, false);
+        drawDirectionalTimeOutline(cx, cy, div, scale, 1.0f, r, g, b, outlineAlpha, 1.5f, 48, false);
     }
 
     static void drawIncreasinglyTransparentCircle(
@@ -1007,6 +1213,19 @@ public class TsfcWarroomRenderer {
             float offsetX,
             float offsetY,
             float fade) {
+        renderSingleShipFirepowerRose(rose, ship, isEnemy, isAlly, scale, offsetX, offsetY, fade, 1.0f);
+    }
+
+    static void renderSingleShipFirepowerRose(
+            ShipFirepowerRose rose,
+            ShipAPI ship,
+            boolean isEnemy,
+            boolean isAlly,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade,
+            float kfBlend) {
 
         float cx = offsetX + ship.getLocation().x * scale;
         float cy = offsetY + ship.getLocation().y * scale;
@@ -1033,14 +1252,36 @@ public class TsfcWarroomRenderer {
             alphaR = 0.75f; alphaG = 0.98f; alphaB = 1.00f;
         }
 
+        boolean hasKf = kfBlend < 0.999f;
+        float interpReadiness = hasKf
+                ? (rose.prevReadinessMult + (rose.liveReadinessMult - rose.prevReadinessMult) * kfBlend)
+                : rose.liveReadinessMult;
+        float interpPeakSust = hasKf
+                ? (rose.prevPeakSustained + (rose.peakSectorSustained - rose.prevPeakSustained) * kfBlend)
+                : rose.peakSectorSustained;
+        float interpPeakShort = hasKf
+                ? (rose.prevPeakShortDot + (rose.peakSectorShortDot - rose.prevPeakShortDot) * kfBlend)
+                : rose.peakSectorShortDot;
+        float interpPeakAlpha = hasKf
+                ? (rose.prevPeakAlpha + (rose.peakSectorAlpha - rose.prevPeakAlpha) * kfBlend)
+                : rose.peakSectorAlpha;
+
         float dmgWeight = BattlefieldFirepowerEvaluator.clampVal(rose.potentialDamageWeight, 0.38f, 1.32f);
-        float readinessFade = Math.max(0.22f, rose.liveReadinessMult) * fade * (0.65f + 0.35f * dmgWeight);
-        // Blend relative sector intensity with absolute potential-damage reference benchmarks so both:
-        //  (1) a ship's strongest firing arcs stand out against its blind spots, AND
-        //  (2) heavy-damage ships / torpedo boats project visibly fuller, richer firepower envelopes than light plinkers!
-        float normSust = Math.max(110f, rose.peakSectorSustained * 0.65f + 340f * 0.35f);
-        float normShort = Math.max(140f, rose.peakSectorShortDot * 0.65f + 460f * 0.35f);
-        float normAlpha = Math.max(220f, rose.peakSectorAlpha * 0.65f + 780f * 0.35f);
+        // Sliding opacity based on the highest seen firepower values in the battle + active fleet density attenuation
+        float slidingOpacityScale = BattlefieldFirepowerEvaluator.computeShipSlidingOpacityScale(
+                rose, interpPeakSust, interpPeakShort, interpPeakAlpha);
+        float readinessFade = Math.max(0.20f, interpReadiness)
+                * fade
+                * slidingOpacityScale
+                * (0.62f + 0.38f * dmgWeight);
+
+        // Normalize sector intensity against both the ship's own peak and the highest values seen in the battle
+        float battleMaxSust = BattlefieldFirepowerEvaluator.getBattleMaxShipSustainedPeak();
+        float battleMaxShort = BattlefieldFirepowerEvaluator.getBattleMaxShipShortDotPeak();
+        float battleMaxAlpha = BattlefieldFirepowerEvaluator.getBattleMaxShipAlphaPeak();
+        float normSust = Math.max(110f, interpPeakSust * 0.50f + battleMaxSust * 0.30f + 280f * 0.20f);
+        float normShort = Math.max(140f, interpPeakShort * 0.50f + battleMaxShort * 0.30f + 380f * 0.20f);
+        float normAlpha = Math.max(220f, interpPeakAlpha * 0.50f + battleMaxAlpha * 0.30f + 640f * 0.20f);
 
         float[] sustX = SCRATCH_SUST_X;
         float[] sustY = SCRATCH_SUST_Y;
@@ -1057,7 +1298,8 @@ public class TsfcWarroomRenderer {
         float[] relCosTab = highGfx ? UNIT_COS_72 : UNIT_COS_48;
         float[] relSinTab = highGfx ? UNIT_SIN_72 : UNIT_SIN_48;
 
-        double facingRad = Math.toRadians(rose.smoothedFacingDeg);
+        float interpFacingDeg = rose.getInterpolatedFacingDeg(kfBlend);
+        double facingRad = Math.toRadians(interpFacingDeg);
         float cosF = (float) Math.cos(facingRad);
         float sinF = (float) Math.sin(facingRad);
 
@@ -1071,38 +1313,68 @@ public class TsfcWarroomRenderer {
             float sustVal, shortVal, alphaVal, pdReachPx, pdVal;
             if (highGfx) {
                 float relDeg = i * (360f / HIGH_CONTOUR_STEPS);
-                genReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relDeg) * scale;
-                sustReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedRange, relDeg) * scale;
-                shortReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortRange, relDeg) * scale;
-                alphaReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alphaRange, relDeg) * scale;
-                sustVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedDot, relDeg);
-                shortVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relDeg);
-                alphaVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alpha, relDeg);
-                pdReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdRange, relDeg) * scale;
-                pdVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdScore, relDeg);
+                if (hasKf) {
+                    genReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevGeneralRange, rose.generalRange, kfBlend, relDeg) * scale;
+                    sustReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevSustainedRange, rose.sustainedRange, kfBlend, relDeg) * scale;
+                    shortReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevShortRange, rose.shortRange, kfBlend, relDeg) * scale;
+                    alphaReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevAlphaRange, rose.alphaRange, kfBlend, relDeg) * scale;
+                    sustVal = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevSustainedDot, rose.sustainedDot, kfBlend, relDeg);
+                    shortVal = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevShortDot, rose.shortDot, kfBlend, relDeg);
+                    alphaVal = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevAlpha, rose.alpha, kfBlend, relDeg);
+                    pdReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevPdRange, rose.pdRange, kfBlend, relDeg) * scale;
+                    pdVal = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevPdScore, rose.pdScore, kfBlend, relDeg);
+                } else {
+                    genReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relDeg) * scale;
+                    sustReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedRange, relDeg) * scale;
+                    shortReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortRange, relDeg) * scale;
+                    alphaReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alphaRange, relDeg) * scale;
+                    sustVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedDot, relDeg);
+                    shortVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relDeg);
+                    alphaVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alpha, relDeg);
+                    pdReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdRange, relDeg) * scale;
+                    pdVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdScore, relDeg);
+                }
             } else {
                 int s0 = i >> 1;
+                float g0 = hasKf ? (rose.prevGeneralRange[s0] + (rose.generalRange[s0] - rose.prevGeneralRange[s0]) * kfBlend) : rose.generalRange[s0];
+                float suR0 = hasKf ? (rose.prevSustainedRange[s0] + (rose.sustainedRange[s0] - rose.prevSustainedRange[s0]) * kfBlend) : rose.sustainedRange[s0];
+                float shR0 = hasKf ? (rose.prevShortRange[s0] + (rose.shortRange[s0] - rose.prevShortRange[s0]) * kfBlend) : rose.shortRange[s0];
+                float alR0 = hasKf ? (rose.prevAlphaRange[s0] + (rose.alphaRange[s0] - rose.prevAlphaRange[s0]) * kfBlend) : rose.alphaRange[s0];
+                float suV0 = hasKf ? (rose.prevSustainedDot[s0] + (rose.sustainedDot[s0] - rose.prevSustainedDot[s0]) * kfBlend) : rose.sustainedDot[s0];
+                float shV0 = hasKf ? (rose.prevShortDot[s0] + (rose.shortDot[s0] - rose.prevShortDot[s0]) * kfBlend) : rose.shortDot[s0];
+                float alV0 = hasKf ? (rose.prevAlpha[s0] + (rose.alpha[s0] - rose.prevAlpha[s0]) * kfBlend) : rose.alpha[s0];
+                float pdR0 = hasKf ? (rose.prevPdRange[s0] + (rose.pdRange[s0] - rose.prevPdRange[s0]) * kfBlend) : rose.pdRange[s0];
+                float pdV0 = hasKf ? (rose.prevPdScore[s0] + (rose.pdScore[s0] - rose.prevPdScore[s0]) * kfBlend) : rose.pdScore[s0];
                 if ((i & 1) == 0) {
-                    genReachPx = rose.generalRange[s0] * scale;
-                    sustReachPx = rose.sustainedRange[s0] * scale;
-                    shortReachPx = rose.shortRange[s0] * scale;
-                    alphaReachPx = rose.alphaRange[s0] * scale;
-                    sustVal = rose.sustainedDot[s0];
-                    shortVal = rose.shortDot[s0];
-                    alphaVal = rose.alpha[s0];
-                    pdReachPx = rose.pdRange[s0] * scale;
-                    pdVal = rose.pdScore[s0];
+                    genReachPx = g0 * scale;
+                    sustReachPx = suR0 * scale;
+                    shortReachPx = shR0 * scale;
+                    alphaReachPx = alR0 * scale;
+                    sustVal = suV0;
+                    shortVal = shV0;
+                    alphaVal = alV0;
+                    pdReachPx = pdR0 * scale;
+                    pdVal = pdV0;
                 } else {
                     int s1 = (s0 + 1) % BattlefieldFirepowerEvaluator.NUM_SECTORS;
-                    genReachPx = 0.5f * (rose.generalRange[s0] + rose.generalRange[s1]) * scale;
-                    sustReachPx = 0.5f * (rose.sustainedRange[s0] + rose.sustainedRange[s1]) * scale;
-                    shortReachPx = 0.5f * (rose.shortRange[s0] + rose.shortRange[s1]) * scale;
-                    alphaReachPx = 0.5f * (rose.alphaRange[s0] + rose.alphaRange[s1]) * scale;
-                    sustVal = 0.5f * (rose.sustainedDot[s0] + rose.sustainedDot[s1]);
-                    shortVal = 0.5f * (rose.shortDot[s0] + rose.shortDot[s1]);
-                    alphaVal = 0.5f * (rose.alpha[s0] + rose.alpha[s1]);
-                    pdReachPx = 0.5f * (rose.pdRange[s0] + rose.pdRange[s1]) * scale;
-                    pdVal = 0.5f * (rose.pdScore[s0] + rose.pdScore[s1]);
+                    float g1 = hasKf ? (rose.prevGeneralRange[s1] + (rose.generalRange[s1] - rose.prevGeneralRange[s1]) * kfBlend) : rose.generalRange[s1];
+                    float suR1 = hasKf ? (rose.prevSustainedRange[s1] + (rose.sustainedRange[s1] - rose.prevSustainedRange[s1]) * kfBlend) : rose.sustainedRange[s1];
+                    float shR1 = hasKf ? (rose.prevShortRange[s1] + (rose.shortRange[s1] - rose.prevShortRange[s1]) * kfBlend) : rose.shortRange[s1];
+                    float alR1 = hasKf ? (rose.prevAlphaRange[s1] + (rose.alphaRange[s1] - rose.prevAlphaRange[s1]) * kfBlend) : rose.alphaRange[s1];
+                    float suV1 = hasKf ? (rose.prevSustainedDot[s1] + (rose.sustainedDot[s1] - rose.prevSustainedDot[s1]) * kfBlend) : rose.sustainedDot[s1];
+                    float shV1 = hasKf ? (rose.prevShortDot[s1] + (rose.shortDot[s1] - rose.prevShortDot[s1]) * kfBlend) : rose.shortDot[s1];
+                    float alV1 = hasKf ? (rose.prevAlpha[s1] + (rose.alpha[s1] - rose.prevAlpha[s1]) * kfBlend) : rose.alpha[s1];
+                    float pdR1 = hasKf ? (rose.prevPdRange[s1] + (rose.pdRange[s1] - rose.prevPdRange[s1]) * kfBlend) : rose.pdRange[s1];
+                    float pdV1 = hasKf ? (rose.prevPdScore[s1] + (rose.pdScore[s1] - rose.prevPdScore[s1]) * kfBlend) : rose.pdScore[s1];
+                    genReachPx = 0.5f * (g0 + g1) * scale;
+                    sustReachPx = 0.5f * (suR0 + suR1) * scale;
+                    shortReachPx = 0.5f * (shR0 + shR1) * scale;
+                    alphaReachPx = 0.5f * (alR0 + alR1) * scale;
+                    sustVal = 0.5f * (suV0 + suV1);
+                    shortVal = 0.5f * (shV0 + shV1);
+                    alphaVal = 0.5f * (alV0 + alV1);
+                    pdReachPx = 0.5f * (pdR0 + pdR1) * scale;
+                    pdVal = 0.5f * (pdV0 + pdV1);
                 }
             }
             if (sustReachPx <= 1f) sustReachPx = genReachPx;
@@ -1161,11 +1433,11 @@ public class TsfcWarroomRenderer {
             }
         }
 
-        // Plane 1: Sustained DoT Outer Polar Plane
+        // Plane 1: Sustained DoT Outer Polar Plane (lower base opacity + sliding battle-high scaling)
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(sustR, sustG, sustB, 0.14f * readinessFade);
+        GL11.glColor4f(sustR, sustG, sustB, 0.080f * readinessFade);
         GL11.glVertex2f(cx, cy);
-        GL11.glColor4f(sustR, sustG, sustB, 0.07f * readinessFade);
+        GL11.glColor4f(sustR, sustG, sustB, 0.036f * readinessFade);
         for (int i = 0; i <= contourSteps; i++) {
             int idx = i % contourSteps;
             GL11.glVertex2f(sustX[idx], sustY[idx]);
@@ -1173,8 +1445,8 @@ public class TsfcWarroomRenderer {
         GL11.glEnd();
 
         // Outer Sustained DoT contour line (line weight scaled by potentialDamageWeight)
-        GL11.glLineWidth(1.10f + 0.45f * dmgWeight);
-        GL11.glColor4f(sustR, sustG, sustB, 0.36f * readinessFade);
+        GL11.glLineWidth(1.05f + 0.42f * dmgWeight);
+        GL11.glColor4f(sustR, sustG, sustB, 0.26f * readinessFade);
         GL11.glBegin(GL11.GL_LINE_LOOP);
         for (int i = 0; i < contourSteps; i++) {
             GL11.glVertex2f(sustX[i], sustY[i]);
@@ -1183,17 +1455,17 @@ public class TsfcWarroomRenderer {
 
         // Plane 2: Short DoT (4-6s Burst) Mid Polar Plane + Detailed Mid-Horizon Iso-Damage Contour
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(shortR, shortG, shortB, 0.16f * readinessFade);
+        GL11.glColor4f(shortR, shortG, shortB, 0.092f * readinessFade);
         GL11.glVertex2f(cx, cy);
-        GL11.glColor4f(shortR, shortG, shortB, 0.09f * readinessFade);
+        GL11.glColor4f(shortR, shortG, shortB, 0.046f * readinessFade);
         for (int i = 0; i <= contourSteps; i++) {
             int idx = i % contourSteps;
             GL11.glVertex2f(shortX[idx], shortY[idx]);
         }
         GL11.glEnd();
 
-        GL11.glLineWidth(1.05f + 0.35f * dmgWeight);
-        GL11.glColor4f(shortR, shortG, shortB, 0.30f * readinessFade);
+        GL11.glLineWidth(1.00f + 0.32f * dmgWeight);
+        GL11.glColor4f(shortR, shortG, shortB, 0.23f * readinessFade);
         GL11.glBegin(GL11.GL_LINE_LOOP);
         for (int i = 0; i < contourSteps; i++) {
             GL11.glVertex2f(shortX[i], shortY[i]);
@@ -1202,18 +1474,18 @@ public class TsfcWarroomRenderer {
 
         // Plane 3: Alpha Strike (0-2s Salvo) Hot Inner Core + High-Lethality Salvo Contour
         GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glColor4f(alphaR, alphaG, alphaB, 0.21f * readinessFade);
+        GL11.glColor4f(alphaR, alphaG, alphaB, 0.120f * readinessFade);
         GL11.glVertex2f(cx, cy);
-        GL11.glColor4f(alphaR, alphaG, alphaB, 0.11f * readinessFade);
+        GL11.glColor4f(alphaR, alphaG, alphaB, 0.058f * readinessFade);
         for (int i = 0; i <= contourSteps; i++) {
             int idx = i % contourSteps;
             GL11.glVertex2f(alphaX[idx], alphaY[idx]);
         }
         GL11.glEnd();
 
-        if (rose.peakSectorAlpha >= 140f) {
-            GL11.glLineWidth(1.15f + 0.40f * dmgWeight);
-            GL11.glColor4f(alphaR, alphaG, alphaB, 0.38f * readinessFade);
+        if (interpPeakAlpha >= 140f) {
+            GL11.glLineWidth(1.10f + 0.38f * dmgWeight);
+            GL11.glColor4f(alphaR, alphaG, alphaB, 0.30f * readinessFade);
             GL11.glBegin(GL11.GL_LINE_LOOP);
             for (int i = 0; i < contourSteps; i++) {
                 GL11.glVertex2f(alphaX[i], alphaY[i]);
@@ -1223,8 +1495,8 @@ public class TsfcWarroomRenderer {
 
         // Plane 4: Point Defense (PD) Dashed Inner Ring (Violet-Gold)
         if (hasPd) {
-            GL11.glLineWidth(1.3f);
-            GL11.glColor4f(0.92f, 0.78f, 1.00f, 0.42f * readinessFade);
+            GL11.glLineWidth(1.25f);
+            GL11.glColor4f(0.92f, 0.78f, 1.00f, 0.32f * readinessFade);
             GL11.glBegin(GL11.GL_LINES);
             for (int i = 0; i < contourSteps; i += 2) {
                 int next = (i + 1) % contourSteps;
@@ -1232,6 +1504,90 @@ public class TsfcWarroomRenderer {
                 GL11.glVertex2f(pdX[next], pdY[next]);
             }
             GL11.glEnd();
+        }
+    }
+
+    private static final Color WARROOM_HULL_FRIENDLY_TINT = new Color(155, 255, 50);
+    private static final Color WARROOM_HULL_ALLY_TINT = new Color(255, 215, 45);
+    private static final Color WARROOM_HULL_ENEMY_TINT = new Color(255, 65, 45);
+
+    /**
+     * Renders visible ship hull sprites in screen space on top of the TSFC overlays in the Warroom
+     * so that TSFC (Time, Space, Firepower, Convergence) appears cleanly UNDER the ship sprites
+     * without invoking the heavy per-weapon turret loops of vanilla {@code com.fs.starfarer.ui.B.new}.
+     */
+    public static void renderWarroomShipSpritesAboveTsfc(
+            CombatEngineAPI engine,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade) {
+        if (!isAnyTsfcOverlayVisible() || engine == null || scale <= 1e-5f || fade <= 0.04f) {
+            return;
+        }
+        List<ShipAPI> ships = engine.getShips();
+        if (ships == null || ships.isEmpty()) return;
+
+        float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
+        float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
+        FogOfWarAPI playerFog = engine.getFogOfWar(0);
+
+        for (int i = 0, n = ships.size(); i < n; i++) {
+            ShipAPI s = ships.get(i);
+            if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+            if (s.isFighter()) continue;
+            SpriteAPI sprite = s.getSpriteAPI();
+            if (sprite == null) continue;
+            Vector2f loc = s.getLocation();
+            if (loc == null) continue;
+
+            float sx = offsetX + loc.x * scale;
+            float sy = offsetY + loc.y * scale;
+            float colRadPx = Math.max(8f, s.getCollisionRadius() * scale);
+            if (!isCircleVisibleOnScreen(sx, sy, colRadPx + 12f, screenW, screenH)) {
+                continue;
+            }
+
+            boolean isEnemy = (s.getOwner() == 1);
+            float hullAlpha = fade;
+            if (isEnemy && playerFog != null) {
+                if (!BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(engine, s, playerFog)) {
+                    continue;
+                }
+                hullAlpha *= BattlefieldFirepowerEvaluator.getEnemyShipStickyVisibilityAlpha(engine, s, playerFog);
+            }
+            if (hullAlpha <= 0.04f) continue;
+
+            float origW = sprite.getWidth();
+            float origH = sprite.getHeight();
+            float origCX = sprite.getCenterX();
+            float origCY = sprite.getCenterY();
+            float origAngle = sprite.getAngle();
+            Color origColor = sprite.getColor();
+            float origAlpha = sprite.getAlphaMult();
+
+            Color tint = isEnemy
+                    ? WARROOM_HULL_ENEMY_TINT
+                    : (s.isAlly() ? WARROOM_HULL_ALLY_TINT : WARROOM_HULL_FRIENDLY_TINT);
+
+            try {
+                sprite.setSize(origW * scale, origH * scale);
+                sprite.setCenter(origCX * scale, origCY * scale);
+                sprite.setAngle(s.getFacing() - 90f);
+                sprite.setColor(tint);
+                sprite.setNormalBlend();
+                sprite.setAlphaMult(hullAlpha * 0.88f);
+                sprite.renderAtCenter(sx, sy);
+            } finally {
+                sprite.setSize(origW, origH);
+                sprite.setCenter(origCX, origCY);
+                sprite.setAngle(origAngle);
+                if (origColor != null) {
+                    sprite.setColor(origColor);
+                }
+                sprite.setAlphaMult(origAlpha);
+                sprite.setNormalBlend();
+            }
         }
     }
 

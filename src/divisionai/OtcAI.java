@@ -43,7 +43,12 @@ public class OtcAI {
 
     public static void updateTelemetry(CombatEngineAPI engine, BattleGroupState battleGroup) {
         if (engine != null) {
-            BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, engine.getTotalElapsedTime(false));
+            float now = engine.getTotalElapsedTime(false);
+            if (BattlefieldFirepowerEvaluator.lastRoseUpdateEngine != engine
+                    || Math.abs(now - BattlefieldFirepowerEvaluator.lastRoseUpdateTime) > 1e-4f
+                    || BattlefieldFirepowerEvaluator.getRoseCount() == 0) {
+                BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
+            }
         }
         float fleetWeightedX = 0f;
         float fleetWeightedY = 0f;
