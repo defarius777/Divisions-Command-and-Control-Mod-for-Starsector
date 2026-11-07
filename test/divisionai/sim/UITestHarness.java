@@ -4417,6 +4417,7 @@ public class UITestHarness {
                 && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
                 && combatPluginSrc.contains("snapshotGroupDivisionKeyframesBeforeUpdate")
                 && overlaySrc.contains("syncRegularCommandSpritesVisibility(useMiniSpritesForTsfc)")
+                && overlaySrc.contains("lookup.findVirtual(mdClass, \"class\", MethodType.methodType(Map.class))")
                 && overlaySrc.contains("bNewLookup.findGetter(bNewCls, \"\\u00d4\\u00d50000\", spriteCls)")
                 && defaultMiniSpritesOk
                 && disabledMiniSpritesOk
