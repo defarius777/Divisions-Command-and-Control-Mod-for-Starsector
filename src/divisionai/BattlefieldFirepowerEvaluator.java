@@ -2560,7 +2560,7 @@ public class BattlefieldFirepowerEvaluator {
         int shipsSize = ships.size();
         if (engine == lastStationBastionSyncEngine
                 && shipsSize == lastStationBastionShipsSize
-                && Math.abs(now - lastStationBastionSyncTime) < 0.25f) {
+                && Math.abs(now - lastStationBastionSyncTime) < TSFC_EVAL_INTERVAL * 0.85f) {
             List<DivisionState> cached = cachedStationBastionsByGroup.get(group);
             if (cached != null) {
                 return cached;
@@ -2979,6 +2979,9 @@ public class BattlefieldFirepowerEvaluator {
     static boolean captureOrBinDivisionKeyframeBeforeUpdate(DivisionState div, float evalNow) {
         if (div == null) return false;
         float elapsedSinceCurr = evalNow - div.currTsfcKeyframeTime;
+        if (div.tsfcKeyframesInitialized && Math.abs(elapsedSinceCurr) <= 1e-4f) {
+            return (div.currTsfcKeyframeTime - div.prevTsfcKeyframeTime) > 1e-4f;
+        }
         if (div.tsfcKeyframesInitialized
                 && (elapsedSinceCurr > TSFC_KEYFRAME_MAX_AGE || elapsedSinceCurr < -1e-4f)) {
             div.tsfcKeyframesInitialized = false;
@@ -3097,15 +3100,85 @@ public class BattlefieldFirepowerEvaluator {
         }
     }
 
-    private static void refreshGroupBaseTimeSpaceForTsfcTick(CombatEngineAPI engine, BattleGroupState group) {
+    public static void snapshotGroupDivisionKeyframesBeforeUpdate(
+            CombatEngineAPI engine,
+            float evalNow,
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup) {
+        snapshotSingleGroupDivisionKeyframes(playerGroup, evalNow);
+        snapshotSingleGroupDivisionKeyframes(alliedAiGroup, evalNow);
+        snapshotSingleGroupDivisionKeyframes(enemyGroup, evalNow);
+    }
+
+    private static void snapshotSingleGroupDivisionKeyframes(BattleGroupState group, float evalNow) {
         if (group == null) return;
         for (int i = 0, n = group.divisions.size(); i < n; i++) {
             DivisionState div = group.divisions.get(i);
+            if (div != null && div.isCombatEffective()) {
+                captureOrBinDivisionKeyframeBeforeUpdate(div, evalNow);
+            }
+        }
+    }
+
+    private static void refreshGroupBaseTimeSpaceForTsfcTick(CombatEngineAPI engine, BattleGroupState group) {
+        if (group == null) return;
+        float evalNow = engine != null ? engine.getTotalElapsedTime(false) : 0f;
+        for (int i = 0, n = group.divisions.size(); i < n; i++) {
+            DivisionState div = group.divisions.get(i);
             if (div == null || !div.isCombatEffective()) continue;
+            captureOrBinDivisionKeyframeBeforeUpdate(div, evalNow);
+            refreshDivisionLiveKinematicsForTsfcTick(div);
             PointFirepowerEval eval = evaluatePoint(engine, group.side, div.centroid, div.spreadRadius);
             div.incomingShortDotThreat = eval.incomingShortDot;
             div.crossfireCordonIndex = eval.cordonIndex;
             updateDivisionBaseTimeSpace(div);
+        }
+    }
+
+    private static void refreshDivisionLiveKinematicsForTsfcTick(DivisionState div) {
+        List<ShipAPI> alive = div.getAliveMembers();
+        if (alive.isEmpty()) return;
+        float cx = 0f;
+        float cy = 0f;
+        float vx = 0f;
+        float vy = 0f;
+        float wSum = 0f;
+        float fluxSum = 0f;
+        float hullSum = 0f;
+        int count = 0;
+        for (int i = 0, n = alive.size(); i < n; i++) {
+            ShipAPI s = alive.get(i);
+            if (s == null || s.getLocation() == null) continue;
+            if (div.detachedStragglerIds.contains(s.getId()) && div.coreMemberCount >= 1) continue;
+            float w = Math.max(1f, ShipCapabilityProfile.resolveShipFpStrength(s)) * (s == div.flagship ? 1.35f : 1.0f);
+            cx += s.getLocation().x * w;
+            cy += s.getLocation().y * w;
+            if (s.getVelocity() != null) {
+                vx += s.getVelocity().x * w;
+                vy += s.getVelocity().y * w;
+            }
+            wSum += w;
+            if (s.getFluxTracker() != null) {
+                fluxSum += s.getFluxTracker().getFluxLevel();
+            }
+            hullSum += s.getHullLevel();
+            count++;
+        }
+        if (wSum > 0f && count > 0) {
+            div.centroid.set(cx / wSum, cy / wSum);
+            div.velocity.set(vx / wSum, vy / wSum);
+            div.avgFluxLevel = fluxSum / count;
+            div.avgHullLevel = hullSum / count;
+            float maxDist = 180f;
+            for (int i = 0, n = alive.size(); i < n; i++) {
+                ShipAPI s = alive.get(i);
+                if (s == null || s.getLocation() == null) continue;
+                if (div.detachedStragglerIds.contains(s.getId()) && div.coreMemberCount >= 1) continue;
+                float d = distance(s.getLocation(), div.centroid) + s.getCollisionRadius();
+                if (d > maxDist) maxDist = d;
+            }
+            div.spreadRadius = div.spreadRadius > 10f ? (div.spreadRadius * 0.55f + maxDist * 0.45f) : maxDist;
         }
     }
 

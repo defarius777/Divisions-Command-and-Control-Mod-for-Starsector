@@ -4409,9 +4409,17 @@ public class UITestHarness {
         int overlayTsfcIdx = overlaySrc.indexOf("TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(");
         int overlayHullAboveIdx = overlaySrc.indexOf("TsfcWarroomRenderer.renderWarroomShipSpritesAboveTsfc(");
         int overlayStarsIdx = overlaySrc.indexOf("renderFlagshipStarsOnTopLayer(cachedFleetFlagships");
+        boolean defaultMiniSpritesOk = DivisionAISettings.isTsfcMiniShipSpritesEnabled();
+        DivisionAISettings.testTsfcMiniShipSpritesOverride = Boolean.FALSE;
+        boolean disabledMiniSpritesOk = !DivisionAISettings.isTsfcMiniShipSpritesEnabled();
+        DivisionAISettings.testTsfcMiniShipSpritesOverride = null;
         boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")
                 && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
-                && overlaySrc.contains("syncRegularCommandSpritesVisibility(anyTsfcVisible)")
+                && combatPluginSrc.contains("snapshotGroupDivisionKeyframesBeforeUpdate")
+                && overlaySrc.contains("syncRegularCommandSpritesVisibility(useMiniSpritesForTsfc)")
+                && overlaySrc.contains("bNewLookup.findGetter(bNewCls, \"\\u00d4\\u00d50000\", spriteCls)")
+                && defaultMiniSpritesOk
+                && disabledMiniSpritesOk
                 && overlayTsfcIdx > 0
                 && overlayHullAboveIdx > overlayTsfcIdx
                 && overlayStarsIdx > overlayHullAboveIdx;

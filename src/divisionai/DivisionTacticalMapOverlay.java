@@ -490,11 +490,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 Class<?> spriteCls = Class.forName("com.fs.graphics.Sprite", false, cl);
                 Class<?> texObjCls = Class.forName("com.fs.graphics.Object", false, cl);
                 MethodHandles.Lookup mdLookup2 = MethodHandles.privateLookupIn(mdClass, lookup);
+                MethodHandles.Lookup bNewLookup = MethodHandles.privateLookupIn(bNewCls, lookup);
                 MethodHandles.Lookup spriteLookup = MethodHandles.privateLookupIn(spriteCls, lookup);
                 this.warroomShipIconClass = shipIconCls;
                 this.mdIconSetGetter = mdLookup2.findGetter(mdClass, "\u00d2o0000", Set.class);
                 this.shipIconBNewGetter = lookup.findVirtual(shipIconCls, "\u00d3O0000", MethodType.methodType(bNewCls));
-                this.bNewSpriteGetter = lookup.findVirtual(bNewCls, "\u00d2o0000", MethodType.methodType(spriteCls));
+                this.bNewSpriteGetter = bNewLookup.findGetter(bNewCls, "\u00d4\u00d50000", spriteCls);
                 this.bNewHoloSetter = lookup.findVirtual(bNewCls, "\u00d4O0000", MethodType.methodType(void.class, boolean.class));
                 this.bNewModulesSetter = lookup.findVirtual(bNewCls, "\u00f400000", MethodType.methodType(void.class, boolean.class));
                 this.bNewStatusSetter = lookup.findVirtual(bNewCls, "\u00d500000", MethodType.methodType(void.class, boolean.class));
@@ -507,7 +508,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 } catch (Throwable ignored) {
                     this.shipIconArrowSpriteGetter = null;
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                LOG.warn("[DivisionAI] Failed to resolve Warroom command sprite handles", t);
                 this.warroomShipIconClass = null;
                 this.mdIconSetGetter = null;
             }
@@ -539,6 +541,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         }
         TsfcWarroomRenderer.processInputEvents(engine, events);
+        syncRegularCommandSpritesVisibility(
+                TsfcWarroomRenderer.isAnyTsfcOverlayVisible() && DivisionAISettings.isTsfcMiniShipSpritesEnabled());
     }
 
     /**
@@ -774,7 +778,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         long tAfterPolys = System.nanoTime();
 
         boolean anyTsfcVisible = TsfcWarroomRenderer.isAnyTsfcOverlayVisible();
-        syncRegularCommandSpritesVisibility(anyTsfcVisible);
+        boolean useMiniSpritesForTsfc = anyTsfcVisible && DivisionAISettings.isTsfcMiniShipSpritesEnabled();
+        syncRegularCommandSpritesVisibility(useMiniSpritesForTsfc);
 
         // 3. Render Time, Space, Firepower, and Convergence map layers (when toggled ON) UNDER ship sprites & waypoints
         TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
@@ -782,9 +787,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
                 engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
 
-        // 3b. When TSFC is active, regular command sprites are disabled and replaced by mini red/green/yellow
-        //     1:1 hull sprites + status bars above TSFC. When TSFC is off, render regular command sprites above polygons.
-        if (anyTsfcVisible) {
+        // 3b. When TSFC is active and T-S-F-C Mini Ship Sprites is enabled in Mod Settings, regular command sprites
+        //     are disabled and replaced by mini red/green/yellow 1:1 hull sprites + status bars above TSFC.
+        //     Otherwise, render regular command sprites above polygons (and above TSFC when TSFC is active).
+        if (useMiniSpritesForTsfc) {
             TsfcWarroomRenderer.renderWarroomShipSpritesAboveTsfc(engine, scale, offsetX, offsetY, fade);
             renderShipBarsAboveTsfc(renderedPolys, scale, offsetX, offsetY, fade);
         } else {

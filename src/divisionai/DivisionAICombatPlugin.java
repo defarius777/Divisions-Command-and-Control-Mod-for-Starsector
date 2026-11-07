@@ -487,6 +487,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
 
             // 2. Update telemetry ONLY for active battlegroups
+            //    Before mutating division telemetry on the 0.20s C2 tick, snapshot TSFC keyframes so 0.10s interpolation stays continuous.
+            BattlefieldFirepowerEvaluator.snapshotGroupDivisionKeyframesBeforeUpdate(
+                    engine, now, playerGroup, alliedAiGroup, enemyGroup);
             if (playerHasDivisions) {
                 OtcAI.updateTelemetry(engine, playerGroup);
                 boolean placedWave = OtcAI.applyInitialFleetFormationDeployment(engine, playerGroup, enemyGroup, now);
@@ -555,6 +558,14 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     alliedAiGroup,
                     enemyGroup,
                     now);
+            // Always run the 0.10s TSFC keyframe update on the 0.20s division tick as well so Time, Space,
+            // Firepower, and Convergence update on every 0.10s interval without skipping 0.20s/0.40s ticks!
+            BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(
+                    engine,
+                    now,
+                    playerGroup,
+                    alliedAiGroup,
+                    enemyGroup);
             markVoidNs = System.nanoTime();
             long totalMs = (markVoidNs - tickStartNs) / 1000000L;
             if (totalMs >= 5L) {

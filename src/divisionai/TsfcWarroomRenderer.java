@@ -500,9 +500,7 @@ public class TsfcWarroomRenderer {
                 kfBlend = 1.0f;
             }
 
-            Vector2f cWorld = isEnemy
-                    ? BattlefieldFirepowerEvaluator.getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
-                    : div.centroid;
+            Vector2f cWorld = resolveLiveRenderDivisionCentroid(engine, div, isEnemy, playerFog);
 
             float interpEffTimeR = div.tsfcKeyframesInitialized
                     ? (div.prevEffectiveTimeRadius + (div.effectiveTimeRadius - div.prevEffectiveTimeRadius) * kfBlend)
@@ -704,9 +702,7 @@ public class TsfcWarroomRenderer {
                 kfBlend = 1.0f;
             }
 
-            Vector2f cWorld = isEnemy
-                    ? BattlefieldFirepowerEvaluator.getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
-                    : div.centroid;
+            Vector2f cWorld = resolveLiveRenderDivisionCentroid(engine, div, isEnemy, playerFog);
 
             float interpInR = div.tsfcKeyframesInitialized
                     ? (div.prevSpaceInnerRadius + (div.spaceInnerRadius - div.prevSpaceInnerRadius) * kfBlend)
@@ -807,9 +803,7 @@ public class TsfcWarroomRenderer {
                 kfBlend = 1.0f;
             }
 
-            Vector2f cWorld = isEnemy
-                    ? BattlefieldFirepowerEvaluator.getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
-                    : div.centroid;
+            Vector2f cWorld = resolveLiveRenderDivisionCentroid(engine, div, isEnemy, playerFog);
 
             float interpEffTimeR = div.tsfcKeyframesInitialized
                     ? (div.prevEffectiveTimeRadius + (div.effectiveTimeRadius - div.prevEffectiveTimeRadius) * kfBlend)
@@ -1204,6 +1198,45 @@ public class TsfcWarroomRenderer {
         }
     }
 
+    private static final Vector2f SCRATCH_LIVE_DIV_CENTROID = new Vector2f();
+
+    /**
+     * Resolves a frame-accurate 60+ FPS world-space centroid for {@code div} directly from its live member ship
+     * locations so Time, Space, Convergence, and Cordon overlays glide smoothly with moving ships every frame
+     * rather than stepping only on telemetry ticks.
+     */
+    static Vector2f resolveLiveRenderDivisionCentroid(
+            CombatEngineAPI engine,
+            DivisionState div,
+            boolean isEnemy,
+            FogOfWarAPI playerFog) {
+        if (div == null) return SCRATCH_LIVE_DIV_CENTROID;
+        if (isEnemy) {
+            return BattlefieldFirepowerEvaluator.getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog);
+        }
+        List<ShipAPI> alive = div.getAliveMembers();
+        if (alive == null || alive.isEmpty()) {
+            return div.centroid;
+        }
+        float cx = 0f;
+        float cy = 0f;
+        float wSum = 0f;
+        for (int i = 0, n = alive.size(); i < n; i++) {
+            ShipAPI s = alive.get(i);
+            if (s == null || s.getLocation() == null) continue;
+            if (div.detachedStragglerIds.contains(s.getId()) && div.coreMemberCount >= 1) continue;
+            float w = Math.max(1f, ShipCapabilityProfile.resolveShipFpStrength(s)) * (s == div.flagship ? 1.35f : 1.0f);
+            cx += s.getLocation().x * w;
+            cy += s.getLocation().y * w;
+            wSum += w;
+        }
+        if (wSum > 0f) {
+            SCRATCH_LIVE_DIV_CENTROID.set(cx / wSum, cy / wSum);
+            return SCRATCH_LIVE_DIV_CENTROID;
+        }
+        return div.centroid;
+    }
+
     static void renderSingleShipFirepowerRose(
             ShipFirepowerRose rose,
             ShipAPI ship,
@@ -1300,7 +1333,9 @@ public class TsfcWarroomRenderer {
         float[] relCosTab = highGfx ? UNIT_COS_72 : UNIT_COS_48;
         float[] relSinTab = highGfx ? UNIT_SIN_72 : UNIT_SIN_48;
 
-        float interpFacingDeg = rose.getInterpolatedFacingDeg(kfBlend);
+        float interpFacingDeg = (ship != null && ship.getLocation() != null)
+                ? ship.getFacing()
+                : rose.getInterpolatedFacingDeg(kfBlend);
         double facingRad = Math.toRadians(interpFacingDeg);
         float cosF = (float) Math.cos(facingRad);
         float sinF = (float) Math.sin(facingRad);
@@ -1609,25 +1644,32 @@ public class TsfcWarroomRenderer {
 
         if (group == null || group.divisions.isEmpty()) return;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
+        float now = engine.getTotalElapsedTime(false);
 
         for (DivisionState div : group.divisions) {
             if (!div.isCombatEffective()) continue;
-            if (div.crossfireCordonIndex < 0.35f) continue;
+            float kfBlend = BattlefieldFirepowerEvaluator.computeDivisionKeyframeBlendFactor(div, now);
+            if (kfBlend < 0f) {
+                if (div.tsfcKeyframesInitialized) continue;
+                kfBlend = 1.0f;
+            }
+            float interpCordon = div.tsfcKeyframesInitialized
+                    ? (div.prevCrossfireCordonIndex + (div.crossfireCordonIndex - div.prevCrossfireCordonIndex) * kfBlend)
+                    : div.crossfireCordonIndex;
+            if (interpCordon < 0.35f) continue;
             if (isEnemy && !BattlefieldFirepowerEvaluator.isEnemyDivisionVisibleSticky(engine, div, playerFog)) continue;
 
-            Vector2f cWorld = isEnemy
-                    ? BattlefieldFirepowerEvaluator.getSmoothedVisibleCentroidForEnemyDivision(engine, div, playerFog)
-                    : div.centroid;
+            Vector2f cWorld = resolveLiveRenderDivisionCentroid(engine, div, isEnemy, playerFog);
 
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
             float ringRadPx = Math.max(22f, Math.min(72f, div.spreadRadius * scale * 0.45f));
 
-            boolean isUCordon = div.crossfireCordonIndex >= 0.60f;
+            boolean isUCordon = interpCordon >= 0.60f;
             float r = 1.0f;
             float g = isUCordon ? 0.22f : 0.62f;
             float b = 0.15f;
-            float a = Math.min(0.85f, (0.38f + div.crossfireCordonIndex * 0.45f) * fade);
+            float a = Math.min(0.85f, (0.38f + interpCordon * 0.45f) * fade);
 
             // Dashed warning ring around division centroid caught in L/U crossfire
             GL11.glLineWidth(2.2f);
@@ -1654,11 +1696,12 @@ public class TsfcWarroomRenderer {
             float fade) {
 
         if (group == null || group.divisions.isEmpty() || Global.getSettings() == null) return;
+        FogOfWarAPI playerFog = engine.getFogOfWar(0);
         for (DivisionState div : group.divisions) {
             if (!div.isCombatEffective() || div.crossfireCordonIndex < 0.35f) continue;
             if (isEnemy && !OtcAI.isDivisionVisibleToSide(engine, 0, div)) continue;
 
-            Vector2f cWorld = isEnemy ? OtcAI.getVisibleCentroidForSide(engine, 0, div) : div.centroid;
+            Vector2f cWorld = resolveLiveRenderDivisionCentroid(engine, div, isEnemy, playerFog);
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
 
