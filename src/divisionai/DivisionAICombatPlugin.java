@@ -342,6 +342,21 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 loggedBattleSummary = true;
                 logBattleSummary(engine, playerGroup, enemyGroup);
             }
+            if (!engine.isPaused()) {
+                float overNow = engine.getTotalElapsedTime(false);
+                tsfcTimer += amount;
+                if (tsfcTimer >= TSFC_EVAL_INTERVAL) {
+                    tsfcTimer = 0f;
+                    BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(
+                            engine,
+                            overNow,
+                            playerGroup,
+                            alliedAiGroup,
+                            enemyGroup,
+                            side1OpposingView,
+                            side0OpposingView);
+                }
+            }
             if (musicController != null) {
                 BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
                         ? side0OpposingView
@@ -525,8 +540,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             // 3. Run OTC strategy ONLY for battlegroups that have at least 1 division
             boolean anyNewDivs = !newPlayerDivs.isEmpty() || !newAlliedAiDivs.isEmpty() || !newEnemyDivs.isEmpty();
+            boolean ranOtcThisTick = false;
             if (otcTimer >= OTC_EVAL_INTERVAL || anyNewDivs) {
                 otcTimer = 0f;
+                ranOtcThisTick = true;
                 if (playerHasDivisions) {
                     OtcAI.evaluateOtcStrategy(engine, playerGroup, side1OpposingView, now);
                 }
@@ -536,6 +553,24 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 if (enemyHasDivisions && !enemyGroup.isPassiveOpposingView) {
                     OtcAI.evaluateOtcStrategy(engine, enemyGroup, side0OpposingView, now);
                 }
+            }
+
+            // On 0.20s ticks where OTC strategy did not run (or for groups with station bastions), evaluate
+            // cross-group Time/Space/Convergence exactly ONCE using the same opposing views so EMA filters
+            // and spreadRadius never double-step or oscillate against different opposing groups.
+            if (!ranOtcThisTick || !playerHasDivisions) {
+                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(
+                        engine, playerGroup, side1OpposingView != null ? side1OpposingView : enemyGroup);
+            }
+            if (!ranOtcThisTick || !alliedAiHasDivisions) {
+                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(
+                        engine, alliedAiGroup, side1OpposingView != null ? side1OpposingView : enemyGroup);
+            }
+            if (!ranOtcThisTick || !enemyHasDivisions) {
+                BattleGroupState opp0 = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
+                        ? side0OpposingView
+                        : ((playerGroup != null && !playerGroup.divisions.isEmpty()) ? playerGroup : alliedAiGroup);
+                BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, opp0);
             }
 
             markOtcNs = System.nanoTime();
@@ -558,14 +593,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     alliedAiGroup,
                     enemyGroup,
                     now);
-            // Always run the 0.10s TSFC keyframe update on the 0.20s division tick as well so Time, Space,
-            // Firepower, and Convergence update on every 0.10s interval without skipping 0.20s/0.40s ticks!
-            BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(
-                    engine,
-                    now,
-                    playerGroup,
-                    alliedAiGroup,
-                    enemyGroup);
             markVoidNs = System.nanoTime();
             long totalMs = (markVoidNs - tickStartNs) / 1000000L;
             if (totalMs >= 5L) {
@@ -589,7 +616,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     now,
                     playerGroup,
                     alliedAiGroup,
-                    enemyGroup);
+                    enemyGroup,
+                    side1OpposingView,
+                    side0OpposingView);
         }
 
         // Enforce 60 Hz frame-accurate ship system coordination, standoff braking cutoffs, and scouting discipline

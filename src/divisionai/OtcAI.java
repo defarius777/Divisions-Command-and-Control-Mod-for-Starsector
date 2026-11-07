@@ -55,7 +55,9 @@ public class OtcAI {
         float totalFriendlyFp = 0f;
 
         for (DivisionState div : battleGroup.divisions) {
-            updateSingleDivisionTelemetry(engine, div);
+            if (!battleGroup.isPassiveOpposingView || (div.id != null && div.id.startsWith("unassigned_"))) {
+                updateSingleDivisionTelemetry(engine, div);
+            }
             if (!div.isUnableDivision && !div.getAliveMembers().isEmpty()) {
                 fleetWeightedX += div.centroid.x * div.totalFpStrength;
                 fleetWeightedY += div.centroid.y * div.totalFpStrength;
@@ -496,8 +498,8 @@ public class OtcAI {
     }
 
     private static void evaluateLocalForceRatioViaGrid(CombatEngineAPI engine, DivisionState div) {
-        CollisionGridAPI grid = engine.getAiGridShips();
-        if (grid == null) {
+        CollisionGridAPI grid = (engine != null) ? engine.getAiGridShips() : null;
+        if (grid == null && engine != null) {
             grid = engine.getShipGrid();
         }
         if (grid == null) {

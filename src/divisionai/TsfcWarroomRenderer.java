@@ -72,6 +72,7 @@ public class TsfcWarroomRenderer {
     static final float[] SCRATCH_ALPHA_Y = new float[HIGH_CONTOUR_STEPS];
     static final float[] SCRATCH_PD_X = new float[HIGH_CONTOUR_STEPS];
     static final float[] SCRATCH_PD_Y = new float[HIGH_CONTOUR_STEPS];
+    static final boolean[] SCRATCH_PD_ACTIVE = new boolean[HIGH_CONTOUR_STEPS];
     static final float[] SCRATCH_TIME_OUTER_X = new float[72];
     static final float[] SCRATCH_TIME_OUTER_Y = new float[72];
     static final float[] SCRATCH_TIME_MID_X = new float[72];
@@ -295,10 +296,11 @@ public class TsfcWarroomRenderer {
         if (!overlayVisible || engine == null || scale <= 1e-5f || fade <= 0.04f) return;
 
         float now = engine.getTotalElapsedTime(false);
-        // Ensure roses exist and refresh on the 0.10s keyframe cadence if needed
+        // Ensure roses exist and refresh if not already driven by the 0.10s combat advance clock
         if (BattlefieldFirepowerEvaluator.rosesByShipId.isEmpty()
                 || engine != BattlefieldFirepowerEvaluator.lastRoseUpdateEngine
-                || (now - BattlefieldFirepowerEvaluator.lastRoseUpdateTime) >= BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL) {
+                || BattlefieldFirepowerEvaluator.lastRoseUpdateTime < 0f
+                || (now - BattlefieldFirepowerEvaluator.lastRoseUpdateTime) >= BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL * 1.45f) {
             BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
         }
 
@@ -344,7 +346,7 @@ public class TsfcWarroomRenderer {
                 roseFade *= BattlefieldFirepowerEvaluator.getEnemyShipStickyVisibilityAlpha(engine, s, playerFog);
             }
 
-            renderSingleShipFirepowerRose(rose, s, isEnemy, isAlly, scale, offsetX, offsetY, roseFade, kfBlend);
+            renderSingleShipFirepowerRose(engine, rose, s, isEnemy, isAlly, scale, offsetX, offsetY, roseFade, kfBlend);
         }
 
         // 2. Render L-Cordon / U-Cordon crossfire pocket indicators for divisions experiencing crossfire
@@ -399,7 +401,8 @@ public class TsfcWarroomRenderer {
                 ^ (enemyGroup != null ? enemyGroup.divisions.size() : 0);
         boolean staleTime = engine != BattlefieldFirepowerEvaluator.lastTimeSpaceConvEngine
                 || divCountSig != BattlefieldFirepowerEvaluator.lastTimeSpaceConvDivCountSig
-                || Math.abs(now - BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime) >= BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL;
+                || BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime < 0f
+                || Math.abs(now - BattlefieldFirepowerEvaluator.lastTimeSpaceConvUpdateTime) >= BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL * 1.45f;
         if (staleTime) {
             if (playerGroup != null) {
                 for (DivisionState d : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, playerGroup)) {
@@ -1225,7 +1228,8 @@ public class TsfcWarroomRenderer {
             ShipAPI s = alive.get(i);
             if (s == null || s.getLocation() == null) continue;
             if (div.detachedStragglerIds.contains(s.getId()) && div.coreMemberCount >= 1) continue;
-            float w = Math.max(1f, ShipCapabilityProfile.resolveShipFpStrength(s)) * (s == div.flagship ? 1.35f : 1.0f);
+            float baseW = Math.max(1f, ShipCapabilityProfile.resolveShipFpStrength(s));
+            float w = (DivisionState.isShipUnable(s) && div.ableMemberCount > 0) ? (baseW * 0.12f) : baseW;
             cx += s.getLocation().x * w;
             cy += s.getLocation().y * w;
             wSum += w;
@@ -1246,7 +1250,7 @@ public class TsfcWarroomRenderer {
             float offsetX,
             float offsetY,
             float fade) {
-        renderSingleShipFirepowerRose(rose, ship, isEnemy, isAlly, scale, offsetX, offsetY, fade, 1.0f);
+        renderSingleShipFirepowerRose(null, rose, ship, isEnemy, isAlly, scale, offsetX, offsetY, fade, 1.0f);
     }
 
     static void renderSingleShipFirepowerRose(
@@ -1259,10 +1263,25 @@ public class TsfcWarroomRenderer {
             float offsetY,
             float fade,
             float kfBlend) {
+        renderSingleShipFirepowerRose(null, rose, ship, isEnemy, isAlly, scale, offsetX, offsetY, fade, kfBlend);
+    }
+
+    static void renderSingleShipFirepowerRose(
+            CombatEngineAPI engine,
+            ShipFirepowerRose rose,
+            ShipAPI ship,
+            boolean isEnemy,
+            boolean isAlly,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade,
+            float kfBlend) {
 
         float cx = offsetX + ship.getLocation().x * scale;
         float cy = offsetY + ship.getLocation().y * scale;
-        float baseShipRadPx = Math.max(4f, ship.getCollisionRadius() * scale * 0.55f);
+        float baseShipRadWorld = Math.max(80f, ship.getCollisionRadius() * 0.55f);
+        float baseShipRadPx = Math.max(4f, baseShipRadWorld * scale);
 
         // Color palette by side & horizon:
         // Friendly: Cool Tactical Cyan/Teal (Sustained), Bright Sky-Cyan (Short DoT), Electric Gold-White (Alpha)
@@ -1303,10 +1322,10 @@ public class TsfcWarroomRenderer {
         // Sliding opacity based on the highest seen firepower values in the battle + active fleet density attenuation
         float slidingOpacityScale = BattlefieldFirepowerEvaluator.computeShipSlidingOpacityScale(
                 rose, interpPeakSust, interpPeakShort, interpPeakAlpha);
-        float readinessFade = Math.max(0.30f, interpReadiness)
+        float readinessFade = Math.max(0.32f, interpReadiness)
                 * fade
                 * slidingOpacityScale;
-        float contourFade = Math.max(0.35f, interpReadiness)
+        float contourFade = Math.max(0.38f, interpReadiness)
                 * fade
                 * (0.55f + 0.45f * slidingOpacityScale);
 
@@ -1314,9 +1333,9 @@ public class TsfcWarroomRenderer {
         float battleMaxSust = BattlefieldFirepowerEvaluator.getBattleMaxShipSustainedPeak();
         float battleMaxShort = BattlefieldFirepowerEvaluator.getBattleMaxShipShortDotPeak();
         float battleMaxAlpha = BattlefieldFirepowerEvaluator.getBattleMaxShipAlphaPeak();
-        float normSust = Math.max(110f, interpPeakSust * 0.50f + battleMaxSust * 0.30f + 280f * 0.20f);
-        float normShort = Math.max(140f, interpPeakShort * 0.50f + battleMaxShort * 0.30f + 380f * 0.20f);
-        float normAlpha = Math.max(220f, interpPeakAlpha * 0.50f + battleMaxAlpha * 0.30f + 640f * 0.20f);
+        float normSust = Math.max(95f, interpPeakSust * 0.58f + battleMaxSust * 0.24f + 240f * 0.18f);
+        float normShort = Math.max(120f, interpPeakShort * 0.58f + battleMaxShort * 0.24f + 330f * 0.18f);
+        float normAlpha = Math.max(185f, interpPeakAlpha * 0.58f + battleMaxAlpha * 0.24f + 560f * 0.18f);
 
         float[] sustX = SCRATCH_SUST_X;
         float[] sustY = SCRATCH_SUST_Y;
@@ -1326,6 +1345,7 @@ public class TsfcWarroomRenderer {
         float[] alphaY = SCRATCH_ALPHA_Y;
         float[] pdX = SCRATCH_PD_X;
         float[] pdY = SCRATCH_PD_Y;
+        boolean[] pdActive = SCRATCH_PD_ACTIVE;
         boolean hasPd = false;
 
         boolean highGfx = DivisionAISettings.isTsfcHighGraphics();
@@ -1340,35 +1360,39 @@ public class TsfcWarroomRenderer {
         float cosF = (float) Math.cos(facingRad);
         float sinF = (float) Math.sin(facingRad);
 
+        CombatEngineAPI activeEng = (engine != null)
+                ? engine
+                : BattlefieldFirepowerEvaluator.lastRoseUpdateEngine;
+
         for (int i = 0; i < contourSteps; i++) {
             float relCos = relCosTab[i];
             float relSin = relSinTab[i];
             float cos = cosF * relCos - sinF * relSin;
             float sin = sinF * relCos + cosF * relSin;
 
-            float genReachPx, sustReachPx, shortReachPx, alphaReachPx;
-            float sustVal, shortVal, alphaVal, pdReachPx, pdVal;
+            float genReachWorld, sustReachWorld, shortReachWorld, alphaReachWorld;
+            float sustVal, shortVal, alphaVal, pdReachWorld, pdVal;
             if (highGfx) {
                 float relDeg = i * (360f / HIGH_CONTOUR_STEPS);
                 if (hasKf) {
-                    genReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevGeneralRange, rose.generalRange, kfBlend, relDeg) * scale;
-                    sustReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevSustainedRange, rose.sustainedRange, kfBlend, relDeg) * scale;
-                    shortReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevShortRange, rose.shortRange, kfBlend, relDeg) * scale;
-                    alphaReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevAlphaRange, rose.alphaRange, kfBlend, relDeg) * scale;
+                    genReachWorld = ShipFirepowerRose.sampleInterpolatedRangeArrayAtRelAngle(rose.prevGeneralRange, rose.generalRange, kfBlend, relDeg);
+                    sustReachWorld = ShipFirepowerRose.sampleInterpolatedRangeArrayAtRelAngle(rose.prevSustainedRange, rose.sustainedRange, kfBlend, relDeg);
+                    shortReachWorld = ShipFirepowerRose.sampleInterpolatedRangeArrayAtRelAngle(rose.prevShortRange, rose.shortRange, kfBlend, relDeg);
+                    alphaReachWorld = ShipFirepowerRose.sampleInterpolatedRangeArrayAtRelAngle(rose.prevAlphaRange, rose.alphaRange, kfBlend, relDeg);
                     sustVal = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevSustainedDot, rose.sustainedDot, kfBlend, relDeg);
                     shortVal = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevShortDot, rose.shortDot, kfBlend, relDeg);
                     alphaVal = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevAlpha, rose.alpha, kfBlend, relDeg);
-                    pdReachPx = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevPdRange, rose.pdRange, kfBlend, relDeg) * scale;
+                    pdReachWorld = ShipFirepowerRose.sampleInterpolatedRangeArrayAtRelAngle(rose.prevPdRange, rose.pdRange, kfBlend, relDeg);
                     pdVal = ShipFirepowerRose.sampleInterpolatedArrayAtRelAngle(rose.prevPdScore, rose.pdScore, kfBlend, relDeg);
                 } else {
-                    genReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relDeg) * scale;
-                    sustReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedRange, relDeg) * scale;
-                    shortReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortRange, relDeg) * scale;
-                    alphaReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alphaRange, relDeg) * scale;
+                    genReachWorld = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.generalRange, relDeg);
+                    sustReachWorld = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.sustainedRange, relDeg);
+                    shortReachWorld = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.shortRange, relDeg);
+                    alphaReachWorld = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.alphaRange, relDeg);
                     sustVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedDot, relDeg);
                     shortVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relDeg);
                     alphaVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alpha, relDeg);
-                    pdReachPx = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdRange, relDeg) * scale;
+                    pdReachWorld = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.pdRange, relDeg);
                     pdVal = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdScore, relDeg);
                 }
             } else {
@@ -1383,14 +1407,14 @@ public class TsfcWarroomRenderer {
                 float pdR0 = hasKf ? (rose.prevPdRange[s0] + (rose.pdRange[s0] - rose.prevPdRange[s0]) * kfBlend) : rose.pdRange[s0];
                 float pdV0 = hasKf ? (rose.prevPdScore[s0] + (rose.pdScore[s0] - rose.prevPdScore[s0]) * kfBlend) : rose.pdScore[s0];
                 if ((i & 1) == 0) {
-                    genReachPx = g0 * scale;
-                    sustReachPx = suR0 * scale;
-                    shortReachPx = shR0 * scale;
-                    alphaReachPx = alR0 * scale;
+                    genReachWorld = g0;
+                    sustReachWorld = suR0;
+                    shortReachWorld = shR0;
+                    alphaReachWorld = alR0;
                     sustVal = suV0;
                     shortVal = shV0;
                     alphaVal = alV0;
-                    pdReachPx = pdR0 * scale;
+                    pdReachWorld = pdR0;
                     pdVal = pdV0;
                 } else {
                     int s1 = (s0 + 1) % BattlefieldFirepowerEvaluator.NUM_SECTORS;
@@ -1403,55 +1427,65 @@ public class TsfcWarroomRenderer {
                     float alV1 = hasKf ? (rose.prevAlpha[s1] + (rose.alpha[s1] - rose.prevAlpha[s1]) * kfBlend) : rose.alpha[s1];
                     float pdR1 = hasKf ? (rose.prevPdRange[s1] + (rose.pdRange[s1] - rose.prevPdRange[s1]) * kfBlend) : rose.pdRange[s1];
                     float pdV1 = hasKf ? (rose.prevPdScore[s1] + (rose.pdScore[s1] - rose.prevPdScore[s1]) * kfBlend) : rose.pdScore[s1];
-                    genReachPx = 0.5f * (g0 + g1) * scale;
-                    sustReachPx = 0.5f * (suR0 + suR1) * scale;
-                    shortReachPx = 0.5f * (shR0 + shR1) * scale;
-                    alphaReachPx = 0.5f * (alR0 + alR1) * scale;
+                    genReachWorld = (g0 > 10f && g1 <= 10f) ? g0 : ((g1 > 10f && g0 <= 10f) ? g1 : 0.5f * (g0 + g1));
+                    sustReachWorld = (suR0 > 10f && suR1 <= 10f) ? suR0 : ((suR1 > 10f && suR0 <= 10f) ? suR1 : 0.5f * (suR0 + suR1));
+                    shortReachWorld = (shR0 > 10f && shR1 <= 10f) ? shR0 : ((shR1 > 10f && shR0 <= 10f) ? shR1 : 0.5f * (shR0 + shR1));
+                    alphaReachWorld = (alR0 > 10f && alR1 <= 10f) ? alR0 : ((alR1 > 10f && alR0 <= 10f) ? alR1 : 0.5f * (alR0 + alR1));
                     sustVal = 0.5f * (suV0 + suV1);
                     shortVal = 0.5f * (shV0 + shV1);
                     alphaVal = 0.5f * (alV0 + alV1);
-                    pdReachPx = 0.5f * (pdR0 + pdR1) * scale;
+                    pdReachWorld = (pdR0 > 10f && pdR1 <= 10f) ? pdR0 : ((pdR1 > 10f && pdR0 <= 10f) ? pdR1 : 0.5f * (pdR0 + pdR1));
                     pdVal = 0.5f * (pdV0 + pdV1);
                 }
             }
-            if (sustReachPx <= 1f) sustReachPx = genReachPx;
-            if (shortReachPx <= 1f) shortReachPx = genReachPx;
-            if (alphaReachPx <= 1f) alphaReachPx = shortReachPx;
+            if (sustReachWorld <= 10f) sustReachWorld = genReachWorld;
+            if (shortReachWorld <= 10f) shortReachWorld = genReachWorld;
+            if (alphaReachWorld <= 10f) alphaReachWorld = shortReachWorld;
 
             float sustIntensity = Math.min(1.18f, sustVal / normSust);
             float shortIntensity = Math.min(1.18f, shortVal / normShort);
             float alphaIntensity = Math.min(1.18f, alphaVal / normAlpha);
 
-            // Outer Plane: Sustained DoT reach weighted by potential sustained damage in this sector
-            float effSustReachPx = sustReachPx * 0.75f + genReachPx * 0.25f;
-            float rSust = (effSustReachPx > 2f && sustIntensity > 0.03f)
-                    ? Math.max(baseShipRadPx, effSustReachPx * (0.44f + 0.56f * (float) Math.sqrt(Math.min(1f, sustIntensity))))
-                    : baseShipRadPx * 0.45f;
-            // Mid Plane: Short DoT (4-6s burst exchange envelope) weighted by short-window potential damage & range
-            float rShort = (shortReachPx > 2f && shortIntensity > 0.04f)
-                    ? Math.max(baseShipRadPx * 0.8f, Math.min(rSust * 1.06f, shortReachPx * (0.42f + 0.52f * (float) Math.sqrt(Math.min(1f, shortIntensity)))))
-                    : baseShipRadPx * 0.35f;
-            // Inner / Salvo Core Plane: Alpha Strike (0-2s burst/torpedo salvo cone) weighted by alpha potential damage & range
-            float rAlpha = (alphaReachPx > 2f && alphaIntensity > 0.05f)
-                    ? Math.max(baseShipRadPx * 0.6f, Math.min(Math.max(rSust, alphaReachPx) * 1.04f, alphaReachPx * (0.36f + 0.56f * (float) Math.sqrt(Math.min(1f, alphaIntensity)))))
-                    : baseShipRadPx * 0.25f;
+            // Smooth continuous ramps from 0 so low-intensity sectors never jump off a cliff at 0.03 / 0.04 / 0.05
+            float effSustReachWorld = sustReachWorld * 0.75f + genReachWorld * 0.25f;
+            float sustRamp = BattlefieldFirepowerEvaluator.clampVal(sustIntensity / 0.05f, 0f, 1f);
+            float sustFactor = sustRamp * (0.44f + 0.56f * (float) Math.sqrt(Math.min(1f, sustIntensity)));
+            float rSustWorld = (effSustReachWorld > 20f && sustIntensity > 1e-4f)
+                    ? (baseShipRadWorld * 0.45f + Math.max(0f, effSustReachWorld - baseShipRadWorld * 0.45f) * sustFactor)
+                    : baseShipRadWorld * 0.45f;
 
-            // Map-Edge Pinching for Firepower Roses (Item D):
-            // Pinch rSust, rShort, rAlpha, and pdReachPx against the combat map boundary along ray (cos, sin)
-            float edgeClearWorld = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(BattlefieldFirepowerEvaluator.lastTimeSpaceConvEngine, ship.getLocation(), cos, sin, 90f);
-            float edgeClearPx = Math.max(baseShipRadPx, edgeClearWorld * scale);
-            if (rSust > edgeClearPx * 0.72f) {
-                rSust = Math.max(baseShipRadPx * 0.45f, BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(rSust, edgeClearPx));
+            float shortRamp = BattlefieldFirepowerEvaluator.clampVal(shortIntensity / 0.06f, 0f, 1f);
+            float shortFactor = shortRamp * (0.42f + 0.52f * (float) Math.sqrt(Math.min(1f, shortIntensity)));
+            float rShortWorld = (shortReachWorld > 20f && shortIntensity > 1e-4f)
+                    ? Math.min(rSustWorld * 1.06f, baseShipRadWorld * 0.35f + Math.max(0f, shortReachWorld - baseShipRadWorld * 0.35f) * shortFactor)
+                    : baseShipRadWorld * 0.35f;
+
+            float alphaRamp = BattlefieldFirepowerEvaluator.clampVal(alphaIntensity / 0.07f, 0f, 1f);
+            float alphaFactor = alphaRamp * (0.36f + 0.56f * (float) Math.sqrt(Math.min(1f, alphaIntensity)));
+            float rAlphaWorld = (alphaReachWorld > 20f && alphaIntensity > 1e-4f)
+                    ? Math.min(Math.max(rSustWorld, alphaReachWorld) * 1.04f, baseShipRadWorld * 0.25f + Math.max(0f, alphaReachWorld - baseShipRadWorld * 0.25f) * alphaFactor)
+                    : baseShipRadWorld * 0.25f;
+
+            // Map-Edge Pinching for Firepower Roses in WORLD UNITS before converting to screen pixels
+            float edgeClearWorld = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
+                    activeEng, ship.getLocation(), cos, sin, 90f);
+            if (rSustWorld > edgeClearWorld * 0.72f) {
+                rSustWorld = Math.max(baseShipRadWorld * 0.45f, BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(rSustWorld, edgeClearWorld));
             }
-            if (rShort > edgeClearPx * 0.72f) {
-                rShort = Math.max(baseShipRadPx * 0.35f, Math.min(rSust, BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(rShort, edgeClearPx)));
+            if (rShortWorld > edgeClearWorld * 0.72f) {
+                rShortWorld = Math.max(baseShipRadWorld * 0.35f, Math.min(rSustWorld, BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(rShortWorld, edgeClearWorld)));
             }
-            if (rAlpha > edgeClearPx * 0.72f) {
-                rAlpha = Math.max(baseShipRadPx * 0.25f, Math.min(Math.max(rSust, edgeClearPx), BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(rAlpha, edgeClearPx)));
+            if (rAlphaWorld > edgeClearWorld * 0.72f) {
+                rAlphaWorld = Math.max(baseShipRadWorld * 0.25f, Math.min(Math.max(rSustWorld, edgeClearWorld), BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(rAlphaWorld, edgeClearWorld)));
             }
-            if (pdReachPx > edgeClearPx * 0.72f) {
-                pdReachPx = BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(pdReachPx, edgeClearPx);
+            if (pdReachWorld > edgeClearWorld * 0.72f) {
+                pdReachWorld = BattlefieldFirepowerEvaluator.pinchRadiusByBoundary(pdReachWorld, edgeClearWorld);
             }
+
+            float rSust = Math.max(baseShipRadPx * 0.45f, rSustWorld * scale);
+            float rShort = Math.max(baseShipRadPx * 0.35f, rShortWorld * scale);
+            float rAlpha = Math.max(baseShipRadPx * 0.25f, rAlphaWorld * scale);
+            float pdReachPx = pdReachWorld * scale;
 
             sustX[i] = cx + cos * rSust;
             sustY[i] = cy + sin * rSust;
@@ -1460,11 +1494,13 @@ public class TsfcWarroomRenderer {
             alphaX[i] = cx + cos * rAlpha;
             alphaY[i] = cy + sin * rAlpha;
 
-            if (pdReachPx > 3f && pdVal > 5f) {
+            if (pdReachPx > 3f && pdVal > 2.5f) {
                 hasPd = true;
+                pdActive[i] = true;
                 pdX[i] = cx + cos * Math.max(baseShipRadPx * 1.05f, pdReachPx);
                 pdY[i] = cy + sin * Math.max(baseShipRadPx * 1.05f, pdReachPx);
             } else {
+                pdActive[i] = false;
                 pdX[i] = cx + cos * baseShipRadPx * 0.5f;
                 pdY[i] = cy + sin * baseShipRadPx * 0.5f;
             }
@@ -1520,9 +1556,10 @@ public class TsfcWarroomRenderer {
         }
         GL11.glEnd();
 
-        if (interpPeakAlpha >= 140f) {
+        if (interpPeakAlpha >= 20f) {
+            float alphaContourRamp = BattlefieldFirepowerEvaluator.clampVal(interpPeakAlpha / 140f, 0.25f, 1.0f);
             GL11.glLineWidth(1.20f + 0.42f * dmgWeight);
-            GL11.glColor4f(alphaR, alphaG, alphaB, 0.60f * contourFade);
+            GL11.glColor4f(alphaR, alphaG, alphaB, 0.60f * contourFade * alphaContourRamp);
             GL11.glBegin(GL11.GL_LINE_LOOP);
             for (int i = 0; i < contourSteps; i++) {
                 GL11.glVertex2f(alphaX[i], alphaY[i]);
@@ -1537,8 +1574,10 @@ public class TsfcWarroomRenderer {
             GL11.glBegin(GL11.GL_LINES);
             for (int i = 0; i < contourSteps; i += 2) {
                 int next = (i + 1) % contourSteps;
-                GL11.glVertex2f(pdX[i], pdY[i]);
-                GL11.glVertex2f(pdX[next], pdY[next]);
+                if (pdActive[i] && pdActive[next]) {
+                    GL11.glVertex2f(pdX[i], pdY[i]);
+                    GL11.glVertex2f(pdX[next], pdY[next]);
+                }
             }
             GL11.glEnd();
         }
@@ -1547,10 +1586,24 @@ public class TsfcWarroomRenderer {
     private static final Color WARROOM_HULL_FRIENDLY_TINT = new Color(155, 255, 50);
     private static final Color WARROOM_HULL_ALLY_TINT = new Color(255, 215, 45);
     private static final Color WARROOM_HULL_ENEMY_TINT = new Color(255, 65, 45);
+    private static final Color WARROOM_HULL_WRECK_TINT = new Color(150, 158, 168);
 
     /**
-     * Renders visible ship hull sprites in screen space on top of the TSFC overlays in the Warroom
-     * so that TSFC (Time, Space, Firepower, Convergence) appears cleanly UNDER the ship sprites
+     * Renders destroyed wrecks/hulks as truescale sprites on the Warroom whenever any TSFC overlay is active
+     * (used when live ship sprites are rendered via regular command icons).
+     */
+    public static void renderWarroomHulkSpritesAboveTsfc(
+            CombatEngineAPI engine,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade) {
+        renderWarroomSpritesAboveTsfcInternal(engine, scale, offsetX, offsetY, fade, true, false);
+    }
+
+    /**
+     * Renders visible ship hull sprites and destroyed wrecks/hulks in screen space on top of the TSFC overlays
+     * in the Warroom so that TSFC (Time, Space, Firepower, Convergence) appears cleanly UNDER the ship sprites
      * without invoking the heavy per-weapon turret loops of vanilla {@code com.fs.starfarer.ui.B.new}.
      */
     public static void renderWarroomShipSpritesAboveTsfc(
@@ -1559,6 +1612,17 @@ public class TsfcWarroomRenderer {
             float offsetX,
             float offsetY,
             float fade) {
+        renderWarroomSpritesAboveTsfcInternal(engine, scale, offsetX, offsetY, fade, true, true);
+    }
+
+    private static void renderWarroomSpritesAboveTsfcInternal(
+            CombatEngineAPI engine,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade,
+            boolean includeHulks,
+            boolean includeLiveShips) {
         if (!isAnyTsfcOverlayVisible() || engine == null || scale <= 1e-5f || fade <= 0.04f) {
             return;
         }
@@ -1569,67 +1633,99 @@ public class TsfcWarroomRenderer {
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
 
-        for (int i = 0, n = ships.size(); i < n; i++) {
-            ShipAPI s = ships.get(i);
-            if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
-            SpriteAPI sprite = s.getSpriteAPI();
-            if (sprite == null) continue;
-            Vector2f loc = s.getLocation();
-            if (loc == null) continue;
-
-            float sx = offsetX + loc.x * scale;
-            float sy = offsetY + loc.y * scale;
-            float colRadPx = Math.max(8f, s.getCollisionRadius() * scale);
-            if (!isCircleVisibleOnScreen(sx, sy, colRadPx + 12f, screenW, screenH)) {
-                continue;
+        // Pass 1: Destroyed wrecks/hulks rendered first (underneath live ships) in truescale
+        if (includeHulks) {
+            for (int i = 0, n = ships.size(); i < n; i++) {
+                ShipAPI s = ships.get(i);
+                if (s == null || s.isExpired()) continue;
+                boolean isHulk = s.isHulk() || !s.isAlive();
+                if (!isHulk) continue;
+                if (s.isFighter() || s.isDrone() || s.isShuttlePod()) continue;
+                if (playerFog != null && !playerFog.isVisible(s)) continue;
+                renderSingleWarroomHullSprite(s, true, scale, offsetX, offsetY, fade, screenW, screenH, playerFog, engine);
             }
+        }
 
-            boolean isEnemy = (s.getOwner() == 1);
-            float hullAlpha = fade;
-            if (isEnemy && playerFog != null) {
-                if (!BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(engine, s, playerFog)) {
-                    continue;
-                }
-                hullAlpha *= BattlefieldFirepowerEvaluator.getEnemyShipStickyVisibilityAlpha(engine, s, playerFog);
+        // Pass 2: Live ships & fighters rendered on top of wrecks/hulks in truescale
+        if (includeLiveShips) {
+            for (int i = 0, n = ships.size(); i < n; i++) {
+                ShipAPI s = ships.get(i);
+                if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+                renderSingleWarroomHullSprite(s, false, scale, offsetX, offsetY, fade, screenW, screenH, playerFog, engine);
             }
-            if (hullAlpha <= 0.04f) continue;
+        }
+    }
 
-            float origW = sprite.getWidth();
-            float origH = sprite.getHeight();
-            float origCX = sprite.getCenterX();
-            float origCY = sprite.getCenterY();
-            float origAngle = sprite.getAngle();
-            Color origColor = sprite.getColor();
-            float origAlpha = sprite.getAlphaMult();
+    private static void renderSingleWarroomHullSprite(
+            ShipAPI s,
+            boolean isHulk,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade,
+            float screenW,
+            float screenH,
+            FogOfWarAPI playerFog,
+            CombatEngineAPI engine) {
+        SpriteAPI sprite = s.getSpriteAPI();
+        if (sprite == null) return;
+        Vector2f loc = s.getLocation();
+        if (loc == null) return;
 
-            Color tint = isEnemy
-                    ? WARROOM_HULL_ENEMY_TINT
-                    : (s.isAlly() ? WARROOM_HULL_ALLY_TINT : WARROOM_HULL_FRIENDLY_TINT);
+        float sx = offsetX + loc.x * scale;
+        float sy = offsetY + loc.y * scale;
+        float colRadPx = Math.max(8f, s.getCollisionRadius() * scale);
+        if (!isCircleVisibleOnScreen(sx, sy, colRadPx + 12f, screenW, screenH)) {
+            return;
+        }
 
-            float minFloorPx = s.isFighter() ? 4.5f : 6.5f;
-            float drawW = Math.max(minFloorPx, origW * scale);
-            float drawH = Math.max(minFloorPx, origH * scale);
-            float ratioW = (origW > 1e-4f) ? (drawW / origW) : scale;
-            float ratioH = (origH > 1e-4f) ? (drawH / origH) : scale;
-
-            try {
-                sprite.setSize(drawW, drawH);
-                sprite.setCenter(origCX * ratioW, origCY * ratioH);
-                sprite.setAngle(s.getFacing() - 90f);
-                sprite.setColor(tint);
-                sprite.setNormalBlend();
-                sprite.setAlphaMult(hullAlpha * 0.94f);
-                sprite.renderAtCenter(sx, sy);
-            } finally {
-                sprite.setSize(origW, origH);
-                sprite.setCenter(origCX, origCY);
-                sprite.setAngle(origAngle);
-                if (origColor != null) {
-                    sprite.setColor(origColor);
-                }
-                sprite.setAlphaMult(origAlpha);
-                sprite.setNormalBlend();
+        boolean isEnemy = (s.getOwner() == 1);
+        float hullAlpha = fade;
+        if (!isHulk && isEnemy && playerFog != null) {
+            if (!BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(engine, s, playerFog)) {
+                return;
             }
+            hullAlpha *= BattlefieldFirepowerEvaluator.getEnemyShipStickyVisibilityAlpha(engine, s, playerFog);
+        }
+        if (hullAlpha <= 0.04f) return;
+
+        float origW = sprite.getWidth();
+        float origH = sprite.getHeight();
+        float origCX = sprite.getCenterX();
+        float origCY = sprite.getCenterY();
+        float origAngle = sprite.getAngle();
+        Color origColor = sprite.getColor();
+        float origAlpha = sprite.getAlphaMult();
+
+        Color tint = isHulk
+                ? WARROOM_HULL_WRECK_TINT
+                : (isEnemy
+                ? WARROOM_HULL_ENEMY_TINT
+                : (s.isAlly() ? WARROOM_HULL_ALLY_TINT : WARROOM_HULL_FRIENDLY_TINT));
+
+        float minFloorPx = s.isFighter() ? 4.5f : 6.5f;
+        float drawW = Math.max(minFloorPx, origW * scale);
+        float drawH = Math.max(minFloorPx, origH * scale);
+        float ratioW = (origW > 1e-4f) ? (drawW / origW) : scale;
+        float ratioH = (origH > 1e-4f) ? (drawH / origH) : scale;
+
+        try {
+            sprite.setSize(drawW, drawH);
+            sprite.setCenter(origCX * ratioW, origCY * ratioH);
+            sprite.setAngle(s.getFacing() - 90f);
+            sprite.setColor(tint);
+            sprite.setNormalBlend();
+            sprite.setAlphaMult(hullAlpha * (isHulk ? 0.80f : 0.94f));
+            sprite.renderAtCenter(sx, sy);
+        } finally {
+            sprite.setSize(origW, origH);
+            sprite.setCenter(origCX, origCY);
+            sprite.setAngle(origAngle);
+            if (origColor != null) {
+                sprite.setColor(origColor);
+            }
+            sprite.setAlphaMult(origAlpha);
+            sprite.setNormalBlend();
         }
     }
 

@@ -268,7 +268,7 @@ public class BattlefieldFirepowerEvaluator {
                 return 1.0f;
             }
             float u = clampVal(elapsedSinceCurr / span, 0.0f, 1.0f);
-            return u * u * (3.0f - 2.0f * u);
+            return u;
         }
 
         public float getInterpolatedFacingDeg(float kfBlend) {
@@ -287,6 +287,32 @@ public class BattlefieldFirepowerEvaluator {
             float v0 = prevArr[idx0] + (currArr[idx0] - prevArr[idx0]) * kfBlend;
             float v1 = prevArr[idx1] + (currArr[idx1] - prevArr[idx1]) * kfBlend;
             return v0 * (1f - frac) + v1 * frac;
+        }
+
+        static float sampleInterpolatedRangeArrayAtRelAngle(float[] prevArr, float[] currArr, float kfBlend, float relAngleDeg) {
+            float exactIdx = (relAngleDeg / SECTOR_DEG);
+            int idx0 = ((int) Math.floor(exactIdx)) % NUM_SECTORS;
+            if (idx0 < 0) idx0 += NUM_SECTORS;
+            int idx1 = (idx0 + 1) % NUM_SECTORS;
+            float frac = exactIdx - (float) Math.floor(exactIdx);
+            float r0 = prevArr[idx0] + (currArr[idx0] - prevArr[idx0]) * kfBlend;
+            float r1 = prevArr[idx1] + (currArr[idx1] - prevArr[idx1]) * kfBlend;
+            if (r0 > 10f && r1 <= 10f) return r0;
+            if (r1 > 10f && r0 <= 10f) return r1;
+            return r0 * (1f - frac) + r1 * frac;
+        }
+
+        static float sampleRangeArrayAtRelAngle(float[] arr, float relAngleDeg) {
+            float exactIdx = (relAngleDeg / SECTOR_DEG);
+            int idx0 = ((int) Math.floor(exactIdx)) % NUM_SECTORS;
+            if (idx0 < 0) idx0 += NUM_SECTORS;
+            int idx1 = (idx0 + 1) % NUM_SECTORS;
+            float frac = exactIdx - (float) Math.floor(exactIdx);
+            float r0 = arr[idx0];
+            float r1 = arr[idx1];
+            if (r0 > 10f && r1 <= 10f) return r0;
+            if (r1 > 10f && r0 <= 10f) return r1;
+            return r0 * (1f - frac) + r1 * frac;
         }
 
 
@@ -704,6 +730,10 @@ public class BattlefieldFirepowerEvaluator {
 
         // Prune expired/destroyed ships and any rose whose keyframe is older than 2.0 seconds (thrown into the bin)
         int activeCount = 0;
+        float liveMaxSust = 220f;
+        float liveMaxShort = 300f;
+        float liveMaxAlpha = 480f;
+        float liveMaxComb = 300f;
         Iterator<Map.Entry<String, ShipFirepowerRose>> it = rosesByShipId.entrySet().iterator();
         while (it.hasNext()) {
             ShipFirepowerRose r = it.next().getValue();
@@ -711,25 +741,38 @@ public class BattlefieldFirepowerEvaluator {
                     || !r.ship.isAlive()
                     || r.ship.isHulk()
                     || r.ship.isExpired()
+                    || !isEligibleFirepowerUnit(r.ship)
                     || (r.currKeyframeTime >= -50f && (now - r.currKeyframeTime) > TSFC_KEYFRAME_MAX_AGE)) {
                 it.remove();
             } else {
                 activeCount++;
-                if (r.peakSectorSustained > battleMaxShipSustainedPeak) {
-                    battleMaxShipSustainedPeak = r.peakSectorSustained;
+                if (r.peakSectorSustained > liveMaxSust) {
+                    liveMaxSust = r.peakSectorSustained;
                 }
-                if (r.peakSectorShortDot > battleMaxShipShortDotPeak) {
-                    battleMaxShipShortDotPeak = r.peakSectorShortDot;
+                if (r.peakSectorShortDot > liveMaxShort) {
+                    liveMaxShort = r.peakSectorShortDot;
                 }
-                if (r.peakSectorAlpha > battleMaxShipAlphaPeak) {
-                    battleMaxShipAlphaPeak = r.peakSectorAlpha;
+                if (r.peakSectorAlpha > liveMaxAlpha) {
+                    liveMaxAlpha = r.peakSectorAlpha;
                 }
                 float comb = r.peakSectorSustained * 0.45f + r.peakSectorShortDot * 0.35f + (r.peakSectorAlpha * 0.35f) * 0.20f;
-                if (comb > battleMaxShipCombinedPower) {
-                    battleMaxShipCombinedPower = comb;
+                if (comb > liveMaxComb) {
+                    liveMaxComb = comb;
                 }
             }
         }
+        battleMaxShipSustainedPeak = (liveMaxSust >= battleMaxShipSustainedPeak)
+                ? liveMaxSust
+                : Math.max(220f, battleMaxShipSustainedPeak * 0.96f + liveMaxSust * 0.04f);
+        battleMaxShipShortDotPeak = (liveMaxShort >= battleMaxShipShortDotPeak)
+                ? liveMaxShort
+                : Math.max(300f, battleMaxShipShortDotPeak * 0.96f + liveMaxShort * 0.04f);
+        battleMaxShipAlphaPeak = (liveMaxAlpha >= battleMaxShipAlphaPeak)
+                ? liveMaxAlpha
+                : Math.max(480f, battleMaxShipAlphaPeak * 0.96f + liveMaxAlpha * 0.04f);
+        battleMaxShipCombinedPower = (liveMaxComb >= battleMaxShipCombinedPower)
+                ? liveMaxComb
+                : Math.max(300f, battleMaxShipCombinedPower * 0.96f + liveMaxComb * 0.04f);
         battleActiveFirepowerUnitCount = Math.max(1, activeCount);
     }
 
@@ -838,14 +881,16 @@ public class BattlefieldFirepowerEvaluator {
         java.util.Arrays.fill(SCRATCH_RAW_PD_RANGE, 0f);
         java.util.Arrays.fill(SCRATCH_RAW_HYBRID_RANGE, 0f);
 
+        float sectorReadiness = Math.max(0.55f, readiness);
+
         accumulateShipDirectWeaponSectors(
-                ship, weapons, isPhaseShip, readiness, shipFluxSustainability,
+                ship, weapons, isPhaseShip, sectorReadiness, shipFluxSustainability,
                 SCRATCH_RAW_ALPHA, SCRATCH_RAW_SHORT, SCRATCH_RAW_SUST, SCRATCH_RAW_PD, SCRATCH_RAW_HYBRID,
                 SCRATCH_RAW_GEN_RANGE, SCRATCH_RAW_SUST_RANGE_SUM, SCRATCH_RAW_SHORT_RANGE_SUM, SCRATCH_RAW_ALPHA_RANGE_SUM,
                 SCRATCH_RAW_PD_RANGE, SCRATCH_RAW_HYBRID_RANGE);
 
         accumulateShipFighterWingSectors(
-                rose, ship, readiness,
+                rose, ship, sectorReadiness,
                 SCRATCH_RAW_ALPHA, SCRATCH_RAW_SHORT, SCRATCH_RAW_SUST, SCRATCH_RAW_PD,
                 SCRATCH_RAW_GEN_RANGE, SCRATCH_RAW_SUST_RANGE_SUM, SCRATCH_RAW_SHORT_RANGE_SUM, SCRATCH_RAW_ALPHA_RANGE_SUM,
                 SCRATCH_RAW_PD_RANGE);
@@ -898,8 +943,18 @@ public class BattlefieldFirepowerEvaluator {
         float hullOmega = Math.abs(ship.getAngularVelocity());
         for (WeaponAPI w : weapons) {
             if (!isUsableCombatWeapon(w)) continue;
-            if (w.isDisabled() || w.isPermanentlyDisabled()) continue;
-            if (w.usesAmmo() && w.getAmmo() <= 0) continue;
+            if (w.isPermanentlyDisabled()) continue;
+            float mountStatusMult = 1.0f;
+            if (w.isDisabled()) {
+                mountStatusMult = 0.42f;
+            }
+            if (w.usesAmmo() && w.getAmmo() <= 0) {
+                if (w.getAmmoPerSecond() > 0f) {
+                    mountStatusMult *= 0.35f;
+                } else {
+                    continue;
+                }
+            }
 
             float range = w.getRange();
             if (range <= 50f) continue;
@@ -954,21 +1009,21 @@ public class BattlefieldFirepowerEvaluator {
                 typeMult = 1.12f;
             }
 
-            float wAlpha = burstDmg * typeMult * (isStrike ? 1.65f : 1.0f);
-            float wShortDot = (dps * 0.75f + (burstDmg / 4.5f) * 0.25f) * typeMult * (isStrike ? 1.25f : 1.0f);
+            float wAlpha = burstDmg * typeMult * (isStrike ? 1.65f : 1.0f) * mountStatusMult;
+            float wShortDot = (dps * 0.75f + (burstDmg / 4.5f) * 0.25f) * typeMult * (isStrike ? 1.25f : 1.0f) * mountStatusMult;
             float cdRem = w.getCooldownRemaining();
             if (cdRem > 0.20f && !isPhaseShip) {
-                float alphaReloadMult = clampVal(1.0f - (cdRem - 0.20f) / 4.8f, 0.12f, 1.0f);
-                float shortReloadMult = clampVal(1.0f - Math.max(0f, cdRem - 0.65f) / 6.5f, 0.22f, 1.0f);
+                float alphaReloadMult = clampVal(1.0f - (cdRem - 0.20f) / 4.8f, 0.42f, 1.0f);
+                float shortReloadMult = clampVal(1.0f - Math.max(0f, cdRem - 0.65f) / 6.5f, 0.52f, 1.0f);
                 wAlpha *= alphaReloadMult;
                 wShortDot *= shortReloadMult;
             }
 
             float ammoEndurance = 1.0f;
             if (w.usesAmmo() && w.getAmmoPerSecond() <= 0f) {
-                ammoEndurance = Math.min(0.65f, Math.max(0.22f, w.getAmmo() / 16f));
+                ammoEndurance = Math.min(0.75f, Math.max(0.35f, w.getAmmo() / 16f));
             }
-            float wSustainedDot = sustDps * typeMult * shipFluxSustainability * ammoEndurance;
+            float wSustainedDot = sustDps * typeMult * shipFluxSustainability * ammoEndurance * mountStatusMult;
 
             float arcFacingRel = normalizeAngle360(w.getArcFacing());
             float rawArc = w.getArc();
@@ -3060,7 +3115,7 @@ public class BattlefieldFirepowerEvaluator {
             return 1.0f;
         }
         float u = clampVal(elapsedSinceCurr / span, 0.0f, 1.0f);
-        return u * u * (3.0f - 2.0f * u);
+        return u;
     }
 
     /**
@@ -3074,6 +3129,17 @@ public class BattlefieldFirepowerEvaluator {
             BattleGroupState playerGroup,
             BattleGroupState alliedAiGroup,
             BattleGroupState enemyGroup) {
+        updateTsfcKeyframeTick(engine, now, playerGroup, alliedAiGroup, enemyGroup, null, null);
+    }
+
+    public static void updateTsfcKeyframeTick(
+            CombatEngineAPI engine,
+            float now,
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup,
+            BattleGroupState side1OpposingView,
+            BattleGroupState side0OpposingView) {
         if (engine == null) return;
         activePlayerGroupRef = playerGroup;
         activeAlliedGroupRef = alliedAiGroup;
@@ -3086,16 +3152,19 @@ public class BattlefieldFirepowerEvaluator {
         refreshGroupBaseTimeSpaceForTsfcTick(engine, alliedAiGroup);
         refreshGroupBaseTimeSpaceForTsfcTick(engine, enemyGroup);
 
+        BattleGroupState oppForSide0 = (side1OpposingView != null && !side1OpposingView.divisions.isEmpty())
+                ? side1OpposingView
+                : enemyGroup;
         if (playerGroup != null) {
-            updateCrossGroupTimeSpaceConvergence(engine, playerGroup, enemyGroup);
+            updateCrossGroupTimeSpaceConvergence(engine, playerGroup, oppForSide0);
         }
         if (alliedAiGroup != null) {
-            updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, enemyGroup);
+            updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, oppForSide0);
         }
         if (enemyGroup != null) {
-            BattleGroupState primarySide0 = (playerGroup != null && !playerGroup.divisions.isEmpty())
-                    ? playerGroup
-                    : alliedAiGroup;
+            BattleGroupState primarySide0 = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
+                    ? side0OpposingView
+                    : ((playerGroup != null && !playerGroup.divisions.isEmpty()) ? playerGroup : alliedAiGroup);
             updateCrossGroupTimeSpaceConvergence(engine, enemyGroup, primarySide0);
         }
     }
@@ -3106,15 +3175,19 @@ public class BattlefieldFirepowerEvaluator {
             BattleGroupState playerGroup,
             BattleGroupState alliedAiGroup,
             BattleGroupState enemyGroup) {
-        snapshotSingleGroupDivisionKeyframes(playerGroup, evalNow);
-        snapshotSingleGroupDivisionKeyframes(alliedAiGroup, evalNow);
-        snapshotSingleGroupDivisionKeyframes(enemyGroup, evalNow);
+        snapshotSingleGroupDivisionKeyframes(engine, playerGroup, evalNow);
+        snapshotSingleGroupDivisionKeyframes(engine, alliedAiGroup, evalNow);
+        snapshotSingleGroupDivisionKeyframes(engine, enemyGroup, evalNow);
     }
 
-    private static void snapshotSingleGroupDivisionKeyframes(BattleGroupState group, float evalNow) {
+    private static void snapshotSingleGroupDivisionKeyframes(
+            CombatEngineAPI engine,
+            BattleGroupState group,
+            float evalNow) {
         if (group == null) return;
-        for (int i = 0, n = group.divisions.size(); i < n; i++) {
-            DivisionState div = group.divisions.get(i);
+        List<DivisionState> divs = getDivisionsAndStationBastionsForRendering(engine, group);
+        for (int i = 0, n = divs.size(); i < n; i++) {
+            DivisionState div = divs.get(i);
             if (div != null && div.isCombatEffective()) {
                 captureOrBinDivisionKeyframeBeforeUpdate(div, evalNow);
             }
@@ -3129,7 +3202,8 @@ public class BattlefieldFirepowerEvaluator {
             if (div == null || !div.isCombatEffective()) continue;
             captureOrBinDivisionKeyframeBeforeUpdate(div, evalNow);
             refreshDivisionLiveKinematicsForTsfcTick(div);
-            PointFirepowerEval eval = evaluatePoint(engine, group.side, div.centroid, div.spreadRadius);
+            float avgShieldArc = computeDivisionAvgShieldArc(div);
+            PointFirepowerEval eval = evaluatePoint(engine, group.side, div.centroid, avgShieldArc);
             div.incomingShortDotThreat = eval.incomingShortDot;
             div.crossfireCordonIndex = eval.cordonIndex;
             updateDivisionBaseTimeSpace(div);
@@ -3151,7 +3225,8 @@ public class BattlefieldFirepowerEvaluator {
             ShipAPI s = alive.get(i);
             if (s == null || s.getLocation() == null) continue;
             if (div.detachedStragglerIds.contains(s.getId()) && div.coreMemberCount >= 1) continue;
-            float w = Math.max(1f, ShipCapabilityProfile.resolveShipFpStrength(s)) * (s == div.flagship ? 1.35f : 1.0f);
+            float baseW = Math.max(1f, ShipCapabilityProfile.resolveShipFpStrength(s));
+            float w = (DivisionState.isShipUnable(s) && div.ableMemberCount > 0) ? (baseW * 0.12f) : baseW;
             cx += s.getLocation().x * w;
             cy += s.getLocation().y * w;
             if (s.getVelocity() != null) {
@@ -3170,15 +3245,20 @@ public class BattlefieldFirepowerEvaluator {
             div.velocity.set(vx / wSum, vy / wSum);
             div.avgFluxLevel = fluxSum / count;
             div.avgHullLevel = hullSum / count;
-            float maxDist = 180f;
+            float coreDistSqSum = 0f;
+            int spreadSamples = 0;
             for (int i = 0, n = alive.size(); i < n; i++) {
                 ShipAPI s = alive.get(i);
                 if (s == null || s.getLocation() == null) continue;
                 if (div.detachedStragglerIds.contains(s.getId()) && div.coreMemberCount >= 1) continue;
-                float d = distance(s.getLocation(), div.centroid) + s.getCollisionRadius();
-                if (d > maxDist) maxDist = d;
+                float dx = s.getLocation().x - div.centroid.x;
+                float dy = s.getLocation().y - div.centroid.y;
+                coreDistSqSum += (dx * dx + dy * dy);
+                spreadSamples++;
             }
-            div.spreadRadius = div.spreadRadius > 10f ? (div.spreadRadius * 0.55f + maxDist * 0.45f) : maxDist;
+            if (spreadSamples > 0) {
+                div.spreadRadius = (float) Math.sqrt(coreDistSqSum / spreadSamples);
+            }
         }
     }
 
@@ -3766,21 +3846,31 @@ public class BattlefieldFirepowerEvaluator {
             float uy,
             float margin) {
         if (pos == null) return 99999f;
+        if (engine == null) {
+            try {
+                engine = Global.getCombatEngine();
+            } catch (Throwable ignored) {
+            }
+        }
         float halfW = Math.max(1200f, getMapHalfWidth(engine) - margin);
         float halfH = Math.max(1200f, getMapHalfHeight(engine) - margin);
+        float rightWall = Math.max(halfW, pos.x + 250f);
+        float leftWall = Math.min(-halfW, pos.x - 250f);
+        float topWall = Math.max(halfH, pos.y + 250f);
+        float botWall = Math.min(-halfH, pos.y - 250f);
         float tx = 99999f;
         if (ux > 1e-4f) {
-            tx = (halfW - pos.x) / ux;
+            tx = (rightWall - pos.x) / ux;
         } else if (ux < -1e-4f) {
-            tx = (-halfW - pos.x) / ux;
+            tx = (leftWall - pos.x) / ux;
         }
         float ty = 99999f;
         if (uy > 1e-4f) {
-            ty = (halfH - pos.y) / uy;
+            ty = (topWall - pos.y) / uy;
         } else if (uy < -1e-4f) {
-            ty = (-halfH - pos.y) / uy;
+            ty = (botWall - pos.y) / uy;
         }
-        return Math.max(40f, Math.min(tx, ty));
+        return Math.max(120f, Math.min(tx, ty));
     }
 
     /**

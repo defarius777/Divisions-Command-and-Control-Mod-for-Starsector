@@ -4413,6 +4413,42 @@ public class UITestHarness {
         DivisionAISettings.testTsfcMiniShipSpritesOverride = Boolean.FALSE;
         boolean disabledMiniSpritesOk = !DivisionAISettings.isTsfcMiniShipSpritesEnabled();
         DivisionAISettings.testTsfcMiniShipSpritesOverride = null;
+
+        // Item A: Late-battle ship near/beyond nominal map border must never have negative/40u boundary clearance across 360 deg
+        boolean boundaryClearanceAll360Ok = true;
+        org.lwjgl.util.vector.Vector2f outOfBoundsPos = new org.lwjgl.util.vector.Vector2f(9600f, 9600f);
+        for (int deg = 0; deg < 360; deg += 15) {
+            double r = Math.toRadians(deg);
+            float clear = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
+                    null, outOfBoundsPos, (float) Math.cos(r), (float) Math.sin(r), 90f);
+            if (clear < 120f || Float.isNaN(clear)) {
+                boundaryClearanceAll360Ok = false;
+                break;
+            }
+        }
+
+        // Item B: Alternating 0.20s OtcAI.updateTelemetry and 0.10s updateTsfcKeyframeTick must have zero spreadRadius/Space heartbeat
+        ShipAPI hbShip2 = createMockNamedShip("hb_ship_2", "HSS Hammerhead", HullSize.DESTROYER, 600f, 0f, 0f, 0, humanCapt);
+        kfDiv.members.add(hbShip2);
+        BattleGroupState hbGroup = new BattleGroupState(0, cmdr);
+        hbGroup.divisions.add(kfDiv);
+        divisionai.OtcAI.updateTelemetry(null, hbGroup);
+        float spreadAfter020 = kfDiv.spreadRadius;
+        float domAfter020 = kfDiv.spaceDominatedRadius;
+        BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(null, 2.20f, hbGroup, null, null);
+        // Simulate 0.10s kinematics refresh via updateCrossGroupTimeSpaceConvergence consistency
+        divisionai.OtcAI.updateTelemetry(null, hbGroup);
+        float spreadAfterNext = kfDiv.spreadRadius;
+        boolean zeroHeartbeatOk = Math.abs(spreadAfter020 - spreadAfterNext) < 0.01f && domAfter020 > 300f;
+
+        // Item C: Destroyed wrecks/hulks rendered in truescale when any TSFC overlay is active
+        String tsfcRendererSrc = new String(
+                Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()),
+                StandardCharsets.UTF_8);
+        boolean hulkSpritesOk = tsfcRendererSrc.contains("WARROOM_HULL_WRECK_TINT")
+                && tsfcRendererSrc.contains("renderWarroomHulkSpritesAboveTsfc")
+                && overlaySrc.contains("TsfcWarroomRenderer.renderWarroomHulkSpritesAboveTsfc(");
+
         boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")
                 && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
                 && combatPluginSrc.contains("snapshotGroupDivisionKeyframesBeforeUpdate")
@@ -4421,6 +4457,9 @@ public class UITestHarness {
                 && overlaySrc.contains("bNewLookup.findGetter(bNewCls, \"\\u00d4\\u00d50000\", spriteCls)")
                 && defaultMiniSpritesOk
                 && disabledMiniSpritesOk
+                && boundaryClearanceAll360Ok
+                && zeroHeartbeatOk
+                && hulkSpritesOk
                 && overlayTsfcIdx > 0
                 && overlayHullAboveIdx > overlayTsfcIdx
                 && overlayStarsIdx > overlayHullAboveIdx;

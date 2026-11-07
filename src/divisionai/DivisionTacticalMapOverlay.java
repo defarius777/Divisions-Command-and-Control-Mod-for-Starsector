@@ -816,6 +816,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             TsfcWarroomRenderer.renderWarroomShipSpritesAboveTsfc(engine, scale, offsetX, offsetY, fade);
             renderShipBarsAboveTsfc(renderedPolys, scale, offsetX, offsetY, fade);
         } else {
+            if (anyTsfcVisible) {
+                TsfcWarroomRenderer.renderWarroomHulkSpritesAboveTsfc(engine, scale, offsetX, offsetY, fade);
+            }
             renderShipSpritesOnTopLayer(renderedPolys, scale, offsetX, offsetY, fade);
         }
 
