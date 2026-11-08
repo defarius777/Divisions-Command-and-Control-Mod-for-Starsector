@@ -164,7 +164,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             renderBattleScreenTsfcBelowShipsLayer(viewport);
         }
         renderedBelowShipsLayerThisFrame = false;
-        renderBattleScreenHighContrastFiringArcs(viewport);
     }
 
     @Override
@@ -185,10 +184,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     }
 
     /**
-     * Renders the Battle Screen TSFC overlays on {@link CombatEngineLayers#BELOW_SHIPS_LAYER} so that
-     * Time, Space, Firepower, and Convergence geometries render underneath ship sprites, shields, and fighters
-     * when the player is captaining a ship or using the camera feed ("F" key) on a friendly ship, without
-     * rendering Warroom truescale ship/hulk icons on the battle graphics layer.
+     * Renders the Battle Screen TSFC overlays and high-contrast weapon firing arcs on
+     * {@link CombatEngineLayers#BELOW_SHIPS_LAYER} so that Time, Space, Firepower, Convergence, and
+     * high-contrast firing arc geometries render underneath ship sprites, shields, strike craft, and
+     * missiles/munitions when the player is captaining a ship or using the camera feed ("F" key) on a
+     * friendly ship, without rendering Warroom truescale ship/hulk icons on the battle graphics layer.
      */
     void renderBattleScreenTsfcBelowShipsLayer(ViewportAPI viewport) {
         if (engine == null || !initializedBattle || engine.isCombatOver() || viewport == null) {
@@ -238,6 +238,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
             org.lwjgl.opengl.GL11.glPopMatrix();
         }
+        // Render high-contrast firing arcs in world coordinates on BELOW_SHIPS_LAYER immediately above TSFC petals
+        // and underneath ships, strike craft, and missiles/munitions.
+        renderBattleScreenHighContrastFiringArcs(viewport);
     }
 
     public void renderBattleScreenTsfcOverlay(ViewportAPI viewport) {

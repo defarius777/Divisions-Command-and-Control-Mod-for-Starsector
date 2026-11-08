@@ -2703,15 +2703,15 @@ public class TsfcWarroomRenderer {
             float ringR = stepRadius * i;
             drawVanillaMatchedArcCurveWorld(
                     wx, wy, leftDeg - 2.0f, rightDeg + 2.0f, ringR,
-                    0.0f, 0.0f, 0.0f, 0.20f * alpha, 0.58f * alpha, 3.4f,
-                    fgR, fgG, fgB, 0.22f * alpha, 0.65f * alpha, 1.6f);
+                    0.0f, 0.0f, 0.0f, 0.20f * alpha, 0.56f * alpha, 2.4f,
+                    fgR, fgG, fgB, 0.22f * alpha, 0.64f * alpha, 1.2f);
         }
 
         // 2. Outer maximum range arc at radius
         drawVanillaMatchedArcCurveWorld(
                 wx, wy, leftDeg, rightDeg, radius,
-                0.0f, 0.0f, 0.0f, 0.48f * alpha, 0.88f * alpha, 4.4f,
-                fgR, fgG, fgB, 0.54f * alpha, 0.94f * alpha, 2.0f);
+                0.0f, 0.0f, 0.0f, 0.46f * alpha, 0.84f * alpha, 2.8f,
+                fgR, fgG, fgB, 0.52f * alpha, 0.92f * alpha, 1.5f);
 
         // 3. Left and right radial boundary lines:
         //    - Inner dashed segment from 0.0f to stepRadius (8.0f dash interval)
@@ -2719,22 +2719,22 @@ public class TsfcWarroomRenderer {
         if (arc < 359.5f) {
             drawVanillaMatchedRadialLineWorld(
                     wx, wy, leftDeg, true, 8.0f, 0.0f, stepRadius,
-                    0.0f, 0.0f, 0.0f, 0.34f * alpha, 0.62f * alpha, 4.0f,
-                    fgR, fgG, fgB, 0.38f * alpha, 0.68f * alpha, 1.9f);
+                    0.0f, 0.0f, 0.0f, 0.32f * alpha, 0.60f * alpha, 2.5f,
+                    fgR, fgG, fgB, 0.36f * alpha, 0.66f * alpha, 1.3f);
             drawVanillaMatchedRadialLineWorld(
                     wx, wy, rightDeg, true, 8.0f, 0.0f, stepRadius,
-                    0.0f, 0.0f, 0.0f, 0.34f * alpha, 0.62f * alpha, 4.0f,
-                    fgR, fgG, fgB, 0.38f * alpha, 0.68f * alpha, 1.9f);
+                    0.0f, 0.0f, 0.0f, 0.32f * alpha, 0.60f * alpha, 2.5f,
+                    fgR, fgG, fgB, 0.36f * alpha, 0.66f * alpha, 1.3f);
 
             if (radius > stepRadius + 1f) {
                 drawVanillaMatchedRadialLineWorld(
                         wx, wy, leftDeg, false, 0.0f, stepRadius, radius - stepRadius,
-                        0.0f, 0.0f, 0.0f, 0.62f * alpha, 0.88f * alpha, 4.2f,
-                        fgR, fgG, fgB, 0.68f * alpha, 0.94f * alpha, 2.0f);
+                        0.0f, 0.0f, 0.0f, 0.60f * alpha, 0.84f * alpha, 2.7f,
+                        fgR, fgG, fgB, 0.66f * alpha, 0.92f * alpha, 1.5f);
                 drawVanillaMatchedRadialLineWorld(
                         wx, wy, rightDeg, false, 0.0f, stepRadius, radius - stepRadius,
-                        0.0f, 0.0f, 0.0f, 0.62f * alpha, 0.88f * alpha, 4.2f,
-                        fgR, fgG, fgB, 0.68f * alpha, 0.94f * alpha, 2.0f);
+                        0.0f, 0.0f, 0.0f, 0.60f * alpha, 0.84f * alpha, 2.7f,
+                        fgR, fgG, fgB, 0.66f * alpha, 0.92f * alpha, 1.5f);
             }
         }
 
@@ -2743,8 +2743,8 @@ public class TsfcWarroomRenderer {
             float tickR = (i < (int) numTicks) ? (stepRadius * i) : radius;
             drawVanillaMatchedAimBarWorld(
                     wx, wy, currAngle, spread, tickR,
-                    0.0f, 0.0f, 0.0f, 0.90f * alpha, 5.0f,
-                    fgR, fgG, fgB, 0.96f * alpha, 2.6f);
+                    0.0f, 0.0f, 0.0f, 0.88f * alpha, 3.4f,
+                    fgR, fgG, fgB, 0.94f * alpha, 1.8f);
         }
     }
 

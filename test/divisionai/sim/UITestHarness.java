@@ -4644,17 +4644,25 @@ public class UITestHarness {
         divisionai.DivisionAISettings.testTsfcWarroomOpacityOverride = null;
         divisionai.DivisionAISettings.testTsfcBattleOpacityOverride = null;
 
+        int belowShipsMethodIdx = combatPluginSrc.indexOf("void renderBattleScreenTsfcBelowShipsLayer(ViewportAPI viewport)");
+        int highContrastCallIdx = combatPluginSrc.indexOf("renderBattleScreenHighContrastFiringArcs(viewport);");
+        int tsfcOverlayMethodIdx = combatPluginSrc.indexOf("public void renderBattleScreenTsfcOverlay(ViewportAPI viewport)");
+
         boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")
                 && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
                 && combatPluginSrc.contains("glTranslatef(llx, lly, 0f)")
                 && combatPluginSrc.contains("glScalef(invScaleX, invScaleY, 1f)")
-                && combatPluginSrc.contains("renderBattleScreenHighContrastFiringArcs(viewport)")
+                && belowShipsMethodIdx > 0
+                && highContrastCallIdx > belowShipsMethodIdx
+                && highContrastCallIdx < tsfcOverlayMethodIdx
                 && tsfcRendererSrc.contains("renderHighContrastCaptaincyFiringArcsWorldSpace")
                 && tsfcRendererSrc.contains("renderSingleWeaponVanillaMatchedHighContrastArcWorld")
                 && tsfcRendererSrc.contains("drawVanillaMatchedArcCurveWorld")
                 && tsfcRendererSrc.contains("drawVanillaMatchedRadialLineWorld")
                 && tsfcRendererSrc.contains("drawVanillaMatchedAimBarWorld")
                 && tsfcRendererSrc.contains("slot.computePosition(ship)")
+                && tsfcRendererSrc.contains("2.8f")
+                && tsfcRendererSrc.contains("1.5f")
                 && !tsfcRendererSrc.contains("isArcDuplicate")
                 && tsfcOpacitySettingsOk
                 && combatPluginSrc.contains("ensureAllFighterWingsHaveValidLeaders(engine)")
