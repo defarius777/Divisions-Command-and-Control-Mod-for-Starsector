@@ -3064,7 +3064,25 @@ public class UITestHarness {
         boolean directionalTimePinchOk = timeRadNorthTowardEnemy < timeRadEastSideways - 50f
                 && timeRadEastSideways <= timeRadSouthAway + 15f
                 && timeRadSouthAway > timeRadNorthTowardEnemy + 90f;
-        timeSpaceCalculatedOk = timeSpaceCalculatedOk && directionalTimePinchOk;
+        // Verify independent ship (gammaShip, unassigned to any division) projects Time, Space, and Convergence envelopes
+        List<DivisionState> tsfcUnits = BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(mockEngine, playerGroup);
+        DivisionState indepGammaUnit = null;
+        for (DivisionState u : tsfcUnits) {
+            if (u != null && "indep_ship_p_gamma".equals(u.id)) {
+                indepGammaUnit = u;
+                break;
+            }
+        }
+        boolean indepShipTsfcProjectedOk = indepGammaUnit != null
+                && indepGammaUnit.freeTimeRadius > 600f
+                && indepGammaUnit.spaceInnerRadius >= 240f
+                && indepGammaUnit.spaceInnerRadius < playerDiv1.spaceInnerRadius
+                && indepGammaUnit.spacePotentialRadius > indepGammaUnit.spaceDominatedRadius
+                && indepGammaUnit.directionalTimeInitialized
+                && indepGammaUnit.directionalSpaceInitialized
+                && indepGammaUnit.directionalFirepowerRadii[0] > 200f
+                && playerDiv1.directionalFirepowerRadii[0] > 400f;
+        timeSpaceCalculatedOk = timeSpaceCalculatedOk && directionalTimePinchOk && indepShipTsfcProjectedOk;
 
         // 4. Verify initial Flagship & Division Commander Convergence rules:
         //    - Default flagship is humanFlagship -> playerGroup.useConvergence == false (standard human OTC)

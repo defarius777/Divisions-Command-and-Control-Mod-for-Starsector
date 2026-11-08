@@ -109,6 +109,7 @@ public class BattlefieldFirepowerEvaluator {
 
     static final Map<String, ShipFirepowerRose> rosesByShipId = new HashMap<>();
     static final Map<String, DivisionState> stationBastionsByShipId = new HashMap<>();
+    static final Map<String, DivisionState> independentShipUnitsByShipId = new HashMap<>();
 
     /**
      * Three-way tactical fire classification:
@@ -394,6 +395,12 @@ public class BattlefieldFirepowerEvaluator {
         activeSide0OpposingViewRef = null;
         rosesByShipId.clear();
         stationBastionsByShipId.clear();
+        independentShipUnitsByShipId.clear();
+        cachedStationBastionsByGroup.clear();
+        cachedIndependentUnitsByGroup.clear();
+        cachedTsfcUnitsByGroup.clear();
+        lastStationBastionSyncEngine = null;
+        lastIndependentUnitSyncEngine = null;
         lastTimeSpaceConvEngine = null;
         lastRoseUpdateEngine = null;
         lastTimeSpaceConvUpdateTime = -100f;
@@ -2677,11 +2684,24 @@ public class BattlefieldFirepowerEvaluator {
 
         float ehpEquivalentStrength = div.totalEffectiveHp / 1600f;
         float ehpDensityRatio = ehpEquivalentStrength / Math.max(4f, div.totalFpStrength);
+        boolean isIndepOrUnassigned = (div.id != null
+                && (div.id.startsWith("indep_ship_") || div.id.startsWith("unassigned_")));
+        // Force Mass Scale: differentiates an independent single frigate/destroyer from an organized multi-ship or capital division
+        float forceMassScale = isIndepOrUnassigned
+                ? clampVal(
+                        0.72f + 0.28f * (float) Math.sqrt(clampVal(div.totalFpStrength / 26f, 0.14f, 1.50f)),
+                        0.74f,
+                        1.08f)
+                : clampVal(
+                        0.96f + 0.08f * (float) Math.sqrt(clampVal(div.totalFpStrength / 36f, 0.25f, 2.25f)),
+                        1.00f,
+                        1.14f);
         float ehpRadiusFactor = clampVal(
                 (0.74f + 0.26f * (float) Math.sqrt(clampVal(ehpDensityRatio, 0.35f, 2.5f)))
-                        * (0.68f + 0.32f * div.effectiveHpRatio),
+                        * (0.68f + 0.32f * div.effectiveHpRatio)
+                        * forceMassScale,
                 0.58f,
-                1.22f);
+                1.28f);
 
         float readiness = clampVal(
                 (1.05f - 0.55f * div.avgFluxLevel) * Math.max(0.38f, div.avgHullLevel) * (0.45f + 0.55f * div.effectiveHpRatio),
@@ -2699,9 +2719,10 @@ public class BattlefieldFirepowerEvaluator {
         // Strike craft instead project permeable sortie Space into Zone 2 (spaceDominatedRadius) and Zone 3 (spacePotentialRadius).
         float wingInnerBonus = 0f;
         float wingDomBonus = Math.min(340f, totalFighterWings * 60f * readiness);
+        float minInnerFloor = (isIndepOrUnassigned && div.totalFpStrength < 20f) ? 240f : 380f;
         div.spaceInnerRadius = clampVal(
                 (div.spreadRadius * 0.55f + Math.min(900f, coreHullEngageRange * 0.50f)) * ehpRadiusFactor + wingInnerBonus,
-                380f,
+                minInnerFloor,
                 1520f);
         div.spaceDominatedRadius = clampVal(
                 (div.spreadRadius * 0.72f + effRange * (0.84f + 0.22f * readiness)) * ehpRadiusFactor + wingDomBonus,
@@ -2734,6 +2755,7 @@ public class BattlefieldFirepowerEvaluator {
                 div.directionalSpaceInnerRadii[s] = div.spaceInnerRadius;
                 div.directionalSpaceDominatedRadii[s] = div.spaceDominatedRadius;
                 div.directionalSpacePotentialRadii[s] = div.spacePotentialRadius;
+                div.directionalFirepowerRadii[s] = coreHullEngageRange;
             }
         }
     }
@@ -2747,6 +2769,13 @@ public class BattlefieldFirepowerEvaluator {
     private static int lastStationBastionShipsSize = -1;
     private static float lastStationBastionSyncTime = -1000f;
     private static final Map<BattleGroupState, List<DivisionState>> cachedStationBastionsByGroup = new HashMap<>();
+
+    private static CombatEngineAPI lastIndependentUnitSyncEngine = null;
+    private static int lastIndependentUnitShipsSize = -1;
+    private static float lastIndependentUnitSyncTime = -1000f;
+    private static final Map<BattleGroupState, List<DivisionState>> cachedIndependentUnitsByGroup = new HashMap<>();
+    private static final Map<BattleGroupState, List<DivisionState>> cachedTsfcUnitsByGroup = new HashMap<>();
+    private static final Set<String> scratchCoreAssignedShipIds = new HashSet<>(256);
 
     public static List<DivisionState> syncAndGetStationBastionsForGroup(
             CombatEngineAPI engine,
@@ -2920,43 +2949,225 @@ public class BattlefieldFirepowerEvaluator {
         return combined;
     }
 
+    /**
+     * Synchronizes and returns persistent synthetic {@link DivisionState} wrappers ({@code "indep_ship_*"}) for:
+     *  1. All live independent/unassigned warships belonging to {@code group} (not assigned to any division in
+     *     {@code group.divisions}).
+     *  2. Any detached straggler warship ({@code div.detachedStragglerIds}) separated by > 450 su from its division's
+     *     core centroid.
+     * This ensures independent ships and isolated stragglers project accurate Time, Space, and Convergence envelopes
+     * and participate in mutual Space/Time interactions without drawing division water-droplet polygons.
+     */
+    public static List<DivisionState> syncAndGetIndependentShipUnitsForGroup(
+            CombatEngineAPI engine,
+            BattleGroupState group) {
+        if (engine == null || group == null || group.isPassiveOpposingView) {
+            return Collections.emptyList();
+        }
+        List<ShipAPI> ships = engine.getShips();
+        if (ships == null || ships.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        float now = engine.getTotalElapsedTime(false);
+        int shipsSize = ships.size();
+        if (engine == lastIndependentUnitSyncEngine
+                && shipsSize == lastIndependentUnitShipsSize
+                && Math.abs(now - lastIndependentUnitSyncTime) < TSFC_EVAL_INTERVAL * 0.85f) {
+            List<DivisionState> cached = cachedIndependentUnitsByGroup.get(group);
+            if (cached != null) {
+                return cached;
+            }
+        } else {
+            lastIndependentUnitSyncEngine = engine;
+            lastIndependentUnitShipsSize = shipsSize;
+            lastIndependentUnitSyncTime = now;
+            cachedIndependentUnitsByGroup.clear();
+            cachedTsfcUnitsByGroup.clear();
+        }
+
+        scratchCoreAssignedShipIds.clear();
+        populateCoreAssignedShipIdsForGroup(group, scratchCoreAssignedShipIds);
+        if (group.side == 0) {
+            BattleGroupState sibling = group.isAlliedAi ? activePlayerGroupRef : activeAlliedGroupRef;
+            if (sibling != null && sibling != group) {
+                populateCoreAssignedShipIdsForGroup(sibling, scratchCoreAssignedShipIds);
+            }
+        }
+
+        List<DivisionState> indepList = new ArrayList<>();
+        for (int i = 0; i < shipsSize; i++) {
+            ShipAPI s = ships.get(i);
+            if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) continue;
+            if (s.isFighter() || s.isShuttlePod() || s.isDrone()) continue;
+            if (s.isStation() || s.isStationModule() || s.getParentStation() != null) continue;
+            if (s.getOwner() != group.side) continue;
+            if (group.side == 0 && s.isAlly() != group.isAlliedAi) continue;
+            String shipId = s.getId();
+            if (shipId == null || scratchCoreAssignedShipIds.contains(shipId)) continue;
+
+            DivisionState unit = independentShipUnitsByShipId.get(shipId);
+            if (unit == null) {
+                String label = s.getName() != null ? s.getName() : "Independent Ship";
+                CommanderProfile cmdr = new CommanderProfile(s.getCaptain(), label);
+                unit = new DivisionState(
+                        "indep_ship_" + shipId,
+                        group.side,
+                        200 + indepList.size(),
+                        DivisionArchetype.FORCE_DIVISION,
+                        label,
+                        cmdr);
+                unit.doctrinalFormation = PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+                unit.activeFormation = PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+                independentShipUnitsByShipId.put(shipId, unit);
+            }
+            unit.useConvergence = group.useConvergence || DivisionOtcCommandManager.isAlphaCoreControlledShip(s);
+            unit.flagship = s;
+            unit.members.clear();
+            unit.members.add(s);
+
+            Vector2f sLoc = s.getLocation() != null ? s.getLocation() : new Vector2f(0f, 0f);
+            unit.centroid.set(sLoc);
+            unit.stationPoint.set(sLoc);
+            if (s.getVelocity() != null) {
+                unit.velocity.set(s.getVelocity());
+            } else {
+                unit.velocity.set(0f, 0f);
+            }
+            double hRad = Math.toRadians(s.getFacing());
+            unit.formationHeadingX = (float) Math.cos(hRad);
+            unit.formationHeadingY = (float) Math.sin(hRad);
+            unit.formationHeadingInitialized = true;
+
+            unit.spreadRadius = Math.max(35f, s.getCollisionRadius() * 0.45f);
+            unit.totalFpStrength = Math.max(4f, ShipCapabilityProfile.resolveShipFpStrength(s));
+            unit.totalEffectiveHp = Math.max(200f, computeShipEffectiveHp(s));
+            unit.maxEffectiveHp = Math.max(unit.totalEffectiveHp, computeShipMaxEffectiveHp(s));
+            unit.effectiveHpRatio = clampVal(unit.totalEffectiveHp / Math.max(1f, unit.maxEffectiveHp), 0.18f, 1.0f);
+
+            ShipFirepowerRose rose = rosesByShipId.get(shipId);
+            if (rose != null && rose.maxGeneralRange > 150f) {
+                unit.avgEngageRange = clampVal(rose.maxGeneralRange * 0.85f, 450f, 2200f);
+            } else if (unit.avgEngageRange <= 100f) {
+                float rangeWeightedSum = 0f;
+                float rangeWeightSum = 0f;
+                List<WeaponAPI> weapons = s.getAllWeapons();
+                if (weapons != null) {
+                    for (int wIdx = 0, wLen = weapons.size(); wIdx < wLen; wIdx++) {
+                        WeaponAPI w = weapons.get(wIdx);
+                        if (!isUsableCombatWeapon(w)) continue;
+                        float wr = w.getRange();
+                        if (wr <= 150f) continue;
+                        float ww = weaponSizeWeight(w.getSize());
+                        rangeWeightedSum += wr * ww;
+                        rangeWeightSum += ww;
+                    }
+                }
+                unit.avgEngageRange = (rangeWeightSum > 0f)
+                        ? clampVal(rangeWeightedSum / rangeWeightSum, 450f, 2200f)
+                        : 750f;
+            }
+
+            unit.avgFluxLevel = (s.getFluxTracker() != null)
+                    ? s.getFluxTracker().getFluxLevel()
+                    : s.getFluxLevel();
+            unit.avgHullLevel = s.getHullLevel();
+            boolean unable = DivisionState.isShipUnable(s);
+            unit.coreMemberCount = 1;
+            unit.ableMemberCount = unable ? 0 : 1;
+            unit.isUnableDivision = unable;
+            unit.retreatingFraction = s.isRetreating() ? 1.0f : 0.0f;
+
+            PointFirepowerEval eval = evaluatePoint(engine, group.side, sLoc, Math.max(110f, s.getCollisionRadius()));
+            unit.incomingShortDotThreat = eval.incomingShortDot;
+            unit.crossfireCordonIndex = eval.cordonIndex;
+
+            if (unit.freeTimeRadius <= 1f || !unit.tsfcKeyframesInitialized) {
+                updateDivisionBaseTimeSpace(unit);
+            }
+            indepList.add(unit);
+        }
+        cachedIndependentUnitsByGroup.put(group, indepList);
+        return indepList;
+    }
+
+    private static void populateCoreAssignedShipIdsForGroup(BattleGroupState group, Set<String> outIds) {
+        if (group == null || group.divisions == null) return;
+        for (int i = 0, n = group.divisions.size(); i < n; i++) {
+            DivisionState d = group.divisions.get(i);
+            if (d == null || d.members == null) continue;
+            for (int mIdx = 0, mLen = d.members.size(); mIdx < mLen; mIdx++) {
+                ShipAPI m = d.members.get(mIdx);
+                if (m == null || m.getId() == null) continue;
+                String mId = m.getId();
+                if (d.detachedStragglerIds.contains(mId)
+                        && d.coreMemberCount >= 1
+                        && m.getLocation() != null
+                        && distance(m.getLocation(), d.centroid) > 450f) {
+                    // Detached straggler > 450 su from its division centroid projects its own T/S/C envelope
+                    continue;
+                }
+                outIds.add(mId);
+            }
+        }
+    }
+
+    /**
+     * Returns all units that project Time, Space, and Convergence for {@code group}:
+     *  1. Organized divisions ({@code group.divisions})
+     *  2. Orbital station bastions ({@code "station_bastion_*"})
+     *  3. Independent/unassigned ships and isolated detached stragglers ({@code "indep_ship_*"})
+     */
+    public static List<DivisionState> getUnitsForTsfcRenderingAndEvaluation(
+            CombatEngineAPI engine,
+            BattleGroupState group) {
+        if (group == null) return Collections.emptyList();
+        List<DivisionState> bastions = syncAndGetStationBastionsForGroup(engine, group);
+        List<DivisionState> indep = syncAndGetIndependentShipUnitsForGroup(engine, group);
+        if (bastions.isEmpty() && indep.isEmpty()) {
+            return group.divisions;
+        }
+        List<DivisionState> cached = cachedTsfcUnitsByGroup.get(group);
+        int expectedSize = group.divisions.size() + bastions.size() + indep.size();
+        if (cached != null && cached.size() == expectedSize) {
+            return cached;
+        }
+        List<DivisionState> combined = new ArrayList<>(expectedSize);
+        combined.addAll(group.divisions);
+        combined.addAll(bastions);
+        combined.addAll(indep);
+        cachedTsfcUnitsByGroup.put(group, combined);
+        return combined;
+    }
+
     private static List<DivisionState> collectPeerDivisionsAndStations(
             CombatEngineAPI engine,
             BattleGroupState group,
             boolean includeSiblingSide0Groups) {
         if (group == null) return Collections.emptyList();
-        List<DivisionState> out = new ArrayList<>(group.divisions);
-        out.addAll(syncAndGetStationBastionsForGroup(engine, group));
+        List<DivisionState> out = new ArrayList<>(getUnitsForTsfcRenderingAndEvaluation(engine, group));
         if (includeSiblingSide0Groups && group.side == 0) {
             BattleGroupState sibling = group.isAlliedAi ? activePlayerGroupRef : activeAlliedGroupRef;
             if (sibling != null && sibling != group) {
-                for (int i = 0; i < sibling.divisions.size(); i++) {
-                    DivisionState d = sibling.divisions.get(i);
+                List<DivisionState> sibUnits = getUnitsForTsfcRenderingAndEvaluation(engine, sibling);
+                for (int i = 0; i < sibUnits.size(); i++) {
+                    DivisionState d = sibUnits.get(i);
                     if (d != null && !out.contains(d)) out.add(d);
-                }
-                List<DivisionState> sibStations = syncAndGetStationBastionsForGroup(engine, sibling);
-                for (int i = 0; i < sibStations.size(); i++) {
-                    DivisionState s = sibStations.get(i);
-                    if (s != null && !out.contains(s)) out.add(s);
                 }
             }
         } else if (includeSiblingSide0Groups && group.side == 1) {
             if (activePlayerGroupRef != null) {
-                List<DivisionState> pStations = syncAndGetStationBastionsForGroup(engine, activePlayerGroupRef);
-                for (int i = 0; i < pStations.size(); i++) {
-                    DivisionState s = pStations.get(i);
+                List<DivisionState> pUnits = getUnitsForTsfcRenderingAndEvaluation(engine, activePlayerGroupRef);
+                for (int i = 0; i < pUnits.size(); i++) {
+                    DivisionState s = pUnits.get(i);
                     if (s != null && !out.contains(s)) out.add(s);
                 }
             }
             if (activeAlliedGroupRef != null) {
-                for (int i = 0; i < activeAlliedGroupRef.divisions.size(); i++) {
-                    DivisionState d = activeAlliedGroupRef.divisions.get(i);
+                List<DivisionState> aUnits = getUnitsForTsfcRenderingAndEvaluation(engine, activeAlliedGroupRef);
+                for (int i = 0; i < aUnits.size(); i++) {
+                    DivisionState d = aUnits.get(i);
                     if (d != null && !out.contains(d)) out.add(d);
-                }
-                List<DivisionState> aStations = syncAndGetStationBastionsForGroup(engine, activeAlliedGroupRef);
-                for (int i = 0; i < aStations.size(); i++) {
-                    DivisionState s = aStations.get(i);
-                    if (s != null && !out.contains(s)) out.add(s);
                 }
             }
         }
@@ -2990,7 +3201,7 @@ public class BattlefieldFirepowerEvaluator {
             DivisionOtcCommandManager.updateConvergenceCommandStates(engine, enemyGroup);
         }
 
-        List<DivisionState> myEffectiveDivs = getDivisionsAndStationBastionsForRendering(engine, myGroup);
+        List<DivisionState> myEffectiveDivs = getUnitsForTsfcRenderingAndEvaluation(engine, myGroup);
         List<DivisionState> myPeersWithAllies = collectPeerDivisionsAndStations(engine, myGroup, true);
         List<DivisionState> enemyEffectiveDivs = (enemyGroup != null)
                 ? collectPeerDivisionsAndStations(engine, enemyGroup, myGroup.side == 1)
@@ -3000,7 +3211,7 @@ public class BattlefieldFirepowerEvaluator {
         for (int i = 0, n = myEffectiveDivs.size(); i < n; i++) {
             DivisionState d = myEffectiveDivs.get(i);
             if (d.isCombatEffective()) {
-                if (d.id == null || !d.id.startsWith("unassigned_")) {
+                if (d.id == null || (!d.id.startsWith("unassigned_") && !d.id.startsWith("indep_ship_"))) {
                     activeDivsTotal++;
                 }
                 if (d.freeTimeRadius <= 1f) {
@@ -3011,7 +3222,7 @@ public class BattlefieldFirepowerEvaluator {
         for (int i = 0, n = enemyEffectiveDivs.size(); i < n; i++) {
             DivisionState e = enemyEffectiveDivs.get(i);
             if (e.isCombatEffective()) {
-                if (e.id == null || !e.id.startsWith("unassigned_")) {
+                if (e.id == null || (!e.id.startsWith("unassigned_") && !e.id.startsWith("indep_ship_"))) {
                     activeDivsTotal++;
                 }
                 if (e.freeTimeRadius <= 1f) {
@@ -3155,9 +3366,39 @@ public class BattlefieldFirepowerEvaluator {
             DivisionState div,
             BattleGroupState myGroup) {
         if (div == null || myGroup == null) return;
-        DivisionState focusEnemy = (div.targetEnemyDivision != null && div.targetEnemyDivision.isCombatEffective())
+        boolean isIndepShip = (div.id != null && div.id.startsWith("indep_ship_"));
+        DivisionState focusEnemy = (!isIndepShip && div.targetEnemyDivision != null && div.targetEnemyDivision.isCombatEffective())
                 ? div.targetEnemyDivision
-                : myGroup.primaryThreatEnemyDivision;
+                : (!isIndepShip ? myGroup.primaryThreatEnemyDivision : null);
+        if (focusEnemy == null || !focusEnemy.isCombatEffective()) {
+            BattleGroupState oppGroup = (div.side == 0)
+                    ? (activeEnemyGroupRef != null ? activeEnemyGroupRef : activeSide1OpposingViewRef)
+                    : (activePlayerGroupRef != null ? activePlayerGroupRef : activeAlliedGroupRef);
+            if (oppGroup != null) {
+                ShipAPI directTarget = (div.flagship != null) ? div.flagship.getShipTarget() : null;
+                List<DivisionState> oppUnits = getUnitsForTsfcRenderingAndEvaluation(engine, oppGroup);
+                float bestScore = -1f;
+                for (int i = 0, n = oppUnits.size(); i < n; i++) {
+                    DivisionState cand = oppUnits.get(i);
+                    if (cand == null || !cand.isCombatEffective()) continue;
+                    if (!OtcAI.isDivisionVisibleToSide(engine, div.side, cand)) continue;
+                    float dx = cand.centroid.x - div.centroid.x;
+                    float dy = cand.centroid.y - div.centroid.y;
+                    float dist = (float) Math.hypot(dx, dy);
+                    float score = Math.max(4f, cand.totalFpStrength) / Math.max(400f, dist);
+                    if (directTarget != null && cand.members.contains(directTarget)) {
+                        score *= 3.0f;
+                    }
+                    if (score > bestScore) {
+                        bestScore = score;
+                        focusEnemy = cand;
+                    }
+                }
+            }
+            if (focusEnemy == null) {
+                focusEnemy = myGroup.primaryThreatEnemyDivision;
+            }
+        }
         if (focusEnemy != null && focusEnemy.isCombatEffective()
                 && OtcAI.isDivisionVisibleToSide(engine, div.side, focusEnemy)) {
             div.convergenceScore = computeConvergenceTargetScore(engine, div, focusEnemy, myGroup);
@@ -3188,7 +3429,7 @@ public class BattlefieldFirepowerEvaluator {
             div.convergenceFocalPoint.set(div.stationPoint);
         }
 
-        if (div.id == null || !div.id.startsWith("unassigned_")) {
+        if (div.id == null || (!div.id.startsWith("unassigned_") && !div.id.startsWith("indep_ship_"))) {
             if (div.spaceDominanceWeight > battleMaxDivisionSpaceDominance) {
                 battleMaxDivisionSpaceDominance = div.spaceDominanceWeight;
             }
@@ -3222,11 +3463,11 @@ public class BattlefieldFirepowerEvaluator {
             BattleGroupState g = groups[gIdx];
             if (g == null) continue;
             boolean isEnemy = (g.side == 1);
-            List<DivisionState> divs = getDivisionsAndStationBastionsForRendering(engine, g);
+            List<DivisionState> divs = getUnitsForTsfcRenderingAndEvaluation(engine, g);
             for (int i = 0, n = divs.size(); i < n; i++) {
                 DivisionState d = divs.get(i);
                 if (d == null || !d.isCombatEffective()) continue;
-                if (d.id != null && d.id.startsWith("unassigned_")) continue;
+                if (d.id != null && (d.id.startsWith("unassigned_") || d.id.startsWith("indep_ship_"))) continue;
                 if (isEnemy && playerFog != null && !isEnemyDivisionVisibleSticky(engine, d, playerFog)) {
                     continue;
                 }
@@ -3320,7 +3561,7 @@ public class BattlefieldFirepowerEvaluator {
         for (int gIdx = 0; gIdx < groups.length; gIdx++) {
             BattleGroupState g = groups[gIdx];
             if (g == null) continue;
-            List<DivisionState> divs = getDivisionsAndStationBastionsForRendering(engine, g);
+            List<DivisionState> divs = getUnitsForTsfcRenderingAndEvaluation(engine, g);
             for (int i = 0, n = divs.size(); i < n; i++) {
                 DivisionState d = divs.get(i);
                 if (d == null || !d.isCombatEffective()) continue;
@@ -3391,6 +3632,8 @@ public class BattlefieldFirepowerEvaluator {
                         + (div.directionalSpaceDominatedRadii[s] - div.prevDirectionalSpaceDominatedRadii[s]) * blend;
                 div.prevDirectionalSpacePotentialRadii[s] = div.prevDirectionalSpacePotentialRadii[s]
                         + (div.directionalSpacePotentialRadii[s] - div.prevDirectionalSpacePotentialRadii[s]) * blend;
+                div.prevDirectionalFirepowerRadii[s] = div.prevDirectionalFirepowerRadii[s]
+                        + (div.directionalFirepowerRadii[s] - div.prevDirectionalFirepowerRadii[s]) * blend;
             }
             div.prevTsfcKeyframeTime = div.currTsfcKeyframeTime;
             div.currTsfcKeyframeTime = evalNow;
@@ -3418,6 +3661,7 @@ public class BattlefieldFirepowerEvaluator {
             System.arraycopy(div.directionalSpaceInnerRadii, 0, div.prevDirectionalSpaceInnerRadii, 0, nDirs);
             System.arraycopy(div.directionalSpaceDominatedRadii, 0, div.prevDirectionalSpaceDominatedRadii, 0, nDirs);
             System.arraycopy(div.directionalSpacePotentialRadii, 0, div.prevDirectionalSpacePotentialRadii, 0, nDirs);
+            System.arraycopy(div.directionalFirepowerRadii, 0, div.prevDirectionalFirepowerRadii, 0, nDirs);
             div.tsfcKeyframesInitialized = true;
         }
     }
@@ -3516,7 +3760,7 @@ public class BattlefieldFirepowerEvaluator {
             BattleGroupState group,
             float evalNow) {
         if (group == null) return;
-        List<DivisionState> divs = getDivisionsAndStationBastionsForRendering(engine, group);
+        List<DivisionState> divs = getUnitsForTsfcRenderingAndEvaluation(engine, group);
         for (int i = 0, n = divs.size(); i < n; i++) {
             DivisionState div = divs.get(i);
             if (div != null && div.isCombatEffective()) {
@@ -3528,7 +3772,7 @@ public class BattlefieldFirepowerEvaluator {
     private static void refreshGroupBaseTimeSpaceForTsfcTick(CombatEngineAPI engine, BattleGroupState group) {
         if (group == null) return;
         float evalNow = engine != null ? engine.getTotalElapsedTime(false) : 0f;
-        List<DivisionState> divs = getDivisionsAndStationBastionsForRendering(engine, group);
+        List<DivisionState> divs = getUnitsForTsfcRenderingAndEvaluation(engine, group);
         for (int i = 0, n = divs.size(); i < n; i++) {
             DivisionState div = divs.get(i);
             if (div == null || !div.isCombatEffective()) continue;
@@ -3808,7 +4052,29 @@ public class BattlefieldFirepowerEvaluator {
             rawDirEng[s] = clampVal(dirPinch, 0.0f, 0.90f);
         }
 
-        // 3. Circular 3-tap angular smoothing + temporal EMA so the polar Time contour is smooth and organic
+        // 3. Circular 3-tap angular smoothing + temporal EMA + Member Hull Span & Velocity Inertia so the polar Time contour is smooth and accurate
+        List<ShipAPI> timeAlive = div.getAliveMembers();
+        int tAliveCap = timeAlive.size();
+        float[] tMemberRelX = (tAliveCap > 1) ? new float[tAliveCap] : null;
+        float[] tMemberRelY = (tAliveCap > 1) ? new float[tAliveCap] : null;
+        int tMemberCount = 0;
+        if (tAliveCap > 1) {
+            for (int mIdx = 0; mIdx < tAliveCap; mIdx++) {
+                ShipAPI m = timeAlive.get(mIdx);
+                if (m == null || m.getLocation() == null) continue;
+                if (div.detachedStragglerIds.contains(m.getId()) && div.coreMemberCount >= 1) continue;
+                tMemberRelX[tMemberCount] = m.getLocation().x - div.centroid.x;
+                tMemberRelY[tMemberCount] = m.getLocation().y - div.centroid.y;
+                tMemberCount++;
+            }
+        }
+        float velMag = (float) Math.hypot(div.velocity.x, div.velocity.y);
+        float velUx = (velMag > 8f) ? (div.velocity.x / velMag) : 0f;
+        float velUy = (velMag > 8f) ? (div.velocity.y / velMag) : 0f;
+        float velAnisotropyStrength = (velMag > 8f)
+                ? (clampVal(velMag / Math.max(45f, div.weightedTimeSpeed), 0f, 1.0f) * 0.10f)
+                : 0f;
+
         for (int s = 0; s < nDirs; s++) {
             int prev = (s + nDirs - 1) % nDirs;
             int next = (s + 1) % nDirs;
@@ -3819,11 +4085,21 @@ public class BattlefieldFirepowerEvaluator {
             } else {
                 div.directionalEngagement[s] = div.directionalEngagement[s] * 0.55f + smoothedAng * 0.45f;
             }
-            float unpinchedR = freeR * (1.0f - clampVal(div.directionalEngagement[s], 0.0f, 0.90f));
             float angleDeg = s * (360f / nDirs);
             double rad = Math.toRadians(angleDeg);
+            float ux = (float) Math.cos(rad);
+            float uy = (float) Math.sin(rad);
+
+            float maxMemberProj = 0f;
+            for (int mIdx = 0; mIdx < tMemberCount; mIdx++) {
+                float proj = tMemberRelX[mIdx] * ux + tMemberRelY[mIdx] * uy;
+                if (proj > maxMemberProj) maxMemberProj = proj;
+            }
+            float velFactor = 1.0f + velAnisotropyStrength * (ux * velUx + uy * velUy);
+            float sectorFreeR = freeR * velFactor + clampVal(maxMemberProj * 0.45f, 0f, 360f);
+            float unpinchedR = sectorFreeR * (1.0f - clampVal(div.directionalEngagement[s], 0.0f, 0.90f));
             float edgeDist = computeDirectionalBoundaryClearance(
-                    engine, div.centroid, (float) Math.cos(rad), (float) Math.sin(rad), 80f);
+                    engine, div.centroid, ux, uy, 80f);
             div.directionalTimeRadii[s] = Math.max(
                     pinchRadiusByBoundary(unpinchedR, edgeDist),
                     Math.min(unpinchedR, edgeDist + 240f));
@@ -3883,8 +4159,10 @@ public class BattlefieldFirepowerEvaluator {
         for (int mIdx = 0; mIdx < aliveCap; mIdx++) {
             ShipAPI m = alive.get(mIdx);
             if (m == null || (div.detachedStragglerIds.contains(m.getId()) && div.coreMemberCount >= 1)) continue;
-            mRelX[mCount] = m.getLocation().x - div.centroid.x;
-            mRelY[mCount] = m.getLocation().y - div.centroid.y;
+            if (m.getLocation() != null) {
+                mRelX[mCount] = m.getLocation().x - div.centroid.x;
+                mRelY[mCount] = m.getLocation().y - div.centroid.y;
+            }
             ShipFirepowerRose rose = rosesByShipId.get(m.getId());
             if (rose != null && rose.maxGeneralRange > 50f) {
                 mRoses[mCount] = rose;
@@ -4022,6 +4300,7 @@ public class BattlefieldFirepowerEvaluator {
             // 1b. Member hull projection & directional weapon-rose reach along sector angleDeg
             float maxMemberProj = 0f;
             float roseReachSum = 0f;
+            float roseAbsRangeSum = 0f;
             float roseWeightSum = 0f;
             for (int mIdx = 0; mIdx < mCount; mIdx++) {
                 float proj = mRelX[mIdx] * ux + mRelY[mIdx] * uy;
@@ -4035,11 +4314,24 @@ public class BattlefieldFirepowerEvaluator {
                     float secRange = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relAngle);
                     float ratio = clampVal(secRange / Math.max(250f, rose.maxGeneralRange), 0.55f, 1.15f);
                     roseReachSum += ratio * w;
+                    roseAbsRangeSum += Math.max(250f, secRange) * w;
                     roseWeightSum += w;
                 }
             }
             float memberReachBoost = clampVal(maxMemberProj / Math.max(350f, baseInner), 0f, 0.22f);
+            float memberSpanOffset = (aliveCap > 1 && div.spreadRadius > 1f)
+                    ? clampVal(Math.min(maxMemberProj * 0.55f, div.spreadRadius * 0.85f), 0f, 480f)
+                    : 0f;
             float weaponArcFactor = (roseWeightSum > 0f) ? (roseReachSum / roseWeightSum) : 1.0f;
+            float sectorFirepowerRange = (roseWeightSum > 0f)
+                    ? (roseAbsRangeSum / roseWeightSum)
+                    : Math.max(450f, div.avgEngageRange);
+            if (!div.directionalSpaceInitialized) {
+                div.directionalFirepowerRadii[s] = sectorFirepowerRange + memberSpanOffset * 0.5f;
+            } else {
+                div.directionalFirepowerRadii[s] = div.directionalFirepowerRadii[s] * 0.55f
+                        + (sectorFirepowerRange + memberSpanOffset * 0.5f) * 0.45f;
+            }
             float sectorAnisotropy = clampVal(formShape * (0.78f + 0.22f * weaponArcFactor) + memberReachBoost * 0.5f, 0.72f, 1.26f);
 
             // 2. Directional Pinching by Opposing Enemy Space & Enemy Firepower (and bolstering by Friendly Space)
@@ -4084,8 +4376,8 @@ public class BattlefieldFirepowerEvaluator {
             float dirTimeR = div.directionalTimeInitialized ? div.directionalTimeRadii[s] : div.effectiveTimeRadius;
             float timeRatio = clampVal(dirTimeR / Math.max(250f, div.freeTimeRadius), 0.20f, 1.05f);
 
-            float secIn = baseInner * sectorAnisotropy * innerPinchMult;
-            float secDom = Math.max(secIn + 110f, baseDom * sectorAnisotropy * netPinchMult);
+            float secIn = (baseInner * sectorAnisotropy + memberSpanOffset * 0.72f) * innerPinchMult;
+            float secDom = Math.max(secIn + 110f, (baseDom * sectorAnisotropy + memberSpanOffset) * netPinchMult);
             float secPot = Math.max(secDom + 110f, secDom + (basePot - baseDom) * sectorAnisotropy * netPinchMult * (0.45f + 0.55f * timeRatio));
 
             rawIn[s] = secIn;

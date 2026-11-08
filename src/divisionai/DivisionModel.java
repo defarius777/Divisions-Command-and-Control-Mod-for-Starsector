@@ -524,6 +524,7 @@ public class DivisionModel {
         public final float[] directionalSpaceInnerRadii = new float[TIME_DIRECTIONS];
         public final float[] directionalSpaceDominatedRadii = new float[TIME_DIRECTIONS];
         public final float[] directionalSpacePotentialRadii = new float[TIME_DIRECTIONS];
+        public final float[] directionalFirepowerRadii = new float[TIME_DIRECTIONS];
         public boolean directionalSpaceInitialized = false;
         public float edgeProximityPinch = 0f; // 0.0 in open center, up to 1.0 when pinched against map boundary
 
@@ -557,6 +558,7 @@ public class DivisionModel {
         public final float[] prevDirectionalSpaceInnerRadii = new float[TIME_DIRECTIONS];
         public final float[] prevDirectionalSpaceDominatedRadii = new float[TIME_DIRECTIONS];
         public final float[] prevDirectionalSpacePotentialRadii = new float[TIME_DIRECTIONS];
+        public final float[] prevDirectionalFirepowerRadii = new float[TIME_DIRECTIONS];
 
         // Current C2 orders, station endpoint, and out-of-contact wide-arc route waypoint
         public DivisionIntentType currentIntent = DivisionIntentType.CLOSE_UP;

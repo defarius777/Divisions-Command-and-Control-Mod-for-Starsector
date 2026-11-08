@@ -427,7 +427,7 @@ public class TsfcWarroomRenderer {
             BattleGroupState oppForSide0 = BattlefieldFirepowerEvaluator.resolveOpposingGroupForSide0(enemyGroup);
             BattleGroupState oppForSide1 = BattlefieldFirepowerEvaluator.resolveOpposingGroupForSide1(playerGroup, alliedAiGroup);
             if (playerGroup != null) {
-                for (DivisionState d : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, playerGroup)) {
+                for (DivisionState d : BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(engine, playerGroup)) {
                     if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
                         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(d);
                     }
@@ -435,7 +435,7 @@ public class TsfcWarroomRenderer {
                 BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, playerGroup, oppForSide0);
             }
             if (alliedAiGroup != null) {
-                for (DivisionState d : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, alliedAiGroup)) {
+                for (DivisionState d : BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(engine, alliedAiGroup)) {
                     if (d.isCombatEffective() && d.freeTimeRadius <= 1f) {
                         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(d);
                     }
@@ -443,7 +443,7 @@ public class TsfcWarroomRenderer {
                 BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, alliedAiGroup, oppForSide0);
             }
             if (enemyGroup != null) {
-                for (DivisionState e : BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, enemyGroup)) {
+                for (DivisionState e : BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(engine, enemyGroup)) {
                     if (e.isCombatEffective() && e.freeTimeRadius <= 1f) {
                         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(e);
                     }
@@ -489,7 +489,7 @@ public class TsfcWarroomRenderer {
 
     public static boolean hasAnyUninitializedDivisionTimeSpace(CombatEngineAPI engine, BattleGroupState group) {
         if (group == null) return false;
-        List<DivisionState> allDivs = BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, group);
+        List<DivisionState> allDivs = BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(engine, group);
         for (DivisionState d : allDivs) {
             if (d != null && d.isCombatEffective()
                     && (d.freeTimeRadius <= 1f || !d.directionalTimeInitialized || !d.directionalSpaceInitialized)) {
@@ -510,7 +510,7 @@ public class TsfcWarroomRenderer {
             float fade) {
 
         if (group == null) return;
-        List<DivisionState> renderDivs = BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, group);
+        List<DivisionState> renderDivs = BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(engine, group);
         if (renderDivs.isEmpty()) return;
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
@@ -719,7 +719,7 @@ public class TsfcWarroomRenderer {
             float fade) {
 
         if (group == null) return;
-        List<DivisionState> renderDivs = BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, group);
+        List<DivisionState> renderDivs = BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(engine, group);
         if (renderDivs.isEmpty()) return;
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
@@ -826,7 +826,7 @@ public class TsfcWarroomRenderer {
             float fade) {
 
         if (group == null) return;
-        List<DivisionState> renderDivs = BattlefieldFirepowerEvaluator.getDivisionsAndStationBastionsForRendering(engine, group);
+        List<DivisionState> renderDivs = BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(engine, group);
         if (renderDivs.isEmpty()) return;
         float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
         float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
@@ -880,9 +880,10 @@ public class TsfcWarroomRenderer {
                 r = 0.38f; g = 0.92f; b = 1.00f;
             }
 
-            float activeBoost = (group.useConvergence || div.useConvergence) ? 1.20f : 0.92f;
+            boolean hasActiveConvergenceC2 = group.useConvergence || div.useConvergence;
+            float activeBoost = hasActiveConvergenceC2 ? 1.22f : 0.88f;
             if (isCircleVisibleOnScreen(cx, cy, radPx + 16f, screenW, screenH)) {
-                // Directional & map-edge-pinched Convergence envelope
+                // Directional & map-edge-pinched 3-domain (Time + Space + Firepower) Convergence envelope
                 drawDirectionalConvergenceEnvelope(
                         engine, cx, cy, cWorld, div, scale, kfBlend, r, g, b,
                         0.155f * convFade * activeBoost,
@@ -891,12 +892,15 @@ public class TsfcWarroomRenderer {
                 // Render the iconic Convergence battle glyph: an inscribed triangle inside an inscribed square inside
                 // the pinched envelope, using the minimum cardinal directional radius already computed in
                 // drawDirectionalConvergenceEnvelope (eliminating 4 redundant boundary clearance scans per division).
+                // Full solid sacred geometry is highlighted when active Convergence C2 (Alpha Core / Abyssal) is online;
+                // standard human units render a subtler harmonic lattice so active Convergence C2 stands out clearly.
                 float glyphRadPx = (lastConvergenceMinDirectionalRadPx > 0f)
                         ? Math.max(18f, Math.min(radPx, lastConvergenceMinDirectionalRadPx))
                         : Math.max(18f, radPx);
                 float sqHalf = glyphRadPx * 0.70710678f; // inscribed square half-side = R / sqrt(2)
-                GL11.glLineWidth(1.35f);
-                GL11.glColor4f(r, g, b, 0.44f * convFade * activeBoost);
+                float glyphAlphaScale = hasActiveConvergenceC2 ? 1.0f : 0.55f;
+                GL11.glLineWidth(hasActiveConvergenceC2 ? 1.45f : 1.15f);
+                GL11.glColor4f(r, g, b, 0.44f * convFade * activeBoost * glyphAlphaScale);
                 GL11.glBegin(GL11.GL_LINE_LOOP);
                 GL11.glVertex2f(cx - sqHalf, cy - sqHalf);
                 GL11.glVertex2f(cx + sqHalf, cy - sqHalf);
@@ -905,8 +909,8 @@ public class TsfcWarroomRenderer {
                 GL11.glEnd();
 
                 // Inscribed equilateral triangle inside the square
-                GL11.glLineWidth(1.45f);
-                GL11.glColor4f(r, g, b, 0.56f * convFade * activeBoost);
+                GL11.glLineWidth(hasActiveConvergenceC2 ? 1.55f : 1.20f);
+                GL11.glColor4f(r, g, b, 0.56f * convFade * activeBoost * glyphAlphaScale);
                 GL11.glBegin(GL11.GL_LINE_LOOP);
                 GL11.glVertex2f(cx, cy + sqHalf * 0.94f);
                 GL11.glVertex2f(cx - sqHalf * 0.88f, cy - sqHalf * 0.78f);
@@ -914,8 +918,9 @@ public class TsfcWarroomRenderer {
                 GL11.glEnd();
             }
 
-            // Phase-locked Convergence vector to focal point when targeting an enemy division
-            if (!isEnemy && interpConvScore > 1f
+            // Phase-locked Convergence vector to focal point when targeting an enemy unit (both friendly units and
+            // spotted enemy units with active Convergence C2 project their focal vector)
+            if ((!isEnemy || hasActiveConvergenceC2) && interpConvScore > 1f
                     && (div.convergenceFocalPoint.x != 0f || div.convergenceFocalPoint.y != 0f)) {
                 float focalWx = div.tsfcKeyframesInitialized
                         ? (div.prevConvergenceFocalPoint.x + (div.convergenceFocalPoint.x - div.prevConvergenceFocalPoint.x) * kfBlend)
@@ -1139,7 +1144,7 @@ public class TsfcWarroomRenderer {
         if (div == null || scale <= 1e-5f) return;
         lastSpaceScratchDiv = null;
         boolean hasKf = div.tsfcKeyframesInitialized && kfBlend < 0.999f;
-        float weaponPart = 0.24f * Math.max(500f, div.avgEngageRange);
+        float fallbackWeaponRange = Math.max(500f, div.avgEngageRange);
         float minCardinalRadPx = Float.MAX_VALUE;
         for (int i = 0; i < 48; i++) {
             int s0 = i >> 1;
@@ -1150,11 +1155,16 @@ public class TsfcWarroomRenderer {
             float sR0 = hasKf
                     ? (div.prevDirectionalSpaceDominatedRadii[s0] + (div.directionalSpaceDominatedRadii[s0] - div.prevDirectionalSpaceDominatedRadii[s0]) * kfBlend)
                     : div.directionalSpaceDominatedRadii[s0];
+            float fR0 = hasKf
+                    ? (div.prevDirectionalFirepowerRadii[s0] + (div.directionalFirepowerRadii[s0] - div.prevDirectionalFirepowerRadii[s0]) * kfBlend)
+                    : div.directionalFirepowerRadii[s0];
             float tR;
             float sR;
+            float fR;
             if ((i & 1) == 0) {
                 tR = tR0;
                 sR = sR0;
+                fR = fR0;
             } else {
                 float tR1 = hasKf
                         ? (div.prevDirectionalTimeRadii[s1] + (div.directionalTimeRadii[s1] - div.prevDirectionalTimeRadii[s1]) * kfBlend)
@@ -1162,12 +1172,17 @@ public class TsfcWarroomRenderer {
                 float sR1 = hasKf
                         ? (div.prevDirectionalSpaceDominatedRadii[s1] + (div.directionalSpaceDominatedRadii[s1] - div.prevDirectionalSpaceDominatedRadii[s1]) * kfBlend)
                         : div.directionalSpaceDominatedRadii[s1];
+                float fR1 = hasKf
+                        ? (div.prevDirectionalFirepowerRadii[s1] + (div.directionalFirepowerRadii[s1] - div.prevDirectionalFirepowerRadii[s1]) * kfBlend)
+                        : div.directionalFirepowerRadii[s1];
                 tR = 0.5f * (tR0 + tR1);
                 sR = 0.5f * (sR0 + sR1);
+                fR = 0.5f * (fR0 + fR1);
             }
             if (!div.directionalTimeInitialized) tR = Math.max(200f, div.effectiveTimeRadius);
             if (!div.directionalSpaceInitialized) sR = Math.max(300f, div.spaceDominatedRadius);
-            float worldR = 0.38f * tR + 0.38f * sR + weaponPart;
+            if (!div.directionalSpaceInitialized || fR <= 100f) fR = fallbackWeaponRange;
+            float worldR = 0.38f * tR + 0.38f * sR + 0.24f * fR;
             float cos = UNIT_COS_48[i];
             float sin = UNIT_SIN_48[i];
             if (cWorld != null) {
@@ -1920,11 +1935,13 @@ public class TsfcWarroomRenderer {
             float offsetY,
             float fade) {
 
-        if (group == null || group.divisions.isEmpty()) return;
+        if (group == null) return;
+        List<DivisionState> units = BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(engine, group);
+        if (units.isEmpty()) return;
         FogOfWarAPI playerFog = engine.getFogOfWar(0);
         float now = engine.getTotalElapsedTime(false);
 
-        for (DivisionState div : group.divisions) {
+        for (DivisionState div : units) {
             if (!div.isCombatEffective()) continue;
             float kfBlend = BattlefieldFirepowerEvaluator.computeDivisionKeyframeBlendFactor(div, now);
             if (kfBlend < 0f) {
