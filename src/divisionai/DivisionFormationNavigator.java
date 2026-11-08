@@ -50,6 +50,9 @@ public class DivisionFormationNavigator {
             BattleGroupState myGroup) {
 
         boolean closingUp = (div.currentIntent == DivisionIntentType.CLOSE_UP);
+        boolean uncapturedObjectiveMarch = (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
+                && div.targetObjective != null
+                && div.targetObjective.getOwner() != div.side);
         float baseSpacing = Math.max(150f, div.stationSpacing);
         float effectiveSlotSpacing = closingUp ? Math.max(140f, baseSpacing * 0.60f) : baseSpacing;
 
@@ -87,6 +90,9 @@ public class DivisionFormationNavigator {
                 marchDirY = gdy / marchDist;
             }
         }
+        if (uncapturedObjectiveMarch && marchDist <= 950f && !div.hasRouteWaypoint) {
+            effectiveSlotSpacing = Math.max(115f, Math.min(effectiveSlotSpacing, 175f));
+        }
         if (!closingUp
                 && !div.hasRouteWaypoint
                 && formation != DivisionFormation.NONE
@@ -101,9 +107,11 @@ public class DivisionFormationNavigator {
             // carriage >= 1950u ahead so rear Wedge/Column ranks never fall at/behind div.centroid and ships never
             // stall inside vanilla BasicShipAI's < 450u CAMP_LOCATION braking zone!
             boolean cautiousObjectiveStep = (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD)
+                    && !div.underDirectObjectiveOrder
                     && DivisionCommanderAI.shouldAdvanceCautiouslyOnObjective(engine, div, myGroup, null);
             boolean enteringEnemyContact = div.targetEnemyDivision != null
                     && div.targetEnemyDivision.isCombatEffective()
+                    && !div.underDirectObjectiveOrder
                     && (div.localEnemyStrength >= 4f || marchDist <= 1450f);
             float maxCarriageLead = cautiousObjectiveStep
                     ? Math.max(850f, effectiveSlotSpacing * 2.10f)
@@ -121,7 +129,11 @@ public class DivisionFormationNavigator {
         // CRITICAL: When the division is advancing toward a target/objective (marchDist > 180f), project out any
         // backward component along marchDir so friendly divisions ONLY separate laterally and NEVER push a division's
         // carriage backward onto its own centroid, which previously froze Missile Frigate Div 2 in the middle of battle!)
-        if (!closingUp && myGroup != null) {
+        boolean pinnedToUncapturedObjective = uncapturedObjectiveMarch
+                && (div.underDirectObjectiveOrder || marchDist <= 1150f)
+                && marchDist <= 1150f
+                && !div.hasRouteWaypoint;
+        if (!closingUp && !pinnedToUncapturedObjective && myGroup != null) {
             float desiredInter = Math.max(400f, div.divisionInterval);
             for (DivisionState peerDiv : myGroup.divisions) {
                 if (peerDiv == null || peerDiv == div || !peerDiv.isCombatEffective()) continue;
@@ -188,7 +200,7 @@ public class DivisionFormationNavigator {
         float desiredFwdX = 0f;
         float desiredFwdY = (div.side == 0) ? 1f : -1f;
         if (!divisionInEntryTravelDrive) {
-            if (div.targetEnemyDivision != null) {
+            if (div.targetEnemyDivision != null && !(uncapturedObjectiveMarch && marchDist > 450f)) {
                 Vector2f visEnemy = OtcAI.getVisibleCentroidForSide(engine, div.side, div.targetEnemyDivision);
                 float dx = visEnemy.x - div.centroid.x;
                 float dy = visEnemy.y - div.centroid.y;
@@ -217,7 +229,7 @@ public class DivisionFormationNavigator {
             div.formationHeadingY = desiredFwdY;
             div.formationHeadingInitialized = true;
         } else if (shipIdx == 0) {
-            float blend = (div.targetEnemyDivision == null) ? 0.50f : 0.28f;
+            float blend = (div.targetEnemyDivision == null || (uncapturedObjectiveMarch && marchDist > 450f)) ? 0.50f : 0.28f;
             float bx = div.formationHeadingX * (1f - blend) + desiredFwdX * blend;
             float by = div.formationHeadingY * (1f - blend) + desiredFwdY * blend;
             float bLen = (float) Math.sqrt(bx * bx + by * by);
@@ -240,6 +252,7 @@ public class DivisionFormationNavigator {
         LineStation lineStation = (div.lineStation != null) ? div.lineStation : LineStation.CENTER;
         if (!closingUp
                 && div.targetEnemyDivision == null
+                && div.currentIntent != DivisionIntentType.TAKE_AND_HOLD
                 && div.currentIntent != DivisionIntentType.HOLD_IN_RESERVE
                 && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                 && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE) {
@@ -499,6 +512,7 @@ public class DivisionFormationNavigator {
                 float minSpd = computeDivisionSustainableSpeed(div, alive);
                 float maxSpd = computeDivisionMaxMemberSpeed(div, alive);
                 boolean mixedSpeedOutOfCombat = outOfCombatMarch
+                        && !(div.underDirectObjectiveOrder && uncapturedObjectiveMarch)
                         && (maxSpd - minSpd) > 16f
                         && maxSpd > minSpd * 1.18f;
                 if (mixedSpeedOutOfCombat) {
@@ -1328,6 +1342,14 @@ public class DivisionFormationNavigator {
         if (intent == DivisionIntentType.CLOSE_UP) {
             return;
         }
+        // When marching onto a player-ordered or uncaptured control point within 1,350u, drive directly onto the
+        // control point rather than projecting a wide-arc detour around nearby contesting enemies.
+        if (intent == DivisionIntentType.TAKE_AND_HOLD
+                && div.targetObjective != null
+                && (div.underDirectObjectiveOrder || div.targetObjective.getOwner() != div.side)
+                && DivisionCommanderAI.distance(div.centroid, div.stationPoint) <= 1350f) {
+            return;
+        }
 
         // Direct close-in attack intents do not detour around their own attack target once within 2400u,
         // though they still skirt around other intervening enemy divisions on long transits.
@@ -1423,8 +1445,12 @@ public class DivisionFormationNavigator {
                 // For the enemy division being flanked, keep the avoidance disc just inside the flank station radius
                 // so the flanker sweeps around its front/beam out of contact rather than cutting across its nose.
                 threatRadius = Math.min(threatRadius, Math.max(850f, distGoalToEnemy * 0.88f));
+            } else if (distGoalToEnemy < 950f) {
+                // If goalPos itself (e.g. a contested Control Point) sits inside or right next to this enemy division,
+                // do not detour around goalPos itself — the division must enter goalPos directly!
+                continue;
             } else if (distGoalToEnemy < threatRadius + 140f) {
-                // If goalPos itself sits close to this enemy division, shrink avoidance radius so goalPos remains reachable
+                // If goalPos sits near the edge of this enemy division, shrink avoidance radius so goalPos remains reachable
                 threatRadius = Math.max(700f, distGoalToEnemy - 140f);
             }
 

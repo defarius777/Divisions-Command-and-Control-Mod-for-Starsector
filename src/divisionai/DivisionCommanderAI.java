@@ -67,8 +67,22 @@ public class DivisionCommanderAI {
             BattleGroupState enemyGroup,
             float now) {
 
+        if (myGroup.side == 0) {
+            syncPlayerObjectiveAssignmentsForGroup(engine, myGroup);
+        }
+
         for (DivisionState div : myGroup.divisions) {
             if (!div.isCombatEffective()) continue;
+
+            BattleObjectiveAPI assignedPlayerObj = (myGroup.side == 0)
+                    ? findTaskManagerObjectiveForDivision(engine, div, myGroup, div.targetObjective)
+                    : null;
+            boolean playerObjectiveUrgent = (assignedPlayerObj != null
+                    && div.avgFluxLevel < 0.84f
+                    && (!div.underDirectObjectiveOrder
+                    || div.currentIntent != DivisionIntentType.TAKE_AND_HOLD
+                    || div.targetObjective != assignedPlayerObj))
+                    || (div.underDirectObjectiveOrder && assignedPlayerObj == null);
 
             // Re-evaluate on the commander's decision cadence, but hold a committed intent unless something urgent happens
             boolean cadenceDue = (now - div.lastIntentChangeTime) >= div.commander.decisionCadenceSeconds;
@@ -76,16 +90,25 @@ public class DivisionCommanderAI {
             boolean fullAssaultUrgent = OtcAI.isFullAssaultActive(engine, myGroup)
                     && (div.archetype == null || !div.archetype.isCarrierArchetype())
                     && !div.underDirectObjectiveOrder
+                    && assignedPlayerObj == null
                     && div.avgFluxLevel < 0.86f
                     && div.currentIntent != DivisionIntentType.PRESS_HOME
                     && div.currentIntent != DivisionIntentType.GIVE_GENERAL_CHASE;
-            if (fullAssaultUrgent || (cadenceDue && (!committed || hasUrgentTrigger(engine, div, myGroup, now)))) {
+            if (playerObjectiveUrgent || fullAssaultUrgent || (cadenceDue && (!committed || hasUrgentTrigger(engine, div, myGroup, now)))) {
                 DivisionIntentType prevIntent = div.currentIntent;
                 DivisionState prevEnemy = div.targetEnemyDivision;
                 DivisionState prevFriendly = div.targetFriendlyDivision;
                 BattleObjectiveAPI prevObjective = div.targetObjective;
 
-                boolean midRamLanceCharge = div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
+                if (playerObjectiveUrgent) {
+                    div.synchronizedSkillManeuverActive = false;
+                    div.synchronizedSkillStage = 0;
+                    div.activeSetpieceAttack = DivisionSetpieceAttack.NONE;
+                    div.setpieceStage = 0;
+                }
+
+                boolean midRamLanceCharge = !playerObjectiveUrgent
+                        && div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
                         && div.ramCapableMemberCount >= 1
                         && div.avgFluxLevel < 0.72f
                         && div.targetEnemyDivision != null
@@ -437,6 +460,11 @@ public class DivisionCommanderAI {
 
     /** Events that break intent commitment and force an immediate re-evaluation. */
     static boolean hasUrgentTrigger(CombatEngineAPI engine, DivisionState div, BattleGroupState myGroup, float now) {
+        if (div.underDirectObjectiveOrder && div.targetObjective != null) {
+            if (div.avgFluxLevel >= 0.84f) return true;
+            BattleObjectiveAPI currentAssigned = findTaskManagerObjectiveForDivision(engine, div, myGroup, div.targetObjective);
+            return currentAssigned != div.targetObjective;
+        }
         if (div.otcOrder.version != div.appliedOtcOrderVersion) return true;
         boolean fullAssault = OtcAI.isFullAssaultActive(engine, myGroup);
         if (fullAssault
@@ -701,10 +729,21 @@ public class DivisionCommanderAI {
 
         // Step 1: Explicit Command Window objective order (Player holds absolute C2 authority at all times!
         // Never reject a player-ordered Control Point capture because of localEnemyStrength or OTC tasking;
-        // only yield if the division is critically fluxed out >= 82%).
-        if (commandAssignedObj != null && !div.archetype.isCarrierArchetype() && div.avgFluxLevel < 0.82f) {
+        // only yield if the division is critically fluxed out >= 84%).
+        if (commandAssignedObj != null && !div.archetype.isCarrierArchetype() && div.avgFluxLevel < 0.84f) {
             div.targetObjective = commandAssignedObj;
             div.stationPoint.set(commandAssignedObj.getLocation());
+            div.otcOrder.clear();
+            div.appliedOtcOrderVersion = div.otcOrder.version;
+            float distToObj = (div.centroid != null && commandAssignedObj.getLocation() != null)
+                    ? distance(div.centroid, commandAssignedObj.getLocation())
+                    : 0f;
+            if (distToObj <= 950f || commandAssignedObj.getOwner() == div.side) {
+                div.targetEnemyDivision = findEnemyDivisionNearPoint(
+                        engine, div.side, enemyGroup, commandAssignedObj.getLocation(), 1350f);
+            } else {
+                div.targetEnemyDivision = null;
+            }
             commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,
                     commandAssignedObj.getDisplayName(), "under direct orders", now);
             return;
@@ -1919,6 +1958,18 @@ public class DivisionCommanderAI {
         }
 
         switch (div.currentIntent) {
+            case TAKE_AND_HOLD:
+                if (div.targetObjective != null && div.targetObjective.getLocation() != null) {
+                    div.stationPoint.set(div.targetObjective.getLocation());
+                    if (div.targetObjective.getOwner() != div.side
+                            && distance(div.centroid, div.targetObjective.getLocation()) > 950f) {
+                        div.targetEnemyDivision = null;
+                    } else if (div.targetEnemyDivision == null || !div.targetEnemyDivision.isCombatEffective()) {
+                        div.targetEnemyDivision = findEnemyDivisionNearPoint(
+                                engine, div.side, enemyGroup, div.targetObjective.getLocation(), 1350f);
+                    }
+                }
+                break;
             case TAKE_SCREENING_STATION:
                 if (friend != null) {
                     DivisionFormationNavigator.computeScreeningStation(engine, div, friend, enemy, div.stationPoint, div.side);
@@ -2083,7 +2134,9 @@ public class DivisionCommanderAI {
         if (!fullAssault) {
             if (myGroup != null && OtcAI.isOrchestratedAdvanceActive(engine, myGroup, enemyGroup)) {
                 DivisionState main = myGroup.mainEffortDivision;
-                if (div == main && !enemyTrackable) {
+                if (div == main && !enemyTrackable
+                        && div.currentIntent != DivisionIntentType.TAKE_AND_HOLD
+                        && !div.underDirectObjectiveOrder) {
                     float fwdDirY = (div.side == 0) ? 1f : -1f;
                     float maxAbsY = (engine != null && engine.getMapHeight() > 0f)
                             ? (engine.getMapHeight() * 0.36f)
@@ -2209,7 +2262,9 @@ public class DivisionCommanderAI {
         if (main == null || main == div || !main.isCombatEffective() || !main.hasFleetFormationOffset) return;
         if (div.archetype == null || div.archetype.isCarrierArchetype()
                 || div.archetype == DivisionArchetype.SERVICE_GROUP) return;
-        if (div.isCoveringFriend || div.underDirectObjectiveOrder) return;
+        if (div.isCoveringFriend
+                || div.underDirectObjectiveOrder
+                || div.currentIntent == DivisionIntentType.TAKE_AND_HOLD) return;
         boolean orchAdvance = OtcAI.isOrchestratedAdvanceActive(engine, myGroup, null);
         if (!orchAdvance) {
             if (div.isFastFlanker) return;
@@ -2218,7 +2273,6 @@ public class DivisionCommanderAI {
                 case CLOSE_AND_ENGAGE:
                 case FORM_LINE_AND_FIX:
                 case PRESS_HOME:
-                case TAKE_AND_HOLD:
                 case TOT_ALPHA_STRIKE:
                 case TOT_MISSILE_STRIKE:
                 case HARASSING_MISSILE_ATTACK:
@@ -2325,6 +2379,8 @@ public class DivisionCommanderAI {
                 || OtcAI.isFullAssaultActive(engine, myGroup)
                 || div.getAliveMembers().size() < 2
                 || !div.detachedStragglerIds.isEmpty()
+                || div.underDirectObjectiveOrder
+                || div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
                 || div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                 || div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
                 || div.currentIntent == DivisionIntentType.HOLD_IN_RESERVE
@@ -2725,17 +2781,23 @@ public class DivisionCommanderAI {
                     || (shipEhpRatio < 0.52f && ship.getFluxLevel() >= 0.40f)
                     || (div.localForceRatio < 0.80f && shipEhpRatio < 0.58f && (ship.getFluxLevel() >= 0.48f || hardFluxFrac >= 0.38f))
                     || (div.localForceRatio < 0.72f && ship.getFluxLevel() >= 0.62f));
-            float crisisFluxThreshold = (div.incomingInRangeFirepower > 35f || div.localEnemyStrength >= 14f) ? 0.74f : 0.80f;
+            boolean uncapturedDirectObjMarch = div.underDirectObjectiveOrder
+                    && div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
+                    && div.targetObjective != null
+                    && div.targetObjective.getOwner() != div.side;
+            float crisisFluxThreshold = uncapturedDirectObjMarch
+                    ? 0.80f
+                    : ((div.incomingInRangeFirepower > 35f || div.localEnemyStrength >= 14f) ? 0.74f : 0.80f);
             boolean shipInPersonalCrisis = !martyrdom
                     && div.localEnemyStrength >= 8f
                     && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                     && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
-                    && (loneOrOutnumberedFrigateInDanger
+                    && ((!uncapturedDirectObjMarch && (loneOrOutnumberedFrigateInDanger
                     || destroyerInEhpDanger
-                    || postRamCooldownDanger
+                    || postRamCooldownDanger))
                     || (ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting())
                     || ship.getFluxLevel() >= crisisFluxThreshold
-                    || (ship.getHullLevel() < 0.42f && ship.getFluxLevel() >= 0.45f));
+                    || (ship.getHullLevel() < (uncapturedDirectObjMarch ? 0.32f : 0.42f) && ship.getFluxLevel() >= 0.45f));
             if (shipInPersonalCrisis) {
                 Vector2f extractGoal = computePersonalExtractionPoint(ship, div, myGroup, focusEnemyShip);
                 flags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
@@ -2779,12 +2841,13 @@ public class DivisionCommanderAI {
             // When marching out of combat in a mixed-speed division (e.g. Battle Division 1), govern faster ships that
             // have reached or passed the slowest core member's rank so the entire division advances coherently at the
             // greatest sustainable speed that all its ships can maintain! Once combat opens up, all bets are off.
-            if (paceMixedDivisionSpeed && ship.getMaxSpeed() > minSustainableSpeed + 4f) {
+            if (paceMixedDivisionSpeed && !uncapturedDirectObjMarch && ship.getMaxSpeed() > minSustainableSpeed + 4f) {
                 applyOutOfCombatSpeedGovernor(ship, flags, slotPos, alive, div, minSustainableSpeed);
             }
 
             float distToDivCenter = distance(ship.getLocation(), div.centroid);
             boolean shipStraggling = !shipInRamCharge
+                    && !uncapturedDirectObjMarch
                     && div.coreMemberCount >= 2
                     && distToDivCenter > (div.stationKeepingRadius * 1.38f);
 
@@ -3086,24 +3149,49 @@ public class DivisionCommanderAI {
                 break;
 
             case TAKE_AND_HOLD: {
-                boolean cautiousAdvance = shouldAdvanceCautiouslyOnObjective(engine, div, myGroup, enemyGroup);
+                boolean cautiousAdvance = !div.underDirectObjectiveOrder
+                        && shouldAdvanceCautiouslyOnObjective(engine, div, myGroup, enemyGroup);
                 float distToGoal = distance(ship.getLocation(), div.stationPoint);
                 boolean objectiveStillUncaptured = div.targetObjective != null
                         && div.targetObjective.getOwner() != div.side;
                 if (objectiveStillUncaptured && (div.underDirectObjectiveOrder || distToGoal <= 1350f)) {
                     // Absolute Player Objective Authority & Reliable Point Capture:
                     // Forbid ships from wandering off to chase nearby enemy ships while the Control Point is still
-                    // uncaptured, and pin the lead ship (shipIdx == 0) directly onto targetObjective.getLocation()
-                    // so a hull physically stands inside the capture circle until ownership flips!
+                    // uncaptured, pin the lead ship (shipIdx == 0) directly onto targetObjective.getLocation(), clamp
+                    // wingmen tightly inside the < 500u capture circle, and actively drive ship helms onto the point!
                     flags.unsetFlag(AIFlags.BACK_OFF);
                     flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
                     flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                     Vector2f objLoc = div.targetObjective.getLocation();
-                    Vector2f capGoal = (shipIdx == 0) ? objLoc : slotPos;
-                    flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, capGoal);
-                    if (shipIdx == 0 && distance(ship.getLocation(), objLoc) > 120f) {
-                        flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, objLoc);
+                    Vector2f capGoal;
+                    if (shipIdx == 0 || slotPos == null) {
+                        capGoal = objLoc;
+                    } else if (!div.hasRouteWaypoint && distance(div.centroid, objLoc) <= 1050f) {
+                        float sdx = slotPos.x - objLoc.x;
+                        float sdy = slotPos.y - objLoc.y;
+                        float sDist = (float) Math.sqrt(sdx * sdx + sdy * sdy);
+                        if (sDist > 260f) {
+                            capGoal = new Vector2f(objLoc.x + (sdx / sDist) * 260f, objLoc.y + (sdy / sDist) * 260f);
+                        } else {
+                            capGoal = slotPos;
+                        }
+                    } else {
+                        capGoal = slotPos;
                     }
+                    flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, capGoal);
+                    flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, capGoal);
+                    float distShipToObj = distance(ship.getLocation(), objLoc);
+                    float distShipToCapGoal = distance(ship.getLocation(), capGoal);
+                    if (distShipToObj > 420f) {
+                        flags.unsetFlag(AIFlags.MANEUVER_TARGET);
+                        flags.unsetFlag(AIFlags.HARASS_MOVE_IN);
+                        flags.unsetFlag(AIFlags.PURSUING);
+                        flags.setFlag(AIFlags.RUN_QUICKLY, FLAG_TTL);
+                        clearBasicShipAiTargetOverride(ship);
+                    } else if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) <= 1250f) {
+                        directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
+                    }
+                    ShipSystemCoordinator.steerShipHelmOntoObjectivePoint(ship, capGoal, distShipToCapGoal, distShipToObj);
                 } else if (!cautiousAdvance && distToGoal > 850f) {
                     flags.unsetFlag(AIFlags.BACK_OFF);
                     flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
@@ -3168,7 +3256,12 @@ public class DivisionCommanderAI {
                 && ship.getFluxLevel() < 0.88f) {
             flags.setFlag(AIFlags.DO_NOT_VENT, FLAG_TTL);
         }
-        if (fullAssault && ship.getFluxLevel() < 0.86f) {
+        if ((fullAssault && ship.getFluxLevel() < 0.86f)
+                || (div.underDirectObjectiveOrder
+                && div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
+                && div.targetObjective != null
+                && div.targetObjective.getOwner() != div.side
+                && ship.getFluxLevel() < 0.80f)) {
             return false;
         }
         boolean strikeCommitted = div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
@@ -3979,19 +4072,15 @@ public class DivisionCommanderAI {
             return true;
         }
         // If the ship is assigned to capture/control/assault an objective and its division is already seizing that
-        // exact objective, they are aligned.
+        // exact objective, scrub any pooled auto-assignment so vanilla's arrow manager & ooOo maneuver don't interfere,
+        // and return false so Division AI drives the ship with full formation + helm control!
         if (info.getTarget() instanceof BattleObjectiveAPI) {
             BattleObjectiveAPI obj = (BattleObjectiveAPI) info.getTarget();
+            boolean direct = isDirectPlayerShipOrder(ship, tm, true);
             if (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD && div.targetObjective == obj) {
                 return false;
             }
-            // If the objective still needs capturing and NO friendly division in myGroup is currently executing
-            // TAKE_AND_HOLD on it, do NOT clear the ship's objective order — honor the player's capture order!
-            boolean anyDivisionTakingObj = isObjectiveClaimedByOtherDivision(obj, null, myGroup);
-            if (!anyDivisionTakingObj && obj.getOwner() != ship.getOwner()) {
-                return true;
-            }
-            return isDirectPlayerShipOrder(ship, tm, true);
+            return direct;
         }
         return isDirectPlayerShipOrder(ship, tm, true);
     }
@@ -4304,6 +4393,44 @@ public class DivisionCommanderAI {
         }
     }
 
+    static void clearBasicShipAiTargetOverride(ShipAPI ship) {
+        if (ship == null) return;
+        ShipAIPlugin ai = ship.getShipAI();
+        if (ai == null || setTargetOverrideHandle == null) return;
+        try {
+            Object targetAi = ai;
+            if (shipAiWrapperClass != null && shipAiWrapperClass.isInstance(targetAi) && unwrapAiHandle != null) {
+                targetAi = unwrapAiHandle.invoke(targetAi);
+            }
+            if (basicShipAiClass != null && basicShipAiClass.isInstance(targetAi)) {
+                setTargetOverrideHandle.invoke(targetAi, (Object) null);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    static DivisionState findEnemyDivisionNearPoint(
+            CombatEngineAPI engine,
+            int side,
+            BattleGroupState enemyGroup,
+            Vector2f point,
+            float maxDist) {
+        if (enemyGroup == null || point == null) return null;
+        DivisionState best = null;
+        float bestDist = maxDist;
+        for (DivisionState eDiv : OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup)) {
+            if (eDiv == null || !eDiv.isCombatEffective()) continue;
+            if (!OtcAI.isDivisionVisibleToSide(engine, side, eDiv)) continue;
+            Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, side, eDiv);
+            float d = distance(point, ePos);
+            if (d <= bestDist) {
+                bestDist = d;
+                best = eDiv;
+            }
+        }
+        return best;
+    }
+
     static DivisionState findEndangeredFriendlyDivision(DivisionState myDiv, BattleGroupState myGroup) {
         DivisionState best = null;
         float bestUrgency = 0f;
@@ -4481,112 +4608,181 @@ public class DivisionCommanderAI {
     }
 
     /**
+     * Synchronizes {@code underDirectObjectiveOrder} and {@code targetObjective} across all player divisions in
+     * {@code myGroup} using deterministic 1-to-1 global matching so OTC planning and division evaluation immediately
+     * respect all player-issued Control Point orders without multi-objective score-stealing deadlocks.
+     */
+    public static void syncPlayerObjectiveAssignmentsForGroup(CombatEngineAPI engine, BattleGroupState myGroup) {
+        if (engine == null || myGroup == null || myGroup.side != 0 || myGroup.divisions.isEmpty()) return;
+        java.util.Map<DivisionState, BattleObjectiveAPI> matched = resolvePlayerObjectiveAssignmentsForGroup(engine, myGroup);
+        for (int i = 0; i < myGroup.divisions.size(); i++) {
+            DivisionState d = myGroup.divisions.get(i);
+            if (d == null) continue;
+            if (!d.isCombatEffective() || d.archetype.isCarrierArchetype() || d.avgFluxLevel >= 0.84f) {
+                if (d.underDirectObjectiveOrder) {
+                    d.underDirectObjectiveOrder = false;
+                }
+                continue;
+            }
+            BattleObjectiveAPI obj = matched.get(d);
+            if (obj != null) {
+                d.underDirectObjectiveOrder = true;
+                d.targetObjective = obj;
+                if (d.otcOrder != null) {
+                    d.otcOrder.clear();
+                    d.appliedOtcOrderVersion = d.otcOrder.version;
+                }
+            } else if (d.underDirectObjectiveOrder) {
+                d.underDirectObjectiveOrder = false;
+            }
+        }
+    }
+
+    static java.util.Map<DivisionState, BattleObjectiveAPI> resolvePlayerObjectiveAssignmentsForGroup(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup) {
+        if (engine == null || myGroup == null || myGroup.side != 0 || myGroup.divisions == null || myGroup.divisions.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+        CombatFleetManagerAPI fm = engine.getFleetManager(0);
+        CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(false) : null;
+        if (tm == null) return java.util.Collections.emptyMap();
+
+        List<DivisionState> availDivs = new java.util.ArrayList<>(myGroup.divisions.size());
+        for (int i = 0; i < myGroup.divisions.size(); i++) {
+            DivisionState d = myGroup.divisions.get(i);
+            if (d == null || !d.isCombatEffective()) continue;
+            if (d.archetype.isCarrierArchetype()) continue;
+            if (d.side != 0 || (d.flagship != null && d.flagship.isAlly())) continue;
+            if (d.avgFluxLevel >= 0.84f) continue;
+            availDivs.add(d);
+        }
+        if (availDivs.isEmpty()) return java.util.Collections.emptyMap();
+
+        java.util.Map<DivisionState, BattleObjectiveAPI> result = new java.util.IdentityHashMap<>();
+        java.util.Set<BattleObjectiveAPI> claimedObjectives = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
+        // Pass 1: Direct per-ship objective assignments (explicitly assigned to a ship in the Command Window)
+        for (int i = 0; i < availDivs.size(); i++) {
+            DivisionState d = availDivs.get(i);
+            for (ShipAPI s : d.getAliveMembers()) {
+                AssignmentInfo info = tm.getAssignmentFor(s);
+                if (info != null && info.getTarget() instanceof BattleObjectiveAPI
+                        && isDirectPlayerShipOrder(s, tm, false)) {
+                    BattleObjectiveAPI obj = (BattleObjectiveAPI) info.getTarget();
+                    if (!claimedObjectives.contains(obj)
+                            && !isObjectiveSecuredByOtherDivisions(engine, obj, d, myGroup)) {
+                        result.put(d, obj);
+                        claimedObjectives.add(obj);
+                        break;
+                    }
+                }
+            }
+        }
+        availDivs.removeAll(result.keySet());
+        if (availDivs.isEmpty()) return result;
+
+        // Pass 2: Pooled objective orders in tm.getAllAssignments() — match 1-to-1 greedily across all available divisions
+        List<AssignmentInfo> all = tm.getAllAssignments();
+        if (all == null || all.isEmpty()) return result;
+
+        List<BattleObjectiveAPI> pooledObjs = new java.util.ArrayList<>();
+        for (int i = 0; i < all.size(); i++) {
+            AssignmentInfo info = all.get(i);
+            if (info == null || !(info.getTarget() instanceof BattleObjectiveAPI)) continue;
+            CombatAssignmentType t = info.getType();
+            if (t != CombatAssignmentType.CAPTURE
+                    && t != CombatAssignmentType.ASSAULT
+                    && t != CombatAssignmentType.CONTROL
+                    && t != CombatAssignmentType.DEFEND
+                    && t != CombatAssignmentType.RECON) {
+                continue;
+            }
+            BattleObjectiveAPI obj = (BattleObjectiveAPI) info.getTarget();
+            if (claimedObjectives.contains(obj) || pooledObjs.contains(obj)) continue;
+            if (obj.getOwner() == 0
+                    && (t == CombatAssignmentType.CONTROL || t == CombatAssignmentType.DEFEND
+                    || isObjectiveSecuredByOtherDivisions(engine, obj, null, myGroup))) {
+                continue;
+            }
+            pooledObjs.add(obj);
+        }
+
+        while (!pooledObjs.isEmpty() && !availDivs.isEmpty()) {
+            DivisionState bestDiv = null;
+            BattleObjectiveAPI bestObj = null;
+            float bestScore = -900000f;
+
+            for (int oIdx = 0; oIdx < pooledObjs.size(); oIdx++) {
+                BattleObjectiveAPI obj = pooledObjs.get(oIdx);
+                for (int dIdx = 0; dIdx < availDivs.size(); dIdx++) {
+                    DivisionState d = availDivs.get(dIdx);
+                    // Only use a Battleship division for a pooled objective if no non-Battleship division remains
+                    // or if there is only 1 division in the battle group
+                    if ((d.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                            || d.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION)
+                            && myGroup.divisions.size() > 1) {
+                        boolean nonBattleshipAvailable = false;
+                        for (int k = 0; k < availDivs.size(); k++) {
+                            DivisionState ok = availDivs.get(k);
+                            if (ok.archetype != DivisionArchetype.BATTLESHIP_DIVISION
+                                    && ok.archetype != DivisionArchetype.MISSILE_BATTLESHIP_DIVISION) {
+                                nonBattleshipAvailable = true;
+                                break;
+                            }
+                        }
+                        if (nonBattleshipAvailable) continue;
+                    }
+                    float s = scoreDivisionForObjectiveCapture(d, obj, d.targetObjective);
+                    if (s > bestScore) {
+                        bestScore = s;
+                        bestDiv = d;
+                        bestObj = obj;
+                    }
+                }
+            }
+
+            if (bestDiv == null || bestObj == null) break;
+            result.put(bestDiv, bestObj);
+            claimedObjectives.add(bestObj);
+            availDivs.remove(bestDiv);
+            pooledObjs.remove(bestObj);
+        }
+
+        return result;
+    }
+
+    /**
      * Checks if any ship in this division has been directly assigned to an objective in CombatTaskManager,
-     * or if there is an unclaimed player/task-manager objective assignment in tm.getAllAssignments().
+     * or if this division is matched to an active player/task-manager objective assignment in tm.getAllAssignments().
      */
     static BattleObjectiveAPI findTaskManagerObjectiveForDivision(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
             BattleObjectiveAPI previousObjective) {
-        if (engine == null) return null;
+        if (engine == null || div == null) return null;
         if (div.archetype.isCarrierArchetype()) {
             return null;
         }
         boolean divIsAlly = (div.flagship != null && div.flagship.isAlly());
         if (div.side != 0 || divIsAlly) return null;
+        if (myGroup != null && myGroup.divisions != null && !myGroup.divisions.isEmpty()) {
+            java.util.Map<DivisionState, BattleObjectiveAPI> matched = resolvePlayerObjectiveAssignmentsForGroup(engine, myGroup);
+            return matched.get(div);
+        }
         CombatFleetManagerAPI fm = engine.getFleetManager(div.side);
         CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(false) : null;
         if (tm == null) return null;
-
-        // 1. Check if any ship in this division is directly assigned to a BattleObjectiveAPI
-        for (ShipAPI s : div.getAliveMembers()) {
-            AssignmentInfo info = tm.getAssignmentFor(s);
-            if (info != null && info.getTarget() instanceof BattleObjectiveAPI
-                    && isDirectPlayerShipOrder(s, tm, false)) {
-                BattleObjectiveAPI obj = (BattleObjectiveAPI) info.getTarget();
-                if (!isObjectiveClaimedByOtherDivision(obj, div, myGroup)
-                        && !isObjectiveSecuredByOtherDivisions(engine, obj, div, myGroup)) {
-                    return obj;
-                }
-            }
-        }
-
-        // 2. Check active objective assignments in CombatTaskManager:
-        //    To guarantee absolute player authority when the player orders a Control Point captured mid-battle,
-        //    select the best available non-carrier division in myGroup (strongly preferring Frigate/Phase/Destroyer
-        //    divisions first, then Cruisers/Force, and only falling back to Heavy/Battleship divisions if no lighter
-        //    division is alive or available).
         List<AssignmentInfo> all = tm.getAllAssignments();
         if (all != null) {
-            BattleObjectiveAPI best = null;
-            float bestScore = -Float.MAX_VALUE;
             for (AssignmentInfo info : all) {
-                if (info == null || !(info.getTarget() instanceof BattleObjectiveAPI)) continue;
-                CombatAssignmentType t = info.getType();
-                if (t != CombatAssignmentType.CAPTURE
-                        && t != CombatAssignmentType.ASSAULT
-                        && t != CombatAssignmentType.CONTROL
-                        && t != CombatAssignmentType.DEFEND
-                        && t != CombatAssignmentType.RECON) {
-                    continue;
+                if (info != null && info.getTarget() instanceof BattleObjectiveAPI) {
+                    return (BattleObjectiveAPI) info.getTarget();
                 }
-                BattleObjectiveAPI obj = (BattleObjectiveAPI) info.getTarget();
-                if (isObjectiveClaimedByOtherDivision(obj, div, myGroup)) continue;
-                // Pooled (fleet-wide) objective orders only pull in a division while the point still needs taking or
-                // is threatened. An owned point that friendly ships already garrison is not this division's job.
-                if (obj.getOwner() == div.side
-                        && (t == CombatAssignmentType.CONTROL || t == CombatAssignmentType.DEFEND
-                        || isObjectiveSecuredByOtherDivisions(engine, obj, div, myGroup))) {
-                    continue;
-                }
-                if (!isBestDivisionForPooledObjectiveOrder(obj, div, myGroup, previousObjective)) {
-                    continue;
-                }
-                float d = distance(div.centroid, obj.getLocation());
-                float sticky = (obj == previousObjective) ? 600f : 0f;
-                float score = -d + sticky;
-                if (score > bestScore) {
-                    bestScore = score;
-                    best = obj;
-                }
-            }
-            if (best != null) {
-                return best;
             }
         }
         return null;
-    }
-
-    private static boolean isBestDivisionForPooledObjectiveOrder(
-            BattleObjectiveAPI obj,
-            DivisionState candidateDiv,
-            BattleGroupState myGroup,
-            BattleObjectiveAPI candidatePrevObj) {
-        if (obj == null || candidateDiv == null) return false;
-        if (myGroup == null || myGroup.divisions == null || myGroup.divisions.size() <= 1) {
-            return candidateDiv.archetype != DivisionArchetype.BATTLESHIP_DIVISION || myGroup == null || myGroup.divisions.size() == 1;
-        }
-        float myScore = scoreDivisionForObjectiveCapture(candidateDiv, obj, candidatePrevObj);
-        if (myScore <= -900000f) return false;
-        for (int i = 0; i < myGroup.divisions.size(); i++) {
-            DivisionState other = myGroup.divisions.get(i);
-            if (other == null || other == candidateDiv || !other.isCombatEffective()) continue;
-            if (other.archetype.isCarrierArchetype()) continue;
-            if (other.flagship != null && other.flagship.isAlly()) continue;
-            if (other.avgFluxLevel >= 0.80f) continue;
-            // If `other` is already committed to a DIFFERENT objective, don't count it as free for `obj`
-            if (other.currentIntent == DivisionIntentType.TAKE_AND_HOLD
-                    && other.targetObjective != null
-                    && other.targetObjective != obj) {
-                continue;
-            }
-            float otherScore = scoreDivisionForObjectiveCapture(other, obj, other.targetObjective);
-            if (otherScore > myScore + 1f) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static float scoreDivisionForObjectiveCapture(
@@ -4610,7 +4806,9 @@ public class DivisionCommanderAI {
         float dist = (d.centroid != null && obj.getLocation() != null)
                 ? distance(d.centroid, obj.getLocation())
                 : 3000f;
-        float sticky = (prevObj == obj || d.targetObjective == obj) ? 750f : 0f;
+        boolean alreadyExecutingOnThisObj = (d.underDirectObjectiveOrder && (d.targetObjective == obj || prevObj == obj))
+                || (d.currentIntent == DivisionIntentType.TAKE_AND_HOLD && (d.targetObjective == obj || prevObj == obj));
+        float sticky = alreadyExecutingOnThisObj ? 3500f : ((prevObj == obj || d.targetObjective == obj) ? 900f : 0f);
         float fluxPenalty = d.avgFluxLevel * 800f;
         return roleBonus + sticky - dist - fluxPenalty;
     }

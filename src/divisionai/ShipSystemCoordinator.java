@@ -968,10 +968,58 @@ public final class ShipSystemCoordinator {
             boolean stage2SyncCharge = syncSkills && div.synchronizedSkillManeuverActive && div.synchronizedSkillStage == 2;
             boolean stage1Marshaling = syncSkills && ((div.synchronizedSkillManeuverActive && div.synchronizedSkillStage == 1)
                     || (!div.synchronizedSkillManeuverActive && div.activeSetpieceAttack != DivisionSetpieceAttack.NONE && div.setpieceStage == 1));
+            boolean directObjectiveMarch = div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
+                    && div.targetObjective != null
+                    && div.targetObjective.getLocation() != null
+                    && div.targetObjective.getOwner() != div.side
+                    && (div.underDirectObjectiveOrder
+                    || DivisionCommanderAI.distance(div.centroid, div.targetObjective.getLocation()) <= 1350f);
+            if (directObjectiveMarch
+                    && div.underDirectObjectiveOrder
+                    && DivisionCommanderAI.distance(div.centroid, div.targetObjective.getLocation()) > 850f) {
+                outOfCombatMarch = true;
+            }
 
             for (int sIdx = 0; sIdx < alive.size(); sIdx++) {
                 ShipAPI ship = alive.get(sIdx);
                 if (ship == null || OtcAI.isPlayerManuallyPiloting(engine, ship)) continue;
+
+                ShipwideAIFlags flags = ship.getAIFlags();
+                if (directObjectiveMarch
+                        && ship.getFluxLevel() < 0.80f
+                        && (ship.getFluxTracker() == null || !ship.getFluxTracker().isOverloadedOrVenting())) {
+                    ShipAPI blockingFriendlyObjMarch = findImminentFriendlyInForwardPath(engine, ship, alive, myGroup, 380f);
+                    if (blockingFriendlyObjMarch == null) {
+                        Vector2f objLoc = div.targetObjective.getLocation();
+                        Vector2f campGoal = (flags != null && flags.getCustom(AIFlags.CAMP_LOCATION) instanceof Vector2f)
+                                ? (Vector2f) flags.getCustom(AIFlags.CAMP_LOCATION)
+                                : null;
+                        Vector2f helmGoal;
+                        float distShipToObj = DivisionCommanderAI.distance(ship.getLocation(), objLoc);
+                        if (sIdx == 0 || ship == div.flagship || campGoal == null) {
+                            helmGoal = (div.hasRouteWaypoint && distShipToObj > 1250f && div.routeWaypoint != null)
+                                    ? div.routeWaypoint
+                                    : objLoc;
+                        } else {
+                            helmGoal = campGoal;
+                        }
+                        float distShipToGoal = DivisionCommanderAI.distance(ship.getLocation(), helmGoal);
+                        if (flags != null) {
+                            flags.unsetFlag(AIFlags.BACK_OFF);
+                            flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.50f);
+                            flags.setFlag(AIFlags.DO_NOT_PURSUE, 0.50f);
+                            flags.setFlag(AIFlags.CAMP_LOCATION, 0.50f, helmGoal);
+                            flags.setFlag(AIFlags.MOVEMENT_DEST, 0.50f, helmGoal);
+                            if (distShipToObj > 420f) {
+                                flags.unsetFlag(AIFlags.MANEUVER_TARGET);
+                                flags.unsetFlag(AIFlags.HARASS_MOVE_IN);
+                                flags.unsetFlag(AIFlags.PURSUING);
+                                DivisionCommanderAI.clearBasicShipAiTargetOverride(ship);
+                            }
+                        }
+                        steerShipHelmOntoObjectivePoint(ship, helmGoal, distShipToGoal, distShipToObj);
+                    }
+                }
 
                 ShipSkillProfile prof = getSkillProfile(ship);
                 if (prof.category == ShipSkillCategory.NONE) continue;
@@ -993,7 +1041,6 @@ public final class ShipSystemCoordinator {
                     }
                 }
 
-                ShipwideAIFlags flags = ship.getAIFlags();
                 Vector2f campLoc = (flags != null && flags.getCustom(AIFlags.CAMP_LOCATION) instanceof Vector2f)
                         ? (Vector2f) flags.getCustom(AIFlags.CAMP_LOCATION)
                         : null;
@@ -1010,7 +1057,7 @@ public final class ShipSystemCoordinator {
                         && ship.getHullLevel() > 0.38f;
                 boolean isShipExtracting = div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                         || div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
-                        || (!activeOrChargingRam && (hasRunQuickly
+                        || (!directObjectiveMarch && !activeOrChargingRam && (hasRunQuickly
                         || (hasBackOff && (ship.getFluxLevel() >= 0.45f || ship.getHullLevel() < 0.72f || div.localForceRatio < 0.82f))));
 
                 ShipAPI assignedSlotTarget = assignedRamTargets.get(ship);
@@ -1813,6 +1860,82 @@ public final class ShipSystemCoordinator {
             ship.blockCommandForOneFrame(ShipCommand.DECELERATE);
             ship.blockCommandForOneFrame(ShipCommand.ACCELERATE_BACKWARDS);
             ship.giveCommand(ShipCommand.ACCELERATE, null, 0);
+        }
+    }
+
+    /**
+     * Drives a ship's helm directly onto an uncaptured Control Point (or its tight capture slot inside the point's
+     * 500u capture ring), overriding vanilla {@code BasicShipAI}'s {@code ooOo} maneuver which otherwise turns to face
+     * and orbit any enemy within 2,200u when {@code dist >= 1,000u} and brakes at {@code 500u}.
+     */
+    public static void steerShipHelmOntoObjectivePoint(
+            ShipAPI ship,
+            Vector2f helmGoal,
+            float distToGoal,
+            float distToObj) {
+        if (ship == null || helmGoal == null || ship.getLocation() == null) return;
+        if (ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting()) return;
+        Vector2f sLoc = ship.getLocation();
+        Vector2f vel = ship.getVelocity();
+        float vx = (vel != null) ? vel.x : 0f;
+        float vy = (vel != null) ? vel.y : 0f;
+        float spd = (float) Math.sqrt(vx * vx + vy * vy);
+
+        // Once inside the Control Point capture circle (<= 340u from objective center and <= 200u from slot),
+        // brake if carrying excess speed so the ship settles inside the capture ring instead of coasting through.
+        if (distToObj <= 340f && distToGoal <= 200f) {
+            if (spd > 32f) {
+                ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
+                ship.giveCommand(ShipCommand.DECELERATE, null, 0);
+            }
+            return;
+        }
+
+        // Between 340u and 420u of the objective center, allow weapons to bear on contesting enemies unless the ship
+        // is drifting outward or still > 240u from its capture slot.
+        if (distToObj <= 420f && distToGoal <= 240f) {
+            float toGoalX = helmGoal.x - sLoc.x;
+            float toGoalY = helmGoal.y - sLoc.y;
+            float inVel = (distToGoal > 1f) ? ((toGoalX * vx + toGoalY * vy) / distToGoal) : 0f;
+            if (inVel >= -8f && spd <= 45f) {
+                return;
+            }
+        }
+
+        float dx = helmGoal.x - sLoc.x;
+        float dy = helmGoal.y - sLoc.y;
+        if (dx * dx + dy * dy < 25f) return;
+        float desiredAng = (float) Math.toDegrees(Math.atan2(dy, dx));
+        float diff = shortestAngleDiff(ship.getFacing(), desiredAng);
+        if (diff > 2.2f) {
+            ship.blockCommandForOneFrame(ShipCommand.TURN_RIGHT);
+            ship.giveCommand(ShipCommand.TURN_LEFT, null, 0);
+        } else if (diff < -2.2f) {
+            ship.blockCommandForOneFrame(ShipCommand.TURN_LEFT);
+            ship.giveCommand(ShipCommand.TURN_RIGHT, null, 0);
+        }
+
+        ship.blockCommandForOneFrame(ShipCommand.ACCELERATE_BACKWARDS);
+        if (Math.abs(diff) <= 65f) {
+            if (distToGoal <= 240f && spd > 55f) {
+                ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
+                ship.giveCommand(ShipCommand.DECELERATE, null, 0);
+            } else {
+                ship.blockCommandForOneFrame(ShipCommand.DECELERATE);
+                ship.blockCommandForOneFrame(ShipCommand.STRAFE_LEFT);
+                ship.blockCommandForOneFrame(ShipCommand.STRAFE_RIGHT);
+                ship.giveCommand(ShipCommand.ACCELERATE, null, 0);
+            }
+        } else {
+            // While swinging the bow around from an enemy toward the Control Point, strafe toward the Control Point!
+            ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
+            if (diff > 0f) {
+                ship.blockCommandForOneFrame(ShipCommand.STRAFE_RIGHT);
+                ship.giveCommand(ShipCommand.STRAFE_LEFT, null, 0);
+            } else {
+                ship.blockCommandForOneFrame(ShipCommand.STRAFE_LEFT);
+                ship.giveCommand(ShipCommand.STRAFE_RIGHT, null, 0);
+            }
         }
     }
 

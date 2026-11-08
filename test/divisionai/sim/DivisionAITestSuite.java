@@ -905,21 +905,102 @@ public class DivisionAITestSuite {
                             return m.invoke(arenaD.engineProxy, a);
                         });
         arenaD.runSimulation(0.25f);
-        // Force heavy localEnemyStrength (> 24f) to verify player order is NEVER rejected due to enemy presence
+        // Force heavy localEnemyStrength (> 24f) AND active commitment lock (intentCommitUntil=25s, lastIntentChangeTime=4.8s)
+        // to verify player order immediately preempts commitment timers without waiting and is NEVER rejected due to enemy presence!
         cruCapDiv.localEnemyStrength = 32f;
-        cruCapDiv.lastIntentChangeTime = -10f;
-        cruCapDiv.intentCommitUntil = 0f;
+        cruCapDiv.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
+        cruCapDiv.lastIntentChangeTime = 4.8f;
+        cruCapDiv.intentCommitUntil = 25.0f;
         DivisionCommanderAI.evaluateAndExecuteDivisions(engineWithTm, pGroupD, eGroupD, 5.0f);
         boolean adoptedPlayerOrder = (cruCapDiv.currentIntent == DivisionIntentType.TAKE_AND_HOLD
                 && cruCapDiv.targetObjective == contestedObj
                 && cruCapDiv.underDirectObjectiveOrder);
         Vector2f leadCamp = (Vector2f) c1.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION);
         boolean leadPinnedToObjectiveCenter = (leadCamp != null && dist(leadCamp, contestedObj.getLocation()) < 5f)
-                && c1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_PURSUE);
-        check(adoptedPlayerOrder && leadPinnedToObjectiveCenter,
+                && c1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_PURSUE)
+                && c1.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.ACCELERATE)
+                && !c1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MANEUVER_TARGET);
+
+        // Multi-Objective C2 Authority, OTC Preemption, Score-Stealing Immunity & Physical Capture-Ring Arrival:
+        // Player orders 3 Control Points captured simultaneously while 4 combat divisions (Frigate Div 1, Destroyer Div 1,
+        // Line Cruiser Div 2 at 55% flux, and Battle Div 1) are actively engaged under OTC POSITIVE_CONTROL.
+        BattleGroupState pGroupMulti = new BattleGroupState(0, pCmdr);
+        pGroupMulti.authority = OtcAuthority.POSITIVE_CONTROL;
+        BattleGroupState eGroupMulti = new BattleGroupState(1, eCmdr);
+        DivisionState frig1 = new DivisionState("p_f1", 0, 1, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 1", pCmdr);
+        DivisionState ddCap1 = new DivisionState("p_dd1", 0, 2, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 1", pCmdr);
+        DivisionState cru2 = new DivisionState("p_cru2", 0, 3, DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div 2", pCmdr);
+        DivisionState bat1 = new DivisionState("p_bat1", 0, 4, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+        pGroupMulti.divisions.add(frig1);
+        pGroupMulti.divisions.add(ddCap1);
+        pGroupMulti.divisions.add(cru2);
+        pGroupMulti.divisions.add(bat1);
+        DivisionState eMain = new DivisionState("e_main", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Main Line", eCmdr);
+        eGroupMulti.divisions.add(eMain);
+
+        SimArena arenaMulti = new SimArena("6c-D2. Multi-Objective C2", "3 simultaneous player CAPTURE orders", pGroupMulti, eGroupMulti);
+        SimShipState f1s = arenaMulti.addShip(frig1, "f1_1", "HSS Lasher 1", "lasher", HullSize.FRIGATE, -2100f, -400f, 150f, 800f, 0, 0);
+        arenaMulti.addShip(frig1, "f1_2", "HSS Lasher 2", "lasher", HullSize.FRIGATE, -1980f, -440f, 150f, 800f, 0, 0);
+        SimShipState d1s = arenaMulti.addShip(ddCap1, "dd1_1", "HSS Hammerhead 1", "hammerhead", HullSize.DESTROYER, -100f, -500f, 110f, 950f, 0, 0);
+        arenaMulti.addShip(ddCap1, "dd1_2", "HSS Hammerhead 2", "hammerhead", HullSize.DESTROYER, 60f, -540f, 110f, 950f, 0, 0);
+        SimShipState c2s = arenaMulti.addShip(cru2, "cru2_1", "HSS Eagle 1", "eagle", HullSize.CRUISER, 2000f, -450f, 90f, 1100f, 0, 0);
+        SimShipState c2w = arenaMulti.addShip(cru2, "cru2_2", "HSS Eagle 2", "eagle", HullSize.CRUISER, 2140f, -490f, 90f, 1100f, 0, 0);
+        c2s.fluxLevel = 0.54f;
+        c2w.fluxLevel = 0.54f;
+        arenaMulti.addShip(bat1, "bat1_1", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, -1200f, 55f, 1250f, 0, 0);
+        arenaMulti.addShip(eMain, "em_1", "Enemy Cruiser 1", "eagle", HullSize.CRUISER, -900f, 200f, 70f, 1000f, 0, 0);
+        arenaMulti.addShip(eMain, "em_2", "Enemy Cruiser 2", "eagle", HullSize.CRUISER, 900f, 200f, 70f, 1000f, 0, 0);
+
+        final Vector2f locAlpha = new Vector2f(-2200f, 900f);
+        final Vector2f locGamma = new Vector2f(0f, 1050f);
+        final Vector2f locDelta = new Vector2f(2200f, 900f);
+        com.fs.starfarer.api.combat.BattleObjectiveAPI objAlpha = createMockObjective("Nav Buoy Alpha", "nav_buoy", locAlpha, 1);
+        com.fs.starfarer.api.combat.BattleObjectiveAPI objGamma = createMockObjective("Sensor Jammer Gamma", "sensor_array", locGamma, 1);
+        com.fs.starfarer.api.combat.BattleObjectiveAPI objDelta = createMockObjective("Comm Relay Delta", "comm_relay", locDelta, 1);
+        arenaMulti.objectives.add(objAlpha);
+        arenaMulti.objectives.add(objGamma);
+        arenaMulti.objectives.add(objDelta);
+
+        // Step 1: Run 1.5s without player objective orders so all divisions commit to combat / OTC orders
+        arenaMulti.runSimulation(1.5f);
+        // Step 2: Player orders all 3 Control Points captured mid-battle!
+        arenaMulti.playerAssignments.add(createMockAssignment(com.fs.starfarer.api.combat.CombatAssignmentType.CAPTURE, objAlpha));
+        arenaMulti.playerAssignments.add(createMockAssignment(com.fs.starfarer.api.combat.CombatAssignmentType.CAPTURE, objGamma));
+        arenaMulti.playerAssignments.add(createMockAssignment(com.fs.starfarer.api.combat.CombatAssignmentType.CAPTURE, objDelta));
+
+        // Run a single 0.5s tick — all 3 non-battleship divisions must immediately preempt combat/OTC and claim the 3 objectives 1-to-1!
+        arenaMulti.runSimulation(0.5f);
+        boolean all3ImmediatelyClaimed = (frig1.currentIntent == DivisionIntentType.TAKE_AND_HOLD && frig1.underDirectObjectiveOrder && frig1.targetObjective == objAlpha)
+                && (ddCap1.currentIntent == DivisionIntentType.TAKE_AND_HOLD && ddCap1.underDirectObjectiveOrder && ddCap1.targetObjective == objGamma)
+                && (cru2.currentIntent == DivisionIntentType.TAKE_AND_HOLD && cru2.underDirectObjectiveOrder && cru2.targetObjective == objDelta)
+                && (frig1.otcOrder.type == divisionai.DivisionModel.OtcOrderType.NONE)
+                && (ddCap1.otcOrder.type == divisionai.DivisionModel.OtcOrderType.NONE)
+                && (cru2.otcOrder.type == divisionai.DivisionModel.OtcOrderType.NONE);
+
+        // Step 3: Run 20 seconds of simulation (with OTC re-evaluating every 1.5s) and verify all 3 divisions stay locked
+        // on their ordered Control Points and physically drive their flagships inside the < 220u capture circles!
+        boolean neverDroppedOrder = true;
+        for (int step = 0; step < 40; step++) {
+            arenaMulti.runSimulation(0.5f);
+            divisionai.ShipSystemCoordinator.advanceEveryFrame(arenaMulti.engineProxy, pGroupMulti, null, eGroupMulti, arenaMulti.elapsedTime);
+            if (!frig1.underDirectObjectiveOrder || frig1.currentIntent != DivisionIntentType.TAKE_AND_HOLD
+                    || !ddCap1.underDirectObjectiveOrder || ddCap1.currentIntent != DivisionIntentType.TAKE_AND_HOLD
+                    || !cru2.underDirectObjectiveOrder || cru2.currentIntent != DivisionIntentType.TAKE_AND_HOLD) {
+                neverDroppedOrder = false;
+            }
+        }
+        float dAlpha = dist(f1s.location, locAlpha);
+        float dGamma = dist(d1s.location, locGamma);
+        float dDelta = dist(c2s.location, locDelta);
+        float dDeltaWing = dist(c2w.location, locDelta);
+        boolean all3PhysicallyCaptured = dAlpha <= 220f && dGamma <= 220f && dDelta <= 220f && dDeltaWing <= 320f;
+
+        check(adoptedPlayerOrder && leadPinnedToObjectiveCenter && all3ImmediatelyClaimed && neverDroppedOrder && all3PhysicallyCaptured,
                 "Problem D: Contested mid-battle player CAPTURE order obeyed unconditionally (TAKE_AND_HOLD + lead ship pinned to point)",
-                String.format(Locale.ROOT, "intent=%s, underDirectOrder=%b, leadPinnedToCenter=%b",
-                        cruCapDiv.currentIntent, cruCapDiv.underDirectObjectiveOrder, leadPinnedToObjectiveCenter));
+                String.format(Locale.ROOT,
+                        "intent=%s, underDirectOrder=%b, leadPinnedToCenter=%b, 3objClaimed=%b, neverDropped=%b, finalDists=[%.0f, %.0f, %.0f (wing=%.0f)]",
+                        cruCapDiv.currentIntent, cruCapDiv.underDirectObjectiveOrder, leadPinnedToObjectiveCenter,
+                        all3ImmediatelyClaimed, neverDroppedOrder, dAlpha, dGamma, dDelta, dDeltaWing));
     }
 
     /**
@@ -1479,5 +1560,41 @@ public class DivisionAITestSuite {
         float dx = a.x - b.x;
         float dy = a.y - b.y;
         return (float) Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private static com.fs.starfarer.api.combat.BattleObjectiveAPI createMockObjective(
+            final String displayName,
+            final String type,
+            final Vector2f loc,
+            final int owner) {
+        return (com.fs.starfarer.api.combat.BattleObjectiveAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.BattleObjectiveAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.BattleObjectiveAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getLocation".equals(n)) return loc;
+                    if ("getOwner".equals(n)) return owner;
+                    if ("getDisplayName".equals(n)) return displayName;
+                    if ("getType".equals(n)) return type;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo createMockAssignment(
+            final com.fs.starfarer.api.combat.CombatAssignmentType type,
+            final com.fs.starfarer.api.combat.AssignmentTargetAPI target) {
+        return (com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.CombatFleetManagerAPI.AssignmentInfo.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getType".equals(n)) return type;
+                    if ("getTarget".equals(n)) return target;
+                    return null;
+                });
     }
 }
