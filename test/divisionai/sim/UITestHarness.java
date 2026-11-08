@@ -3064,7 +3064,25 @@ public class UITestHarness {
         boolean directionalTimePinchOk = timeRadNorthTowardEnemy < timeRadEastSideways - 50f
                 && timeRadEastSideways <= timeRadSouthAway + 15f
                 && timeRadSouthAway > timeRadNorthTowardEnemy + 90f;
-        timeSpaceCalculatedOk = timeSpaceCalculatedOk && directionalTimePinchOk;
+        // Verify independent ship (gammaShip, unassigned to any division) projects Time, Space, and Convergence envelopes
+        List<DivisionState> tsfcUnits = BattlefieldFirepowerEvaluator.getUnitsForTsfcRenderingAndEvaluation(mockEngine, playerGroup);
+        DivisionState indepGammaUnit = null;
+        for (DivisionState u : tsfcUnits) {
+            if (u != null && "indep_ship_p_gamma".equals(u.id)) {
+                indepGammaUnit = u;
+                break;
+            }
+        }
+        boolean indepShipTsfcProjectedOk = indepGammaUnit != null
+                && indepGammaUnit.freeTimeRadius > 600f
+                && indepGammaUnit.spaceInnerRadius >= 240f
+                && indepGammaUnit.spaceInnerRadius < playerDiv1.spaceInnerRadius
+                && indepGammaUnit.spacePotentialRadius > indepGammaUnit.spaceDominatedRadius
+                && indepGammaUnit.directionalTimeInitialized
+                && indepGammaUnit.directionalSpaceInitialized
+                && indepGammaUnit.directionalFirepowerRadii[0] > 200f
+                && playerDiv1.directionalFirepowerRadii[0] > 400f;
+        timeSpaceCalculatedOk = timeSpaceCalculatedOk && directionalTimePinchOk && indepShipTsfcProjectedOk;
 
         // 4. Verify initial Flagship & Division Commander Convergence rules:
         //    - Default flagship is humanFlagship -> playerGroup.useConvergence == false (standard human OTC)
@@ -4366,6 +4384,341 @@ public class UITestHarness {
                         musicProfilesOk, musicFadeOutAndCessationOk, taskADeploymentAndNamingOk, taskBReDesignateRenameOk, taskFStrikeCraftSpaceOk,
                         carrierMissionLabelsOk, totAlphaStrikeExistsOk, factionTooltipColorsOk,
                         convergenceIconAndTsfcOptOk, tsfcGraphicsSettingOk));
+
+        // TSFC Readability & Clarity Gate (A-D):
+        //  A & B: Sliding opacity based on highest seen values in a battle + lower base opacity
+        //  C: TSFC renders under ship sprites (BELOW_SHIPS_LAYER in battle screen + renderWarroomShipSpritesAboveTsfc in warroom)
+        //  D: 0.10s evaluation cadence with C1 keyframe interpolation, anything past 2.0s thrown into the bin
+        boolean cadenceAndBinConstOk = Math.abs(BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL - 0.10f) < 1e-5f
+                && Math.abs(divisionai.DivisionAICombatPlugin.TSFC_EVAL_INTERVAL - 0.10f) < 1e-5f
+                && Math.abs(BattlefieldFirepowerEvaluator.TSFC_KEYFRAME_MAX_AGE - 2.0f) < 1e-5f;
+
+        BattlefieldFirepowerEvaluator.resetForNewBattle();
+        ShipAPI kfShip = createMockNamedShip("kf_ship_1", "HSS Onslaught", HullSize.CAPITAL_SHIP, 0f, 0f, 0f, 0, humanCapt);
+        BattlefieldFirepowerEvaluator.ShipFirepowerRose kfRose = new BattlefieldFirepowerEvaluator.ShipFirepowerRose(kfShip);
+        kfRose.initialized = true;
+        kfRose.prevKeyframeTime = 1.00f;
+        kfRose.currKeyframeTime = 1.10f;
+        kfRose.prevFacingDeg = 0f;
+        kfRose.smoothedFacingDeg = 20f;
+        float kfMidBlend = kfRose.computeKeyframeBlendFactor(1.15f); // 0.05s into the 0.10s window after 1.10f
+        float kfMidFacing = kfRose.getInterpolatedFacingDeg(kfMidBlend);
+        float kfExpiredBlend = kfRose.computeKeyframeBlendFactor(3.15f); // 2.05s > 2.0s -> thrown into the bin (-1f)
+        boolean roseKeyframeAndBinOk = Math.abs(kfMidBlend - 0.50f) < 0.02f
+                && Math.abs(kfMidFacing - 10f) < 0.5f
+                && kfExpiredBlend < 0f;
+
+        DivisionState kfDiv = new DivisionState("kf_div_1", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", cmdr);
+        kfDiv.members.add(kfShip);
+        kfDiv.flagship = kfShip;
+        kfDiv.tsfcKeyframesInitialized = true;
+        kfDiv.prevTsfcKeyframeTime = 2.00f;
+        kfDiv.currTsfcKeyframeTime = 2.10f;
+        float divMidBlend = BattlefieldFirepowerEvaluator.computeDivisionKeyframeBlendFactor(kfDiv, 2.15f);
+        float divExpiredBlend = BattlefieldFirepowerEvaluator.computeDivisionKeyframeBlendFactor(kfDiv, 4.15f); // > 2.0s old
+        boolean divKeyframeAndBinOk = Math.abs(divMidBlend - 0.50f) < 0.02f && divExpiredBlend < 0f;
+
+        float lowShipOpacity = BattlefieldFirepowerEvaluator.computeShipSlidingOpacityScale(kfRose, 60f, 80f, 120f);
+        float highShipOpacity = BattlefieldFirepowerEvaluator.computeShipSlidingOpacityScale(kfRose, 420f, 560f, 900f);
+        boolean slidingOpacityOk = highShipOpacity > lowShipOpacity * 1.40f
+                && lowShipOpacity > 0.15f
+                && highShipOpacity <= 1.0f;
+
+        int overlayTsfcIdx = overlaySrc.indexOf("TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(");
+        int overlayHullAboveIdx = overlaySrc.indexOf("TsfcWarroomRenderer.renderWarroomShipSpritesAboveTsfc(");
+        int overlayStarsIdx = overlaySrc.indexOf("renderFlagshipStarsOnTopLayer(cachedFleetFlagships");
+        boolean defaultMiniSpritesOk = DivisionAISettings.isTsfcMiniShipSpritesEnabled();
+        DivisionAISettings.testTsfcMiniShipSpritesOverride = Boolean.FALSE;
+        boolean disabledMiniSpritesOk = !DivisionAISettings.isTsfcMiniShipSpritesEnabled();
+        DivisionAISettings.testTsfcMiniShipSpritesOverride = null;
+
+        // Item A: Late-battle ship near/beyond nominal map border must never have negative/40u boundary clearance across 360 deg
+        boolean boundaryClearanceAll360Ok = true;
+        org.lwjgl.util.vector.Vector2f outOfBoundsPos = new org.lwjgl.util.vector.Vector2f(9600f, 9600f);
+        for (int deg = 0; deg < 360; deg += 15) {
+            double r = Math.toRadians(deg);
+            float clear = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
+                    null, outOfBoundsPos, (float) Math.cos(r), (float) Math.sin(r), 90f);
+            if (clear < 120f || Float.isNaN(clear)) {
+                boundaryClearanceAll360Ok = false;
+                break;
+            }
+        }
+
+        // Item B: Alternating 0.20s OtcAI.updateTelemetry and 0.10s updateTsfcKeyframeTick must have zero spreadRadius/Space heartbeat
+        ShipAPI hbShip2 = createMockNamedShip("hb_ship_2", "HSS Hammerhead", HullSize.DESTROYER, 600f, 0f, 0f, 0, humanCapt);
+        kfDiv.members.add(hbShip2);
+        BattleGroupState hbGroup = new BattleGroupState(0, cmdr);
+        hbGroup.divisions.add(kfDiv);
+        divisionai.OtcAI.updateTelemetry(null, hbGroup);
+        float spreadAfter020 = kfDiv.spreadRadius;
+        float domAfter020 = kfDiv.spaceDominatedRadius;
+        BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(null, 2.20f, hbGroup, null, null);
+        // Simulate 0.10s kinematics refresh via updateCrossGroupTimeSpaceConvergence consistency
+        divisionai.OtcAI.updateTelemetry(null, hbGroup);
+        float spreadAfterNext = kfDiv.spreadRadius;
+        // Also verify that evaluating playerGroup, empty alliedAiGroup, and enemyGroup (as on OTC / 2.5s C2 ticks)
+        // never drops playerGroup from battleActiveDivisionCount or flashes Time/Space/Convergence sliding opacity!
+        BattleGroupState emptyAlliedGroup = new BattleGroupState(0, cmdr);
+        emptyAlliedGroup.isAlliedAi = true;
+        BattleGroupState mockEnemyGroup = new BattleGroupState(1, cmdr);
+        ShipAPI mockEnShip = createMockNamedShip("en_flash_1", "HSS Dominator", HullSize.CRUISER, 0f, 1800f, 50f, 1, humanCapt);
+        DivisionState mockEnDiv = new DivisionState("en_div_flash", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Cruiser Div 1", cmdr);
+        mockEnDiv.flagship = mockEnShip;
+        mockEnDiv.members.add(mockEnShip);
+        mockEnemyGroup.divisions.add(mockEnDiv);
+        divisionai.OtcAI.updateTelemetry(null, mockEnemyGroup);
+        BattlefieldFirepowerEvaluator.evaluateAllGroupsTimeSpaceConvergenceOncePerTick(
+                null, 2.50f, hbGroup, emptyAlliedGroup, mockEnemyGroup, mockEnemyGroup, hbGroup);
+        float timeOpacityAfterAll = BattlefieldFirepowerEvaluator.computeDivisionTimeSlidingOpacityScale(kfDiv, kfDiv.freeTimeRadius);
+        float spaceOpacityAfterAll = BattlefieldFirepowerEvaluator.computeDivisionSpaceSlidingOpacityScale(kfDiv, kfDiv.spaceDominanceWeight);
+        // Now call updateCrossGroupTimeSpaceConvergence on emptyAlliedGroup alone (which previously clobbered battleActiveDivisionCount!)
+        BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(null, emptyAlliedGroup, mockEnemyGroup);
+        float timeOpacityAfterEmptyAlly = BattlefieldFirepowerEvaluator.computeDivisionTimeSlidingOpacityScale(kfDiv, kfDiv.freeTimeRadius);
+        float spaceOpacityAfterEmptyAlly = BattlefieldFirepowerEvaluator.computeDivisionSpaceSlidingOpacityScale(kfDiv, kfDiv.spaceDominanceWeight);
+        boolean zeroFlash25sOk = Math.abs(timeOpacityAfterAll - timeOpacityAfterEmptyAlly) < 1e-4f
+                && Math.abs(spaceOpacityAfterAll - spaceOpacityAfterEmptyAlly) < 1e-4f;
+        boolean zeroHeartbeatOk = Math.abs(spreadAfter020 - spreadAfterNext) < 0.01f
+                && domAfter020 > 300f
+                && zeroFlash25sOk;
+
+        // Item C: Destroyed wrecks/hulks rendered in truescale when any TSFC overlay is active,
+        // and ONLY on the "main" or largest part of a broken-up ship!
+        String tsfcRendererSrc = new String(
+                Files.readAllBytes(new File("src/divisionai/TsfcWarroomRenderer.java").toPath()),
+                StandardCharsets.UTF_8);
+        ShipAPI mainHulkPiece = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return "hulk_main_1";
+                    if ("getParentPieceId".equals(m)) return null;
+                    if ("getFleetMemberId".equals(m)) return "fm_broken_1";
+                    if ("isHulk".equals(m) || "isPiece".equals(m)) return true;
+                    if ("isAlive".equals(m) || "isExpired".equals(m) || "isFighter".equals(m)
+                            || "isDrone".equals(m) || "isShuttlePod".equals(m) || "isStationModule".equals(m)) return false;
+                    if ("getCollisionRadius".equals(m)) return 145f;
+                    if ("getMass".equals(m)) return 1800f;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == float.class) return 0f;
+                    if (method.getReturnType() == int.class) return 100;
+                    return null;
+                });
+        ShipAPI smallHulkPiece1 = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return "hulk_sub_1";
+                    if ("getParentPieceId".equals(m)) return "hulk_main_1";
+                    if ("getFleetMemberId".equals(m)) return "fm_broken_1";
+                    if ("isHulk".equals(m) || "isPiece".equals(m)) return true;
+                    if ("isAlive".equals(m) || "isExpired".equals(m) || "isFighter".equals(m)
+                            || "isDrone".equals(m) || "isShuttlePod".equals(m) || "isStationModule".equals(m)) return false;
+                    if ("getCollisionRadius".equals(m)) return 65f;
+                    if ("getMass".equals(m)) return 420f;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == float.class) return 0f;
+                    if (method.getReturnType() == int.class) return 100;
+                    return null;
+                });
+        ShipAPI smallHulkPiece2 = (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return "hulk_sub_2";
+                    if ("getParentPieceId".equals(m)) return "hulk_sub_1";
+                    if ("getFleetMemberId".equals(m)) return "fm_broken_1";
+                    if ("isHulk".equals(m) || "isPiece".equals(m)) return true;
+                    if ("isAlive".equals(m) || "isExpired".equals(m) || "isFighter".equals(m)
+                            || "isDrone".equals(m) || "isShuttlePod".equals(m) || "isStationModule".equals(m)) return false;
+                    if ("getCollisionRadius".equals(m)) return 40f;
+                    if ("getMass".equals(m)) return 210f;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == float.class) return 0f;
+                    if (method.getReturnType() == int.class) return 100;
+                    return null;
+                });
+        List<ShipAPI> brokenHulkList = java.util.Arrays.asList(smallHulkPiece1, mainHulkPiece, smallHulkPiece2);
+        boolean mainPieceSelectedOk = TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(mainHulkPiece, brokenHulkList)
+                && !TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(smallHulkPiece1, brokenHulkList)
+                && !TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(smallHulkPiece2, brokenHulkList);
+        // Also verify if root piece expired, only the largest remaining piece is selected
+        List<ShipAPI> orphanPiecesList = java.util.Arrays.asList(smallHulkPiece1, smallHulkPiece2);
+        boolean largestOrphanPieceSelectedOk = TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(smallHulkPiece1, orphanPiecesList)
+                && !TsfcWarroomRenderer.isMainOrLargestDestroyedHulk(smallHulkPiece2, orphanPiecesList);
+
+        boolean hulkSpritesOk = tsfcRendererSrc.contains("WARROOM_HULL_WRECK_TINT")
+                && tsfcRendererSrc.contains("renderWarroomHulkSpritesAboveTsfc")
+                && tsfcRendererSrc.contains("isMainOrLargestDestroyedHulk")
+                && !tsfcRendererSrc.contains("battleMaxSust * 0.24f")
+                && lowShipOpacity >= 0.48f
+                && mainPieceSelectedOk
+                && largestOrphanPieceSelectedOk
+                && overlaySrc.contains("TsfcWarroomRenderer.renderWarroomHulkSpritesAboveTsfc(");
+
+        // Verify whole-squadron strike craft Firepower Rose centroid, spread, and mean heading
+        java.util.function.BiFunction<String, Vector2f, ShipAPI> makeFighterProxy = (id, loc) -> (ShipAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return id;
+                    if ("getLocation".equals(m)) return loc;
+                    if ("getFacing".equals(m)) return 90f;
+                    if ("isAlive".equals(m) || "isFighter".equals(m)) return true;
+                    if ("isHulk".equals(m) || "isExpired".equals(m)) return false;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == float.class) return 0f;
+                    if (method.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        ShipAPI sqM1 = makeFighterProxy.apply("sq_m1", new Vector2f(1000f, 2000f));
+        ShipAPI sqM2 = makeFighterProxy.apply("sq_m2", new Vector2f(1100f, 2000f));
+        ShipAPI sqM3 = makeFighterProxy.apply("sq_m3", new Vector2f(1200f, 2000f));
+        java.util.List<ShipAPI> sqMembers = java.util.Arrays.<ShipAPI>asList(sqM1, sqM2, sqM3);
+        com.fs.starfarer.api.combat.FighterWingAPI mockWing = (com.fs.starfarer.api.combat.FighterWingAPI) java.lang.reflect.Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                (proxy, method, args) -> {
+                    String mName = method.getName();
+                    if ("getWingMembers".equals(mName)) return sqMembers;
+                    if ("getLeader".equals(mName)) return sqM1;
+                    return null;
+                });
+        Vector2f sqCentroid = new Vector2f();
+        BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(mockWing, sqM1, sqCentroid);
+        float sqSpread = BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(mockWing, sqCentroid);
+        float sqFacing = BattlefieldFirepowerEvaluator.resolveSquadronMeanFacingDeg(mockWing, sqM1);
+        boolean squadronRoseOk = Math.abs(sqCentroid.x - 1100f) < 0.5f
+                && Math.abs(sqCentroid.y - 2000f) < 0.5f
+                && sqSpread > 90f && sqSpread < 120f
+                && Math.abs(sqFacing - 90f) < 0.5f;
+
+        // Verify cross-platform ObfuscatedBytecodeBridge (macOS / Linux obfuscated class & descriptor fallback)
+        // and FighterWing leader / flocking-AI NPE guard:
+        ClassLoader testCl = UITestHarness.class.getClassLoader();
+        boolean bridgeAndFighterGuardOk = false;
+        try {
+            Class<?> wrFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.combat.new.__MacLinuxRenamedWarroom__",
+                    "com.fs.starfarer.combat.CombatState", "getWarroom");
+            Class<?> panelFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.ui.__MacLinuxRenamedPanel__",
+                    "com.fs.starfarer.combat.CombatState", "getWidgetPanel");
+            Class<?> coreFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.ui.newui.__MacLinuxRenamedCore__",
+                    "com.fs.starfarer.campaign.CampaignState", "getCore");
+            Class<?> tmFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.campaign.__MacLinuxRenamedTM__",
+                    "com.fs.starfarer.campaign.CampaignEngine", "getTooltipManager");
+            Class<?> fddFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                    testCl, "com.fs.starfarer.ui.impl.__MacLinuxRenamedFdd__",
+                    "com.fs.starfarer.combat.CombatState", "fdd");
+            Class<?> sGridFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrFieldByPackage(
+                    testCl, "com.fs.starfarer.campaign.ui.__MacLinuxRenamedShipGrid__",
+                    fddFallback.getName(), "com.fs.starfarer.campaign.ui.");
+            Class<?> dfmFallback = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    testCl, "com.fs.starfarer.combat.__MacLinuxRenamedDfm__",
+                    "com.fs.starfarer.combat.CombatFleetManager", "getBiggestStation");
+            Class<?> soundHFallback = divisionai.ObfuscatedBytecodeBridge.resolveSoundHClass(testCl);
+            Class<?> soundOFallback = divisionai.ObfuscatedBytecodeBridge.resolveSoundOClass(testCl, soundHFallback);
+            Class<?> streamDescFallback = divisionai.ObfuscatedBytecodeBridge.resolveStreamDescriptorClass(testCl, soundOFallback);
+            com.fs.starfarer.api.combat.FighterWingAPI mockNullLeaderWing =
+                    (com.fs.starfarer.api.combat.FighterWingAPI) java.lang.reflect.Proxy.newProxyInstance(
+                            testCl,
+                            new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                            (proxy, method, args) -> {
+                                String mName = method.getName();
+                                if ("getWingMembers".equals(mName)) return sqMembers;
+                                if ("getWingLeader".equals(mName) || "getLeader".equals(mName)) return null;
+                                return null;
+                            });
+            ShipAPI recoveredLeader = divisionai.DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(mockNullLeaderWing);
+            bridgeAndFighterGuardOk = (wrFallback != null)
+                    && (panelFallback != null)
+                    && (coreFallback != null)
+                    && (tmFallback != null)
+                    && (fddFallback != null)
+                    && (sGridFallback != null)
+                    && (dfmFallback != null)
+                    && (soundHFallback != null)
+                    && (soundOFallback != null)
+                    && (streamDescFallback != null)
+                    && (recoveredLeader == sqM1);
+        } catch (Throwable ignored) {
+            bridgeAndFighterGuardOk = false;
+        }
+
+        boolean tsfcOpacitySettingsOk = Math.abs(divisionai.DivisionAISettings.getTsfcWarroomOpacityMult() - 1.00f) < 1e-4f
+                && Math.abs(divisionai.DivisionAISettings.getTsfcBattleOpacityMult() - 0.24f) < 1e-4f;
+        divisionai.DivisionAISettings.testTsfcWarroomOpacityOverride = Float.valueOf(0.65f);
+        divisionai.DivisionAISettings.testTsfcBattleOpacityOverride = Float.valueOf(0.40f);
+        tsfcOpacitySettingsOk = tsfcOpacitySettingsOk
+                && Math.abs(divisionai.DivisionAISettings.getTsfcWarroomOpacityMult() - 0.65f) < 1e-4f
+                && Math.abs(divisionai.DivisionAISettings.getTsfcBattleOpacityMult() - 0.40f) < 1e-4f;
+        divisionai.DivisionAISettings.testTsfcWarroomOpacityOverride = null;
+        divisionai.DivisionAISettings.testTsfcBattleOpacityOverride = null;
+
+        int belowShipsMethodIdx = combatPluginSrc.indexOf("void renderBattleScreenTsfcBelowShipsLayer(ViewportAPI viewport)");
+        int highContrastCallIdx = combatPluginSrc.indexOf("renderBattleScreenHighContrastFiringArcs(viewport);");
+        int tsfcOverlayMethodIdx = combatPluginSrc.indexOf("public void renderBattleScreenTsfcOverlay(ViewportAPI viewport)");
+
+        boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")
+                && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
+                && combatPluginSrc.contains("glTranslatef(llx, lly, 0f)")
+                && combatPluginSrc.contains("glScalef(invScaleX, invScaleY, 1f)")
+                && belowShipsMethodIdx > 0
+                && highContrastCallIdx > belowShipsMethodIdx
+                && highContrastCallIdx < tsfcOverlayMethodIdx
+                && tsfcRendererSrc.contains("renderHighContrastCaptaincyFiringArcsWorldSpace")
+                && tsfcRendererSrc.contains("renderSingleWeaponVanillaMatchedHighContrastArcWorld")
+                && tsfcRendererSrc.contains("drawVanillaMatchedArcCurveWorld")
+                && tsfcRendererSrc.contains("drawVanillaMatchedRadialLineWorld")
+                && tsfcRendererSrc.contains("drawVanillaMatchedAimBarWorld")
+                && tsfcRendererSrc.contains("slot.computePosition(ship)")
+                && tsfcRendererSrc.contains("2.8f")
+                && tsfcRendererSrc.contains("1.5f")
+                && !tsfcRendererSrc.contains("isArcDuplicate")
+                && tsfcOpacitySettingsOk
+                && combatPluginSrc.contains("ensureAllFighterWingsHaveValidLeaders(engine)")
+                && bridgeAndFighterGuardOk
+                && combatPluginSrc.contains("snapshotGroupDivisionKeyframesBeforeUpdate")
+                && combatPluginSrc.contains("tacticalOverlay.isShowingVideoFeed()")
+                && !combatPluginSrc.contains("renderWarroomShipSpritesAboveTsfc")
+                && !combatPluginSrc.contains("renderWarroomHulkSpritesAboveTsfc")
+                && tsfcRendererSrc.contains("resolveSquadronLiveCentroid")
+                && tsfcRendererSrc.contains("computeSquadronSpreadRadius")
+                && tsfcRendererSrc.contains("resolveSquadronMeanFacingDeg")
+                && timeOpacityAfterAll >= 0.36f
+                && spaceOpacityAfterAll >= 0.34f
+                && overlaySrc.contains("syncRegularCommandSpritesVisibility(useMiniSpritesForTsfc)")
+                && overlaySrc.contains("lookup.findVirtual(mdClass, iconsMapMethod, MethodType.methodType(Map.class))")
+                && overlaySrc.contains("bNewLookup.findGetter(bNewCls, \"\\u00d4\\u00d50000\", spriteCls)")
+                && defaultMiniSpritesOk
+                && disabledMiniSpritesOk
+                && boundaryClearanceAll360Ok
+                && zeroHeartbeatOk
+                && hulkSpritesOk
+                && squadronRoseOk
+                && overlayTsfcIdx > 0
+                && overlayHullAboveIdx > overlayTsfcIdx
+                && overlayStarsIdx > overlayHullAboveIdx;
+
+        res.record(
+                cadenceAndBinConstOk && roseKeyframeAndBinOk && divKeyframeAndBinOk && slidingOpacityOk && underShipSpritesOk,
+                "TSFC Readability & Clarity: 0.10s Keyframe Interpolation, 2.0s Max-Age Bin, Sliding Opacity & Under-Ship Rendering",
+                String.format(
+                        Locale.ROOT,
+                        "interval=%.2fs, maxAge=%.1fs, roseKf=[mid=%.2f,deg=%.1f,exp=%.1f], divKf=[mid=%.2f,exp=%.1f], slideOpacity=[low=%.2f < high=%.2f], underShips=%b",
+                        BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL,
+                        BattlefieldFirepowerEvaluator.TSFC_KEYFRAME_MAX_AGE,
+                        kfMidBlend, kfMidFacing, kfExpiredBlend,
+                        divMidBlend, divExpiredBlend,
+                        lowShipOpacity, highShipOpacity,
+                        underShipSpritesOk));
     }
 
     private static ShipAPI createMockShipWithSystem(final String shipId, final String hullId, final String systemId) {

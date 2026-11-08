@@ -524,6 +524,7 @@ public class DivisionModel {
         public final float[] directionalSpaceInnerRadii = new float[TIME_DIRECTIONS];
         public final float[] directionalSpaceDominatedRadii = new float[TIME_DIRECTIONS];
         public final float[] directionalSpacePotentialRadii = new float[TIME_DIRECTIONS];
+        public final float[] directionalFirepowerRadii = new float[TIME_DIRECTIONS];
         public boolean directionalSpaceInitialized = false;
         public float edgeProximityPinch = 0f; // 0.0 in open center, up to 1.0 when pinched against map boundary
 
@@ -538,6 +539,26 @@ public class DivisionModel {
         public Boolean forceConvergenceOverride = null;
         public float convergenceScore = 0f;
         public final Vector2f convergenceFocalPoint = new Vector2f();
+
+        // 0.10s TSFC Keyframe Interpolation State (keyframes older than 2.0s are binned/discarded)
+        public float prevTsfcKeyframeTime = -100f;
+        public float currTsfcKeyframeTime = -100f;
+        public boolean tsfcKeyframesInitialized = false;
+        public float prevFreeTimeRadius = 0f;
+        public float prevEffectiveTimeRadius = 0f;
+        public float prevEngagementLevel = 0f;
+        public float prevSpaceInnerRadius = 0f;
+        public float prevSpaceDominatedRadius = 0f;
+        public float prevSpacePotentialRadius = 0f;
+        public float prevSpaceDominanceWeight = 0f;
+        public float prevCrossfireCordonIndex = 0f;
+        public float prevConvergenceScore = 0f;
+        public final Vector2f prevConvergenceFocalPoint = new Vector2f();
+        public final float[] prevDirectionalTimeRadii = new float[TIME_DIRECTIONS];
+        public final float[] prevDirectionalSpaceInnerRadii = new float[TIME_DIRECTIONS];
+        public final float[] prevDirectionalSpaceDominatedRadii = new float[TIME_DIRECTIONS];
+        public final float[] prevDirectionalSpacePotentialRadii = new float[TIME_DIRECTIONS];
+        public final float[] prevDirectionalFirepowerRadii = new float[TIME_DIRECTIONS];
 
         // Current C2 orders, station endpoint, and out-of-contact wide-arc route waypoint
         public DivisionIntentType currentIntent = DivisionIntentType.CLOSE_UP;

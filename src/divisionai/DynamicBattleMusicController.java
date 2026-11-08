@@ -1466,45 +1466,63 @@ public class DynamicBattleMusicController {
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             ClassLoader cl = Global.class.getClassLoader();
             Class<?> jsonObjClass = Class.forName("org.json.JSONObject", false, cl);
-            Class<?> soundHClass = Class.forName("sound.H", false, cl);
-            Class<?> soundOClass = Class.forName("sound.O", false, cl);
-            Class<?> streamDescClass = Class.forName("com.fs.starfarer.loading.int", false, cl);
+            Class<?> soundHClass = ObfuscatedBytecodeBridge.resolveSoundHClass(cl);
+            Class<?> soundOClass = ObfuscatedBytecodeBridge.resolveSoundOClass(cl, soundHClass);
+            Class<?> streamDescClass = ObfuscatedBytecodeBridge.resolveStreamDescriptorClass(cl, soundOClass);
 
             // sound.H.\u00d200000() -> singleton sound.H
+            String getInstMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundHClass, "\u00d200000", "()" + ObfuscatedBytecodeBridge.toDescriptor(soundHClass));
             mhSoundHGetInstance = lookup.findStatic(
-                    soundHClass, "\u00d200000", MethodType.methodType(soundHClass));
+                    soundHClass, getInstMethod, MethodType.methodType(soundHClass));
             // sound.H.\u00d800000() -> float masterMusicVolume (0..1)
+            String getVolMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundHClass, "\u00d800000", "()F");
             mhSoundHGetMasterMusicVol = lookup.findVirtual(
-                    soundHClass, "\u00d800000", MethodType.methodType(float.class));
+                    soundHClass, getVolMethod, MethodType.methodType(float.class));
             // sound.H.o00000(float) -> sets sound.H.class dynamic volume multiplier (0..1)
+            String setDynVolMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundHClass, "o00000", "(F)V");
             mhSoundHSetDynamicVolMult = lookup.findVirtual(
-                    soundHClass, "o00000", MethodType.methodType(void.class, float.class));
+                    soundHClass, setDynVolMethod, MethodType.methodType(void.class, float.class));
             // sound.H.Object(int fadeOutSec) -> fades out current music stream over fadeOutSec seconds and clears queue
+            String stopCurMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundHClass, "Object", "(I)V");
             mhSoundHStopCurrent = lookup.findVirtual(
-                    soundHClass, "Object", MethodType.methodType(void.class, int.class));
+                    soundHClass, stopCurMethod, MethodType.methodType(void.class, int.class));
 
             // com.fs.starfarer.loading.int(JSONObject) -> stream descriptor
             mhStreamDescriptorCtor = lookup.findConstructor(
                     streamDescClass, MethodType.methodType(void.class, jsonObjClass));
+            String sdInitMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, streamDescClass, "o00000", "()V");
             mhStreamDescriptorInit = lookup.findVirtual(
-                    streamDescClass, "o00000", MethodType.methodType(void.class));
+                    streamDescClass, sdInitMethod, MethodType.methodType(void.class));
+            String sdCreatePlayerMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, streamDescClass, "return", "()" + ObfuscatedBytecodeBridge.toDescriptor(soundOClass));
             mhStreamDescriptorCreatePlayer = lookup.findVirtual(
-                    streamDescClass, "return", MethodType.methodType(soundOClass));
+                    streamDescClass, sdCreatePlayerMethod, MethodType.methodType(soundOClass));
 
             // sound.O methods for standalone multi-layer streaming
             mhSoundOSetLoop = lookup.findVirtual(
                     soundOClass, "super", MethodType.methodType(void.class, boolean.class));
             // sound.O.\u00d500000(int fadeInSec) -> initializes fade state o.o00000 so internal gain multiplier reaches 1.0f
+            String fadeInMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundOClass, "\u00d500000", "(I)V");
             mhSoundOFadeIn = lookup.findVirtual(
-                    soundOClass, "\u00d500000", MethodType.methodType(void.class, int.class));
+                    soundOClass, fadeInMethod, MethodType.methodType(void.class, int.class));
             mhSoundOStartPlay = lookup.findVirtual(
                     soundOClass, "\u00d200000", MethodType.methodType(void.class, boolean.class));
+            String advVolMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundOClass, "String", "(F)V");
             mhSoundOAdvanceWithVol = lookup.findVirtual(
-                    soundOClass, "String", MethodType.methodType(void.class, float.class));
+                    soundOClass, advVolMethod, MethodType.methodType(void.class, float.class));
             mhSoundOStopAndRelease = lookup.findVirtual(
                     soundOClass, "if", MethodType.methodType(void.class));
+            String getSrcIdMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundOClass, "super", "()I");
             mhSoundOGetSourceId = lookup.findVirtual(
-                    soundOClass, "super", MethodType.methodType(int.class));
+                    soundOClass, getSrcIdMethod, MethodType.methodType(int.class));
 
             Class<?> al10Class = Class.forName("org.lwjgl.openal.AL10", false, cl);
             mhAlSourcef = lookup.findStatic(
@@ -1728,7 +1746,7 @@ public class DynamicBattleMusicController {
     }
 
     private static float clamp01(float v) {
-        if (v < 0f) return 0f;
+        if (Float.isNaN(v) || v < 0f) return 0f;
         if (v > 1f) return 1f;
         return v;
     }

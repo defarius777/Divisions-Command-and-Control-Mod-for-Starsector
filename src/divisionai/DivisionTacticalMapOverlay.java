@@ -348,6 +348,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         this.lastStripeRebuildSimTime = -1000f;
         this.perDivisionGeometryCache.clear();
         this.perDivisionStrikeCraftCache.clear();
+        this.regularCommandSpritesSuppressed = false;
     }
 
     private boolean attachedToWarroom = false;
@@ -355,6 +356,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private Object warroomInstance = null;
     private Object mapDisplayInstance = null;
     private MethodHandle isShowingVideoFeedHandle = null;
+    private MethodHandle getEntityToFollowV2Handle = null;
+    private MethodHandle areWeaponArcsOnHandle = null;
+    private Object arcRendererInstance = null;
+    private MethodHandle arcRendererAnimProgressGetter = null;
     private MethodHandle worldToMapScreenHandle = null;
     private MethodHandle mapGetIconHandle = null;
     private MethodHandle iconRenderSpriteHandle = null;
@@ -363,6 +368,26 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private List<?> warroomFadingArrowsList = null;
     private MethodHandle arrowEntryFaderGetter = null;
     private MethodHandle faderIsFadedOutHandle = null;
+
+    // Handles to disable regular Warroom command sprites (com.fs.starfarer.combat.new.A / com.fs.starfarer.ui.B.new
+    // and com.fs.starfarer.combat.new.o0Oo) while TSFC overlays are active so only the mini 1:1 red/green/yellow
+    // hull sprites render above TSFC.
+    private Class<?> warroomShipIconClass = null;
+    private Class<?> warroomFighterIconClass = null;
+    private MethodHandle mdIconsMapGetter = null;
+    private MethodHandle mdIconSetGetter = null;
+    private MethodHandle shipIconBNewGetter = null;
+    private MethodHandle shipIconArrowSpriteGetter = null;
+    private MethodHandle fighterIconSpriteGetter = null;
+    private MethodHandle bNewSpriteGetter = null;
+    private MethodHandle bNewHoloSetter = null;
+    private MethodHandle bNewModulesSetter = null;
+    private MethodHandle bNewStatusSetter = null;
+    private MethodHandle spriteTexGetter = null;
+    private MethodHandle spriteTexSetter = null;
+    private MethodHandle spriteReadResolveHandle = null;
+    private final Map<Object, Object> savedIconSpriteTextures = new java.util.IdentityHashMap<>();
+    private boolean regularCommandSpritesSuppressed = false;
 
     public DivisionTacticalMapOverlay(CombatEngineAPI engine) {
         this.engine = engine;
@@ -392,9 +417,16 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         try {
             ClassLoader cl = ui.getClass().getClassLoader();
-            Class<?> wrClass = Class.forName("com.fs.starfarer.combat.new.OoOO", false, cl);
-            Class<?> mdClass = Class.forName("com.fs.starfarer.combat.new.b", false, cl);
-            Class<?> iconClass = Class.forName("com.fs.starfarer.combat.new.OOoO", false, cl);
+            Class<?> wrClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.new.OoOO", ui.getClass().getName(), "getWarroom");
+            Class<?> mdClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.new.b", wrClass.getName(), "getMapDisplay");
+            Class<?> iconClass = null;
+            try {
+                iconClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                        cl, "com.fs.starfarer.combat.new.OOoO", wrClass.getName(), "findClosestIcon");
+            } catch (Throwable ignored) {
+            }
 
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             MethodHandle getWarroomHandle = lookup.findVirtual(
@@ -418,33 +450,83 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
             this.warroomInstance = wr;
             this.mapDisplayInstance = md;
-            this.isShowingVideoFeedHandle = lookup.findVirtual(
-                    wrClass,
-                    "isShowingVideoFeed",
-                    MethodType.methodType(boolean.class));
+            try {
+                this.isShowingVideoFeedHandle = lookup.findVirtual(
+                        wrClass,
+                        "isShowingVideoFeed",
+                        MethodType.methodType(boolean.class));
+            } catch (Throwable ignored) {
+                this.isShowingVideoFeedHandle = null;
+            }
+            try {
+                this.getEntityToFollowV2Handle = lookup.findVirtual(
+                        ui.getClass(),
+                        "getEntityToFollowV2",
+                        MethodType.methodType(com.fs.starfarer.api.combat.CombatEntityAPI.class));
+            } catch (Throwable ignored) {
+                this.getEntityToFollowV2Handle = null;
+            }
+            try {
+                this.areWeaponArcsOnHandle = lookup.findVirtual(
+                        ui.getClass(),
+                        "areWeaponArcsOn",
+                        MethodType.methodType(boolean.class));
+            } catch (Throwable ignored) {
+                this.areWeaponArcsOnHandle = null;
+            }
+            try {
+                Class<?> arcRenCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                        cl, "com.fs.starfarer.renderers.super", ui.getClass().getName(), "arcRenderer");
+                MethodHandles.Lookup csLookup = MethodHandles.privateLookupIn(ui.getClass(), lookup);
+                MethodHandle getArcRenHandle = csLookup.findGetter(ui.getClass(), "arcRenderer", arcRenCls);
+                this.arcRendererInstance = getArcRenHandle.invoke(ui);
+                if (this.arcRendererInstance != null) {
+                    MethodHandles.Lookup arLookup = MethodHandles.privateLookupIn(arcRenCls, lookup);
+                    String animField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                            cl, arcRenCls, "F", "\u00d300000");
+                    this.arcRendererAnimProgressGetter = arLookup.findGetter(arcRenCls, animField, float.class);
+                }
+            } catch (Throwable ignored) {
+                this.arcRendererInstance = null;
+                this.arcRendererAnimProgressGetter = null;
+            }
+            String worldToMapScreenName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, mdClass, "o00000", "(Lorg/lwjgl/util/vector/Vector2f;)Lorg/lwjgl/util/vector/Vector2f;");
             this.worldToMapScreenHandle = lookup.findVirtual(
                     mdClass,
-                    "o00000",
+                    worldToMapScreenName,
                     MethodType.methodType(Vector2f.class, Vector2f.class));
-            this.mapGetIconHandle = lookup.findVirtual(
-                    mdClass,
-                    "o00000",
-                    MethodType.methodType(iconClass, Object.class));
-            this.iconRenderSpriteHandle = lookup.findVirtual(
-                    iconClass,
-                    "\u00d300000",
-                    MethodType.methodType(void.class, boolean.class, float.class, float.class));
-            this.iconRenderBarsHandle = lookup.findVirtual(
-                    iconClass,
-                    "\u00d200000",
-                    MethodType.methodType(void.class, boolean.class, float.class, float.class));
-            try {
-                this.iconGetRadiusHandle = lookup.findVirtual(
-                        iconClass,
-                        "super",
-                        MethodType.methodType(float.class, float.class));
-            } catch (Throwable ignored) {
-                this.iconGetRadiusHandle = null;
+            if (iconClass != null) {
+                try {
+                    String mapGetIconName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                            cl, mdClass, "o00000", "(Ljava/lang/Object;)" + ObfuscatedBytecodeBridge.toDescriptor(iconClass));
+                    this.mapGetIconHandle = lookup.findVirtual(
+                            mdClass,
+                            mapGetIconName,
+                            MethodType.methodType(iconClass, Object.class));
+                    this.iconRenderSpriteHandle = lookup.findVirtual(
+                            iconClass,
+                            "\u00d300000",
+                            MethodType.methodType(void.class, boolean.class, float.class, float.class));
+                    this.iconRenderBarsHandle = lookup.findVirtual(
+                            iconClass,
+                            "\u00d200000",
+                            MethodType.methodType(void.class, boolean.class, float.class, float.class));
+                } catch (Throwable ignored) {
+                    this.mapGetIconHandle = null;
+                    this.iconRenderSpriteHandle = null;
+                    this.iconRenderBarsHandle = null;
+                }
+                try {
+                    String radiusMethodName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                            cl, iconClass, "super", "(F)F");
+                    this.iconGetRadiusHandle = lookup.findVirtual(
+                            iconClass,
+                            radiusMethodName,
+                            MethodType.methodType(float.class, float.class));
+                } catch (Throwable ignored) {
+                    this.iconGetRadiusHandle = null;
+                }
             }
             try {
                 Class<?> arrowMgrClass = Class.forName("com.fs.starfarer.combat.new.O0OO", false, cl);
@@ -468,6 +550,59 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 this.warroomFadingArrowsList = null;
             }
 
+            try {
+                Class<?> fddCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                        cl, "com.fs.starfarer.ui.impl.oO0O", ui.getClass().getName(), "fdd");
+                Class<?> sGridCls = ObfuscatedBytecodeBridge.resolveClassOrFieldByPackage(
+                        cl, "com.fs.starfarer.campaign.ui.S", fddCls.getName(), "com.fs.starfarer.campaign.ui.");
+                Class<?> bNewCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                        cl, "com.fs.starfarer.ui.B.new", sGridCls.getName(), "getIconForMember");
+                Class<?> spriteCls = Class.forName("com.fs.graphics.Sprite", false, cl);
+                Class<?> texObjCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                        cl, "com.fs.graphics.Object", spriteCls.getName(), "texture");
+                Class<?> shipIconCls = Class.forName("com.fs.starfarer.combat.new.A", false, cl);
+                Class<?> fighterIconCls = Class.forName("com.fs.starfarer.combat.new.o0Oo", false, cl);
+                MethodHandles.Lookup mdLookup2 = MethodHandles.privateLookupIn(mdClass, lookup);
+                MethodHandles.Lookup bNewLookup = MethodHandles.privateLookupIn(bNewCls, lookup);
+                MethodHandles.Lookup spriteLookup = MethodHandles.privateLookupIn(spriteCls, lookup);
+                this.warroomShipIconClass = shipIconCls;
+                this.warroomFighterIconClass = fighterIconCls;
+                String iconsMapMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, mdClass, "class", "()Ljava/util/Map;");
+                this.mdIconsMapGetter = lookup.findVirtual(mdClass, iconsMapMethod, MethodType.methodType(Map.class));
+                String iconSetField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, mdClass, "Ljava/util/Set;", "\u00d2o0000");
+                this.mdIconSetGetter = mdLookup2.findGetter(mdClass, iconSetField, Set.class);
+                String shipIconBNewMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, shipIconCls, "\u00d3O0000", "()" + ObfuscatedBytecodeBridge.toDescriptor(bNewCls));
+                this.shipIconBNewGetter = lookup.findVirtual(shipIconCls, shipIconBNewMethod, MethodType.methodType(bNewCls));
+                this.bNewSpriteGetter = bNewLookup.findGetter(bNewCls, "\u00d4\u00d50000", spriteCls);
+                this.bNewHoloSetter = lookup.findVirtual(bNewCls, "\u00d4O0000", MethodType.methodType(void.class, boolean.class));
+                this.bNewModulesSetter = lookup.findVirtual(bNewCls, "\u00f400000", MethodType.methodType(void.class, boolean.class));
+                this.bNewStatusSetter = lookup.findVirtual(bNewCls, "\u00d500000", MethodType.methodType(void.class, boolean.class));
+                this.spriteTexGetter = spriteLookup.findGetter(spriteCls, "texture", texObjCls);
+                this.spriteTexSetter = spriteLookup.findSetter(spriteCls, "texture", texObjCls);
+                this.spriteReadResolveHandle = spriteLookup.findVirtual(spriteCls, "readResolve", MethodType.methodType(Object.class));
+                try {
+                    MethodHandles.Lookup aLookup = MethodHandles.privateLookupIn(shipIconCls, lookup);
+                    this.shipIconArrowSpriteGetter = aLookup.findGetter(shipIconCls, "interface.new", spriteCls);
+                } catch (Throwable ignored) {
+                    this.shipIconArrowSpriteGetter = null;
+                }
+                try {
+                    MethodHandles.Lookup fighterLookup = MethodHandles.privateLookupIn(fighterIconCls, lookup);
+                    String fighterSpriteField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                            cl, fighterIconCls, ObfuscatedBytecodeBridge.toDescriptor(spriteCls), "float.super");
+                    this.fighterIconSpriteGetter = fighterLookup.findGetter(fighterIconCls, fighterSpriteField, spriteCls);
+                } catch (Throwable ignored) {
+                    this.fighterIconSpriteGetter = null;
+                }
+            } catch (Throwable t) {
+                this.warroomShipIconClass = null;
+                this.mdIconsMapGetter = null;
+                this.mdIconSetGetter = null;
+            }
+
             UIPanelAPI warroomPanel = (UIPanelAPI) wr;
             CustomPanelAPI custom = Global.getSettings().createCustom(0f, 0f, this);
             warroomPanel.addComponent(custom).inBL(0f, 0f);
@@ -481,20 +616,84 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
+    public boolean isShowingVideoFeed() {
+        if (!attachedToWarroom) {
+            ensureAttachedToWarroomUI();
+        }
+        if (warroomInstance != null && isShowingVideoFeedHandle != null) {
+            try {
+                return (boolean) isShowingVideoFeedHandle.invoke(warroomInstance);
+            } catch (Throwable ignored) {
+            }
+        }
+        return false;
+    }
+
+    public ShipAPI resolveVideoFeedShip() {
+        if (engine == null) return null;
+        if (!attachedToWarroom) {
+            ensureAttachedToWarroomUI();
+        }
+        if (getEntityToFollowV2Handle != null && engine.getCombatUI() != null) {
+            try {
+                Object ent = getEntityToFollowV2Handle.invoke(engine.getCombatUI());
+                if (ent instanceof ShipAPI) {
+                    return (ShipAPI) ent;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return engine.getPlayerShip();
+    }
+
+    public boolean areWeaponArcsOn() {
+        if (engine == null) return true;
+        if (!attachedToWarroom) {
+            ensureAttachedToWarroomUI();
+        }
+        if (areWeaponArcsOnHandle != null && engine.getCombatUI() != null) {
+            try {
+                return (boolean) areWeaponArcsOnHandle.invoke(engine.getCombatUI());
+            } catch (Throwable ignored) {
+            }
+        }
+        return true;
+    }
+
+    public float getArcRendererAnimProgress() {
+        if (!attachedToWarroom) {
+            ensureAttachedToWarroomUI();
+        }
+        if (arcRendererInstance != null && arcRendererAnimProgressGetter != null) {
+            try {
+                float val = (float) arcRendererAnimProgressGetter.invoke(arcRendererInstance);
+                if (!Float.isNaN(val)) {
+                    return Math.max(0f, Math.min(1f, val));
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return 1.0f;
+    }
+
     @Override
     public void processInput(List<InputEventAPI> events) {
         if (!attachedToWarroom || !BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) {
             return;
         }
-        if (warroomInstance != null && isShowingVideoFeedHandle != null) {
-            try {
-                if ((boolean) isShowingVideoFeedHandle.invoke(warroomInstance)) {
-                    return;
-                }
-            } catch (Throwable ignored) {
-            }
-        }
         TsfcWarroomRenderer.processInputEvents(engine, events);
+        if (isShowingVideoFeed()) {
+            return;
+        }
+        syncRegularCommandSpritesVisibility(
+                TsfcWarroomRenderer.isAnyTsfcOverlayVisible() && DivisionAISettings.isTsfcMiniShipSpritesEnabled());
+    }
+
+    @Override
+    public void advance(float amount) {
+        if (!attachedToWarroom || engine == null) return;
+        syncRegularCommandSpritesVisibility(
+                TsfcWarroomRenderer.isAnyTsfcOverlayVisible() && DivisionAISettings.isTsfcMiniShipSpritesEnabled());
     }
 
     /**
@@ -549,17 +748,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             return;
         }
 
-        // Do not render if the player is viewing a live sprite Video Feed inside the Command UI
-        if (warroomInstance != null && isShowingVideoFeedHandle != null) {
-            try {
-                boolean showingFeed = (boolean) isShowingVideoFeedHandle.invoke(warroomInstance);
-                if (showingFeed) {
-                    cachedPolyPaused = false;
-                    cachedPolyNow = -1000f;
-                    return;
-                }
-            } catch (Throwable ignored) {
-            }
+        // Do not render Warroom polygons or truescale ship/hulk icons if the player is viewing a live sprite
+        // Video Feed ("F" key) inside the Command UI; instead, battle-screen TSFC renders underneath the live ships
+        // on CombatEngineLayers.BELOW_SHIPS_LAYER, and we keep only the right-side TSFC toggle buttons accessible.
+        if (isShowingVideoFeed()) {
+            cachedPolyPaused = false;
+            cachedPolyNow = -1000f;
+            TsfcWarroomRenderer.renderToggleButtonAndLegendUI(engine, Math.min(1f, cmdOpacity * alphaMult));
+            return;
         }
 
         if (mapDisplayInstance == null || worldToMapScreenHandle == null) {
@@ -724,32 +920,56 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             renderStrikeCraftDivisionPolygons(strikeCraftPolys, basePolyAlpha, fade);
         }
 
-        // 3. Render division waypoints & tactical intent vectors for friendly divisions (once per division, from primary droplet)
-        for (RenderedDivisionPolygon rp : renderedPolys) {
-            if (!rp.isEnemy && rp.isPrimaryDroplet) {
-                renderDivisionWaypointsAndIntent(rp, scale, offsetX, offsetY, friendlyLineAlpha, playerFog);
-            }
-        }
-
         GL11.glPopMatrix();
         GL11.glPopAttrib();
 
         long tAfterPolys = System.nanoTime();
 
-        // 4. Render Fleet Flagship (gold star) and Division Leader (silver star) badges
-        // (Vanilla mapDisplay already renders all ship sprites, weapon turrets, and status bars directly underneath
-        // our low-alpha 8%-14% division polygons; skipping duplicate 134-ship re-rendering avoids 2x weapon-turret draw stalls.)
+        boolean anyTsfcVisible = TsfcWarroomRenderer.isAnyTsfcOverlayVisible();
+        boolean useMiniSpritesForTsfc = anyTsfcVisible && DivisionAISettings.isTsfcMiniShipSpritesEnabled();
+        syncRegularCommandSpritesVisibility(useMiniSpritesForTsfc);
+
+        // 3. Render Time, Space, Firepower, and Convergence map layers (when toggled ON) UNDER ship sprites & waypoints
+        float tsfcFade = fade * DivisionAISettings.getTsfcWarroomOpacityMult();
+        TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
+                engine, scale, offsetX, offsetY, tsfcFade, playerGroup, alliedAiGroup, enemyGroup);
+        TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
+                engine, scale, offsetX, offsetY, tsfcFade, playerGroup, alliedAiGroup, enemyGroup);
+
+        // 3b. When TSFC is active and T-S-F-C Mini Ship Sprites is enabled in Mod Settings, regular command sprites
+        //     are disabled and replaced by mini red/green/yellow 1:1 hull sprites + status bars above TSFC.
+        //     Otherwise, render regular command sprites above polygons (and above TSFC when TSFC is active).
+        if (useMiniSpritesForTsfc) {
+            TsfcWarroomRenderer.renderWarroomShipSpritesAboveTsfc(engine, scale, offsetX, offsetY, fade);
+            renderShipBarsAboveTsfc(renderedPolys, scale, offsetX, offsetY, fade);
+        } else {
+            if (anyTsfcVisible) {
+                TsfcWarroomRenderer.renderWarroomHulkSpritesAboveTsfc(engine, scale, offsetX, offsetY, fade);
+            }
+            renderShipSpritesOnTopLayer(renderedPolys, scale, offsetX, offsetY, fade);
+        }
+
+        long tAfterTsfc = System.nanoTime();
+
+        // 4. Render division waypoints & tactical intent vectors for friendly divisions above TSFC & ship sprites
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glPushMatrix();
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glEnable(GL11.GL_LINE_SMOOTH);
+        for (RenderedDivisionPolygon rp : renderedPolys) {
+            if (!rp.isEnemy && rp.isPrimaryDroplet) {
+                renderDivisionWaypointsAndIntent(rp, scale, offsetX, offsetY, friendlyLineAlpha, playerFog);
+            }
+        }
+        GL11.glPopMatrix();
+        GL11.glPopAttrib();
+
+        // 4b. Render Fleet Flagship (gold star) and Division Leader (silver star) badges on top of ship sprites & TSFC
         renderFlagshipStarsOnTopLayer(cachedFleetFlagships, cachedDivisionFlagships, scale, offsetX, offsetY, fade);
 
         long tAfterStars = System.nanoTime();
-
-        // 4c. Render Time, Space, Firepower, and Convergence map layers (when toggled ON)
-        TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
-                engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
-        TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
-                engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
-
-        long tAfterTsfc = System.nanoTime();
 
         // 5. Render de-conflicted division labels anchored to the primary division droplet entity
         for (RenderedDivisionPolygon rp : renderedPolys) {
@@ -802,9 +1022,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float totalMs = (tFrameEnd - tFrameStart) / 1e6f;
         float geomMs = (tAfterGeom - tFrameStart) / 1e6f;
         float polyMs = (tAfterPolys - tAfterGeom) / 1e6f;
-        float starsMs = (tAfterStars - tAfterPolys) / 1e6f;
-        float tsfcMs = (tAfterTsfc - tAfterStars) / 1e6f;
-        float labelsMs = (tAfterLabels - tAfterTsfc) / 1e6f;
+        float tsfcMs = (tAfterTsfc - tAfterPolys) / 1e6f;
+        float starsMs = (tAfterStars - tAfterTsfc) / 1e6f;
+        float labelsMs = (tAfterLabels - tAfterStars) / 1e6f;
         float uiMs = (tFrameEnd - tAfterLabels) / 1e6f;
 
         int ringIdx = perfWindowCount % PERF_WINDOW_FRAMES;
@@ -3028,6 +3248,155 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         } finally {
             GL11.glPopMatrix();
             GL11.glPopAttrib();
+        }
+    }
+
+    /**
+     * Renders only the lightweight Warroom tactical HP/flux/CR status bars above TSFC overlays
+     * (paired with {@link TsfcWarroomRenderer#renderWarroomShipSpritesAboveTsfc}) so TSFC stays
+     * underneath ship sprites and status bars without invoking vanilla's weapon-turret loop.
+     */
+    private void renderShipBarsAboveTsfc(
+            List<RenderedDivisionPolygon> renderedPolys,
+            float scale,
+            float offsetX,
+            float offsetY,
+            float fade) {
+        if (mapDisplayInstance == null
+                || mapGetIconHandle == null
+                || iconRenderBarsHandle == null
+                || renderedPolys.isEmpty()) {
+            return;
+        }
+
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glPushMatrix();
+        GL11.glTranslatef((float) ((int) offsetX), (float) ((int) offsetY), 0.0f);
+
+        try {
+            for (int pIdx = 0, pLen = renderedPolys.size(); pIdx < pLen; pIdx++) {
+                RenderedDivisionPolygon rp = renderedPolys.get(pIdx);
+                List<ShipAPI> members = rp.hullMembers;
+                for (int sIdx = 0, sLen = members.size(); sIdx < sLen; sIdx++) {
+                    ShipAPI ship = members.get(sIdx);
+                    if (ship == null || !ship.isAlive()) continue;
+                    Object icon = mapGetIconHandle.invoke(mapDisplayInstance, (Object) ship);
+                    if (icon != null) {
+                        iconRenderBarsHandle.invoke(icon, false, scale, fade);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            GL11.glPopMatrix();
+            GL11.glPopAttrib();
+        }
+    }
+
+    /**
+     * Disables vanilla Warroom regular command sprites ({@code com.fs.starfarer.combat.new.A} /
+     * {@code com.fs.starfarer.ui.B.new} and {@code com.fs.starfarer.combat.new.o0Oo}) when any TSFC overlay is active
+     * and {@code T-S-F-C Mini Ship Sprites} is enabled in Mod Settings, so that only the crisp 1:1 mini
+     * red/green/yellow ship silhouettes render above TSFC, and restores them when TSFC or the setting is turned off.
+     */
+    void syncRegularCommandSpritesVisibility(boolean tsfcActive) {
+        if (mapDisplayInstance == null
+                || (mdIconsMapGetter == null && mdIconSetGetter == null)
+                || warroomShipIconClass == null
+                || shipIconBNewGetter == null
+                || bNewSpriteGetter == null
+                || spriteTexGetter == null
+                || spriteTexSetter == null) {
+            return;
+        }
+        if (!tsfcActive && !regularCommandSpritesSuppressed && savedIconSpriteTextures.isEmpty()) {
+            return;
+        }
+        try {
+            if (tsfcActive && engine != null && mapGetIconHandle != null) {
+                try {
+                    List<ShipAPI> ships = engine.getShips();
+                    if (ships != null) {
+                        for (int i = 0, n = ships.size(); i < n; i++) {
+                            ShipAPI s = ships.get(i);
+                            if (s != null && !s.isExpired()) {
+                                Object ignoredIcon = mapGetIconHandle.invoke(mapDisplayInstance, (Object) s);
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            if (mdIconsMapGetter != null) {
+                Object mapObj = mdIconsMapGetter.invoke(mapDisplayInstance);
+                if (mapObj instanceof Map) {
+                    for (Object icon : ((Map<?, ?>) mapObj).values()) {
+                        applyCommandSpriteSuppressionToIcon(icon, tsfcActive);
+                    }
+                }
+            }
+            if (mdIconSetGetter != null) {
+                Object setObj = mdIconSetGetter.invoke(mapDisplayInstance);
+                if (setObj instanceof Set) {
+                    for (Object icon : (Set<?>) setObj) {
+                        applyCommandSpriteSuppressionToIcon(icon, tsfcActive);
+                    }
+                }
+            }
+            if (!tsfcActive && !savedIconSpriteTextures.isEmpty()) {
+                for (Map.Entry<Object, Object> e : savedIconSpriteTextures.entrySet()) {
+                    Object sprite = e.getKey();
+                    Object origTex = e.getValue();
+                    if (sprite != null && origTex != null && spriteTexGetter.invoke(sprite) == null) {
+                        spriteTexSetter.invoke(sprite, origTex);
+                    }
+                }
+                savedIconSpriteTextures.clear();
+            }
+            regularCommandSpritesSuppressed = tsfcActive;
+        } catch (Throwable t) {
+            LOG.warn("[DivisionAI] syncRegularCommandSpritesVisibility failed", t);
+        }
+    }
+
+    private void applyCommandSpriteSuppressionToIcon(Object icon, boolean suppress) throws Throwable {
+        if (icon == null) return;
+        if (warroomShipIconClass.isInstance(icon)) {
+            Object bNew = shipIconBNewGetter.invoke(icon);
+            if (bNew != null) {
+                Object sprite = bNewSpriteGetter.invoke(bNew);
+                suppressOrRestoreSpriteTexture(sprite, suppress);
+                if (bNewHoloSetter != null) bNewHoloSetter.invoke(bNew, !suppress);
+                if (bNewModulesSetter != null) bNewModulesSetter.invoke(bNew, !suppress);
+                if (bNewStatusSetter != null) bNewStatusSetter.invoke(bNew, !suppress);
+            }
+            if (shipIconArrowSpriteGetter != null) {
+                Object arrowSprite = shipIconArrowSpriteGetter.invoke(icon);
+                suppressOrRestoreSpriteTexture(arrowSprite, suppress);
+            }
+        } else if (warroomFighterIconClass != null && warroomFighterIconClass.isInstance(icon) && fighterIconSpriteGetter != null) {
+            Object fighterSprite = fighterIconSpriteGetter.invoke(icon);
+            suppressOrRestoreSpriteTexture(fighterSprite, suppress);
+        }
+    }
+
+    private void suppressOrRestoreSpriteTexture(Object sprite, boolean suppress) throws Throwable {
+        if (sprite == null) return;
+        if (suppress) {
+            Object currTex = spriteTexGetter.invoke(sprite);
+            if (currTex != null) {
+                savedIconSpriteTextures.put(sprite, currTex);
+                spriteTexSetter.invoke(sprite, (Object) null);
+            }
+        } else {
+            if (spriteTexGetter.invoke(sprite) == null) {
+                Object savedTex = savedIconSpriteTextures.remove(sprite);
+                if (savedTex != null) {
+                    spriteTexSetter.invoke(sprite, savedTex);
+                } else if (spriteReadResolveHandle != null) {
+                    spriteReadResolveHandle.invoke(sprite);
+                }
+            }
         }
     }
 

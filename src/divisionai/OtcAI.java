@@ -43,14 +43,21 @@ public class OtcAI {
 
     public static void updateTelemetry(CombatEngineAPI engine, BattleGroupState battleGroup) {
         if (engine != null) {
-            BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, engine.getTotalElapsedTime(false));
+            float now = engine.getTotalElapsedTime(false);
+            if (BattlefieldFirepowerEvaluator.lastRoseUpdateEngine != engine
+                    || Math.abs(now - BattlefieldFirepowerEvaluator.lastRoseUpdateTime) > 1e-4f
+                    || BattlefieldFirepowerEvaluator.getRoseCount() == 0) {
+                BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
+            }
         }
         float fleetWeightedX = 0f;
         float fleetWeightedY = 0f;
         float totalFriendlyFp = 0f;
 
         for (DivisionState div : battleGroup.divisions) {
-            updateSingleDivisionTelemetry(engine, div);
+            if (!battleGroup.isPassiveOpposingView || (div.id != null && div.id.startsWith("unassigned_"))) {
+                updateSingleDivisionTelemetry(engine, div);
+            }
             if (!div.isUnableDivision && !div.getAliveMembers().isEmpty()) {
                 fleetWeightedX += div.centroid.x * div.totalFpStrength;
                 fleetWeightedY += div.centroid.y * div.totalFpStrength;
@@ -491,8 +498,8 @@ public class OtcAI {
     }
 
     private static void evaluateLocalForceRatioViaGrid(CombatEngineAPI engine, DivisionState div) {
-        CollisionGridAPI grid = engine.getAiGridShips();
-        if (grid == null) {
+        CollisionGridAPI grid = (engine != null) ? engine.getAiGridShips() : null;
+        if (grid == null && engine != null) {
             grid = engine.getShipGrid();
         }
         if (grid == null) {
@@ -615,7 +622,11 @@ public class OtcAI {
 
         // Each side's OTC evaluates only its own divisions against the enemy; the enemy OTC does the reverse on its own
         // update. Running enemy->my here too mutated directional radii mid-frame and made results depend on update order.
-        BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, myGroup, enemyGroup);
+        // If DivisionAICombatPlugin already evaluated cross-group Time/Space/Convergence for this tick at `now`, skip
+        // re-evaluating here so EMA filters and TSFC keyframes never double-step on OTC ticks.
+        if (!BattlefieldFirepowerEvaluator.isGroupTimeSpaceUpToDateForTick(myGroup, now)) {
+            BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, myGroup, enemyGroup);
+        }
         BattlefieldFirepowerEvaluator.updateEnemyFeignedRetreatSuspicion(engine, myGroup, enemyGroup);
         updateEnemyOverkillAndCenterOfGravity(engine, myGroup, enemyGroup);
 

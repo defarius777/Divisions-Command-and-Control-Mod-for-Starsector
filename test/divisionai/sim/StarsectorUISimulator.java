@@ -734,6 +734,9 @@ public class StarsectorUISimulator {
             // 5. Simulate CampaignFleetTooltipOrganizer 1:1 (normal, foreign mod overlay sibling anchor, duplicates, station fleet)
             boolean campaignTooltipSimOk = simulateCampaignFleetTooltipOrganizer1To1(hullSpec, humanCmdr);
 
+            // 6. Simulate 1:1 Warroom Battle Suite (OoOO, b, A, o0Oo, B.new command sprite suppression, mid-battle spawns & Mod Settings toggle)
+            boolean warroomBattleSuiteOk = simulateWarroomBattleCommandSpriteSuite1To1();
+
             boolean allSimOk = allFormationSpritesCenteredOk
                     && verifiedSprites == 22
                     && allFleetFormationSpritesOk
@@ -745,14 +748,15 @@ public class StarsectorUISimulator {
                     && midBattleDeploymentOk
                     && fleetDoctrineDialogOk
                     && divisionEditorDialogOk
-                    && campaignTooltipSimOk;
+                    && campaignTooltipSimOk
+                    && warroomBattleSuiteOk;
 
             res.record(
                     allSimOk,
                     "1:1 Starsector Obfuscated UI Simulation (Deployment formation selector, campaign dialogs & 30 formation sprites)",
                     String.format(
                             Locale.ROOT,
-                            "divisionSprites=%d, fleetSprites=%d(%b), deployStd=%b, deployAlpha=%b, deployMidBattle=%b, doctrineDialog=%b, editorDialog=%b, campaignTooltip1To1=%b",
+                            "divisionSprites=%d, fleetSprites=%d(%b), deployStd=%b, deployAlpha=%b, deployMidBattle=%b, doctrineDialog=%b, editorDialog=%b, campaignTooltip1To1=%b, warroomBattleSuite1To1=%b",
                             verifiedSprites,
                             verifiedFleetSprites,
                             allFleetFormationSpritesOk,
@@ -761,7 +765,8 @@ public class StarsectorUISimulator {
                             midBattleDeploymentOk,
                             fleetDoctrineDialogOk,
                             divisionEditorDialogOk,
-                            campaignTooltipSimOk));
+                            campaignTooltipSimOk,
+                            warroomBattleSuiteOk));
             UITestHarness.auditLateCombatWarroomPerformanceAndStateIntegrityAfterUISim(res);
         } catch (Throwable t) {
             t.printStackTrace(System.out);
@@ -1824,5 +1829,218 @@ public class StarsectorUISimulator {
         }
 
         return true;
+    }
+
+    /**
+     * 1:1 Starsector Obfuscated Warroom Battle Suite:
+     * Instantiates real {@code com.fs.starfarer.combat.CombatState}, {@code com.fs.starfarer.combat.new.OoOO} (Warroom),
+     * {@code com.fs.starfarer.combat.new.b} (MapDisplay), {@code com.fs.starfarer.combat.new.A} (Ship command icon),
+     * {@code com.fs.starfarer.combat.new.o0Oo} (Fighter command icon), {@code com.fs.starfarer.ui.B.new} (Ship widget),
+     * and {@code com.fs.graphics.Sprite} / {@code com.fs.graphics.Object} textures, attaches {@link DivisionTacticalMapOverlay}
+     * via {@link DivisionTacticalMapOverlay#ensureAttachedToWarroomUI()}, and verifies:
+     *   1. Live icons in {@code b.class()} ({@code "private.new"} Map) and fading-out icons in {@code b.\u00d2o0000} Set
+     *      have their hull sprites, facing arrows, fighter sprites, holo scanlines, modules, and status overlays suppressed
+     *      when TSFC is active and {@code isTsfcMiniShipSpritesEnabled()} is true.
+     *   2. Mid-battle reinforcement ships and fighters added to {@code b.class()} while TSFC is already active are
+     *      suppressed immediately on the next frame.
+     *   3. Toggling {@code isTsfcMiniShipSpritesEnabled()} to false (or turning TSFC off) losslessly restores all
+     *      original {@code Sprite.texture} instances and {@code B.new} flags.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static boolean simulateWarroomBattleCommandSpriteSuite1To1() throws Throwable {
+        Class<?> combatEngineCls = Class.forName("com.fs.starfarer.combat.CombatEngine");
+        Class<?> combatStateCls = Class.forName("com.fs.starfarer.combat.CombatState");
+        Class<?> wrCls = Class.forName("com.fs.starfarer.combat.new.OoOO");
+        Class<?> mdCls = Class.forName("com.fs.starfarer.combat.new.b");
+        Class<?> shipIconCls = Class.forName("com.fs.starfarer.combat.new.A");
+        Class<?> fighterIconCls = Class.forName("com.fs.starfarer.combat.new.o0Oo");
+        Class<?> bNewCls = Class.forName("com.fs.starfarer.ui.B.new");
+        Class<?> spriteCls = Class.forName("com.fs.graphics.Sprite");
+        Class<?> texObjCls = Class.forName("com.fs.graphics.Object");
+
+        Object realEngine = allocateWithoutConstructor(combatEngineCls);
+        Object combatState = allocateWithoutConstructor(combatStateCls);
+        Constructor<interfacenew> panelCtor = interfacenew.class.getDeclaredConstructor();
+        Constructor<?> wrCtor = ReflectionFactory.getReflectionFactory()
+                .newConstructorForSerialization(wrCls, panelCtor);
+        Object warroom = wrCtor.newInstance();
+        ((interfacenew) warroom).setSize(1920f, 1080f);
+        Object mapDisplay = allocateWithoutConstructor(mdCls);
+
+        // Wire CombatEngine -> CombatState -> OoOO (Warroom) -> b (MapDisplay)
+        Field uiField = null;
+        for (Field f : combatEngineCls.getDeclaredFields()) {
+            if (com.fs.starfarer.api.combat.CombatUIAPI.class.isAssignableFrom(f.getType())) {
+                uiField = f;
+                break;
+            }
+        }
+        if (uiField != null) {
+            uiField.setAccessible(true);
+            uiField.set(realEngine, combatState);
+        }
+        for (Field f : combatStateCls.getDeclaredFields()) {
+            if (f.getType() == wrCls) {
+                f.setAccessible(true);
+                f.set(combatState, warroom);
+                break;
+            }
+        }
+        for (Field f : wrCls.getDeclaredFields()) {
+            if (f.getType() == mdCls) {
+                f.setAccessible(true);
+                f.set(warroom, mapDisplay);
+                break;
+            }
+        }
+
+        Map<Object, Object> liveIconMap = new HashMap<>();
+        Set<Object> deadIconSet = new java.util.HashSet<>();
+        Field mdMapField = mdCls.getDeclaredField("private.new");
+        mdMapField.setAccessible(true);
+        mdMapField.set(mapDisplay, liveIconMap);
+        Field mdSetField = mdCls.getDeclaredField("\u00d2o0000");
+        mdSetField.setAccessible(true);
+        mdSetField.set(mapDisplay, deadIconSet);
+
+        Field aBNewField = shipIconCls.getDeclaredField("O\u00d30000");
+        aBNewField.setAccessible(true);
+        Field aArrowField = shipIconCls.getDeclaredField("interface.new");
+        aArrowField.setAccessible(true);
+        Field fighterSpriteField = fighterIconCls.getDeclaredField("float.super");
+        fighterSpriteField.setAccessible(true);
+        Field bNewSpriteField = bNewCls.getDeclaredField("\u00d4\u00d50000");
+        bNewSpriteField.setAccessible(true);
+        Field bNewHoloField = bNewCls.getDeclaredField("\u00d8\u00f40000");
+        bNewHoloField.setAccessible(true);
+        Field bNewModulesField = bNewCls.getDeclaredField("\u00d4\u00f40000");
+        bNewModulesField.setAccessible(true);
+        Field bNewStatusField = bNewCls.getDeclaredField("\u00d3\u00d60000");
+        bNewStatusField.setAccessible(true);
+        Field spriteTexField = spriteCls.getDeclaredField("texture");
+        spriteTexField.setAccessible(true);
+
+        // Create initial live ship icon A1 (in liveIconMap), dead ship icon A2 (in deadIconSet), and live fighter icon F1
+        Object texHull1 = allocateWithoutConstructor(texObjCls);
+        Object texArrow1 = allocateWithoutConstructor(texObjCls);
+        Object spHull1 = allocateWithoutConstructor(spriteCls);
+        Object spArrow1 = allocateWithoutConstructor(spriteCls);
+        spriteTexField.set(spHull1, texHull1);
+        spriteTexField.set(spArrow1, texArrow1);
+        Object bNew1 = allocateWithoutConstructor(bNewCls);
+        bNewSpriteField.set(bNew1, spHull1);
+        bNewHoloField.setBoolean(bNew1, true);
+        bNewModulesField.setBoolean(bNew1, true);
+        bNewStatusField.setBoolean(bNew1, true);
+        Object shipIcon1 = allocateWithoutConstructor(shipIconCls);
+        aBNewField.set(shipIcon1, bNew1);
+        aArrowField.set(shipIcon1, spArrow1);
+        liveIconMap.put("ship_1", shipIcon1);
+
+        Object texFighter1 = allocateWithoutConstructor(texObjCls);
+        Object spFighter1 = allocateWithoutConstructor(spriteCls);
+        spriteTexField.set(spFighter1, texFighter1);
+        Object fighterIcon1 = allocateWithoutConstructor(fighterIconCls);
+        fighterSpriteField.set(fighterIcon1, spFighter1);
+        liveIconMap.put("fighter_1", fighterIcon1);
+
+        Object texDeadHull = allocateWithoutConstructor(texObjCls);
+        Object spDeadHull = allocateWithoutConstructor(spriteCls);
+        spriteTexField.set(spDeadHull, texDeadHull);
+        Object bNewDead = allocateWithoutConstructor(bNewCls);
+        bNewSpriteField.set(bNewDead, spDeadHull);
+        bNewHoloField.setBoolean(bNewDead, true);
+        bNewModulesField.setBoolean(bNewDead, true);
+        bNewStatusField.setBoolean(bNewDead, true);
+        Object deadShipIcon = allocateWithoutConstructor(shipIconCls);
+        aBNewField.set(deadShipIcon, bNewDead);
+        deadIconSet.add(deadShipIcon);
+
+        divisionai.DivisionTacticalMapOverlay overlay =
+                new divisionai.DivisionTacticalMapOverlay((com.fs.starfarer.api.combat.CombatEngineAPI) realEngine);
+        overlay.ensureAttachedToWarroomUI();
+
+        boolean prevFirepower = divisionai.TsfcWarroomRenderer.isOverlayVisible();
+        Boolean prevMiniOverride = divisionai.DivisionAISettings.testTsfcMiniShipSpritesOverride;
+        try {
+            // 1. Activate TSFC Firepower overlay with Mini Ship Sprites ON (default)
+            divisionai.TsfcWarroomRenderer.resetForNewBattle();
+            divisionai.DivisionAISettings.testTsfcMiniShipSpritesOverride = Boolean.TRUE;
+            divisionai.TsfcWarroomRenderer.toggleOverlayVisible();
+            overlay.advance(0.10f);
+
+            boolean initialSuppressedOk = spriteTexField.get(spHull1) == null
+                    && spriteTexField.get(spArrow1) == null
+                    && spriteTexField.get(spFighter1) == null
+                    && spriteTexField.get(spDeadHull) == null
+                    && !bNewHoloField.getBoolean(bNew1)
+                    && !bNewModulesField.getBoolean(bNew1)
+                    && !bNewStatusField.getBoolean(bNew1);
+
+            // 2. Spawn mid-battle reinforcement ship & fighter into liveIconMap while TSFC is already active
+            Object texHull2 = allocateWithoutConstructor(texObjCls);
+            Object spHull2 = allocateWithoutConstructor(spriteCls);
+            spriteTexField.set(spHull2, texHull2);
+            Object bNew2 = allocateWithoutConstructor(bNewCls);
+            bNewSpriteField.set(bNew2, spHull2);
+            bNewHoloField.setBoolean(bNew2, true);
+            bNewModulesField.setBoolean(bNew2, true);
+            bNewStatusField.setBoolean(bNew2, true);
+            Object shipIcon2 = allocateWithoutConstructor(shipIconCls);
+            aBNewField.set(shipIcon2, bNew2);
+            liveIconMap.put("ship_reinforcement_2", shipIcon2);
+
+            overlay.advance(0.10f);
+            boolean midBattleSpawnSuppressedOk = spriteTexField.get(spHull2) == null
+                    && !bNewHoloField.getBoolean(bNew2)
+                    && !bNewModulesField.getBoolean(bNew2)
+                    && !bNewStatusField.getBoolean(bNew2);
+
+            // 3. Toggle Mod Settings 'T-S-F-C Mini Ship Sprites' OFF while TSFC stays active -> regular icons must restore!
+            divisionai.DivisionAISettings.testTsfcMiniShipSpritesOverride = Boolean.FALSE;
+            overlay.advance(0.10f);
+            boolean settingOffRestoredOk = spriteTexField.get(spHull1) == texHull1
+                    && spriteTexField.get(spArrow1) == texArrow1
+                    && spriteTexField.get(spFighter1) == texFighter1
+                    && spriteTexField.get(spDeadHull) == texDeadHull
+                    && spriteTexField.get(spHull2) == texHull2
+                    && bNewHoloField.getBoolean(bNew1)
+                    && bNewModulesField.getBoolean(bNew1)
+                    && bNewStatusField.getBoolean(bNew1)
+                    && bNewHoloField.getBoolean(bNew2);
+
+            // 4. Re-enable setting -> suppressed again, then toggle TSFC overlay OFF -> restored again!
+            divisionai.DivisionAISettings.testTsfcMiniShipSpritesOverride = Boolean.TRUE;
+            overlay.advance(0.10f);
+            boolean reSuppressedOk = spriteTexField.get(spHull1) == null && spriteTexField.get(spHull2) == null;
+            divisionai.TsfcWarroomRenderer.resetForNewBattle();
+            overlay.advance(0.10f);
+            boolean tsfcOffRestoredOk = spriteTexField.get(spHull1) == texHull1
+                    && spriteTexField.get(spHull2) == texHull2
+                    && spriteTexField.get(spFighter1) == texFighter1;
+
+            if (!initialSuppressedOk || !midBattleSpawnSuppressedOk || !settingOffRestoredOk || !reSuppressedOk || !tsfcOffRestoredOk) {
+                System.out.println("FAIL simulateWarroomBattleCommandSpriteSuite1To1: init=" + initialSuppressedOk
+                        + " [hull1=" + (spriteTexField.get(spHull1) == null)
+                        + ", arrow1=" + (spriteTexField.get(spArrow1) == null)
+                        + ", fighter1=" + (spriteTexField.get(spFighter1) == null)
+                        + ", dead=" + (spriteTexField.get(spDeadHull) == null)
+                        + ", holo=" + (!bNewHoloField.getBoolean(bNew1))
+                        + ", mod=" + (!bNewModulesField.getBoolean(bNew1))
+                        + ", stat=" + (!bNewStatusField.getBoolean(bNew1)) + "]"
+                        + ", midSpawn=" + midBattleSpawnSuppressedOk
+                        + ", settingOff=" + settingOffRestoredOk
+                        + ", reSup=" + reSuppressedOk
+                        + ", tsfcOff=" + tsfcOffRestoredOk);
+                return false;
+            }
+            return true;
+        } finally {
+            divisionai.TsfcWarroomRenderer.resetForNewBattle();
+            if (prevFirepower) {
+                divisionai.TsfcWarroomRenderer.toggleOverlayVisible();
+            }
+            divisionai.DivisionAISettings.testTsfcMiniShipSpritesOverride = prevMiniOverride;
+        }
     }
 }

@@ -37,6 +37,9 @@ public class DivisionAISettings {
     public static final String REINIT_FIELD_ID = "divai_reinit_sector_divisions";
     public static final String CHATTER_VERBOSITY_FIELD_ID = "divai_chatter_verbosity";
     public static final String TSFC_GRAPHICS_QUALITY_FIELD_ID = "divai_tsfc_graphics_quality";
+    public static final String TSFC_MINI_SHIP_SPRITES_FIELD_ID = "divai_tsfc_mini_ship_sprites";
+    public static final String TSFC_WARROOM_OPACITY_PCT_FIELD_ID = "divai_tsfc_warroom_opacity_pct";
+    public static final String TSFC_BATTLE_OPACITY_PCT_FIELD_ID = "divai_tsfc_battle_opacity_pct";
     public static final String ENABLE_BATTLE_MUSIC_FIELD_ID = "divai_enable_battle_music";
     public static final String BATTLE_MUSIC_CONTROL_FIELD_ID = "divai_battle_music_control";
     public static final String SETTINGS_JSON_ENABLE_BATTLE_MUSIC_KEY = "divisionai_enableDynamicBattleMusic";
@@ -129,6 +132,9 @@ public class DivisionAISettings {
 
     /** Optional override used by headless unit tests (null in normal gameplay). */
     public static TsfcGraphicsQuality testTsfcQualityOverride = null;
+    public static Boolean testTsfcMiniShipSpritesOverride = null;
+    public static Float testTsfcWarroomOpacityOverride = null;
+    public static Float testTsfcBattleOpacityOverride = null;
 
     public enum ChatterVerbosity {
         VERBOSE("Verbose"),
@@ -558,6 +564,37 @@ public class DivisionAISettings {
 
     public static boolean isTsfcHighGraphics() {
         return getTsfcGraphicsQuality() == TsfcGraphicsQuality.HIGH;
+    }
+
+    public static boolean isTsfcMiniShipSpritesEnabled() {
+        if (testTsfcMiniShipSpritesOverride != null) {
+            return testTsfcMiniShipSpritesOverride.booleanValue();
+        }
+        return getBool(TSFC_MINI_SHIP_SPRITES_FIELD_ID, true);
+    }
+
+    public static int getTsfcWarroomOpacityPct() {
+        int pct = getInt(TSFC_WARROOM_OPACITY_PCT_FIELD_ID, 100);
+        return Math.max(5, Math.min(150, pct));
+    }
+
+    public static float getTsfcWarroomOpacityMult() {
+        if (testTsfcWarroomOpacityOverride != null) {
+            return Math.max(0f, Math.min(1.50f, testTsfcWarroomOpacityOverride.floatValue()));
+        }
+        return getTsfcWarroomOpacityPct() / 100f;
+    }
+
+    public static int getTsfcBattleOpacityPct() {
+        int pct = getInt(TSFC_BATTLE_OPACITY_PCT_FIELD_ID, 24);
+        return Math.max(0, Math.min(100, pct));
+    }
+
+    public static float getTsfcBattleOpacityMult() {
+        if (testTsfcBattleOpacityOverride != null) {
+            return Math.max(0f, Math.min(1.00f, testTsfcBattleOpacityOverride.floatValue()));
+        }
+        return getTsfcBattleOpacityPct() / 100f;
     }
 
     /**

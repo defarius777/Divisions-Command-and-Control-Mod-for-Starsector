@@ -69,9 +69,27 @@ public class OtcBattlePlanner {
             float now) {
 
         OtcAuthority auth = myGroup.authority;
+        if (myGroup.side == 0) {
+            DivisionCommanderAI.syncPlayerObjectiveAssignmentsForGroup(engine, myGroup);
+        }
         List<DivisionState> active = new ArrayList<>();
         for (DivisionState d : myGroup.divisions) {
-            if (d.isAbleCombatEffective()) active.add(d);
+            if (!d.isAbleCombatEffective()) continue;
+            // Absolute C2 hierarchy: Player outranks OTC. Any division executing a player objective order
+            // (underDirectObjectiveOrder) is reserved for the player's command and must never be retasked by OTC.
+            if (d.underDirectObjectiveOrder && d.targetObjective != null) {
+                d.otcOrder.clear();
+                d.appliedOtcOrderVersion = d.otcOrder.version;
+                if (myGroup.strikePlan != null) {
+                    myGroup.strikePlan.participants.remove(d);
+                }
+                if (myGroup.reserveDivision == d) {
+                    d.isDesignatedReserve = false;
+                    myGroup.reserveDivision = null;
+                }
+                continue;
+            }
+            active.add(d);
         }
         List<DivisionState> visibleEnemies = new ArrayList<>();
         boolean anyAbleVisibleEnemy = false;

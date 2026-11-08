@@ -571,6 +571,9 @@ public class VoidstrikeCoordinator {
                 && (div.voidstrikeStage == 0 || div.voidstrikeStage == 1)));
 
         if (holdFightersInFormation) {
+            for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
+                DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(wings.get(wIdx));
+            }
             if (!carrier.isPullBackFighters()) {
                 carrier.setPullBackFighters(true);
                 div.fighterPullbackShipIds.add(carrier.getId());
@@ -638,7 +641,7 @@ public class VoidstrikeCoordinator {
             if (wing == null) continue;
             List<ShipAPI> wingMembers = wing.getWingMembers();
             if (wingMembers == null || wingMembers.isEmpty()) continue;
-            ShipAPI wingLeader = wing.getLeader();
+            ShipAPI wingLeader = DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(wing);
             if (wingLeader == null || !wingLeader.isAlive()) {
                 wingLeader = wingMembers.get(0);
             }

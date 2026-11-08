@@ -212,6 +212,9 @@ public class SimArena {
         public int fighterBays;
         public boolean alive = true;
         public ShipAPI shipTarget = null;
+        public com.fs.starfarer.api.combat.ShipCommand lastGivenCommand = null;
+        public final EnumSet<com.fs.starfarer.api.combat.ShipCommand> givenCommands = EnumSet.noneOf(com.fs.starfarer.api.combat.ShipCommand.class);
+        public final EnumSet<com.fs.starfarer.api.combat.ShipCommand> blockedCommands = EnumSet.noneOf(com.fs.starfarer.api.combat.ShipCommand.class);
         public String systemId = null;
         public String systemName = null;
         public boolean systemActive = false;
@@ -607,6 +610,22 @@ public class SimArena {
                             shipTarget = (a != null && a.length > 0 && a[0] instanceof ShipAPI) ? (ShipAPI) a[0] : null;
                             return null;
                         }
+                        if ("giveCommand".equals(n)) {
+                            if (a != null && a.length > 0 && a[0] instanceof com.fs.starfarer.api.combat.ShipCommand) {
+                                com.fs.starfarer.api.combat.ShipCommand cmd = (com.fs.starfarer.api.combat.ShipCommand) a[0];
+                                if (!blockedCommands.contains(cmd)) {
+                                    lastGivenCommand = cmd;
+                                    givenCommands.add(cmd);
+                                }
+                            }
+                            return null;
+                        }
+                        if ("blockCommandForOneFrame".equals(n)) {
+                            if (a != null && a.length > 0 && a[0] instanceof com.fs.starfarer.api.combat.ShipCommand) {
+                                blockedCommands.add((com.fs.starfarer.api.combat.ShipCommand) a[0]);
+                            }
+                            return null;
+                        }
                         if (detailedCombatModel && "isFrigate".equals(n)) return hullSize == HullSize.FRIGATE;
                         if (detailedCombatModel && "isDestroyer".equals(n)) return hullSize == HullSize.DESTROYER;
                         if (detailedCombatModel && "isCruiser".equals(n)) return hullSize == HullSize.CRUISER;
@@ -711,6 +730,7 @@ public class SimArena {
     public float mapHeight = 18000f;
     public final List<SimShipState> ships = new ArrayList<>();
     public final List<BattleObjectiveAPI> objectives = new ArrayList<>();
+    public final List<CombatFleetManagerAPI.AssignmentInfo> playerAssignments = new ArrayList<>();
     public final List<String> combatLogs = new ArrayList<>();
     public BattleGroupState playerGroup;
     public BattleGroupState enemyGroup;
@@ -836,6 +856,7 @@ public class SimArena {
                 new Class<?>[]{CombatTaskManagerAPI.class},
                 (p, m, a) -> {
                     if ("isFullAssault".equals(m.getName())) return fullAssaultSide0;
+                    if ("getAllAssignments".equals(m.getName())) return playerAssignments;
                     Class<?> rt = m.getReturnType();
                     if (rt == boolean.class) return false;
                     if (rt == int.class) return 0;

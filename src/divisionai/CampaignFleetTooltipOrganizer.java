@@ -627,20 +627,31 @@ public final class CampaignFleetTooltipOrganizer {
         try {
             ClassLoader cl = Global.class.getClassLoader();
             Class<?> ceClass = Class.forName("com.fs.starfarer.campaign.CampaignEngine", false, cl);
-            Class<?> tmClass = Class.forName("com.fs.starfarer.campaign.OOoO", false, cl);
+            Class<?> tmClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.campaign.OOoO", ceClass.getName(), "getTooltipManager");
             Class<?> entityClass = Class.forName("com.fs.starfarer.campaign.CampaignEntity", false, cl);
             Class<?> stClass = Class.forName("com.fs.starfarer.ui.impl.StandardTooltipV2", false, cl);
-            Class<?> uiCompClass = Class.forName("com.fs.starfarer.ui.c", false, cl);
-            Class<?> ifNewClass = Class.forName("com.fs.starfarer.ui.interfacenew", false, cl);
-            Class<?> posClass = Class.forName("com.fs.starfarer.ui.OO0O", false, cl);
-            Class<?> scrollerClass = Class.forName("com.fs.starfarer.ui.g", false, cl);
-            Class<?> contentContainerClass = Class.forName("com.fs.starfarer.ui.g$Oo", false, cl);
-            Class<?> buttonImplClass = Class.forName("com.fs.starfarer.ui.n", false, cl);
+            Class<?> uiCompClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.c", stClass.getName(), "getContents");
+            Class<?> scrollerClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.g", stClass.getName(), "getScroller");
+            Class<?> ifNewClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.interfacenew", "com.fs.starfarer.campaign.CampaignState", "getScreenPanel");
+            Class<?> posClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.OO0O", uiCompClass.getName(), "getPosition");
+            Class<?> contentContainerClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.g$Oo", scrollerClass.getName(), "getContentContainer");
             Class<?> fleetMemberImplClass = Class.forName("com.fs.starfarer.campaign.fleet.FleetMember", false, cl);
-            Class<?> iconClass = Class.forName("com.fs.starfarer.ui.B.new", false, cl);
-
-            sPanelClass = Class.forName("com.fs.starfarer.campaign.ui.S", false, cl);
-            vGridClass = Class.forName("com.fs.starfarer.coreui.v", false, cl);
+            Class<?> fddCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                    cl, "com.fs.starfarer.ui.impl.oO0O", "com.fs.starfarer.combat.CombatState", "fdd");
+            sPanelClass = ObfuscatedBytecodeBridge.resolveClassOrFieldByPackage(
+                    cl, "com.fs.starfarer.campaign.ui.S", fddCls.getName(), "com.fs.starfarer.campaign.ui.");
+            Class<?> buttonImplClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.n", sPanelClass.getName(), "getButtonForMember");
+            Class<?> iconClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.B.new", sPanelClass.getName(), "getIconForMember");
+            vGridClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.coreui.v", sPanelClass.getName(), "getList");
 
             MethodHandles.Lookup pubLookup = MethodHandles.lookup();
             MethodHandles.Lookup tmLookup = MethodHandles.privateLookupIn(tmClass, pubLookup);
@@ -653,14 +664,19 @@ public final class CampaignFleetTooltipOrganizer {
                     ceClass,
                     "getTooltipManager",
                     MethodType.methodType(tmClass));
+            String hoveredEntityField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, tmClass, ObfuscatedBytecodeBridge.toDescriptor(entityClass), "o00000");
             getHoveredEntityHandle = tmLookup.findGetter(
                     tmClass,
-                    "o00000",
+                    hoveredEntityField,
                     entityClass);
 
             MethodHandle tooltipGetter = null;
-            String[] candidateTooltipFields = {"\u00d800000", "\u00d400000"};
+            String resolvedTooltipField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, tmClass, ObfuscatedBytecodeBridge.toDescriptor(stClass), "\u00d800000", "\u00d400000");
+            String[] candidateTooltipFields = {resolvedTooltipField, "\u00d800000", "\u00d400000"};
             for (String fName : candidateTooltipFields) {
+                if (fName == null) continue;
                 try {
                     tooltipGetter = tmLookup.findGetter(tmClass, fName, stClass);
                     break;
@@ -770,9 +786,11 @@ public final class CampaignFleetTooltipOrganizer {
                         "getBase",
                         MethodType.methodType(posClass));
                 MethodHandles.Lookup posLookup = MethodHandles.privateLookupIn(posClass, pubLookup);
+                String posChildrenField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, posClass, "Ljava/util/List;", "\u00d400000");
                 posChildrenListGetterHandle = posLookup.findGetter(
                         posClass,
-                        "\u00d400000",
+                        posChildrenField,
                         List.class);
             } catch (Throwable ignored) {
             }

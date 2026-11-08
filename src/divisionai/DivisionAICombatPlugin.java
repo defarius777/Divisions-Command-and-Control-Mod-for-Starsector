@@ -41,6 +41,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     private static final float DIVISION_EVAL_INTERVAL = 0.50f;
     private static final float OTC_EVAL_INTERVAL = 1.50f;
+    public static final float TSFC_EVAL_INTERVAL = BattlefieldFirepowerEvaluator.TSFC_EVAL_INTERVAL; // 0.10s keyframe cadence
 
     private CombatEngineAPI engine;
     private BattleGroupState playerGroup;
@@ -56,6 +57,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     private float divisionTimer = 0f;
     private float otcTimer = 0f;
+    private float tsfcTimer = 0f;
     private boolean initializedBattle = false;
     private int lastConvStateSyncShipsCount = -1;
     private boolean loggedPlayerOtcInit = false;
@@ -63,6 +65,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private boolean loggedEnemyOtcInit = false;
     private boolean preRenderHookAttached = false;
     private CombatEngineAPI preRenderHookEngine = null;
+    private boolean renderedBelowShipsLayerThisFrame = false;
     private boolean loggedBattleSummary = false;
     private final java.util.Set<String> loggedObfuscatedHookFailures = new java.util.HashSet<>();
 
@@ -76,6 +79,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.loggedEnemyOtcInit = false;
         this.divisionTimer = 0f;
         this.otcTimer = 0f;
+        this.tsfcTimer = 0f;
         this.loggedBattleSummary = false;
         this.loggedObfuscatedHookFailures.clear();
         this.passiveContactGroups.clear();
@@ -91,6 +95,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
         }
         this.preRenderHookAttached = false;
+        this.renderedBelowShipsLayerThisFrame = false;
         ensurePreRenderDeploymentHook();
     }
 
@@ -103,36 +108,41 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private void ensurePreRenderDeploymentHook() {
         if (engine == null) return;
         if (preRenderHookAttached && preRenderHookEngine == engine) return;
-        try {
-            if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) return;
-        } catch (Throwable ignored) {
-            return;
-        }
         final DivisionAICombatPlugin owner = this;
         final CombatEngineAPI hookEngine = engine;
-        engine.addLayeredRenderingPlugin(new BaseCombatLayeredRenderingPlugin(CombatEngineLayers.BELOW_PLANETS) {
-            @Override
-            public EnumSet<CombatEngineLayers> getActiveLayers() {
-                return EnumSet.of(CombatEngineLayers.BELOW_PLANETS);
-            }
+        try {
+            engine.addLayeredRenderingPlugin(new BaseCombatLayeredRenderingPlugin(CombatEngineLayers.BELOW_PLANETS) {
+                @Override
+                public EnumSet<CombatEngineLayers> getActiveLayers() {
+                    return EnumSet.of(
+                            CombatEngineLayers.BELOW_PLANETS,
+                            CombatEngineLayers.BELOW_SHIPS_LAYER);
+                }
 
-            @Override
-            public float getRenderRadius() {
-                return 1.0e7f;
-            }
+                @Override
+                public float getRenderRadius() {
+                    return 1.0e7f;
+                }
 
-            @Override
-            public boolean isExpired() {
-                return owner.engine != hookEngine;
-            }
+                @Override
+                public boolean isExpired() {
+                    return owner.engine != hookEngine;
+                }
 
-            @Override
-            public void render(CombatEngineLayers layer, com.fs.starfarer.api.combat.ViewportAPI viewport) {
-                owner.interceptBeforeRender();
-            }
-        });
-        preRenderHookAttached = true;
-        preRenderHookEngine = engine;
+                @Override
+                public void render(CombatEngineLayers layer, com.fs.starfarer.api.combat.ViewportAPI viewport) {
+                    if (layer == CombatEngineLayers.BELOW_PLANETS) {
+                        owner.interceptBeforeRender();
+                    } else if (layer == CombatEngineLayers.BELOW_SHIPS_LAYER) {
+                        owner.renderedBelowShipsLayerThisFrame = true;
+                        owner.renderBattleScreenTsfcBelowShipsLayer(viewport);
+                    }
+                }
+            });
+            preRenderHookAttached = true;
+            preRenderHookEngine = engine;
+        } catch (Throwable ignored) {
+        }
     }
 
     /** Runs the deployment-wave interception from render hooks (before ships are drawn). */
@@ -147,10 +157,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     @Override
     public void renderInWorldCoords(ViewportAPI viewport) {
-        // Fallback only in case the layered hook could not be attached
-        if (!preRenderHookAttached) {
+        ensurePreRenderDeploymentHook();
+        // Fallback in case BELOW_SHIPS_LAYER has not yet been flushed by executeAdds() on the very first frame
+        if (!renderedBelowShipsLayerThisFrame) {
             interceptBeforeRender();
+            renderBattleScreenTsfcBelowShipsLayer(viewport);
         }
+        renderedBelowShipsLayerThisFrame = false;
     }
 
     @Override
@@ -159,13 +172,75 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         TsfcWarroomRenderer.processInputEvents(engine, events);
     }
 
-    public static final float BATTLE_SCREEN_TSFC_OPACITY_MULT = 0.22f;
+    public static final float BATTLE_SCREEN_TSFC_OPACITY_MULT = 0.24f;
 
     @Override
     public void renderInUICoords(ViewportAPI viewport) {
-        // Render TSFC (Time, Space, Firepower, Convergence) in the live Battle Screen (outside the Warroom)
-        // at vastly reduced opacity so a player manually piloting their ship can still read TSFC geometry.
-        renderBattleScreenTsfcOverlay(viewport);
+        // Battle screen TSFC now renders underneath ship sprites on CombatEngineLayers.BELOW_SHIPS_LAYER.
+        // Only fall back to UI-layer rendering if the layered rendering hook could not be attached.
+        if (!preRenderHookAttached) {
+            renderBattleScreenTsfcOverlay(viewport);
+        }
+    }
+
+    /**
+     * Renders the Battle Screen TSFC overlays and high-contrast weapon firing arcs on
+     * {@link CombatEngineLayers#BELOW_SHIPS_LAYER} so that Time, Space, Firepower, Convergence, and
+     * high-contrast firing arc geometries render underneath ship sprites, shields, strike craft, and
+     * missiles/munitions when the player is captaining a ship or using the camera feed ("F" key) on a
+     * friendly ship, without rendering Warroom truescale ship/hulk icons on the battle graphics layer.
+     */
+    void renderBattleScreenTsfcBelowShipsLayer(ViewportAPI viewport) {
+        if (engine == null || !initializedBattle || engine.isCombatOver() || viewport == null) {
+            return;
+        }
+        if (!TsfcWarroomRenderer.isTimeOverlayVisible()
+                && !TsfcWarroomRenderer.isSpaceOverlayVisible()
+                && !TsfcWarroomRenderer.isOverlayVisible()
+                && !TsfcWarroomRenderer.isConvergenceOverlayVisible()) {
+            return;
+        }
+        float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
+        float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
+        float visW = viewport.getVisibleWidth();
+        float visH = viewport.getVisibleHeight();
+        float llx = viewport.getLLX();
+        float lly = viewport.getLLY();
+        float invScaleX;
+        float invScaleY;
+        if (visW > 1f && visH > 1f && screenW > 1f && screenH > 1f) {
+            invScaleX = visW / screenW;
+            invScaleY = visH / screenH;
+        } else {
+            float offsetX = viewport.convertWorldXtoScreenX(0f);
+            float scale = (viewport.convertWorldXtoScreenX(1000f) - offsetX) / 1000f;
+            if (scale <= 1e-5f) {
+                return;
+            }
+            invScaleX = 1f / scale;
+            invScaleY = 1f / scale;
+            llx = -offsetX * invScaleX;
+            lly = -viewport.convertWorldYtoScreenY(0f) * invScaleY;
+        }
+        // CombatState.render sets GL_PROJECTION to glOrtho(llx, llx + visW, lly, lly + visH, -4000, 4000)
+        // and GL_MODELVIEW to Identity before calling CombatEngine.render(false).
+        // TsfcWarroomRenderer emits screen-space vertices sx = (wx - llx) * (screenW / visW) and
+        // sy = (wy - lly) * (screenH / visH), so translating by (llx, lly) and scaling by (visW / screenW, visH / screenH)
+        // on GL_MODELVIEW reconstructs exact world coordinates (wx, wy) 1:1 with ship sprites at every zoom and camera position.
+        org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
+        org.lwjgl.opengl.GL11.glPushMatrix();
+        org.lwjgl.opengl.GL11.glLoadIdentity();
+        org.lwjgl.opengl.GL11.glTranslatef(llx, lly, 0f);
+        org.lwjgl.opengl.GL11.glScalef(invScaleX, invScaleY, 1f);
+        try {
+            renderBattleScreenTsfcOverlay(viewport);
+        } finally {
+            org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
+            org.lwjgl.opengl.GL11.glPopMatrix();
+        }
+        // Render high-contrast firing arcs in world coordinates on BELOW_SHIPS_LAYER immediately above TSFC petals
+        // and underneath ships, strike craft, and missiles/munitions.
+        renderBattleScreenHighContrastFiringArcs(viewport);
     }
 
     public void renderBattleScreenTsfcOverlay(ViewportAPI viewport) {
@@ -185,24 +260,92 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (ui != null && ui.isShowingDeploymentDialog()) {
             return;
         }
-        float cmdOpacity = (ui != null && ui.isShowingCommandUI()) ? ui.getCommandUIOpacity() : 0f;
-        if (cmdOpacity >= 0.95f) {
+        // When the player is using the camera feed ("F" key) on a friendly ship inside the Command UI
+        // (warroom.isShowingVideoFeed() == true), ui.isShowingCommandUI() remains true and getCommandUIOpacity() is 1.0f,
+        // even though the tactical map is hidden and the live battle graphics layer is displayed.
+        boolean showingCameraFeed = (tacticalOverlay != null && tacticalOverlay.isShowingVideoFeed());
+        float cmdMapOpacity = (ui != null && ui.isShowingCommandUI() && !showingCameraFeed)
+                ? ui.getCommandUIOpacity()
+                : 0f;
+        if (cmdMapOpacity >= 0.95f) {
             return;
         }
-        float battleFade = BATTLE_SCREEN_TSFC_OPACITY_MULT * Math.max(0f, 1f - cmdOpacity);
-        if (battleFade <= 0.04f) {
+        float configuredBattleMult = DivisionAISettings.getTsfcBattleOpacityMult();
+        float battleFade = configuredBattleMult * Math.max(0f, 1f - cmdMapOpacity);
+        if (battleFade <= 0.01f) {
             return;
         }
-        float offsetX = viewport.convertWorldXtoScreenX(0f);
-        float offsetY = viewport.convertWorldYtoScreenY(0f);
-        float scale = (viewport.convertWorldXtoScreenX(1000f) - offsetX) / 1000f;
+        float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
+        float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
+        float visW = viewport.getVisibleWidth();
+        float visH = viewport.getVisibleHeight();
+        float scale;
+        float offsetX;
+        float offsetY;
+        if (visW > 1f && visH > 1f && screenW > 1f && screenH > 1f) {
+            scale = screenW / visW;
+            offsetX = -viewport.getLLX() * scale;
+            offsetY = -viewport.getLLY() * (screenH / visH);
+        } else {
+            offsetX = viewport.convertWorldXtoScreenX(0f);
+            offsetY = viewport.convertWorldYtoScreenY(0f);
+            scale = (viewport.convertWorldXtoScreenX(1000f) - offsetX) / 1000f;
+        }
         if (scale <= 1e-5f) {
             return;
         }
+        float tscBattleFade = Math.min(1.15f, battleFade * 3.20f);
+        // Render only the TSFC overlays (Time, Space, Convergence, Firepower) on the battle graphics layer;
+        // never render Warroom truescale ship or hulk icons on the battle graphics layer.
         TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
-                engine, scale, offsetX, offsetY, battleFade, playerGroup, alliedAiGroup, enemyGroup);
+                engine, scale, offsetX, offsetY, tscBattleFade, playerGroup, alliedAiGroup, enemyGroup);
         TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
                 engine, scale, offsetX, offsetY, battleFade, playerGroup, alliedAiGroup, enemyGroup);
+    }
+
+    void renderBattleScreenHighContrastFiringArcs(ViewportAPI viewport) {
+        if (engine == null || !initializedBattle || engine.isCombatOver() || viewport == null) {
+            return;
+        }
+        if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) {
+            return;
+        }
+        if (!TsfcWarroomRenderer.isAnyTsfcOverlayVisible()) {
+            return;
+        }
+        com.fs.starfarer.api.combat.CombatUIAPI ui = engine.getCombatUI();
+        if (ui != null && ui.isShowingDeploymentDialog()) {
+            return;
+        }
+        boolean showingCameraFeed = (tacticalOverlay != null && tacticalOverlay.isShowingVideoFeed());
+        float cmdMapOpacity = (ui != null && ui.isShowingCommandUI() && !showingCameraFeed)
+                ? ui.getCommandUIOpacity()
+                : 0f;
+        if (cmdMapOpacity >= 0.95f) {
+            return;
+        }
+        float configuredBattleMult = DivisionAISettings.getTsfcBattleOpacityMult();
+        if (configuredBattleMult <= 0.01f) {
+            return;
+        }
+        ShipAPI focusShip = (showingCameraFeed && tacticalOverlay != null)
+                ? tacticalOverlay.resolveVideoFeedShip()
+                : engine.getPlayerShip();
+        if (focusShip == null) {
+            return;
+        }
+        if (!showingCameraFeed && tacticalOverlay != null && !tacticalOverlay.areWeaponArcsOn()) {
+            return;
+        }
+        float animProgress = (!showingCameraFeed && tacticalOverlay != null)
+                ? tacticalOverlay.getArcRendererAnimProgress()
+                : 1.0f;
+        if (animProgress <= 0.005f) {
+            return;
+        }
+        float arcAlpha = Math.min(1.0f, Math.max(0.65f, configuredBattleMult * 3.5f)) * Math.max(0f, 1f - cmdMapOpacity);
+        TsfcWarroomRenderer.renderHighContrastCaptaincyFiringArcsWorldSpace(
+                engine, viewport, focusShip, arcAlpha, animProgress);
     }
 
     @Override
@@ -283,6 +426,21 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 loggedBattleSummary = true;
                 logBattleSummary(engine, playerGroup, enemyGroup);
             }
+            if (!engine.isPaused()) {
+                float overNow = engine.getTotalElapsedTime(false);
+                tsfcTimer += amount;
+                if (tsfcTimer >= TSFC_EVAL_INTERVAL) {
+                    tsfcTimer = 0f;
+                    BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(
+                            engine,
+                            overNow,
+                            playerGroup,
+                            alliedAiGroup,
+                            enemyGroup,
+                            side1OpposingView,
+                            side0OpposingView);
+                }
+            }
             if (musicController != null) {
                 BattleGroupState musicPlayerView = (side0OpposingView != null && !side0OpposingView.divisions.isEmpty())
                         ? side0OpposingView
@@ -327,9 +485,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         divisionTimer += amount;
         otcTimer += amount;
+        tsfcTimer += amount;
 
         if (divisionTimer >= DIVISION_EVAL_INTERVAL) {
             divisionTimer = 0f;
+            tsfcTimer = 0f;
             long tickStartNs = System.nanoTime();
             long markSyncNs = 0L, markTelemetryNs = 0L, markViewNs = 0L, markOtcNs = 0L, markDivNs = 0L, markVoidNs = 0L;
 
@@ -426,6 +586,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
 
             // 2. Update telemetry ONLY for active battlegroups
+            //    Before mutating division telemetry on the 0.20s C2 tick, snapshot TSFC keyframes so 0.10s interpolation stays continuous.
+            BattlefieldFirepowerEvaluator.snapshotGroupDivisionKeyframesBeforeUpdate(
+                    engine, now, playerGroup, alliedAiGroup, enemyGroup);
             if (playerHasDivisions) {
                 OtcAI.updateTelemetry(engine, playerGroup);
                 boolean placedWave = OtcAI.applyInitialFleetFormationDeployment(engine, playerGroup, enemyGroup, now);
@@ -450,6 +613,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     if (tacticalOverlay != null) tacticalOverlay.invalidateGeometryCache();
                 }
             }
+            if (!playerHasDivisions && !alliedAiHasDivisions && !enemyHasDivisions) {
+                BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
+            }
             markTelemetryNs = System.nanoTime();
 
             // Build passive opposing threat views for both sides so OTC/Division Commanders can always spot, fix,
@@ -457,7 +623,19 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             // when fighting a 0%-organization fleet)!
             BattleGroupState side0OpposingView = buildSide0OpposingViewForEnemy(playerHulls);
             BattleGroupState side1OpposingView = buildSide1OpposingViewForPlayer(enemyHulls);
+            BattlefieldFirepowerEvaluator.setActiveOpposingViews(side1OpposingView, side0OpposingView);
             markViewNs = System.nanoTime();
+
+            // Evaluate cross-group Time/Space/Convergence ONCE for all active battle groups before OTC & Division AI
+            // run so every group's TSFC keyframes and battleActiveDivisionCount are 100% consistent on every tick.
+            BattlefieldFirepowerEvaluator.evaluateAllGroupsTimeSpaceConvergenceOncePerTick(
+                    engine,
+                    now,
+                    playerGroup,
+                    alliedAiGroup,
+                    enemyGroup,
+                    side1OpposingView,
+                    side0OpposingView);
 
             // 3. Run OTC strategy ONLY for battlegroups that have at least 1 division
             boolean anyNewDivs = !newPlayerDivs.isEmpty() || !newAlliedAiDivs.isEmpty() || !newEnemyDivs.isEmpty();
@@ -485,6 +663,14 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             if (enemyHasDivisions && !side0OpposingView.divisions.isEmpty()) {
                 DivisionCommanderAI.evaluateAndExecuteDivisions(engine, enemyGroup, side0OpposingView, now);
             }
+            // Refresh Convergence focal points (if Division Commanders switched targets on their 2.5s cadence)
+            // and finalize deterministic division watermarks across all active battle groups.
+            BattlefieldFirepowerEvaluator.refreshConvergenceTargetsAndWatermarksAfterC2(
+                    engine,
+                    now,
+                    playerGroup,
+                    alliedAiGroup,
+                    enemyGroup);
 
             markDivNs = System.nanoTime();
             // 5. Update active Voidstrike instantiation, multi-division merging, and return cleanup
@@ -510,10 +696,25 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                         engine.getShips() != null ? engine.getShips().size() : 0,
                         BattlefieldFirepowerEvaluator.getRoseCount()));
             }
+        } else if (tsfcTimer >= TSFC_EVAL_INTERVAL) {
+            tsfcTimer = 0f;
+            BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(
+                    engine,
+                    now,
+                    playerGroup,
+                    alliedAiGroup,
+                    enemyGroup,
+                    side1OpposingView,
+                    side0OpposingView);
         }
 
         // Enforce 60 Hz frame-accurate ship system coordination, standoff braking cutoffs, and scouting discipline
         ShipSystemCoordinator.advanceEveryFrame(engine, playerGroup, alliedAiGroup, enemyGroup, now);
+
+        // Ensure every active FighterWing has a non-null leader and non-null leaderFlockingAI so vanilla
+        // FighterAI.advance never throws a NullPointerException when a wing leader is killed while returning
+        // to carrier (RETURN_TO_CARRIER) and a replacement fighter spawns.
+        ensureAllFighterWingsHaveValidLeaders(engine);
 
         // Advance dynamic engagement-driven battle music every frame
         if (musicController != null) {
@@ -525,6 +726,138 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         // Maintain HUD status on the player flagship ONLY if the player fleet has at least 1 active division
         maintainPlayerHudStatus();
+    }
+
+    private static MethodHandle mhWingSetLeader;
+    private static MethodHandle mhWingGetLeaderFlockingAI;
+    private static MethodHandle mhWingSetLeaderFlockingAI;
+    private static MethodHandle mhFighterAIGetFlockingAI;
+    private static boolean mhFighterWingHandlesResolved = false;
+
+    /**
+     * Guards against a vanilla Starsector 0.98a crash in {@code com.fs.starfarer.combat.ai.FighterAI.advance}:
+     * When a fighter wing has order {@code RETURN_TO_CARRIER} (e.g. {@code carrier.isPullBackFighters() == true})
+     * and its previous wing leader dies, vanilla {@code M.selectNewLeader()} skips all returning wingmates and
+     * returns {@code null}. If a replacement fighter spawns into that wing, {@code M.getLeaderFlockingAI()} is
+     * {@code null} and {@code M.isLeader(ship)} is {@code false} for every member, causing {@code FighterAI.advance}
+     * to throw {@code NullPointerException: Cannot invoke "...A.o00000(float)" because the return value of
+     * "com.fs.starfarer.combat.ai.M.getLeaderFlockingAI()" is null}.
+     */
+    public static void ensureAllFighterWingsHaveValidLeaders(CombatEngineAPI engine) {
+        if (engine == null) return;
+        List<ShipAPI> ships = engine.getShips();
+        if (ships == null || ships.isEmpty()) return;
+        for (int i = 0, n = ships.size(); i < n; i++) {
+            ShipAPI s = ships.get(i);
+            if (s == null || !s.isAlive()) continue;
+            if (s.isFighter()) {
+                com.fs.starfarer.api.combat.FighterWingAPI wing = s.getWing();
+                if (wing != null) {
+                    ensureFighterWingLeaderAndFlockingAI(wing);
+                }
+            } else if (s.hasLaunchBays()) {
+                List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
+                if (wings != null) {
+                    for (int w = 0, wn = wings.size(); w < wn; w++) {
+                        com.fs.starfarer.api.combat.FighterWingAPI wing = wings.get(w);
+                        if (wing != null) {
+                            ensureFighterWingLeaderAndFlockingAI(wing);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public static ShipAPI ensureFighterWingLeaderAndFlockingAI(com.fs.starfarer.api.combat.FighterWingAPI wing) {
+        if (wing == null) return null;
+        List<ShipAPI> members = wing.getWingMembers();
+        if (members == null || members.isEmpty()) return null;
+
+        ShipAPI leader = wing.getLeader();
+        if (leader == null || !leader.isAlive() || leader.isHulk()) {
+            ShipAPI fallback = null;
+            for (int i = 0, n = members.size(); i < n; i++) {
+                ShipAPI m = members.get(i);
+                if (m != null && m.isAlive() && !m.isHulk()) {
+                    fallback = m;
+                    break;
+                }
+            }
+            if (fallback == null) {
+                return null;
+            }
+            leader = fallback;
+            resolveFighterWingHandlesIfNeeded(wing, leader);
+            if (mhWingSetLeader != null) {
+                try {
+                    mhWingSetLeader.invoke(wing, leader);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        resolveFighterWingHandlesIfNeeded(wing, leader);
+        if (mhWingGetLeaderFlockingAI != null && mhWingSetLeaderFlockingAI != null && mhFighterAIGetFlockingAI != null) {
+            try {
+                Object leaderFlocking = mhWingGetLeaderFlockingAI.invoke(wing);
+                if (leaderFlocking == null) {
+                    for (int i = -1, n = members.size(); i < n; i++) {
+                        ShipAPI candidate = (i < 0) ? leader : members.get(i);
+                        if (candidate == null || !candidate.isAlive()) continue;
+                        Object shipAi = candidate.getShipAI();
+                        if (shipAi != null && "com.fs.starfarer.combat.ai.FighterAI".equals(shipAi.getClass().getName())) {
+                            Object flockAi = mhFighterAIGetFlockingAI.invoke(shipAi);
+                            if (flockAi != null) {
+                                mhWingSetLeaderFlockingAI.invoke(wing, flockAi);
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return leader;
+    }
+
+    private static void resolveFighterWingHandlesIfNeeded(
+            com.fs.starfarer.api.combat.FighterWingAPI wing,
+            ShipAPI sampleFighter) {
+        if (mhFighterWingHandlesResolved || wing == null || sampleFighter == null) return;
+        String wingClassName = wing.getClass().getName();
+        if (!wingClassName.startsWith("com.fs.starfarer.combat.")) return;
+        mhFighterWingHandlesResolved = true;
+        try {
+            ClassLoader cl = wing.getClass().getClassLoader();
+            Class<?> wingClass = wing.getClass();
+            Class<?> shipImplClass = ObfuscatedBytecodeBridge.resolveMethodReturnClass(
+                    cl, wingClassName, "getLeader", "()");
+            if (shipImplClass == null) {
+                shipImplClass = Class.forName("com.fs.starfarer.combat.entities.Ship", false, cl);
+            }
+            Class<?> flockingAiClass = ObfuscatedBytecodeBridge.resolveMethodReturnClass(
+                    cl, wingClassName, "getLeaderFlockingAI", "()");
+            Class<?> fighterAiClass = Class.forName("com.fs.starfarer.combat.ai.FighterAI", false, cl);
+            if (flockingAiClass == null) {
+                flockingAiClass = ObfuscatedBytecodeBridge.resolveMethodReturnClass(
+                        cl, fighterAiClass.getName(), "getFlockingAI", "()");
+            }
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            if (shipImplClass != null) {
+                mhWingSetLeader = lookup.findVirtual(
+                        wingClass, "setLeader", MethodType.methodType(void.class, shipImplClass));
+            }
+            if (flockingAiClass != null) {
+                mhWingGetLeaderFlockingAI = lookup.findVirtual(
+                        wingClass, "getLeaderFlockingAI", MethodType.methodType(flockingAiClass));
+                mhWingSetLeaderFlockingAI = lookup.findVirtual(
+                        wingClass, "setLeaderFlockingAI", MethodType.methodType(void.class, flockingAiClass));
+                mhFighterAIGetFlockingAI = lookup.findVirtual(
+                        fighterAiClass, "getFlockingAI", MethodType.methodType(flockingAiClass));
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private static MethodHandle mhExecuteAdds;
@@ -635,6 +968,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
         }
 
+        BattlefieldFirepowerEvaluator.snapshotGroupDivisionKeyframesBeforeUpdate(
+                engine, now, playerGroup, alliedAiGroup, enemyGroup);
+
         if (newPlayerWave != null && playerGroup != null) {
             PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
             if (doctrine != null) {
@@ -702,6 +1038,14 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 }
             }
         }
+        // Always ensure newly deployed reinforcement ships get their Firepower Rose initialized immediately
+        // even if no side currently has a multi-ship division, and keep cross-group TSFC pinched & watermarked.
+        BattlefieldFirepowerEvaluator.updateBattlefieldRoses(engine, now);
+        BattleGroupState s0View = buildSide0OpposingViewForEnemy(playerHulls);
+        BattleGroupState s1View = buildSide1OpposingViewForPlayer(enemyHulls);
+        BattlefieldFirepowerEvaluator.setActiveOpposingViews(s1View, s0View);
+        BattlefieldFirepowerEvaluator.evaluateAllGroupsTimeSpaceConvergenceOncePerTick(
+                engine, now, playerGroup, alliedAiGroup, enemyGroup, s1View, s0View);
     }
 
     /**
@@ -899,13 +1243,19 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     String.format("Command channel restoring in %.0fs", rem),
                     true);
         } else {
+            float safeRatio = (Float.isNaN(playerGroup.forceRatio) || Float.isInfinite(playerGroup.forceRatio))
+                    ? 1.0f
+                    : playerGroup.forceRatio;
+            float safeEngPct = (Float.isNaN(playerGroup.smoothedEngagementLevel) || Float.isInfinite(playerGroup.smoothedEngagementLevel))
+                    ? 0.0f
+                    : (playerGroup.smoothedEngagementLevel * 100f);
             engine.maintainStatusForPlayerShip(
                     HUD_STATUS_KEY_OTC,
                     "graphics/icons/hullsys/reserve_deployment.png",
                     "OTC Phase: " + playerGroup.currentPhase.displayName,
                     String.format("Force Ratio %.2fx | Engaged %.0f%% | %d Divs",
-                            playerGroup.forceRatio,
-                            playerGroup.smoothedEngagementLevel * 100f,
+                            safeRatio,
+                            safeEngPct,
                             playerGroup.divisions.size()),
                     false);
         }

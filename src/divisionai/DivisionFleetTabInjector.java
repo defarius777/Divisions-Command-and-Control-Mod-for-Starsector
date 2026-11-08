@@ -128,9 +128,12 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
         try {
             ClassLoader cl = campaignUI.getClass().getClassLoader();
             Class<?> csClass = Class.forName("com.fs.starfarer.campaign.CampaignState", false, cl);
-            Class<?> lClass = Class.forName("com.fs.starfarer.ui.newui.L", false, cl);
-            Class<?> dialogClass = Class.forName("com.fs.starfarer.ui.newui.o0Oo", false, cl);
-            Class<?> ifNewClass = Class.forName("com.fs.starfarer.ui.interfacenew", false, cl);
+            Class<?> lClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.newui.L", csClass.getName(), "getCore");
+            Class<?> dialogClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.newui.o0Oo", csClass.getName(), "getEncounterDialog");
+            Class<?> ifNewClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.interfacenew", csClass.getName(), "getScreenPanel");
 
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             getCoreHandle = lookup.findVirtual(csClass, "getCore", MethodType.methodType(lClass));
