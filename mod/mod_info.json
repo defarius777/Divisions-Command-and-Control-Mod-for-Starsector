@@ -6,7 +6,7 @@
 	"version": {
 		"major": "1",
 		"minor": "1",
-		"patch": "0"
+		"patch": "1"
 	},
 	"description": "A Combat AI overhaul for Starsector.",
 	"gameVersion": "0.98a-RC8",
