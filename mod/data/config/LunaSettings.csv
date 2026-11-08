@@ -24,6 +24,8 @@ divai_tsfc_graphics_quality,T-S-F-C Graphics Quality,Radio,High,"High, Low","Ren
 - High: Smooth polar contours and anti-aliased rings.
 - Low: Reduced segment counts for higher FPS in large battles.",,,
 divai_tsfc_mini_ship_sprites,T-S-F-C Mini Ship Sprites,Boolean,true,,"When any T-S-F-C overlay is active on the Tactical Map (Tab), replace regular command ship sprites with true-scale mini ship silhouettes rendered on top of T-S-F-C.",,,
+divai_tsfc_warroom_opacity_pct,T-S-F-C Warroom Opacity,Int,100,,"Opacity scale for Time, Space, Firepower, and Convergence overlays on the Tactical Map (Tab).",5,150,
+divai_tsfc_battle_opacity_pct,T-S-F-C Captain / Camera Feed Opacity,Int,24,,"Opacity scale for Time, Space, Firepower, and Convergence overlays in the Captaincy and Camera Feed (F) views.",0,100,
 ,,,,,,,,
 divai_musicHeader,Battle Music,Header,Battle Music,,,,,
 divai_enable_battle_music,Enable Dynamic Battle Music,Boolean,true,,"Enable layered combat music (ambient base layer plus dynamic faction combat tracks).",,,

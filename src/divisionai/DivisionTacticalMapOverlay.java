@@ -356,6 +356,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private Object warroomInstance = null;
     private Object mapDisplayInstance = null;
     private MethodHandle isShowingVideoFeedHandle = null;
+    private MethodHandle getEntityToFollowV2Handle = null;
     private MethodHandle worldToMapScreenHandle = null;
     private MethodHandle mapGetIconHandle = null;
     private MethodHandle iconRenderSpriteHandle = null;
@@ -453,6 +454,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         MethodType.methodType(boolean.class));
             } catch (Throwable ignored) {
                 this.isShowingVideoFeedHandle = null;
+            }
+            try {
+                this.getEntityToFollowV2Handle = lookup.findVirtual(
+                        ui.getClass(),
+                        "getEntityToFollowV2",
+                        MethodType.methodType(com.fs.starfarer.api.combat.CombatEntityAPI.class));
+            } catch (Throwable ignored) {
+                this.getEntityToFollowV2Handle = null;
             }
             String worldToMapScreenName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
                     cl, mdClass, "o00000", "(Lorg/lwjgl/util/vector/Vector2f;)Lorg/lwjgl/util/vector/Vector2f;");
@@ -591,6 +600,23 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         }
         return false;
+    }
+
+    public ShipAPI resolveVideoFeedShip() {
+        if (engine == null) return null;
+        if (!attachedToWarroom) {
+            ensureAttachedToWarroomUI();
+        }
+        if (getEntityToFollowV2Handle != null && engine.getCombatUI() != null) {
+            try {
+                Object ent = getEntityToFollowV2Handle.invoke(engine.getCombatUI());
+                if (ent instanceof ShipAPI) {
+                    return (ShipAPI) ent;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return engine.getPlayerShip();
     }
 
     @Override
@@ -847,10 +873,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         syncRegularCommandSpritesVisibility(useMiniSpritesForTsfc);
 
         // 3. Render Time, Space, Firepower, and Convergence map layers (when toggled ON) UNDER ship sprites & waypoints
+        float tsfcFade = fade * DivisionAISettings.getTsfcWarroomOpacityMult();
         TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
-                engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
+                engine, scale, offsetX, offsetY, tsfcFade, playerGroup, alliedAiGroup, enemyGroup);
         TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
-                engine, scale, offsetX, offsetY, fade, playerGroup, alliedAiGroup, enemyGroup);
+                engine, scale, offsetX, offsetY, tsfcFade, playerGroup, alliedAiGroup, enemyGroup);
 
         // 3b. When TSFC is active and T-S-F-C Mini Ship Sprites is enabled in Mod Settings, regular command sprites
         //     are disabled and replaced by mini red/green/yellow 1:1 hull sprites + status bars above TSFC.

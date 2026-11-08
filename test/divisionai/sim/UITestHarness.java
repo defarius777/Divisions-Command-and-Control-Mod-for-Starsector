@@ -4634,9 +4634,23 @@ public class UITestHarness {
             bridgeAndFighterGuardOk = false;
         }
 
+        boolean tsfcOpacitySettingsOk = Math.abs(divisionai.DivisionAISettings.getTsfcWarroomOpacityMult() - 1.00f) < 1e-4f
+                && Math.abs(divisionai.DivisionAISettings.getTsfcBattleOpacityMult() - 0.24f) < 1e-4f;
+        divisionai.DivisionAISettings.testTsfcWarroomOpacityOverride = Float.valueOf(0.65f);
+        divisionai.DivisionAISettings.testTsfcBattleOpacityOverride = Float.valueOf(0.40f);
+        tsfcOpacitySettingsOk = tsfcOpacitySettingsOk
+                && Math.abs(divisionai.DivisionAISettings.getTsfcWarroomOpacityMult() - 0.65f) < 1e-4f
+                && Math.abs(divisionai.DivisionAISettings.getTsfcBattleOpacityMult() - 0.40f) < 1e-4f;
+        divisionai.DivisionAISettings.testTsfcWarroomOpacityOverride = null;
+        divisionai.DivisionAISettings.testTsfcBattleOpacityOverride = null;
+
         boolean underShipSpritesOk = combatPluginSrc.contains("CombatEngineLayers.BELOW_SHIPS_LAYER")
                 && combatPluginSrc.contains("renderBattleScreenTsfcBelowShipsLayer(viewport)")
-                && !combatPluginSrc.contains("glTranslatef(-offsetX / scale")
+                && combatPluginSrc.contains("glTranslatef(llx, lly, 0f)")
+                && combatPluginSrc.contains("glScalef(invScaleX, invScaleY, 1f)")
+                && combatPluginSrc.contains("renderBattleScreenHighContrastFiringArcs(viewport)")
+                && tsfcRendererSrc.contains("renderHighContrastCaptaincyFiringArcsWorldSpace")
+                && tsfcOpacitySettingsOk
                 && combatPluginSrc.contains("ensureAllFighterWingsHaveValidLeaders(engine)")
                 && bridgeAndFighterGuardOk
                 && combatPluginSrc.contains("snapshotGroupDivisionKeyframesBeforeUpdate")

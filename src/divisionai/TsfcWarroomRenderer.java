@@ -410,10 +410,10 @@ public class TsfcWarroomRenderer {
             BattleGroupState alliedAiGroup,
             BattleGroupState enemyGroup) {
 
-        if (engine == null || scale <= 1e-5f || fade <= 0.04f) return;
+        if (engine == null || scale <= 1e-5f || fade <= 0.01f) return;
         BattlefieldFirepowerEvaluator.setActiveBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
         if (!timeOverlayVisible && !spaceOverlayVisible && !convergenceOverlayVisible) return;
-        float effectiveFade = (fade <= 0.26f) ? Math.min(0.84f, fade * 3.20f) : fade;
+        float effectiveFade = Math.min(1.50f, fade);
 
         // Throttle cross-group Time/Space/Convergence telemetry recomputation to the 0.10s TSFC keyframe cadence
         float now = engine.getTotalElapsedTime(false);
@@ -2579,6 +2579,350 @@ public class TsfcWarroomRenderer {
             GL11.glColor4f(r, g, b, 0.0f);
             GL11.glVertex2f(SCRATCH_TIME_OUTER_X[idx], SCRATCH_TIME_OUTER_Y[idx]);
         }
+        GL11.glEnd();
+    }
+
+    private static final int MAX_DEDUP_ARCS = 32;
+    private static final float[] SCRATCH_ARC_RANGE = new float[MAX_DEDUP_ARCS];
+    private static final float[] SCRATCH_ARC_FACING = new float[MAX_DEDUP_ARCS];
+    private static final float[] SCRATCH_ARC_WIDTH = new float[MAX_DEDUP_ARCS];
+
+    private static float normalizeAngleDiffDeg(float a, float b) {
+        float diff = (a - b) % 360f;
+        if (diff < -180f) diff += 360f;
+        if (diff > 180f) diff -= 360f;
+        return Math.abs(diff);
+    }
+
+    private static boolean isArcDuplicate(
+            int count, float range, float arcFacing, float arcWidth, float rangeTol, float angleTol) {
+        for (int i = 0; i < count; i++) {
+            if (Math.abs(SCRATCH_ARC_RANGE[i] - range) <= rangeTol
+                    && Math.abs(SCRATCH_ARC_WIDTH[i] - arcWidth) <= angleTol
+                    && (arcWidth >= 359f || normalizeAngleDiffDeg(SCRATCH_ARC_FACING[i], arcFacing) <= angleTol)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Renders high-contrast weapon firing arcs in world coordinates when any TSFC overlay is active in the
+     * Captaincy or Camera Feed (F) view:
+     *  1. Selected Weapon Group on {@code focusShip}: Deep obsidian contrast casing (4.5px) + bright warm
+     *     ivory-gold core (2.0px) for the outer range arc, radial boundary lines (0.5x..1.0x range), and
+     *     live barrel aim & spread ticks so player firing arcs remain unmistakable over cyan/red TSFC petals.
+     *  2. Unselected Non-PD Weapon Groups on {@code focusShip}: Crisp secondary high-contrast dashed range arcs
+     *     (obsidian shadow + cool silver-white core) so the captain can see all of their ship's range tiers.
+     *  3. Locked Target Ship ({@code focusShip.getShipTarget()}): Primary non-PD weapon range/arc envelopes
+     *     rendered in high-contrast hostile crimson-amber when targeting an enemy warship.
+     */
+    public static void renderHighContrastCaptaincyFiringArcsWorldSpace(
+            CombatEngineAPI engine,
+            ViewportAPI viewport,
+            ShipAPI focusShip,
+            float alphaMult) {
+        if (engine == null || viewport == null || focusShip == null) return;
+        if (focusShip.isHulk() || !focusShip.isAlive() || focusShip.getLocation() == null) return;
+        if (alphaMult <= 0.02f) return;
+
+        float viewMult = Math.max(0.25f, viewport.getViewMult());
+        float alpha = Math.min(1.0f, Math.max(0.55f, alphaMult));
+
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glEnable(GL11.GL_LINE_SMOOTH);
+
+        int dedupCount = 0;
+        float shipFacing = focusShip.getFacing();
+        com.fs.starfarer.api.combat.WeaponGroupAPI selectedGroup = focusShip.getSelectedGroupAPI();
+        List<WeaponAPI> selectedWeapons = (selectedGroup != null) ? selectedGroup.getWeaponsCopy() : null;
+
+        // 1. Selected Weapon Group: Full high-contrast dual-stroke arcs + radial boundaries + live aim/spread ticks
+        if (selectedWeapons != null && !selectedWeapons.isEmpty()) {
+            for (int i = 0, n = selectedWeapons.size(); i < n; i++) {
+                WeaponAPI w = selectedWeapons.get(i);
+                if (w == null || w.isPermanentlyDisabled() || w.getLocation() == null) continue;
+                WeaponSlotAPI slot = w.getSlot();
+                if (slot != null && (slot.isDecorative() || slot.isSystemSlot())) continue;
+                float range = w.getDisplayArcRadius() > 1f ? w.getDisplayArcRadius() : w.getRange();
+                if (range <= 15f) continue;
+
+                float arc = w.getArc();
+                float arcFacing = w.getArcFacing() + shipFacing;
+                float currAngle = w.getCurrAngle();
+                float spread = Math.max(0f, w.getCurrSpread());
+                float wx = w.getLocation().x;
+                float wy = w.getLocation().y;
+
+                boolean disabled = w.isDisabled() || w.isForceDisabled();
+                float fgR = disabled ? 1.00f : 1.00f;
+                float fgG = disabled ? 0.34f : 0.97f;
+                float fgB = disabled ? 0.20f : 0.80f;
+
+                boolean drawStaticArc = !isArcDuplicate(dedupCount, range, arcFacing, arc, 15f, 2.0f);
+                if (drawStaticArc && dedupCount < MAX_DEDUP_ARCS) {
+                    SCRATCH_ARC_RANGE[dedupCount] = range;
+                    SCRATCH_ARC_FACING[dedupCount] = arcFacing;
+                    SCRATCH_ARC_WIDTH[dedupCount] = arc;
+                    dedupCount++;
+                }
+
+                if (drawStaticArc) {
+                    drawHighContrastWeaponArcWorld(
+                            wx, wy, range, arcFacing, arc, 0.50f, false,
+                            0.0f, 0.0f, 0.0f, 0.86f * alpha, 4.4f,
+                            fgR, fgG, fgB, 0.92f * alpha, 2.0f);
+                }
+
+                // Live turret aim and recoil spread reticle at outer range ring
+                drawHighContrastAimReticleWorld(
+                        wx, wy, range, currAngle, spread, viewMult,
+                        0.0f, 0.0f, 0.0f, 0.90f * alpha, 4.6f,
+                        fgR, fgG, fgB, 0.96f * alpha, 2.2f);
+            }
+        }
+
+        // 2. Unselected Non-PD Weapon Groups on focusShip: Crisp secondary dashed high-contrast range arcs
+        List<WeaponAPI> usableWeapons = focusShip.getUsableWeapons();
+        if (usableWeapons != null && !usableWeapons.isEmpty()) {
+            int secondaryCount = 0;
+            for (int i = 0, n = usableWeapons.size(); i < n && secondaryCount < 6; i++) {
+                WeaponAPI w = usableWeapons.get(i);
+                if (w == null || w.isPermanentlyDisabled() || w.getLocation() == null) continue;
+                WeaponSlotAPI slot = w.getSlot();
+                if (slot != null && (slot.isDecorative() || slot.isSystemSlot())) continue;
+                if (w.hasAIHint(AIHints.PD) || w.hasAIHint(AIHints.PD_ONLY)) continue;
+                if (selectedWeapons != null && selectedWeapons.contains(w)) continue;
+                float range = w.getDisplayArcRadius() > 1f ? w.getDisplayArcRadius() : w.getRange();
+                if (range <= 150f) continue;
+
+                float arc = w.getArc();
+                float arcFacing = w.getArcFacing() + shipFacing;
+                if (isArcDuplicate(dedupCount, range, arcFacing, arc, 25f, 5.0f)) continue;
+                if (dedupCount < MAX_DEDUP_ARCS) {
+                    SCRATCH_ARC_RANGE[dedupCount] = range;
+                    SCRATCH_ARC_FACING[dedupCount] = arcFacing;
+                    SCRATCH_ARC_WIDTH[dedupCount] = arc;
+                    dedupCount++;
+                }
+                secondaryCount++;
+
+                float wx = w.getLocation().x;
+                float wy = w.getLocation().y;
+                drawHighContrastWeaponArcWorld(
+                        wx, wy, range, arcFacing, arc, 0.82f, true,
+                        0.0f, 0.0f, 0.0f, 0.62f * alpha, 3.0f,
+                        0.84f, 0.94f, 1.00f, 0.54f * alpha, 1.35f);
+            }
+        }
+
+        // 3. Locked Target Ship (focusShip.getShipTarget()): Primary hostile firing arcs
+        ShipAPI targetShip = focusShip.getShipTarget();
+        if (targetShip != null
+                && targetShip != focusShip
+                && targetShip.isAlive()
+                && !targetShip.isHulk()
+                && targetShip.getOwner() != focusShip.getOwner()
+                && targetShip.getLocation() != null) {
+            FogOfWarAPI fog = engine.getFogOfWar(0);
+            boolean targetVisible = (fog == null) || fog.isVisible(targetShip);
+            if (targetVisible && viewport.isNearViewport(targetShip.getLocation(), targetShip.getCollisionRadius() + 2500f)) {
+                List<WeaponAPI> targetWeapons = targetShip.getUsableWeapons();
+                if (targetWeapons != null && !targetWeapons.isEmpty()) {
+                    int targetDedupStart = dedupCount;
+                    int targetArcsDrawn = 0;
+                    float targetFacing = targetShip.getFacing();
+                    for (int i = 0, n = targetWeapons.size(); i < n && targetArcsDrawn < 3; i++) {
+                        WeaponAPI tw = targetWeapons.get(i);
+                        if (tw == null || tw.isPermanentlyDisabled() || tw.getLocation() == null) continue;
+                        WeaponSlotAPI slot = tw.getSlot();
+                        if (slot != null && (slot.isDecorative() || slot.isSystemSlot())) continue;
+                        if (tw.hasAIHint(AIHints.PD) || tw.hasAIHint(AIHints.PD_ONLY)) continue;
+                        float range = tw.getDisplayArcRadius() > 1f ? tw.getDisplayArcRadius() : tw.getRange();
+                        if (range < 350f) continue;
+
+                        float arc = tw.getArc();
+                        float arcFacing = tw.getArcFacing() + targetFacing;
+                        boolean dup = false;
+                        for (int j = targetDedupStart; j < dedupCount; j++) {
+                            if (Math.abs(SCRATCH_ARC_RANGE[j] - range) <= 45f
+                                    && Math.abs(SCRATCH_ARC_WIDTH[j] - arc) <= 8f
+                                    && (arc >= 359f || normalizeAngleDiffDeg(SCRATCH_ARC_FACING[j], arcFacing) <= 8f)) {
+                                dup = true;
+                                break;
+                            }
+                        }
+                        if (dup) continue;
+                        if (dedupCount < MAX_DEDUP_ARCS) {
+                            SCRATCH_ARC_RANGE[dedupCount] = range;
+                            SCRATCH_ARC_FACING[dedupCount] = arcFacing;
+                            SCRATCH_ARC_WIDTH[dedupCount] = arc;
+                            dedupCount++;
+                        }
+                        targetArcsDrawn++;
+
+                        drawHighContrastWeaponArcWorld(
+                                tw.getLocation().x, tw.getLocation().y, range, arcFacing, arc, 0.80f, true,
+                                0.0f, 0.0f, 0.0f, 0.68f * alpha, 3.2f,
+                                1.00f, 0.44f, 0.30f, 0.62f * alpha, 1.40f);
+                    }
+                }
+            }
+        }
+
+        GL11.glPopAttrib();
+    }
+
+    private static void drawHighContrastWeaponArcWorld(
+            float wx,
+            float wy,
+            float range,
+            float arcFacingDeg,
+            float arcWidthDeg,
+            float radialStartFrac,
+            boolean dashed,
+            float bgR,
+            float bgG,
+            float bgB,
+            float bgAlpha,
+            float bgWidth,
+            float fgR,
+            float fgG,
+            float fgB,
+            float fgAlpha,
+            float fgWidth) {
+        int steps = Math.max(6, Math.min(72, Math.round(arcWidthDeg / 5.0f)));
+        if (dashed && (steps & 1) != 0) {
+            steps++;
+        }
+        float startDeg = arcFacingDeg - arcWidthDeg * 0.5f;
+        float stepDeg = arcWidthDeg / steps;
+        float degToRad = (float) (Math.PI / 180.0);
+
+        // Pass 1: Dark high-contrast backing casing
+        GL11.glLineWidth(bgWidth);
+        GL11.glColor4f(bgR, bgG, bgB, bgAlpha);
+        GL11.glBegin(GL11.GL_LINES);
+        for (int i = 0; i < steps; i += (dashed ? 2 : 1)) {
+            float a0 = (startDeg + stepDeg * i) * degToRad;
+            float a1 = (startDeg + stepDeg * (i + 1)) * degToRad;
+            GL11.glVertex2f(wx + (float) Math.cos(a0) * range, wy + (float) Math.sin(a0) * range);
+            GL11.glVertex2f(wx + (float) Math.cos(a1) * range, wy + (float) Math.sin(a1) * range);
+        }
+        if (arcWidthDeg < 359.5f) {
+            float aLeft = startDeg * degToRad;
+            float aRight = (startDeg + arcWidthDeg) * degToRad;
+            float cosL = (float) Math.cos(aLeft);
+            float sinL = (float) Math.sin(aLeft);
+            float cosR = (float) Math.cos(aRight);
+            float sinR = (float) Math.sin(aRight);
+            float rIn = range * radialStartFrac;
+            GL11.glColor4f(bgR, bgG, bgB, 0.0f);
+            GL11.glVertex2f(wx + cosL * rIn, wy + sinL * rIn);
+            GL11.glColor4f(bgR, bgG, bgB, bgAlpha);
+            GL11.glVertex2f(wx + cosL * range, wy + sinL * range);
+            GL11.glColor4f(bgR, bgG, bgB, 0.0f);
+            GL11.glVertex2f(wx + cosR * rIn, wy + sinR * rIn);
+            GL11.glColor4f(bgR, bgG, bgB, bgAlpha);
+            GL11.glVertex2f(wx + cosR * range, wy + sinR * range);
+        }
+        GL11.glEnd();
+
+        // Pass 2: Crisp high-luminance foreground core
+        GL11.glLineWidth(fgWidth);
+        GL11.glColor4f(fgR, fgG, fgB, fgAlpha);
+        GL11.glBegin(GL11.GL_LINES);
+        for (int i = 0; i < steps; i += (dashed ? 2 : 1)) {
+            float a0 = (startDeg + stepDeg * i) * degToRad;
+            float a1 = (startDeg + stepDeg * (i + 1)) * degToRad;
+            GL11.glVertex2f(wx + (float) Math.cos(a0) * range, wy + (float) Math.sin(a0) * range);
+            GL11.glVertex2f(wx + (float) Math.cos(a1) * range, wy + (float) Math.sin(a1) * range);
+        }
+        if (arcWidthDeg < 359.5f) {
+            float aLeft = startDeg * degToRad;
+            float aRight = (startDeg + arcWidthDeg) * degToRad;
+            float cosL = (float) Math.cos(aLeft);
+            float sinL = (float) Math.sin(aLeft);
+            float cosR = (float) Math.cos(aRight);
+            float sinR = (float) Math.sin(aRight);
+            float rIn = range * radialStartFrac;
+            GL11.glColor4f(fgR, fgG, fgB, 0.0f);
+            GL11.glVertex2f(wx + cosL * rIn, wy + sinL * rIn);
+            GL11.glColor4f(fgR, fgG, fgB, fgAlpha);
+            GL11.glVertex2f(wx + cosL * range, wy + sinL * range);
+            GL11.glColor4f(fgR, fgG, fgB, 0.0f);
+            GL11.glVertex2f(wx + cosR * rIn, wy + sinR * rIn);
+            GL11.glColor4f(fgR, fgG, fgB, fgAlpha);
+            GL11.glVertex2f(wx + cosR * range, wy + sinR * range);
+        }
+        GL11.glEnd();
+    }
+
+    private static void drawHighContrastAimReticleWorld(
+            float wx,
+            float wy,
+            float range,
+            float currAngleDeg,
+            float spreadDeg,
+            float viewMult,
+            float bgR,
+            float bgG,
+            float bgB,
+            float bgAlpha,
+            float bgWidth,
+            float fgR,
+            float fgG,
+            float fgB,
+            float fgAlpha,
+            float fgWidth) {
+        float halfSpread = Math.max(0.35f, spreadDeg * 0.5f);
+        float startDeg = currAngleDeg - halfSpread;
+        float endDeg = currAngleDeg + halfSpread;
+        float degToRad = (float) (Math.PI / 180.0);
+        int steps = Math.max(2, Math.min(24, Math.round(spreadDeg / 4.0f)));
+        float stepDeg = (endDeg - startDeg) / steps;
+        float tickIn = Math.max(10f, range - Math.max(10f, 9.5f * viewMult));
+
+        float aStart = startDeg * degToRad;
+        float aEnd = endDeg * degToRad;
+        float cosS = (float) Math.cos(aStart);
+        float sinS = (float) Math.sin(aStart);
+        float cosE = (float) Math.cos(aEnd);
+        float sinE = (float) Math.sin(aEnd);
+
+        // Pass 1: Dark backing casing
+        GL11.glLineWidth(bgWidth);
+        GL11.glColor4f(bgR, bgG, bgB, bgAlpha);
+        GL11.glBegin(GL11.GL_LINES);
+        for (int i = 0; i < steps; i++) {
+            float a0 = (startDeg + stepDeg * i) * degToRad;
+            float a1 = (startDeg + stepDeg * (i + 1)) * degToRad;
+            GL11.glVertex2f(wx + (float) Math.cos(a0) * range, wy + (float) Math.sin(a0) * range);
+            GL11.glVertex2f(wx + (float) Math.cos(a1) * range, wy + (float) Math.sin(a1) * range);
+        }
+        GL11.glVertex2f(wx + cosS * tickIn, wy + sinS * tickIn);
+        GL11.glVertex2f(wx + cosS * range, wy + sinS * range);
+        GL11.glVertex2f(wx + cosE * tickIn, wy + sinE * tickIn);
+        GL11.glVertex2f(wx + cosE * range, wy + sinE * range);
+        GL11.glEnd();
+
+        // Pass 2: Bright foreground aim reticle
+        GL11.glLineWidth(fgWidth);
+        GL11.glColor4f(fgR, fgG, fgB, fgAlpha);
+        GL11.glBegin(GL11.GL_LINES);
+        for (int i = 0; i < steps; i++) {
+            float a0 = (startDeg + stepDeg * i) * degToRad;
+            float a1 = (startDeg + stepDeg * (i + 1)) * degToRad;
+            GL11.glVertex2f(wx + (float) Math.cos(a0) * range, wy + (float) Math.sin(a0) * range);
+            GL11.glVertex2f(wx + (float) Math.cos(a1) * range, wy + (float) Math.sin(a1) * range);
+        }
+        GL11.glVertex2f(wx + cosS * tickIn, wy + sinS * tickIn);
+        GL11.glVertex2f(wx + cosS * range, wy + sinS * range);
+        GL11.glVertex2f(wx + cosE * tickIn, wy + sinE * tickIn);
+        GL11.glVertex2f(wx + cosE * range, wy + sinE * range);
         GL11.glEnd();
     }
 }

@@ -164,6 +164,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             renderBattleScreenTsfcBelowShipsLayer(viewport);
         }
         renderedBelowShipsLayerThisFrame = false;
+        renderBattleScreenHighContrastFiringArcs(viewport);
     }
 
     @Override
@@ -199,20 +200,38 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 && !TsfcWarroomRenderer.isConvergenceOverlayVisible()) {
             return;
         }
-        float offsetX = viewport.convertWorldXtoScreenX(0f);
-        float offsetY = viewport.convertWorldYtoScreenY(0f);
-        float scale = (viewport.convertWorldXtoScreenX(1000f) - offsetX) / 1000f;
-        if (scale <= 1e-5f) {
-            return;
+        float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
+        float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
+        float visW = viewport.getVisibleWidth();
+        float visH = viewport.getVisibleHeight();
+        float llx = viewport.getLLX();
+        float lly = viewport.getLLY();
+        float invScaleX;
+        float invScaleY;
+        if (visW > 1f && visH > 1f && screenW > 1f && screenH > 1f) {
+            invScaleX = visW / screenW;
+            invScaleY = visH / screenH;
+        } else {
+            float offsetX = viewport.convertWorldXtoScreenX(0f);
+            float scale = (viewport.convertWorldXtoScreenX(1000f) - offsetX) / 1000f;
+            if (scale <= 1e-5f) {
+                return;
+            }
+            invScaleX = 1f / scale;
+            invScaleY = 1f / scale;
+            llx = -offsetX * invScaleX;
+            lly = -viewport.convertWorldYtoScreenY(0f) * invScaleY;
         }
-        // Transform TsfcWarroomRenderer's screen-space coordinates (sx = offsetX + wx * scale = (wx - llx) * scale,
-        // sy = offsetY + wy * scale = (wy - lly) * scale) into Starsector's camera-relative world coordinates
-        // (wx - llx, wy - lly) on GL_MODELVIEW by scaling by 1 / scale (without a second translation, since offsetX/Y
-        // already subtract llx/lly), matching Starsector's active world-space GL_PROJECTION 1:1 at every camera position.
+        // CombatState.render sets GL_PROJECTION to glOrtho(llx, llx + visW, lly, lly + visH, -4000, 4000)
+        // and GL_MODELVIEW to Identity before calling CombatEngine.render(false).
+        // TsfcWarroomRenderer emits screen-space vertices sx = (wx - llx) * (screenW / visW) and
+        // sy = (wy - lly) * (screenH / visH), so translating by (llx, lly) and scaling by (visW / screenW, visH / screenH)
+        // on GL_MODELVIEW reconstructs exact world coordinates (wx, wy) 1:1 with ship sprites at every zoom and camera position.
         org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
         org.lwjgl.opengl.GL11.glPushMatrix();
         org.lwjgl.opengl.GL11.glLoadIdentity();
-        org.lwjgl.opengl.GL11.glScalef(1f / scale, 1f / scale, 1f);
+        org.lwjgl.opengl.GL11.glTranslatef(llx, lly, 0f);
+        org.lwjgl.opengl.GL11.glScalef(invScaleX, invScaleY, 1f);
         try {
             renderBattleScreenTsfcOverlay(viewport);
         } finally {
@@ -248,22 +267,72 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (cmdMapOpacity >= 0.95f) {
             return;
         }
-        float battleFade = BATTLE_SCREEN_TSFC_OPACITY_MULT * Math.max(0f, 1f - cmdMapOpacity);
-        if (battleFade <= 0.04f) {
+        float configuredBattleMult = DivisionAISettings.getTsfcBattleOpacityMult();
+        float battleFade = configuredBattleMult * Math.max(0f, 1f - cmdMapOpacity);
+        if (battleFade <= 0.01f) {
             return;
         }
-        float offsetX = viewport.convertWorldXtoScreenX(0f);
-        float offsetY = viewport.convertWorldYtoScreenY(0f);
-        float scale = (viewport.convertWorldXtoScreenX(1000f) - offsetX) / 1000f;
+        float screenW = Global.getSettings() != null ? Global.getSettings().getScreenWidth() : 1920f;
+        float screenH = Global.getSettings() != null ? Global.getSettings().getScreenHeight() : 1080f;
+        float visW = viewport.getVisibleWidth();
+        float visH = viewport.getVisibleHeight();
+        float scale;
+        float offsetX;
+        float offsetY;
+        if (visW > 1f && visH > 1f && screenW > 1f && screenH > 1f) {
+            scale = screenW / visW;
+            offsetX = -viewport.getLLX() * scale;
+            offsetY = -viewport.getLLY() * (screenH / visH);
+        } else {
+            offsetX = viewport.convertWorldXtoScreenX(0f);
+            offsetY = viewport.convertWorldYtoScreenY(0f);
+            scale = (viewport.convertWorldXtoScreenX(1000f) - offsetX) / 1000f;
+        }
         if (scale <= 1e-5f) {
             return;
         }
+        float tscBattleFade = Math.min(1.15f, battleFade * 3.20f);
         // Render only the TSFC overlays (Time, Space, Convergence, Firepower) on the battle graphics layer;
         // never render Warroom truescale ship or hulk icons on the battle graphics layer.
         TsfcWarroomRenderer.renderTimeSpaceAndConvergenceScreenSpace(
-                engine, scale, offsetX, offsetY, battleFade, playerGroup, alliedAiGroup, enemyGroup);
+                engine, scale, offsetX, offsetY, tscBattleFade, playerGroup, alliedAiGroup, enemyGroup);
         TsfcWarroomRenderer.renderFirepowerRosesScreenSpace(
                 engine, scale, offsetX, offsetY, battleFade, playerGroup, alliedAiGroup, enemyGroup);
+    }
+
+    void renderBattleScreenHighContrastFiringArcs(ViewportAPI viewport) {
+        if (engine == null || !initializedBattle || engine.isCombatOver() || viewport == null) {
+            return;
+        }
+        if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) {
+            return;
+        }
+        if (!TsfcWarroomRenderer.isAnyTsfcOverlayVisible()) {
+            return;
+        }
+        com.fs.starfarer.api.combat.CombatUIAPI ui = engine.getCombatUI();
+        if (ui != null && ui.isShowingDeploymentDialog()) {
+            return;
+        }
+        boolean showingCameraFeed = (tacticalOverlay != null && tacticalOverlay.isShowingVideoFeed());
+        float cmdMapOpacity = (ui != null && ui.isShowingCommandUI() && !showingCameraFeed)
+                ? ui.getCommandUIOpacity()
+                : 0f;
+        if (cmdMapOpacity >= 0.95f) {
+            return;
+        }
+        float configuredBattleMult = DivisionAISettings.getTsfcBattleOpacityMult();
+        if (configuredBattleMult <= 0.01f) {
+            return;
+        }
+        ShipAPI focusShip = (showingCameraFeed && tacticalOverlay != null)
+                ? tacticalOverlay.resolveVideoFeedShip()
+                : engine.getPlayerShip();
+        if (focusShip == null) {
+            return;
+        }
+        float arcAlpha = Math.min(1.0f, Math.max(0.65f, configuredBattleMult * 3.5f)) * Math.max(0f, 1f - cmdMapOpacity);
+        TsfcWarroomRenderer.renderHighContrastCaptaincyFiringArcsWorldSpace(engine, viewport, focusShip, arcAlpha);
     }
 
     @Override
