@@ -4650,6 +4650,12 @@ public class UITestHarness {
                 && combatPluginSrc.contains("glScalef(invScaleX, invScaleY, 1f)")
                 && combatPluginSrc.contains("renderBattleScreenHighContrastFiringArcs(viewport)")
                 && tsfcRendererSrc.contains("renderHighContrastCaptaincyFiringArcsWorldSpace")
+                && tsfcRendererSrc.contains("renderSingleWeaponVanillaMatchedHighContrastArcWorld")
+                && tsfcRendererSrc.contains("drawVanillaMatchedArcCurveWorld")
+                && tsfcRendererSrc.contains("drawVanillaMatchedRadialLineWorld")
+                && tsfcRendererSrc.contains("drawVanillaMatchedAimBarWorld")
+                && tsfcRendererSrc.contains("slot.computePosition(ship)")
+                && !tsfcRendererSrc.contains("isArcDuplicate")
                 && tsfcOpacitySettingsOk
                 && combatPluginSrc.contains("ensureAllFighterWingsHaveValidLeaders(engine)")
                 && bridgeAndFighterGuardOk

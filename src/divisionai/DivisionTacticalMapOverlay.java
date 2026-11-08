@@ -357,6 +357,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private Object mapDisplayInstance = null;
     private MethodHandle isShowingVideoFeedHandle = null;
     private MethodHandle getEntityToFollowV2Handle = null;
+    private MethodHandle areWeaponArcsOnHandle = null;
+    private Object arcRendererInstance = null;
+    private MethodHandle arcRendererAnimProgressGetter = null;
     private MethodHandle worldToMapScreenHandle = null;
     private MethodHandle mapGetIconHandle = null;
     private MethodHandle iconRenderSpriteHandle = null;
@@ -462,6 +465,30 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         MethodType.methodType(com.fs.starfarer.api.combat.CombatEntityAPI.class));
             } catch (Throwable ignored) {
                 this.getEntityToFollowV2Handle = null;
+            }
+            try {
+                this.areWeaponArcsOnHandle = lookup.findVirtual(
+                        ui.getClass(),
+                        "areWeaponArcsOn",
+                        MethodType.methodType(boolean.class));
+            } catch (Throwable ignored) {
+                this.areWeaponArcsOnHandle = null;
+            }
+            try {
+                Class<?> arcRenCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                        cl, "com.fs.starfarer.renderers.super", ui.getClass().getName(), "arcRenderer");
+                MethodHandles.Lookup csLookup = MethodHandles.privateLookupIn(ui.getClass(), lookup);
+                MethodHandle getArcRenHandle = csLookup.findGetter(ui.getClass(), "arcRenderer", arcRenCls);
+                this.arcRendererInstance = getArcRenHandle.invoke(ui);
+                if (this.arcRendererInstance != null) {
+                    MethodHandles.Lookup arLookup = MethodHandles.privateLookupIn(arcRenCls, lookup);
+                    String animField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                            cl, arcRenCls, "F", "\u00d300000");
+                    this.arcRendererAnimProgressGetter = arLookup.findGetter(arcRenCls, animField, float.class);
+                }
+            } catch (Throwable ignored) {
+                this.arcRendererInstance = null;
+                this.arcRendererAnimProgressGetter = null;
             }
             String worldToMapScreenName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
                     cl, mdClass, "o00000", "(Lorg/lwjgl/util/vector/Vector2f;)Lorg/lwjgl/util/vector/Vector2f;");
@@ -617,6 +644,36 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         }
         return engine.getPlayerShip();
+    }
+
+    public boolean areWeaponArcsOn() {
+        if (engine == null) return true;
+        if (!attachedToWarroom) {
+            ensureAttachedToWarroomUI();
+        }
+        if (areWeaponArcsOnHandle != null && engine.getCombatUI() != null) {
+            try {
+                return (boolean) areWeaponArcsOnHandle.invoke(engine.getCombatUI());
+            } catch (Throwable ignored) {
+            }
+        }
+        return true;
+    }
+
+    public float getArcRendererAnimProgress() {
+        if (!attachedToWarroom) {
+            ensureAttachedToWarroomUI();
+        }
+        if (arcRendererInstance != null && arcRendererAnimProgressGetter != null) {
+            try {
+                float val = (float) arcRendererAnimProgressGetter.invoke(arcRendererInstance);
+                if (!Float.isNaN(val)) {
+                    return Math.max(0f, Math.min(1f, val));
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return 1.0f;
     }
 
     @Override

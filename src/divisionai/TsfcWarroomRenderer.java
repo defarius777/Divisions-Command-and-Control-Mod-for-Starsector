@@ -2582,192 +2582,70 @@ public class TsfcWarroomRenderer {
         GL11.glEnd();
     }
 
-    private static final int MAX_DEDUP_ARCS = 32;
-    private static final float[] SCRATCH_ARC_RANGE = new float[MAX_DEDUP_ARCS];
-    private static final float[] SCRATCH_ARC_FACING = new float[MAX_DEDUP_ARCS];
-    private static final float[] SCRATCH_ARC_WIDTH = new float[MAX_DEDUP_ARCS];
-
-    private static float normalizeAngleDiffDeg(float a, float b) {
-        float diff = (a - b) % 360f;
-        if (diff < -180f) diff += 360f;
-        if (diff > 180f) diff -= 360f;
-        return Math.abs(diff);
-    }
-
-    private static boolean isArcDuplicate(
-            int count, float range, float arcFacing, float arcWidth, float rangeTol, float angleTol) {
-        for (int i = 0; i < count; i++) {
-            if (Math.abs(SCRATCH_ARC_RANGE[i] - range) <= rangeTol
-                    && Math.abs(SCRATCH_ARC_WIDTH[i] - arcWidth) <= angleTol
-                    && (arcWidth >= 359f || normalizeAngleDiffDeg(SCRATCH_ARC_FACING[i], arcFacing) <= angleTol)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Renders high-contrast weapon firing arcs in world coordinates when any TSFC overlay is active in the
-     * Captaincy or Camera Feed (F) view:
-     *  1. Selected Weapon Group on {@code focusShip}: Deep obsidian contrast casing (4.5px) + bright warm
-     *     ivory-gold core (2.0px) for the outer range arc, radial boundary lines (0.5x..1.0x range), and
-     *     live barrel aim & spread ticks so player firing arcs remain unmistakable over cyan/red TSFC petals.
-     *  2. Unselected Non-PD Weapon Groups on {@code focusShip}: Crisp secondary high-contrast dashed range arcs
-     *     (obsidian shadow + cool silver-white core) so the captain can see all of their ship's range tiers.
-     *  3. Locked Target Ship ({@code focusShip.getShipTarget()}): Primary non-PD weapon range/arc envelopes
-     *     rendered in high-contrast hostile crimson-amber when targeting an enemy warship.
+     * Captaincy or Camera Feed (F) view, matching vanilla Starsector's {@code com.fs.starfarer.renderers.super}
+     * ({@code CombatState.arcRenderer}) and {@code com.fs.starfarer.renderers.E} geometry 1:1 across EVERY weapon
+     * in the active weapon group:
+     *  - When the active weapon group is {@code ALTERNATING}, renders {@code selectedGroup.getActiveWeapon()}.
+     *  - When the active weapon group is {@code LINKED}, renders EVERY weapon in {@code selectedGroup.getWeaponsCopy()}
+     *    that has ammo ({@code w.getAmmo() != 0 || w.getSpec().getAmmoPerSecond() > 0f}), without skipping paired or
+     *    wing-mounted weapons (such as dual Rift Lances on a Ziggurat).
+     *  - Uses {@code slot.computePosition(focusShip)}, {@code slot.getArc()} (with vanilla's {@code 0.0f -> 3.0f}
+     *    hardpoint arc expansion scaled by {@code animProgress}), {@code focusShip.getFacing() + slot.getAngle()},
+     *    and {@code w.getDisplayArcRadius()}.
+     *  - Draws the exact vanilla elements with a high-contrast dark obsidian under-casing and bright warm ivory-gold
+     *    over-stroke:
+     *      1. Inner 125-su range subdivision arcs ({@code stepRadius * i}) spanning {@code [arcFacing - arc/2 - 2 .. arcFacing + arc/2 + 2]}.
+     *      2. Outer maximum range arc ({@code radius}) spanning {@code [arcFacing - arc/2 .. arcFacing + arc/2]} with
+     *         vanilla's exact {@code ceil((spanRad * r) / 50.0f)} multiple-of-4 segment count at {@code r - 1.0f}.
+     *      3. Left and right radial boundary lines from {@code 0.0f} to {@code stepRadius} (8-unit dashed) and from
+     *         {@code stepRadius} to {@code radius} (solid).
+     *      4. Live barrel aim & recoil spread ladder bars along {@code w.getCurrAngle()} at every {@code stepRadius * i}
+     *         and {@code radius} with minimum width {@code 15.0f} world units.
      */
     public static void renderHighContrastCaptaincyFiringArcsWorldSpace(
             CombatEngineAPI engine,
             ViewportAPI viewport,
             ShipAPI focusShip,
             float alphaMult) {
+        renderHighContrastCaptaincyFiringArcsWorldSpace(engine, viewport, focusShip, alphaMult, 1.0f);
+    }
+
+    public static void renderHighContrastCaptaincyFiringArcsWorldSpace(
+            CombatEngineAPI engine,
+            ViewportAPI viewport,
+            ShipAPI focusShip,
+            float alphaMult,
+            float animProgress) {
         if (engine == null || viewport == null || focusShip == null) return;
         if (focusShip.isHulk() || !focusShip.isAlive() || focusShip.getLocation() == null) return;
-        if (alphaMult <= 0.02f) return;
+        if (alphaMult <= 0.02f || animProgress <= 0.005f) return;
 
-        float viewMult = Math.max(0.25f, viewport.getViewMult());
-        float alpha = Math.min(1.0f, Math.max(0.55f, alphaMult));
+        com.fs.starfarer.api.combat.WeaponGroupAPI selectedGroup = focusShip.getSelectedGroupAPI();
+        if (selectedGroup == null) return;
+
+        float alpha = Math.min(1.0f, Math.max(0.55f, alphaMult)) * Math.min(1.0f, animProgress);
 
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glEnable(GL11.GL_LINE_SMOOTH);
+        GL11.glHint(GL11.GL_LINE_SMOOTH_HINT, GL11.GL_NICEST);
 
-        int dedupCount = 0;
-        float shipFacing = focusShip.getFacing();
-        com.fs.starfarer.api.combat.WeaponGroupAPI selectedGroup = focusShip.getSelectedGroupAPI();
-        List<WeaponAPI> selectedWeapons = (selectedGroup != null) ? selectedGroup.getWeaponsCopy() : null;
-
-        // 1. Selected Weapon Group: Full high-contrast dual-stroke arcs + radial boundaries + live aim/spread ticks
-        if (selectedWeapons != null && !selectedWeapons.isEmpty()) {
-            for (int i = 0, n = selectedWeapons.size(); i < n; i++) {
-                WeaponAPI w = selectedWeapons.get(i);
-                if (w == null || w.isPermanentlyDisabled() || w.getLocation() == null) continue;
-                WeaponSlotAPI slot = w.getSlot();
-                if (slot != null && (slot.isDecorative() || slot.isSystemSlot())) continue;
-                float range = w.getDisplayArcRadius() > 1f ? w.getDisplayArcRadius() : w.getRange();
-                if (range <= 15f) continue;
-
-                float arc = w.getArc();
-                float arcFacing = w.getArcFacing() + shipFacing;
-                float currAngle = w.getCurrAngle();
-                float spread = Math.max(0f, w.getCurrSpread());
-                float wx = w.getLocation().x;
-                float wy = w.getLocation().y;
-
-                boolean disabled = w.isDisabled() || w.isForceDisabled();
-                float fgR = disabled ? 1.00f : 1.00f;
-                float fgG = disabled ? 0.34f : 0.97f;
-                float fgB = disabled ? 0.20f : 0.80f;
-
-                boolean drawStaticArc = !isArcDuplicate(dedupCount, range, arcFacing, arc, 15f, 2.0f);
-                if (drawStaticArc && dedupCount < MAX_DEDUP_ARCS) {
-                    SCRATCH_ARC_RANGE[dedupCount] = range;
-                    SCRATCH_ARC_FACING[dedupCount] = arcFacing;
-                    SCRATCH_ARC_WIDTH[dedupCount] = arc;
-                    dedupCount++;
-                }
-
-                if (drawStaticArc) {
-                    drawHighContrastWeaponArcWorld(
-                            wx, wy, range, arcFacing, arc, 0.50f, false,
-                            0.0f, 0.0f, 0.0f, 0.86f * alpha, 4.4f,
-                            fgR, fgG, fgB, 0.92f * alpha, 2.0f);
-                }
-
-                // Live turret aim and recoil spread reticle at outer range ring
-                drawHighContrastAimReticleWorld(
-                        wx, wy, range, currAngle, spread, viewMult,
-                        0.0f, 0.0f, 0.0f, 0.90f * alpha, 4.6f,
-                        fgR, fgG, fgB, 0.96f * alpha, 2.2f);
+        if (selectedGroup.getType() == com.fs.starfarer.api.loading.WeaponGroupType.ALTERNATING) {
+            WeaponAPI activeWeapon = selectedGroup.getActiveWeapon();
+            if (activeWeapon != null) {
+                renderSingleWeaponVanillaMatchedHighContrastArcWorld(focusShip, activeWeapon, alpha, animProgress);
             }
-        }
-
-        // 2. Unselected Non-PD Weapon Groups on focusShip: Crisp secondary dashed high-contrast range arcs
-        List<WeaponAPI> usableWeapons = focusShip.getUsableWeapons();
-        if (usableWeapons != null && !usableWeapons.isEmpty()) {
-            int secondaryCount = 0;
-            for (int i = 0, n = usableWeapons.size(); i < n && secondaryCount < 6; i++) {
-                WeaponAPI w = usableWeapons.get(i);
-                if (w == null || w.isPermanentlyDisabled() || w.getLocation() == null) continue;
-                WeaponSlotAPI slot = w.getSlot();
-                if (slot != null && (slot.isDecorative() || slot.isSystemSlot())) continue;
-                if (w.hasAIHint(AIHints.PD) || w.hasAIHint(AIHints.PD_ONLY)) continue;
-                if (selectedWeapons != null && selectedWeapons.contains(w)) continue;
-                float range = w.getDisplayArcRadius() > 1f ? w.getDisplayArcRadius() : w.getRange();
-                if (range <= 150f) continue;
-
-                float arc = w.getArc();
-                float arcFacing = w.getArcFacing() + shipFacing;
-                if (isArcDuplicate(dedupCount, range, arcFacing, arc, 25f, 5.0f)) continue;
-                if (dedupCount < MAX_DEDUP_ARCS) {
-                    SCRATCH_ARC_RANGE[dedupCount] = range;
-                    SCRATCH_ARC_FACING[dedupCount] = arcFacing;
-                    SCRATCH_ARC_WIDTH[dedupCount] = arc;
-                    dedupCount++;
-                }
-                secondaryCount++;
-
-                float wx = w.getLocation().x;
-                float wy = w.getLocation().y;
-                drawHighContrastWeaponArcWorld(
-                        wx, wy, range, arcFacing, arc, 0.82f, true,
-                        0.0f, 0.0f, 0.0f, 0.62f * alpha, 3.0f,
-                        0.84f, 0.94f, 1.00f, 0.54f * alpha, 1.35f);
-            }
-        }
-
-        // 3. Locked Target Ship (focusShip.getShipTarget()): Primary hostile firing arcs
-        ShipAPI targetShip = focusShip.getShipTarget();
-        if (targetShip != null
-                && targetShip != focusShip
-                && targetShip.isAlive()
-                && !targetShip.isHulk()
-                && targetShip.getOwner() != focusShip.getOwner()
-                && targetShip.getLocation() != null) {
-            FogOfWarAPI fog = engine.getFogOfWar(0);
-            boolean targetVisible = (fog == null) || fog.isVisible(targetShip);
-            if (targetVisible && viewport.isNearViewport(targetShip.getLocation(), targetShip.getCollisionRadius() + 2500f)) {
-                List<WeaponAPI> targetWeapons = targetShip.getUsableWeapons();
-                if (targetWeapons != null && !targetWeapons.isEmpty()) {
-                    int targetDedupStart = dedupCount;
-                    int targetArcsDrawn = 0;
-                    float targetFacing = targetShip.getFacing();
-                    for (int i = 0, n = targetWeapons.size(); i < n && targetArcsDrawn < 3; i++) {
-                        WeaponAPI tw = targetWeapons.get(i);
-                        if (tw == null || tw.isPermanentlyDisabled() || tw.getLocation() == null) continue;
-                        WeaponSlotAPI slot = tw.getSlot();
-                        if (slot != null && (slot.isDecorative() || slot.isSystemSlot())) continue;
-                        if (tw.hasAIHint(AIHints.PD) || tw.hasAIHint(AIHints.PD_ONLY)) continue;
-                        float range = tw.getDisplayArcRadius() > 1f ? tw.getDisplayArcRadius() : tw.getRange();
-                        if (range < 350f) continue;
-
-                        float arc = tw.getArc();
-                        float arcFacing = tw.getArcFacing() + targetFacing;
-                        boolean dup = false;
-                        for (int j = targetDedupStart; j < dedupCount; j++) {
-                            if (Math.abs(SCRATCH_ARC_RANGE[j] - range) <= 45f
-                                    && Math.abs(SCRATCH_ARC_WIDTH[j] - arc) <= 8f
-                                    && (arc >= 359f || normalizeAngleDiffDeg(SCRATCH_ARC_FACING[j], arcFacing) <= 8f)) {
-                                dup = true;
-                                break;
-                            }
-                        }
-                        if (dup) continue;
-                        if (dedupCount < MAX_DEDUP_ARCS) {
-                            SCRATCH_ARC_RANGE[dedupCount] = range;
-                            SCRATCH_ARC_FACING[dedupCount] = arcFacing;
-                            SCRATCH_ARC_WIDTH[dedupCount] = arc;
-                            dedupCount++;
-                        }
-                        targetArcsDrawn++;
-
-                        drawHighContrastWeaponArcWorld(
-                                tw.getLocation().x, tw.getLocation().y, range, arcFacing, arc, 0.80f, true,
-                                0.0f, 0.0f, 0.0f, 0.68f * alpha, 3.2f,
-                                1.00f, 0.44f, 0.30f, 0.62f * alpha, 1.40f);
+        } else {
+            List<WeaponAPI> weapons = selectedGroup.getWeaponsCopy();
+            if (weapons != null) {
+                for (int i = 0, n = weapons.size(); i < n; i++) {
+                    WeaponAPI w = weapons.get(i);
+                    if (w != null) {
+                        renderSingleWeaponVanillaMatchedHighContrastArcWorld(focusShip, w, alpha, animProgress);
                     }
                 }
             }
@@ -2776,98 +2654,265 @@ public class TsfcWarroomRenderer {
         GL11.glPopAttrib();
     }
 
-    private static void drawHighContrastWeaponArcWorld(
+    private static void renderSingleWeaponVanillaMatchedHighContrastArcWorld(
+            ShipAPI ship,
+            WeaponAPI w,
+            float alpha,
+            float animProgress) {
+        if (w.getAmmo() == 0) {
+            if (w.getSpec() == null || w.getSpec().getAmmoPerSecond() <= 0f) {
+                return;
+            }
+        }
+        WeaponSlotAPI slot = w.getSlot();
+        Vector2f pos = (slot != null) ? slot.computePosition(ship) : w.getLocation();
+        if (pos == null) return;
+        float wx = pos.x;
+        float wy = pos.y;
+
+        float arc = (slot != null) ? slot.getArc() : w.getArc();
+        if (arc == 0.0f) {
+            arc = 3.0f;
+        }
+        arc *= animProgress;
+
+        float slotAngle = (slot != null) ? slot.getAngle() : w.getArcFacing();
+        float arcFacing = ship.getFacing() + slotAngle;
+        float radius = w.getDisplayArcRadius() > 1f ? w.getDisplayArcRadius() : w.getRange();
+        if (radius <= 10f) return;
+
+        float numTicks = (float) Math.floor(radius / 125.0f);
+        if (numTicks < 1.0f) numTicks = 1.0f;
+        float maxArcRings = Math.min(10.0f, numTicks);
+        float stepRadius = radius / numTicks;
+
+        float currAngle = w.getCurrAngle();
+        float spread = Math.max(0f, w.getCurrSpread());
+
+        boolean disabled = w.isDisabled() || w.isForceDisabled() || w.isPermanentlyDisabled();
+        float fgR = 1.00f;
+        float fgG = disabled ? 0.34f : 0.97f;
+        float fgB = disabled ? 0.20f : 0.80f;
+
+        float halfArc = arc * 0.5f;
+        float leftDeg = arcFacing - halfArc;
+        float rightDeg = arcFacing + halfArc;
+
+        // 1. Inner concentric range subdivision arcs (stepRadius * i for i = 1 .. maxArcRings - 1)
+        for (int i = 1; i < (int) maxArcRings; i++) {
+            float ringR = stepRadius * i;
+            drawVanillaMatchedArcCurveWorld(
+                    wx, wy, leftDeg - 2.0f, rightDeg + 2.0f, ringR,
+                    0.0f, 0.0f, 0.0f, 0.20f * alpha, 0.58f * alpha, 3.4f,
+                    fgR, fgG, fgB, 0.22f * alpha, 0.65f * alpha, 1.6f);
+        }
+
+        // 2. Outer maximum range arc at radius
+        drawVanillaMatchedArcCurveWorld(
+                wx, wy, leftDeg, rightDeg, radius,
+                0.0f, 0.0f, 0.0f, 0.48f * alpha, 0.88f * alpha, 4.4f,
+                fgR, fgG, fgB, 0.54f * alpha, 0.94f * alpha, 2.0f);
+
+        // 3. Left and right radial boundary lines:
+        //    - Inner dashed segment from 0.0f to stepRadius (8.0f dash interval)
+        //    - Outer solid segment from stepRadius to radius
+        if (arc < 359.5f) {
+            drawVanillaMatchedRadialLineWorld(
+                    wx, wy, leftDeg, true, 8.0f, 0.0f, stepRadius,
+                    0.0f, 0.0f, 0.0f, 0.34f * alpha, 0.62f * alpha, 4.0f,
+                    fgR, fgG, fgB, 0.38f * alpha, 0.68f * alpha, 1.9f);
+            drawVanillaMatchedRadialLineWorld(
+                    wx, wy, rightDeg, true, 8.0f, 0.0f, stepRadius,
+                    0.0f, 0.0f, 0.0f, 0.34f * alpha, 0.62f * alpha, 4.0f,
+                    fgR, fgG, fgB, 0.38f * alpha, 0.68f * alpha, 1.9f);
+
+            if (radius > stepRadius + 1f) {
+                drawVanillaMatchedRadialLineWorld(
+                        wx, wy, leftDeg, false, 0.0f, stepRadius, radius - stepRadius,
+                        0.0f, 0.0f, 0.0f, 0.62f * alpha, 0.88f * alpha, 4.2f,
+                        fgR, fgG, fgB, 0.68f * alpha, 0.94f * alpha, 2.0f);
+                drawVanillaMatchedRadialLineWorld(
+                        wx, wy, rightDeg, false, 0.0f, stepRadius, radius - stepRadius,
+                        0.0f, 0.0f, 0.0f, 0.62f * alpha, 0.88f * alpha, 4.2f,
+                        fgR, fgG, fgB, 0.68f * alpha, 0.94f * alpha, 2.0f);
+            }
+        }
+
+        // 4. Live barrel aim & recoil spread ladder bars along currAngle at stepRadius * i and radius
+        for (int i = 1; i <= (int) numTicks; i++) {
+            float tickR = (i < (int) numTicks) ? (stepRadius * i) : radius;
+            drawVanillaMatchedAimBarWorld(
+                    wx, wy, currAngle, spread, tickR,
+                    0.0f, 0.0f, 0.0f, 0.90f * alpha, 5.0f,
+                    fgR, fgG, fgB, 0.96f * alpha, 2.6f);
+        }
+    }
+
+    /**
+     * Matches {@code com.fs.starfarer.renderers.E.o00000(null, wx, wy, startDeg, endDeg, 50f, radius, 2f, ...)}
+     * vertex-for-vertex: computes {@code steps = ceil((spanRad * radius) / 50f)} rounded up to a multiple of 4,
+     * draws at {@code rEff = radius - 1.0f} (matching vanilla's {@code radius - lineWidth / 2}), and uses
+     * vanilla's edge-brightened alpha interpolation from center to endpoints.
+     */
+    private static void drawVanillaMatchedArcCurveWorld(
             float wx,
             float wy,
-            float range,
-            float arcFacingDeg,
-            float arcWidthDeg,
-            float radialStartFrac,
-            boolean dashed,
+            float startDeg,
+            float endDeg,
+            float radius,
             float bgR,
             float bgG,
             float bgB,
-            float bgAlpha,
+            float bgMinAlpha,
+            float bgMaxAlpha,
             float bgWidth,
             float fgR,
             float fgG,
             float fgB,
-            float fgAlpha,
+            float fgMinAlpha,
+            float fgMaxAlpha,
             float fgWidth) {
-        int steps = Math.max(6, Math.min(72, Math.round(arcWidthDeg / 5.0f)));
-        if (dashed && (steps & 1) != 0) {
-            steps++;
+        float spanDeg = endDeg - startDeg;
+        if (spanDeg <= 0.05f || radius <= 2f) return;
+        float spanRad = (float) Math.toRadians(spanDeg);
+        if (spanRad < 0f) spanRad += (float) (Math.PI * 2.0);
+        float arcLen = spanRad * radius;
+        int steps = (int) Math.ceil(arcLen / 50.0f);
+        if (steps % 4 != 0) {
+            steps = (steps / 4) * 4 + 4;
         }
-        float startDeg = arcFacingDeg - arcWidthDeg * 0.5f;
-        float stepDeg = arcWidthDeg / steps;
-        float degToRad = (float) (Math.PI / 180.0);
+        if (steps < 4) steps = 4;
 
-        // Pass 1: Dark high-contrast backing casing
+        float stepRad = spanRad / steps;
+        float startRad = (float) Math.toRadians(startDeg);
+        float rEff = Math.max(1f, radius - 1.0f);
+        int glMode = (Math.abs(spanDeg) >= 360.0f) ? GL11.GL_LINE_LOOP : GL11.GL_LINE_STRIP;
+
+        // Pass 1: Dark high-contrast casing
         GL11.glLineWidth(bgWidth);
-        GL11.glColor4f(bgR, bgG, bgB, bgAlpha);
-        GL11.glBegin(GL11.GL_LINES);
-        for (int i = 0; i < steps; i += (dashed ? 2 : 1)) {
-            float a0 = (startDeg + stepDeg * i) * degToRad;
-            float a1 = (startDeg + stepDeg * (i + 1)) * degToRad;
-            GL11.glVertex2f(wx + (float) Math.cos(a0) * range, wy + (float) Math.sin(a0) * range);
-            GL11.glVertex2f(wx + (float) Math.cos(a1) * range, wy + (float) Math.sin(a1) * range);
-        }
-        if (arcWidthDeg < 359.5f) {
-            float aLeft = startDeg * degToRad;
-            float aRight = (startDeg + arcWidthDeg) * degToRad;
-            float cosL = (float) Math.cos(aLeft);
-            float sinL = (float) Math.sin(aLeft);
-            float cosR = (float) Math.cos(aRight);
-            float sinR = (float) Math.sin(aRight);
-            float rIn = range * radialStartFrac;
-            GL11.glColor4f(bgR, bgG, bgB, 0.0f);
-            GL11.glVertex2f(wx + cosL * rIn, wy + sinL * rIn);
-            GL11.glColor4f(bgR, bgG, bgB, bgAlpha);
-            GL11.glVertex2f(wx + cosL * range, wy + sinL * range);
-            GL11.glColor4f(bgR, bgG, bgB, 0.0f);
-            GL11.glVertex2f(wx + cosR * rIn, wy + sinR * rIn);
-            GL11.glColor4f(bgR, bgG, bgB, bgAlpha);
-            GL11.glVertex2f(wx + cosR * range, wy + sinR * range);
+        GL11.glBegin(glMode);
+        for (int i = 0; i <= steps; i++) {
+            float frac = (float) i / (float) steps;
+            float edgeFactor = 1.0f - 2.0f * Math.min(frac, 1.0f - frac);
+            float a = bgMinAlpha + (bgMaxAlpha - bgMinAlpha) * edgeFactor;
+            float ang = startRad + stepRad * i;
+            GL11.glColor4f(bgR, bgG, bgB, a);
+            GL11.glVertex2f(wx + (float) Math.cos(ang) * rEff, wy + (float) Math.sin(ang) * rEff);
         }
         GL11.glEnd();
 
-        // Pass 2: Crisp high-luminance foreground core
+        // Pass 2: Bright high-contrast foreground core
         GL11.glLineWidth(fgWidth);
-        GL11.glColor4f(fgR, fgG, fgB, fgAlpha);
-        GL11.glBegin(GL11.GL_LINES);
-        for (int i = 0; i < steps; i += (dashed ? 2 : 1)) {
-            float a0 = (startDeg + stepDeg * i) * degToRad;
-            float a1 = (startDeg + stepDeg * (i + 1)) * degToRad;
-            GL11.glVertex2f(wx + (float) Math.cos(a0) * range, wy + (float) Math.sin(a0) * range);
-            GL11.glVertex2f(wx + (float) Math.cos(a1) * range, wy + (float) Math.sin(a1) * range);
-        }
-        if (arcWidthDeg < 359.5f) {
-            float aLeft = startDeg * degToRad;
-            float aRight = (startDeg + arcWidthDeg) * degToRad;
-            float cosL = (float) Math.cos(aLeft);
-            float sinL = (float) Math.sin(aLeft);
-            float cosR = (float) Math.cos(aRight);
-            float sinR = (float) Math.sin(aRight);
-            float rIn = range * radialStartFrac;
-            GL11.glColor4f(fgR, fgG, fgB, 0.0f);
-            GL11.glVertex2f(wx + cosL * rIn, wy + sinL * rIn);
-            GL11.glColor4f(fgR, fgG, fgB, fgAlpha);
-            GL11.glVertex2f(wx + cosL * range, wy + sinL * range);
-            GL11.glColor4f(fgR, fgG, fgB, 0.0f);
-            GL11.glVertex2f(wx + cosR * rIn, wy + sinR * rIn);
-            GL11.glColor4f(fgR, fgG, fgB, fgAlpha);
-            GL11.glVertex2f(wx + cosR * range, wy + sinR * range);
+        GL11.glBegin(glMode);
+        for (int i = 0; i <= steps; i++) {
+            float frac = (float) i / (float) steps;
+            float edgeFactor = 1.0f - 2.0f * Math.min(frac, 1.0f - frac);
+            float a = fgMinAlpha + (fgMaxAlpha - fgMinAlpha) * edgeFactor;
+            float ang = startRad + stepRad * i;
+            GL11.glColor4f(fgR, fgG, fgB, a);
+            GL11.glVertex2f(wx + (float) Math.cos(ang) * rEff, wy + (float) Math.sin(ang) * rEff);
         }
         GL11.glEnd();
     }
 
-    private static void drawHighContrastAimReticleWorld(
+    /**
+     * Matches {@code com.fs.starfarer.renderers.E.o00000(lineTex, wx, wy, angleDeg, dashed, dashLen, startOffset, length, ...)}
+     * for the inner dashed radial segment ({@code 0 .. stepRadius}) and outer solid radial segment ({@code stepRadius .. radius}).
+     */
+    private static void drawVanillaMatchedRadialLineWorld(
             float wx,
             float wy,
-            float range,
+            float angleDeg,
+            boolean dashed,
+            float dashLen,
+            float startDist,
+            float length,
+            float bgR,
+            float bgG,
+            float bgB,
+            float bgStartAlpha,
+            float bgEndAlpha,
+            float bgWidth,
+            float fgR,
+            float fgG,
+            float fgB,
+            float fgStartAlpha,
+            float fgEndAlpha,
+            float fgWidth) {
+        if (length <= 1f) return;
+        float rad = (float) Math.toRadians(angleDeg);
+        float cos = (float) Math.cos(rad);
+        float sin = (float) Math.sin(rad);
+
+        if (!dashed) {
+            float x0 = wx + cos * startDist;
+            float y0 = wy + sin * startDist;
+            float x1 = wx + cos * (startDist + length);
+            float y1 = wy + sin * (startDist + length);
+
+            GL11.glLineWidth(bgWidth);
+            GL11.glBegin(GL11.GL_LINES);
+            GL11.glColor4f(bgR, bgG, bgB, bgStartAlpha);
+            GL11.glVertex2f(x0, y0);
+            GL11.glColor4f(bgR, bgG, bgB, bgEndAlpha);
+            GL11.glVertex2f(x1, y1);
+            GL11.glEnd();
+
+            GL11.glLineWidth(fgWidth);
+            GL11.glBegin(GL11.GL_LINES);
+            GL11.glColor4f(fgR, fgG, fgB, fgStartAlpha);
+            GL11.glVertex2f(x0, y0);
+            GL11.glColor4f(fgR, fgG, fgB, fgEndAlpha);
+            GL11.glVertex2f(x1, y1);
+            GL11.glEnd();
+            return;
+        }
+
+        float step = Math.max(4f, dashLen);
+        int numSteps = Math.max(2, (int) Math.ceil(length / step));
+        // Pass 1: Dark backing
+        GL11.glLineWidth(bgWidth);
+        GL11.glBegin(GL11.GL_LINES);
+        for (int i = 0; i < numSteps; i += 2) {
+            float d0 = startDist + Math.min(length, i * step);
+            float d1 = startDist + Math.min(length, (i + 1) * step);
+            float f0 = (d0 - startDist) / length;
+            float f1 = (d1 - startDist) / length;
+            GL11.glColor4f(bgR, bgG, bgB, bgStartAlpha + (bgEndAlpha - bgStartAlpha) * f0);
+            GL11.glVertex2f(wx + cos * d0, wy + sin * d0);
+            GL11.glColor4f(bgR, bgG, bgB, bgStartAlpha + (bgEndAlpha - bgStartAlpha) * f1);
+            GL11.glVertex2f(wx + cos * d1, wy + sin * d1);
+        }
+        GL11.glEnd();
+
+        // Pass 2: Bright foreground
+        GL11.glLineWidth(fgWidth);
+        GL11.glBegin(GL11.GL_LINES);
+        for (int i = 0; i < numSteps; i += 2) {
+            float d0 = startDist + Math.min(length, i * step);
+            float d1 = startDist + Math.min(length, (i + 1) * step);
+            float f0 = (d0 - startDist) / length;
+            float f1 = (d1 - startDist) / length;
+            GL11.glColor4f(fgR, fgG, fgB, fgStartAlpha + (fgEndAlpha - fgStartAlpha) * f0);
+            GL11.glVertex2f(wx + cos * d0, wy + sin * d0);
+            GL11.glColor4f(fgR, fgG, fgB, fgStartAlpha + (fgEndAlpha - fgStartAlpha) * f1);
+            GL11.glVertex2f(wx + cos * d1, wy + sin * d1);
+        }
+        GL11.glEnd();
+    }
+
+    /**
+     * Matches {@code com.fs.starfarer.renderers.E.o00000(lineTex, wx, wy, currAngleDeg, spreadDeg, radius, ...)}
+     * for the perpendicular aim/spread ladder bars at {@code stepRadius * i} and {@code radius}, enforcing
+     * vanilla's minimum {@code 15.0f} world-unit arc length so 0-spread beam/hardpoint weapons (such as Rift Lances)
+     * have high-contrast aim bars aligned with vanilla's aim ladder.
+     */
+    private static void drawVanillaMatchedAimBarWorld(
+            float wx,
+            float wy,
             float currAngleDeg,
             float spreadDeg,
-            float viewMult,
+            float radius,
             float bgR,
             float bgG,
             float bgB,
@@ -2878,51 +2923,37 @@ public class TsfcWarroomRenderer {
             float fgB,
             float fgAlpha,
             float fgWidth) {
-        float halfSpread = Math.max(0.35f, spreadDeg * 0.5f);
-        float startDeg = currAngleDeg - halfSpread;
-        float endDeg = currAngleDeg + halfSpread;
-        float degToRad = (float) (Math.PI / 180.0);
-        int steps = Math.max(2, Math.min(24, Math.round(spreadDeg / 4.0f)));
-        float stepDeg = (endDeg - startDeg) / steps;
-        float tickIn = Math.max(10f, range - Math.max(10f, 9.5f * viewMult));
+        if (radius <= 2f) return;
+        float centerRad = (float) Math.toRadians(currAngleDeg);
+        float spreadRad = (float) Math.toRadians(spreadDeg);
+        float arcLen = spreadRad * radius;
+        if (arcLen < 15.0f) {
+            arcLen = 15.0f;
+            spreadRad = 15.0f / radius;
+        }
+        int steps = Math.max(2, Math.min(24, (int) Math.ceil(arcLen / 12.0f)));
+        float startRad = centerRad - spreadRad * 0.5f;
+        float stepRad = spreadRad / steps;
+        float rEff = Math.max(1f, radius - 0.5f);
 
-        float aStart = startDeg * degToRad;
-        float aEnd = endDeg * degToRad;
-        float cosS = (float) Math.cos(aStart);
-        float sinS = (float) Math.sin(aStart);
-        float cosE = (float) Math.cos(aEnd);
-        float sinE = (float) Math.sin(aEnd);
-
-        // Pass 1: Dark backing casing
+        // Pass 1: Dark high-contrast casing
         GL11.glLineWidth(bgWidth);
         GL11.glColor4f(bgR, bgG, bgB, bgAlpha);
-        GL11.glBegin(GL11.GL_LINES);
-        for (int i = 0; i < steps; i++) {
-            float a0 = (startDeg + stepDeg * i) * degToRad;
-            float a1 = (startDeg + stepDeg * (i + 1)) * degToRad;
-            GL11.glVertex2f(wx + (float) Math.cos(a0) * range, wy + (float) Math.sin(a0) * range);
-            GL11.glVertex2f(wx + (float) Math.cos(a1) * range, wy + (float) Math.sin(a1) * range);
+        GL11.glBegin(GL11.GL_LINE_STRIP);
+        for (int i = 0; i <= steps; i++) {
+            float ang = startRad + stepRad * i;
+            GL11.glVertex2f(wx + (float) Math.cos(ang) * rEff, wy + (float) Math.sin(ang) * rEff);
         }
-        GL11.glVertex2f(wx + cosS * tickIn, wy + sinS * tickIn);
-        GL11.glVertex2f(wx + cosS * range, wy + sinS * range);
-        GL11.glVertex2f(wx + cosE * tickIn, wy + sinE * tickIn);
-        GL11.glVertex2f(wx + cosE * range, wy + sinE * range);
         GL11.glEnd();
 
-        // Pass 2: Bright foreground aim reticle
+        // Pass 2: Bright high-contrast foreground bar
         GL11.glLineWidth(fgWidth);
         GL11.glColor4f(fgR, fgG, fgB, fgAlpha);
-        GL11.glBegin(GL11.GL_LINES);
-        for (int i = 0; i < steps; i++) {
-            float a0 = (startDeg + stepDeg * i) * degToRad;
-            float a1 = (startDeg + stepDeg * (i + 1)) * degToRad;
-            GL11.glVertex2f(wx + (float) Math.cos(a0) * range, wy + (float) Math.sin(a0) * range);
-            GL11.glVertex2f(wx + (float) Math.cos(a1) * range, wy + (float) Math.sin(a1) * range);
+        GL11.glBegin(GL11.GL_LINE_STRIP);
+        for (int i = 0; i <= steps; i++) {
+            float ang = startRad + stepRad * i;
+            GL11.glVertex2f(wx + (float) Math.cos(ang) * rEff, wy + (float) Math.sin(ang) * rEff);
         }
-        GL11.glVertex2f(wx + cosS * tickIn, wy + sinS * tickIn);
-        GL11.glVertex2f(wx + cosS * range, wy + sinS * range);
-        GL11.glVertex2f(wx + cosE * tickIn, wy + sinE * tickIn);
-        GL11.glVertex2f(wx + cosE * range, wy + sinE * range);
         GL11.glEnd();
     }
 }

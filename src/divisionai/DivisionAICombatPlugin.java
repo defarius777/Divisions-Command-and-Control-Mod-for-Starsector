@@ -331,8 +331,18 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (focusShip == null) {
             return;
         }
+        if (!showingCameraFeed && tacticalOverlay != null && !tacticalOverlay.areWeaponArcsOn()) {
+            return;
+        }
+        float animProgress = (!showingCameraFeed && tacticalOverlay != null)
+                ? tacticalOverlay.getArcRendererAnimProgress()
+                : 1.0f;
+        if (animProgress <= 0.005f) {
+            return;
+        }
         float arcAlpha = Math.min(1.0f, Math.max(0.65f, configuredBattleMult * 3.5f)) * Math.max(0f, 1f - cmdMapOpacity);
-        TsfcWarroomRenderer.renderHighContrastCaptaincyFiringArcsWorldSpace(engine, viewport, focusShip, arcAlpha);
+        TsfcWarroomRenderer.renderHighContrastCaptaincyFiringArcsWorldSpace(
+                engine, viewport, focusShip, arcAlpha, animProgress);
     }
 
     @Override
@@ -1230,13 +1240,19 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     String.format("Command channel restoring in %.0fs", rem),
                     true);
         } else {
+            float safeRatio = (Float.isNaN(playerGroup.forceRatio) || Float.isInfinite(playerGroup.forceRatio))
+                    ? 1.0f
+                    : playerGroup.forceRatio;
+            float safeEngPct = (Float.isNaN(playerGroup.smoothedEngagementLevel) || Float.isInfinite(playerGroup.smoothedEngagementLevel))
+                    ? 0.0f
+                    : (playerGroup.smoothedEngagementLevel * 100f);
             engine.maintainStatusForPlayerShip(
                     HUD_STATUS_KEY_OTC,
                     "graphics/icons/hullsys/reserve_deployment.png",
                     "OTC Phase: " + playerGroup.currentPhase.displayName,
                     String.format("Force Ratio %.2fx | Engaged %.0f%% | %d Divs",
-                            playerGroup.forceRatio,
-                            playerGroup.smoothedEngagementLevel * 100f,
+                            safeRatio,
+                            safeEngPct,
                             playerGroup.divisions.size()),
                     false);
         }
