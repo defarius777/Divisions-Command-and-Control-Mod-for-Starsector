@@ -853,8 +853,44 @@ public class DivisionDeploymentDialogOrganizer {
     private boolean isPursuitFlankDeploymentAvailable() {
         try {
             CombatEngineAPI engine = Global.getCombatEngine();
-            if (engine != null && engine.getCustomData() != null) {
-                return Boolean.TRUE.equals(engine.getCustomData().get("can_deploy_left_right"));
+            if (engine != null) {
+                if (engine.getCustomData() != null
+                        && Boolean.TRUE.equals(engine.getCustomData().get("can_deploy_left_right"))) {
+                    return true;
+                }
+                if (hasCommanderCanDeployLeftRightStat(engine)) {
+                    return true;
+                }
+                com.fs.starfarer.api.combat.BattleCreationContext ctx = engine.getContext();
+                if (ctx != null && ctx.getOtherGoal() == com.fs.starfarer.api.fleet.FleetGoal.ESCAPE) {
+                    return true;
+                }
+                com.fs.starfarer.api.combat.CombatFleetManagerAPI enemyFm = engine.getFleetManager(1);
+                if (enemyFm != null && enemyFm.getGoal() == com.fs.starfarer.api.fleet.FleetGoal.ESCAPE) {
+                    return true;
+                }
+                if (enemyGroup != null
+                        && enemyGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION) {
+                    return true;
+                }
+                if (playerGroup != null
+                        && playerGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    private boolean hasCommanderCanDeployLeftRightStat(CombatEngineAPI engine) {
+        try {
+            if (engine == null) return false;
+            com.fs.starfarer.api.combat.CombatFleetManagerAPI playerFm = engine.getFleetManager(0);
+            if (playerFm == null) return false;
+            PersonAPI cmdr = playerFm.getFleetCommanderPreferPlayer();
+            if (cmdr != null && cmdr.getStats() != null && cmdr.getStats().getDynamic() != null) {
+                return cmdr.getStats().getDynamic().getMod("can_deploy_left_right").computeEffective(0f) > 0f;
             }
         } catch (Throwable ignored) {
         }
@@ -862,7 +898,17 @@ public class DivisionDeploymentDialogOrganizer {
     }
 
     private boolean canMemberDeployLeftRight(FleetMemberAPI m) {
-        if (m == null || m.isStation()) return false;
+        if (m == null || m.isFighterWing() || m.isStation()) return false;
+        CombatEngineAPI engine = Global.getCombatEngine();
+        if (engine != null) {
+            if (engine.getCustomData() != null
+                    && Boolean.TRUE.equals(engine.getCustomData().get("can_deploy_left_right"))) {
+                return m.isFrigate() || m.isDestroyer();
+            }
+            if (hasCommanderCanDeployLeftRightStat(engine)) {
+                return true;
+            }
+        }
         if (memberCanDeployLeftRightHandle != null) {
             try {
                 return (boolean) memberCanDeployLeftRightHandle.invoke(m);
@@ -1762,8 +1808,39 @@ public class DivisionDeploymentDialogOrganizer {
 
     private void setEntryDeployState(Object fdd, MemberIconEntry e, int targetDeployState) throws Throwable {
         if (e == null || e.isAlreadyDeployed || e.member == null || !e.member.canBeDeployedForCombat()) return;
+        int curState = getIconDeployState(fdd, e);
+        if (curState == targetDeployState) {
+            return;
+        }
+        if (iconSetDeployStateHandle != null && iconGetDeployStateHandle != null && e.icon != null) {
+            if (targetDeployState == -1) {
+                if (curState != -1) {
+                    iconSetDeployStateHandle.invoke(e.icon, 3);
+                    fddFleetMemberClickedHandle.invoke(fdd, e.member, e.icon, null);
+                    if (getIconDeployState(fdd, e) != -1) {
+                        iconSetDeployStateHandle.invoke(e.icon, 1);
+                        fddFleetMemberClickedHandle.invoke(fdd, e.member, e.icon, null);
+                    }
+                    if (getIconDeployState(fdd, e) != -1) {
+                        iconSetDeployStateHandle.invoke(e.icon, -1);
+                    }
+                }
+                return;
+            }
+            if (curState == -1) {
+                fddFleetMemberClickedHandle.invoke(fdd, e.member, e.icon, null);
+                curState = getIconDeployState(fdd, e);
+                if (curState == -1) {
+                    return; // Insufficient deployment points
+                }
+            }
+            if (curState != targetDeployState) {
+                iconSetDeployStateHandle.invoke(e.icon, targetDeployState);
+            }
+            return;
+        }
         for (int attempt = 0; attempt < 4; attempt++) {
-            int curState = getIconDeployState(fdd, e);
+            curState = getIconDeployState(fdd, e);
             if (curState == targetDeployState) {
                 break;
             }

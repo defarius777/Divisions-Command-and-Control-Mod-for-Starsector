@@ -770,8 +770,12 @@ public class DivisionCommanderAI {
                             uncapturedObj.getDisplayName(), "Full Assault", now);
                     return;
                 }
-                float scoutDirY = (div.side == 0) ? 1600f : -1600f;
-                div.stationPoint.set(div.centroid.x * 0.85f, div.centroid.y + scoutDirY);
+                if (OtcAI.isPursuitBattle(engine, myGroup)) {
+                    computePursuitBlindAdvanceStation(engine, div, myGroup, div.stationPoint);
+                } else {
+                    float scoutDirY = (div.side == 0) ? 1600f : -1600f;
+                    div.stationPoint.set(div.centroid.x * 0.85f, div.centroid.y + scoutDirY);
+                }
                 commitIntent(engine, div, DivisionIntentType.CLOSE_AND_ENGAGE,
                         "enemy forces", "Full Assault", now);
                 return;
@@ -861,7 +865,10 @@ public class DivisionCommanderAI {
         // enemy division exists within strike range (< 4200u), because CLOSE_UP interrupts carrier Voidstrikes!
         boolean carrierHasStrikeTarget = (div.archetype != null && div.archetype.isCarrierArchetype())
                 && nearestEnemyDiv != null && distToVisibleEnemy <= 4200f;
-        boolean linearSkillBurnInFlight = div.hasActiveLinearSkillBurn || div.synchronizedSkillManeuverActive;
+        boolean linearSkillBurnInFlight = div.hasActiveLinearSkillBurn
+                || div.synchronizedSkillManeuverActive
+                || isPursuitBattle
+                || isDivisionInEntryTravelDrive(div);
         boolean enterCloseUp = div.stationKeepingRatio > 1.48f && !carrierHasStrikeTarget && !linearSkillBurnInFlight;
         boolean stayClosingUp = (prevIntent == DivisionIntentType.CLOSE_UP) && div.stationKeepingRatio > 1.08f
                 && !carrierHasStrikeTarget && !linearSkillBurnInFlight;
@@ -1473,8 +1480,14 @@ public class DivisionCommanderAI {
                 || prevIntent == DivisionIntentType.TOT_ALPHA_STRIKE);
         boolean inFlankManeuver = (prevIntent == DivisionIntentType.WORK_FLANK);
 
+        boolean isPursuitBattle = OtcAI.isPursuitBattle(engine, myGroup);
+        boolean isPursuitInterception = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
+
         // 10. Fallback Monotype Screening when Capital/Carrier needs screen
-        if (!div.archetype.isComposite
+        boolean skipPursuitScreen = isPursuitBattle
+                && (div.pursuitSpawnZone != 0 || (isPursuitInterception && nearestEnemyDiv == null));
+        if (!skipPursuitScreen
+                && !div.archetype.isComposite
                 && div.isScreenCapable
                 && !div.hasMissileStrikeCapability
                 && heavyFriendlyToScreen != null) {
@@ -1665,19 +1678,71 @@ public class DivisionCommanderAI {
             commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,
                     uncapturedObj.getDisplayName(), "advancing without contact", now);
         } else {
-            float scoutDirY = (div.side == 0) ? 1400f : -1400f;
             div.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
-            if (myGroup != null && myGroup.mainEffortDivision != null
-                    && div != myGroup.mainEffortDivision
-                    && myGroup.mainEffortDivision.isCombatEffective()) {
-                div.stationPoint.set(
-                        myGroup.mainEffortDivision.centroid.x + div.fleetFormationOffset.x,
-                        myGroup.mainEffortDivision.centroid.y + scoutDirY + div.fleetFormationOffset.y * 0.65f);
+            if (isPursuitBattle) {
+                computePursuitBlindAdvanceStation(engine, div, myGroup, div.stationPoint);
             } else {
-                div.stationPoint.set(div.centroid.x * 0.85f, div.centroid.y + scoutDirY);
+                float scoutDirY = (div.side == 0) ? 1400f : -1400f;
+                if (myGroup != null && myGroup.mainEffortDivision != null
+                        && div != myGroup.mainEffortDivision
+                        && myGroup.mainEffortDivision.isCombatEffective()) {
+                    div.stationPoint.set(
+                            myGroup.mainEffortDivision.centroid.x + div.fleetFormationOffset.x,
+                            myGroup.mainEffortDivision.centroid.y + scoutDirY + div.fleetFormationOffset.y * 0.65f);
+                } else {
+                    div.stationPoint.set(div.centroid.x * 0.85f, div.centroid.y + scoutDirY);
+                }
             }
             div.lastIntentChangeTime = now;
         }
+    }
+
+    static boolean isDivisionInEntryTravelDrive(DivisionState div) {
+        if (div == null || div.members == null) return false;
+        for (int i = 0, n = div.members.size(); i < n; i++) {
+            ShipAPI m = div.members.get(i);
+            if (m != null && m.isAlive() && !m.isHulk()
+                    && m.getFullTimeDeployed() < 8.5f
+                    && m.getTravelDrive() != null
+                    && m.getTravelDrive().isActive()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void computePursuitBlindAdvanceStation(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            Vector2f outStation) {
+        if (div == null || outStation == null) return;
+        float fwdY = OtcAI.getBattleGroupForwardDirY(myGroup);
+        if (isDivisionInEntryTravelDrive(div)) {
+            if (div.pursuitSpawnZone < 0) {
+                outStation.set(div.centroid.x + 1800f, div.centroid.y);
+            } else if (div.pursuitSpawnZone > 0) {
+                outStation.set(div.centroid.x - 1800f, div.centroid.y);
+            } else {
+                outStation.set(div.centroid.x, div.centroid.y + fwdY * 1800f);
+            }
+            return;
+        }
+        float mapH = (engine != null) ? Math.max(8000f, engine.getMapHeight()) : 18000f;
+        float maxAdvanceY = (fwdY > 0f) ? (mapH * 0.5f - 950f) : (-mapH * 0.5f + 950f);
+        float targetY = (fwdY > 0f)
+                ? Math.min(maxAdvanceY, div.centroid.y + 1800f)
+                : Math.max(maxAdvanceY, div.centroid.y - 1800f);
+        if (div.pursuitSpawnZone < 0) {
+            float targetX = Math.min(-450f, div.centroid.x + 1350f);
+            outStation.set(targetX, targetY);
+        } else if (div.pursuitSpawnZone > 0) {
+            float targetX = Math.max(450f, div.centroid.x - 1350f);
+            outStation.set(targetX, targetY);
+        } else {
+            outStation.set(div.centroid.x * 0.92f, targetY);
+        }
+        DivisionFormationNavigator.clampToMapBounds(engine, outStation, 550f);
     }
 
     /**
@@ -2055,12 +2120,15 @@ public class DivisionCommanderAI {
                 if (enemyTrackable) {
                     Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, enemy);
                     if (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION
-                            && (enemy.isUnableDivision || enemy.retreatingFraction >= 0.35f)) {
+                            && (enemy.isUnableDivision || enemy.retreatingFraction >= 0.35f
+                            || DivisionState.isDivisionEscapingInPursuit(engine, enemy))) {
                         float cutX = (div.pursuitSpawnZone != 0) ? (-div.pursuitSpawnZone * 220f) : 0f;
                         div.stationPoint.set(ePos.x + cutX, ePos.y + 420f);
                     } else {
                         div.stationPoint.set(ePos);
                     }
+                } else if (OtcAI.isPursuitBattle(engine, myGroup)) {
+                    computePursuitBlindAdvanceStation(engine, div, myGroup, div.stationPoint);
                 }
                 break;
             case CLOSE_AND_ENGAGE:
@@ -2071,18 +2139,19 @@ public class DivisionCommanderAI {
                 } else if (enemyTrackable) {
                     DivisionFormationNavigator.computeStandoffStation(engine, div, enemy, div.stationPoint);
                 } else if (div.targetEnemyDivision == null) {
-                    float scoutDirY = (div.side == 0) ? 1400f : -1400f;
                     if (OtcAI.isPursuitBattle(engine, myGroup)) {
-                        float targetX = (div.pursuitSpawnZone != 0) ? (div.centroid.x * 0.55f) : (div.centroid.x * 0.85f);
-                        div.stationPoint.set(targetX, div.centroid.y + 1600f);
-                    } else if (myGroup != null && myGroup.mainEffortDivision != null
-                            && div != myGroup.mainEffortDivision
-                            && myGroup.mainEffortDivision.isCombatEffective()) {
-                        div.stationPoint.set(
-                                myGroup.mainEffortDivision.centroid.x + div.fleetFormationOffset.x,
-                                myGroup.mainEffortDivision.centroid.y + scoutDirY + div.fleetFormationOffset.y * 0.65f);
+                        computePursuitBlindAdvanceStation(engine, div, myGroup, div.stationPoint);
                     } else {
-                        div.stationPoint.set(div.centroid.x * 0.85f, div.centroid.y + scoutDirY);
+                        float scoutDirY = (div.side == 0) ? 1400f : -1400f;
+                        if (myGroup != null && myGroup.mainEffortDivision != null
+                                && div != myGroup.mainEffortDivision
+                                && myGroup.mainEffortDivision.isCombatEffective()) {
+                            div.stationPoint.set(
+                                    myGroup.mainEffortDivision.centroid.x + div.fleetFormationOffset.x,
+                                    myGroup.mainEffortDivision.centroid.y + scoutDirY + div.fleetFormationOffset.y * 0.65f);
+                        } else {
+                            div.stationPoint.set(div.centroid.x * 0.85f, div.centroid.y + scoutDirY);
+                        }
                     }
                 }
                 break;
@@ -3348,6 +3417,7 @@ public class DivisionCommanderAI {
                 && (div.targetEnemyDivision.edgeProximityPinch >= 0.28f
                 || div.targetEnemyDivision.isUnableDivision
                 || div.targetEnemyDivision.retreatingFraction >= 0.35f
+                || DivisionState.isDivisionEscapingInPursuit(com.fs.starfarer.api.Global.getCombatEngine(), div.targetEnemyDivision)
                 || div.targetEnemyDivision.combatThreatWeight <= 0.60f);
         if (!targetCorneredOrWeak) {
             flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
@@ -3658,6 +3728,7 @@ public class DivisionCommanderAI {
                 && (div.targetEnemyDivision.edgeProximityPinch >= 0.25f
                 || div.targetEnemyDivision.isUnableDivision
                 || div.targetEnemyDivision.retreatingFraction >= 0.35f
+                || DivisionState.isDivisionEscapingInPursuit(com.fs.starfarer.api.Global.getCombatEngine(), div.targetEnemyDivision)
                 || div.targetEnemyDivision.combatThreatWeight <= 0.62f);
         if (focusEnemyShip != null && distToFocus < 2200f) {
             directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);

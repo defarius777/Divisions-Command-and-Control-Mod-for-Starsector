@@ -914,7 +914,10 @@ public class OtcBattlePlanner {
         boolean isRearguardEscape = (myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
         if (!fullAssault && main != null && main.isCombatEffective() && !tasked.contains(main) && primary != null) {
             Vector2f primaryPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, primary);
-            boolean primaryFleeing = isPursuitInterception && (primary.isUnableDivision || primary.retreatingFraction >= 0.35f);
+            boolean primaryFleeing = isPursuitInterception
+                    && (primary.isUnableDivision
+                    || primary.retreatingFraction >= 0.35f
+                    || DivisionState.isDivisionEscapingInPursuit(engine, primary));
             OtcOrderType mainOrderType = primaryFleeing ? OtcOrderType.ENGAGE_ASSIGNED : OtcOrderType.FORM_LINE;
             boolean newOrder = !(main.otcOrder.type == mainOrderType && main.otcOrder.targetEnemy == primary);
             main.otcOrder.set(mainOrderType, primary, null, 0f, expires,

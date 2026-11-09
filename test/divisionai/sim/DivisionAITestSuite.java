@@ -1700,17 +1700,47 @@ public class DivisionAITestSuite {
         eGroup.divisions.add(eEscape);
 
         SimArena arena = new SimArena("9. Pursuit & Rearguard", "Interception L/C/R vs Rearguard Escape", pGroup, eGroup);
-        SimShipState pc1 = arena.addShip(pCenter, "pc1", "HSS Dominator", "dominator", HullSize.CRUISER, 0f, -2200f, 60f, 1100f, 0, 0);
-        SimShipState pl1 = arena.addShip(pLeft, "pl1", "HSS Lasher", "lasher", HullSize.FRIGATE, -2800f, 400f, 135f, 700f, 0, 0);
-        SimShipState pr1 = arena.addShip(pRight, "pr1", "HSS Hammerhead", "hammerhead", HullSize.DESTROYER, 2800f, 400f, 105f, 900f, 0, 0);
+        SimShipState pc1 = arena.addShip(pCenter, "pc1", "HSS Dominator", "dominator", HullSize.CRUISER, -120f, -6800f, 60f, 1100f, 0, 0);
+        SimShipState pc2 = arena.addShip(pCenter, "pc2", "HSS Eagle", "eagle", HullSize.CRUISER, 120f, -7400f, 80f, 1100f, 0, 0);
+        SimShipState pl1 = arena.addShip(pLeft, "pl1", "HSS Lasher", "lasher", HullSize.FRIGATE, -4600f, 400f, 135f, 700f, 0, 0);
+        SimShipState pl2 = arena.addShip(pLeft, "pl2", "HSS Wolf", "wolf", HullSize.FRIGATE, -4900f, 100f, 150f, 700f, 0, 0);
+        SimShipState pr1 = arena.addShip(pRight, "pr1", "HSS Hammerhead", "hammerhead", HullSize.DESTROYER, 4600f, 400f, 105f, 900f, 0, 0);
+        SimShipState pr2 = arena.addShip(pRight, "pr2", "HSS Sunder", "sunder", HullSize.DESTROYER, 4900f, 100f, 100f, 900f, 0, 0);
         SimShipState ee1 = arena.addShip(eEscape, "ee1", "ISS Falcon", "falcon", HullSize.CRUISER, 0f, 600f, 85f, 1000f, 0, 0);
+
+        pl1.facing = 0f;
+        pl2.facing = 0f;
+        pr1.facing = 180f;
+        pr2.facing = 180f;
+        pc1.facing = 90f;
+        pc2.facing = 90f;
+
+        pGroup.shipIdToDivision.put(pc1.id, pCenter);
+        pGroup.shipIdToDivision.put(pc2.id, pCenter);
+        pGroup.shipIdToDivision.put(pl1.id, pLeft);
+        pGroup.shipIdToDivision.put(pl2.id, pLeft);
+        pGroup.shipIdToDivision.put(pr1.id, pRight);
+        pGroup.shipIdToDivision.put(pr2.id, pRight);
+
+        List<com.fs.starfarer.api.combat.ShipAPI> wave = new ArrayList<>();
+        wave.add(pc1.proxy);
+        wave.add(pc2.proxy);
+        wave.add(pl1.proxy);
+        wave.add(pl2.proxy);
+        wave.add(pr1.proxy);
+        wave.add(pr2.proxy);
 
         boolean pursuitDetected = divisionai.OtcAI.isPursuitBattle(arena.engineProxy, pGroup)
                 && !divisionai.OtcAI.isOrchestratedAdvanceActive(arena.engineProxy, pGroup, eGroup);
-        divisionai.OtcAI.applyInitialFleetFormationDeployment(arena.engineProxy, pGroup, eGroup, 0f);
-        boolean flankZonesPreserved = Math.abs(pl1.location.x - (-2800f)) < 1f
-                && Math.abs(pr1.location.x - 2800f) < 1f
-                && Math.abs(pc1.location.x - 0f) < 1f;
+        divisionai.OtcAI.hijackNewlyDeployedWaveIntoFormation(arena.engineProxy, pGroup, eGroup, wave, 0f);
+        boolean flankZonesPreserved = pLeft.pursuitSpawnZone == -1
+                && pRight.pursuitSpawnZone == 1
+                && pCenter.pursuitSpawnZone == 0
+                && pl1.location.x < -2000f && pl2.location.x < -2000f
+                && pr1.location.x > 2000f && pr2.location.x > 2000f
+                && Math.abs(pl1.facing - 0f) < 5f
+                && Math.abs(pr1.facing - 180f) < 5f
+                && Math.abs(pc1.facing - 90f) < 5f;
 
         arena.runSimulation(2.0f);
         boolean otcTargetedEscapingEnemy = (pGroup.primaryThreatEnemyDivision == eEscape);

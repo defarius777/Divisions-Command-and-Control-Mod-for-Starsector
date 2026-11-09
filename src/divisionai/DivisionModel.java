@@ -702,7 +702,57 @@ public class DivisionModel {
 
         public static boolean isShipUnable(ShipAPI s) {
             if (s == null || !s.isAlive() || s.isHulk() || s.isExpired()) return true;
-            return s.isRetreating() || s.isDirectRetreat();
+            if (s.isDirectRetreat()) return true;
+            if (!s.isRetreating()) return false;
+            try {
+                com.fs.starfarer.api.combat.CombatEngineAPI engine = com.fs.starfarer.api.Global.getCombatEngine();
+                if (engine != null) {
+                    int owner = s.getOwner();
+                    com.fs.starfarer.api.combat.BattleCreationContext ctx = engine.getContext();
+                    if (ctx != null) {
+                        com.fs.starfarer.api.fleet.FleetGoal goal = (owner == 0) ? ctx.getPlayerGoal() : ctx.getOtherGoal();
+                        if (goal == com.fs.starfarer.api.fleet.FleetGoal.ESCAPE) {
+                            return false;
+                        }
+                    }
+                    com.fs.starfarer.api.combat.CombatFleetManagerAPI fm = engine.getFleetManager(owner);
+                    if (fm != null && fm.getGoal() == com.fs.starfarer.api.fleet.FleetGoal.ESCAPE) {
+                        return false;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            return true;
+        }
+
+        public static boolean isDivisionEscapingInPursuit(
+                com.fs.starfarer.api.combat.CombatEngineAPI engine,
+                DivisionState div) {
+            if (div == null) return false;
+            if (div.isUnableDivision || div.retreatingFraction >= 0.35f) return true;
+            for (int i = 0, n = div.members.size(); i < n; i++) {
+                ShipAPI s = div.members.get(i);
+                if (s != null && s.isAlive() && !s.isHulk() && s.isRetreating()) {
+                    return true;
+                }
+            }
+            if (engine != null) {
+                try {
+                    com.fs.starfarer.api.combat.BattleCreationContext ctx = engine.getContext();
+                    if (ctx != null) {
+                        com.fs.starfarer.api.fleet.FleetGoal goal = (div.side == 0) ? ctx.getPlayerGoal() : ctx.getOtherGoal();
+                        if (goal == com.fs.starfarer.api.fleet.FleetGoal.ESCAPE) {
+                            return true;
+                        }
+                    }
+                    com.fs.starfarer.api.combat.CombatFleetManagerAPI fm = engine.getFleetManager(div.side);
+                    if (fm != null && fm.getGoal() == com.fs.starfarer.api.fleet.FleetGoal.ESCAPE) {
+                        return true;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            return false;
         }
 
         public List<ShipAPI> getAliveMembers() {

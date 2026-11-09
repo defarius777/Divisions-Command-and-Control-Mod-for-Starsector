@@ -198,8 +198,16 @@ public class DivisionFormationNavigator {
         }
 
         float desiredFwdX = 0f;
-        float desiredFwdY = (div.side == 0) ? 1f : -1f;
-        if (!divisionInEntryTravelDrive) {
+        float desiredFwdY = OtcAI.getBattleGroupForwardDirY(myGroup);
+        if (divisionInEntryTravelDrive) {
+            if (div.pursuitSpawnZone < 0) {
+                desiredFwdX = 1f;
+                desiredFwdY = 0f;
+            } else if (div.pursuitSpawnZone > 0) {
+                desiredFwdX = -1f;
+                desiredFwdY = 0f;
+            }
+        } else {
             if (div.targetEnemyDivision != null && !(uncapturedObjectiveMarch && marchDist > 450f)) {
                 Vector2f visEnemy = OtcAI.getVisibleCentroidForSide(engine, div.side, div.targetEnemyDivision);
                 float dx = visEnemy.x - div.centroid.x;
@@ -217,6 +225,12 @@ public class DivisionFormationNavigator {
                 if (len > 220f) {
                     desiredFwdX = dx / len;
                     desiredFwdY = dy / len;
+                } else if (div.pursuitSpawnZone < 0 && OtcAI.isPursuitBattle(engine, myGroup)) {
+                    desiredFwdX = 0.7071f;
+                    desiredFwdY = 0.7071f;
+                } else if (div.pursuitSpawnZone > 0 && OtcAI.isPursuitBattle(engine, myGroup)) {
+                    desiredFwdX = -0.7071f;
+                    desiredFwdY = 0.7071f;
                 }
             }
         }
@@ -264,7 +278,7 @@ public class DivisionFormationNavigator {
         }
 
         float anchorX = divisionInEntryTravelDrive && div.centroid != null
-                ? div.centroid.x
+                ? (div.centroid.x + fwdX * 1800f)
                 : (centerX + fwdX * stationDepthBias);
         float anchorY = divisionInEntryTravelDrive && div.centroid != null
                 ? (div.centroid.y + fwdY * 1800f)
@@ -475,7 +489,8 @@ public class DivisionFormationNavigator {
 
                 float slotX = worldSlots[assignedSlotIdx].x;
                 float slotY = worldSlots[assignedSlotIdx].y;
-                boolean outOfCombatMarch = isDivisionInOutOfCombatMarch(engine, div);
+                boolean outOfCombatMarch = !OtcAI.isPursuitBattle(engine, myGroup)
+                        && isDivisionInOutOfCombatMarch(engine, div);
 
                 // Item A & Mixed-Division Sustainable Speed Pacing: Longitudinal & Lateral Formation Dressing while Marching!
                 // Out of combat, mixed divisions (e.g. Battle Division 1 with ships of different top speeds) must move at
@@ -1098,6 +1113,7 @@ public class DivisionFormationNavigator {
                 && (div.localForceRatio < 0.95f
                 || div.effectiveHpRatio < 0.72f
                 || (enemyDiv.totalEffectiveHp > div.totalEffectiveHp * 1.35f && div.totalEffectiveHp > 100f));
+        boolean enemyEscapingInPursuit = DivisionState.isDivisionEscapingInPursuit(engine, enemyDiv);
         boolean targetCorneredOrAuxiliary = !div.archetype.isCarrierArchetype()
                 && !outmatchedOrFragile
                 && !enemyIsStation
@@ -1105,6 +1121,7 @@ public class DivisionFormationNavigator {
                 && (enemyDiv.edgeProximityPinch >= 0.28f
                 || enemyDiv.isUnableDivision
                 || enemyDiv.retreatingFraction >= 0.35f
+                || enemyEscapingInPursuit
                 || enemyDiv.combatThreatWeight <= 0.60f);
         if (targetCorneredOrAuxiliary) {
             float refWeaponRange = (div.avgEngageRange > 250f) ? div.avgEngageRange : div.standoffRange;
@@ -1146,7 +1163,7 @@ public class DivisionFormationNavigator {
                     visEnemyPos.y + (dy / len) * standoff);
             if (!div.archetype.isCarrierArchetype()
                     && !outmatchedOrFragile
-                    && (enemyDiv.isUnableDivision || enemyDiv.retreatingFraction >= 0.35f)) {
+                    && (enemyDiv.isUnableDivision || enemyDiv.retreatingFraction >= 0.35f || enemyEscapingInPursuit)) {
                 // Press into gun range against an escaping enemy division rather than trailing behind its wake
                 outStation.y += 260f;
                 if (div.pursuitSpawnZone != 0) {
@@ -1253,6 +1270,7 @@ public class DivisionFormationNavigator {
         boolean targetCorneredOrWeak = enemyDiv.edgeProximityPinch >= 0.25f
                 || enemyDiv.isUnableDivision
                 || enemyDiv.retreatingFraction >= 0.35f
+                || DivisionState.isDivisionEscapingInPursuit(engine, enemyDiv)
                 || enemyDiv.combatThreatWeight <= 0.62f;
         float flankRadius = targetCorneredOrWeak
                 ? Math.max(540f, Math.min(840f, weaponRange * 0.78f))
