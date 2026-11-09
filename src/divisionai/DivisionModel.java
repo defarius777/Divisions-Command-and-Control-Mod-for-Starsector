@@ -450,6 +450,7 @@ public class DivisionModel {
         public int fleetFormationWingSide = 0; // -1 = port wing, 0 = center/apex spearhead, +1 = starboard wing
         public int fleetFormationSlotIndex = -1;
         public int consentedWingSide = 0; // Persistent wing side (-1 port, 0 center, +1 starboard) under OTC/Grand Formation Consent
+        public int pursuitSpawnZone = 0;  // -1 = deployed Left (port flank), 0 = Center/Regular, +1 = deployed Right (starboard flank)
         public boolean initialDeploymentMarshalled = false;
 
         // OTC Force-Distribution Overkill & Combat Threat Weight telemetry

@@ -2088,8 +2088,10 @@ public class BattlefieldFirepowerEvaluator {
             threatCenter = OtcAI.getVisibleCentroidForSide(engine, div.side, myGroup.primaryThreatEnemyDivision);
             enemyRange = Math.max(750f, myGroup.primaryThreatEnemyDivision.avgEngageRange);
         }
+        float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
+        boolean isRearguardEscape = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
         if (threatCenter == null) {
-            outOffset.set(0f, (div.side == 0 ? -420f : 420f));
+            outOffset.set(0f, retreatDirY * 420f);
             return;
         }
 
@@ -2098,11 +2100,20 @@ public class BattlefieldFirepowerEvaluator {
         float dist = (float) Math.sqrt(dx * dx + dy * dy);
         if (dist < 1f) {
             dx = 0f;
-            dy = (div.side == 0) ? -1f : 1f;
+            dy = retreatDirY;
             dist = 1f;
         }
         float awayX = dx / dist;
         float awayY = dy / dist;
+        if (isRearguardEscape) {
+            // In a Rearguard Escape (FleetGoal.ESCAPE), always bias tactical withdrawal North (+Y) toward the escape exit!
+            awayY = Math.max(0.35f, awayY + 0.55f);
+            float nLen = (float) Math.sqrt(awayX * awayX + awayY * awayY);
+            if (nLen > 1e-4f) {
+                awayX /= nLen;
+                awayY /= nLen;
+            }
+        }
         float latX = -awayY;
         float latY = awayX;
 

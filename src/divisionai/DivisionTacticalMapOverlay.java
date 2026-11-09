@@ -504,13 +504,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                             mdClass,
                             mapGetIconName,
                             MethodType.methodType(iconClass, Object.class));
+                    String renderSpriteName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                            cl, iconClass, "\u00d300000", "(ZFF)V", 1);
                     this.iconRenderSpriteHandle = lookup.findVirtual(
                             iconClass,
-                            "\u00d300000",
+                            renderSpriteName,
                             MethodType.methodType(void.class, boolean.class, float.class, float.class));
+                    String renderBarsName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                            cl, iconClass, "\u00d200000", "(ZFF)V", 2);
                     this.iconRenderBarsHandle = lookup.findVirtual(
                             iconClass,
-                            "\u00d200000",
+                            renderBarsName,
                             MethodType.methodType(void.class, boolean.class, float.class, float.class));
                 } catch (Throwable ignored) {
                     this.mapGetIconHandle = null;
@@ -529,20 +533,26 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 }
             }
             try {
-                Class<?> arrowMgrClass = Class.forName("com.fs.starfarer.combat.new.O0OO", false, cl);
-                Class<?> arrowEntryClass = Class.forName("com.fs.starfarer.combat.new.O0OO$o", false, cl);
+                Class<?> arrowMgrClass = ObfuscatedBytecodeBridge.resolveWarroomArrowMgrClass(cl, mdClass);
+                Class<?> arrowEntryClass = ObfuscatedBytecodeBridge.resolveWarroomArrowEntryClass(cl, arrowMgrClass);
                 Class<?> faderClass = Class.forName("com.fs.graphics.util.Fader", false, cl);
                 MethodHandles.Lookup mdLookup = MethodHandles.privateLookupIn(mdClass, lookup);
                 MethodHandles.Lookup arrowMgrLookup = MethodHandles.privateLookupIn(arrowMgrClass, lookup);
                 MethodHandles.Lookup arrowEntryLookup = MethodHandles.privateLookupIn(arrowEntryClass, lookup);
-                MethodHandle getArrowMgrHandle = mdLookup.findGetter(mdClass, "\u00d3o0000", arrowMgrClass);
+                String arrowMgrField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, mdClass, ObfuscatedBytecodeBridge.toDescriptor(arrowMgrClass), "\u00d3o0000");
+                MethodHandle getArrowMgrHandle = mdLookup.findGetter(mdClass, arrowMgrField, arrowMgrClass);
                 Object arrowMgr = getArrowMgrHandle.invoke(md);
                 if (arrowMgr != null) {
-                    MethodHandle getFadingListHandle = arrowMgrLookup.findGetter(arrowMgrClass, "\u00d600000", List.class);
+                    String fadingListField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                            cl, arrowMgrClass, "Ljava/util/List;", "\u00d600000");
+                    MethodHandle getFadingListHandle = arrowMgrLookup.findGetter(arrowMgrClass, fadingListField, List.class);
                     Object listObj = getFadingListHandle.invoke(arrowMgr);
                     if (listObj instanceof List) {
                         this.warroomFadingArrowsList = (List<?>) listObj;
-                        this.arrowEntryFaderGetter = arrowEntryLookup.findGetter(arrowEntryClass, "\u00d600000", faderClass);
+                        String entryFaderField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                                cl, arrowEntryClass, ObfuscatedBytecodeBridge.toDescriptor(faderClass), "\u00d600000");
+                        this.arrowEntryFaderGetter = arrowEntryLookup.findGetter(arrowEntryClass, entryFaderField, faderClass);
                         this.faderIsFadedOutHandle = lookup.findVirtual(faderClass, "isFadedOut", MethodType.methodType(boolean.class));
                     }
                 }
@@ -560,8 +570,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 Class<?> spriteCls = Class.forName("com.fs.graphics.Sprite", false, cl);
                 Class<?> texObjCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
                         cl, "com.fs.graphics.Object", spriteCls.getName(), "texture");
-                Class<?> shipIconCls = Class.forName("com.fs.starfarer.combat.new.A", false, cl);
-                Class<?> fighterIconCls = Class.forName("com.fs.starfarer.combat.new.o0Oo", false, cl);
+                Class<?> shipIconCls = ObfuscatedBytecodeBridge.resolveWarroomShipIconClass(cl, mdClass, bNewCls);
+                Class<?> fighterIconCls = ObfuscatedBytecodeBridge.resolveWarroomFighterIconClass(cl, mdClass, shipIconCls);
                 MethodHandles.Lookup mdLookup2 = MethodHandles.privateLookupIn(mdClass, lookup);
                 MethodHandles.Lookup bNewLookup = MethodHandles.privateLookupIn(bNewCls, lookup);
                 MethodHandles.Lookup spriteLookup = MethodHandles.privateLookupIn(spriteCls, lookup);
@@ -576,16 +586,26 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 String shipIconBNewMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
                         cl, shipIconCls, "\u00d3O0000", "()" + ObfuscatedBytecodeBridge.toDescriptor(bNewCls));
                 this.shipIconBNewGetter = lookup.findVirtual(shipIconCls, shipIconBNewMethod, MethodType.methodType(bNewCls));
-                this.bNewSpriteGetter = bNewLookup.findGetter(bNewCls, "\u00d4\u00d50000", spriteCls);
-                this.bNewHoloSetter = lookup.findVirtual(bNewCls, "\u00d4O0000", MethodType.methodType(void.class, boolean.class));
-                this.bNewModulesSetter = lookup.findVirtual(bNewCls, "\u00f400000", MethodType.methodType(void.class, boolean.class));
-                this.bNewStatusSetter = lookup.findVirtual(bNewCls, "\u00d500000", MethodType.methodType(void.class, boolean.class));
+                String bNewSpriteField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, bNewCls, ObfuscatedBytecodeBridge.toDescriptor(spriteCls), "\u00d4\u00d50000");
+                this.bNewSpriteGetter = bNewLookup.findGetter(bNewCls, bNewSpriteField, spriteCls);
+                String holoMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, bNewCls, "\u00d4O0000", "(Z)V", 1);
+                this.bNewHoloSetter = lookup.findVirtual(bNewCls, holoMethod, MethodType.methodType(void.class, boolean.class));
+                String modulesMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, bNewCls, "\u00f400000", "(Z)V", 4);
+                this.bNewModulesSetter = lookup.findVirtual(bNewCls, modulesMethod, MethodType.methodType(void.class, boolean.class));
+                String statusMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, bNewCls, "\u00d500000", "(Z)V", 10);
+                this.bNewStatusSetter = lookup.findVirtual(bNewCls, statusMethod, MethodType.methodType(void.class, boolean.class));
                 this.spriteTexGetter = spriteLookup.findGetter(spriteCls, "texture", texObjCls);
                 this.spriteTexSetter = spriteLookup.findSetter(spriteCls, "texture", texObjCls);
                 this.spriteReadResolveHandle = spriteLookup.findVirtual(spriteCls, "readResolve", MethodType.methodType(Object.class));
                 try {
                     MethodHandles.Lookup aLookup = MethodHandles.privateLookupIn(shipIconCls, lookup);
-                    this.shipIconArrowSpriteGetter = aLookup.findGetter(shipIconCls, "interface.new", spriteCls);
+                    String arrowSpriteField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                            cl, shipIconCls, ObfuscatedBytecodeBridge.toDescriptor(spriteCls), "interface.new");
+                    this.shipIconArrowSpriteGetter = aLookup.findGetter(shipIconCls, arrowSpriteField, spriteCls);
                 } catch (Throwable ignored) {
                     this.shipIconArrowSpriteGetter = null;
                 }

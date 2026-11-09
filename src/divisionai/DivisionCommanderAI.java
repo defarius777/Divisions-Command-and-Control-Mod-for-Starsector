@@ -789,22 +789,28 @@ public class DivisionCommanderAI {
             return;
         }
 
+        boolean isPursuitBattle = OtcAI.isPursuitBattle(engine, myGroup);
+        boolean isPursuitInterception = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
+        boolean isRearguardEscape = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
+
         // Step 5: Mission-driven objective seizure (Main Effort stays on its fixing task instead;
-        // under Consent + Orchestrated Advance, non-scouting battleline divisions stay in their Grand Formation lanes)
+        // under Consent + Orchestrated Advance, non-scouting battleline divisions stay in their Grand Formation lanes;
+        // in Rearguard Escape, divisions focus on screening and escaping North rather than detouring for side objectives)
         boolean stationedByOtc = taskActive && task.type == OtcOrderType.FORM_LINE && auth.allowsPositioning();
         boolean holdGrandFormationAdvance = OtcAI.isOrchestratedAdvanceActive(engine, myGroup, enemyGroup)
                 && activeMission != DivisionMissionType.SCOUTING
                 && (!div.isFastFlanker || div.fleetFormationRank <= 1);
         if (!stationedByOtc
                 && !holdGrandFormationAdvance
+                && !isRearguardEscape
                 && uncapturedObj != null
                 && !isHeavyLineOrCarrier
                 && activeMission != DivisionMissionType.RESERVE
                 && div.localEnemyStrength < 14f
                 && (activeMission == DivisionMissionType.SCOUTING
-                || nearestEnemyDiv == null
-                || (activeMission == DivisionMissionType.CLOSE_ACTION && distToVisibleEnemy > 2400f)
-                || (div.isFastFlanker && distance(div.centroid, uncapturedObj.getLocation()) + 400f < distToVisibleEnemy))) {
+                || (nearestEnemyDiv == null && !isPursuitInterception)
+                || (activeMission == DivisionMissionType.CLOSE_ACTION && distToVisibleEnemy > 2400f && !isPursuitInterception)
+                || (div.isFastFlanker && distance(div.centroid, uncapturedObj.getLocation()) + 400f < distToVisibleEnemy && !isPursuitInterception))) {
             div.targetObjective = uncapturedObj;
             div.stationPoint.set(uncapturedObj.getLocation());
             commitIntent(engine, div, DivisionIntentType.TAKE_AND_HOLD,
@@ -978,7 +984,7 @@ public class DivisionCommanderAI {
                 // Verify that the point behind candidateFriend is actually safer / further from the enemy than our
                 // current position (so a frigate division never tries to "vent behind" a reckless battleship that
                 // has charged deep into the middle of the enemy fleet!).
-                float retreatDirY = (div.side == 0) ? -1f : 1f;
+                float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
                 Vector2f behindPos = new Vector2f(candidateFriend.centroid.x, candidateFriend.centroid.y + retreatDirY * 1100f);
                 boolean anchorSafe = true;
                 if (nearestEnemyDiv != null && nearestEnemyDiv.isCombatEffective()) {
@@ -1039,8 +1045,8 @@ public class DivisionCommanderAI {
                 div.linePassUntil = now + 10f;
             }
             String targetLabel;
+            float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
             if (ventBehindFriend != null) {
-                float retreatDirY = (div.side == 0) ? -1f : 1f;
                 div.stationPoint.set(ventBehindFriend.centroid.x, ventBehindFriend.centroid.y + retreatDirY * 720f);
                 targetLabel = ventBehindFriend.displayName;
             } else if (nearestEnemyDiv != null && nearestEnemyDiv.isCombatEffective()) {
@@ -1051,8 +1057,8 @@ public class DivisionCommanderAI {
                 float edy = div.centroid.y - ePos.y;
                 float elen = (float) Math.sqrt(edx * edx + edy * edy);
                 float escDirX = (elen > 1f) ? (edx / elen) : 0f;
-                float escDirY = (elen > 1f) ? (edy / elen) : (div.side == 0 ? -1f : 1f);
-                float rearBiasY = (div.side == 0) ? -0.35f : 0.35f;
+                float escDirY = (elen > 1f) ? (edy / elen) : retreatDirY;
+                float rearBiasY = retreatDirY * 0.35f;
                 escDirY += rearBiasY;
                 float nLen = (float) Math.sqrt(escDirX * escDirX + escDirY * escDirY);
                 if (nLen > 0.01f) {
@@ -1077,21 +1083,27 @@ public class DivisionCommanderAI {
         // When a non-carrier division is absorbing heavy enemy firepower at an unfavorable exchange ratio
         // (flux 44%..70%, incomingInRangeFirepower > inRangeFirepowerScore * 1.25), offset its space centroid
         // by (dx, dy) to step outside the enemy's short-range alpha envelope while keeping all guns firing!
+        // In INTERCEPTION (pursuing a fleeing enemy), do not passively trade space unless flux is high (>= 0.65f);
+        // in REARGUARD_ACTION (being pursued), readily trade space North toward the escape exit!
+        boolean isPursuitInterception = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
+        boolean isRearguardEscape = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
         if (!div.archetype.isCarrierArchetype()
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
+                && !isPursuitInterception
                 && nearestEnemyDiv != null
                 && nearestEnemyDiv.isCombatEffective()) {
             boolean continuingTradeSpace = prevIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME
-                    && (now - div.tradeSpaceStartTime) < 5.5f
-                    && div.avgFluxLevel >= 0.30f
+                    && (now - div.tradeSpaceStartTime) < (isRearguardEscape ? 8.5f : 5.5f)
+                    && div.avgFluxLevel >= (isRearguardEscape ? 0.18f : 0.30f)
                     && div.avgFluxLevel < div.commander.rotationFluxThreshold;
             // Division-level battle-sequence chaining: after 4.5s of trading space, if the enemy has overextended
             // (closing on us), our flux has dropped below 0.52, no friendly division is left behind, and a friendly
             // hammer division gives >= 1.28x combined trap superiority, escalate to a feigned retreat lure -> alpha strike!
-            DivisionState seqHammer = (prevIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME)
+            DivisionState seqHammer = (prevIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME && !isRearguardEscape)
                     ? OtcBattlePlanner.findValidFeignedRetreatHammer(engine, myGroup, div, nearestEnemyDiv)
                     : null;
             boolean escalateToFeignedRetreat = prevIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME
+                    && !isRearguardEscape
                     && (now - div.tradeSpaceStartTime) >= 4.5f
                     && (div.getAliveMembers().size() >= 3 || div.totalFpStrength >= 28f)
                     && div.avgFluxLevel >= 0.28f && div.avgFluxLevel < 0.52f
@@ -1114,16 +1126,20 @@ public class DivisionCommanderAI {
             boolean rankReliefHoldingFront = div.inDoubleLineRelief
                     && div.avgFluxLevel < 0.62f
                     && div.crossfireCordonIndex < 0.36f;
-            boolean friendlyExposedAhead = OtcBattlePlanner.hasFriendlyDivisionLeftBehindOrExposed(
+            boolean friendlyExposedAhead = !isRearguardEscape && OtcBattlePlanner.hasFriendlyDivisionLeftBehindOrExposed(
                     engine, myGroup, div, nearestEnemyDiv);
             boolean startTradeSpace = !rankReliefHoldingFront
                     && !friendlyExposedAhead
-                    && (now - div.lastTradeSpaceEndTime) >= 7.0f
-                    && div.avgFluxLevel >= 0.52f
-                    && div.avgFluxLevel < div.commander.rotationFluxThreshold
-                    && div.incomingInRangeFirepower > 45f
-                    && div.firepowerExchangeRatio < 0.72f
-                    && div.localForceRatio < 0.78f;
+                    && (now - div.lastTradeSpaceEndTime) >= (isRearguardEscape ? 4.0f : 7.0f)
+                    && ((isRearguardEscape
+                            && div.avgFluxLevel >= 0.25f
+                            && div.avgFluxLevel < div.commander.rotationFluxThreshold
+                            && (div.incomingInRangeFirepower > 20f || distance(div.centroid, OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv)) <= 1650f))
+                    || (div.avgFluxLevel >= 0.52f
+                            && div.avgFluxLevel < div.commander.rotationFluxThreshold
+                            && div.incomingInRangeFirepower > 45f
+                            && div.firepowerExchangeRatio < 0.72f
+                            && div.localForceRatio < 0.78f));
             if ((continuingTradeSpace && !friendlyExposedAhead) || startTradeSpace) {
                 div.targetEnemyDivision = nearestEnemyDiv;
                 BattlefieldFirepowerEvaluator.computeTradeSpaceForTimeOffset(
@@ -2037,7 +2053,14 @@ public class DivisionCommanderAI {
                 break;
             case GIVE_GENERAL_CHASE:
                 if (enemyTrackable) {
-                    div.stationPoint.set(OtcAI.getVisibleCentroidForSide(engine, div.side, enemy));
+                    Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, enemy);
+                    if (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION
+                            && (enemy.isUnableDivision || enemy.retreatingFraction >= 0.35f)) {
+                        float cutX = (div.pursuitSpawnZone != 0) ? (-div.pursuitSpawnZone * 220f) : 0f;
+                        div.stationPoint.set(ePos.x + cutX, ePos.y + 420f);
+                    } else {
+                        div.stationPoint.set(ePos);
+                    }
                 }
                 break;
             case CLOSE_AND_ENGAGE:
@@ -2049,7 +2072,10 @@ public class DivisionCommanderAI {
                     DivisionFormationNavigator.computeStandoffStation(engine, div, enemy, div.stationPoint);
                 } else if (div.targetEnemyDivision == null) {
                     float scoutDirY = (div.side == 0) ? 1400f : -1400f;
-                    if (myGroup != null && myGroup.mainEffortDivision != null
+                    if (OtcAI.isPursuitBattle(engine, myGroup)) {
+                        float targetX = (div.pursuitSpawnZone != 0) ? (div.centroid.x * 0.55f) : (div.centroid.x * 0.85f);
+                        div.stationPoint.set(targetX, div.centroid.y + 1600f);
+                    } else if (myGroup != null && myGroup.mainEffortDivision != null
                             && div != myGroup.mainEffortDivision
                             && myGroup.mainEffortDivision.isCombatEffective()) {
                         div.stationPoint.set(
@@ -2086,16 +2112,17 @@ public class DivisionCommanderAI {
                 break;
             case HAUL_OUT_TO_VENT:
                 if (friend != null && friend.isCombatEffective()) {
-                    float retreatDirY = (div.side == 0) ? -1f : 1f;
+                    float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
                     div.stationPoint.set(friend.centroid.x, friend.centroid.y + retreatDirY * 720f);
                 } else if (enemyTrackable) {
+                    float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
                     Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, enemy);
                     float edx = div.centroid.x - ePos.x;
                     float edy = div.centroid.y - ePos.y;
                     float elen = (float) Math.sqrt(edx * edx + edy * edy);
                     float escDirX = (elen > 1f) ? (edx / elen) : 0f;
-                    float escDirY = (elen > 1f) ? (edy / elen) : (div.side == 0 ? -1f : 1f);
-                    float rearBiasY = (div.side == 0) ? -0.35f : 0.35f;
+                    float escDirY = (elen > 1f) ? (edy / elen) : retreatDirY;
+                    float rearBiasY = retreatDirY * 0.35f;
                     escDirY += rearBiasY;
                     float nLen = (float) Math.sqrt(escDirX * escDirX + escDirY * escDirY);
                     if (nLen > 0.01f) {
@@ -2178,7 +2205,10 @@ public class DivisionCommanderAI {
         // marching into initial gun contact (up to t=85s in large battles), pace vanguard/flank/strike divisions so
         // Destroyers, Frigates, and faster Cruisers never sprint 1,000u ahead of the Battleships into 20 enemy guns
         // alone, and release wing depth pacing as soon as the main battle line closes within 1,650u of the enemy!
+        // Disabled in Pursuit battles (INTERCEPTION / REARGUARD_ACTION) so flank and vanguard divisions are never
+        // leashed back to the bottom of the map!
         if (!fullAssault
+                && !OtcAI.isPursuitBattle(engine, myGroup)
                 && now < 75f
                 && myGroup != null
                 && myGroup.mainEffortDivision != null
@@ -2233,7 +2263,8 @@ public class DivisionCommanderAI {
                 && myGroup.mainEffortDivision != div
                 && myGroup.mainEffortDivision.isCombatEffective()) {
             float mainY = myGroup.mainEffortDivision.centroid.y;
-            if (div.side == 0) {
+            float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
+            if (retreatDirY < 0f) {
                 div.stationPoint.y = Math.min(div.stationPoint.y, mainY - 450f);
             } else {
                 div.stationPoint.y = Math.max(div.stationPoint.y, mainY + 450f);
@@ -2256,6 +2287,7 @@ public class DivisionCommanderAI {
             BattleGroupState myGroup,
             float now) {
         if (myGroup == null || div == null || !div.hasFleetFormationOffset) return;
+        if (OtcAI.isPursuitBattle(engine, myGroup)) return;
         if (myGroup.activeFleetWideFormation == PermanentDivisionManager.FleetWideFormation.NONE
                 || myGroup.fleetWideFormation == PermanentDivisionManager.FleetWideFormation.NONE) return;
         DivisionState main = myGroup.mainEffortDivision;
@@ -3356,18 +3388,25 @@ public class DivisionCommanderAI {
             ShipAPI focusEnemyShip,
             DivisionState div,
             BattleGroupState myGroup) {
-        float dx = ship.getLocation().x - myGroup.fleetCentroid.x;
-        float dy = ship.getLocation().y - myGroup.fleetCentroid.y;
-        float fromFleet = (float) Math.sqrt(dx * dx + dy * dy);
-        if (fromFleet > OtcBattlePlanner.CHASE_LEASH) {
-            float k = (OtcBattlePlanner.CHASE_LEASH * 0.8f) / Math.max(1f, fromFleet);
-            flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
-            flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL,
-                    new Vector2f(myGroup.fleetCentroid.x + dx * k, myGroup.fleetCentroid.y + dy * k));
-            return;
+        boolean isPursuit = OtcAI.isPursuitBattle(null, myGroup) || (div != null && div.pursuitSpawnZone != 0);
+        if (!isPursuit && myGroup != null) {
+            float dx = ship.getLocation().x - myGroup.fleetCentroid.x;
+            float dy = ship.getLocation().y - myGroup.fleetCentroid.y;
+            float fromFleet = (float) Math.sqrt(dx * dx + dy * dy);
+            if (fromFleet > OtcBattlePlanner.CHASE_LEASH) {
+                float k = (OtcBattlePlanner.CHASE_LEASH * 0.8f) / Math.max(1f, fromFleet);
+                flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+                flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL,
+                        new Vector2f(myGroup.fleetCentroid.x + dx * k, myGroup.fleetCentroid.y + dy * k));
+                return;
+            }
         }
+        flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
+        flags.unsetFlag(AIFlags.BACK_OFF);
         flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
         if (focusEnemyShip != null) {
+            flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL);
+            flags.setFlag(AIFlags.PURSUING, FLAG_TTL);
             directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
         } else {
             flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
@@ -3971,9 +4010,12 @@ public class DivisionCommanderAI {
                     cl, "com.fs.starfarer.combat.CombatFleetManager$O0", fmCls.getName(), "getBiggestStation");
             Class<?> basicAiCls = Class.forName("com.fs.starfarer.combat.ai.BasicShipAI", false, cl);
             Class<?> wrapperCls = Class.forName("com.fs.starfarer.combat.entities.Ship$ShipAIWrapper", false, cl);
-            Class<?> wrMapCls = Class.forName("com.fs.starfarer.combat.new.b", false, cl);
-            Class<?> arrowMgrCls = Class.forName("com.fs.starfarer.combat.new.O0OO", false, cl);
-            Class<?> arrowEntryCls = Class.forName("com.fs.starfarer.combat.new.O0OO$o", false, cl);
+            Class<?> wrCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.new.OoOO", "com.fs.starfarer.combat.CombatState", "getWarroom");
+            Class<?> wrMapCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.new.b", wrCls.getName(), "getMapDisplay");
+            Class<?> arrowMgrCls = ObfuscatedBytecodeBridge.resolveWarroomArrowMgrClass(cl, wrMapCls);
+            Class<?> arrowEntryCls = ObfuscatedBytecodeBridge.resolveWarroomArrowEntryClass(cl, arrowMgrCls);
             Class<?> faderCls = Class.forName("com.fs.graphics.util.Fader", false, cl);
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             lookup.findVirtual(fmCls, "getDeployedFleetMember", MethodType.methodType(dfmCls, shipCls));
@@ -3981,9 +4023,15 @@ public class DivisionCommanderAI {
             lookup.findVirtual(tmCls, "clearAssignedOrders", MethodType.methodType(void.class, dfmCls));
             lookup.findVirtual(wrapperCls, "getAI", MethodType.methodType(ShipAIPlugin.class));
             lookup.findVirtual(basicAiCls, "setTargetOverride", MethodType.methodType(void.class, shipCls));
-            MethodHandles.privateLookupIn(wrMapCls, lookup).findGetter(wrMapCls, "\u00d3o0000", arrowMgrCls);
-            MethodHandles.privateLookupIn(arrowMgrCls, lookup).findGetter(arrowMgrCls, "\u00d600000", List.class);
-            MethodHandles.privateLookupIn(arrowEntryCls, lookup).findGetter(arrowEntryCls, "\u00d600000", faderCls);
+            String arrowMgrField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, wrMapCls, ObfuscatedBytecodeBridge.toDescriptor(arrowMgrCls), "\u00d3o0000");
+            MethodHandles.privateLookupIn(wrMapCls, lookup).findGetter(wrMapCls, arrowMgrField, arrowMgrCls);
+            String arrowListField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, arrowMgrCls, "Ljava/util/List;", "\u00d600000");
+            MethodHandles.privateLookupIn(arrowMgrCls, lookup).findGetter(arrowMgrCls, arrowListField, List.class);
+            String faderField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, arrowEntryCls, ObfuscatedBytecodeBridge.toDescriptor(faderCls), "\u00d600000");
+            MethodHandles.privateLookupIn(arrowEntryCls, lookup).findGetter(arrowEntryCls, faderField, faderCls);
             lookup.findVirtual(faderCls, "isFadedOut", MethodType.methodType(boolean.class));
             return true;
         } catch (ClassNotFoundException ignored) {
@@ -4060,7 +4108,18 @@ public class DivisionCommanderAI {
     }
 
     static boolean hasExplicitCommandOrder(ShipAPI ship, DivisionState div, BattleGroupState myGroup, CombatTaskManagerAPI tm) {
-        if (ship != null && (ship.isRetreating() || ship.isDirectRetreat())) return true;
+        if (ship == null) return false;
+        if (ship.isDirectRetreat()) return true;
+        boolean isRearguardEscape = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
+        if (ship.isRetreating()) {
+            // In REARGUARD_ACTION (FleetGoal.ESCAPE), vanilla CombatFleetManager sets non-direct retreat
+            // (isRetreating() == true, isDirectRetreat() == false) on all escaping ships so they can exit the top edge.
+            // Keep vanilla's RETREAT assignment intact (do NOT clear it), and allow Division Commander C2 to coordinate
+            // weapons, fighters, and rearguard withdrawal unless the ship has a per-ship direct order or the division is retiring!
+            if (!isRearguardEscape) return true;
+            if (div != null && div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) return true;
+            return isDirectPlayerShipOrder(ship, tm, false);
+        }
         if (tm == null) return false;
         AssignmentInfo info = tm.getAssignmentFor(ship);
         if (info == null || info.getType() == null) return false;
@@ -4069,6 +4128,10 @@ public class DivisionCommanderAI {
             return false;
         }
         if (t == CombatAssignmentType.RETREAT || t == CombatAssignmentType.REPAIR_AND_REFIT) {
+            if (isRearguardEscape && t == CombatAssignmentType.RETREAT) {
+                if (div != null && div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) return true;
+                return isDirectPlayerShipOrder(ship, tm, false);
+            }
             return true;
         }
         // If the ship is assigned to capture/control/assault an objective and its division is already seizing that
@@ -4128,10 +4191,31 @@ public class DivisionCommanderAI {
             }
 
             // Item F: Heavily deprioritize retreating ("unable") enemy divisions as long as able enemy divisions remain
-            if (anyAbleVisibleEnemy
-                    && myGroup.currentPhase != BattlePhase.GENERAL_CHASE
+            // (except in INTERCEPTION pursuit battles, where escaping enemy divisions are our primary targets!)
+            boolean isPursuitInterception = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
+            boolean isRearguardEscape = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
+            if (!isPursuitInterception
+                    && anyAbleVisibleEnemy
+                    && (myGroup == null || myGroup.currentPhase != BattlePhase.GENERAL_CHASE)
                     && (eDiv.isUnableDivision || eDiv.retreatingFraction >= 0.5f)) {
                 score -= 1350f;
+            }
+            if (isPursuitInterception) {
+                // Prioritize enemy divisions closest to the top (+Y) escape edge and in our flank lane
+                float mapHalfH = (engine != null && engine.getMapHeight() > 0f) ? (engine.getMapHeight() * 0.5f) : 9000f;
+                float escapeProgress = Math.max(0f, Math.min(1f, (visCentroid.y + mapHalfH) / Math.max(1f, mapHalfH * 2f)));
+                score += escapeProgress * 420f;
+                if (myDiv.pursuitSpawnZone != 0 && Math.signum(visCentroid.x) == myDiv.pursuitSpawnZone) {
+                    score += 320f;
+                }
+            } else if (isRearguardEscape) {
+                // In a rearguard escape, focus on the closest fast-closing pursuers threatening our fleet
+                if (dist <= 2200f) {
+                    score += (2200f - dist) * 0.24f;
+                }
+                if (eDiv.closingSpeedToEnemy > 15f) {
+                    score += Math.min(260f, eDiv.closingSpeedToEnemy * 2.2f);
+                }
             }
 
             // OTC Force-Distribution Overkill awareness for Division Commanders & Carriers:
@@ -4332,8 +4416,12 @@ public class DivisionCommanderAI {
                 || currTarget.isHulk()
                 || convLock
                 || distFocus + 250f < distance(ship.getLocation(), currTarget.getLocation());
-        CombatEngineAPI engine = com.fs.starfarer.api.Global.getCombatEngine();
-        boolean isPlayerShip = (engine != null && ship == engine.getPlayerShip());
+        boolean isPlayerShip = false;
+        try {
+            CombatEngineAPI engine = com.fs.starfarer.api.Global.getCombatEngine();
+            isPlayerShip = (engine != null && ship == engine.getPlayerShip());
+        } catch (Throwable ignored) {
+        }
         // Never overwrite the human player's R-key target reticle (ship.setShipTarget) on engine.getPlayerShip(),
         // even when Autopilot is enabled (since players frequently use R to aim manual missile groups or inspect flux).
         if (preferFocus && !isPlayerShip) {
@@ -4825,12 +4913,13 @@ public class DivisionCommanderAI {
         if (focusEnemyShip != null && focusEnemyShip.getLocation() != null) {
             Vector2f sLoc = ship.getLocation();
             Vector2f eLoc = focusEnemyShip.getLocation();
+            float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
             float dx = sLoc.x - eLoc.x;
             float dy = sLoc.y - eLoc.y;
             float len = (float) Math.sqrt(dx * dx + dy * dy);
             float escX = len > 1f ? (dx / len) : 0f;
-            float escY = len > 1f ? (dy / len) : (div.side == 0 ? -1f : 1f);
-            float rearBias = (div.side == 0) ? -0.35f : 0.35f;
+            float escY = len > 1f ? (dy / len) : retreatDirY;
+            float rearBias = retreatDirY * 0.35f;
             escY += rearBias;
             float nLen = (float) Math.sqrt(escX * escX + escY * escY);
             if (nLen > 0.01f) {

@@ -48,18 +48,27 @@ public class DivisionAutoFormer {
         List<BattleObjectiveAPI> objectives = engine.getObjectives();
         boolean hasObjectives = objectives != null && !objectives.isEmpty();
 
-        if (ctx != null) {
-            if (ctx.fightToTheLast) {
-                return MissionContextType.FIGHT_TO_THE_LAST;
-            }
-            FleetGoal myGoal = (side == 0) ? ctx.getPlayerGoal() : ctx.getOtherGoal();
-            FleetGoal enemyGoal = (side == 0) ? ctx.getOtherGoal() : ctx.getPlayerGoal();
-            if (myGoal == FleetGoal.ESCAPE) {
-                return MissionContextType.REARGUARD_ACTION;
-            }
-            if (enemyGoal == FleetGoal.ESCAPE) {
-                return MissionContextType.INTERCEPTION;
-            }
+        if (ctx != null && ctx.fightToTheLast) {
+            return MissionContextType.FIGHT_TO_THE_LAST;
+        }
+        FleetGoal myGoal = (ctx != null) ? ((side == 0) ? ctx.getPlayerGoal() : ctx.getOtherGoal()) : null;
+        FleetGoal enemyGoal = (ctx != null) ? ((side == 0) ? ctx.getOtherGoal() : ctx.getPlayerGoal()) : null;
+        if (myGoal == null) {
+            CombatFleetManagerAPI myFm = engine.getFleetManager(side);
+            if (myFm != null) myGoal = myFm.getGoal();
+        }
+        if (enemyGoal == null) {
+            CombatFleetManagerAPI enemyFm = engine.getFleetManager(1 - side);
+            if (enemyFm != null) enemyGoal = enemyFm.getGoal();
+        }
+        if (myGoal == FleetGoal.ESCAPE) {
+            return MissionContextType.REARGUARD_ACTION;
+        }
+        if (enemyGoal == FleetGoal.ESCAPE) {
+            return MissionContextType.INTERCEPTION;
+        }
+        if (engine.getCustomData() != null && Boolean.TRUE.equals(engine.getCustomData().get("can_deploy_left_right"))) {
+            return (side == 0) ? MissionContextType.INTERCEPTION : MissionContextType.REARGUARD_ACTION;
         }
         if (hasObjectives) {
             return MissionContextType.CONTESTED_OBJECTIVES;

@@ -105,9 +105,11 @@ public class OtcBattlePlanner {
                 }
             }
         }
-        // Item F: While able enemy divisions are still fighting on the field, exclude retreating ("unable") enemy
-        // divisions from standard battle-line fire distribution & strike plans (they are handled by General Chase).
-        if (anyAbleVisibleEnemy && myGroup.currentPhase != BattlePhase.GENERAL_CHASE) {
+        // Item F: While able enemy divisions are still fighting on the field in normal battles, exclude retreating ("unable")
+        // enemy divisions from standard battle-line fire distribution & strike plans (they are handled by General Chase).
+        // In INTERCEPTION (pursuit battles), escaping enemy divisions are our primary targets and must never be excluded!
+        boolean isPursuitInterception = (myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
+        if (!isPursuitInterception && anyAbleVisibleEnemy && myGroup.currentPhase != BattlePhase.GENERAL_CHASE) {
             for (Iterator<DivisionState> it = visibleEnemies.iterator(); it.hasNext(); ) {
                 DivisionState e = it.next();
                 if (e.isUnableDivision || e.retreatingFraction >= 0.5f) {
@@ -127,8 +129,9 @@ public class OtcBattlePlanner {
         // 1a. Item F (Fleet-Wide / Multi-Division "Feigned Retreat") & Item E ("Trade Space for Time"):
         // Highly organized fleets (organizationRatio >= 0.75 or Convergence) can coordinate multi-division
         // space-centroid offsets (Trade Space for Time) and 2-stage Feigned Retreat alpha-strike traps
-        // before committing to a standard frontal strike plan.
-        if (!fullAssault && auth.allowsPositioning()) {
+        // before committing to a standard frontal strike plan. Never feign retreat or trade space away from
+        // a fleeing enemy in INTERCEPTION!
+        if (!fullAssault && !isPursuitInterception && auth.allowsPositioning()) {
             evaluateAndAssignFleetFeignedRetreat(engine, myGroup, active, visibleEnemies, now, expires, tasked);
             evaluateAndAssignFleetTradeSpaceForTime(engine, myGroup, active, visibleEnemies, now, expires, tasked);
         }
@@ -768,26 +771,30 @@ public class OtcBattlePlanner {
             float expires,
             Set<DivisionState> tasked) {
 
+        boolean isPursuitInterception = (myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
+        float maxChaseLeash = isPursuitInterception ? 16000f : CHASE_LEASH;
         List<DivisionState> broken = new ArrayList<>();
         for (DivisionState e : visibleEnemies) {
-            if (isVisiblyBroken(engine, myGroup.side, e)
-                    && DivisionUiWidgets.distance(myGroup.fleetCentroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e)) < CHASE_LEASH) {
+            if ((isPursuitInterception || isVisiblyBroken(engine, myGroup.side, e))
+                    && DivisionUiWidgets.distance(myGroup.fleetCentroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e)) < maxChaseLeash) {
                 broken.add(e);
             }
         }
         if (broken.isEmpty()) return;
 
         int chasers = 0;
+        int maxChasers = isPursuitInterception ? Math.max(4, active.size()) : 2;
+        float maxNearestDist = isPursuitInterception ? 12000f : 4000f;
         Map<DivisionState, Float> chaseFpByTarget = new HashMap<>();
         for (DivisionState e : broken) {
             chaseFpByTarget.put(e, e.committedFriendlyFpAgainst);
         }
         boolean otherEnemyActive = visibleEnemies.size() > 1;
         for (DivisionState d : active) {
-            if (chasers >= 2) break;
+            if (chasers >= maxChasers) break;
             if (tasked.contains(d) || d == myGroup.mainEffortDivision) continue;
-            if (!d.isFastFlanker || d.archetype.isCarrierArchetype()) continue;
-            if (d.avgFluxLevel >= 0.50f) continue;
+            if ((!d.isFastFlanker && d.pursuitSpawnZone == 0) || d.archetype.isCarrierArchetype()) continue;
+            if (d.avgFluxLevel >= (isPursuitInterception ? 0.62f : 0.50f)) continue;
 
             DivisionState nearest = null;
             float nearestDist = Float.MAX_VALUE;
@@ -799,9 +806,13 @@ public class OtcBattlePlanner {
                         && !(d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e)) {
                     continue;
                 }
-                float dist = DivisionUiWidgets.distance(d.centroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e));
+                Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e);
+                float dist = DivisionUiWidgets.distance(d.centroid, ePos);
                 if (d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e) {
                     dist -= 1000f;
+                }
+                if (isPursuitInterception && d.pursuitSpawnZone != 0 && Math.signum(ePos.x) == d.pursuitSpawnZone) {
+                    dist -= 800f;
                 }
                 if (e.archetype == DivisionArchetype.PHASE_DIVISION && d.archetype != DivisionArchetype.PHASE_DIVISION) {
                     dist += 1100f;
@@ -811,7 +822,7 @@ public class OtcBattlePlanner {
                     nearest = e;
                 }
             }
-            if (nearest == null || nearestDist > 4000f) continue;
+            if (nearest == null || nearestDist > maxNearestDist) continue;
 
             boolean newOrder = !(d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == nearest);
             d.otcOrder.set(OtcOrderType.GENERAL_CHASE, nearest, null, 0f, expires, "OTC: general chase on \"" + nearest.displayName + "\"");
@@ -899,11 +910,17 @@ public class OtcBattlePlanner {
                 || myGroup.activeFleetWideFormation == FleetWideFormation.REFUSED_FLANK_LEFT)
                 && active.size() >= 3;
         DivisionState main = myGroup.mainEffortDivision;
+        boolean isPursuitInterception = (myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
+        boolean isRearguardEscape = (myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
         if (!fullAssault && main != null && main.isCombatEffective() && !tasked.contains(main) && primary != null) {
             Vector2f primaryPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, primary);
-            boolean newOrder = !(main.otcOrder.type == OtcOrderType.FORM_LINE && main.otcOrder.targetEnemy == primary);
-            main.otcOrder.set(OtcOrderType.FORM_LINE, primary, null, 0f, expires,
-                    "OTC: Main Effort, form the line on \"" + primary.displayName + "\"");
+            boolean primaryFleeing = isPursuitInterception && (primary.isUnableDivision || primary.retreatingFraction >= 0.35f);
+            OtcOrderType mainOrderType = primaryFleeing ? OtcOrderType.ENGAGE_ASSIGNED : OtcOrderType.FORM_LINE;
+            boolean newOrder = !(main.otcOrder.type == mainOrderType && main.otcOrder.targetEnemy == primary);
+            main.otcOrder.set(mainOrderType, primary, null, 0f, expires,
+                    primaryFleeing
+                            ? ("OTC: Main Effort, intercept and pin \"" + primary.displayName + "\"")
+                            : ("OTC: Main Effort, form the line on \"" + primary.displayName + "\""));
             // Coordinated Strike Execution: the Main Effort does not simply hold the line against a collapsing
             // enemy division while its own strike divisions dive in — it presses home onto the struck target
             // so the alpha strike lands on a broken enemy instead of absorbing the enemy's main body alone!
@@ -923,7 +940,7 @@ public class OtcBattlePlanner {
                     && (main.doctrinalFormation == null || main.doctrinalFormation == DivisionFormation.NONE)) {
                 main.otcOrder.orderedFormation = DivisionFormation.LINE_ABREAST;
             }
-            if (myGroup.authority.allowsPositioning()) {
+            if (myGroup.authority.allowsPositioning() && !primaryFleeing) {
                 float dx = myGroup.fleetCentroid.x - primaryPos.x;
                 float dy = myGroup.fleetCentroid.y - primaryPos.y;
                 float len = (float) Math.sqrt(dx * dx + dy * dy);
@@ -932,7 +949,7 @@ public class OtcBattlePlanner {
                     dy = (myGroup.side == 0) ? -1f : 1f;
                     len = 1f;
                 }
-                float hold = Math.max(500f, main.standoffRange * 0.9f);
+                float hold = Math.max(500f, main.standoffRange * (isPursuitInterception ? 0.68f : 0.9f));
                 if (BattlefieldFirepowerEvaluator.isStationBastionDivision(primary)
                         && !main.archetype.isCarrierArchetype()
                         && main.avgEngageRange > 250f) {
@@ -964,13 +981,14 @@ public class OtcBattlePlanner {
                     stX = stX * (1f - indepBlend) + myGroup.independentCentroid.x * indepBlend;
                     stY = stY * (1f - indepBlend) + myGroup.independentCentroid.y * indepBlend;
                 }
-                // Item D: If our fleet is outnumbered or balled up in a protective bastion, pull the Main Effort's
-                // fixing station slightly back toward the friendly map edge so our back is protected by the boundary
-                // and the attacker must advance into our concentrated frontal fire!
-                if (myGroup.forceRatio < 0.84f
+                // Item D: If our fleet is outnumbered, in a rearguard escape, or balled up in a protective bastion,
+                // pull the Main Effort's fixing station toward the safe fallback direction (North toward the escape exit
+                // in REARGUARD_ACTION, or friendly map edge in normal battles)!
+                if (isRearguardEscape
+                        || myGroup.forceRatio < 0.84f
                         || myGroup.activeFleetWideFormation == FleetWideFormation.FLEET_PROTECTIVE_BASTION) {
-                    float retreatDirY = (myGroup.side == 0) ? -1f : 1f;
-                    stY += retreatDirY * 140f;
+                    float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
+                    stY += retreatDirY * (isRearguardEscape ? 320f : 140f);
                 }
                 main.otcOrder.hasStation = true;
                 main.otcOrder.station.set(stX, stY);

@@ -4696,7 +4696,7 @@ public class UITestHarness {
                 && spaceOpacityAfterAll >= 0.34f
                 && overlaySrc.contains("syncRegularCommandSpritesVisibility(useMiniSpritesForTsfc)")
                 && overlaySrc.contains("lookup.findVirtual(mdClass, iconsMapMethod, MethodType.methodType(Map.class))")
-                && overlaySrc.contains("bNewLookup.findGetter(bNewCls, \"\\u00d4\\u00d50000\", spriteCls)")
+                && overlaySrc.contains("bNewLookup.findGetter(bNewCls, bNewSpriteField, spriteCls)")
                 && defaultMiniSpritesOk
                 && disabledMiniSpritesOk
                 && boundaryClearanceAll360Ok

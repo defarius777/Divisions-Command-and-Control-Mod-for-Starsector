@@ -146,8 +146,10 @@ public class DivisionDeploymentDialogOrganizer {
 
     private MethodHandle iconGetO0OOHandle;
     private MethodHandle o0ooSetColorsHandle;
+    private MethodHandle iconGetDeployStateHandle;
     private MethodHandle iconSetDeployStateHandle;
     private MethodHandle iconSetDeployTextHandle;
+    private MethodHandle memberCanDeployLeftRightHandle;
 
     public static final class IndexedMemberList extends ArrayList<FleetMemberAPI> {
         private final Map<Integer, FleetMemberAPI> slotToMember = new LinkedHashMap<>();
@@ -379,12 +381,16 @@ public class DivisionDeploymentDialogOrganizer {
             }
             try {
                 MethodHandles.Lookup vLookup = MethodHandles.privateLookupIn(scrollingListClass, lookup);
-                this.listSetColsFieldHandle = vLookup.findSetter(scrollingListClass, "do.do$return", int.class);
+                String listColsField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, scrollingListClass, "I", "do.do$return");
+                this.listSetColsFieldHandle = vLookup.findSetter(scrollingListClass, listColsField, int.class);
             } catch (Throwable ignored) {
             }
             try {
                 MethodHandles.Lookup sLookup = MethodHandles.privateLookupIn(shipGridClass, lookup);
-                this.gridSetColsFieldHandle = sLookup.findSetter(shipGridClass, "O\u00f60o00", int.class);
+                String gridColsField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, shipGridClass, "I", "O\u00f60o00");
+                this.gridSetColsFieldHandle = sLookup.findSetter(shipGridClass, gridColsField, int.class);
             } catch (Throwable ignored) {
             }
             this.scrollerPackHandle = lookup.findVirtual(
@@ -443,6 +449,12 @@ public class DivisionDeploymentDialogOrganizer {
                         o0ooClass,
                         setColorsMethod,
                         MethodType.methodType(void.class, Color.class, Color.class));
+                String getDeployStateMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                        cl, iconClass, "\u00d5O0000", "()I");
+                this.iconGetDeployStateHandle = lookup.findVirtual(
+                        iconClass,
+                        getDeployStateMethod,
+                        MethodType.methodType(int.class));
                 String setDeployStateMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
                         cl, iconClass, "Object", "(I)V");
                 this.iconSetDeployStateHandle = lookup.findVirtual(
@@ -455,6 +467,13 @@ public class DivisionDeploymentDialogOrganizer {
                         iconClass,
                         setDeployTextMethod,
                         MethodType.methodType(void.class, String.class));
+                try {
+                    this.memberCanDeployLeftRightHandle = lookup.findVirtual(
+                            fleetMemberImplClass,
+                            "canDeployLeftRight",
+                            MethodType.methodType(boolean.class));
+                } catch (Throwable ignored) {
+                }
             } catch (Throwable ignored) {
             }
 
@@ -826,8 +845,31 @@ public class DivisionDeploymentDialogOrganizer {
                 sb.append(m.getId()).append(',');
             }
         }
-        sb.append('|').append(nonEmptyDivs.size()).append('|').append(totalCols);
+        sb.append('|').append(nonEmptyDivs.size()).append('|').append(totalCols)
+                .append('|').append(isPursuitFlankDeploymentAvailable() ? '1' : '0');
         return sb.toString();
+    }
+
+    private boolean isPursuitFlankDeploymentAvailable() {
+        try {
+            CombatEngineAPI engine = Global.getCombatEngine();
+            if (engine != null && engine.getCustomData() != null) {
+                return Boolean.TRUE.equals(engine.getCustomData().get("can_deploy_left_right"));
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    private boolean canMemberDeployLeftRight(FleetMemberAPI m) {
+        if (m == null || m.isStation()) return false;
+        if (memberCanDeployLeftRightHandle != null) {
+            try {
+                return (boolean) memberCanDeployLeftRightHandle.invoke(m);
+            } catch (Throwable ignored) {
+            }
+        }
+        return m.isFrigate() || m.isDestroyer();
     }
 
     private static class MemberIconEntry {
@@ -1303,7 +1345,7 @@ public class DivisionDeploymentDialogOrganizer {
             final float height,
             final float rowSpanWidth) {
 
-        final ButtonAPI[] toggleBtnHolder = new ButtonAPI[1];
+        final ButtonAPI[] toggleBtnHolder = new ButtonAPI[3];
         final CustomPanelAPI[] cardRef = new CustomPanelAPI[1];
         final Color accentColor = isDivisionRow ? DIV_ACCENT_COLOR : UNASSIGNED_ACCENT_COLOR;
         final float cardW = width - 3f;
@@ -1413,16 +1455,34 @@ public class DivisionDeploymentDialogOrganizer {
                 if ("TOGGLE_ROW".equals(buttonId)) {
                     ButtonAPI btn = toggleBtnHolder[0];
                     if (btn != null) btn.setChecked(false);
-                    toggleGroupSelection(fdd, groupEntries);
+                    toggleGroupSelectionForZone(fdd, groupEntries, 1);
+                } else if ("DEPLOY_LEFT_ROW".equals(buttonId)) {
+                    ButtonAPI btn = toggleBtnHolder[1];
+                    if (btn != null) btn.setChecked(false);
+                    toggleGroupSelectionForZone(fdd, groupEntries, 2);
+                } else if ("DEPLOY_RIGHT_ROW".equals(buttonId)) {
+                    ButtonAPI btn = toggleBtnHolder[2];
+                    if (btn != null) btn.setChecked(false);
+                    toggleGroupSelectionForZone(fdd, groupEntries, 3);
                 }
             }
 
             @Override
             public void advance(float amount) {
-                ButtonAPI btn = toggleBtnHolder[0];
-                if (btn != null && btn.isChecked()) {
-                    btn.setChecked(false);
-                    toggleGroupSelection(fdd, groupEntries);
+                ButtonAPI btnCenter = toggleBtnHolder[0];
+                if (btnCenter != null && btnCenter.isChecked()) {
+                    btnCenter.setChecked(false);
+                    toggleGroupSelectionForZone(fdd, groupEntries, 1);
+                }
+                ButtonAPI btnLeft = toggleBtnHolder[1];
+                if (btnLeft != null && btnLeft.isChecked()) {
+                    btnLeft.setChecked(false);
+                    toggleGroupSelectionForZone(fdd, groupEntries, 2);
+                }
+                ButtonAPI btnRight = toggleBtnHolder[2];
+                if (btnRight != null && btnRight.isChecked()) {
+                    btnRight.setChecked(false);
+                    toggleGroupSelectionForZone(fdd, groupEntries, 3);
                 }
             }
         };
@@ -1456,29 +1516,104 @@ public class DivisionDeploymentDialogOrganizer {
             line2Label.setText(l2);
         }
 
-        // Bottom Select button sits at y_top = 35f..51f (well below Line 2 at y_top = 16f..29f, so it never eats the division name)
+        // Bottom Select button(s) sit at y_top = 35f..51f (well below Line 2 at y_top = 16f..29f, so they never eat the division name)
         TooltipMakerAPI tt = card.createUIElement(cardW, cardH, false);
-        String btnLabel = String.format(Locale.ROOT, "Select (%.0f DP)", totalDp);
-        ButtonAPI btn = tt.addButton(
-                btnLabel,
-                "TOGGLE_ROW",
-                btnBase,
-                btnDark,
-                Alignment.MID,
-                CutStyle.ALL,
-                cardW - 10f,
-                16f,
-                0f);
-        btn.getPosition().inTL(5f, 35f);
         String rowTipTitle = isDivisionRow && divSpec != null
                 ? (title + " (" + divSpec.archetype.shortPrefix + " | " + String.format(Locale.ROOT, "%.0f DP", totalDp) + ")")
                 : (title + String.format(Locale.ROOT, " (%.0f DP)", totalDp));
         String rowTipBody = isDivisionRow && divFm != null
                 ? ("Formation: " + divFm.displayName + " (" + divFm.summary + ") Click to select or deselect all deployable ships in this division row.")
                 : "Click to select or deselect all deployable unassigned ships in this row.";
-        DivisionUiWidgets.addTooltip(tt, btn, rowTipTitle, rowTipBody);
+
+        boolean anyFlankEligible = false;
+        if (isPursuitFlankDeploymentAvailable() && groupEntries != null) {
+            for (MemberIconEntry e : groupEntries) {
+                if (e != null && !e.isAlreadyDeployed && canMemberDeployLeftRight(e.member)) {
+                    anyFlankEligible = true;
+                    break;
+                }
+            }
+        }
+
+        if (anyFlankEligible) {
+            float sideBtnW = 24f;
+            float gap = 2f;
+            float centerBtnW = Math.max(44f, cardW - 8f - sideBtnW * 2f - gap * 2f);
+            String centerLabel = totalDp < 100f
+                    ? String.format(Locale.ROOT, "C (%.0f)", totalDp)
+                    : "Center";
+
+            ButtonAPI btnLeft = tt.addButton(
+                    "L",
+                    "DEPLOY_LEFT_ROW",
+                    btnBase,
+                    btnDark,
+                    Alignment.MID,
+                    CutStyle.ALL,
+                    sideBtnW,
+                    16f,
+                    0f);
+            btnLeft.getPosition().inTL(4f, 35f);
+            DivisionUiWidgets.addTooltip(
+                    tt,
+                    btnLeft,
+                    rowTipTitle + " — Deploy Left Flank",
+                    "Pursuit Flank Deployment: Selects all flank-eligible ships (frigates & destroyers) in this division row to deploy on the Left Flank (DEPLOY LEFT). Click again to deselect.");
+
+            ButtonAPI btnCenter = tt.addButton(
+                    centerLabel,
+                    "TOGGLE_ROW",
+                    btnBase,
+                    btnDark,
+                    Alignment.MID,
+                    CutStyle.ALL,
+                    centerBtnW,
+                    16f,
+                    0f);
+            btnCenter.getPosition().inTL(4f + sideBtnW + gap, 35f);
+            DivisionUiWidgets.addTooltip(
+                    tt,
+                    btnCenter,
+                    rowTipTitle + " — Deploy Center",
+                    rowTipBody + " In pursuit battles, sets all deployable ships in this division row to Center deployment (DEPLOY), or deselects them if already set to Center.");
+
+            ButtonAPI btnRight = tt.addButton(
+                    "R",
+                    "DEPLOY_RIGHT_ROW",
+                    btnBase,
+                    btnDark,
+                    Alignment.MID,
+                    CutStyle.ALL,
+                    sideBtnW,
+                    16f,
+                    0f);
+            btnRight.getPosition().inTL(4f + sideBtnW + gap + centerBtnW + gap, 35f);
+            DivisionUiWidgets.addTooltip(
+                    tt,
+                    btnRight,
+                    rowTipTitle + " — Deploy Right Flank",
+                    "Pursuit Flank Deployment: Selects all flank-eligible ships (frigates & destroyers) in this division row to deploy on the Right Flank (DEPLOY RIGHT). Click again to deselect.");
+
+            toggleBtnHolder[0] = btnCenter;
+            toggleBtnHolder[1] = btnLeft;
+            toggleBtnHolder[2] = btnRight;
+        } else {
+            String btnLabel = String.format(Locale.ROOT, "Select (%.0f DP)", totalDp);
+            ButtonAPI btn = tt.addButton(
+                    btnLabel,
+                    "TOGGLE_ROW",
+                    btnBase,
+                    btnDark,
+                    Alignment.MID,
+                    CutStyle.ALL,
+                    cardW - 10f,
+                    16f,
+                    0f);
+            btn.getPosition().inTL(5f, 35f);
+            DivisionUiWidgets.addTooltip(tt, btn, rowTipTitle, rowTipBody);
+            toggleBtnHolder[0] = btn;
+        }
         DivisionUiWidgets.addTooltip(tt, (UIComponentAPI) line1Label, rowTipTitle, rowTipBody);
-        toggleBtnHolder[0] = btn;
 
         tt.setHeightSoFar(cardH);
         card.addUIElement(tt).inTL(0f, 0f);
@@ -1556,54 +1691,87 @@ public class DivisionDeploymentDialogOrganizer {
         };
     }
 
-    @SuppressWarnings("unchecked")
     private void toggleGroupSelection(Object fdd, List<MemberIconEntry> entries) {
-        try {
-            List<FleetMemberAPI> currentlySelected = (List<FleetMemberAPI>) fddGetSelectedHandle.invoke(fdd);
-            Set<String> selectedIds = new HashSet<>();
-            if (currentlySelected != null) {
-                for (FleetMemberAPI m : currentlySelected) {
-                    if (m != null) selectedIds.add(m.getId());
-                }
-            }
+        toggleGroupSelectionForZone(fdd, entries, 1);
+    }
 
-            boolean anyDeployableUnselected = false;
+    /**
+     * Toggles or sets the deployment zone for all eligible ships in a division row:
+     *  - {@code targetDeployState == 1}: Center ({@code "DEPLOY"}) — applies to all deployable ships in the row.
+     *  - {@code targetDeployState == 2}: Left Flank ({@code "DEPLOY LEFT"}) — applies to flank-eligible ships (frigates/destroyers).
+     *  - {@code targetDeployState == 3}: Right Flank ({@code "DEPLOY RIGHT"}) — applies to flank-eligible ships (frigates/destroyers).
+     * If all eligible ships in the row are already in {@code targetDeployState}, deselects them ({@code -1}).
+     */
+    private void toggleGroupSelectionForZone(Object fdd, List<MemberIconEntry> entries, int targetDeployState) {
+        if (fdd == null || entries == null || entries.isEmpty()) return;
+        try {
+            boolean requireFlankCapable = (targetDeployState == 2 || targetDeployState == 3);
+            List<MemberIconEntry> eligible = new ArrayList<>(entries.size());
             for (MemberIconEntry e : entries) {
-                if (!e.isAlreadyDeployed && e.member.canBeDeployedForCombat() && !selectedIds.contains(e.member.getId())) {
-                    anyDeployableUnselected = true;
+                if (e == null || e.isAlreadyDeployed || e.member == null || !e.member.canBeDeployedForCombat()) {
+                    continue;
+                }
+                if (requireFlankCapable && !canMemberDeployLeftRight(e.member)) {
+                    continue;
+                }
+                eligible.add(e);
+            }
+            if (eligible.isEmpty()) return;
+
+            boolean allInTargetState = true;
+            for (MemberIconEntry e : eligible) {
+                if (getIconDeployState(fdd, e) != targetDeployState) {
+                    allInTargetState = false;
                     break;
                 }
             }
 
-            if (anyDeployableUnselected) {
-                // Select all unselected deployable ships in this division row
-                for (MemberIconEntry e : entries) {
-                    if (!e.isAlreadyDeployed && e.member.canBeDeployedForCombat() && !selectedIds.contains(e.member.getId())) {
-                        fddFleetMemberClickedHandle.invoke(fdd, e.member, e.icon, null);
-                    }
-                }
-            } else {
-                // All deployable ships in this division row are already selected -> deselect them
-                for (MemberIconEntry e : entries) {
-                    if (e.isAlreadyDeployed || !e.member.canBeDeployedForCombat()) continue;
-                    for (int attempt = 0; attempt < 4; attempt++) {
-                        List<FleetMemberAPI> selNow = (List<FleetMemberAPI>) fddGetSelectedHandle.invoke(fdd);
-                        boolean stillSelected = false;
-                        if (selNow != null) {
-                            for (FleetMemberAPI m : selNow) {
-                                if (m != null && m.getId().equals(e.member.getId())) {
-                                    stillSelected = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (!stillSelected) break;
-                        fddFleetMemberClickedHandle.invoke(fdd, e.member, e.icon, null);
-                    }
-                }
+            int desiredState = allInTargetState ? -1 : targetDeployState;
+            for (MemberIconEntry e : eligible) {
+                setEntryDeployState(fdd, e, desiredState);
             }
         } catch (Throwable t) {
             LOG.warn("[DivisionAI] Failed to toggle division row in Deployment Window", t);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private int getIconDeployState(Object fdd, MemberIconEntry e) {
+        if (e == null || e.icon == null) return -1;
+        if (iconGetDeployStateHandle != null) {
+            try {
+                int st = (int) iconGetDeployStateHandle.invoke(e.icon);
+                if (st == 1 || st == 2 || st == 3) return st;
+                return -1;
+            } catch (Throwable ignored) {
+            }
+        }
+        try {
+            List<FleetMemberAPI> sel = (List<FleetMemberAPI>) fddGetSelectedHandle.invoke(fdd);
+            if (sel != null && e.member != null) {
+                for (FleetMemberAPI m : sel) {
+                    if (m != null && m.getId().equals(e.member.getId())) {
+                        return 1;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return -1;
+    }
+
+    private void setEntryDeployState(Object fdd, MemberIconEntry e, int targetDeployState) throws Throwable {
+        if (e == null || e.isAlreadyDeployed || e.member == null || !e.member.canBeDeployedForCombat()) return;
+        for (int attempt = 0; attempt < 4; attempt++) {
+            int curState = getIconDeployState(fdd, e);
+            if (curState == targetDeployState) {
+                break;
+            }
+            fddFleetMemberClickedHandle.invoke(fdd, e.member, e.icon, null);
+            int nextState = getIconDeployState(fdd, e);
+            if (nextState == curState) {
+                break;
+            }
         }
     }
 

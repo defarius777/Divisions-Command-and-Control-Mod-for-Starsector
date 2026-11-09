@@ -413,13 +413,15 @@ public final class FleetCommandPanel {
             private void updateSelectorText() {
                 PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
                 PermanentDivisionManager.FleetWideFormation fw;
+                boolean isPursuit = OtcAI.isPursuitBattle(engine, playerGroup);
+                boolean isRearguard = (playerGroup != null && playerGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
                 if (preBattle) {
-                    fw = doc.getFleetWideFormation();
+                    fw = isPursuit ? PermanentDivisionManager.FleetWideFormation.NONE : doc.getFleetWideFormation();
                     PermanentDivisionManager.OtcAuthority auth = doc.getOtcAuthority();
                     if (playerGroup != null) {
                         playerGroup.authority = auth;
                     }
-                    String selKey = "PRE|" + auth.name() + "|" + fw.name() + "|" + doc.isOrchestratedAdvance();
+                    String selKey = "PRE|" + auth.name() + "|" + fw.name() + "|" + doc.isOrchestratedAdvance() + "|" + isPursuit + "|" + isRearguard;
                     if (selKey.equals(lastSelectorLayoutKey)) {
                         return;
                     }
@@ -427,26 +429,36 @@ public final class FleetCommandPanel {
                     cmdStyleNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
                             auth.dropdownLabel, cmdStyleNameLabel, cmdColW - 64f));
                 } else {
-                    fw = (playerGroup != null
+                    fw = isPursuit
+                            ? PermanentDivisionManager.FleetWideFormation.NONE
+                            : ((playerGroup != null
                             && playerGroup.activeFleetWideFormation != null
                             && playerGroup.activeFleetWideFormation != PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO)
                             ? playerGroup.activeFleetWideFormation
-                            : doc.getFleetWideFormation();
-                    String selKey = "LIVE|" + fw.name();
+                            : doc.getFleetWideFormation());
+                    String selKey = "LIVE|" + fw.name() + "|" + isPursuit + "|" + isRearguard;
                     if (selKey.equals(lastSelectorLayoutKey)) {
                         return;
                     }
                     lastSelectorLayoutKey = selKey;
                 }
+                String fmDisplay = isPursuit
+                        ? (isRearguard ? "Rearguard (No Grand Fm.)" : "Pursuit (No Grand Fm.)")
+                        : fw.displayName;
                 formationNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                        fw.displayName, formationNameLabel,
+                        fmDisplay, formationNameLabel,
                         preBattle ? formColW - 64f : rightStatusMaxW));
                 ButtonAPI entry = entryButtonRef[0];
                 if (preBattle && entry != null) {
-                    boolean orch = doc.isOrchestratedAdvance();
-                    entry.setText("Orchestrated Advance: " + (orch ? "On" : "Off"));
-                    if (orch) entry.highlight();
-                    else entry.unhighlight();
+                    if (isPursuit) {
+                        entry.setText(isRearguard ? "Pursuit Mode: Rearguard" : "Pursuit Zones: C / L / R");
+                        entry.unhighlight();
+                    } else {
+                        boolean orch = doc.isOrchestratedAdvance();
+                        entry.setText("Orchestrated Advance: " + (orch ? "On" : "Off"));
+                        if (orch) entry.highlight();
+                        else entry.unhighlight();
+                    }
                 }
             }
 

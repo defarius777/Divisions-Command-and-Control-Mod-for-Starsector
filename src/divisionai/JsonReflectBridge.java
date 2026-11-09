@@ -3,12 +3,11 @@ package divisionai;
 import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.SettingsAPI;
 
-import java.io.File;
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -140,16 +139,28 @@ final class JsonReflectBridge {
             }
         }
         if ((rootJson == null || arrayLength(names(rootJson)) == 0) && mhJsonObjFromStringCtor != null) {
-            File localFile = new File("mod/" + configPath);
-            if (!localFile.isFile()) {
-                localFile = new File(configPath);
+            String raw = readTextFileIfPresent("mod/" + configPath);
+            if (raw == null) {
+                raw = readTextFileIfPresent(configPath);
             }
-            if (localFile.isFile()) {
-                String raw = new String(Files.readAllBytes(localFile.toPath()), StandardCharsets.UTF_8);
+            if (raw != null && !raw.isEmpty()) {
                 rootJson = mhJsonObjFromStringCtor.invoke(raw);
             }
         }
         return rootJson;
+    }
+
+    private static String readTextFileIfPresent(String path) {
+        try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+            return sb.toString();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     static boolean has(Object jsonObj, String key) throws Throwable {

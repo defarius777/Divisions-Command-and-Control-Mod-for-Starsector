@@ -41,6 +41,86 @@ public class OtcAI {
     private static final float LOCAL_EVAL_DIAMETER = 4600f; // 2300u radius around division centroid
     private static final float MIN_PHASE_DWELL = 10f;
 
+    /**
+     * Returns true when the current battle is a Pursuit / Escape engagement
+     * ({@link MissionContextType#INTERCEPTION} or {@link MissionContextType#REARGUARD_ACTION}).
+     * Fleet-wide formations and cross-map wave hijacking are disabled in pursuit battles.
+     */
+    public static boolean isPursuitBattle(CombatEngineAPI engine, BattleGroupState group) {
+        if (group != null
+                && (group.missionContext == MissionContextType.INTERCEPTION
+                || group.missionContext == MissionContextType.REARGUARD_ACTION)) {
+            return true;
+        }
+        if (engine != null) {
+            int side = (group != null) ? group.side : 0;
+            MissionContextType ctxType = DivisionAutoFormer.detectMissionContext(engine, side);
+            if (ctxType == MissionContextType.INTERCEPTION || ctxType == MissionContextType.REARGUARD_ACTION) {
+                if (group != null) {
+                    group.missionContext = ctxType;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the primary forward march Y direction for {@code group}.
+     * In Starsector pursuit battles ({@link MissionContextType#INTERCEPTION} or {@link MissionContextType#REARGUARD_ACTION}),
+     * BOTH sides spawn in the southern half facing 90 deg North (+Y) and advance/escape toward the top edge (+Y).
+     */
+    public static float getBattleGroupForwardDirY(BattleGroupState group) {
+        if (group != null
+                && (group.missionContext == MissionContextType.INTERCEPTION
+                || group.missionContext == MissionContextType.REARGUARD_ACTION)) {
+            return 1f;
+        }
+        return (group == null || group.side == 0) ? 1f : -1f;
+    }
+
+    /**
+     * Returns the safe fallback / retirement Y direction for {@code group}.
+     * When being pursued ({@link MissionContextType#REARGUARD_ACTION}), the pursuing enemy is behind us in the South (-Y)
+     * and our escape exit is the North edge (+Y), so retirement / reserve fallback moves North (+1f).
+     * When pursuing ({@link MissionContextType#INTERCEPTION}), safe fallback is South (-1f).
+     */
+    public static float getBattleGroupRetreatDirY(BattleGroupState group) {
+        if (group != null) {
+            if (group.missionContext == MissionContextType.REARGUARD_ACTION) {
+                return 1f;
+            }
+            if (group.missionContext == MissionContextType.INTERCEPTION) {
+                return -1f;
+            }
+        }
+        return (group == null || group.side == 0) ? -1f : 1f;
+    }
+
+    /**
+     * Classifies a newly deployed ship's pursuit spawn zone:
+     * {@code -1} = Deploy Left (port flank edge, facing ~0 deg East),
+     * {@code +1} = Deploy Right (starboard flank edge, facing ~180 deg West),
+     * {@code  0} = Deploy Center / Regular (bottom edge, facing ~90 deg North).
+     */
+    public static int resolveShipPursuitSpawnZone(CombatEngineAPI engine, ShipAPI ship) {
+        if (ship == null || ship.getLocation() == null) return 0;
+        double rad = Math.toRadians(ship.getFacing());
+        float cos = (float) Math.cos(rad);
+        float sin = (float) Math.sin(rad);
+        float mapW = (engine != null && engine.getMapWidth() > 0f) ? engine.getMapWidth() : 18000f;
+        float x = ship.getLocation().x;
+        if (Math.abs(cos) > Math.abs(sin)) {
+            if (cos > 0.5f && x < -mapW * 0.18f) {
+                return -1;
+            }
+            if (cos < -0.5f && x > mapW * 0.18f) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
     public static void updateTelemetry(CombatEngineAPI engine, BattleGroupState battleGroup) {
         if (engine != null) {
             float now = engine.getTotalElapsedTime(false);
@@ -467,24 +547,27 @@ public class OtcAI {
             float frontlineWeightedX,
             float frontlineWeightedY,
             float frontlineFp) {
-        float retreatDirY = (battleGroup.side == 0) ? -1f : 1f;
+        float retreatDirY = getBattleGroupRetreatDirY(battleGroup);
         float halfH = (engine != null && engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.5f) : 9000f;
         float maxEdgeY = halfH * 0.78f;
+        boolean isRearguardEscape = (battleGroup.missionContext == MissionContextType.REARGUARD_ACTION);
         boolean edgeBastionPosture = battleGroup.forceRatio < 0.82f
                 || battleGroup.currentPhase == DivisionModel.BattlePhase.FIGHTING_RETIREMENT
                 || battleGroup.activeFleetWideFormation == PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION;
         if (frontlineFp > 0f) {
             float fx = frontlineWeightedX / frontlineFp;
             float fy = frontlineWeightedY / frontlineFp;
-            float pullBackDist = edgeBastionPosture ? 740f : 620f;
+            float pullBackDist = isRearguardEscape ? 1150f : (edgeBastionPosture ? 740f : 620f);
             float targetResY = Math.max(-maxEdgeY, Math.min(maxEdgeY, fy + retreatDirY * pullBackDist));
             battleGroup.reserveStation.set(fx, targetResY);
             battleGroup.fleetEngagementZoneCenter.set(fx, fy);
-            battleGroup.fleetSafeCorridorCenter.set(fx, Math.max(-maxEdgeY, Math.min(maxEdgeY, fy + retreatDirY * 560f)));
+            float corridorStep = isRearguardEscape ? 950f : 560f;
+            battleGroup.fleetSafeCorridorCenter.set(fx, Math.max(-maxEdgeY, Math.min(maxEdgeY, fy + retreatDirY * corridorStep)));
         } else if (battleGroup.reserveStation.x == 0f && battleGroup.reserveStation.y == 0f) {
-            battleGroup.reserveStation.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * 620f);
+            float pullBackDist = isRearguardEscape ? 1150f : 620f;
+            battleGroup.reserveStation.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * pullBackDist);
             battleGroup.fleetEngagementZoneCenter.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y);
-            battleGroup.fleetSafeCorridorCenter.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * 560f);
+            battleGroup.fleetSafeCorridorCenter.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * (isRearguardEscape ? 950f : 560f));
         }
         if (isOrchestratedAdvanceActive(engine, battleGroup, null)
                 && battleGroup.reserveDivision != null
@@ -728,11 +811,17 @@ public class OtcAI {
                 && endangeredDiv != null && worstLocalRatio < 0.90f;
         boolean enemyBaitTrapSuspected = myGroup.primaryThreatEnemyDivision != null
                 && myGroup.primaryThreatEnemyDivision.enemyFeignedRetreatSuspicion >= 0.60f;
-        boolean generalChase = !enemyBaitTrapSuspected
-                && myGroup.forceRatio >= 1.35f && visibleEnemyFp >= 30f && minContactDist < 3000f;
-        boolean generalChasePersists = !enemyBaitTrapSuspected
-                && current == BattlePhase.GENERAL_CHASE
-                && myGroup.forceRatio >= 1.20f && visibleEnemyFp >= 15f && minContactDist < 3600f;
+        boolean isPursuitInterception = (myGroup.missionContext == MissionContextType.INTERCEPTION);
+        boolean isRearguardEscape = (myGroup.missionContext == MissionContextType.REARGUARD_ACTION);
+        boolean generalChase = isPursuitInterception
+                ? (anyEnemyVisible && !crisis)
+                : (!enemyBaitTrapSuspected
+                        && myGroup.forceRatio >= 1.35f && visibleEnemyFp >= 30f && minContactDist < 3000f);
+        boolean generalChasePersists = isPursuitInterception
+                ? (anyEnemyVisible && !crisis)
+                : (!enemyBaitTrapSuspected
+                        && current == BattlePhase.GENERAL_CHASE
+                        && myGroup.forceRatio >= 1.20f && visibleEnemyFp >= 15f && minContactDist < 3600f);
         boolean strikeRunning = myGroup.strikePlan != null && myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES);
 
         boolean fullAssault = isFullAssaultActive(engine, myGroup);
@@ -741,12 +830,15 @@ public class OtcAI {
         BattlePhase nextPhase;
         if (fullAssault && anyEnemyVisible) {
             nextPhase = BattlePhase.GENERAL_CHASE;
-        } else if (!fullAssault && (myGroup.missionContext == MissionContextType.REARGUARD_ACTION
+        } else if (!fullAssault && (isRearguardEscape
                 || (anyEnemyVisible && now > 40f && myGroup.forceRatio < 0.45f && pressuredForRetirement
-                && myGroup.missionContext != MissionContextType.FIGHT_TO_THE_LAST))) {
+                && myGroup.missionContext != MissionContextType.FIGHT_TO_THE_LAST
+                && !isPursuitInterception))) {
             nextPhase = BattlePhase.FIGHTING_RETIREMENT;
         } else if (!fullAssault && (crisis || crisisPersists)) {
             nextPhase = BattlePhase.REINFORCE_THE_LINE;
+        } else if (isPursuitInterception && anyEnemyVisible) {
+            nextPhase = BattlePhase.GENERAL_CHASE;
         } else if ((!anyEnemyVisible && now < 90f)
                 || (!fullAssault && minContactDist > 3300f && hasUncapturedObjectives && now < 75f && myGroup.fleetEngagementLevel < 0.22f)) {
             nextPhase = BattlePhase.APPROACH;
@@ -764,7 +856,7 @@ public class OtcAI {
         boolean severeCrisis = endangeredDiv != null && worstLocalRatio < 0.45f;
         boolean approachContactEstablished = (current == BattlePhase.APPROACH)
                 && anyEnemyVisible
-                && minContactDist < 3200f;
+                && (minContactDist < 3200f || isPursuitInterception);
         if (nextPhase != current && !dwellElapsed
                 && !fullAssault
                 && !approachContactEstablished
@@ -782,14 +874,17 @@ public class OtcAI {
         // Reserve management: hold a mobile reserve during approach or while enjoying a clear force advantage,
         // but commit the reserve immediately once the main battle line is in violent contact against an equal/superior force
         // so we never fight 4v5 outnumbered while 20% of the fleet watches from the rear.
+        // In pursuit battles (INTERCEPTION or REARGUARD_ACTION), never hold an idle rear reserve!
         boolean reservePlay = myGroup.isPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE) && myGroup.authority.allowsRetasking();
         boolean frontlineInCloseFight = (minContactDist < 1850f || myGroup.fleetEngagementLevel >= 0.26f)
                 && (myGroup.forceRatio <= 1.18f || worstLocalRatio < 0.98f || myGroup.fleetEngagementLevel >= 0.38f);
-        if (frontlineInCloseFight && myGroup.reserveDivision != null) {
+        if ((frontlineInCloseFight || isPursuitInterception || isRearguardEscape) && myGroup.reserveDivision != null) {
             myGroup.reserveCommitted = true;
         }
         boolean holdReserve;
-        if (reservePlay) {
+        if (isPursuitInterception || isRearguardEscape) {
+            holdReserve = false;
+        } else if (reservePlay) {
             holdReserve = !myGroup.reserveCommitted
                     && !frontlineInCloseFight
                     && (now < 90f)
@@ -1012,7 +1107,8 @@ public class OtcAI {
     private static String buildOtcSignal(BattleGroupState battleGroup, DivisionState endangeredDiv) {
         String mainName = battleGroup.mainEffortDivision != null ? "\"" + battleGroup.mainEffortDivision.displayName + "\"" : "the main body";
         String targetName = battleGroup.primaryThreatEnemyDivision != null ? "\"" + battleGroup.primaryThreatEnemyDivision.displayName + "\"" : "the enemy line";
-        String fwTag = (battleGroup.activeFleetWideFormation != null)
+        String fwTag = (battleGroup.activeFleetWideFormation != null
+                && battleGroup.activeFleetWideFormation != PermanentDivisionManager.FleetWideFormation.NONE)
                 ? " [" + battleGroup.activeFleetWideFormation.shortName + "]"
                 : "";
         String spTag = (battleGroup.activeMultiDivisionSetpiece != null
@@ -1022,6 +1118,9 @@ public class OtcAI {
 
         switch (battleGroup.currentPhase) {
             case APPROACH:
+                if (battleGroup.missionContext == MissionContextType.INTERCEPTION) {
+                    return String.format("Pursuit stations: %s and flank divisions advance to intercept escaping enemy.", mainName);
+                }
                 if (battleGroup.reserveDivision != null) {
                     return String.format("Scouts ahead%s, %s leading; \"%s\" held in reserve.", fwTag, mainName, battleGroup.reserveDivision.displayName);
                 }
@@ -1044,8 +1143,14 @@ public class OtcAI {
                 }
                 return "Reinforce the line and haul hot divisions out to vent.";
             case GENERAL_CHASE:
+                if (battleGroup.missionContext == MissionContextType.INTERCEPTION) {
+                    return String.format("Pursuit interception: cut off and destroy %s before escape.", targetName);
+                }
                 return String.format("General chase: press the advantage (%.2fx) on %s.", battleGroup.forceRatio, targetName);
             case FIGHTING_RETIREMENT:
+                if (battleGroup.missionContext == MissionContextType.REARGUARD_ACTION) {
+                    return "Rearguard action: delay pursuers and screen escaping units toward the northern exit.";
+                }
                 return "Retire by divisions toward the rendezvous, covering each other.";
             case GENERAL_ENGAGEMENT:
             default:
@@ -1079,6 +1184,21 @@ public class OtcAI {
             BattleGroupState myGroup,
             BattleGroupState enemyGroup) {
         if (myGroup == null) return;
+        if (isPursuitBattle(engine, myGroup)) {
+            myGroup.activeFleetWideFormation = PermanentDivisionManager.FleetWideFormation.NONE;
+            for (DivisionState d : myGroup.divisions) {
+                if (d != null) {
+                    d.fleetFormationRank = 0;
+                    d.fleetFormationWingSide = d.pursuitSpawnZone;
+                    if (d.pursuitSpawnZone != 0) {
+                        d.consentedWingSide = d.pursuitSpawnZone;
+                    }
+                    d.hasFleetFormationOffset = false;
+                    d.fleetFormationOffset.set(0f, 0f);
+                }
+            }
+            return;
+        }
         if (isFullAssaultActive(engine, myGroup)) {
             for (DivisionState d : myGroup.divisions) {
                 if (d != null) {
@@ -1445,16 +1565,20 @@ public class OtcAI {
         float minContactDist = (enemyGroup != null) ? minDistanceBetweenFleets(engine, myGroup, enemyGroup) : Float.MAX_VALUE;
         boolean frontlineInCloseFight = (minContactDist < 1850f || myGroup.fleetEngagementLevel >= 0.26f)
                 && (myGroup.forceRatio <= 1.18f || myGroup.fleetEngagementLevel >= 0.38f);
-        boolean holdReserve = reservePlay
+        boolean isPursuit = isPursuitBattle(engine, myGroup);
+        boolean holdReserve = !isPursuit && (reservePlay
                 ? (!myGroup.reserveCommitted && !frontlineInCloseFight && now < 90f && activeDivCount >= 4
                         && myGroup.currentPhase != BattlePhase.FIGHTING_RETIREMENT && myGroup.otc.aggressionBias <= 1.35f)
                 : (!frontlineInCloseFight && now < 45f && activeDivCount >= 4
-                        && myGroup.currentPhase == BattlePhase.APPROACH && myGroup.otc.aggressionBias <= 1.20f);
+                        && myGroup.currentPhase == BattlePhase.APPROACH && myGroup.otc.aggressionBias <= 1.20f));
 
         for (DivisionState d : myGroup.divisions) {
             if (d == null) continue;
             d.isDesignatedMainEffort = (d == myGroup.mainEffortDivision);
             d.isDesignatedReserve = holdReserve && (d == bestReserve);
+            if (isPursuit && d.pursuitSpawnZone != 0) {
+                d.consentedWingSide = d.pursuitSpawnZone;
+            }
         }
         myGroup.reserveDivision = holdReserve ? bestReserve : null;
     }
@@ -1661,6 +1785,9 @@ public class OtcAI {
             BattleGroupState group,
             BattleGroupState enemyGroup) {
         if (group == null || !group.orchestratedAdvance) return false;
+        if (isPursuitBattle(engine, group)) {
+            return false;
+        }
         if (group.fleetWideFormation == PermanentDivisionManager.FleetWideFormation.NONE
                 || group.activeFleetWideFormation == PermanentDivisionManager.FleetWideFormation.NONE) {
             return false;
@@ -1708,6 +1835,92 @@ public class OtcAI {
         if (engine == null || group == null || newlyDeployedShips == null || newlyDeployedShips.isEmpty()) {
             return;
         }
+        if (isPursuitBattle(engine, group)) {
+            // In pursuit battles (INTERCEPTION / REARGUARD_ACTION), fleet-wide formations are disabled so ships
+            // deployed Center, Deploy Left, or Deploy Right are never teleported or pinned to another flank.
+            for (ShipAPI s : newlyDeployedShips) {
+                if (s != null && s.getId() != null) {
+                    group.formationSpawnHijackedShipIds.add(s.getId());
+                }
+            }
+            group.activeFleetWideFormation = PermanentDivisionManager.FleetWideFormation.NONE;
+            java.util.Map<DivisionState, List<ShipAPI>> waveShipsByDiv = new java.util.LinkedHashMap<>();
+            for (ShipAPI s : newlyDeployedShips) {
+                if (s == null || !s.isAlive() || s.isFighter()) continue;
+                DivisionState d = group.shipIdToDivision.get(s.getId());
+                if (d == null) {
+                    for (DivisionState cand : group.divisions) {
+                        if (cand != null && cand.members.contains(s)) {
+                            d = cand;
+                            if (s.getId() != null) group.shipIdToDivision.put(s.getId(), cand);
+                            break;
+                        }
+                    }
+                }
+                if (d == null) continue;
+                List<ShipAPI> list = waveShipsByDiv.get(d);
+                if (list == null) {
+                    list = new ArrayList<>();
+                    waveShipsByDiv.put(d, list);
+                }
+                list.add(s);
+            }
+            for (java.util.Map.Entry<DivisionState, List<ShipAPI>> entry : waveShipsByDiv.entrySet()) {
+                DivisionState d = entry.getKey();
+                List<ShipAPI> ships = entry.getValue();
+                if (d == null || ships == null || ships.isEmpty()) continue;
+                int leftCnt = 0;
+                int rightCnt = 0;
+                int centerCnt = 0;
+                float sumX = 0f;
+                float sumY = 0f;
+                float sumHx = 0f;
+                float sumHy = 0f;
+                for (ShipAPI s : ships) {
+                    int z = resolveShipPursuitSpawnZone(engine, s);
+                    if (z < 0) leftCnt++;
+                    else if (z > 0) rightCnt++;
+                    else centerCnt++;
+                    sumX += s.getLocation().x;
+                    sumY += s.getLocation().y;
+                    double r = Math.toRadians(s.getFacing());
+                    sumHx += (float) Math.cos(r);
+                    sumHy += (float) Math.sin(r);
+                }
+                int zone = 0;
+                if (leftCnt > rightCnt && leftCnt >= centerCnt && leftCnt > 0) zone = -1;
+                else if (rightCnt > leftCnt && rightCnt >= centerCnt && rightCnt > 0) zone = 1;
+                d.pursuitSpawnZone = zone;
+                d.fleetFormationWingSide = zone;
+                if (zone != 0) {
+                    d.consentedWingSide = zone;
+                }
+                d.hasFleetFormationOffset = false;
+                d.fleetFormationOffset.set(0f, 0f);
+                float hLen = (float) Math.sqrt(sumHx * sumHx + sumHy * sumHy);
+                if (hLen > 0.01f) {
+                    d.formationHeadingX = sumHx / hLen;
+                    d.formationHeadingY = sumHy / hLen;
+                } else if (zone < 0) {
+                    d.formationHeadingX = 1f;
+                    d.formationHeadingY = 0f;
+                } else if (zone > 0) {
+                    d.formationHeadingX = -1f;
+                    d.formationHeadingY = 0f;
+                } else {
+                    d.formationHeadingX = 0f;
+                    d.formationHeadingY = getBattleGroupForwardDirY(group);
+                }
+                d.formationHeadingInitialized = true;
+                float cx = sumX / ships.size();
+                float cy = sumY / ships.size();
+                d.centroid.set(cx, cy);
+                d.stationPoint.set(cx + d.formationHeadingX * 900f, cy + d.formationHeadingY * 900f);
+                d.initialDeploymentMarshalled = true;
+            }
+            group.initialDeploymentDone = true;
+            return;
+        }
         if (!group.deployInFleetFormation
                 || group.fleetWideFormation == PermanentDivisionManager.FleetWideFormation.NONE) {
             for (ShipAPI s : newlyDeployedShips) {
@@ -1753,6 +1966,15 @@ public class OtcAI {
             for (ShipAPI s : newlyDeployedShips) {
                 if (s == null || !s.isAlive() || s.isFighter()) continue;
                 DivisionState d = group.shipIdToDivision.get(s.getId());
+                if (d == null) {
+                    for (DivisionState cand : group.divisions) {
+                        if (cand != null && cand.members.contains(s)) {
+                            d = cand;
+                            if (s.getId() != null) group.shipIdToDivision.put(s.getId(), cand);
+                            break;
+                        }
+                    }
+                }
                 if (d == null) continue;
                 List<ShipAPI> list = waveShipsByDiv.get(d);
                 if (list == null) {
@@ -2055,7 +2277,20 @@ public class OtcAI {
             BattleGroupState battleGroup,
             BattleGroupState enemyGroup,
             float now) {
-        if (engine == null || battleGroup == null || !battleGroup.deployInFleetFormation
+        if (engine == null || battleGroup == null) return false;
+        if (isPursuitBattle(engine, battleGroup)) {
+            battleGroup.activeFleetWideFormation = PermanentDivisionManager.FleetWideFormation.NONE;
+            for (DivisionState d : battleGroup.divisions) {
+                if (d != null) {
+                    d.hasFleetFormationOffset = false;
+                    d.fleetFormationOffset.set(0f, 0f);
+                    d.initialDeploymentMarshalled = true;
+                }
+            }
+            battleGroup.initialDeploymentDone = true;
+            return false;
+        }
+        if (!battleGroup.deployInFleetFormation
                 || battleGroup.fleetWideFormation == PermanentDivisionManager.FleetWideFormation.NONE) return false;
         if (now > 3.5f && battleGroup.initialDeploymentDone) return false;
         if (battleGroup.divisions.isEmpty()) return false;
@@ -2210,6 +2445,7 @@ public class OtcAI {
         float cogWeightSum = 0f;
         int visibleAbleEnemyCount = 0;
 
+        boolean isPursuitInterception = (myGroup.missionContext == MissionContextType.INTERCEPTION);
         for (DivisionState eDiv : enemyDivs) {
             if (eDiv == null) continue;
             eDiv.committedFriendlyFpAgainst = 0f;
@@ -2220,7 +2456,7 @@ public class OtcAI {
                 continue;
             }
             eDiv.combatThreatWeight = computeDivisionCombatThreatWeight(engine, myGroup.side, eDiv);
-            if (!eDiv.isUnableDivision && eDiv.retreatingFraction < 0.50f) {
+            if (isPursuitInterception || (!eDiv.isUnableDivision && eDiv.retreatingFraction < 0.50f)) {
                 visibleAbleEnemyCount++;
                 Vector2f visPos = getVisibleCentroidForSide(engine, myGroup.side, eDiv);
                 float visFp = getVisibleFpForSide(engine, myGroup.side, eDiv);
@@ -2384,20 +2620,36 @@ public class OtcAI {
             }
         }
 
+        boolean isPursuitInterception = (myGroup.missionContext == MissionContextType.INTERCEPTION);
+        boolean isRearguardEscape = (myGroup.missionContext == MissionContextType.REARGUARD_ACTION);
+        float mapHalfH = (engine != null && engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.5f) : 9000f;
+
         for (DivisionState eDiv : enemyDivs) {
             if (!eDiv.isCombatEffective()) continue;
             if (!isDivisionVisibleToSide(engine, myGroup.side, eDiv)) continue;
             boolean isStationBastion = BattlefieldFirepowerEvaluator.isStationBastionDivision(eDiv);
             Vector2f visCentroid = getVisibleCentroidForSide(engine, myGroup.side, eDiv);
             float rawVisFp = getVisibleFpForSide(engine, myGroup.side, eDiv);
-            float threatWeight = Math.max(0.28f, eDiv.combatThreatWeight);
+            float threatWeight = isPursuitInterception ? Math.max(0.65f, eDiv.combatThreatWeight) : Math.max(0.28f, eDiv.combatThreatWeight);
             float visFp = (isStationBastion ? Math.min(rawVisFp, 75f) : rawVisFp) * threatWeight;
             float dist = (anchorDiv != null)
                     ? DivisionUiWidgets.distance(anchorDiv.centroid, visCentroid)
                     : DivisionUiWidgets.distance(myGroup.fleetCentroid, visCentroid);
-            float auxPenalty = (eDiv.archetype == DivisionArchetype.SERVICE_GROUP || threatWeight <= 0.52f) ? -520f : 0f;
-            // Item F: Heavily deprioritize retreating ("unable") enemy divisions as long as able enemy divisions remain
-            float unablePenalty = (anyAbleVisibleEnemy && (eDiv.isUnableDivision || eDiv.retreatingFraction >= 0.5f)) ? -1400f : 0f;
+            float auxPenalty = (!isPursuitInterception && (eDiv.archetype == DivisionArchetype.SERVICE_GROUP || threatWeight <= 0.52f)) ? -520f : 0f;
+            // Item F: Heavily deprioritize retreating ("unable") enemy divisions in normal battles while able enemies remain;
+            // in INTERCEPTION (pursuit battles), escaping enemies are the primary targets!
+            float unablePenalty = (!isPursuitInterception && anyAbleVisibleEnemy && (eDiv.isUnableDivision || eDiv.retreatingFraction >= 0.5f)) ? -1400f : 0f;
+            // In INTERCEPTION, prioritize enemy divisions that are closer to the northern escape edge (+Y) so fast units cut them off;
+            // in REARGUARD_ACTION, prioritize pursuing enemy divisions that are close to our fleet or blocking our northern escape corridor!
+            float pursuitContextBonus = 0f;
+            if (isPursuitInterception) {
+                float escapeProgress = Math.max(0f, Math.min(1f, (visCentroid.y + mapHalfH * 0.5f) / Math.max(1f, mapHalfH * 1.2f)));
+                pursuitContextBonus = escapeProgress * 340f;
+            } else if (isRearguardEscape) {
+                if (visCentroid.y >= myGroup.fleetCentroid.y - 500f) {
+                    pursuitContextBonus += 380f;
+                }
+            }
             // Item D: Bonus for enemy divisions pinched against a map edge or corner (restricted maneuver options)
             float edgePinchBonus = BattlefieldFirepowerEvaluator.computeEdgeProximityPinch(engine, visCentroid, eDiv.freeTimeRadius)
                     * 220f * threatWeight;
@@ -2482,9 +2734,9 @@ public class OtcAI {
                         ? (eDiv.avgFluxLevel * 360f + (1.0f - eDiv.avgHullLevel) * 320f)
                         : 0f;
                 score = visFp * 9.5f + avgConv * 0.55f + collapseBonus + auxPenalty + unablePenalty
-                        + edgePinchBonus + cogBonus + overkillPrimaryPenalty
+                        + edgePinchBonus + cogBonus + overkillPrimaryPenalty + pursuitContextBonus
                         + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
-                        + feignPenalty - minDivDist * 0.52f;
+                        + feignPenalty - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
             } else {
                 // Human OTC decision-making: weights Firepower value, Space Strongpoint/Weak Point seams, Time pinning, and Map-Edge pinching.
                 // Multi-division target synthesis scales smoothly with the square of organizationRatio (the fraction of the fleet in divisions).
@@ -2505,10 +2757,10 @@ public class OtcAI {
                         ? (eDiv.avgFluxLevel * 360f + (1.0f - eDiv.avgHullLevel) * 320f)
                         : 0f;
                 score = visFp * 9.5f + avgConv * 0.65f + isolationBonus + spaceSeamBonus + pinnedBonus + collapseBonus + edgePinchBonus
-                        + cogBonus + overkillPrimaryPenalty
+                        + cogBonus + overkillPrimaryPenalty + pursuitContextBonus
                         + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
                         + feignPenalty + auxPenalty + unablePenalty
-                        - minDivDist * 0.52f;
+                        - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
             }
             if (score > bestScore) {
                 bestScore = score;

@@ -80,6 +80,7 @@ public class DivisionAITestSuite {
         testHelmsmanshipMixedSpeedPacingExtractionAndPlayerC2();
         testBabylonStationBastionTargetingAndModuleFocusFire();
         testFeignedRetreatForceDisparityFriendlyProtectionAndMinimalSignals();
+        testPursuitDeploymentAndRearguardC2();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -1528,13 +1529,37 @@ public class DivisionAITestSuite {
     }
 
     /**
-     * Scenario 8: Bytecode verification that mod/jars/DivisionAI.jar contains zero java/lang/reflect references.
+     * Scenario 8: Bytecode verification that mod/jars/DivisionAI.jar contains zero java/lang/reflect references,
+     * zero non-whitelisted java/io/* or java/nio/file/* references blocked by com.fs.starfarer.loading.scripts.B,
+     * and passes macOS obfuscated class/method/field fallback inside Starsector's com.fs.starfarer.loading.scripts.B classloader.
      */
     private static void testZeroReflectionInCompiledJar() throws Exception {
-        System.out.println("\n--- Scenario 8: Bytecode Security Check (Zero java/lang/reflect) ---");
+        System.out.println("\n--- Scenario 8: Bytecode Security Check (Zero java/lang/reflect & ScriptStore.B Sandbox) ---");
         File jarFile = new File("mod/jars/DivisionAI.jar");
         int classCount = 0;
         List<String> violations = new ArrayList<>();
+        java.util.Set<String> allowedJavaIo = new java.util.HashSet<>(java.util.Arrays.asList(
+                "java/io/BufferedInputStream",
+                "java/io/BufferedReader",
+                "java/io/FilterInputStream",
+                "java/io/InputStreamReader",
+                "java/io/Reader",
+                "java/io/Serializable",
+                "java/io/InvalidClassException",
+                "java/io/ObjectStreamException",
+                "java/io/InputStream",
+                "java/io/IOException",
+                "java/io/PrintStream",
+                "java/io/PrintWriter",
+                "java/io/ByteArrayInputStream",
+                "java/io/FilterOutputStream",
+                "java/io/OutputStream",
+                "java/io/Closeable",
+                "java/io/Flushable",
+                "java/io/StringReader",
+                "java/io/FileReader"
+        ));
+        java.util.regex.Pattern ioPattern = java.util.regex.Pattern.compile("java/(?:io|nio)/[A-Za-z0-9_$/]+");
         try (ZipFile zf = new ZipFile(jarFile)) {
             Enumeration<? extends ZipEntry> entries = zf.entries();
             while (entries.hasMoreElements()) {
@@ -1545,15 +1570,159 @@ public class DivisionAITestSuite {
                         byte[] bytes = in.readAllBytes();
                         String raw = new String(bytes, StandardCharsets.ISO_8859_1);
                         if (raw.contains("java/lang/reflect")) {
-                            violations.add(entry.getName());
+                            violations.add(entry.getName() + ":java/lang/reflect");
+                        }
+                        java.util.regex.Matcher m = ioPattern.matcher(raw);
+                        while (m.find()) {
+                            String ref = m.group(0);
+                            if (ref.startsWith("java/io/") && !allowedJavaIo.contains(ref)) {
+                                violations.add(entry.getName() + ":" + ref);
+                            } else if (ref.startsWith("java/nio/file/")) {
+                                violations.add(entry.getName() + ":" + ref);
+                            }
                         }
                     }
                 }
             }
         }
         check(classCount > 0 && violations.isEmpty(),
-                "DivisionAI.jar contains zero java/lang/reflect constant-pool entries",
+                "DivisionAI.jar contains zero java/lang/reflect and zero non-whitelisted java/io or java/nio/file entries",
                 "scannedClasses=" + classCount + ", violations=" + violations);
+
+        // Verify ObfuscatedBytecodeBridge & all handle verifiers inside Starsector's com.fs.starfarer.loading.scripts.B
+        // while forcing preferred Windows obfuscated class names to miss on first lookup (simulating macOS).
+        ClassLoader parent = com.fs.starfarer.combat.CombatState.class.getClassLoader();
+        Class<?> ssCls = Class.forName("com.fs.starfarer.settings.StarfarerSettings", true, parent);
+        org.json.JSONObject dummyCfg = new org.json.JSONObject();
+        dummyCfg.put("devMode", false);
+        dummyCfg.put("logClassLoading", false);
+        for (java.lang.reflect.Field f : ssCls.getDeclaredFields()) {
+            if (f.getType() == org.json.JSONObject.class) {
+                f.setAccessible(true);
+                if (f.get(null) == null) {
+                    f.set(null, dummyCfg);
+                }
+            }
+        }
+        Class<?> bCls = Class.forName("com.fs.starfarer.loading.scripts.B", true, parent);
+        ClassLoader bLoader = (ClassLoader) bCls.getConstructor(ClassLoader.class).newInstance(parent);
+        final java.util.Set<String> windowsObfNames = new java.util.HashSet<>(java.util.Arrays.asList(
+                "com.fs.starfarer.ui.interfacenew",
+                "com.fs.starfarer.ui.c",
+                "com.fs.starfarer.ui.OO0O",
+                "com.fs.starfarer.ui.impl.oO0O",
+                "com.fs.starfarer.campaign.ui.S",
+                "com.fs.starfarer.ui.n",
+                "com.fs.starfarer.ui.B.new",
+                "com.fs.starfarer.util.A.C",
+                "com.fs.starfarer.coreui.v",
+                "com.fs.starfarer.ui.g",
+                "com.fs.starfarer.ui.g$Oo",
+                "com.fs.starfarer.renderers.O0OO",
+                "com.fs.starfarer.campaign.OOoO",
+                "com.fs.starfarer.ui.newui.L",
+                "com.fs.starfarer.ui.newui.o0Oo",
+                "com.fs.starfarer.combat.new.OoOO",
+                "com.fs.starfarer.combat.new.b",
+                "com.fs.starfarer.combat.new.OOoO",
+                "com.fs.starfarer.combat.new.O0OO",
+                "com.fs.starfarer.combat.new.O0OO$o",
+                "com.fs.starfarer.combat.new.A",
+                "com.fs.starfarer.combat.new.o0Oo",
+                "com.fs.starfarer.combat.CombatFleetManager$O0",
+                "sound.H",
+                "sound.OooO",
+                "sound.O",
+                "sound.oo0O",
+                "com.fs.starfarer.loading.int"
+        ));
+        final java.util.Set<String> failedOnce = new java.util.HashSet<>();
+        java.net.URLClassLoader modLoader = new java.net.URLClassLoader(
+                new java.net.URL[]{jarFile.toURI().toURL()}, bLoader) {
+            @Override
+            protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                if (name.startsWith("divisionai.")) {
+                    Class<?> c = findLoadedClass(name);
+                    if (c == null) c = findClass(name);
+                    if (resolve) resolveClass(c);
+                    return c;
+                }
+                if (windowsObfNames.contains(name) && failedOnce.add(name)) {
+                    throw new ClassNotFoundException("Simulated macOS miss on Windows obfuscated name: " + name);
+                }
+                return super.loadClass(name, resolve);
+            }
+        };
+        Class<?> bridge = Class.forName("divisionai.ObfuscatedBytecodeBridge", true, modLoader);
+        Object csInfo = bridge.getMethod("readClassInfo", ClassLoader.class, String.class)
+                .invoke(null, modLoader, "com.fs.starfarer.combat.CombatState");
+        Class<?> dddo = Class.forName("divisionai.DivisionDeploymentDialogOrganizer", true, modLoader);
+        boolean deployOk = (Boolean) dddo.getMethod("verifyObfuscatedHandles", ClassLoader.class).invoke(null, modLoader);
+        Class<?> dcai = Class.forName("divisionai.DivisionCommanderAI", true, modLoader);
+        boolean combatOk = (Boolean) dcai.getMethod("verifyCombatObfuscatedHandles", ClassLoader.class).invoke(null, modLoader);
+        check(csInfo != null && deployOk && combatOk,
+                "Sandboxed com.fs.starfarer.loading.scripts.B + simulated macOS obfuscated bytecode fallback succeeds",
+                String.format(Locale.ROOT, "readClassInfo=%b, deployHandles=%b, combatHandles=%b",
+                        csInfo != null, deployOk, combatOk));
+    }
+
+    /**
+     * Scenario 9: Pursuit Battles (INTERCEPTION vs REARGUARD_ACTION):
+     *  - Fleet-wide formations and wave-teleportation are disabled in pursuit battles so Left/Center/Right spawns stay in their zones.
+     *  - OTC in INTERCEPTION targets escaping enemy divisions (isUnableDivision / retreating) and tasks flank divisions to GIVE_GENERAL_CHASE / WORK_FLANK.
+     *  - Rearguard divisions in REARGUARD_ACTION keep their vanilla non-direct RETREAT assignment while maintaining Division Commander C2 and withdrawing North (+Y).
+     */
+    private static void testPursuitDeploymentAndRearguardC2() {
+        System.out.println("\n--- Scenario 9: Pursuit Battles (No Fleet-Wide Formation, L/C/R Zones & Rearguard C2) ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "aggressive");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        pGroup.missionContext = divisionai.DivisionModel.MissionContextType.INTERCEPTION;
+        pGroup.fleetWideFormation = divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST;
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+        eGroup.missionContext = divisionai.DivisionModel.MissionContextType.REARGUARD_ACTION;
+        eGroup.fleetWideFormation = divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST;
+
+        DivisionState pCenter = new DivisionState("p_c", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Center Line", pCmdr);
+        pCenter.pursuitSpawnZone = 0;
+        DivisionState pLeft = new DivisionState("p_l", 0, 2, DivisionArchetype.FRIGATE_DIVISION, "Left Flank", pCmdr);
+        pLeft.pursuitSpawnZone = -1;
+        DivisionState pRight = new DivisionState("p_r", 0, 3, DivisionArchetype.DESTROYER_DIVISION, "Right Flank", pCmdr);
+        pRight.pursuitSpawnZone = +1;
+        pGroup.divisions.add(pCenter);
+        pGroup.divisions.add(pLeft);
+        pGroup.divisions.add(pRight);
+
+        DivisionState eEscape = new DivisionState("e_esc", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Escaping Convoy", eCmdr);
+        eEscape.isUnableDivision = true;
+        eEscape.retreatingFraction = 1.0f;
+        eGroup.divisions.add(eEscape);
+
+        SimArena arena = new SimArena("9. Pursuit & Rearguard", "Interception L/C/R vs Rearguard Escape", pGroup, eGroup);
+        SimShipState pc1 = arena.addShip(pCenter, "pc1", "HSS Dominator", "dominator", HullSize.CRUISER, 0f, -2200f, 60f, 1100f, 0, 0);
+        SimShipState pl1 = arena.addShip(pLeft, "pl1", "HSS Lasher", "lasher", HullSize.FRIGATE, -2800f, 400f, 135f, 700f, 0, 0);
+        SimShipState pr1 = arena.addShip(pRight, "pr1", "HSS Hammerhead", "hammerhead", HullSize.DESTROYER, 2800f, 400f, 105f, 900f, 0, 0);
+        SimShipState ee1 = arena.addShip(eEscape, "ee1", "ISS Falcon", "falcon", HullSize.CRUISER, 0f, 600f, 85f, 1000f, 0, 0);
+
+        boolean pursuitDetected = divisionai.OtcAI.isPursuitBattle(arena.engineProxy, pGroup)
+                && !divisionai.OtcAI.isOrchestratedAdvanceActive(arena.engineProxy, pGroup, eGroup);
+        divisionai.OtcAI.applyInitialFleetFormationDeployment(arena.engineProxy, pGroup, eGroup, 0f);
+        boolean flankZonesPreserved = Math.abs(pl1.location.x - (-2800f)) < 1f
+                && Math.abs(pr1.location.x - 2800f) < 1f
+                && Math.abs(pc1.location.x - 0f) < 1f;
+
+        arena.runSimulation(2.0f);
+        boolean otcTargetedEscapingEnemy = (pGroup.primaryThreatEnemyDivision == eEscape);
+        boolean rearguardDirNorth = (divisionai.OtcAI.getBattleGroupRetreatDirY(eGroup) > 0.5f)
+                && (eEscape.currentIntent != null);
+
+        check(pursuitDetected && flankZonesPreserved && otcTargetedEscapingEnemy && rearguardDirNorth,
+                "Pursuit disables fleet-wide formation teleportation, preserves L/C/R flank spawns, targets escaping enemies, and keeps Rearguard C2 North (+Y)",
+                String.format(Locale.ROOT, "pursuit=%b, flanksPreserved=%b, primaryTarget=%s, rearguardNorthC2=%b",
+                        pursuitDetected, flankZonesPreserved,
+                        pGroup.primaryThreatEnemyDivision != null ? pGroup.primaryThreatEnemyDivision.displayName : "null",
+                        rearguardDirNorth));
     }
 
     private static float dist(Vector2f a, Vector2f b) {

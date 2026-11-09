@@ -1,6 +1,7 @@
 package divisionai;
 
-import java.io.DataInputStream;
+import com.fs.starfarer.api.Global;
+
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,9 +22,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code com.fs.starfarer.ui.newui.L}, {@code com.fs.starfarer.campaign.OOoO}, {@code sound.H} vs {@code sound.OooO},
  * and {@code sound.O} vs {@code sound.oo0O}) differ on macOS and Linux.
  *
- * This bridge reads the raw {@code .class} stream via {@link ClassLoader#getResourceAsStream(String)} using only
- * {@link DataInputStream} (zero {@code java.lang.reflect} constant-pool references) to discover the exact runtime
- * obfuscated class, method, and field names on any OS when the Windows obfuscated name is not present.
+ * IMPORTANT: Starsector's script sandbox classloader ({@code com.fs.starfarer.loading.scripts.B}) only allows a
+ * strict whitelist of {@code java.io.*} classes ({@link InputStream} is allowed; {@code DataInputStream} is NOT).
+ * This bridge reads raw {@code .class} bytes using only {@link InputStream} and parses the bytecode constant pool
+ * directly in memory with zero {@code java.lang.reflect} and zero non-whitelisted {@code java.io} references.
  */
 public final class ObfuscatedBytecodeBridge {
 
@@ -311,6 +313,166 @@ public final class ObfuscatedBytecodeBridge {
             throw firstEx;
         }
     }
+
+    /**
+     * Resolves the Warroom order-arrow manager class ({@code com.fs.starfarer.combat.new.O0OO} on Windows)
+     * by checking {@code mdClass}'s fields for a {@code com.fs.starfarer.combat.new.*} type that declares both
+     * a {@link Map} field and a {@link List} field.
+     */
+    public static Class<?> resolveWarroomArrowMgrClass(ClassLoader cl, Class<?> mdClass)
+            throws ClassNotFoundException {
+        try {
+            return Class.forName("com.fs.starfarer.combat.new.O0OO", false, cl);
+        } catch (ClassNotFoundException firstEx) {
+            if (mdClass != null) {
+                ClassBytecodeInfo mdInfo = readClassInfo(cl, mdClass.getName());
+                if (mdInfo != null) {
+                    for (int i = 0, n = mdInfo.fields.size(); i < n; i++) {
+                        MemberEntry f = mdInfo.fields.get(i);
+                        if (f.descriptor.startsWith("Lcom/fs/starfarer/combat/new/") && f.descriptor.endsWith(";")) {
+                            String candName = f.descriptor.substring(1, f.descriptor.length() - 1).replace('/', '.');
+                            ClassBytecodeInfo cand = readClassInfo(cl, candName);
+                            if (cand == null) continue;
+                            boolean hasMap = false;
+                            boolean hasList = false;
+                            for (int j = 0, fn = cand.fields.size(); j < fn; j++) {
+                                String fd = cand.fields.get(j).descriptor;
+                                if ("Ljava/util/Map;".equals(fd)) hasMap = true;
+                                else if ("Ljava/util/List;".equals(fd)) hasList = true;
+                            }
+                            if (hasMap && hasList) {
+                                return Class.forName(candName, false, cl);
+                            }
+                        }
+                    }
+                }
+            }
+            throw firstEx;
+        }
+    }
+
+    /**
+     * Resolves the Warroom order-arrow entry inner class ({@code com.fs.starfarer.combat.new.O0OO$o} on Windows)
+     * by scanning {@code arrowMgrClass}'s referenced classes for an inner class declaring a
+     * {@code com.fs.graphics.util.Fader} field.
+     */
+    public static Class<?> resolveWarroomArrowEntryClass(ClassLoader cl, Class<?> arrowMgrClass)
+            throws ClassNotFoundException {
+        try {
+            return Class.forName("com.fs.starfarer.combat.new.O0OO$o", false, cl);
+        } catch (ClassNotFoundException firstEx) {
+            if (arrowMgrClass != null) {
+                String prefix = arrowMgrClass.getName().replace('.', '/') + "$";
+                ClassBytecodeInfo info = readClassInfo(cl, arrowMgrClass.getName());
+                if (info != null) {
+                    for (int i = 0, n = info.referencedInternalClasses.size(); i < n; i++) {
+                        String ref = info.referencedInternalClasses.get(i);
+                        if (ref != null && ref.startsWith(prefix)) {
+                            String dotName = ref.replace('/', '.');
+                            ClassBytecodeInfo cand = readClassInfo(cl, dotName);
+                            if (cand == null) continue;
+                            for (int j = 0, fn = cand.fields.size(); j < fn; j++) {
+                                if ("Lcom/fs/graphics/util/Fader;".equals(cand.fields.get(j).descriptor)) {
+                                    return Class.forName(dotName, false, cl);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            throw firstEx;
+        }
+    }
+
+    /**
+     * Resolves the Warroom ship map icon class ({@code com.fs.starfarer.combat.new.A} on Windows)
+     * by scanning {@code mdClass}'s constant pool for a {@code com/fs/starfarer/combat/new/*} class
+     * that declares a field or method returning {@code bNewCls}.
+     */
+    public static Class<?> resolveWarroomShipIconClass(ClassLoader cl, Class<?> mdClass, Class<?> bNewCls)
+            throws ClassNotFoundException {
+        try {
+            return Class.forName("com.fs.starfarer.combat.new.A", false, cl);
+        } catch (ClassNotFoundException firstEx) {
+            if (mdClass != null && bNewCls != null) {
+                String bNewDesc = toDescriptor(bNewCls);
+                String bNewRet = "()" + bNewDesc;
+                ClassBytecodeInfo mdInfo = readClassInfo(cl, mdClass.getName());
+                if (mdInfo != null) {
+                    for (int i = 0, n = mdInfo.referencedInternalClasses.size(); i < n; i++) {
+                        String ref = mdInfo.referencedInternalClasses.get(i);
+                        if (ref != null && ref.startsWith("com/fs/starfarer/combat/new/") && ref.indexOf('$') < 0) {
+                            String dotName = ref.replace('/', '.');
+                            if (dotName.equals(mdClass.getName())) continue;
+                            ClassBytecodeInfo cand = readClassInfo(cl, dotName);
+                            if (cand == null) continue;
+                            for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
+                                if (bNewRet.equals(cand.methods.get(m).descriptor)) {
+                                    return Class.forName(dotName, false, cl);
+                                }
+                            }
+                            for (int f = 0, fn = cand.fields.size(); f < fn; f++) {
+                                if (bNewDesc.equals(cand.fields.get(f).descriptor)) {
+                                    return Class.forName(dotName, false, cl);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            throw firstEx;
+        }
+    }
+
+    /**
+     * Resolves the Warroom fighter/missile map icon class ({@code com.fs.starfarer.combat.new.o0Oo} on Windows)
+     * by scanning {@code mdClass}'s constant pool for a {@code com/fs/starfarer/combat/new/*} class (other than
+     * {@code shipIconCls}) that has constructor {@code (Lcom/fs/starfarer/combat/entities/Ship;)V} and a
+     * {@code com.fs.graphics.Sprite} field.
+     */
+    public static Class<?> resolveWarroomFighterIconClass(ClassLoader cl, Class<?> mdClass, Class<?> shipIconCls)
+            throws ClassNotFoundException {
+        try {
+            return Class.forName("com.fs.starfarer.combat.new.o0Oo", false, cl);
+        } catch (ClassNotFoundException firstEx) {
+            if (mdClass != null) {
+                String skipName = (shipIconCls != null) ? shipIconCls.getName() : null;
+                ClassBytecodeInfo mdInfo = readClassInfo(cl, mdClass.getName());
+                if (mdInfo != null) {
+                    for (int i = 0, n = mdInfo.referencedInternalClasses.size(); i < n; i++) {
+                        String ref = mdInfo.referencedInternalClasses.get(i);
+                        if (ref != null && ref.startsWith("com/fs/starfarer/combat/new/") && ref.indexOf('$') < 0) {
+                            String dotName = ref.replace('/', '.');
+                            if (dotName.equals(mdClass.getName()) || dotName.equals(skipName)) continue;
+                            ClassBytecodeInfo cand = readClassInfo(cl, dotName);
+                            if (cand == null) continue;
+                            boolean hasShipCtor = false;
+                            boolean hasSpriteField = false;
+                            for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
+                                MemberEntry me = cand.methods.get(m);
+                                if ("<init>".equals(me.name)
+                                        && "(Lcom/fs/starfarer/combat/entities/Ship;)V".equals(me.descriptor)) {
+                                    hasShipCtor = true;
+                                    break;
+                                }
+                            }
+                            for (int f = 0, fn = cand.fields.size(); f < fn; f++) {
+                                if ("Lcom/fs/graphics/Sprite;".equals(cand.fields.get(f).descriptor)) {
+                                    hasSpriteField = true;
+                                    break;
+                                }
+                            }
+                            if (hasShipCtor && hasSpriteField) {
+                                return Class.forName(dotName, false, cl);
+                            }
+                        }
+                    }
+                }
+            }
+            throw firstEx;
+        }
+    }
+
     public static Class<?> resolveMethodReturnClass(
             ClassLoader cl,
             String ownerClassName,
@@ -346,22 +508,45 @@ public final class ObfuscatedBytecodeBridge {
             Class<?> ownerClass,
             String preferredName,
             String exactDescriptor) {
+        return resolveMethodNameByDescriptor(cl, ownerClass, preferredName, exactDescriptor, 0);
+    }
+
+    /**
+     * Resolves a method name on {@code ownerClass} that has the exact bytecode descriptor {@code exactDescriptor}.
+     * Prefers {@code preferredName} if present in {@code ownerClass}'s method table; otherwise returns the
+     * {@code fallbackOccurrenceIndex}-th non-constructor method in {@code ownerClass} matching {@code exactDescriptor}.
+     */
+    public static String resolveMethodNameByDescriptor(
+            ClassLoader cl,
+            Class<?> ownerClass,
+            String preferredName,
+            String exactDescriptor,
+            int fallbackOccurrenceIndex) {
         if (cl == null || ownerClass == null || exactDescriptor == null) return preferredName;
         ClassBytecodeInfo info = readClassInfo(cl, ownerClass.getName());
         if (info == null) return preferredName;
-        String fallbackMatch = null;
+        String firstMatch = null;
+        String indexedMatch = null;
+        int matchIdx = 0;
         for (int i = 0, n = info.methods.size(); i < n; i++) {
             MemberEntry m = info.methods.get(i);
             if (exactDescriptor.equals(m.descriptor)) {
                 if (preferredName != null && preferredName.equals(m.name)) {
                     return preferredName;
                 }
-                if (fallbackMatch == null && !"<init>".equals(m.name) && !"<clinit>".equals(m.name)) {
-                    fallbackMatch = m.name;
+                if (!"<init>".equals(m.name) && !"<clinit>".equals(m.name)) {
+                    if (firstMatch == null) {
+                        firstMatch = m.name;
+                    }
+                    if (matchIdx == fallbackOccurrenceIndex) {
+                        indexedMatch = m.name;
+                    }
+                    matchIdx++;
                 }
             }
         }
-        return (fallbackMatch != null) ? fallbackMatch : preferredName;
+        if (indexedMatch != null) return indexedMatch;
+        return (firstMatch != null) ? firstMatch : preferredName;
     }
 
     /**
@@ -423,47 +608,160 @@ public final class ObfuscatedBytecodeBridge {
         return null;
     }
 
+    private static InputStream openClassResourceStream(ClassLoader cl, String resourcePath) {
+        InputStream in = null;
+        if (cl != null) {
+            try {
+                in = cl.getResourceAsStream(resourcePath);
+            } catch (Throwable ignored) {
+            }
+        }
+        if (in == null) {
+            try {
+                ClassLoader globalCl = Global.class.getClassLoader();
+                if (globalCl != null && globalCl != cl) {
+                    in = globalCl.getResourceAsStream(resourcePath);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (in == null) {
+            try {
+                in = ClassLoader.getSystemResourceAsStream(resourcePath);
+            } catch (Throwable ignored) {
+            }
+        }
+        return in;
+    }
+
+    private static byte[] readStreamBytes(InputStream in) throws java.io.IOException {
+        byte[] buf = new byte[16384];
+        int total = 0;
+        while (true) {
+            int r = in.read(buf, total, buf.length - total);
+            if (r < 0) break;
+            total += r;
+            if (total == buf.length) {
+                byte[] next = new byte[buf.length * 2];
+                System.arraycopy(buf, 0, next, 0, total);
+                buf = next;
+            }
+        }
+        byte[] exact = new byte[total];
+        System.arraycopy(buf, 0, exact, 0, total);
+        return exact;
+    }
+
+    private static int readU1(byte[] b, int pos) {
+        return b[pos] & 0xFF;
+    }
+
+    private static int readU2(byte[] b, int pos) {
+        return ((b[pos] & 0xFF) << 8) | (b[pos + 1] & 0xFF);
+    }
+
+    private static int readS4(byte[] b, int pos) {
+        return ((b[pos] & 0xFF) << 24)
+                | ((b[pos + 1] & 0xFF) << 16)
+                | ((b[pos + 2] & 0xFF) << 8)
+                | (b[pos + 3] & 0xFF);
+    }
+
+    private static String decodeModifiedUtf8(byte[] b, int offset, int utflen) {
+        char[] chars = new char[utflen];
+        int count = 0;
+        int chararrCount = 0;
+        while (count < utflen) {
+            int c = b[offset + count] & 0xFF;
+            if (c > 127) break;
+            count++;
+            chars[chararrCount++] = (char) c;
+        }
+        while (count < utflen) {
+            int c = b[offset + count] & 0xFF;
+            switch (c >> 4) {
+                case 0:
+                case 1:
+                case 2:
+                case 3:
+                case 4:
+                case 5:
+                case 6:
+                case 7:
+                    count++;
+                    chars[chararrCount++] = (char) c;
+                    break;
+                case 12:
+                case 13: {
+                    count += 2;
+                    int char2 = b[offset + count - 1];
+                    chars[chararrCount++] = (char) (((c & 0x1F) << 6) | (char2 & 0x3F));
+                    break;
+                }
+                case 14: {
+                    count += 3;
+                    int char2 = b[offset + count - 2];
+                    int char3 = b[offset + count - 1];
+                    chars[chararrCount++] = (char) (((c & 0x0F) << 12) | ((char2 & 0x3F) << 6) | (char3 & 0x3F));
+                    break;
+                }
+                default:
+                    count++;
+                    chars[chararrCount++] = (char) c;
+                    break;
+            }
+        }
+        return new String(chars, 0, chararrCount);
+    }
+
     public static ClassBytecodeInfo readClassInfo(ClassLoader cl, String className) {
-        if (cl == null || className == null || className.isEmpty()) return null;
+        if (className == null || className.isEmpty()) return null;
         ClassBytecodeInfo cached = CACHE.get(className);
         if (cached != null) return cached;
 
         String resourcePath = className.replace('.', '/') + ".class";
-        try (InputStream rawIn = cl.getResourceAsStream(resourcePath)) {
+        try (InputStream rawIn = openClassResourceStream(cl, resourcePath)) {
             if (rawIn == null) return null;
-            DataInputStream in = new DataInputStream(rawIn);
-            int magic = in.readInt();
+            byte[] b = readStreamBytes(rawIn);
+            if (b.length < 10) return null;
+            int magic = readS4(b, 0);
             if (magic != 0xCAFEBABE) return null;
-            in.readUnsignedShort(); // minor_version
-            in.readUnsignedShort(); // major_version
+            int pos = 8; // skip magic (4), minor (2), major (2)
 
-            int cpCount = in.readUnsignedShort();
+            int cpCount = readU2(b, pos);
+            pos += 2;
             String[] utf8Pool = new String[cpCount];
             int[] classNameIndexPool = new int[cpCount];
 
             for (int i = 1; i < cpCount; i++) {
-                int tag = in.readUnsignedByte();
+                int tag = readU1(b, pos);
+                pos += 1;
                 switch (tag) {
-                    case 1: // CONSTANT_Utf8
-                        utf8Pool[i] = in.readUTF();
+                    case 1: { // CONSTANT_Utf8
+                        int utfLen = readU2(b, pos);
+                        pos += 2;
+                        utf8Pool[i] = decodeModifiedUtf8(b, pos, utfLen);
+                        pos += utfLen;
                         break;
+                    }
                     case 3: // CONSTANT_Integer
                     case 4: // CONSTANT_Float
-                        in.readInt();
+                        pos += 4;
                         break;
                     case 5: // CONSTANT_Long
                     case 6: // CONSTANT_Double
-                        in.readLong();
+                        pos += 8;
                         i++; // 8-byte constants take two constant pool slots
                         break;
                     case 7: // CONSTANT_Class
-                        classNameIndexPool[i] = in.readUnsignedShort();
+                        classNameIndexPool[i] = readU2(b, pos);
+                        pos += 2;
                         break;
                     case 8: // CONSTANT_String
                     case 16: // CONSTANT_MethodType
                     case 19: // CONSTANT_Module
                     case 20: // CONSTANT_Package
-                        in.readUnsignedShort();
+                        pos += 2;
                         break;
                     case 9: // CONSTANT_Fieldref
                     case 10: // CONSTANT_Methodref
@@ -471,21 +769,20 @@ public final class ObfuscatedBytecodeBridge {
                     case 12: // CONSTANT_NameAndType
                     case 17: // CONSTANT_Dynamic
                     case 18: // CONSTANT_InvokeDynamic
-                        in.readUnsignedShort();
-                        in.readUnsignedShort();
+                        pos += 4;
                         break;
                     case 15: // CONSTANT_MethodHandle
-                        in.readUnsignedByte();
-                        in.readUnsignedShort();
+                        pos += 3;
                         break;
                     default:
                         return null;
                 }
             }
 
-            in.readUnsignedShort(); // access_flags
-            int thisClassIdx = in.readUnsignedShort();
-            int superClassIdx = in.readUnsignedShort();
+            pos += 2; // access_flags
+            int thisClassIdx = readU2(b, pos);
+            int superClassIdx = readU2(b, pos + 2);
+            pos += 4;
 
             String thisInternal = (thisClassIdx > 0 && thisClassIdx < cpCount)
                     ? utf8Pool[classNameIndexPool[thisClassIdx]]
@@ -494,39 +791,39 @@ public final class ObfuscatedBytecodeBridge {
                     ? utf8Pool[classNameIndexPool[superClassIdx]]
                     : null;
 
-            int interfacesCount = in.readUnsignedShort();
-            for (int i = 0; i < interfacesCount; i++) {
-                in.readUnsignedShort();
-            }
+            int interfacesCount = readU2(b, pos);
+            pos += 2 + interfacesCount * 2;
 
-            int fieldsCount = in.readUnsignedShort();
+            int fieldsCount = readU2(b, pos);
+            pos += 2;
             List<MemberEntry> fields = new ArrayList<>(fieldsCount);
             for (int i = 0; i < fieldsCount; i++) {
-                int fAccess = in.readUnsignedShort();
-                int fNameIdx = in.readUnsignedShort();
-                int fDescIdx = in.readUnsignedShort();
-                int attrCount = in.readUnsignedShort();
+                int fAccess = readU2(b, pos);
+                int fNameIdx = readU2(b, pos + 2);
+                int fDescIdx = readU2(b, pos + 4);
+                int attrCount = readU2(b, pos + 6);
+                pos += 8;
                 for (int a = 0; a < attrCount; a++) {
-                    in.readUnsignedShort();
-                    int len = in.readInt();
-                    skipFully(in, len);
+                    int len = readS4(b, pos + 2);
+                    pos += 6 + len;
                 }
                 String fName = (fNameIdx > 0 && fNameIdx < cpCount) ? utf8Pool[fNameIdx] : "";
                 String fDesc = (fDescIdx > 0 && fDescIdx < cpCount) ? utf8Pool[fDescIdx] : "";
                 fields.add(new MemberEntry(fAccess, fName, fDesc));
             }
 
-            int methodsCount = in.readUnsignedShort();
+            int methodsCount = readU2(b, pos);
+            pos += 2;
             List<MemberEntry> methods = new ArrayList<>(methodsCount);
             for (int i = 0; i < methodsCount; i++) {
-                int mAccess = in.readUnsignedShort();
-                int mNameIdx = in.readUnsignedShort();
-                int mDescIdx = in.readUnsignedShort();
-                int attrCount = in.readUnsignedShort();
+                int mAccess = readU2(b, pos);
+                int mNameIdx = readU2(b, pos + 2);
+                int mDescIdx = readU2(b, pos + 4);
+                int attrCount = readU2(b, pos + 6);
+                pos += 8;
                 for (int a = 0; a < attrCount; a++) {
-                    in.readUnsignedShort();
-                    int len = in.readInt();
-                    skipFully(in, len);
+                    int len = readS4(b, pos + 2);
+                    pos += 6 + len;
                 }
                 String mName = (mNameIdx > 0 && mNameIdx < cpCount) ? utf8Pool[mNameIdx] : "";
                 String mDesc = (mDescIdx > 0 && mDescIdx < cpCount) ? utf8Pool[mDescIdx] : "";
@@ -547,19 +844,6 @@ public final class ObfuscatedBytecodeBridge {
             return info;
         } catch (Throwable ignored) {
             return null;
-        }
-    }
-
-    private static void skipFully(DataInputStream in, int bytes) throws java.io.IOException {
-        int remaining = bytes;
-        while (remaining > 0) {
-            int skipped = in.skipBytes(remaining);
-            if (skipped <= 0) {
-                in.readByte();
-                remaining--;
-            } else {
-                remaining -= skipped;
-            }
         }
     }
 }

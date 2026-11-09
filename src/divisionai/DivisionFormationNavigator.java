@@ -1144,6 +1144,15 @@ public class DivisionFormationNavigator {
             outStation.set(
                     visEnemyPos.x + (dx / len) * standoff,
                     visEnemyPos.y + (dy / len) * standoff);
+            if (!div.archetype.isCarrierArchetype()
+                    && !outmatchedOrFragile
+                    && (enemyDiv.isUnableDivision || enemyDiv.retreatingFraction >= 0.35f)) {
+                // Press into gun range against an escaping enemy division rather than trailing behind its wake
+                outStation.y += 260f;
+                if (div.pursuitSpawnZone != 0) {
+                    outStation.x -= div.pursuitSpawnZone * 160f;
+                }
+            }
         } else {
             float backY = (div.side == 0) ? -standoff : standoff;
             outStation.set(visEnemyPos.x, visEnemyPos.y + backY);
@@ -1253,9 +1262,16 @@ public class DivisionFormationNavigator {
         // Pincer: an OTC-assigned flank side is measured on the battlegroup's attack axis (fleet centre -> target),
         // so two flankers on opposite sides really do envelop the target from left and right.
         float assignedSide = DivisionCommanderAI.assignedFlankSide(flankerDiv, enemyDiv, myGroup);
-        if (assignedSide != 0f) {
+        if (flankerDiv.pursuitSpawnZone != 0) {
+            assignedSide = flankerDiv.pursuitSpawnZone;
+        }
+        if (assignedSide != 0f && myGroup != null) {
             float ax = visEnemyPos.x - myGroup.fleetCentroid.x;
             float ay = visEnemyPos.y - myGroup.fleetCentroid.y;
+            if (OtcAI.isPursuitBattle(engine, myGroup)) {
+                ax = 0f;
+                ay = 1f;
+            }
             float aLen = (float) Math.sqrt(ax * ax + ay * ay);
             if (aLen > 1f) {
                 float fwdX = ax / aLen;

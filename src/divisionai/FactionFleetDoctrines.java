@@ -1963,6 +1963,25 @@ public final class FactionFleetDoctrines {
         List<ShipCapabilityProfile> leftover = new ArrayList<>();
         Map<String, List<ShipCapabilityProfile>> groupedBySpecId = new LinkedHashMap<>();
         Map<String, PermanentDivisionSpec> specById = new HashMap<>();
+        Map<String, Integer> zoneByGroupKey = new HashMap<>();
+
+        com.fs.starfarer.api.combat.CombatEngineAPI engine = Global.getCombatEngine();
+        boolean pursuitBattle = OtcAI.isPursuitBattle(engine, battleGroup);
+        Map<String, Set<Integer>> zonesPerSpecId = new HashMap<>();
+        if (pursuitBattle) {
+            for (ShipCapabilityProfile prof : unassignedNpcHulls) {
+                String fmId = (prof.ship.getFleetMember() != null) ? prof.ship.getFleetMember().getId() : null;
+                PermanentDivisionSpec spec = (fmId != null) ? memberToSpec.get(fmId) : null;
+                if (spec == null) continue;
+                int z = OtcAI.resolveShipPursuitSpawnZone(engine, prof.ship);
+                Set<Integer> zSet = zonesPerSpecId.get(spec.id);
+                if (zSet == null) {
+                    zSet = new HashSet<>();
+                    zonesPerSpecId.put(spec.id, zSet);
+                }
+                zSet.add(z);
+            }
+        }
 
         for (ShipCapabilityProfile prof : unassignedNpcHulls) {
             String fmId = (prof.ship.getFleetMember() != null) ? prof.ship.getFleetMember().getId() : null;
@@ -1972,9 +1991,16 @@ public final class FactionFleetDoctrines {
                 continue;
             }
 
+            int shipZone = pursuitBattle ? OtcAI.resolveShipPursuitSpawnZone(engine, prof.ship) : 0;
+            Set<Integer> specZones = zonesPerSpecId.get(spec.id);
+            boolean splitAcrossZones = pursuitBattle && specZones != null && specZones.size() > 1;
+            String groupKey = (splitAcrossZones && shipZone != 0)
+                    ? (spec.id + (shipZone < 0 ? "#L" : "#R"))
+                    : spec.id;
+
             DivisionState existingCombatDiv = null;
             for (DivisionState d : battleGroup.divisions) {
-                if (spec.id.equals(d.id)) {
+                if (groupKey.equals(d.id) && (!pursuitBattle || d.pursuitSpawnZone == shipZone)) {
                     existingCombatDiv = d;
                     break;
                 }
@@ -1992,11 +2018,12 @@ public final class FactionFleetDoctrines {
                 applyFactionDoctrineToCombatDivision(existingCombatDiv, spec, getDoctrineForFleet(sourceFleet));
                 DivisionCombatLog.logReinforcementJoined(existingCombatDiv, prof.ship);
             } else {
-                specById.put(spec.id, spec);
-                List<ShipCapabilityProfile> list = groupedBySpecId.get(spec.id);
+                specById.put(groupKey, spec);
+                zoneByGroupKey.put(groupKey, shipZone);
+                List<ShipCapabilityProfile> list = groupedBySpecId.get(groupKey);
                 if (list == null) {
                     list = new ArrayList<>();
-                    groupedBySpecId.put(spec.id, list);
+                    groupedBySpecId.put(groupKey, list);
                 }
                 list.add(prof);
             }
@@ -2004,14 +2031,37 @@ public final class FactionFleetDoctrines {
 
         int fallbackNumber = battleGroup.divisions.size() + 1;
         for (Map.Entry<String, List<ShipCapabilityProfile>> entry : groupedBySpecId.entrySet()) {
-            PermanentDivisionSpec spec = specById.get(entry.getKey());
+            String groupKey = entry.getKey();
+            PermanentDivisionSpec spec = specById.get(groupKey);
             List<ShipCapabilityProfile> members = entry.getValue();
             if (spec == null || members.isEmpty()) continue;
 
+            int zone = zoneByGroupKey.containsKey(groupKey) ? zoneByGroupKey.get(groupKey) : 0;
+            PermanentDivisionSpec effectiveSpec = spec;
+            if (!groupKey.equals(spec.id)) {
+                String suffix = (zone < 0) ? " (Left Flank)" : " (Right Flank)";
+                effectiveSpec = new PermanentDivisionSpec(groupKey, spec.name + suffix, spec.archetype);
+                effectiveSpec.flagshipMemberId = spec.flagshipMemberId;
+                effectiveSpec.memberIds.addAll(spec.memberIds);
+                effectiveSpec.doctrine = spec.doctrine;
+                effectiveSpec.customStationSpacing = spec.customStationSpacing;
+                effectiveSpec.customDivisionInterval = spec.customDivisionInterval;
+                effectiveSpec.customStandoffRange = spec.customStandoffRange;
+                effectiveSpec.customOpeningMission = spec.customOpeningMission;
+                effectiveSpec.customMainMission = spec.customMainMission;
+                effectiveSpec.customLineStation = spec.customLineStation;
+                effectiveSpec.customFormation = spec.customFormation;
+            }
+
             DivisionState combatDiv = PermanentDivisionManager.instantiateCombatDivisionFromSpec(
-                    battleGroup, spec, members, fallbackNumber++);
+                    battleGroup, effectiveSpec, members, fallbackNumber++);
+            combatDiv.pursuitSpawnZone = zone;
+            combatDiv.fleetFormationWingSide = zone;
+            if (zone != 0) {
+                combatDiv.consentedWingSide = zone;
+            }
             CampaignFleetAPI sourceFleet = specIdToFleet.get(spec.id);
-            applyFactionDoctrineToCombatDivision(combatDiv, spec, getDoctrineForFleet(sourceFleet));
+            applyFactionDoctrineToCombatDivision(combatDiv, effectiveSpec, getDoctrineForFleet(sourceFleet));
             battleGroup.divisions.add(combatDiv);
             newlyCreatedOut.add(combatDiv);
         }
