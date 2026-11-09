@@ -77,7 +77,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final List<Vector2f> polyScreen;        // CCW smooth convex polygon in screen pixels (for clipping)
         final List<Vector2f> displayPolyScreen; // Star-convex metaball/water-drop contour in screen pixels (for rendering)
         final List<int[]> triangles;            // Precomputed ear-clipping vertex index triples (invariant under pan/zoom)
-        final Vector2f centerScreen;            // Droplet entity center in screen pixels
+        public final Vector2f centerScreen;            // Droplet entity center in screen pixels
         float labelX;                           // De-conflicted label X in screen pixels
         float labelY;                           // De-conflicted label Y in screen pixels
         float lastWorldCenterX;
@@ -219,6 +219,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
     private static class CachedDivisionGeometry {
         int signature;
+        int positionSignature;
         float builtAtSimTime;
         float lastTranslatedSimTime;
         float scale;
@@ -341,6 +342,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     public void invalidateGeometryCache() {
+        clearCachedPolygonsOnMapHidden();
+        this.regularCommandSpritesSuppressed = false;
+    }
+
+    private void clearCachedPolygonsOnMapHidden() {
         this.cachedPolyNow = -1000f;
         this.cachedPolyPaused = false;
         this.cachedPolySignature = 0;
@@ -348,7 +354,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         this.lastStripeRebuildSimTime = -1000f;
         this.perDivisionGeometryCache.clear();
         this.perDivisionStrikeCraftCache.clear();
-        this.regularCommandSpritesSuppressed = false;
+        this.cachedRenderedPolys.clear();
+        this.cachedStrikeCraftPolys.clear();
+        this.cachedOverlapStripeBands.clear();
     }
 
     private boolean attachedToWarroom = false;
@@ -830,15 +838,13 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
         CombatUIAPI ui = engine.getCombatUI();
         if (ui == null || !ui.isShowingCommandUI()) {
-            cachedPolyPaused = false;
-            cachedPolyNow = -1000f;
+            clearCachedPolygonsOnMapHidden();
             return;
         }
 
         float cmdOpacity = ui.getCommandUIOpacity();
         if (cmdOpacity <= 0.05f || alphaMult <= 0.05f) {
-            cachedPolyPaused = false;
-            cachedPolyNow = -1000f;
+            clearCachedPolygonsOnMapHidden();
             return;
         }
 
@@ -846,8 +852,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         // Video Feed ("F" key) inside the Command UI; instead, battle-screen TSFC renders underneath the live ships
         // on CombatEngineLayers.BELOW_SHIPS_LAYER, and we keep only the right-side TSFC toggle buttons accessible.
         if (isShowingVideoFeed()) {
-            cachedPolyPaused = false;
-            cachedPolyNow = -1000f;
+            clearCachedPolygonsOnMapHidden();
             TsfcWarroomRenderer.renderToggleButtonAndLegendUI(engine, Math.min(1f, cmdOpacity * alphaMult));
             return;
         }
@@ -905,7 +910,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         boolean sameContext = sameEngineAndGroups
                 && cachedPolySignature == geomSignature
                 && (!cachedRenderedPolys.isEmpty() || !cachedStrikeCraftPolys.isEmpty());
-        boolean reuseAllCached = sameContext && paused && Math.abs(now - cachedPolyNow) < 1e-4f;
+        boolean reuseAllCached = sameContext && paused && cachedPolyPaused && Math.abs(now - cachedPolyNow) < 1e-4f;
 
         List<RenderedDivisionPolygon> renderedPolys = cachedRenderedPolys;
         List<RenderedDivisionPolygon> strikeCraftPolys = cachedStrikeCraftPolys;
@@ -946,19 +951,19 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
                         playerGroup, false, null, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
                 collectStrikeCraftDivisionPolygonsCached(
-                        playerGroup, false, null, now, paused || divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
+                        playerGroup, false, null, now, paused, divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
             }
             if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
                         alliedAiGroup, false, null, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
                 collectStrikeCraftDivisionPolygonsCached(
-                        alliedAiGroup, false, null, now, paused || divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
+                        alliedAiGroup, false, null, now, paused, divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
             }
             if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
                         enemyGroup, true, playerFog, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
                 collectStrikeCraftDivisionPolygonsCached(
-                        enemyGroup, true, playerFog, now, paused || divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
+                        enemyGroup, true, playerFog, now, paused, divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
             }
 
             // Never stack overlap-stripe Sutherland-Hodgman clipping onto the same unpaused frame that just rebuilt a division SDF
@@ -1216,6 +1221,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             if (s == null || !s.isAlive() || s.isHulk() || s.isFighter()) continue;
             if (isEnemy && !isEnemyShipVisibleOnCommandMap(this.engine, s, playerFog)) continue;
             h = 31 * h + (s.getId() != null ? s.getId().hashCode() : j);
+            if (includeQuantizedPositions && s.getLocation() != null) {
+                h = 31 * h + Math.round(s.getLocation().x);
+                h = 31 * h + Math.round(s.getLocation().y);
+            }
         }
         return h;
     }
@@ -1239,15 +1248,24 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             if (div == null) continue;
             String cacheKey = (isEnemy ? "E:" : (battleGroup.isAlliedAi ? "A:" : "P:"))
                     + (div.id != null ? div.id : ("idx_" + divIdx));
-            int divSig = computeSingleDivisionGeometrySignature(div, isEnemy, playerFog, paused);
+            int divSig = computeSingleDivisionGeometrySignature(div, isEnemy, playerFog, false);
+            int divPosSig = computeSingleDivisionGeometrySignature(div, isEnemy, playerFog, true);
             CachedDivisionGeometry entry = perDivisionGeometryCache.get(cacheKey);
             float staggerWindow = 0.45f + (Math.abs(cacheKey.hashCode()) % 17) * 0.03f;
 
             boolean sigMatches = (entry != null && entry.signature == divSig);
-            boolean withinTimeWindow = (entry != null && (paused || Math.abs(now - entry.builtAtSimTime) < staggerWindow));
-            boolean reuseEntry = (entry != null)
-                    && ((sigMatches && withinTimeWindow)
-                    || (sigMatches && !paused && rebuildBudget != null && rebuildBudget[0] <= 0 && !entry.droplets.isEmpty()));
+            float simAge = (entry != null) ? Math.abs(now - entry.builtAtSimTime) : Float.MAX_VALUE;
+            boolean withinTimeWindow = (entry != null) && (paused
+                    ? (entry.positionSignature == divPosSig && simAge < staggerWindow)
+                    : (simAge < staggerWindow));
+            boolean allowBudgetDeferral = !paused
+                    && sigMatches
+                    && simAge < staggerWindow * 2.5f
+                    && rebuildBudget != null
+                    && rebuildBudget[0] <= 0
+                    && entry != null
+                    && !entry.droplets.isEmpty();
+            boolean reuseEntry = (entry != null) && ((sigMatches && withinTimeWindow) || allowBudgetDeferral);
 
             if (reuseEntry) {
                 if (!entry.droplets.isEmpty()) {
@@ -1261,7 +1279,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         entry.offsetX = offsetX;
                         entry.offsetY = offsetY;
                     }
-                    if (!paused && Math.abs(now - entry.lastTranslatedSimTime) > 1e-4f) {
+                    if (Math.abs(now - entry.lastTranslatedSimTime) > 1e-4f) {
                         translateCachedPolygonsByLiveShipMotion(entry.droplets, scale);
                         entry.lastTranslatedSimTime = now;
                     }
@@ -1278,6 +1296,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
             buildSingleDivisionDroplets(battleGroup, div, isEnemy, playerFog, scale, offsetX, offsetY, entry.droplets);
             entry.signature = divSig;
+            entry.positionSignature = divPosSig;
             entry.builtAtSimTime = now;
             entry.lastTranslatedSimTime = now;
             entry.scale = scale;
@@ -1437,6 +1456,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             FogOfWarAPI playerFog,
             float now,
             boolean paused,
+            boolean deferLiveRebuild,
             float scale,
             float offsetX,
             float offsetY,
@@ -1444,10 +1464,21 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         if (battleGroup == null || battleGroup.divisions.isEmpty()) return;
         String groupKey = isEnemy ? "SC_E" : (battleGroup.isAlliedAi ? "SC_A" : "SC_P");
         CachedDivisionGeometry entry = perDivisionStrikeCraftCache.get(groupKey);
-        int groupSig = computeSingleGroupGeometrySignature(battleGroup, isEnemy, playerFog, paused);
+        int groupSig = computeSingleGroupGeometrySignature(battleGroup, isEnemy, playerFog, false);
+        int groupPosSig = computeSingleGroupGeometrySignature(battleGroup, isEnemy, playerFog, true);
+        float simAge = (entry != null) ? Math.abs(now - entry.builtAtSimTime) : Float.MAX_VALUE;
+        boolean withinTimeWindow = (entry != null) && (paused
+                ? (entry.positionSignature == groupPosSig && simAge < 0.45f)
+                : (simAge < 0.45f));
+        boolean allowDeferral = !paused
+                && entry != null
+                && entry.signature == groupSig
+                && simAge < 1.25f
+                && deferLiveRebuild
+                && !entry.droplets.isEmpty();
         if (entry != null
                 && entry.signature == groupSig
-                && (paused || Math.abs(now - entry.builtAtSimTime) < 0.45f)) {
+                && (withinTimeWindow || allowDeferral)) {
             if (!entry.droplets.isEmpty()) {
                 if (Float.compare(entry.scale, scale) != 0
                         || Float.compare(entry.offsetX, offsetX) != 0
@@ -1459,7 +1490,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     entry.offsetX = offsetX;
                     entry.offsetY = offsetY;
                 }
-                if (!paused && Math.abs(now - entry.lastTranslatedSimTime) > 1e-4f) {
+                if (Math.abs(now - entry.lastTranslatedSimTime) > 1e-4f) {
                     translateCachedPolygonsByLiveShipMotion(entry.droplets, scale);
                     entry.lastTranslatedSimTime = now;
                 }
@@ -1475,6 +1506,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
         collectStrikeCraftDivisionPolygons(battleGroup, isEnemy, playerFog, scale, offsetX, offsetY, entry.droplets);
         entry.signature = groupSig;
+        entry.positionSignature = groupPosSig;
         entry.builtAtSimTime = now;
         entry.lastTranslatedSimTime = now;
         entry.scale = scale;
@@ -1652,6 +1684,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 if (s == null || !s.isAlive() || s.isHulk() || s.isFighter()) continue;
                 if (isEnemy && !isEnemyShipVisibleOnCommandMap(this.engine, s, playerFog)) continue;
                 h = 31 * h + (s.getId() != null ? s.getId().hashCode() : j);
+                if (includeQuantizedPositions && s.getLocation() != null) {
+                    h = 31 * h + Math.round(s.getLocation().x);
+                    h = 31 * h + Math.round(s.getLocation().y);
+                }
             }
         }
         return h;

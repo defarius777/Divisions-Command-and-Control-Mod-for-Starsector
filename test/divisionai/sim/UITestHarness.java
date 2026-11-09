@@ -1531,6 +1531,35 @@ public class UITestHarness {
         pausedRebuilt += stressOv.collectDivisionPolygonsCached(
                 eGroup, true, mockFog, simClock[0], true, 0.092f, 980f, 520f, pausedBudget, outPolys);
 
+        // Test B2: Captaincy Paused-Tab Regression — divisions cached at spawn (t=0s, paused=true) must NOT stay stuck
+        // at spawn when the player flies their ship in battle (ships move +2400 su, t=60s) and presses Tab (paused=true)
+        float spawnCenterScreenY = outPolys.isEmpty() ? 0f : outPolys.get(0).centerScreen.y;
+        for (ShipAPI s : allShips) {
+            s.getLocation().y += 2400f;
+        }
+        simClock[0] += 60.0f;
+        realClock[0] += 60.0f;
+        outPolys.clear();
+        int[] captainTabOpenBudget = new int[] { 256 };
+        int captainTabOpenRebuilt = stressOv.collectDivisionPolygonsCached(
+                pGroup, false, null, simClock[0], true, 0.092f, 980f, 520f, captainTabOpenBudget, outPolys);
+        captainTabOpenRebuilt += stressOv.collectDivisionPolygonsCached(
+                eGroup, true, mockFog, simClock[0], true, 0.092f, 980f, 520f, captainTabOpenBudget, outPolys);
+        float movedCenterScreenY = outPolys.isEmpty() ? 0f : outPolys.get(0).centerScreen.y;
+        boolean captaincyPolysFollowedShips = (captainTabOpenRebuilt == 39)
+                && (Math.abs((movedCenterScreenY - spawnCenterScreenY) - (2400f * 0.092f)) < 8.0f);
+        // Second paused frame at the new location must reuse all 39 rebuilt polygons with 0 rebuilds
+        outPolys.clear();
+        int[] captainTabSecondFrameBudget = new int[] { 256 };
+        int captainTabSecondFrameRebuilt = stressOv.collectDivisionPolygonsCached(
+                pGroup, false, null, simClock[0], true, 0.092f, 980f, 520f, captainTabSecondFrameBudget, outPolys);
+        captainTabSecondFrameRebuilt += stressOv.collectDivisionPolygonsCached(
+                eGroup, true, mockFog, simClock[0], true, 0.092f, 980f, 520f, captainTabSecondFrameBudget, outPolys);
+        captaincyPolysFollowedShips = captaincyPolysFollowedShips && (captainTabSecondFrameRebuilt == 0);
+        for (ShipAPI s : allShips) {
+            s.getLocation().y -= 2400f;
+        }
+
         // Test C: 300 continuous unpaused Warroom frames (5.0s at 60 FPS) with 39 divisions & 134 moving ships + camera pan/zoom
         long[] frameTimesNs = new long[300];
         long totalStressNs = 0L;
@@ -1600,6 +1629,7 @@ public class UITestHarness {
                 && (flickerRebuilt == 1)
                 && stickyPreservedWhilePaused
                 && (pausedRebuilt == 0)
+                && captaincyPolysFollowedShips
                 && (avgStressMs < 2.0f)
                 && (p95StressMs < 5.0f)
                 && (copiesDuringFighterChurn == 0)
