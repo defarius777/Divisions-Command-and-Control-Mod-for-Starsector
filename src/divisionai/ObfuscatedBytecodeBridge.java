@@ -68,40 +68,40 @@ public final class ObfuscatedBytecodeBridge {
     }
 
     /**
-     * Tries {@code Class.forName(preferredClassName, false, cl)} first (zero-overhead fast path on Windows);
-     * if not found (e.g. on macOS/Linux), inspects {@code ownerClassName}'s bytecode for an unobfuscated method
-     * {@code methodName} and loads its return type class.
+     * Inspects {@code ownerClassName}'s bytecode (walking superclasses if needed) for an unobfuscated method
+     * {@code methodName} and loads its return type class; falls back to {@code Class.forName(preferredClassName, false, cl)}
+     * only if bytecode inspection cannot resolve it.
+     *
+     * <p>CRITICAL: Never try {@code Class.forName(preferredClassName)} first! Zelix KlassMaster reuses short obfuscated
+     * class names (like {@code com.fs.starfarer.ui.B.new}, {@code com.fs.starfarer.coreui.v}, {@code sound.O}) for
+     * completely different classes on macOS and Linux.
      */
     public static Class<?> resolveClassOrMethodReturn(
             ClassLoader cl,
             String preferredClassName,
             String ownerClassName,
             String methodName) throws ClassNotFoundException {
-        try {
-            return Class.forName(preferredClassName, false, cl);
-        } catch (ClassNotFoundException firstEx) {
-            Class<?> resolved = resolveMethodReturnClass(cl, ownerClassName, methodName, null);
-            if (resolved != null) {
-                return resolved;
-            }
-            throw firstEx;
+        Class<?> resolved = resolveMethodReturnClass(cl, ownerClassName, methodName, null);
+        if (resolved != null) {
+            return resolved;
         }
+        return Class.forName(preferredClassName, false, cl);
     }
 
     /**
-     * Tries {@code Class.forName(preferredClassName, false, cl)} first; if not found, inspects
-     * {@code ownerClassName}'s field table for an unobfuscated field {@code fieldName} and loads its type class.
+     * Inspects {@code ownerClassName}'s field table (walking superclasses if needed) for an unobfuscated field
+     * {@code fieldName} and loads its type class; falls back to {@code Class.forName(preferredClassName, false, cl)}.
      */
     public static Class<?> resolveClassOrFieldType(
             ClassLoader cl,
             String preferredClassName,
             String ownerClassName,
             String fieldName) throws ClassNotFoundException {
-        try {
-            return Class.forName(preferredClassName, false, cl);
-        } catch (ClassNotFoundException firstEx) {
-            ClassBytecodeInfo info = readClassInfo(cl, ownerClassName);
-            if (info != null && fieldName != null) {
+        String curClass = ownerClassName;
+        for (int depth = 0; depth < 6 && curClass != null && !curClass.startsWith("java."); depth++) {
+            ClassBytecodeInfo info = readClassInfo(cl, curClass);
+            if (info == null) break;
+            if (fieldName != null) {
                 for (int i = 0, n = info.fields.size(); i < n; i++) {
                     MemberEntry f = info.fields.get(i);
                     if (fieldName.equals(f.name) && f.descriptor.startsWith("L") && f.descriptor.endsWith(";")) {
@@ -110,26 +110,27 @@ public final class ObfuscatedBytecodeBridge {
                     }
                 }
             }
-            throw firstEx;
+            curClass = (info.superInternalName != null) ? info.superInternalName.replace('/', '.') : null;
         }
+        return Class.forName(preferredClassName, false, cl);
     }
 
     /**
-     * Tries {@code Class.forName(preferredClassName, false, cl)} first; if not found, inspects
-     * {@code ownerClassName}'s field table for a field whose object type starts with {@code packagePrefix}
-     * (e.g. {@code "com.fs.starfarer.campaign.ui."} or {@code "com.fs.starfarer.renderers."}).
+     * Inspects {@code ownerClassName}'s field table (walking superclasses if needed) for a field whose object type
+     * starts with {@code packagePrefix} (e.g. {@code "com.fs.starfarer.campaign.ui."} or
+     * {@code "com.fs.starfarer.renderers."}); falls back to {@code Class.forName(preferredClassName, false, cl)}.
      */
     public static Class<?> resolveClassOrFieldByPackage(
             ClassLoader cl,
             String preferredClassName,
             String ownerClassName,
             String packagePrefix) throws ClassNotFoundException {
-        try {
-            return Class.forName(preferredClassName, false, cl);
-        } catch (ClassNotFoundException firstEx) {
-            ClassBytecodeInfo info = readClassInfo(cl, ownerClassName);
-            if (info != null && packagePrefix != null) {
-                String internalPrefix = "L" + packagePrefix.replace('.', '/');
+        if (packagePrefix != null) {
+            String internalPrefix = "L" + packagePrefix.replace('.', '/');
+            String curClass = ownerClassName;
+            for (int depth = 0; depth < 6 && curClass != null && !curClass.startsWith("java."); depth++) {
+                ClassBytecodeInfo info = readClassInfo(cl, curClass);
+                if (info == null) break;
                 for (int i = 0, n = info.fields.size(); i < n; i++) {
                     MemberEntry f = info.fields.get(i);
                     if (f.descriptor.startsWith(internalPrefix) && f.descriptor.endsWith(";")) {
@@ -137,14 +138,15 @@ public final class ObfuscatedBytecodeBridge {
                         return Class.forName(clsName, false, cl);
                     }
                 }
+                curClass = (info.superInternalName != null) ? info.superInternalName.replace('/', '.') : null;
             }
-            throw firstEx;
         }
+        return Class.forName(preferredClassName, false, cl);
     }
 
     /**
-     * Tries {@code Class.forName(preferredClassName, false, cl)} first; if not found, inspects
-     * {@code ownerClassName}'s method {@code methodName} and loads its {@code paramIndex}-th parameter object class.
+     * Inspects {@code ownerClassName}'s method {@code methodName} (walking superclasses if needed) and loads its
+     * {@code paramIndex}-th parameter object class; falls back to {@code Class.forName(preferredClassName, false, cl)}.
      */
     public static Class<?> resolveClassOrMethodParam(
             ClassLoader cl,
@@ -152,11 +154,11 @@ public final class ObfuscatedBytecodeBridge {
             String ownerClassName,
             String methodName,
             int paramIndex) throws ClassNotFoundException {
-        try {
-            return Class.forName(preferredClassName, false, cl);
-        } catch (ClassNotFoundException firstEx) {
-            ClassBytecodeInfo info = readClassInfo(cl, ownerClassName);
-            if (info != null && methodName != null) {
+        if (methodName != null) {
+            String curClass = ownerClassName;
+            for (int depth = 0; depth < 6 && curClass != null && !curClass.startsWith("java."); depth++) {
+                ClassBytecodeInfo info = readClassInfo(cl, curClass);
+                if (info == null) break;
                 for (int i = 0, n = info.methods.size(); i < n; i++) {
                     MemberEntry m = info.methods.get(i);
                     if (!methodName.equals(m.name)) continue;
@@ -168,9 +170,10 @@ public final class ObfuscatedBytecodeBridge {
                         }
                     }
                 }
+                curClass = (info.superInternalName != null) ? info.superInternalName.replace('/', '.') : null;
             }
-            throw firstEx;
         }
+        return Class.forName(preferredClassName, false, cl);
     }
 
     private static List<String> extractParameterObjectClassNames(String methodDescriptor) {
@@ -224,131 +227,130 @@ public final class ObfuscatedBytecodeBridge {
     }
 
     /**
-     * Resolves the music controller singleton class ({@code sound.H} on Windows, {@code sound.OooO} on macOS)
-     * by checking candidate names first and falling back to inspecting {@code com.fs.starfarer.combat.CombatMain}'s
-     * constant pool for a {@code sound/*} class containing a {@link Thread} field.
+     * Resolves the music controller singleton class ({@code sound.H} on Windows, {@code sound.OooO} on macOS,
+     * {@code sound.OooOOOO...} on Linux) by inspecting {@code com.fs.starfarer.combat.CombatMain}'s constant pool
+     * for a {@code sound/*} class containing a {@link Thread} field.
      */
     public static Class<?> resolveSoundHClass(ClassLoader cl) throws ClassNotFoundException {
-        try {
-            return resolveFirstAvailableClass(cl, "sound.H", "sound.OooO");
-        } catch (ClassNotFoundException firstEx) {
-            ClassBytecodeInfo cmInfo = readClassInfo(cl, "com.fs.starfarer.combat.CombatMain");
-            if (cmInfo != null) {
-                for (int i = 0, n = cmInfo.referencedInternalClasses.size(); i < n; i++) {
-                    String ref = cmInfo.referencedInternalClasses.get(i);
-                    if (ref != null && ref.startsWith("sound/") && ref.indexOf('$') < 0) {
-                        String dotName = ref.replace('/', '.');
-                        ClassBytecodeInfo sInfo = readClassInfo(cl, dotName);
-                        if (sInfo != null) {
-                            for (int f = 0, fn = sInfo.fields.size(); f < fn; f++) {
-                                if ("Ljava/lang/Thread;".equals(sInfo.fields.get(f).descriptor)) {
-                                    return Class.forName(dotName, false, cl);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            throw firstEx;
-        }
-    }
-
-    /**
-     * Resolves the audio stream player class ({@code sound.O} on Windows, {@code sound.oo0O} on macOS)
-     * by checking candidate names first and falling back to inspecting {@code soundHClass}'s fields for
-     * a {@code sound/*} field type.
-     */
-    public static Class<?> resolveSoundOClass(ClassLoader cl, Class<?> soundHClass) throws ClassNotFoundException {
-        try {
-            return resolveFirstAvailableClass(cl, "sound.O", "sound.oo0O");
-        } catch (ClassNotFoundException firstEx) {
-            if (soundHClass != null) {
-                Class<?> fromField = resolveClassOrFieldByPackage(cl, "sound.O", soundHClass.getName(), "sound.");
-                if (fromField != null && fromField != soundHClass) {
-                    return fromField;
-                }
-            }
-            throw firstEx;
-        }
-    }
-
-    /**
-     * Resolves the music stream descriptor class ({@code com.fs.starfarer.loading.int} on Windows)
-     * by trying {@code Class.forName} first and falling back to scanning {@code com.fs.starfarer.loading.SpecStore}'s
-     * constant pool for a {@code com/fs/starfarer/loading/*} class with a {@code (Lorg/json/JSONObject;)V} constructor
-     * and a method returning {@code soundOClass}.
-     */
-    public static Class<?> resolveStreamDescriptorClass(ClassLoader cl, Class<?> soundOClass)
-            throws ClassNotFoundException {
-        try {
-            return Class.forName("com.fs.starfarer.loading.int", false, cl);
-        } catch (ClassNotFoundException firstEx) {
-            if (soundOClass != null) {
-                String soundORetSuffix = ")" + toDescriptor(soundOClass);
-                ClassBytecodeInfo ssInfo = readClassInfo(cl, "com.fs.starfarer.loading.SpecStore");
-                if (ssInfo != null) {
-                    for (int i = 0, n = ssInfo.referencedInternalClasses.size(); i < n; i++) {
-                        String ref = ssInfo.referencedInternalClasses.get(i);
-                        if (ref != null && ref.startsWith("com/fs/starfarer/loading/") && ref.indexOf('$') < 0) {
-                            String dotName = ref.replace('/', '.');
-                            ClassBytecodeInfo cand = readClassInfo(cl, dotName);
-                            if (cand == null) continue;
-                            boolean hasJsonCtor = false;
-                            boolean returnsSoundO = false;
-                            for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
-                                MemberEntry me = cand.methods.get(m);
-                                if ("<init>".equals(me.name) && "(Lorg/json/JSONObject;)V".equals(me.descriptor)) {
-                                    hasJsonCtor = true;
-                                } else if (me.descriptor.endsWith(soundORetSuffix)) {
-                                    returnsSoundO = true;
-                                }
-                            }
-                            if (hasJsonCtor && returnsSoundO) {
+        ClassBytecodeInfo cmInfo = readClassInfo(cl, "com.fs.starfarer.combat.CombatMain");
+        if (cmInfo != null) {
+            for (int i = 0, n = cmInfo.referencedInternalClasses.size(); i < n; i++) {
+                String ref = cmInfo.referencedInternalClasses.get(i);
+                if (ref != null && ref.startsWith("sound/") && ref.indexOf('$') < 0) {
+                    String dotName = ref.replace('/', '.');
+                    ClassBytecodeInfo sInfo = readClassInfo(cl, dotName);
+                    if (sInfo != null) {
+                        for (int f = 0, fn = sInfo.fields.size(); f < fn; f++) {
+                            if ("Ljava/lang/Thread;".equals(sInfo.fields.get(f).descriptor)) {
                                 return Class.forName(dotName, false, cl);
                             }
                         }
                     }
                 }
             }
-            throw firstEx;
         }
+        return resolveFirstAvailableClass(cl, "sound.H", "sound.OooO");
     }
 
     /**
-     * Resolves the Warroom order-arrow manager class ({@code com.fs.starfarer.combat.new.O0OO} on Windows)
-     * by checking {@code mdClass}'s fields for a {@code com.fs.starfarer.combat.new.*} type that declares both
-     * a {@link Map} field and a {@link List} field.
+     * Resolves the audio stream player class ({@code sound.O} on Windows/Linux, {@code sound.oo0O} on macOS)
+     * by inspecting {@code soundHClass}'s fields for a {@code sound/*} field type.
      */
-    public static Class<?> resolveWarroomArrowMgrClass(ClassLoader cl, Class<?> mdClass)
+    public static Class<?> resolveSoundOClass(ClassLoader cl, Class<?> soundHClass) throws ClassNotFoundException {
+        if (soundHClass != null) {
+            ClassBytecodeInfo info = readClassInfo(cl, soundHClass.getName());
+            if (info != null) {
+                String selfDesc = toDescriptor(soundHClass);
+                for (int i = 0, n = info.fields.size(); i < n; i++) {
+                    MemberEntry f = info.fields.get(i);
+                    if (f.descriptor.startsWith("Lsound/") && f.descriptor.endsWith(";") && !selfDesc.equals(f.descriptor)) {
+                        String clsName = f.descriptor.substring(1, f.descriptor.length() - 1).replace('/', '.');
+                        return Class.forName(clsName, false, cl);
+                    }
+                }
+            }
+        }
+        return resolveFirstAvailableClass(cl, "sound.O", "sound.oo0O");
+    }
+
+    /**
+     * Resolves the music stream descriptor class ({@code com.fs.starfarer.loading.int} on Windows)
+     * by scanning {@code com.fs.starfarer.loading.SpecStore}'s constant pool for a {@code com/fs/starfarer/loading/*}
+     * class with a {@code (Lorg/json/JSONObject;)V} constructor and a method returning {@code soundOClass}.
+     */
+    public static Class<?> resolveStreamDescriptorClass(ClassLoader cl, Class<?> soundOClass)
             throws ClassNotFoundException {
-        try {
-            return Class.forName("com.fs.starfarer.combat.new.O0OO", false, cl);
-        } catch (ClassNotFoundException firstEx) {
-            if (mdClass != null) {
-                ClassBytecodeInfo mdInfo = readClassInfo(cl, mdClass.getName());
-                if (mdInfo != null) {
-                    for (int i = 0, n = mdInfo.fields.size(); i < n; i++) {
-                        MemberEntry f = mdInfo.fields.get(i);
-                        if (f.descriptor.startsWith("Lcom/fs/starfarer/combat/new/") && f.descriptor.endsWith(";")) {
-                            String candName = f.descriptor.substring(1, f.descriptor.length() - 1).replace('/', '.');
-                            ClassBytecodeInfo cand = readClassInfo(cl, candName);
-                            if (cand == null) continue;
-                            boolean hasMap = false;
-                            boolean hasList = false;
-                            for (int j = 0, fn = cand.fields.size(); j < fn; j++) {
-                                String fd = cand.fields.get(j).descriptor;
-                                if ("Ljava/util/Map;".equals(fd)) hasMap = true;
-                                else if ("Ljava/util/List;".equals(fd)) hasList = true;
+        if (soundOClass != null) {
+            String soundORetSuffix = ")" + toDescriptor(soundOClass);
+            ClassBytecodeInfo ssInfo = readClassInfo(cl, "com.fs.starfarer.loading.SpecStore");
+            if (ssInfo != null) {
+                for (int i = 0, n = ssInfo.referencedInternalClasses.size(); i < n; i++) {
+                    String ref = ssInfo.referencedInternalClasses.get(i);
+                    if (ref != null && ref.startsWith("com/fs/starfarer/loading/") && ref.indexOf('$') < 0) {
+                        String dotName = ref.replace('/', '.');
+                        ClassBytecodeInfo cand = readClassInfo(cl, dotName);
+                        if (cand == null) continue;
+                        boolean hasJsonCtor = false;
+                        boolean returnsSoundO = false;
+                        for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
+                            MemberEntry me = cand.methods.get(m);
+                            if ("<init>".equals(me.name) && "(Lorg/json/JSONObject;)V".equals(me.descriptor)) {
+                                hasJsonCtor = true;
+                            } else if (me.descriptor.endsWith(soundORetSuffix)) {
+                                returnsSoundO = true;
                             }
-                            if (hasMap && hasList) {
-                                return Class.forName(candName, false, cl);
-                            }
+                        }
+                        if (hasJsonCtor && returnsSoundO) {
+                            return Class.forName(dotName, false, cl);
                         }
                     }
                 }
             }
-            throw firstEx;
         }
+        return Class.forName("com.fs.starfarer.loading.int", false, cl);
+    }
+
+    private static String getInternalPackagePrefix(Class<?> cls, String defaultInternalPrefix) {
+        if (cls == null) return defaultInternalPrefix;
+        String name = cls.getName();
+        int lastDot = name.lastIndexOf('.');
+        if (lastDot <= 0) return defaultInternalPrefix;
+        return name.substring(0, lastDot + 1).replace('.', '/');
+    }
+
+    /**
+     * Resolves the Warroom order-arrow manager class ({@code com.fs.starfarer.combat.new.O0OO} on Windows,
+     * {@code com.fs.starfarer.combat.OoOO.E} on macOS, {@code com.fs.starfarer.combat.B.class} on Linux)
+     * by checking {@code mdClass}'s fields for a Warroom-package type that declares both a {@link Map} field
+     * and a {@link List} field.
+     */
+    public static Class<?> resolveWarroomArrowMgrClass(ClassLoader cl, Class<?> mdClass)
+            throws ClassNotFoundException {
+        if (mdClass != null) {
+            String pkgPrefix = "L" + getInternalPackagePrefix(mdClass, "com/fs/starfarer/combat/new/");
+            ClassBytecodeInfo mdInfo = readClassInfo(cl, mdClass.getName());
+            if (mdInfo != null) {
+                for (int i = 0, n = mdInfo.fields.size(); i < n; i++) {
+                    MemberEntry f = mdInfo.fields.get(i);
+                    if (f.descriptor.startsWith(pkgPrefix) && f.descriptor.endsWith(";")) {
+                        String candName = f.descriptor.substring(1, f.descriptor.length() - 1).replace('/', '.');
+                        ClassBytecodeInfo cand = readClassInfo(cl, candName);
+                        if (cand == null) continue;
+                        boolean hasMap = false;
+                        boolean hasList = false;
+                        for (int j = 0, fn = cand.fields.size(); j < fn; j++) {
+                            String fd = cand.fields.get(j).descriptor;
+                            if ("Ljava/util/Map;".equals(fd)) hasMap = true;
+                            else if ("Ljava/util/List;".equals(fd)) hasList = true;
+                        }
+                        if (hasMap && hasList) {
+                            return Class.forName(candName, false, cl);
+                        }
+                    }
+                }
+            }
+        }
+        return Class.forName("com.fs.starfarer.combat.new.O0OO", false, cl);
     }
 
     /**
@@ -358,119 +360,108 @@ public final class ObfuscatedBytecodeBridge {
      */
     public static Class<?> resolveWarroomArrowEntryClass(ClassLoader cl, Class<?> arrowMgrClass)
             throws ClassNotFoundException {
-        try {
-            return Class.forName("com.fs.starfarer.combat.new.O0OO$o", false, cl);
-        } catch (ClassNotFoundException firstEx) {
-            if (arrowMgrClass != null) {
-                String prefix = arrowMgrClass.getName().replace('.', '/') + "$";
-                ClassBytecodeInfo info = readClassInfo(cl, arrowMgrClass.getName());
-                if (info != null) {
-                    for (int i = 0, n = info.referencedInternalClasses.size(); i < n; i++) {
-                        String ref = info.referencedInternalClasses.get(i);
-                        if (ref != null && ref.startsWith(prefix)) {
-                            String dotName = ref.replace('/', '.');
-                            ClassBytecodeInfo cand = readClassInfo(cl, dotName);
-                            if (cand == null) continue;
-                            for (int j = 0, fn = cand.fields.size(); j < fn; j++) {
-                                if ("Lcom/fs/graphics/util/Fader;".equals(cand.fields.get(j).descriptor)) {
-                                    return Class.forName(dotName, false, cl);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            throw firstEx;
-        }
-    }
-
-    /**
-     * Resolves the Warroom ship map icon class ({@code com.fs.starfarer.combat.new.A} on Windows)
-     * by scanning {@code mdClass}'s constant pool for a {@code com/fs/starfarer/combat/new/*} class
-     * that declares a field or method returning {@code bNewCls}.
-     */
-    public static Class<?> resolveWarroomShipIconClass(ClassLoader cl, Class<?> mdClass, Class<?> bNewCls)
-            throws ClassNotFoundException {
-        try {
-            return Class.forName("com.fs.starfarer.combat.new.A", false, cl);
-        } catch (ClassNotFoundException firstEx) {
-            if (mdClass != null && bNewCls != null) {
-                String bNewDesc = toDescriptor(bNewCls);
-                String bNewRet = "()" + bNewDesc;
-                ClassBytecodeInfo mdInfo = readClassInfo(cl, mdClass.getName());
-                if (mdInfo != null) {
-                    for (int i = 0, n = mdInfo.referencedInternalClasses.size(); i < n; i++) {
-                        String ref = mdInfo.referencedInternalClasses.get(i);
-                        if (ref != null && ref.startsWith("com/fs/starfarer/combat/new/") && ref.indexOf('$') < 0) {
-                            String dotName = ref.replace('/', '.');
-                            if (dotName.equals(mdClass.getName())) continue;
-                            ClassBytecodeInfo cand = readClassInfo(cl, dotName);
-                            if (cand == null) continue;
-                            for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
-                                if (bNewRet.equals(cand.methods.get(m).descriptor)) {
-                                    return Class.forName(dotName, false, cl);
-                                }
-                            }
-                            for (int f = 0, fn = cand.fields.size(); f < fn; f++) {
-                                if (bNewDesc.equals(cand.fields.get(f).descriptor)) {
-                                    return Class.forName(dotName, false, cl);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            throw firstEx;
-        }
-    }
-
-    /**
-     * Resolves the Warroom fighter/missile map icon class ({@code com.fs.starfarer.combat.new.o0Oo} on Windows)
-     * by scanning {@code mdClass}'s constant pool for a {@code com/fs/starfarer/combat/new/*} class (other than
-     * {@code shipIconCls}) that has constructor {@code (Lcom/fs/starfarer/combat/entities/Ship;)V} and a
-     * {@code com.fs.graphics.Sprite} field.
-     */
-    public static Class<?> resolveWarroomFighterIconClass(ClassLoader cl, Class<?> mdClass, Class<?> shipIconCls)
-            throws ClassNotFoundException {
-        try {
-            return Class.forName("com.fs.starfarer.combat.new.o0Oo", false, cl);
-        } catch (ClassNotFoundException firstEx) {
-            if (mdClass != null) {
-                String skipName = (shipIconCls != null) ? shipIconCls.getName() : null;
-                ClassBytecodeInfo mdInfo = readClassInfo(cl, mdClass.getName());
-                if (mdInfo != null) {
-                    for (int i = 0, n = mdInfo.referencedInternalClasses.size(); i < n; i++) {
-                        String ref = mdInfo.referencedInternalClasses.get(i);
-                        if (ref != null && ref.startsWith("com/fs/starfarer/combat/new/") && ref.indexOf('$') < 0) {
-                            String dotName = ref.replace('/', '.');
-                            if (dotName.equals(mdClass.getName()) || dotName.equals(skipName)) continue;
-                            ClassBytecodeInfo cand = readClassInfo(cl, dotName);
-                            if (cand == null) continue;
-                            boolean hasShipCtor = false;
-                            boolean hasSpriteField = false;
-                            for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
-                                MemberEntry me = cand.methods.get(m);
-                                if ("<init>".equals(me.name)
-                                        && "(Lcom/fs/starfarer/combat/entities/Ship;)V".equals(me.descriptor)) {
-                                    hasShipCtor = true;
-                                    break;
-                                }
-                            }
-                            for (int f = 0, fn = cand.fields.size(); f < fn; f++) {
-                                if ("Lcom/fs/graphics/Sprite;".equals(cand.fields.get(f).descriptor)) {
-                                    hasSpriteField = true;
-                                    break;
-                                }
-                            }
-                            if (hasShipCtor && hasSpriteField) {
+        if (arrowMgrClass != null) {
+            String prefix = arrowMgrClass.getName().replace('.', '/') + "$";
+            ClassBytecodeInfo info = readClassInfo(cl, arrowMgrClass.getName());
+            if (info != null) {
+                for (int i = 0, n = info.referencedInternalClasses.size(); i < n; i++) {
+                    String ref = info.referencedInternalClasses.get(i);
+                    if (ref != null && ref.startsWith(prefix)) {
+                        String dotName = ref.replace('/', '.');
+                        ClassBytecodeInfo cand = readClassInfo(cl, dotName);
+                        if (cand == null) continue;
+                        for (int j = 0, fn = cand.fields.size(); j < fn; j++) {
+                            if ("Lcom/fs/graphics/util/Fader;".equals(cand.fields.get(j).descriptor)) {
                                 return Class.forName(dotName, false, cl);
                             }
                         }
                     }
                 }
             }
-            throw firstEx;
         }
+        return Class.forName("com.fs.starfarer.combat.new.O0OO$o", false, cl);
+    }
+
+    /**
+     * Resolves the Warroom ship map icon class ({@code com.fs.starfarer.combat.new.A} on Windows)
+     * by scanning {@code mdClass}'s constant pool for a Warroom-package class that declares a field or method
+     * returning {@code bNewCls}.
+     */
+    public static Class<?> resolveWarroomShipIconClass(ClassLoader cl, Class<?> mdClass, Class<?> bNewCls)
+            throws ClassNotFoundException {
+        if (mdClass != null && bNewCls != null) {
+            String pkgPrefix = getInternalPackagePrefix(mdClass, "com/fs/starfarer/combat/new/");
+            String bNewDesc = toDescriptor(bNewCls);
+            String bNewRet = "()" + bNewDesc;
+            ClassBytecodeInfo mdInfo = readClassInfo(cl, mdClass.getName());
+            if (mdInfo != null) {
+                for (int i = 0, n = mdInfo.referencedInternalClasses.size(); i < n; i++) {
+                    String ref = mdInfo.referencedInternalClasses.get(i);
+                    if (ref != null && ref.startsWith(pkgPrefix) && ref.indexOf('$') < 0) {
+                        String dotName = ref.replace('/', '.');
+                        if (dotName.equals(mdClass.getName())) continue;
+                        ClassBytecodeInfo cand = readClassInfo(cl, dotName);
+                        if (cand == null) continue;
+                        for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
+                            if (bNewRet.equals(cand.methods.get(m).descriptor)) {
+                                return Class.forName(dotName, false, cl);
+                            }
+                        }
+                        for (int f = 0, fn = cand.fields.size(); f < fn; f++) {
+                            if (bNewDesc.equals(cand.fields.get(f).descriptor)) {
+                                return Class.forName(dotName, false, cl);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Class.forName("com.fs.starfarer.combat.new.A", false, cl);
+    }
+
+    /**
+     * Resolves the Warroom fighter/missile map icon class ({@code com.fs.starfarer.combat.new.o0Oo} on Windows)
+     * by scanning {@code mdClass}'s constant pool for a Warroom-package class (other than {@code shipIconCls})
+     * that has constructor {@code (Lcom/fs/starfarer/combat/entities/Ship;)V} and a {@code com.fs.graphics.Sprite} field.
+     */
+    public static Class<?> resolveWarroomFighterIconClass(ClassLoader cl, Class<?> mdClass, Class<?> shipIconCls)
+            throws ClassNotFoundException {
+        if (mdClass != null) {
+            String pkgPrefix = getInternalPackagePrefix(mdClass, "com/fs/starfarer/combat/new/");
+            String skipName = (shipIconCls != null) ? shipIconCls.getName() : null;
+            ClassBytecodeInfo mdInfo = readClassInfo(cl, mdClass.getName());
+            if (mdInfo != null) {
+                for (int i = 0, n = mdInfo.referencedInternalClasses.size(); i < n; i++) {
+                    String ref = mdInfo.referencedInternalClasses.get(i);
+                    if (ref != null && ref.startsWith(pkgPrefix) && ref.indexOf('$') < 0) {
+                        String dotName = ref.replace('/', '.');
+                        if (dotName.equals(mdClass.getName()) || dotName.equals(skipName)) continue;
+                        ClassBytecodeInfo cand = readClassInfo(cl, dotName);
+                        if (cand == null) continue;
+                        boolean hasShipCtor = false;
+                        boolean hasSpriteField = false;
+                        for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
+                            MemberEntry me = cand.methods.get(m);
+                            if ("<init>".equals(me.name)
+                                    && "(Lcom/fs/starfarer/combat/entities/Ship;)V".equals(me.descriptor)) {
+                                hasShipCtor = true;
+                                break;
+                            }
+                        }
+                        for (int f = 0, fn = cand.fields.size(); f < fn; f++) {
+                            if ("Lcom/fs/graphics/Sprite;".equals(cand.fields.get(f).descriptor)) {
+                                hasSpriteField = true;
+                                break;
+                            }
+                        }
+                        if (hasShipCtor && hasSpriteField) {
+                            return Class.forName(dotName, false, cl);
+                        }
+                    }
+                }
+            }
+        }
+        return Class.forName("com.fs.starfarer.combat.new.o0Oo", false, cl);
     }
 
     public static Class<?> resolveMethodReturnClass(
@@ -479,21 +470,25 @@ public final class ObfuscatedBytecodeBridge {
             String methodName,
             String requiredParamDescriptorPrefix) {
         if (cl == null || ownerClassName == null || methodName == null) return null;
-        ClassBytecodeInfo info = readClassInfo(cl, ownerClassName);
-        if (info == null) return null;
-        for (int i = 0, n = info.methods.size(); i < n; i++) {
-            MemberEntry m = info.methods.get(i);
-            if (!methodName.equals(m.name)) continue;
-            if (requiredParamDescriptorPrefix != null && !m.descriptor.startsWith(requiredParamDescriptorPrefix)) {
-                continue;
-            }
-            String retClassName = extractReturnObjectClassName(m.descriptor);
-            if (retClassName != null) {
-                try {
-                    return Class.forName(retClassName, false, cl);
-                } catch (Throwable ignored) {
+        String curClass = ownerClassName;
+        for (int depth = 0; depth < 6 && curClass != null && !curClass.startsWith("java."); depth++) {
+            ClassBytecodeInfo info = readClassInfo(cl, curClass);
+            if (info == null) break;
+            for (int i = 0, n = info.methods.size(); i < n; i++) {
+                MemberEntry m = info.methods.get(i);
+                if (!methodName.equals(m.name)) continue;
+                if (requiredParamDescriptorPrefix != null && !m.descriptor.startsWith(requiredParamDescriptorPrefix)) {
+                    continue;
+                }
+                String retClassName = extractReturnObjectClassName(m.descriptor);
+                if (retClassName != null) {
+                    try {
+                        return Class.forName(retClassName, false, cl);
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
+            curClass = (info.superInternalName != null) ? info.superInternalName.replace('/', '.') : null;
         }
         return null;
     }
@@ -610,9 +605,9 @@ public final class ObfuscatedBytecodeBridge {
 
     private static InputStream openClassResourceStream(ClassLoader cl, String resourcePath) {
         InputStream in = null;
-        if (cl != null) {
+        for (ClassLoader cur = cl; cur != null && in == null; cur = cur.getParent()) {
             try {
-                in = cl.getResourceAsStream(resourcePath);
+                in = cur.getResourceAsStream(resourcePath);
             } catch (Throwable ignored) {
             }
         }
@@ -716,7 +711,8 @@ public final class ObfuscatedBytecodeBridge {
 
     public static ClassBytecodeInfo readClassInfo(ClassLoader cl, String className) {
         if (className == null || className.isEmpty()) return null;
-        ClassBytecodeInfo cached = CACHE.get(className);
+        String cacheKey = ((cl != null) ? System.identityHashCode(cl) : 0) + ":" + className;
+        ClassBytecodeInfo cached = CACHE.get(cacheKey);
         if (cached != null) return cached;
 
         String resourcePath = className.replace('.', '/') + ".class";
@@ -840,7 +836,7 @@ public final class ObfuscatedBytecodeBridge {
 
             ClassBytecodeInfo info = new ClassBytecodeInfo(
                     thisInternal, superInternal, fields, methods, referencedInternalClasses);
-            CACHE.put(className, info);
+            CACHE.put(cacheKey, info);
             return info;
         } catch (Throwable ignored) {
             return null;

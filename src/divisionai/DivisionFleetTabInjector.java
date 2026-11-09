@@ -121,12 +121,23 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
         }
     }
 
+    public static boolean verifyFleetTabHandles(ClassLoader cl) {
+        DivisionFleetTabInjector inj = new DivisionFleetTabInjector();
+        return inj.resolveMethodHandlesForClassLoader(cl);
+    }
+
     private boolean resolveMethodHandlesIfNeeded(CampaignUIAPI campaignUI) {
+        if (handlesResolved) return true;
+        if (handleResolutionFailed) return false;
+        return resolveMethodHandlesForClassLoader(campaignUI != null ? campaignUI.getClass().getClassLoader() : Global.class.getClassLoader());
+    }
+
+    private boolean resolveMethodHandlesForClassLoader(ClassLoader cl) {
         if (handlesResolved) return true;
         if (handleResolutionFailed) return false;
 
         try {
-            ClassLoader cl = campaignUI.getClass().getClassLoader();
+            if (cl == null) cl = Global.class.getClassLoader();
             Class<?> csClass = Class.forName("com.fs.starfarer.campaign.CampaignState", false, cl);
             Class<?> lClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
                     cl, "com.fs.starfarer.ui.newui.L", csClass.getName(), "getCore");

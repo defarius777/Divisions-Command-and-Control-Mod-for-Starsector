@@ -1566,6 +1566,57 @@ public class DynamicBattleMusicController {
                 && mhAlGetError != null;
     }
 
+    public static boolean verifyAudioHandlesForClassLoader(ClassLoader cl) {
+        try {
+            if (cl == null) cl = Global.class.getClassLoader();
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            Class<?> jsonObjClass = Class.forName("org.json.JSONObject", false, cl);
+            Class<?> soundHClass = ObfuscatedBytecodeBridge.resolveSoundHClass(cl);
+            Class<?> soundOClass = ObfuscatedBytecodeBridge.resolveSoundOClass(cl, soundHClass);
+            Class<?> streamDescClass = ObfuscatedBytecodeBridge.resolveStreamDescriptorClass(cl, soundOClass);
+            String getInstMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundHClass, "\u00d200000", "()" + ObfuscatedBytecodeBridge.toDescriptor(soundHClass));
+            lookup.findStatic(soundHClass, getInstMethod, MethodType.methodType(soundHClass));
+            String getVolMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundHClass, "\u00d800000", "()F");
+            lookup.findVirtual(soundHClass, getVolMethod, MethodType.methodType(float.class));
+            String setDynVolMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundHClass, "o00000", "(F)V", 1);
+            lookup.findVirtual(soundHClass, setDynVolMethod, MethodType.methodType(void.class, float.class));
+            String stopCurMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundHClass, "Object", "(I)V", 2);
+            lookup.findVirtual(soundHClass, stopCurMethod, MethodType.methodType(void.class, int.class));
+            lookup.findConstructor(streamDescClass, MethodType.methodType(void.class, jsonObjClass));
+            String sdInitMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, streamDescClass, "o00000", "()V");
+            lookup.findVirtual(streamDescClass, sdInitMethod, MethodType.methodType(void.class));
+            String sdCreatePlayerMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, streamDescClass, "return", "()" + ObfuscatedBytecodeBridge.toDescriptor(soundOClass));
+            lookup.findVirtual(streamDescClass, sdCreatePlayerMethod, MethodType.methodType(soundOClass));
+            String setLoopMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundOClass, "super", "(Z)V", 0);
+            lookup.findVirtual(soundOClass, setLoopMethod, MethodType.methodType(void.class, boolean.class));
+            String fadeInMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundOClass, "\u00d500000", "(I)V", 0);
+            lookup.findVirtual(soundOClass, fadeInMethod, MethodType.methodType(void.class, int.class));
+            String startPlayMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundOClass, "\u00d200000", "(Z)V", 1);
+            lookup.findVirtual(soundOClass, startPlayMethod, MethodType.methodType(void.class, boolean.class));
+            String advVolMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundOClass, "String", "(F)V", 3);
+            lookup.findVirtual(soundOClass, advVolMethod, MethodType.methodType(void.class, float.class));
+            String stopRelMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundOClass, "if", "()V", 2);
+            lookup.findVirtual(soundOClass, stopRelMethod, MethodType.methodType(void.class));
+            String getSrcIdMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, soundOClass, "super", "()I", 1);
+            lookup.findVirtual(soundOClass, getSrcIdMethod, MethodType.methodType(int.class));
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private static boolean isOpenAlContextActive() {
         try {
             return org.lwjgl.openal.AL.isCreated();

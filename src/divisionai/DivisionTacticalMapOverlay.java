@@ -636,6 +636,80 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
+    public static boolean verifyWarroomObfuscatedHandles(ClassLoader cl) {
+        try {
+            if (cl == null) cl = DivisionTacticalMapOverlay.class.getClassLoader();
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            Class<?> csClass = Class.forName("com.fs.starfarer.combat.CombatState", false, cl);
+            Class<?> wrClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.new.OoOO", csClass.getName(), "getWarroom");
+            Class<?> mdClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.new.b", wrClass.getName(), "getMapDisplay");
+            Class<?> iconClass = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.new.OOoO", wrClass.getName(), "findClosestIcon");
+            lookup.findVirtual(csClass, "getWarroom", MethodType.methodType(wrClass));
+            lookup.findVirtual(wrClass, "getMapDisplay", MethodType.methodType(mdClass));
+            lookup.findVirtual(wrClass, "isShowingVideoFeed", MethodType.methodType(boolean.class));
+            String worldToMapScreenName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, mdClass, "o00000", "(Lorg/lwjgl/util/vector/Vector2f;)Lorg/lwjgl/util/vector/Vector2f;");
+            lookup.findVirtual(mdClass, worldToMapScreenName, MethodType.methodType(Vector2f.class, Vector2f.class));
+            String mapGetIconName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, mdClass, "o00000", "(Ljava/lang/Object;)" + ObfuscatedBytecodeBridge.toDescriptor(iconClass));
+            lookup.findVirtual(mdClass, mapGetIconName, MethodType.methodType(iconClass, Object.class));
+            String renderSpriteName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, iconClass, "\u00d300000", "(ZFF)V", 1);
+            lookup.findVirtual(iconClass, renderSpriteName, MethodType.methodType(void.class, boolean.class, float.class, float.class));
+            String renderBarsName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, iconClass, "\u00d200000", "(ZFF)V", 2);
+            lookup.findVirtual(iconClass, renderBarsName, MethodType.methodType(void.class, boolean.class, float.class, float.class));
+            String radiusMethodName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, iconClass, "super", "(F)F");
+            lookup.findVirtual(iconClass, radiusMethodName, MethodType.methodType(float.class, float.class));
+            Class<?> arrowMgrClass = ObfuscatedBytecodeBridge.resolveWarroomArrowMgrClass(cl, mdClass);
+            Class<?> arrowEntryClass = ObfuscatedBytecodeBridge.resolveWarroomArrowEntryClass(cl, arrowMgrClass);
+            Class<?> faderClass = Class.forName("com.fs.graphics.util.Fader", false, cl);
+            String arrowMgrField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, mdClass, ObfuscatedBytecodeBridge.toDescriptor(arrowMgrClass), "\u00d3o0000");
+            MethodHandles.privateLookupIn(mdClass, lookup).findGetter(mdClass, arrowMgrField, arrowMgrClass);
+            String fadingListField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, arrowMgrClass, "Ljava/util/List;", "\u00d600000");
+            MethodHandles.privateLookupIn(arrowMgrClass, lookup).findGetter(arrowMgrClass, fadingListField, List.class);
+            String entryFaderField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, arrowEntryClass, ObfuscatedBytecodeBridge.toDescriptor(faderClass), "\u00d600000");
+            MethodHandles.privateLookupIn(arrowEntryClass, lookup).findGetter(arrowEntryClass, entryFaderField, faderClass);
+            Class<?> fddCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                    cl, "com.fs.starfarer.ui.impl.oO0O", csClass.getName(), "fdd");
+            Class<?> sGridCls = ObfuscatedBytecodeBridge.resolveClassOrFieldByPackage(
+                    cl, "com.fs.starfarer.campaign.ui.S", fddCls.getName(), "com.fs.starfarer.campaign.ui.");
+            Class<?> bNewCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.B.new", sGridCls.getName(), "getIconForMember");
+            Class<?> spriteCls = Class.forName("com.fs.graphics.Sprite", false, cl);
+            Class<?> texObjCls = ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                    cl, "com.fs.graphics.Object", spriteCls.getName(), "texture");
+            Class<?> shipIconCls = ObfuscatedBytecodeBridge.resolveWarroomShipIconClass(cl, mdClass, bNewCls);
+            Class<?> fighterIconCls = ObfuscatedBytecodeBridge.resolveWarroomFighterIconClass(cl, mdClass, shipIconCls);
+            String iconsMapMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, mdClass, "class", "()Ljava/util/Map;");
+            lookup.findVirtual(mdClass, iconsMapMethod, MethodType.methodType(Map.class));
+            String iconSetField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, mdClass, "Ljava/util/Set;", "\u00d2o0000");
+            MethodHandles.privateLookupIn(mdClass, lookup).findGetter(mdClass, iconSetField, Set.class);
+            String shipIconBNewMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, shipIconCls, "\u00d3O0000", "()" + ObfuscatedBytecodeBridge.toDescriptor(bNewCls));
+            lookup.findVirtual(shipIconCls, shipIconBNewMethod, MethodType.methodType(bNewCls));
+            String bNewSpriteMethod = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
+                    cl, bNewCls, "\u00d3o0000", "()" + ObfuscatedBytecodeBridge.toDescriptor(spriteCls));
+            lookup.findVirtual(bNewCls, bNewSpriteMethod, MethodType.methodType(spriteCls));
+            MethodHandles.Lookup spriteLookup = MethodHandles.privateLookupIn(spriteCls, lookup);
+            spriteLookup.findGetter(spriteCls, "texture", texObjCls);
+            spriteLookup.findSetter(spriteCls, "texture", texObjCls);
+            spriteLookup.findVirtual(spriteCls, "readResolve", MethodType.methodType(Object.class));
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public boolean isShowingVideoFeed() {
         if (!attachedToWarroom) {
             ensureAttachedToWarroomUI();

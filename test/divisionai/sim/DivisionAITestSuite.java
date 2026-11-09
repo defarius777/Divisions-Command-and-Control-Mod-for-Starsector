@@ -1606,39 +1606,12 @@ public class DivisionAITestSuite {
         }
         Class<?> bCls = Class.forName("com.fs.starfarer.loading.scripts.B", true, parent);
         ClassLoader bLoader = (ClassLoader) bCls.getConstructor(ClassLoader.class).newInstance(parent);
-        final java.util.Set<String> windowsObfNames = new java.util.HashSet<>(java.util.Arrays.asList(
-                "com.fs.starfarer.ui.interfacenew",
-                "com.fs.starfarer.ui.c",
-                "com.fs.starfarer.ui.OO0O",
-                "com.fs.starfarer.ui.impl.oO0O",
-                "com.fs.starfarer.campaign.ui.S",
-                "com.fs.starfarer.ui.n",
-                "com.fs.starfarer.ui.B.new",
-                "com.fs.starfarer.util.A.C",
-                "com.fs.starfarer.coreui.v",
-                "com.fs.starfarer.ui.g",
-                "com.fs.starfarer.ui.g$Oo",
-                "com.fs.starfarer.renderers.O0OO",
-                "com.fs.starfarer.campaign.OOoO",
-                "com.fs.starfarer.ui.newui.L",
-                "com.fs.starfarer.ui.newui.o0Oo",
-                "com.fs.starfarer.combat.new.OoOO",
-                "com.fs.starfarer.combat.new.b",
-                "com.fs.starfarer.combat.new.OOoO",
-                "com.fs.starfarer.combat.new.O0OO",
-                "com.fs.starfarer.combat.new.O0OO$o",
-                "com.fs.starfarer.combat.new.A",
-                "com.fs.starfarer.combat.new.o0Oo",
-                "com.fs.starfarer.combat.CombatFleetManager$O0",
-                "sound.H",
-                "sound.OooO",
-                "sound.O",
-                "sound.oo0O",
-                "com.fs.starfarer.loading.int"
-        ));
-        final java.util.Set<String> failedOnce = new java.util.HashSet<>();
         java.net.URLClassLoader modLoader = new java.net.URLClassLoader(
                 new java.net.URL[]{jarFile.toURI().toURL()}, bLoader) {
+            @Override
+            public InputStream getResourceAsStream(String name) {
+                return null;
+            }
             @Override
             protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
                 if (name.startsWith("divisionai.")) {
@@ -1646,9 +1619,6 @@ public class DivisionAITestSuite {
                     if (c == null) c = findClass(name);
                     if (resolve) resolveClass(c);
                     return c;
-                }
-                if (windowsObfNames.contains(name) && failedOnce.add(name)) {
-                    throw new ClassNotFoundException("Simulated macOS miss on Windows obfuscated name: " + name);
                 }
                 return super.loadClass(name, resolve);
             }
@@ -1664,6 +1634,79 @@ public class DivisionAITestSuite {
                 "Sandboxed com.fs.starfarer.loading.scripts.B + simulated macOS obfuscated bytecode fallback succeeds",
                 String.format(Locale.ROOT, "readClassInfo=%b, deployHandles=%b, combatHandles=%b",
                         csInfo != null, deployOk, combatOk));
+
+        // Verify all 6 obfuscated handle bridges against the REAL macOS and Linux Starsector 0.98a-RC8 JARs
+        // inside each platform's own ScriptStore sandbox classloader (OoOO on macOS, new on Linux).
+        String[][] platformDirs = new String[][]{
+                {"macOS", "[!] Starsector for Mac/Starsector.app/Contents/Resources/Java", "com.fs.starfarer.loading.scripts.OoOO"},
+                {"Linux", "[!] Starsector for Linux/starsector", "com.fs.starfarer.loading.scripts.new"}
+        };
+        for (String[] platEntry : platformDirs) {
+            String platName = platEntry[0];
+            File platDir = new File(platEntry[1]);
+            String scriptClName = platEntry[2];
+            if (!platDir.isDirectory()) continue;
+            File[] platJars = platDir.listFiles((d, name) -> name.endsWith(".jar"));
+            if (platJars == null || platJars.length == 0) continue;
+            List<java.net.URL> urls = new ArrayList<>();
+            for (File pj : platJars) {
+                urls.add(pj.toURI().toURL());
+            }
+            urls.add(new File("lib/LazyLib.jar").toURI().toURL());
+            urls.add(new File("lib/LunaLib.jar").toURI().toURL());
+            try (java.net.URLClassLoader platEngineLoader = new java.net.URLClassLoader(
+                    urls.toArray(new java.net.URL[0]), ClassLoader.getPlatformClassLoader())) {
+                Class<?> platSsCls = Class.forName("com.fs.starfarer.settings.StarfarerSettings", true, platEngineLoader);
+                Class<?> platJsonCls = Class.forName("org.json.JSONObject", true, platEngineLoader);
+                Object platDummyCfg = platJsonCls.getConstructor().newInstance();
+                platJsonCls.getMethod("put", String.class, boolean.class).invoke(platDummyCfg, "devMode", false);
+                platJsonCls.getMethod("put", String.class, boolean.class).invoke(platDummyCfg, "logClassLoading", false);
+                for (java.lang.reflect.Field f : platSsCls.getDeclaredFields()) {
+                    if (f.getType() == platJsonCls) {
+                        f.setAccessible(true);
+                        if (f.get(null) == null) {
+                            f.set(null, platDummyCfg);
+                        }
+                    }
+                }
+                Class<?> platBCls = Class.forName(scriptClName, true, platEngineLoader);
+                ClassLoader platBLoader = (ClassLoader) platBCls.getConstructor(ClassLoader.class).newInstance(platEngineLoader);
+                try (java.net.URLClassLoader platModLoader = new java.net.URLClassLoader(
+                        new java.net.URL[]{jarFile.toURI().toURL()}, platBLoader) {
+                    @Override
+                    public InputStream getResourceAsStream(String name) {
+                        return null; // Match ScriptStore sandbox returning null on getResourceAsStream
+                    }
+                    @Override
+                    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+                        if (name.startsWith("divisionai.")) {
+                            Class<?> c = findLoadedClass(name);
+                            if (c == null) c = findClass(name);
+                            if (resolve) resolveClass(c);
+                            return c;
+                        }
+                        return super.loadClass(name, resolve);
+                    }
+                }) {
+                    boolean pDeploy = (Boolean) Class.forName("divisionai.DivisionDeploymentDialogOrganizer", true, platModLoader)
+                            .getMethod("verifyObfuscatedHandles", ClassLoader.class).invoke(null, platModLoader);
+                    boolean pCombat = (Boolean) Class.forName("divisionai.DivisionCommanderAI", true, platModLoader)
+                            .getMethod("verifyCombatObfuscatedHandles", ClassLoader.class).invoke(null, platModLoader);
+                    boolean pWarroom = (Boolean) Class.forName("divisionai.DivisionTacticalMapOverlay", true, platModLoader)
+                            .getMethod("verifyWarroomObfuscatedHandles", ClassLoader.class).invoke(null, platModLoader);
+                    boolean pCampaign = (Boolean) Class.forName("divisionai.CampaignFleetTooltipOrganizer", true, platModLoader)
+                            .getMethod("verifyCampaignObfuscatedHandles", ClassLoader.class).invoke(null, platModLoader);
+                    boolean pFleetTab = (Boolean) Class.forName("divisionai.DivisionFleetTabInjector", true, platModLoader)
+                            .getMethod("verifyFleetTabHandles", ClassLoader.class).invoke(null, platModLoader);
+                    boolean pAudio = (Boolean) Class.forName("divisionai.DynamicBattleMusicController", true, platModLoader)
+                            .getMethod("verifyAudioHandlesForClassLoader", ClassLoader.class).invoke(null, platModLoader);
+                    check(pDeploy && pCombat && pWarroom && pCampaign && pFleetTab && pAudio,
+                            "Real " + platName + " Starsector 0.98a-RC8 JARs + ScriptStore sandbox resolve all 6 obfuscated MethodHandle bridges",
+                            String.format(Locale.ROOT, "deploy=%b, combat=%b, warroom=%b, campaignTooltip=%b, fleetTab=%b, audio=%b",
+                                    pDeploy, pCombat, pWarroom, pCampaign, pFleetTab, pAudio));
+                }
+            }
+        }
     }
 
     /**
