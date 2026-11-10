@@ -799,7 +799,7 @@ public class OtcAI {
         // Determine operational BattlePhase (strictly respecting Fog of War: if no enemy is spotted yet, stay in APPROACH)
         float minContactDist = minDistanceBetweenFleets(engine, myGroup, enemyGroup);
         List<BattleObjectiveAPI> objectives = engine.getObjectives();
-        boolean hasUncapturedObjectives = hasContestObjectives(objectives, myGroup.side);
+        boolean hasUncapturedObjectives = !isPursuitBattle(engine, myGroup) && hasContestObjectives(objectives, myGroup.side);
         boolean anyEnemyVisible = (myGroup.primaryThreatEnemyDivision != null);
         BattlePhase current = myGroup.currentPhase;
 
@@ -1920,9 +1920,9 @@ public class OtcAI {
                 d.stationPoint.set(cx + d.formationHeadingX * 1800f, cy + d.formationHeadingY * 1800f);
                 d.initialDeploymentMarshalled = true;
             }
-            if (group.deployInFleetFormation) {
-                marshalPursuitWaveByZones(engine, group, waveShipsByDiv, newlyDeployedShips, now);
-            }
+            // Always marshal pursuit waves by zones (CENTER, LEFT, RIGHT) so vanilla's hull-size-sorted DeploymentSpec
+            // never leaves divisions interleaved across each other within the same pursuit zone.
+            marshalPursuitWaveByZones(engine, group, waveShipsByDiv, newlyDeployedShips, now);
             group.initialDeploymentDone = true;
             return;
         }
@@ -2110,8 +2110,8 @@ public class OtcAI {
         try {
             float mapW = Math.max(8000f, engine.getMapWidth());
             float mapH = Math.max(8000f, engine.getMapHeight());
-            float maxAbsX = mapW * 0.42f;
-            float maxAbsY = mapH * 0.42f;
+            float maxAbsX = mapW * 0.44f;
+            float maxAbsY = mapH * 0.48f;
             float otcStrictness = (group.otc != null) ? group.otc.stationKeepingStrictness : 1.0f;
             float otcAggression = (group.otc != null) ? group.otc.aggressionBias : 1.0f;
             float authorityScale = (group.authority == PermanentDivisionManager.OtcAuthority.POSITIVE_CONTROL)
@@ -2119,6 +2119,9 @@ public class OtcAI {
                     : (group.authority == PermanentDivisionManager.OtcAuthority.COMMAND_BY_NEGATION ? 1.12f : 1.0f);
             float otcCohesionScale = authorityScale * Math.max(0.82f, Math.min(1.22f, 2.0f - otcStrictness));
 
+            java.util.Map<DivisionState, List<ShipAPI>> centerWaveByDiv = new java.util.LinkedHashMap<>();
+            java.util.Map<DivisionState, List<ShipAPI>> leftWaveByDiv = new java.util.LinkedHashMap<>();
+            java.util.Map<DivisionState, List<ShipAPI>> rightWaveByDiv = new java.util.LinkedHashMap<>();
             List<DivisionState> centerDivs = new ArrayList<>();
             List<DivisionState> leftFlankDivs = new ArrayList<>();
             List<DivisionState> rightFlankDivs = new ArrayList<>();
@@ -2126,9 +2129,35 @@ public class OtcAI {
                 DivisionState d = entry.getKey();
                 List<ShipAPI> ships = entry.getValue();
                 if (d == null || ships == null || ships.isEmpty()) continue;
-                if (d.pursuitSpawnZone < 0) leftFlankDivs.add(d);
-                else if (d.pursuitSpawnZone > 0) rightFlankDivs.add(d);
-                else centerDivs.add(d);
+                for (ShipAPI s : ships) {
+                    if (s == null || !s.isAlive()) continue;
+                    int z = resolveShipPursuitSpawnZone(engine, s);
+                    if (z < 0) {
+                        List<ShipAPI> l = leftWaveByDiv.get(d);
+                        if (l == null) {
+                            l = new ArrayList<>();
+                            leftWaveByDiv.put(d, l);
+                            leftFlankDivs.add(d);
+                        }
+                        l.add(s);
+                    } else if (z > 0) {
+                        List<ShipAPI> r = rightWaveByDiv.get(d);
+                        if (r == null) {
+                            r = new ArrayList<>();
+                            rightWaveByDiv.put(d, r);
+                            rightFlankDivs.add(d);
+                        }
+                        r.add(s);
+                    } else {
+                        List<ShipAPI> c = centerWaveByDiv.get(d);
+                        if (c == null) {
+                            c = new ArrayList<>();
+                            centerWaveByDiv.put(d, c);
+                            centerDivs.add(d);
+                        }
+                        c.add(s);
+                    }
+                }
             }
 
             Set<ShipAPI> unplacedWaveShips = new HashSet<>();
@@ -2145,10 +2174,9 @@ public class OtcAI {
                 float waveSumX = 0f;
                 float waveSumY = 0f;
                 float waveWeight = 0f;
-                float frontmostEntryY = (fwdDirY > 0f) ? -Float.MAX_VALUE : Float.MAX_VALUE;
                 boolean anyCenterTravelDrive = false;
                 for (DivisionState d : centerDivs) {
-                    List<ShipAPI> ships = waveShipsByDiv.get(d);
+                    List<ShipAPI> ships = centerWaveByDiv.get(d);
                     if (ships == null) continue;
                     for (ShipAPI s : ships) {
                         if (s == null || !s.isAlive()) continue;
@@ -2156,38 +2184,17 @@ public class OtcAI {
                         waveSumX += s.getLocation().x * w;
                         waveSumY += s.getLocation().y * w;
                         waveWeight += w;
-                        if (fwdDirY > 0f) {
-                            if (s.getLocation().y > frontmostEntryY) frontmostEntryY = s.getLocation().y;
-                        } else {
-                            if (s.getLocation().y < frontmostEntryY) frontmostEntryY = s.getLocation().y;
-                        }
                         if (s.getTravelDrive() != null && s.getTravelDrive().isActive()) {
                             anyCenterTravelDrive = true;
                         }
                     }
                 }
-                if (waveWeight > 0f && (anyCenterTravelDrive
-                        || group.missionContext == DivisionModel.MissionContextType.INTERCEPTION)) {
+                if (waveWeight > 0f) {
                     float waveCenterX = waveSumX / waveWeight;
                     float waveAverageY = waveSumY / waveWeight;
-                    float entryBaseY;
-                    if (anyCenterTravelDrive) {
-                        float rawEntryY = frontmostEntryY - fwdDirY * 160f;
-                        entryBaseY = (fwdDirY > 0f)
-                                ? Math.max(-mapH * 0.5f + 450f, rawEntryY)
-                                : Math.min(mapH * 0.5f - 450f, rawEntryY);
-                    } else {
-                        entryBaseY = waveAverageY;
-                    }
-                    float vanillaStopLineY = (fwdDirY > 0f)
-                            ? (-mapH * 0.5f + 2150f)
-                            : (mapH * 0.5f - 2150f);
-                    float travelDistToStopLine = (fwdDirY > 0f)
-                            ? (vanillaStopLineY - entryBaseY)
-                            : (entryBaseY - vanillaStopLineY);
-                    float baseWaveBurnDur = Math.max(1.30f, Math.min(4.20f, travelDistToStopLine / 600f));
-                    float otcBurnBonus = (otcAggression - 1.0f) * 0.35f;
-                    float syncFleetBurnDur = Math.max(1.20f, Math.min(4.50f, baseWaveBurnDur + otcBurnBonus));
+                    float entryBaseY = waveAverageY;
+                    float otcBurnBonus = (otcAggression - 1.0f) * 0.25f;
+                    float syncFleetBurnDur = Math.max(1.20f, Math.min(2.20f, 1.50f + otcBurnBonus));
 
                     List<DivisionState> combatCenterDivs = new ArrayList<>();
                     List<DivisionState> supportCenterDivs = new ArrayList<>();
@@ -2205,13 +2212,13 @@ public class OtcAI {
                         supportCenterDivs.clear();
                     }
 
-                    assignPursuitCenterRowOffsets(combatCenterDivs, otcCohesionScale, 0f);
+                    assignPursuitCenterRowOffsets(combatCenterDivs, centerWaveByDiv, otcCohesionScale, 0f);
                     if (!supportCenterDivs.isEmpty()) {
-                        assignPursuitCenterRowOffsets(supportCenterDivs, otcCohesionScale, -fwdDirY * 520f);
+                        assignPursuitCenterRowOffsets(supportCenterDivs, centerWaveByDiv, otcCohesionScale, -fwdDirY * 320f);
                     }
 
                     for (DivisionState div : centerDivs) {
-                        List<ShipAPI> divWaveShips = waveShipsByDiv.get(div);
+                        List<ShipAPI> divWaveShips = centerWaveByDiv.get(div);
                         if (divWaveShips == null || divWaveShips.isEmpty()) continue;
                         placeDivisionWaveShipsInFormation(
                                 engine, group, div, divWaveShips, centerDivs.size(),
@@ -2226,12 +2233,12 @@ public class OtcAI {
 
             if (!leftFlankDivs.isEmpty()) {
                 placeFlankPursuitWaveDivisions(
-                        engine, group, leftFlankDivs, waveShipsByDiv, -1,
+                        engine, group, leftFlankDivs, leftWaveByDiv, -1,
                         otcStrictness, otcCohesionScale, unplacedWaveShips, now);
             }
             if (!rightFlankDivs.isEmpty()) {
                 placeFlankPursuitWaveDivisions(
-                        engine, group, rightFlankDivs, waveShipsByDiv, 1,
+                        engine, group, rightFlankDivs, rightWaveByDiv, 1,
                         otcStrictness, otcCohesionScale, unplacedWaveShips, now);
             }
         } catch (Throwable t) {
@@ -2248,6 +2255,7 @@ public class OtcAI {
 
     private static void assignPursuitCenterRowOffsets(
             List<DivisionState> rowDivs,
+            java.util.Map<DivisionState, List<ShipAPI>> waveShipsByDiv,
             float otcCohesionScale,
             float rowOffsetY) {
         if (rowDivs == null || rowDivs.isEmpty()) return;
@@ -2262,7 +2270,13 @@ public class OtcAI {
         float totalSpan = 0f;
         for (int i = 0; i < n; i++) {
             DivisionState d = rowDivs.get(i);
-            float w = Math.max(580f, d.divisionInterval * otcCohesionScale);
+            List<ShipAPI> ships = (waveShipsByDiv != null) ? waveShipsByDiv.get(d) : null;
+            int shipCount = (ships != null && !ships.isEmpty()) ? ships.size() : d.members.size();
+            float divStrictness = (d.commander != null) ? d.commander.stationKeepingStrictness : 1.0f;
+            float effSpacing = Math.max(210f, d.stationSpacing * Math.max(0.78f, Math.min(1.30f, d.stationKeepingMult * (1.85f - 0.85f * divStrictness))));
+            int maxRank = Math.max(1, shipCount / 2);
+            float formationSpan = 2f * maxRank * effSpacing + 420f;
+            float w = Math.max(580f, Math.max(d.divisionInterval * otcCohesionScale, formationSpan / Math.max(0.75f, otcCohesionScale)));
             widths[i] = w;
             if (i > 0) {
                 totalSpan += 0.5f * (widths[i - 1] + widths[i]);
@@ -2327,22 +2341,8 @@ public class OtcAI {
 
         float waveAverageX = waveSumX / waveWeight;
         float waveCenterY = waveSumY / waveWeight;
-        float entryBaseX;
-        if (anyFlankTravelDrive) {
-            float rawEntryX = frontmostEntryX - initHx * 160f;
-            entryBaseX = (flankSign < 0)
-                    ? Math.max(-mapW * 0.5f + 450f, rawEntryX)
-                    : Math.min(mapW * 0.5f - 450f, rawEntryX);
-        } else {
-            entryBaseX = waveAverageX;
-        }
-        float vanillaStopLineX = (flankSign < 0)
-                ? (-mapW * 0.5f + 2150f)
-                : (mapW * 0.5f - 2150f);
-        float travelDistToStopLine = (flankSign < 0)
-                ? (vanillaStopLineX - entryBaseX)
-                : (entryBaseX - vanillaStopLineX);
-        float syncFlankBurnDur = Math.max(1.30f, Math.min(4.20f, travelDistToStopLine / 600f));
+        float entryBaseX = waveAverageX;
+        float syncFlankBurnDur = 1.50f;
 
         int n = flankDivs.size();
         float[] latOffsetsY = new float[n];
@@ -2484,6 +2484,7 @@ public class OtcAI {
                 || (div.archetype != null && div.archetype.isCarrierArchetype());
         DivisionMissionType openMission = DivisionCommanderAI.resolveActiveMission(div, now);
         if (!anyTravelDriveActive
+                && !isPursuitBattle(engine, group)
                 && !isHeavyOrCarrier
                 && openMission != DivisionMissionType.RESERVE
                 && engine.getObjectives() != null

@@ -231,7 +231,11 @@ public class DivisionDeploymentDialogOrganizer {
             return org.handlesResolved && !org.handlesFailed
                     && org.iconGetO0OOHandle != null
                     && org.o0ooSetColorsHandle != null
-                    && org.iconSetDeployStateHandle != null;
+                    && org.iconGetDeployStateHandle != null
+                    && org.iconSetDeployStateHandle != null
+                    && org.iconSetDeployTextHandle != null
+                    && org.fddFleetMemberClickedHandle != null
+                    && org.fddGetSelectedHandle != null;
         } catch (Throwable t) {
             return false;
         }
@@ -901,13 +905,18 @@ public class DivisionDeploymentDialogOrganizer {
         if (m == null || m.isFighterWing() || m.isStation()) return false;
         CombatEngineAPI engine = Global.getCombatEngine();
         if (engine != null) {
-            if (engine.getCustomData() != null
-                    && Boolean.TRUE.equals(engine.getCustomData().get("can_deploy_left_right"))) {
-                return m.isFrigate() || m.isDestroyer();
-            }
-            if (hasCommanderCanDeployLeftRightStat(engine)) {
+            if (hasCommanderCanDeployLeftRightStat(engine)
+                    || (engine.getCustomData() != null
+                        && Boolean.TRUE.equals(engine.getCustomData().get("can_deploy_left_right")))) {
                 return true;
             }
+        }
+        try {
+            if (m.getStats() != null && m.getStats().getDynamic() != null
+                    && m.getStats().getDynamic().getMod("can_deploy_left_right").computeEffective(0f) > 0f) {
+                return true;
+            }
+        } catch (Throwable ignored) {
         }
         if (memberCanDeployLeftRightHandle != null) {
             try {
@@ -915,7 +924,7 @@ public class DivisionDeploymentDialogOrganizer {
             } catch (Throwable ignored) {
             }
         }
-        return m.isFrigate() || m.isDestroyer();
+        return m.isFrigate();
     }
 
     private static class MemberIconEntry {
@@ -1604,7 +1613,7 @@ public class DivisionDeploymentDialogOrganizer {
                     tt,
                     btnLeft,
                     rowTipTitle + " — Deploy Left Flank",
-                    "Pursuit Flank Deployment: Selects all flank-eligible ships (frigates & destroyers) in this division row to deploy on the Left Flank (DEPLOY LEFT). Click again to deselect.");
+                    "Pursuit Flank Deployment: Selects all flank-eligible ships (frigates, or all ships with Force Concentration) in this division row to deploy on the Left Flank (DEPLOY LEFT). Click again to deselect.");
 
             ButtonAPI btnCenter = tt.addButton(
                     centerLabel,
@@ -1638,7 +1647,7 @@ public class DivisionDeploymentDialogOrganizer {
                     tt,
                     btnRight,
                     rowTipTitle + " — Deploy Right Flank",
-                    "Pursuit Flank Deployment: Selects all flank-eligible ships (frigates & destroyers) in this division row to deploy on the Right Flank (DEPLOY RIGHT). Click again to deselect.");
+                    "Pursuit Flank Deployment: Selects all flank-eligible ships (frigates, or all ships with Force Concentration) in this division row to deploy on the Right Flank (DEPLOY RIGHT). Click again to deselect.");
 
             toggleBtnHolder[0] = btnCenter;
             toggleBtnHolder[1] = btnLeft;
@@ -1764,6 +1773,37 @@ public class DivisionDeploymentDialogOrganizer {
             }
             if (eligible.isEmpty()) return;
 
+            if (targetDeployState == 1) {
+                boolean anyUnselected = false;
+                boolean anyFlankSelected = false;
+                boolean allInCenter = true;
+                for (MemberIconEntry e : eligible) {
+                    int st = getIconDeployState(fdd, e);
+                    if (st == -1) {
+                        anyUnselected = true;
+                        allInCenter = false;
+                    } else if (st == 2 || st == 3) {
+                        anyFlankSelected = true;
+                        allInCenter = false;
+                    } else if (st != 1) {
+                        allInCenter = false;
+                    }
+                }
+                if (anyFlankSelected && anyUnselected) {
+                    for (MemberIconEntry e : eligible) {
+                        if (getIconDeployState(fdd, e) == -1) {
+                            setEntryDeployState(fdd, e, 1);
+                        }
+                    }
+                    return;
+                }
+                int desiredState = allInCenter ? -1 : 1;
+                for (MemberIconEntry e : eligible) {
+                    setEntryDeployState(fdd, e, desiredState);
+                }
+                return;
+            }
+
             boolean allInTargetState = true;
             for (MemberIconEntry e : eligible) {
                 if (getIconDeployState(fdd, e) != targetDeployState) {
@@ -1787,7 +1827,7 @@ public class DivisionDeploymentDialogOrganizer {
         if (iconGetDeployStateHandle != null) {
             try {
                 int st = (int) iconGetDeployStateHandle.invoke(e.icon);
-                if (st == 1 || st == 2 || st == 3) return st;
+                if (st >= 1) return st;
                 return -1;
             } catch (Throwable ignored) {
             }
@@ -1806,6 +1846,7 @@ public class DivisionDeploymentDialogOrganizer {
         return -1;
     }
 
+    @SuppressWarnings("unchecked")
     private void setEntryDeployState(Object fdd, MemberIconEntry e, int targetDeployState) throws Throwable {
         if (e == null || e.isAlreadyDeployed || e.member == null || !e.member.canBeDeployedForCombat()) return;
         int curState = getIconDeployState(fdd, e);
@@ -1815,14 +1856,23 @@ public class DivisionDeploymentDialogOrganizer {
         if (iconSetDeployStateHandle != null && iconGetDeployStateHandle != null && e.icon != null) {
             if (targetDeployState == -1) {
                 if (curState != -1) {
-                    iconSetDeployStateHandle.invoke(e.icon, 3);
+                    int preDeselectState = canMemberDeployLeftRight(e.member) ? 3 : 1;
+                    iconSetDeployStateHandle.invoke(e.icon, preDeselectState);
                     fddFleetMemberClickedHandle.invoke(fdd, e.member, e.icon, null);
                     if (getIconDeployState(fdd, e) != -1) {
-                        iconSetDeployStateHandle.invoke(e.icon, 1);
+                        int altState = (preDeselectState == 3) ? 1 : 3;
+                        iconSetDeployStateHandle.invoke(e.icon, altState);
                         fddFleetMemberClickedHandle.invoke(fdd, e.member, e.icon, null);
                     }
                     if (getIconDeployState(fdd, e) != -1) {
                         iconSetDeployStateHandle.invoke(e.icon, -1);
+                        try {
+                            List<FleetMemberAPI> sel = (List<FleetMemberAPI>) fddGetSelectedHandle.invoke(fdd);
+                            if (sel != null) {
+                                sel.remove(e.member);
+                            }
+                        } catch (Throwable ignored) {
+                        }
                     }
                 }
                 return;

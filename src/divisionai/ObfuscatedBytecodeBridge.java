@@ -521,6 +521,7 @@ public final class ObfuscatedBytecodeBridge {
         ClassBytecodeInfo info = readClassInfo(cl, ownerClass.getName());
         if (info == null) return preferredName;
         String firstMatch = null;
+        String firstPublicMatch = null;
         String indexedMatch = null;
         int matchIdx = 0;
         for (int i = 0, n = info.methods.size(); i < n; i++) {
@@ -533,6 +534,9 @@ public final class ObfuscatedBytecodeBridge {
                     if (firstMatch == null) {
                         firstMatch = m.name;
                     }
+                    if (firstPublicMatch == null && (m.accessFlags & 0x0001) != 0) {
+                        firstPublicMatch = m.name;
+                    }
                     if (matchIdx == fallbackOccurrenceIndex) {
                         indexedMatch = m.name;
                     }
@@ -540,6 +544,7 @@ public final class ObfuscatedBytecodeBridge {
                 }
             }
         }
+        if (fallbackOccurrenceIndex == 0 && firstPublicMatch != null) return firstPublicMatch;
         if (indexedMatch != null) return indexedMatch;
         return (firstMatch != null) ? firstMatch : preferredName;
     }

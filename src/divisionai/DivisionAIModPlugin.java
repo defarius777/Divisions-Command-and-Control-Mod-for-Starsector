@@ -20,7 +20,7 @@ public class DivisionAIModPlugin extends BaseModPlugin {
         }
         DivisionAISettings.captureBaselineFleetAndBattleSettings();
         DivisionAISettings.applyFleetAndBattleSizeOverrides();
-        Global.getLogger(DivisionAIModPlugin.class).info("Divisions: Command and Control v1.1.1c loaded: Campaign Permanent Divisions, Faction Division Record Tables, Cultural Nomenclature, Core-Cluster Cohesion & Wide-Arc Battlespace Routing active.");
+        Global.getLogger(DivisionAIModPlugin.class).info("Divisions: Command and Control v1.1.1d loaded: Campaign Permanent Divisions, Faction Division Record Tables, Cultural Nomenclature, Core-Cluster Cohesion & Wide-Arc Battlespace Routing active.");
     }
 
     @Override

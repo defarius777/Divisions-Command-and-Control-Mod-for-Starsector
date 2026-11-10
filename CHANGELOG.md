@@ -4,6 +4,21 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.1.1d] — 2026-11-10
+
+### Fixed
+- **Pursuit Battle (`FleetGoal.ESCAPE`) Deployment Un-Interleaving & Zone-Aware Marshaling:**
+  - Fixed a bug in pursuit battles where vanilla Starsector's `DeploymentSpec` hull-size sorting (`Cruisers -> Destroyers -> Frigates`) interleaved mixed divisions across one another around the Center spawn point.
+  - `OtcAI.hijackNewlyDeployedWaveIntoFormation` now always runs `marshalPursuitWaveByZones` on pursuit waves (`isPursuitBattle`), un-interleaving divisions within each zone (`CENTER`, `LEFT`, `RIGHT`) into contiguous side-by-side division formations anchored at vanilla's exact pre-advanced pursuit spawn coordinates (`y ≈ -6268.2` for `CENTER`, `x ≈ ∓7270` for flanks) while preserving travel-drive velocity and heading.
+- **Campaign Pursuit Mission Classification & Northbound Interception C2:**
+  - Fixed `DivisionAutoFormer.detectMissionContext` checking `ctx.fightToTheLast` before `FleetGoal.ESCAPE`, which misclassified campaign pursuit battles (`BattleCreationPluginImpl` sets `ctx.setFightToTheLast(true)`) as `FIGHT_TO_THE_LAST` instead of `INTERCEPTION` / `REARGUARD_ACTION`.
+  - Suppressed rear escape objective claiming (`y = -6500`) and `DivisionMissionType.SCOUTING` in pursuit battles so pursuing divisions stay in `BattlePhase.APPROACH` advancing North (`+Y`) in their lanes when fleeing enemies are in Fog of War.
+- **Deployment Window `[L]` / `[C]` / `[R]` Pursuit Row Toggle Buttons (Windows / macOS / Linux):**
+  - Updated `ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor` to prefer `ACC_PUBLIC` methods so `iconSetDeployStateHandle` always binds the public `setDeployState(int)` method across Windows, macOS, and Linux.
+  - Fixed `DivisionDeploymentDialogOrganizer.canMemberDeployLeftRight` (matching vanilla `oO0O`: only frigates can deploy on flanks unless `ForceConcentration` / `can_deploy_left_right` is active) and `setEntryDeployState` (`preDeselectState = canMemberDeployLeftRight ? 3 : 1`) so deselecting ships never increments non-frigates to state `4` (`"DEPLOY RIGHT"` stuck on icon).
+
+---
+
 ## [v1.0.4b] — 2026-11-04
 
 ### Fixed

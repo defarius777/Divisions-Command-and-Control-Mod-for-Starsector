@@ -712,7 +712,7 @@ public class DivisionCommanderAI {
         BattleObjectiveAPI commandAssignedObj = findTaskManagerObjectiveForDivision(engine, div, myGroup, prevObjective);
         BattleObjectiveAPI uncapturedObj = (commandAssignedObj != null)
                 ? commandAssignedObj
-                : findNearestContestObjective(engine, div, myGroup, prevObjective);
+                : (OtcAI.isPursuitBattle(engine, myGroup) ? null : findNearestContestObjective(engine, div, myGroup, prevObjective));
 
         float distToVisibleEnemy = (nearestEnemyDiv != null)
                 ? distance(div.centroid, OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv))
@@ -807,6 +807,7 @@ public class DivisionCommanderAI {
         if (!stationedByOtc
                 && !holdGrandFormationAdvance
                 && !isRearguardEscape
+                && !isPursuitBattle
                 && uncapturedObj != null
                 && !isHeavyLineOrCarrier
                 && activeMission != DivisionMissionType.RESERVE
@@ -1728,6 +1729,7 @@ public class DivisionCommanderAI {
             }
             return;
         }
+        float mapW = (engine != null) ? Math.max(8000f, engine.getMapWidth()) : 18000f;
         float mapH = (engine != null) ? Math.max(8000f, engine.getMapHeight()) : 18000f;
         float maxAdvanceY = (fwdY > 0f) ? (mapH * 0.5f - 950f) : (-mapH * 0.5f + 950f);
         float targetY = (fwdY > 0f)
@@ -1740,7 +1742,8 @@ public class DivisionCommanderAI {
             float targetX = Math.max(450f, div.centroid.x - 1350f);
             outStation.set(targetX, targetY);
         } else {
-            outStation.set(div.centroid.x * 0.92f, targetY);
+            float maxLaneX = mapW * 0.35f;
+            outStation.set(Math.max(-maxLaneX, Math.min(maxLaneX, div.centroid.x)), targetY);
         }
         DivisionFormationNavigator.clampToMapBounds(engine, outStation, 550f);
     }
@@ -5118,6 +5121,7 @@ public class DivisionCommanderAI {
             DivisionState div,
             BattleGroupState myGroup,
             BattleObjectiveAPI previousObjective) {
+        if (engine == null || div == null || OtcAI.isPursuitBattle(engine, myGroup)) return null;
         List<BattleObjectiveAPI> objs = engine.getObjectives();
         if (objs == null || objs.isEmpty()) return null;
 

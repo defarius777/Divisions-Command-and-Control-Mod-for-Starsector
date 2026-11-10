@@ -1796,6 +1796,132 @@ public class DivisionAITestSuite {
                         pursuitDetected, flankZonesPreserved,
                         pGroup.primaryThreatEnemyDivision != null ? pGroup.primaryThreatEnemyDivision.displayName : "null",
                         rearguardDirNorth));
+
+        // 9b. Campaign Pursuit Regression Test (reproduces exact conditions from starsector.log pursuit battle):
+        //     - BattleCreationContext has FleetGoal.ESCAPE + ctx.setFightToTheLast(true)
+        //     - 2 uncaptured escape objectives at (-3800, -6500) and (+3800, -6500)
+        //     - Escaping enemy starts hidden in Fog of War at y = +4500
+        //     - 2 player divisions with openingMission = SCOUTING and deployInFleetFormation = false (default)
+        //       spawned in CENTER at y = -6268.2f interleaved by hull size (Cruisers -> Destroyers -> Frigates)
+        BattleGroupState campPGroup = new BattleGroupState(0, pCmdr);
+        campPGroup.deployInFleetFormation = false;
+        BattleGroupState campEGroup = new BattleGroupState(1, eCmdr);
+        DivisionState divCruiser = new DivisionState("c_div1", 0, 1, DivisionArchetype.CRUISER_DIVISION, "1st Light Cruiser", pCmdr);
+        divCruiser.openingMission = DivisionMissionType.SCOUTING;
+        DivisionState divDestroyer = new DivisionState("c_div2", 0, 2, DivisionArchetype.DESTROYER_DIVISION, "3rd Destroyer Screen", pCmdr);
+        divDestroyer.openingMission = DivisionMissionType.SCOUTING;
+        campPGroup.divisions.add(divCruiser);
+        campPGroup.divisions.add(divDestroyer);
+
+        DivisionState divFleeing = new DivisionState("c_esc", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Fleeing Remnant", eCmdr);
+        divFleeing.retreatingFraction = 1.0f;
+        campEGroup.divisions.add(divFleeing);
+
+        SimArena campArena = new SimArena("9b. Campaign Pursuit", "FightToTheLast + Escape Objectives + Interleaved Center Spawn", campPGroup, campEGroup);
+        campArena.fogOfWarEnabled = true;
+        campArena.baseShipSightRadius = 4000f;
+        campArena.mapHeight = 26000f;
+        campArena.objectives.add(createMockObjective("Sensor Array", "sensor_array", new Vector2f(-3800f, -6500f), 100));
+        campArena.objectives.add(createMockObjective("Nav Buoy", "nav_buoy", new Vector2f(3800f, -6500f), 100));
+
+        // Spawn interleaved in CENTER at y = -6268.2f (matching CombatFleetManager.deploy hull-size sorting)
+        SimShipState sHeron = campArena.addShip(divCruiser, "c_heron", "ISS Heron", "heron", HullSize.CRUISER, -1350f, -6268.2f, 80f, 1000f, 0, 2);
+        SimShipState sMedusa = campArena.addShip(divDestroyer, "c_medusa", "ISS Medusa", "medusa", HullSize.DESTROYER, -1050f, -6268.2f, 110f, 900f, 0, 0);
+        SimShipState sEnforcer = campArena.addShip(divDestroyer, "c_enforcer", "ISS Enforcer", "enforcer", HullSize.DESTROYER, -750f, -6268.2f, 90f, 900f, 0, 0);
+        SimShipState sManticore = campArena.addShip(divDestroyer, "c_manticore", "ISS Manticore", "manticore", HullSize.DESTROYER, -450f, -6268.2f, 90f, 950f, 0, 0);
+        SimShipState sSunder = campArena.addShip(divDestroyer, "c_sunder", "ISS Sunder", "sunder", HullSize.DESTROYER, -150f, -6268.2f, 100f, 950f, 0, 0);
+        SimShipState sShrike = campArena.addShip(divCruiser, "c_shrike", "ISS Shrike", "shrike", HullSize.DESTROYER, 150f, -6268.2f, 115f, 850f, 0, 0);
+        SimShipState sOmen = campArena.addShip(divCruiser, "c_omen", "ISS Omen", "omen", HullSize.FRIGATE, 450f, -6268.2f, 130f, 700f, 0, 0);
+        SimShipState sWolf1 = campArena.addShip(divCruiser, "c_wolf1", "ISS Wolf 1", "wolf", HullSize.FRIGATE, 750f, -6268.2f, 150f, 700f, 0, 0);
+        SimShipState sWolf2 = campArena.addShip(divCruiser, "c_wolf2", "ISS Wolf 2", "wolf", HullSize.FRIGATE, 1050f, -6268.2f, 150f, 700f, 0, 0);
+        SimShipState sCent = campArena.addShip(divDestroyer, "c_cent", "ISS Centurion", "centurion", HullSize.FRIGATE, 1350f, -6268.2f, 125f, 700f, 0, 0);
+        SimShipState sFlee = campArena.addShip(divFleeing, "c_flee", "Enemy Cruiser", "falcon", HullSize.CRUISER, 0f, 4500f, 90f, 1000f, 0, 0);
+        sFlee.facing = 90f;
+
+        List<com.fs.starfarer.api.combat.ShipAPI> campWave = new ArrayList<>();
+        for (SimShipState ss : new SimShipState[]{sHeron, sMedusa, sEnforcer, sManticore, sSunder, sShrike, sOmen, sWolf1, sWolf2, sCent}) {
+            ss.facing = 90f;
+            ss.velocity.set(0f, 550f);
+            campWave.add(ss.proxy);
+        }
+        for (SimShipState ss : new SimShipState[]{sHeron, sShrike, sOmen, sWolf1, sWolf2}) {
+            campPGroup.shipIdToDivision.put(ss.id, divCruiser);
+        }
+        for (SimShipState ss : new SimShipState[]{sMedusa, sEnforcer, sManticore, sSunder, sCent}) {
+            campPGroup.shipIdToDivision.put(ss.id, divDestroyer);
+        }
+
+        // Verify detectMissionContext prioritizes FleetGoal.ESCAPE over ctx.fightToTheLast
+        com.fs.starfarer.api.SettingsAPI prevSettings = null;
+        try {
+            prevSettings = com.fs.starfarer.api.Global.getSettings();
+        } catch (Throwable ignored) {
+        }
+        if (prevSettings == null) {
+            com.fs.starfarer.api.Global.setSettings((com.fs.starfarer.api.SettingsAPI) Proxy.newProxyInstance(
+                    com.fs.starfarer.api.SettingsAPI.class.getClassLoader(),
+                    new Class<?>[]{com.fs.starfarer.api.SettingsAPI.class},
+                    (p, m, a) -> {
+                        if (m.getReturnType() == float.class) return 3000f;
+                        if (m.getReturnType() == boolean.class) return false;
+                        if (m.getReturnType() == int.class) return 0;
+                        return null;
+                    }));
+        }
+        com.fs.starfarer.api.combat.BattleCreationContext pursuitCtx;
+        try {
+            pursuitCtx = new com.fs.starfarer.api.combat.BattleCreationContext(null, com.fs.starfarer.api.fleet.FleetGoal.ATTACK, null, com.fs.starfarer.api.fleet.FleetGoal.ESCAPE);
+        } finally {
+            com.fs.starfarer.api.Global.setSettings(prevSettings);
+        }
+        pursuitCtx.fightToTheLast = true;
+        final com.fs.starfarer.api.combat.CombatEngineAPI baseEngine = campArena.engineProxy;
+        com.fs.starfarer.api.combat.CombatEngineAPI pursuitCtxEngine = (com.fs.starfarer.api.combat.CombatEngineAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.CombatEngineAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.CombatEngineAPI.class},
+                (p, m, a) -> {
+                    if ("getContext".equals(m.getName())) return pursuitCtx;
+                    if ("getMapHeight".equals(m.getName())) return 26000f;
+                    return m.invoke(baseEngine, a);
+                });
+        campPGroup.missionContext = divisionai.DivisionAutoFormer.detectMissionContext(pursuitCtxEngine, 0);
+        campEGroup.missionContext = divisionai.DivisionAutoFormer.detectMissionContext(pursuitCtxEngine, 1);
+        boolean missionCtxCorrect = campPGroup.missionContext == divisionai.DivisionModel.MissionContextType.INTERCEPTION
+                && campEGroup.missionContext == divisionai.DivisionModel.MissionContextType.REARGUARD_ACTION;
+
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(divCruiser);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(divDestroyer);
+        divisionai.OtcAI.hijackNewlyDeployedWaveIntoFormation(pursuitCtxEngine, campPGroup, campEGroup, campWave, 0f);
+
+        float div1MinX = Float.MAX_VALUE, div1MaxX = -Float.MAX_VALUE;
+        for (SimShipState ss : new SimShipState[]{sHeron, sShrike, sOmen, sWolf1, sWolf2}) {
+            div1MinX = Math.min(div1MinX, ss.location.x);
+            div1MaxX = Math.max(div1MaxX, ss.location.x);
+        }
+        float div2MinX = Float.MAX_VALUE, div2MaxX = -Float.MAX_VALUE;
+        for (SimShipState ss : new SimShipState[]{sMedusa, sEnforcer, sManticore, sSunder, sCent}) {
+            div2MinX = Math.min(div2MinX, ss.location.x);
+            div2MaxX = Math.max(div2MaxX, ss.location.x);
+        }
+        boolean unInterleaved = (div1MaxX < div2MinX) || (div2MaxX < div1MinX);
+        boolean spawnYPreserved = Math.abs(divCruiser.centroid.y - (-6268.2f)) < 450f
+                && Math.abs(divDestroyer.centroid.y - (-6268.2f)) < 450f;
+
+        campArena.runSimulation(1.0f);
+
+        boolean noScoutingOrRearObjectiveChase = campPGroup.currentPhase == divisionai.DivisionModel.BattlePhase.APPROACH
+                && divCruiser.currentIntent != DivisionIntentType.TAKE_AND_HOLD
+                && divDestroyer.currentIntent != DivisionIntentType.TAKE_AND_HOLD
+                && divCruiser.stationPoint.y > -5000f
+                && divDestroyer.stationPoint.y > -5000f;
+
+        check(missionCtxCorrect && unInterleaved && spawnYPreserved && noScoutingOrRearObjectiveChase,
+                "Campaign Pursuit (fightToTheLast + escape objectives) classifies INTERCEPTION, un-interleaves Center divisions, and advances North (+Y)",
+                String.format(Locale.ROOT, "missionCtx=%s/%s, unInterleaved=%b (div1=[%.0f..%.0f], div2=[%.0f..%.0f]), spawnY=(%.0f, %.0f), phase=%s, stationsY=(%.0f, %.0f)",
+                        campPGroup.missionContext, campEGroup.missionContext,
+                        unInterleaved, div1MinX, div1MaxX, div2MinX, div2MaxX,
+                        divCruiser.centroid.y, divDestroyer.centroid.y,
+                        campPGroup.currentPhase, divCruiser.stationPoint.y, divDestroyer.stationPoint.y));
     }
 
     private static float dist(Vector2f a, Vector2f b) {

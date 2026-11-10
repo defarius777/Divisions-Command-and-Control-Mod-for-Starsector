@@ -981,9 +981,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 playerGroup.orchestratedAdvance = doctrine.isOrchestratedAdvance();
             }
             List<DivisionState> formed = DivisionAutoFormer.syncPlayerPermanentDivisionsOnly(engine, playerGroup, playerHulls);
-            for (DivisionState d : formed) {
-                DivisionCombatLog.logDivisionFormed(engine, d, now);
-            }
             if (!playerGroup.divisions.isEmpty()) {
                 OtcAI.updateTelemetry(engine, playerGroup);
                 OtcAI.synchronizeGrandFormationConsent(engine, playerGroup, enemyGroup, now);
@@ -996,6 +993,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     if (s != null && s.getId() != null) playerGroup.formationSpawnHijackedShipIds.add(s.getId());
                 }
             }
+            for (DivisionState d : formed) {
+                DivisionCombatLog.logDivisionFormed(engine, d, now);
+            }
         }
 
         if (newAlliedWave != null && alliedAiGroup != null) {
@@ -1003,9 +1003,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 alliedAiGroup.otc = DivisionAutoFormer.resolveAlliedAiOtc(engine, alliedAiHulls);
             }
             List<DivisionState> formed = DivisionAutoFormer.syncDivisionsForSide(engine, alliedAiGroup, alliedAiHulls);
-            for (DivisionState d : formed) {
-                DivisionCombatLog.logDivisionFormed(engine, d, now);
-            }
             if (!alliedAiGroup.divisions.isEmpty()) {
                 OtcAI.updateTelemetry(engine, alliedAiGroup);
                 OtcAI.synchronizeGrandFormationConsent(engine, alliedAiGroup, enemyGroup, now);
@@ -1018,13 +1015,13 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     if (s != null && s.getId() != null) alliedAiGroup.formationSpawnHijackedShipIds.add(s.getId());
                 }
             }
+            for (DivisionState d : formed) {
+                DivisionCombatLog.logDivisionFormed(engine, d, now);
+            }
         }
 
         if (newEnemyWave != null && enemyGroup != null) {
             List<DivisionState> formed = DivisionAutoFormer.syncDivisionsForSide(engine, enemyGroup, enemyHulls);
-            for (DivisionState d : formed) {
-                DivisionCombatLog.logDivisionFormed(engine, d, now);
-            }
             if (!enemyGroup.divisions.isEmpty()) {
                 OtcAI.updateTelemetry(engine, enemyGroup);
                 OtcAI.synchronizeGrandFormationConsent(engine, enemyGroup, playerGroup, now);
@@ -1036,6 +1033,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 for (ShipAPI s : newEnemyWave) {
                     if (s != null && s.getId() != null) enemyGroup.formationSpawnHijackedShipIds.add(s.getId());
                 }
+            }
+            for (DivisionState d : formed) {
+                DivisionCombatLog.logDivisionFormed(engine, d, now);
             }
         }
         // Always ensure newly deployed reinforcement ships get their Firepower Rose initialized immediately

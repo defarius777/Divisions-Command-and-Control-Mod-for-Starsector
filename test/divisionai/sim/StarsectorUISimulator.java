@@ -118,6 +118,52 @@ public class StarsectorUISimulator {
         }
     }
 
+    public static class SimCombatFleetManager extends com.fs.starfarer.combat.CombatFleetManager {
+        public com.fs.starfarer.api.fleet.FleetGoal simGoal = com.fs.starfarer.api.fleet.FleetGoal.ATTACK;
+        public int simMaxStrength = 240;
+        public PersonAPI simCommander;
+        public int simOwner = 0;
+
+        public SimCombatFleetManager() {
+            super(0);
+        }
+
+        @Override
+        public int getOwner() {
+            return simOwner;
+        }
+
+        @Override
+        public com.fs.starfarer.api.fleet.FleetGoal getGoal() {
+            return simGoal;
+        }
+
+        @Override
+        public int getMaxStrength() {
+            return simMaxStrength;
+        }
+
+        @Override
+        public int getCurrStrength() {
+            return 0;
+        }
+
+        @Override
+        public PersonAPI getFleetCommanderPreferPlayer() {
+            return simCommander;
+        }
+    }
+
+    public static class SimProgressBar extends com.fs.starfarer.campaign.ui.N {
+        public SimProgressBar() {
+            super((String) null, 100f, 20f);
+        }
+
+        @Override
+        public void setProgress(float p) {
+        }
+    }
+
     public static class SimButton extends n {
         private final String lbl;
         public SimButton(float w, float h, String lbl, Object data) {
@@ -502,6 +548,29 @@ public class StarsectorUISimulator {
         v table = grid.getList();
 
         Class<?> iconCls = Class.forName("com.fs.starfarer.ui.B.new");
+        Object fontObj = null;
+        Constructor<?> textRendererCtor = null;
+        try {
+            Class<?> fontMapCls = Class.forName("com.fs.graphics.A.D");
+            for (Method m : fontMapCls.getDeclaredMethods()) {
+                if (Modifier.isStatic(m.getModifiers())
+                        && m.getParameterTypes().length == 1
+                        && m.getParameterTypes()[0] == String.class
+                        && m.getReturnType().getName().equals("com.fs.graphics.A.F")) {
+                    m.setAccessible(true);
+                    fontObj = m.invoke(null, "graphics/fonts/victor14.fnt");
+                    break;
+                }
+            }
+            for (Field f : iconCls.getDeclaredFields()) {
+                if ("float.Object".equals(f.getName())) {
+                    textRendererCtor = f.getType().getDeclaredConstructor(Class.forName("com.fs.graphics.A.F"));
+                    textRendererCtor.setAccessible(true);
+                    break;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
         for (FleetMember m : members) {
             gridMembers.add(m);
             Object icon = allocateWithoutConstructor(iconCls);
@@ -509,6 +578,12 @@ public class StarsectorUISimulator {
                 f.setAccessible(true);
                 if (f.getType() == FleetMember.class) {
                     f.set(icon, m);
+                } else if (f.getType() == int.class && !Modifier.isStatic(f.getModifiers())) {
+                    f.setInt(icon, -1);
+                } else if (f.getType() == String.class && !Modifier.isStatic(f.getModifiers())) {
+                    f.set(icon, "DEPLOY");
+                } else if (textRendererCtor != null && fontObj != null && f.getType() == textRendererCtor.getDeclaringClass()) {
+                    f.set(icon, textRendererCtor.newInstance(fontObj));
                 }
             }
             SimButton cell = new SimButton(58f, 58f, m.getId(), m);
@@ -737,6 +812,9 @@ public class StarsectorUISimulator {
             // 6. Simulate 1:1 Warroom Battle Suite (OoOO, b, A, o0Oo, B.new command sprite suppression, mid-battle spawns & Mod Settings toggle)
             boolean warroomBattleSuiteOk = simulateWarroomBattleCommandSpriteSuite1To1();
 
+            // 7. Simulate 1:1 Pursuit Deployment Window ([L]/[C]/[R] flank selection, mixed division toggling, and clean deselection)
+            boolean pursuitDeploymentOk = simulatePursuitDeploymentWindow1To1(hullSpec, humanCmdr);
+
             boolean allSimOk = allFormationSpritesCenteredOk
                     && verifiedSprites == 22
                     && allFleetFormationSpritesOk
@@ -746,6 +824,7 @@ public class StarsectorUISimulator {
                     && stdDeploymentOk
                     && alphaDeploymentOk
                     && midBattleDeploymentOk
+                    && pursuitDeploymentOk
                     && fleetDoctrineDialogOk
                     && divisionEditorDialogOk
                     && campaignTooltipSimOk
@@ -756,13 +835,14 @@ public class StarsectorUISimulator {
                     "1:1 Starsector Obfuscated UI Simulation (Deployment formation selector, campaign dialogs & 30 formation sprites)",
                     String.format(
                             Locale.ROOT,
-                            "divisionSprites=%d, fleetSprites=%d(%b), deployStd=%b, deployAlpha=%b, deployMidBattle=%b, doctrineDialog=%b, editorDialog=%b, campaignTooltip1To1=%b, warroomBattleSuite1To1=%b",
+                            "divisionSprites=%d, fleetSprites=%d(%b), deployStd=%b, deployAlpha=%b, deployMidBattle=%b, deployPursuit=%b, doctrineDialog=%b, editorDialog=%b, campaignTooltip1To1=%b, warroomBattleSuite1To1=%b",
                             verifiedSprites,
                             verifiedFleetSprites,
                             allFleetFormationSpritesOk,
                             stdDeploymentOk,
                             alphaDeploymentOk,
                             midBattleDeploymentOk,
+                            pursuitDeploymentOk,
                             fleetDoctrineDialogOk,
                             divisionEditorDialogOk,
                             campaignTooltipSimOk,
@@ -1512,6 +1592,314 @@ public class StarsectorUISimulator {
         }
         if (!verifyAttachedTooltipsInTree(fdd, 5)) {
             System.out.println("FAIL fdd attached tooltips verification");
+            return false;
+        }
+
+        return true;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean simulatePursuitDeploymentWindow1To1(g hullSpec, final PersonAPI flagshipCaptain) throws Throwable {
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        final List<FleetMember> reserveMembers = new ArrayList<>();
+        // Div 1: Mixed Light Cruiser Division (1 Cruiser Heron + 1 Destroyer Shrike + 3 Frigates Omen/Wolf/Wolf)
+        SimFleetMember mHeron = SimFleetMember.create("p_heron", "ISS Heron", 20f, true, HullSize.CRUISER, hullSpec, flagshipCaptain);
+        SimFleetMember mShrike = SimFleetMember.create("p_shrike", "ISS Shrike", 8f, false, HullSize.DESTROYER, hullSpec, null);
+        SimFleetMember mOmen = SimFleetMember.create("p_omen", "ISS Omen", 6f, false, HullSize.FRIGATE, hullSpec, null);
+        SimFleetMember mWolf1 = SimFleetMember.create("p_wolf1", "ISS Wolf 1", 5f, false, HullSize.FRIGATE, hullSpec, null);
+        SimFleetMember mWolf2 = SimFleetMember.create("p_wolf2", "ISS Wolf 2", 5f, false, HullSize.FRIGATE, hullSpec, null);
+        // Div 2: Pure Destroyer Division (4 Destroyers — no Frigates)
+        SimFleetMember mMedusa = SimFleetMember.create("p_medusa", "ISS Medusa", 12f, false, HullSize.DESTROYER, hullSpec, null);
+        SimFleetMember mEnforcer = SimFleetMember.create("p_enforcer", "ISS Enforcer", 9f, false, HullSize.DESTROYER, hullSpec, null);
+        SimFleetMember mManticore = SimFleetMember.create("p_manticore", "ISS Manticore", 11f, false, HullSize.DESTROYER, hullSpec, null);
+        SimFleetMember mSunder = SimFleetMember.create("p_sunder", "ISS Sunder", 11f, false, HullSize.DESTROYER, hullSpec, null);
+        // Div 3: Pure Frigate Division (3 Frigates)
+        SimFleetMember mLasher1 = SimFleetMember.create("p_lasher1", "ISS Lasher 1", 4f, false, HullSize.FRIGATE, hullSpec, null);
+        SimFleetMember mLasher2 = SimFleetMember.create("p_lasher2", "ISS Lasher 2", 4f, false, HullSize.FRIGATE, hullSpec, null);
+        SimFleetMember mCenturion = SimFleetMember.create("p_centurion", "ISS Centurion", 7f, false, HullSize.FRIGATE, hullSpec, null);
+
+        reserveMembers.addAll(Arrays.asList(
+                mHeron, mShrike, mOmen, mWolf1, mWolf2,
+                mMedusa, mEnforcer, mManticore, mSunder,
+                mLasher1, mLasher2, mCenturion));
+
+        final Map<String, Object> pdata = new HashMap<>();
+        FleetDataAPI fleetData = (FleetDataAPI) Proxy.newProxyInstance(
+                StarsectorUISimulator.class.getClassLoader(),
+                new Class<?>[]{FleetDataAPI.class},
+                (p, m, a) -> "getMembersListCopy".equals(m.getName()) ? new ArrayList<>(reserveMembers) : null);
+        final FactionAPI playerFaction = (FactionAPI) Proxy.newProxyInstance(
+                StarsectorUISimulator.class.getClassLoader(),
+                new Class<?>[]{FactionAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "player";
+                    if ("getDisplayName".equals(n)) return "Player";
+                    if (m.getReturnType() == Color.class) return new Color(110, 210, 255, 255);
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        CampaignFleetAPI playerFleet = (CampaignFleetAPI) Proxy.newProxyInstance(
+                StarsectorUISimulator.class.getClassLoader(),
+                new Class<?>[]{CampaignFleetAPI.class},
+                (p, m, a) -> {
+                    if ("getFleetData".equals(m.getName())) return fleetData;
+                    if ("getFlagship".equals(m.getName())) return mHeron;
+                    if ("getCommander".equals(m.getName())) return flagshipCaptain;
+                    if ("getFaction".equals(m.getName())) return playerFaction;
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        SectorAPI sector = (SectorAPI) Proxy.newProxyInstance(
+                StarsectorUISimulator.class.getClassLoader(),
+                new Class<?>[]{SectorAPI.class},
+                (p, m, a) -> {
+                    if ("getPersistentData".equals(m.getName())) return pdata;
+                    if ("getPlayerFleet".equals(m.getName())) return playerFleet;
+                    if ("getPlayerFaction".equals(m.getName()) || "getFaction".equals(m.getName())) return playerFaction;
+                    if ("getPlayerPerson".equals(m.getName())) return flagshipCaptain;
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        Global.setSector(sector);
+
+        PermanentDivisionSpec div1 = new PermanentDivisionSpec("p_div_1", "1st Light Cruiser", DivisionArchetype.CRUISER_DIVISION);
+        div1.flagshipMemberId = "p_heron";
+        div1.memberIds.addAll(Arrays.asList("p_heron", "p_shrike", "p_omen", "p_wolf1", "p_wolf2"));
+
+        PermanentDivisionSpec div2 = new PermanentDivisionSpec("p_div_2", "2nd Destroyer Screen", DivisionArchetype.DESTROYER_DIVISION);
+        div2.flagshipMemberId = "p_medusa";
+        div2.memberIds.addAll(Arrays.asList("p_medusa", "p_enforcer", "p_manticore", "p_sunder"));
+
+        PermanentDivisionSpec div3 = new PermanentDivisionSpec("p_div_3", "3rd Frigate Flotilla", DivisionArchetype.FRIGATE_DIVISION);
+        div3.flagshipMemberId = "p_lasher1";
+        div3.memberIds.addAll(Arrays.asList("p_lasher1", "p_lasher2", "p_centurion"));
+
+        Method saveSpecsM = PermanentDivisionManager.class.getDeclaredMethod("saveSpecsToPersistentData", Map.class, List.class);
+        saveSpecsM.setAccessible(true);
+        saveSpecsM.invoke(null, pdata, Arrays.asList(div1, div2, div3));
+
+        Constructor<interfacenew> panelCtor = interfacenew.class.getDeclaredConstructor();
+        Constructor<SimFdd> fddCtor = (Constructor<SimFdd>) ReflectionFactory.getReflectionFactory()
+                .newConstructorForSerialization(SimFdd.class, panelCtor);
+        SimFdd fdd = fddCtor.newInstance();
+        fdd.selectedMembers = new ArrayList<>();
+
+        interfacenew innerPanel = new interfacenew();
+        fdd.setSize(624f, 460f);
+        innerPanel.setSize(604f, 440f);
+        fdd.add(innerPanel).inTL(10f, 10f);
+
+        S deployedGrid = buildRealShipGrid(fdd, 592f, 174f, 10, new ArrayList<FleetMember>());
+        S reservesGrid = buildRealShipGrid(fdd, 592f, 174f, 10, reserveMembers);
+        SimCombatFleetManager simPlayerFm = allocateWithoutConstructor(SimCombatFleetManager.class);
+        simPlayerFm.simOwner = 0;
+        simPlayerFm.simGoal = com.fs.starfarer.api.fleet.FleetGoal.ATTACK;
+        simPlayerFm.simMaxStrength = 240;
+        simPlayerFm.simCommander = flagshipCaptain;
+        SimCombatFleetManager simEnemyFm = allocateWithoutConstructor(SimCombatFleetManager.class);
+        simEnemyFm.simOwner = 1;
+        simEnemyFm.simGoal = com.fs.starfarer.api.fleet.FleetGoal.ESCAPE;
+        simEnemyFm.simMaxStrength = 240;
+        CombatEngine simEngine = allocateWithoutConstructor(CombatEngine.class);
+        for (Field ef : CombatEngine.class.getDeclaredFields()) {
+            if ("interface.new".equals(ef.getName())) {
+                ef.setAccessible(true);
+                ef.set(simEngine, Arrays.asList(simPlayerFm, simEnemyFm));
+            }
+        }
+        SimProgressBar simBar = allocateWithoutConstructor(SimProgressBar.class);
+        SimButton dummyBtn = new SimButton(100f, 24f, "Deploy", null);
+
+        for (Field f : oO0O.class.getDeclaredFields()) {
+            f.setAccessible(true);
+            if (f.getName().equals("\u00f6\u00f80000")) f.setInt(fdd, 0);
+            else if (f.getName().equals("o\u00f60000")) f.setBoolean(fdd, false);
+            else if (f.getName().equals("\u00f8O0000")) f.set(fdd, fdd.selectedMembers);
+            else if (f.getType() == CombatEngine.class) f.set(fdd, simEngine);
+            else if (f.getType() == com.fs.starfarer.combat.CombatFleetManager.class) f.set(fdd, simPlayerFm);
+            else if (f.getType() == com.fs.starfarer.campaign.ui.N.class) f.set(fdd, simBar);
+            else if (f.getType() == n.class) f.set(fdd, dummyBtn);
+            else if (f.getType() == S.class) {
+                if ("void.null$Object".equals(f.getName())) f.set(fdd, deployedGrid);
+                else f.set(fdd, reservesGrid);
+            }
+        }
+        for (Field f : o0OO.class.getDeclaredFields()) {
+            f.setAccessible(true);
+            if (f.getType() == interfacenew.class) f.set(fdd, innerPanel);
+            else if (f.getType() == Map.class) f.set(fdd, new HashMap<>());
+        }
+        interfacenew sep1 = new interfacenew();
+        sep1.setSize(592f, 7f);
+        interfacenew sep2 = new interfacenew();
+        sep2.setSize(542f, 1f);
+        LabelAPI crNote = Global.getSettings().createLabel("Combat readiness note", Fonts.DEFAULT_SMALL);
+        ((UIComponentAPI) crNote).getPosition().setSize(250f, 22f);
+
+        innerPanel.add(deployedGrid).inTL(10f, 10f);
+        innerPanel.add(sep1).belowLeft(deployedGrid, 10f);
+        innerPanel.add(reservesGrid).belowLeft(sep1, 10f);
+        innerPanel.add(sep2).belowLeft(reservesGrid, 15f);
+        innerPanel.add((c) crNote).belowLeft(sep2, 6f);
+
+        interfacenew widgetPanel = new interfacenew();
+        widgetPanel.setSize(1920f, 1080f);
+        widgetPanel.add(fdd).inMid();
+
+        CombatState cs = allocateWithoutConstructor(CombatState.class);
+        for (Field f : CombatState.class.getDeclaredFields()) {
+            f.setAccessible(true);
+            if (f.getName().equals("widgetPanel")) {
+                f.set(cs, widgetPanel);
+            } else if (f.getType().getName().equals("com.fs.starfarer.combat.CombatState$o")) {
+                Class<?> enumCls = f.getType();
+                Field floatField = enumCls.getDeclaredField("float");
+                floatField.setAccessible(true);
+                f.set(cs, floatField.get(null));
+            }
+        }
+
+        final Map<String, Object> customData = new HashMap<>();
+        CombatEngineAPI proxyEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                StarsectorUISimulator.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    if ("getCombatUI".equals(m.getName())) return cs;
+                    if ("getShips".equals(m.getName())) return Collections.emptyList();
+                    if ("getCustomData".equals(m.getName())) return customData;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+
+        CommanderProfile pCmdr = new CommanderProfile(flagshipCaptain, "steady");
+        BattleGroupState playerGroup = new BattleGroupState(0, pCmdr);
+        playerGroup.missionContext = divisionai.DivisionModel.MissionContextType.INTERCEPTION;
+        BattleGroupState enemyGroup = new BattleGroupState(1, new CommanderProfile(null, "steady"));
+        enemyGroup.missionContext = divisionai.DivisionModel.MissionContextType.REARGUARD_ACTION;
+
+        DivisionDeploymentDialogOrganizer organizer = new DivisionDeploymentDialogOrganizer();
+        organizer.setBattleContext(playerGroup, enemyGroup, new DynamicBattleMusicController());
+        organizer.advance(proxyEngine);
+        innerPanel.advance(0.1f);
+
+        v rList = reservesGrid.getList();
+        List<c> rItems = rList.getItems();
+        List<CustomPanelAPI> headerCards = new ArrayList<>();
+        for (c item : rItems) {
+            if (item instanceof CustomPanelAPI && item.getPosition() != null
+                    && Math.abs(item.getPosition().getWidth() - 113f) <= 2f) {
+                headerCards.add((CustomPanelAPI) item);
+            }
+        }
+        if (headerCards.size() != 3) {
+            System.out.println("FAIL pursuit headerCards size: " + headerCards.size());
+            return false;
+        }
+
+        // Card 0 (Div 1: Cruiser + Destroyer + 3 Frigates) -> has Frigates -> 3 buttons ([L], [C], [R])
+        // Card 1 (Div 2: 4 Destroyers, 0 Frigates) -> no Frigates (no ForceConcentration) -> 1 button (Select)
+        // Card 2 (Div 3: 3 Frigates) -> has Frigates -> 3 buttons ([L], [C], [R])
+        List<LabelAPI> c0Labels = new ArrayList<>(), c1Labels = new ArrayList<>(), c2Labels = new ArrayList<>();
+        List<ButtonAPI> c0Btns = new ArrayList<>(), c1Btns = new ArrayList<>(), c2Btns = new ArrayList<>();
+        collectLabelsAndButtonsRecursive(headerCards.get(0), c0Labels, c0Btns);
+        collectLabelsAndButtonsRecursive(headerCards.get(1), c1Labels, c1Btns);
+        collectLabelsAndButtonsRecursive(headerCards.get(2), c2Labels, c2Btns);
+        if (c0Btns.size() != 3 || c1Btns.size() != 1 || c2Btns.size() != 3) {
+            System.out.println("FAIL pursuit card button counts: c0=" + c0Btns.size() + " c1=" + c1Btns.size() + " c2=" + c2Btns.size());
+            return false;
+        }
+
+        Field pluginField = null;
+        for (Field f : headerCards.get(0).getClass().getDeclaredFields()) {
+            if (CustomUIPanelPlugin.class.isAssignableFrom(f.getType())) {
+                f.setAccessible(true);
+                pluginField = f;
+                break;
+            }
+        }
+        if (pluginField == null) return false;
+        CustomUIPanelPlugin p0 = (CustomUIPanelPlugin) pluginField.get(headerCards.get(0));
+        CustomUIPanelPlugin p1 = (CustomUIPanelPlugin) pluginField.get(headerCards.get(1));
+        CustomUIPanelPlugin p2 = (CustomUIPanelPlugin) pluginField.get(headerCards.get(2));
+
+        Method iconGetStateM = Class.forName("com.fs.starfarer.ui.B.new").getDeclaredMethod("\u00d5O0000");
+        iconGetStateM.setAccessible(true);
+
+        // 1. Div 3 (Frigates): Click [L] -> state 2; Click [R] -> state 3; Click [R] again -> state -1 (clean deselect!)
+        p2.buttonPressed("DEPLOY_LEFT_ROW");
+        if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mLasher1)) != 2
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mLasher2)) != 2
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mCenturion)) != 2) {
+            System.out.println("FAIL Div 3 DEPLOY_LEFT_ROW state");
+            return false;
+        }
+        p2.buttonPressed("DEPLOY_RIGHT_ROW");
+        if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mLasher1)) != 3
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mCenturion)) != 3) {
+            System.out.println("FAIL Div 3 DEPLOY_RIGHT_ROW state");
+            return false;
+        }
+        p2.buttonPressed("DEPLOY_RIGHT_ROW");
+        if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mLasher1)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mLasher2)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mCenturion)) != -1) {
+            System.out.println("FAIL Div 3 deselect from DEPLOY_RIGHT_ROW");
+            return false;
+        }
+
+        // 2. Div 2 (Destroyers): Click Select -> state 1; Click Select again -> state -1 (never stuck at state 4!)
+        p1.buttonPressed("TOGGLE_ROW");
+        if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mMedusa)) != 1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mSunder)) != 1) {
+            System.out.println("FAIL Div 2 select state");
+            return false;
+        }
+        p1.buttonPressed("TOGGLE_ROW");
+        if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mMedusa)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mEnforcer)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mManticore)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mSunder)) != -1) {
+            System.out.println("FAIL Div 2 Destroyer deselect stuck at state=" + iconGetStateM.invoke(reservesGrid.getIconForMember(mMedusa)));
+            return false;
+        }
+
+        // 3. Div 1 (Mixed Cruiser + Destroyer + 3 Frigates):
+        //    Click [L] -> Frigates become 2 (DEPLOY LEFT), Heron/Shrike stay -1.
+        //    Click [C] -> Heron/Shrike become 1 (DEPLOY), Frigates stay 2 (DEPLOY LEFT)!
+        //    Click [C] again -> All 5 become 1 (DEPLOY).
+        //    Click [C] third time -> All 5 cleanly deselect to -1!
+        p0.buttonPressed("DEPLOY_LEFT_ROW");
+        if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mOmen)) != 2
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mWolf1)) != 2
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mHeron)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mShrike)) != -1) {
+            System.out.println("FAIL Mixed Div 1 step 1 ([L])");
+            return false;
+        }
+        p0.buttonPressed("TOGGLE_ROW");
+        if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mHeron)) != 1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mShrike)) != 1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mOmen)) != 2
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mWolf1)) != 2) {
+            System.out.println("FAIL Mixed Div 1 step 2 ([C] fills unselected Center while preserving Left Frigates)");
+            return false;
+        }
+        p0.buttonPressed("TOGGLE_ROW");
+        if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mHeron)) != 1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mOmen)) != 1) {
+            System.out.println("FAIL Mixed Div 1 step 3 ([C] unifies to Center)");
+            return false;
+        }
+        p0.buttonPressed("TOGGLE_ROW");
+        if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mHeron)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mShrike)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mOmen)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mWolf1)) != -1
+                || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mWolf2)) != -1) {
+            System.out.println("FAIL Mixed Div 1 step 4 ([C] deselects all)");
             return false;
         }
 
