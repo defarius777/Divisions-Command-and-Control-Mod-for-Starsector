@@ -2970,6 +2970,7 @@ public class OtcAI {
         List<DivisionState> enemyDivs = getEffectiveEnemyDivisions(engine, enemyGroup);
         boolean anyAbleVisibleEnemy = false;
         boolean anyAbleVisibleMobileCombatEnemy = false;
+        boolean anyOrganizedCombatEnemy = false;
         int ableVisibleEnemyCount = 0;
         for (DivisionState eDiv : enemyDivs) {
             if (eDiv.isAbleCombatEffective() && isDivisionVisibleToSide(engine, myGroup.side, eDiv)) {
@@ -2979,6 +2980,9 @@ public class OtcAI {
                         && eDiv.archetype != DivisionArchetype.SERVICE_GROUP
                         && eDiv.combatThreatWeight > 0.55f) {
                     anyAbleVisibleMobileCombatEnemy = true;
+                    if (eDiv.id == null || !eDiv.id.startsWith("unassigned_")) {
+                        anyOrganizedCombatEnemy = true;
+                    }
                 }
             }
         }
@@ -3025,11 +3029,18 @@ public class OtcAI {
             }
 
             // OTC Overkill Veto for Primary Threat:
-            // If non-Main-Effort friendly divisions already commit >= eDiv.overkillCapFp against this division
+            // If non-Main-Effort friendly surface divisions already commit >= eDiv.overkillCapFp against this division
             // while another visible able enemy division is NOT overkilled, Main Effort must NOT pile on!
+            // (Exclude Carrier divisions from nonMainCommittedFp so air support on the primary threat never causes
+            // the surface Main Effort to abandon the primary threat!)
+            boolean isUnassignedContact = eDiv.id != null && eDiv.id.startsWith("unassigned_");
             float nonMainCommittedFp = 0f;
             for (DivisionState myDiv : myGroup.divisions) {
                 if (myDiv == null || !myDiv.isAbleCombatEffective() || myDiv == anchorDiv) continue;
+                if (myDiv.archetype == DivisionArchetype.FLEET_CARRIER_DIVISION
+                        || myDiv.archetype == DivisionArchetype.LIGHT_CARRIER_DIVISION
+                        || myDiv.archetype == DivisionArchetype.ESCORT_CARRIER_DIVISION
+                        || myDiv.archetype == DivisionArchetype.CARRIER_GROUP) continue;
                 DivisionState tgt = (myDiv.otcOrder != null && myDiv.otcOrder.targetEnemy != null)
                         ? myDiv.otcOrder.targetEnemy
                         : myDiv.targetEnemyDivision;
@@ -3039,6 +3050,10 @@ public class OtcAI {
             }
             float overkillPrimaryPenalty = (ableVisibleEnemyCount >= 2 && nonMainCommittedFp >= eDiv.overkillCapFp)
                     ? -1600f
+                    : 0f;
+            float unassignedStragglerPenalty = (!isPursuitInterception && anyOrganizedCombatEnemy && isUnassignedContact
+                    && eDiv.members.size() <= 1 && rawVisFp <= 14f)
+                    ? -560f
                     : 0f;
 
             // Item D (Independent Ship Disposition Alignment):
@@ -3097,7 +3112,7 @@ public class OtcAI {
                         ? (eDiv.avgFluxLevel * 360f + (1.0f - eDiv.avgHullLevel) * 320f)
                         : 0f;
                 score = visFp * 9.5f + avgConv * 0.55f + collapseBonus + auxPenalty + unablePenalty
-                        + edgePinchBonus + cogBonus + overkillPrimaryPenalty + pursuitContextBonus
+                        + edgePinchBonus + cogBonus + overkillPrimaryPenalty + unassignedStragglerPenalty + pursuitContextBonus
                         + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
                         + feignPenalty - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
             } else {
@@ -3120,7 +3135,7 @@ public class OtcAI {
                         ? (eDiv.avgFluxLevel * 360f + (1.0f - eDiv.avgHullLevel) * 320f)
                         : 0f;
                 score = visFp * 9.5f + avgConv * 0.65f + isolationBonus + spaceSeamBonus + pinnedBonus + collapseBonus + edgePinchBonus
-                        + cogBonus + overkillPrimaryPenalty + pursuitContextBonus
+                        + cogBonus + overkillPrimaryPenalty + unassignedStragglerPenalty + pursuitContextBonus
                         + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
                         + feignPenalty + auxPenalty + unablePenalty
                         - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);

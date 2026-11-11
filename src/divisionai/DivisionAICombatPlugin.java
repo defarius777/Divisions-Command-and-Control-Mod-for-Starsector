@@ -1225,7 +1225,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             }
             if (contactDiv == null) {
                 for (DivisionState existing : pool) {
-                    if (existing != null && !view.divisions.contains(existing)) {
+                    if (existing != null && !view.divisions.contains(existing)
+                            && (existing.flagship == null || !unassignedHulls.contains(existing.flagship))) {
                         contactDiv = existing;
                         break;
                     }

@@ -1069,7 +1069,11 @@ public class VoidstrikeCoordinator {
                     float terminalStartRange = 880f;
 
                     // Dress squadron formation, multi-axis dogleg (L-Crossfire / Pincer / Split-Wing), & Voidstrike depth on approach
-                    if (wingLeader != null && wingLeader.isAlive() && dEnemy > 420f) {
+                    boolean isStandoffGunship = isStandoffGunshipOrCorvette(wing, fighter);
+                    float standoffHoldDist = isStandoffGunship
+                            ? Math.max(520f, Math.min(850f, maxWepRange * 0.85f))
+                            : 420f;
+                    if (wingLeader != null && wingLeader.isAlive() && dEnemy > standoffHoldDist) {
                         String fighterIdKey = fighter.getId() != null ? fighter.getId() : ("F_" + globalSqdnIdx + "_" + cIdx);
                         String leaderIdKey = wingLeader.getId() != null ? wingLeader.getId() : ("L_" + globalSqdnIdx);
                         String targetIdKey = attackTarget.getId() != null ? attackTarget.getId() : "TGT";
@@ -1194,7 +1198,9 @@ public class VoidstrikeCoordinator {
                     // Advanced Strike Craft Gunnery on Terminal Attack Run (once dogleg gate is cleared):
                     //  - Hierarchical Firing Sectors (Voidstrike -> Squadron -> Craft) for PRECISION vs AREA_SATURATION
                     //  - Angle-of-Attack Correction (LOW vs STRONG) with ballistic lead, slip damping, and standoff release
-                    if (!onFlankingDogleg && hasOrdnance && (unguidedCraft || isFiniteAmmoCraft) && dEnemy <= terminalStartRange) {
+                    // Standoff Gunships / Corvettes (e.g. UAF Neoscar/Puterakamu/Puterisaya/Pengawas, Mayasuran/Kyeltziv Corvettes)
+                    // orbit/strafe at standoff range using turret/multi-pod weapons; never lock their 60 Hz velocity vector into the hull center!
+                    if (!onFlankingDogleg && !isStandoffGunship && hasOrdnance && (unguidedCraft || isFiniteAmmoCraft) && dEnemy <= terminalStartRange) {
                         FiringSectorAssignment sector = computeHierarchicalFiringSector(
                                 gunneryMode,
                                 aoaCorrection,
@@ -1211,7 +1217,6 @@ public class VoidstrikeCoordinator {
                                 legRightX,
                                 legRightY);
                         div.lastVoidstrikeSpanWidth = sector.voidstrikeSpanWidth;
-                        fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, sector.worldAimPoint);
                         boolean fireGated = applyTerminalStrikeCraftGunnery(
                                 fighter,
                                 fFlags,
@@ -1257,6 +1262,24 @@ public class VoidstrikeCoordinator {
      * Returns true if {@code fighter} carries unguided or low-turn-rate strike munitions (torpedoes,
      * rockets, bombs, or non-beam ballistic/energy strike weapons) that require nose-on AoA alignment.
      */
+    private static boolean isStandoffGunshipOrCorvette(com.fs.starfarer.api.combat.FighterWingAPI wing, ShipAPI fighter) {
+        if (wing != null && wing.getSpec() != null) {
+            com.fs.starfarer.api.loading.FighterWingSpecAPI spec = wing.getSpec();
+            if (spec.getTags() != null && spec.getTags().contains("attack_at_an_angle")) {
+                return true;
+            }
+            String roleDesc = spec.getRoleDesc();
+            if (roleDesc != null) {
+                String lower = roleDesc.toLowerCase(Locale.ROOT);
+                if (lower.contains("gunship") || lower.contains("corvette")
+                        || lower.contains("artillery") || lower.contains("platform")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static boolean hasUnguidedStrikeMunitions(ShipAPI fighter) {
         if (fighter == null) return false;
         List<WeaponAPI> weapons = fighter.getAllWeapons();
@@ -2330,13 +2353,24 @@ public class VoidstrikeCoordinator {
         float targetRad = (target != null && target.getCollisionRadius() > 0f) ? target.getCollisionRadius() : 90f;
         float maxWepRange = computeMaxStrikeWeaponRange(fighter);
         float minStandoffFloor = Math.max(targetRad + 180f, 340f);
+        float minInnerDiveFloor = Math.max(targetRad + 45f, 210f);
 
-        // Aim movement toward the target point while outside standoff floor (never projecting +240u past the enemy hull)
+        // Aim movement toward the target point while outside standoff floor (never projecting +240u past the enemy hull).
+        // Once inside minInnerDiveFloor (just outside the enemy collision radius), release MOVEMENT_DEST and DO_NOT_BACK_OFF
+        // so no strike craft or corvette ever tries to fly onto and mate with the center of the enemy hull!
         if (fFlags != null) {
-            fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, sector.worldAimPoint);
-            if (dEnemy > minStandoffFloor) {
+            if (dEnemy <= minInnerDiveFloor) {
+                fFlags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
+                fFlags.unsetFlag(AIFlags.MOVEMENT_DEST);
+                fFlags.setFlag(AIFlags.BACK_OFF, DivisionCommanderAI.FLAG_TTL);
+            } else if (dEnemy > minStandoffFloor) {
+                fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, sector.worldAimPoint);
                 fFlags.setFlag(AIFlags.DO_NOT_BACK_OFF, DivisionCommanderAI.FLAG_TTL);
             } else {
+                Vector2f forwardPassGoal = new Vector2f(
+                        fighter.getLocation().x + aimDirX * 140f,
+                        fighter.getLocation().y + aimDirY * 140f);
+                fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, forwardPassGoal);
                 fFlags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
             }
         }
@@ -2348,7 +2382,7 @@ public class VoidstrikeCoordinator {
                 : 0.016f;
         float frameScale = Math.max(0.25f, Math.min(4.0f, dt / 0.016f));
 
-        if (dEnemy <= maxDampDist && fighter.getVelocity() != null) {
+        if (dEnemy <= maxDampDist && dEnemy > minInnerDiveFloor && fighter.getVelocity() != null) {
             Vector2f vel = fighter.getVelocity();
             float vFwd = vel.x * aimDirX + vel.y * aimDirY;
             float vPerpX = vel.x - vFwd * aimDirX;
@@ -2362,7 +2396,7 @@ public class VoidstrikeCoordinator {
         }
 
         float angleDiff = shortestAngleDiffDeg(fighter.getFacing(), desiredFacing);
-        if (dEnemy <= maxDampDist) {
+        if (dEnemy <= maxDampDist && dEnemy > minInnerDiveFloor) {
             float maxSlewDegPerSec = isStrong ? 220f : 95f;
             float maxStep = maxSlewDegPerSec * dt;
             float step = Math.max(-maxStep, Math.min(maxStep, angleDiff));
