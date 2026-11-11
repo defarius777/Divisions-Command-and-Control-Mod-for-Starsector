@@ -163,6 +163,7 @@ public class VoidstrikeCoordinator {
     public static void resetForNewBattle() {
         activeVoidstrikes.clear();
         recentVoidstrikeHistory.clear();
+        flankingGateClearedTargetByFighter.clear();
         nextVoidstrikeNumberBySide[0] = 1;
         nextVoidstrikeNumberBySide[1] = 1;
         nextVoidstrikeNumberBySide[2] = 1;
@@ -172,6 +173,8 @@ public class VoidstrikeCoordinator {
         lastVoidstrikeAlliedGroup = null;
         lastVoidstrikeEnemyGroup = null;
     }
+
+    static final Map<String, String> flankingGateClearedTargetByFighter = new HashMap<>();
 
     // Bounded Voidstrike sortie doctrine driven by the Maximum Average Effective Massed Strike Package upon execution.
     public static final String VOIDSTRIKE_MAX_RANGE_STAT_ID = "divai_voidstrike_max_range";
@@ -736,6 +739,70 @@ public class VoidstrikeCoordinator {
             }
         }
 
+        // Multi-Angle Time-on-Target (ToT) Jaw Synchronization:
+        // When executing a multi-angle / split-wing strike (L-Crossfire, Pincer Envelopment, or Split-Axes),
+        // compute the slowest armed sub-wing's remaining path-time (ETA) to terminal weapon release so that
+        // shorter/faster legs (e.g. the 0-deg Anvil leg or the nearer Pincer jaw) pace themselves outside PD range
+        // and all attack angles converge on the target simultaneously to overwhelm and split enemy PD!
+        boolean multiAngleStrikeActive = inVoidstrike
+                && (!coordinatedStagingActive || div.voidstrikeStage == 2)
+                && focusEnemyShip != null
+                && focusEnemyShip.isAlive()
+                && (attackGeometry != VoidstrikeAttackGeometry.DIRECT_ASSAULT
+                || splitMode == VoidstrikeSplitMode.SPLIT_AXES);
+        float maxArmedSubWingEtaSec = 0f;
+        if (multiAngleStrikeActive) {
+            int scanGlobalIdx = 0;
+            int numAxesEst = (attackGeometry == VoidstrikeAttackGeometry.DIRECT_ASSAULT && totalDivWings >= 3) ? 3 : 2;
+            for (ShipAPI mCarrier : divAlive) {
+                if (mCarrier == null || !mCarrier.isAlive() || mCarrier.getAllWings() == null) continue;
+                for (com.fs.starfarer.api.combat.FighterWingAPI mWing : mCarrier.getAllWings()) {
+                    if (mWing != null && mWing.getWingMembers() != null && !mWing.getWingMembers().isEmpty()) {
+                        ShipAPI mLeader = mWing.getLeader();
+                        if (mLeader == null || !mLeader.isAlive()) {
+                            mLeader = mWing.getWingMembers().get(0);
+                        }
+                        boolean mIsBomber = (mWing.getSpec() != null && mWing.getSpec().isBomber())
+                                || (mWing.getRole() == com.fs.starfarer.api.loading.WingRole.BOMBER);
+                        if (mLeader != null && mLeader.isAlive() && !mWing.isReturning(mLeader)
+                                && hasStrikeOrdnanceRemaining(mLeader, mIsBomber)) {
+                            float mLegDeg = computeSquadronAttackAngleOffsetDeg(
+                                    attackGeometry, splitMode, scanGlobalIdx, Math.max(1, totalDivWings),
+                                    mIsBomber, focusEnemyShip, fwdX, fwdY);
+                            float dL = DivisionUiWidgets.distance(mLeader.getLocation(), focusEnemyShip.getLocation());
+                            if (dL <= 3600f) {
+                                int subRank = (scanGlobalIdx / numAxesEst) / Math.max(1, effSqdnWidth);
+                                float gDist = 620f + subRank * 65f;
+                                String lId = mLeader.getId() != null ? mLeader.getId() : ("L_" + scanGlobalIdx);
+                                String fTgtId = focusEnemyShip.getId() != null ? focusEnemyShip.getId() : "TGT";
+                                boolean gateDone = Math.abs(mLegDeg) <= 5f
+                                        || fTgtId.equals(flankingGateClearedTargetByFighter.get(lId));
+                                float remPath;
+                                if (gateDone) {
+                                    remPath = Math.max(0f, dL - 520f);
+                                } else {
+                                    double mRad = Math.toRadians(mLegDeg);
+                                    float mLegFwdX = fwdX * (float) Math.cos(mRad) - fwdY * (float) Math.sin(mRad);
+                                    float mLegFwdY = fwdX * (float) Math.sin(mRad) + fwdY * (float) Math.cos(mRad);
+                                    Vector2f gPt = new Vector2f(
+                                            focusEnemyShip.getLocation().x - mLegFwdX * gDist,
+                                            focusEnemyShip.getLocation().y - mLegFwdY * gDist);
+                                    remPath = DivisionUiWidgets.distance(mLeader.getLocation(), gPt) + Math.max(0f, gDist - 520f);
+                                }
+                                float spd = Math.max(110f, mLeader.getMaxSpeed());
+                                float eta = remPath / spd;
+                                if (eta > maxArmedSubWingEtaSec) {
+                                    maxArmedSubWingEtaSec = eta;
+                                }
+                            }
+                        }
+                    }
+                    scanGlobalIdx++;
+                }
+            }
+            maxArmedSubWingEtaSec = Math.min(maxArmedSubWingEtaSec, 18.0f);
+        }
+
         for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
             com.fs.starfarer.api.combat.FighterWingAPI wing = wings.get(wIdx);
             if (wing == null) continue;
@@ -832,6 +899,9 @@ public class VoidstrikeCoordinator {
                         useLegBasis ? legRightY : rightY);
 
                 if (holdFightersInFormation) {
+                    if (fighter.getId() != null) {
+                        flankingGateClearedTargetByFighter.remove(fighter.getId());
+                    }
                     fighter.setShipTarget(null);
                     fFlags.unsetFlag(AIFlags.MANEUVER_TARGET);
                     fFlags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
@@ -845,6 +915,9 @@ public class VoidstrikeCoordinator {
                 } else if (coordinatedStagingActive && div.voidstrikeStage == 0
                         && (DivisionUiWidgets.distance(fighter.getLocation(), carrier.getLocation()) <= 950f
                         || DivisionUiWidgets.distance(fighter.getLocation(), div.voidstrikeMarshalPoint) <= 950f)) {
+                    if (fighter.getId() != null) {
+                        flankingGateClearedTargetByFighter.remove(fighter.getId());
+                    }
                     // Coordinated Stage 0: Squadrons launch and circle/orbit around their carrier
                     double orbitAng = (now * 1.45) + (wIdx * 1.57) + (cIdx * 0.55);
                     float orbitRad = Math.max(135f, carrier.getCollisionRadius() + 75f);
@@ -862,6 +935,9 @@ public class VoidstrikeCoordinator {
                 } else if (coordinatedStagingActive && div.voidstrikeStage == 1
                         && (DivisionUiWidgets.distance(fighter.getLocation(), carrier.getLocation()) <= 950f
                         || DivisionUiWidgets.distance(fighter.getLocation(), div.voidstrikeMarshalPoint) <= 950f)) {
+                    if (fighter.getId() != null) {
+                        flankingGateClearedTargetByFighter.remove(fighter.getId());
+                    }
                     // Coordinated Stage 1: Squadrons move to nearby marshalling point and dress into Voidstrike formation, width & depth.
                     // Clear fighter shipTarget and gently pace fast interceptors/fighters at marshalSlot so they wait for slower bombers!
                     Vector2f marshalSlot = new Vector2f(
@@ -909,6 +985,9 @@ public class VoidstrikeCoordinator {
                     }
                     boolean hasOrdnance = hasStrikeOrdnanceRemaining(fighter, isBomberWing);
                     if (wing.isReturning(fighter) || (isBomberWing && !hasOrdnance) || criticalSelfPreservationRetreat) {
+                        if (fighter.getId() != null) {
+                            flankingGateClearedTargetByFighter.remove(fighter.getId());
+                        }
                         if (!wing.isReturning(fighter) && ((isBomberWing && !hasUnexpendedOrdnance) || criticalSelfPreservationRetreat)) {
                             try {
                                 wing.orderReturn(fighter);
@@ -991,24 +1070,34 @@ public class VoidstrikeCoordinator {
 
                     // Dress squadron formation, multi-axis dogleg (L-Crossfire / Pincer / Split-Wing), & Voidstrike depth on approach
                     if (wingLeader != null && wingLeader.isAlive() && dEnemy > 420f) {
+                        String fighterIdKey = fighter.getId() != null ? fighter.getId() : ("F_" + globalSqdnIdx + "_" + cIdx);
+                        String leaderIdKey = wingLeader.getId() != null ? wingLeader.getId() : ("L_" + globalSqdnIdx);
+                        String targetIdKey = attackTarget.getId() != null ? attackTarget.getId() : "TGT";
+
                         if (Math.abs(legAngleOffsetDeg) > 5f && hasOrdnance && dEnemy <= 2600f) {
                             // Multi-axis Flanking Gate (L-Shaped Crossfire, Pincer Envelopment, or Split-Wing):
-                            // Steer the squadron through an offset turning gate along -legFwd so strike craft roll in along legFwd.
-                            // If the squadron is already within weapon release range or taking AA fire, abort the dogleg immediately
-                            // and turn directly into the attack run so strike craft never die flying sideways through flak!
-                            float gateDist = 660f + rankIdx * 90f;
-                            float centeredCol = colIdx - (activeColsInRank - 1) * 0.5f;
+                            // Index rank and column within this sub-wing/jaw (rather than across all 18+ squadrons of the division)
+                            // so each pincer jaw / crossfire leg forms a tight, compact strike package at standoff release range!
+                            int numAxes = (attackGeometry == VoidstrikeAttackGeometry.DIRECT_ASSAULT && totalDivWings >= 3) ? 3 : 2;
+                            int subWingSqdnIdx = globalSqdnIdx / numAxes;
+                            int subWingTotalSqdns = Math.max(1, (totalDivWings + numAxes - 1) / numAxes);
+                            int subWingCols = Math.max(1, Math.min(effSqdnWidth, subWingTotalSqdns));
+                            int subColIdx = subWingSqdnIdx % subWingCols;
+                            int subRankIdx = (subWingSqdnIdx / subWingCols) % Math.max(1, effSqdnDepth);
+
+                            float gateDist = 620f + subRankIdx * 65f;
+                            float centeredCol = subColIdx - (subWingCols - 1) * 0.5f;
                             Vector2f flankGate = new Vector2f(
-                                    attackTarget.getLocation().x - legFwdX * gateDist + legRightX * (centeredCol * 85f),
-                                    attackTarget.getLocation().y - legFwdY * gateDist + legRightY * (centeredCol * 85f));
+                                    attackTarget.getLocation().x - legFwdX * gateDist + legRightX * (centeredCol * 60f),
+                                    attackTarget.getLocation().y - legFwdY * gateDist + legRightY * (centeredCol * 60f));
                             Vector2f activeGate = flankGate;
                             if (Math.abs(legAngleOffsetDeg) >= 70f) {
                                 float dAlongPrimary = (attackTarget.getLocation().x - fighter.getLocation().x) * wingFwdX
                                         + (attackTarget.getLocation().y - fighter.getLocation().y) * wingFwdY;
                                 if (dAlongPrimary > 500f) {
                                     Vector2f outerElbow = new Vector2f(
-                                            attackTarget.getLocation().x - wingFwdX * 480f - legFwdX * gateDist + legRightX * (centeredCol * 85f),
-                                            attackTarget.getLocation().y - wingFwdY * 480f - legFwdY * gateDist + legRightY * (centeredCol * 85f));
+                                            attackTarget.getLocation().x - wingFwdX * 480f - legFwdX * gateDist + legRightX * (centeredCol * 60f),
+                                            attackTarget.getLocation().y - wingFwdY * 480f - legFwdY * gateDist + legRightY * (centeredCol * 60f));
                                     if (DivisionUiWidgets.distance(fighter.getLocation(), outerElbow) > 220f) {
                                         activeGate = outerElbow;
                                     }
@@ -1021,19 +1110,46 @@ public class VoidstrikeCoordinator {
 
                             boolean fighterUnderAaFire = fighter.getHullLevel() < 0.92f
                                     || (fighter.getFluxTracker() != null && fighter.getFluxTracker().getFluxLevel() >= 0.08f);
-                            float curToTgtX = (attackTarget.getLocation().x - fighter.getLocation().x) / Math.max(1f, dEnemy);
-                            float curToTgtY = (attackTarget.getLocation().y - fighter.getLocation().y) / Math.max(1f, dEnemy);
+                            float toTgtX = attackTarget.getLocation().x - fighter.getLocation().x;
+                            float toTgtY = attackTarget.getLocation().y - fighter.getLocation().y;
+                            float curToTgtX = toTgtX / Math.max(1f, dEnemy);
+                            float curToTgtY = toTgtY / Math.max(1f, dEnemy);
                             float cosLegAlign = curToTgtX * legFwdX + curToTgtY * legFwdY;
-                            boolean alignedWithTerminalLeg = (cosLegAlign >= 0.92f)
-                                    || (dEnemy <= 680f && cosLegAlign >= 0.76f)
+                            float projAlongLeg = toTgtX * legFwdX + toTgtY * legFwdY;
+
+                            // Latched One-Way Flanking Gate: once a fighter or its squadron leader reaches its turning gate
+                            // or crosses the gate plane inward along legFwd, latch clearedGate = true for this target so it
+                            // NEVER oscillates or turns 180 deg backward when moving > 165u past gateWaypoint toward the enemy!
+                            boolean alreadyClearedGate = targetIdKey.equals(flankingGateClearedTargetByFighter.get(fighterIdKey))
+                                    || (targetIdKey.equals(flankingGateClearedTargetByFighter.get(leaderIdKey)) && dEnemy <= gateDist + 240f);
+                            boolean alignedWithTerminalLeg = alreadyClearedGate
+                                    || (cosLegAlign >= 0.90f)
+                                    || (dEnemy <= 680f && cosLegAlign >= 0.72f)
+                                    || (projAlongLeg <= gateDist + 45f && cosLegAlign >= 0.65f)
                                     || (fighterUnderAaFire && dEnemy <= 850f)
-                                    || (DivisionUiWidgets.distance(fighter.getLocation(), flankGate) <= 165f)
-                                    || (DivisionUiWidgets.distance(fighter.getLocation(), craftGate) <= 165f)
-                                    || (DivisionUiWidgets.distance(fighter.getLocation(), gateWaypoint) <= 155f);
+                                    || (DivisionUiWidgets.distance(fighter.getLocation(), flankGate) <= 185f)
+                                    || (DivisionUiWidgets.distance(fighter.getLocation(), craftGate) <= 185f)
+                                    || (DivisionUiWidgets.distance(fighter.getLocation(), gateWaypoint) <= 175f);
+                            if (alignedWithTerminalLeg) {
+                                flankingGateClearedTargetByFighter.put(fighterIdKey, targetIdKey);
+                                if (fighter == wingLeader) {
+                                    flankingGateClearedTargetByFighter.put(leaderIdKey, targetIdKey);
+                                }
+                            }
                             if (!alignedWithTerminalLeg) {
                                 onFlankingDogleg = true;
                                 fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, gateWaypoint);
-                                steerFighterTowardPoint60Hz(fighter, gateWaypoint, true);
+                                // Time-on-Target (ToT) Jaw Pacing: if this jaw is significantly ahead of the opposite jaw's ETA
+                                // while still outside enemy PD range, pace approach speed so both jaws turn in simultaneously!
+                                boolean paceForToT = false;
+                                if (multiAngleStrikeActive && maxArmedSubWingEtaSec > 1.2f && dEnemy > 820f && !fighterUnderAaFire) {
+                                    float myRemPath = DivisionUiWidgets.distance(fighter.getLocation(), activeGate) + Math.max(0f, gateDist - 520f);
+                                    float myEta = myRemPath / Math.max(110f, fighter.getMaxSpeed());
+                                    if (myEta + 0.55f < maxArmedSubWingEtaSec) {
+                                        paceForToT = true;
+                                    }
+                                }
+                                steerFighterTowardPoint60Hz(fighter, gateWaypoint, !paceForToT);
                                 if (unguidedCraft) {
                                     fighter.blockCommandForOneFrame(ShipCommand.FIRE);
                                 }
@@ -1044,8 +1160,9 @@ public class VoidstrikeCoordinator {
                                 fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, craftGoal);
                             }
                         } else {
-                            // Direct approach: project a clean forward approach target (never steering wingmen backward
-                            // toward wingLeader + slotOffset and never overriding vanilla FighterAI obstacle avoidance at 60 Hz).
+                            // Direct approach (or Anvil 0-deg leg of L-Crossfire): project a clean forward approach target.
+                            // When part of a multi-angle strike (e.g. 0-deg Anvil leg paired with an 85-deg Hammer dogleg),
+                            // gently pace velocity outside enemy PD range (> 820u) so the Anvil leg arrives simultaneously with the Hammer leg!
                             Vector2f craftGoal = new Vector2f(
                                     attackTarget.getLocation().x + slotOffset.x * 0.45f,
                                     attackTarget.getLocation().y + slotOffset.y * 0.45f);
@@ -1053,6 +1170,24 @@ public class VoidstrikeCoordinator {
                                 craftGoal = computeAntiAaEvasionWaypoint(fighter, attackTarget, craftGoal, wIdx, cIdx, now);
                             }
                             fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, craftGoal);
+                            if (multiAngleStrikeActive && maxArmedSubWingEtaSec > 1.2f && dEnemy > 820f && fighter.getVelocity() != null) {
+                                boolean fighterUnderAaFire = fighter.getHullLevel() < 0.92f
+                                        || (fighter.getFluxTracker() != null && fighter.getFluxTracker().getFluxLevel() >= 0.08f);
+                                if (!fighterUnderAaFire) {
+                                    float myRemPath = Math.max(0f, dEnemy - 520f);
+                                    float mySpd = Math.max(110f, fighter.getMaxSpeed());
+                                    float myEta = myRemPath / mySpd;
+                                    if (myEta + 0.45f < maxArmedSubWingEtaSec) {
+                                        float totScale = Math.max(0.58f, Math.min(0.95f, (myEta + 0.25f) / maxArmedSubWingEtaSec));
+                                        Vector2f vel = fighter.getVelocity();
+                                        float curSpd = (float) Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+                                        float capSpd = mySpd * totScale;
+                                        if (curSpd > capSpd && curSpd > 1f) {
+                                            vel.set(vel.x * (capSpd / curSpd), vel.y * (capSpd / curSpd));
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1946,7 +2081,37 @@ public class VoidstrikeCoordinator {
         float minusBearing = incomingBearing - 85f;
         float sepPlus = Math.abs(shortestAngleDiffDeg(shieldFacing, plusBearing));
         float sepMinus = Math.abs(shortestAngleDiffDeg(shieldFacing, minusBearing));
-        return (sepPlus >= sepMinus) ? 1f : -1f;
+
+        // Also evaluate adjacent non-target enemy AA ship density on the + vs - flank so the flanking leg
+        // naturally avoids flying through a neighboring ship's PD bubble!
+        float aaPenaltyPlus = 0f;
+        float aaPenaltyMinus = 0f;
+        if (target.getLocation() != null) {
+            double plusRad = Math.toRadians(plusBearing);
+            double minusRad = Math.toRadians(minusBearing);
+            Vector2f plusProbe = new Vector2f(
+                    target.getLocation().x + (float) Math.cos(plusRad) * 580f,
+                    target.getLocation().y + (float) Math.sin(plusRad) * 580f);
+            Vector2f minusProbe = new Vector2f(
+                    target.getLocation().x + (float) Math.cos(minusRad) * 580f,
+                    target.getLocation().y + (float) Math.sin(minusRad) * 580f);
+            List<ShipAPI> sameSideShips = collectEnemyCombatShipsForOwner(target.getOwner() == 0 ? 1 : 0);
+            for (ShipAPI escort : sameSideShips) {
+                if (escort == null || escort == target || !escort.isAlive() || escort.isHulk() || escort.isFighter()) continue;
+                if (escort.getLocation() == null) continue;
+                float dPlus = DivisionUiWidgets.distance(escort.getLocation(), plusProbe);
+                float dMinus = DivisionUiWidgets.distance(escort.getLocation(), minusProbe);
+                if (dPlus < 720f) {
+                    aaPenaltyPlus += (720f - dPlus) * 0.12f;
+                }
+                if (dMinus < 720f) {
+                    aaPenaltyMinus += (720f - dMinus) * 0.12f;
+                }
+            }
+        }
+        float scorePlus = sepPlus - aaPenaltyPlus;
+        float scoreMinus = sepMinus - aaPenaltyMinus;
+        return (scorePlus >= scoreMinus) ? 1f : -1f;
     }
 
     private static float shortestAngleDiffDeg(float fromDeg, float toDeg) {
@@ -2177,7 +2342,7 @@ public class VoidstrikeCoordinator {
         }
 
         boolean isStrong = (aoaCorrection != VoidstrikeAoaCorrection.LOW);
-        float maxDampDist = isStrong ? 680f : 500f;
+        float maxDampDist = isStrong ? 880f : 650f;
         float dt = (Global.getCombatEngine() != null && Global.getCombatEngine().getElapsedInLastFrame() > 0f)
                 ? Math.min(0.05f, Global.getCombatEngine().getElapsedInLastFrame())
                 : 0.016f;
@@ -2769,11 +2934,21 @@ public class VoidstrikeCoordinator {
                     for (WingStrikeCandidate member : cluster) {
                         float distCenters = DivisionUiWidgets.distance(member.center, candJ.center);
                         // One Voidstrike per Division and one merged Voidstrike per shared target on the same side:
-                        // trailing replacement wings from the same division or converging multi-division strikes on
-                        // the same target always merge into the existing strike rather than burning new numbers!
+                        // trailing replacement wings from the same division, converging multi-division strikes on
+                        // the same target, or sub-wings already belonging to the same active VoidstrikeRecord (even when
+                        // Pincer jaws spread > 1200u apart!) always merge into the existing strike rather than burning new numbers!
                         boolean sameDiv = member.divisionId.equals(candJ.divisionId);
                         boolean sameTarget = member.targetKey.equals(candJ.targetKey);
-                        if (sameDiv || sameTarget || (distCenters <= 1150f && distSeed <= 1350f)) {
+                        boolean sharedActiveVoidstrike = false;
+                        for (VoidstrikeRecord activeRec : activeVoidstrikes) {
+                            if (activeRec != null && activeRec.side == side
+                                    && activeRec.participatingWingKeys.contains(member.wingKey)
+                                    && activeRec.participatingWingKeys.contains(candJ.wingKey)) {
+                                sharedActiveVoidstrike = true;
+                                break;
+                            }
+                        }
+                        if (sameDiv || sameTarget || sharedActiveVoidstrike || (distCenters <= 1150f && distSeed <= 1350f)) {
                             shouldMerge = true;
                             break;
                         }

@@ -1240,11 +1240,20 @@ public class DivisionCommanderAI {
                 float newDist = (carrierTargetDiv != null)
                         ? distance(div.centroid, OtcAI.getVisibleCentroidForSide(engine, div.side, carrierTargetDiv))
                         : Float.MAX_VALUE;
+                boolean prevIsTinyUnassignedContact = prevCarrierTarget.id != null
+                        && prevCarrierTarget.id.startsWith("unassigned_enemy_contacts_")
+                        && prevCarrierTarget.getAliveMembers().size() <= 1;
+                boolean newIsTinyUnassignedContact = carrierTargetDiv != null
+                        && carrierTargetDiv.id != null
+                        && carrierTargetDiv.id.startsWith("unassigned_enemy_contacts_")
+                        && carrierTargetDiv.getAliveMembers().size() <= 1;
                 boolean closerTargetIntervening = carrierTargetDiv != null
                         && carrierTargetDiv != prevCarrierTarget
+                        && !newIsTinyUnassignedContact
                         && (prevScreenedByCloserEnemy
-                        || (newDist + 420f < prevDist)
-                        || (prevIsLightSkirmisher && newIsHeavierLineTarget && newDist <= prevDist + 950f));
+                        || (!airborneWaveActive && newDist + 650f < prevDist)
+                        || (airborneWaveActive && newDist + 1150f < prevDist && newIsHeavierLineTarget)
+                        || ((prevIsLightSkirmisher || prevIsTinyUnassignedContact) && newIsHeavierLineTarget && newDist <= prevDist + 950f));
                 boolean alreadyInTerminalEnvelope = VoidstrikeCoordinator.hasStrikeCraftInTerminalEnvelope(
                         div, prevCarrierTarget, 980f);
                 if (carrierTargetDiv == null || (airborneWaveActive && (!closerTargetIntervening || alreadyInTerminalEnvelope))) {
@@ -4482,6 +4491,13 @@ public class DivisionCommanderAI {
                 boolean enemyIsLightSkirmisher = eDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
                         || eDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
                         || eDiv.archetype == DivisionArchetype.PHASE_DIVISION;
+                boolean isLoneUnassignedStraggler = eDiv.id != null
+                        && eDiv.id.startsWith("unassigned_enemy_contacts_")
+                        && eDiv.getAliveMembers().size() <= 1
+                        && eDiv.totalFpStrength <= 14f;
+                if (isLoneUnassignedStraggler && anyAbleVisibleHeavyOrLineEnemy) {
+                    score -= 680f;
+                }
                 if (enemyIsLightSkirmisher) {
                     if (anyAbleVisibleHeavyOrLineEnemy) {
                         score -= 540f;
@@ -4496,6 +4512,9 @@ public class DivisionCommanderAI {
                         || eDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
                         || (eDiv.archetype != null && eDiv.archetype.isCarrierArchetype())) {
                     score += 420f;
+                    if (eDiv.getAliveMembers().size() >= 2) {
+                        score += 220f;
+                    }
                 }
             }
 

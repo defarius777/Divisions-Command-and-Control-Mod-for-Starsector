@@ -1193,18 +1193,57 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 cluster.add(remaining.remove(nearestIdx));
             }
 
-            while (pool.size() <= clusterIdx) {
+            DivisionArchetype contactArch = DivisionArchetype.FRIGATE_DIVISION;
+            if (lead.getHullSize() != null) {
+                switch (lead.getHullSize()) {
+                    case CAPITAL_SHIP:
+                        contactArch = DivisionArchetype.BATTLESHIP_DIVISION;
+                        break;
+                    case CRUISER:
+                        contactArch = DivisionArchetype.CRUISER_DIVISION;
+                        break;
+                    case DESTROYER:
+                        contactArch = DivisionArchetype.DESTROYER_DIVISION;
+                        break;
+                    default:
+                        contactArch = DivisionArchetype.FRIGATE_DIVISION;
+                        break;
+                }
+            }
+
+            // Match to an existing pooled DivisionState by lead ship ID (or member overlap) so Independent Contact numbers
+            // stay stable across C2 ticks instead of swapping identities whenever a ship enters/leaves Fog of War!
+            DivisionState contactDiv = null;
+            for (DivisionState existing : pool) {
+                if (existing != null && !view.divisions.contains(existing)
+                        && existing.flagship != null
+                        && existing.flagship.getId() != null
+                        && existing.flagship.getId().equals(lead.getId())) {
+                    contactDiv = existing;
+                    break;
+                }
+            }
+            if (contactDiv == null) {
+                for (DivisionState existing : pool) {
+                    if (existing != null && !view.divisions.contains(existing)) {
+                        contactDiv = existing;
+                        break;
+                    }
+                }
+            }
+            if (contactDiv == null) {
                 int num = pool.size() + 1;
                 CommanderProfile dummyCmdr = new CommanderProfile(lead.getCaptain(), namePrefix + num);
-                pool.add(new DivisionState(
+                contactDiv = new DivisionState(
                         idPrefix + num,
                         side,
                         90 + num,
-                        DivisionArchetype.CRUISER_DIVISION,
+                        contactArch,
                         namePrefix + num,
-                        dummyCmdr));
+                        dummyCmdr);
+                pool.add(contactDiv);
             }
-            DivisionState contactDiv = pool.get(clusterIdx++);
+            contactDiv.archetype = contactArch;
             contactDiv.flagship = lead;
             contactDiv.members.clear();
             contactDiv.members.addAll(cluster);
@@ -1213,6 +1252,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 view.shipIdToDivision.put(s.getId(), contactDiv);
             }
             view.divisions.add(contactDiv);
+            clusterIdx++;
         }
     }
 

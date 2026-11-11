@@ -386,9 +386,9 @@ public class DivisionModel {
      */
     public static class DivisionState {
         public final String id;
-        public final int side; // 0 = player side, 1 = enemy side
+        public final int side; // 0 = player, 1 = enemy
         public final int divisionNumber;
-        public final DivisionArchetype archetype;
+        public DivisionArchetype archetype;
         public final String displayName;
         public CommanderProfile commander;
         public DivisionNomenclature.NomenclatureCategory nomenclatureCategory =
