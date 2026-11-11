@@ -1156,9 +1156,14 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             int side,
             String idPrefix,
             String namePrefix) {
+        if (pool != null && view != null && view.divisions != null) {
+            view.divisions.removeAll(pool);
+        }
         if (unassignedHulls == null || unassignedHulls.isEmpty()) return;
         List<ShipAPI> remaining = new ArrayList<>(unassignedHulls);
-        int clusterIdx = 0;
+        List<List<ShipAPI>> builtClusters = new ArrayList<>();
+        List<DivisionArchetype> builtArchs = new ArrayList<>();
+
         while (!remaining.isEmpty()) {
             // Seed cluster with the heaviest remaining ship
             int bestSeedIdx = 0;
@@ -1210,40 +1215,97 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                         break;
                 }
             }
+            builtClusters.add(cluster);
+            builtArchs.add(contactArch);
+        }
 
-            // Match to an existing pooled DivisionState by lead ship ID (or member overlap) so Independent Contact numbers
-            // stay stable across C2 ticks instead of swapping identities whenever a ship enters/leaves Fog of War!
-            DivisionState contactDiv = null;
+        int numClusters = builtClusters.size();
+        DivisionState[] assignedDivs = new DivisionState[numClusters];
+        java.util.Set<DivisionState> claimedPoolSlots = new java.util.HashSet<>();
+
+        // Pass 1: Exact lead ship ID match against existing pool entries
+        for (int cIdx = 0; cIdx < numClusters; cIdx++) {
+            ShipAPI lead = builtClusters.get(cIdx).get(0);
+            if (lead.getId() == null) continue;
             for (DivisionState existing : pool) {
-                if (existing != null && !view.divisions.contains(existing)
+                if (existing != null
+                        && !claimedPoolSlots.contains(existing)
+                        && !view.divisions.contains(existing)
                         && existing.flagship != null
-                        && existing.flagship.getId() != null
-                        && existing.flagship.getId().equals(lead.getId())) {
-                    contactDiv = existing;
+                        && lead.getId().equals(existing.flagship.getId())) {
+                    assignedDivs[cIdx] = existing;
+                    claimedPoolSlots.add(existing);
                     break;
                 }
             }
-            if (contactDiv == null) {
+        }
+
+        // Pass 2: Member overlap match (e.g., when a heavier ship joins a cluster and becomes the new seed,
+        // or when the previous flagship died/left LoS while its wingmen remain in the cluster)
+        for (int cIdx = 0; cIdx < numClusters; cIdx++) {
+            if (assignedDivs[cIdx] != null) continue;
+            List<ShipAPI> cluster = builtClusters.get(cIdx);
+            DivisionState bestMatch = null;
+            int bestScore = 0;
+            for (DivisionState existing : pool) {
+                if (existing == null || claimedPoolSlots.contains(existing) || view.divisions.contains(existing)) {
+                    continue;
+                }
+                int score = 0;
+                if (existing.flagship != null && cluster.contains(existing.flagship)) {
+                    score += 100;
+                }
+                for (ShipAPI s : cluster) {
+                    if (existing.members.contains(s)) {
+                        score += 10;
+                    }
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMatch = existing;
+                }
+            }
+            if (bestMatch != null) {
+                assignedDivs[cIdx] = bestMatch;
+                claimedPoolSlots.add(bestMatch);
+            }
+        }
+
+        // Pass 3: Reuse any remaining unclaimed pool slot (prevents pool slot leaks when clusters merge or die),
+        // allocating a new slot ONLY when simultaneous active clusters exceed pool.size()
+        for (int cIdx = 0; cIdx < numClusters; cIdx++) {
+            if (assignedDivs[cIdx] == null) {
                 for (DivisionState existing : pool) {
-                    if (existing != null && !view.divisions.contains(existing)
-                            && (existing.flagship == null || !unassignedHulls.contains(existing.flagship))) {
-                        contactDiv = existing;
+                    if (existing != null && !claimedPoolSlots.contains(existing) && !view.divisions.contains(existing)) {
+                        assignedDivs[cIdx] = existing;
+                        claimedPoolSlots.add(existing);
                         break;
                     }
                 }
             }
-            if (contactDiv == null) {
+            if (assignedDivs[cIdx] == null) {
+                ShipAPI lead = builtClusters.get(cIdx).get(0);
+                DivisionArchetype contactArch = builtArchs.get(cIdx);
                 int num = pool.size() + 1;
                 CommanderProfile dummyCmdr = new CommanderProfile(lead.getCaptain(), namePrefix + num);
-                contactDiv = new DivisionState(
+                DivisionState created = new DivisionState(
                         idPrefix + num,
                         side,
                         90 + num,
                         contactArch,
                         namePrefix + num,
                         dummyCmdr);
-                pool.add(contactDiv);
+                pool.add(created);
+                assignedDivs[cIdx] = created;
+                claimedPoolSlots.add(created);
             }
+        }
+
+        for (int cIdx = 0; cIdx < numClusters; cIdx++) {
+            List<ShipAPI> cluster = builtClusters.get(cIdx);
+            ShipAPI lead = cluster.get(0);
+            DivisionArchetype contactArch = builtArchs.get(cIdx);
+            DivisionState contactDiv = assignedDivs[cIdx];
             contactDiv.archetype = contactArch;
             contactDiv.flagship = lead;
             contactDiv.members.clear();
@@ -1253,7 +1315,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 view.shipIdToDivision.put(s.getId(), contactDiv);
             }
             view.divisions.add(contactDiv);
-            clusterIdx++;
         }
     }
 

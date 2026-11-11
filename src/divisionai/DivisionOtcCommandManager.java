@@ -1124,6 +1124,16 @@ public class DivisionOtcCommandManager {
         }
 
         if (isOtcDisabled(group, now)) {
+            group.formationSpawnHijackedShipIds.add(lossKey);
+            if (group.side != 0 || group.isAlliedAi) {
+                ShipAPI successor = selectSuccessorShipByHierarchy(engine, group, flagship, false);
+                group.designatedSuccessorFlagship = successor;
+                if (successor != null) {
+                    promoteShipToGroupOtc(engine, group, successor, now, false);
+                } else {
+                    group.activeFleetFlagship = null;
+                }
+            }
             return;
         }
 
@@ -1640,6 +1650,20 @@ public class DivisionOtcCommandManager {
 
     public static void onOtcRestored(CombatEngineAPI engine, BattleGroupState group, float now) {
         if (group == null) return;
+        if (group.side != 0 || group.isAlliedAi) {
+            if (group.activeFleetFlagship == null
+                    || !group.activeFleetFlagship.isAlive()
+                    || group.activeFleetFlagship.isHulk()) {
+                ShipAPI successor = selectSuccessorShipByHierarchy(engine, group, group.activeFleetFlagship, false);
+                group.designatedSuccessorFlagship = successor;
+                if (successor != null) {
+                    promoteShipToGroupOtc(engine, group, successor, now, false);
+                } else {
+                    group.activeFleetFlagship = null;
+                    return;
+                }
+            }
+        }
         String sideName = group.side == 0 ? (group.isAlliedAi ? "Allied" : "Friendly") : "Enemy";
         String line = String.format(Locale.ROOT, "[DivisionAI] %s OTC command channel restored.", sideName);
         LOG.info(line);

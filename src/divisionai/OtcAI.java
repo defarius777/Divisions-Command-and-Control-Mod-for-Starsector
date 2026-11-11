@@ -906,7 +906,7 @@ public class OtcAI {
         myGroup.reserveDivision = holdReserve ? bestReserveCandidate : null;
 
         // Orchestrate: compute multi-division / fleet-wide formation geometry, then turn the battle plan into per-division taskings
-        if (!myGroup.divisions.isEmpty()) {
+        if (activeDivCount > 0) {
             updateFleetWideFormationGeometry(engine, myGroup, enemyGroup);
             OtcBattlePlanner.planBattle(engine, myGroup, enemyGroup, endangeredDiv, minorEndangeredDiv, now);
         }
@@ -915,7 +915,7 @@ public class OtcAI {
         applyFleetIndependentCommands(engine, myGroup, enemyGroup, now);
 
         // Log OTC operational directive when phase or primary focus shifts
-        if (!myGroup.divisions.isEmpty()) {
+        if (activeDivCount > 0) {
             String directive = buildOtcSignal(myGroup, endangeredDiv);
             DivisionCombatLog.logOtcSignal(engine, myGroup, directive, now);
         }
@@ -1147,6 +1147,9 @@ public class OtcAI {
             case GENERAL_CHASE:
                 if (battleGroup.missionContext == MissionContextType.INTERCEPTION) {
                     return String.format("Pursuit interception: cut off and destroy %s before escape.", targetName);
+                }
+                if (battleGroup.forceRatio < 1.05f) {
+                    return String.format("Full assault: all divisions press home the attack on %s.", targetName);
                 }
                 return String.format("General chase: press the advantage (%.2fx) on %s.", battleGroup.forceRatio, targetName);
             case FIGHTING_RETIREMENT:
