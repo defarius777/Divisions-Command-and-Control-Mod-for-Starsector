@@ -1912,7 +1912,19 @@ public class StarsectorUISimulator {
         FleetDoctrineDialog dialog = new FleetDoctrineDialog(hostCoreUI);
         dialog.show();
 
-        for (String tabCmd : new String[]{"TAB:ALL", "TOGGLE_CARRIER_OPTS:FLEET_CARRIER", "TAB:OTC_COMMAND", "TAB:HULLS", "TAB:NAMING", "TAB:ALL"}) {
+        for (String tabCmd : new String[]{
+                "TAB:ALL",
+                "TOGGLE_CARRIER_OPTS:FLEET_CARRIER",
+                "SET_VS_GEOM:FLEET_CARRIER:PINCER_ENVELOPMENT",
+                "SET_VS_GUN:FLEET_CARRIER:PRECISION",
+                "SET_VS_AOA:FLEET_CARRIER:LOW",
+                "SET_VS_GEOM:FLEET_CARRIER:ANVIL_CROSSFIRE",
+                "SET_VS_GUN:FLEET_CARRIER:AREA_SATURATION",
+                "SET_VS_AOA:FLEET_CARRIER:STRONG",
+                "TAB:OTC_COMMAND",
+                "TAB:HULLS",
+                "TAB:NAMING",
+                "TAB:ALL"}) {
             dialog.buttonPressed(tabCmd);
             dialog.advance(0.1f);
             List<LabelAPI> labels = new ArrayList<>();
@@ -1948,7 +1960,20 @@ public class StarsectorUISimulator {
         DivisionEditorDialog dialog = new DivisionEditorDialog(hostCoreUI);
         dialog.show();
 
-        for (String cmd : new String[]{null, "SET_OTC_AUTH:POSITIVE_CONTROL", "SET_OTC_AUTH:COMMAND_BY_DIRECTION", "OPEN_DIV:div_1", "TOGGLE_DD:DIV_ARCH_DD", "TOGGLE_DIV_CARRIER_OPTIONS", "BACK_TO_LIST"}) {
+        for (String cmd : new String[]{
+                null,
+                "SET_OTC_AUTH:POSITIVE_CONTROL",
+                "SET_OTC_AUTH:COMMAND_BY_DIRECTION",
+                "OPEN_DIV:div_1",
+                "TOGGLE_DD:DIV_ARCH_DD",
+                "TOGGLE_DIV_CARRIER_OPTIONS",
+                "DIV_VS_GEOM:ANVIL_CROSSFIRE",
+                "DIV_VS_GUN:AREA_SATURATION",
+                "DIV_VS_AOA:STRONG",
+                "DIV_VS_GEOM:INHERIT",
+                "DIV_VS_GUN:INHERIT",
+                "DIV_VS_AOA:INHERIT",
+                "BACK_TO_LIST"}) {
             if (cmd != null) {
                 dialog.buttonPressed(cmd);
                 dialog.advance(0.1f);

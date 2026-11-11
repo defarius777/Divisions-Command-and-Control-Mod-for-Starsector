@@ -862,10 +862,10 @@ public class DivisionCommanderAI {
         }
 
         // Step 8: Cohesion check (reform core cluster ONLY when out of enemy contact)
-        // Item C: Carrier divisions operate at 2000-3800u standoff; never pull carriers into CLOSE_UP when a visible
-        // enemy division exists within strike range (< 4200u), because CLOSE_UP interrupts carrier Voidstrikes!
+        // Item C: Carrier divisions operate at standoff or maximum strike range; never pull carriers into CLOSE_UP when
+        // a target enemy division exists, because CLOSE_UP interrupts carrier Voidstrikes!
         boolean carrierHasStrikeTarget = (div.archetype != null && div.archetype.isCarrierArchetype())
-                && nearestEnemyDiv != null && distToVisibleEnemy <= 4200f;
+                && (nearestEnemyDiv != null || prevEnemyTarget != null);
         boolean linearSkillBurnInFlight = div.hasActiveLinearSkillBurn
                 || div.synchronizedSkillManeuverActive
                 || isPursuitBattle
@@ -892,7 +892,7 @@ public class DivisionCommanderAI {
 
         if (activeMission.isCarrierMission && trySelectCarrierMissionIntent(
                 engine, div, myGroup, enemyGroup, activeMission, missionPhaseTag,
-                nearestEnemyDiv, endangeredFriendlyDiv, heavyFriendlyToScreen, uncapturedObj, now)) {
+                prevEnemyTarget, nearestEnemyDiv, endangeredFriendlyDiv, heavyFriendlyToScreen, uncapturedObj, now)) {
             return;
         }
 
@@ -1190,13 +1190,13 @@ public class DivisionCommanderAI {
             BattleGroupState enemyGroup,
             DivisionMissionType activeMission,
             String missionPhaseTag,
+            DivisionState prevCarrierTarget,
             DivisionState nearestEnemyDiv,
             DivisionState endangeredFriendlyDiv,
             DivisionState heavyFriendlyToScreen,
             BattleObjectiveAPI uncapturedObj,
             float now) {
 
-        DivisionState prevCarrierTarget = div.targetEnemyDivision;
         DivisionState carrierTargetDiv = nearestEnemyDiv;
         if (activeMission == DivisionMissionType.ALPHA_STRIKE
                 && myGroup.primaryThreatEnemyDivision != null
@@ -1204,25 +1204,36 @@ public class DivisionCommanderAI {
             carrierTargetDiv = myGroup.primaryThreatEnemyDivision;
         } else if (activeMission == DivisionMissionType.COMBAT_SPACE_PATROL
                 && endangeredFriendlyDiv != null) {
-            DivisionState threatToFriend = findBestEnemyDivisionFor(engine, endangeredFriendlyDiv, myGroup, enemyGroup, false, div.targetEnemyDivision);
+            DivisionState threatToFriend = findBestEnemyDivisionFor(engine, endangeredFriendlyDiv, myGroup, enemyGroup, false, prevCarrierTarget);
             if (threatToFriend != null) {
                 carrierTargetDiv = threatToFriend;
             }
         }
-        // Item C: Keep the carrier division's target sticky while strike wings are marshaling or airborne on a run,
-        // unless the current target is no longer combat-effective/visible or a new threat is > 1250u closer!
-        if (prevCarrierTarget != null
-                && prevCarrierTarget.isAbleCombatEffective()
-                && OtcAI.isDivisionVisibleToSide(engine, div.side, prevCarrierTarget)) {
-            Vector2f prevPos = OtcAI.getVisibleCentroidForSide(engine, div.side, prevCarrierTarget);
-            float prevDist = distance(div.centroid, prevPos);
-            boolean airborneWaveActive = div.voidstrikeStage == 1 || div.voidstrikeStage == 2;
-            if (prevDist <= 4400f) {
+        // Item C: Keep the carrier division's target sticky while strike wings are marshaling or airborne on a run
+        // (supporting maximum-range strikes across the entire map without arbitrary distance cutoffs!), unless the
+        // current target is destroyed/combat-ineffective or a new emergency threat is on top of the carrier division.
+        if (prevCarrierTarget != null && prevCarrierTarget.isAbleCombatEffective()) {
+            boolean visNow = OtcAI.isDivisionVisibleToSide(engine, div.side, prevCarrierTarget);
+            boolean airborneWaveActive = !div.voidstrikeEgressActive
+                    && (div.voidstrikeStage == 1
+                    || div.voidstrikeStage == 2
+                    || div.activeVoidstrikeSortieNumber > 0
+                    || VoidstrikeCoordinator.hasArmedStrikeCraftAirborne(div));
+            if (visNow || airborneWaveActive) {
+                Vector2f prevPos = OtcAI.getVisibleCentroidForSide(engine, div.side, prevCarrierTarget);
+                float prevDist = distance(div.centroid, prevPos);
                 if (carrierTargetDiv == null || airborneWaveActive) {
-                    carrierTargetDiv = prevCarrierTarget;
+                    boolean emergencyCloseThreat = carrierTargetDiv != null
+                            && carrierTargetDiv != prevCarrierTarget
+                            && distance(div.centroid, OtcAI.getVisibleCentroidForSide(engine, div.side, carrierTargetDiv)) <= 1050f
+                            && div.localEnemyStrength >= 16f
+                            && div.avgFluxLevel >= 0.55f;
+                    if (!emergencyCloseThreat) {
+                        carrierTargetDiv = prevCarrierTarget;
+                    }
                 } else {
                     Vector2f newPos = OtcAI.getVisibleCentroidForSide(engine, div.side, carrierTargetDiv);
-                    if (prevDist <= distance(div.centroid, newPos) + 1250f) {
+                    if (prevDist <= distance(div.centroid, newPos) + 1650f) {
                         carrierTargetDiv = prevCarrierTarget;
                     }
                 }
@@ -2731,7 +2742,21 @@ public class DivisionCommanderAI {
             focusEnemyShip = plan.focusShip;
         }
 
-        VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(div, myGroup, focusEnemyShip, now);
+        ShipAPI strikeFocusEnemyShip = focusEnemyShip;
+        if (strikeFocusEnemyShip == null
+                && !div.voidstrikeEgressActive
+                && div.targetEnemyDivision != null
+                && (div.voidstrikeStage == 1
+                || div.voidstrikeStage == 2
+                || div.activeVoidstrikeSortieNumber > 0
+                || div.currentIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                || div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
+                || div.currentIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
+                || VoidstrikeCoordinator.hasArmedStrikeCraftAirborne(div))) {
+            strikeFocusEnemyShip = VoidstrikeCoordinator.resolveVoidstrikeFocusShip(div);
+        }
+
+        VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(div, myGroup, strikeFocusEnemyShip, now);
         ShipSystemCoordinator.updateDivisionSkillManeuverState(engine, div, myGroup, enemyGroup, focusEnemyShip, now);
 
         boolean outOfCombatMarch = DivisionFormationNavigator.isDivisionInOutOfCombatMarch(engine, div);
@@ -2839,6 +2864,9 @@ public class DivisionCommanderAI {
                 if (ship.getFluxLevel() >= 0.42f || DivisionFormationNavigator.isShipNearVisibleEnemy(engine, div.side, ship.getLocation(), enemyGroup, 1450f)) {
                     flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
                 }
+                if (ship.getAllWings() != null && !ship.getAllWings().isEmpty()) {
+                    VoidstrikeCoordinator.dressShipStrikeCraftInFormation(ship, shipIdx, strikeFocusEnemyShip, div, myGroup, now);
+                }
                 continue;
             } else {
                 div.stragglerSkirtSideByShipId.remove(ship.getId());
@@ -2915,6 +2943,9 @@ public class DivisionCommanderAI {
                     flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, extractGoal);
                     flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, extractGoal);
                 }
+                if (ship.getAllWings() != null && !ship.getAllWings().isEmpty()) {
+                    VoidstrikeCoordinator.dressShipStrikeCraftInFormation(ship, shipIdx, focusEnemyShip, div, myGroup, now);
+                }
                 continue;
             }
 
@@ -2971,11 +3002,14 @@ public class DivisionCommanderAI {
                         chosenSide);
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                 flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, safeSlotPos);
+                if (ship.getAllWings() != null && !ship.getAllWings().isEmpty()) {
+                    VoidstrikeCoordinator.dressShipStrikeCraftInFormation(ship, shipIdx, strikeFocusEnemyShip, div, myGroup, now);
+                }
                 continue;
             }
 
             applyIntentFlagsToShip(engine, ship, shipIdx, flags, slotPos, crowdedByPeer, focusEnemyShip, div, myGroup, enemyGroup, now);
-            VoidstrikeCoordinator.dressShipStrikeCraftInFormation(ship, shipIdx, focusEnemyShip, div, myGroup, now);
+            VoidstrikeCoordinator.dressShipStrikeCraftInFormation(ship, shipIdx, strikeFocusEnemyShip, div, myGroup, now);
         }
     }
 
@@ -3149,10 +3183,9 @@ public class DivisionCommanderAI {
                         && (distance(ship.getLocation(), slotPos) > 300f || crowdedByPeer)) {
                     flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
                 }
-                if (ship.getNumFighterBays() > 0 && !ship.isPullBackFighters()) {
-                    ship.setPullBackFighters(true);
-                    div.fighterPullbackShipIds.add(ship.getId());
-                }
+                // Do NOT setPullBackFighters(true) during MARSHAL_FOR_STRIKE: VoidstrikeCoordinator stages airborne
+                // squadrons at voidstrikeMarshalPoint (or keeps already-committed waves on their attack run) without
+                // forcing armed bombers to land back inside carrier bays!
                 break;
 
             case GIVE_GENERAL_CHASE:

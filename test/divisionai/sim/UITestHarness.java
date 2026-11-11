@@ -3551,6 +3551,15 @@ public class UITestHarness {
         vsDocCfg.setVoidstrikeCoordination(
                 PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
                 PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED);
+        vsDocCfg.setVoidstrikeAttackGeometry(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE);
+        vsDocCfg.setVoidstrikeGunneryMode(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION);
+        vsDocCfg.setVoidstrikeAoaCorrection(
+                PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
+                PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG);
         vsDocCfg.setFighterFormation(
                 PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER,
                 PermanentDivisionManager.SquadronFormation.WEDGE);
@@ -3574,15 +3583,23 @@ public class UITestHarness {
         PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(cDiv1, testCarrierSpec, vsDocCfg);
         boolean vsDoctrinePropagatedOk = cDiv1.voidstrikeObservance == PermanentDivisionManager.VoidstrikeTargetObservance.HIGH
                 && cDiv1.voidstrikeCoordination == PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED
+                && cDiv1.voidstrikeAttackGeometry == PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE
+                && cDiv1.voidstrikeSplitMode == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && cDiv1.voidstrikeGunneryMode == PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION
+                && cDiv1.voidstrikeAoaCorrection == PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG
                 && cDiv1.fighterFormation == PermanentDivisionManager.SquadronFormation.WEDGE
                 && cDiv1.fighterVoidstrikeFormation == PermanentDivisionManager.SquadronFormation.LINE_AHEAD
                 && cDiv1.bomberFormation == PermanentDivisionManager.SquadronFormation.LINE_ABREAST
                 && cDiv1.bomberVoidstrikeFormation == PermanentDivisionManager.SquadronFormation.REVERSE_SEMICIRCLE
                 && cDiv1.voidstrikeSquadronDepth == 7;
 
-        // Verify per-division custom overrides for all 7 Voidstrike settings
+        // Verify per-division custom overrides for all Voidstrike settings (including Split-Wing mode)
         testCarrierSpec.customVoidstrikeObservance = PermanentDivisionManager.VoidstrikeTargetObservance.FREE;
         testCarrierSpec.customVoidstrikeCoordination = PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+        testCarrierSpec.customVoidstrikeAttackGeometry = PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT;
+        testCarrierSpec.customVoidstrikeSplitMode = PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS;
+        testCarrierSpec.customVoidstrikeGunneryMode = PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION;
+        testCarrierSpec.customVoidstrikeAoaCorrection = PermanentDivisionManager.VoidstrikeAoaCorrection.LOW;
         testCarrierSpec.customFighterFormation = PermanentDivisionManager.SquadronFormation.CIRCLE;
         testCarrierSpec.customFighterVoidstrikeFormation = PermanentDivisionManager.SquadronFormation.REVERSE_WEDGE;
         testCarrierSpec.customBomberFormation = PermanentDivisionManager.SquadronFormation.SEMICIRCLE;
@@ -3591,6 +3608,10 @@ public class UITestHarness {
         PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(cDiv1, testCarrierSpec, vsDocCfg);
         boolean vsCustomOverrideOk = cDiv1.voidstrikeObservance == PermanentDivisionManager.VoidstrikeTargetObservance.FREE
                 && cDiv1.voidstrikeCoordination == PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED
+                && cDiv1.voidstrikeAttackGeometry == PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT
+                && cDiv1.voidstrikeSplitMode == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
+                && cDiv1.voidstrikeGunneryMode == PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION
+                && cDiv1.voidstrikeAoaCorrection == PermanentDivisionManager.VoidstrikeAoaCorrection.LOW
                 && cDiv1.fighterFormation == PermanentDivisionManager.SquadronFormation.CIRCLE
                 && cDiv1.fighterVoidstrikeFormation == PermanentDivisionManager.SquadronFormation.REVERSE_WEDGE
                 && cDiv1.bomberFormation == PermanentDivisionManager.SquadronFormation.SEMICIRCLE

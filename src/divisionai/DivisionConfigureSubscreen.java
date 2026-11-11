@@ -26,7 +26,11 @@ import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import divisionai.PermanentDivisionManager.SquadronFormation;
 import divisionai.PermanentDivisionManager.ShipSkillCoordinationMode;
+import divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection;
+import divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry;
 import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
+import divisionai.PermanentDivisionManager.VoidstrikeGunneryMode;
+import divisionai.PermanentDivisionManager.VoidstrikeSplitMode;
 import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
 
 import java.awt.Color;
@@ -474,6 +478,14 @@ final class DivisionConfigureSubscreen {
                 PermanentDivisionManager.resolveEffectiveVoidstrikeObservance(spec, doctrineCfg);
         VoidstrikeCoordinationMode effVsCoord =
                 PermanentDivisionManager.resolveEffectiveVoidstrikeCoordination(spec, doctrineCfg);
+        VoidstrikeAttackGeometry effVsGeom =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeAttackGeometry(spec, doctrineCfg);
+        VoidstrikeSplitMode effVsSplit =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeSplitMode(spec, doctrineCfg);
+        VoidstrikeGunneryMode effVsGun =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeGunneryMode(spec, doctrineCfg);
+        VoidstrikeAoaCorrection effVsAoa =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeAoaCorrection(spec, doctrineCfg);
         SquadronFormation effFtrFm =
                 PermanentDivisionManager.resolveEffectiveFighterFormation(spec, doctrineCfg);
         SquadronFormation effFtrVsFm =
@@ -519,6 +531,50 @@ final class DivisionConfigureSubscreen {
                     colWidth - 16f,
                     effVsCoord,
                     spec.customVoidstrikeCoordination != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionVoidstrikeAttackGeometryRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effVsGeom,
+                    spec.customVoidstrikeAttackGeometry != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionVoidstrikeSplitModeRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effVsSplit,
+                    spec.customVoidstrikeSplitMode != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionVoidstrikeGunneryModeRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effVsGun,
+                    spec.customVoidstrikeGunneryMode != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionVoidstrikeAoaCorrectionRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effVsAoa,
+                    spec.customVoidstrikeAoaCorrection != null,
                     baseColor,
                     darkColor,
                     highlight,
@@ -1197,6 +1253,114 @@ final class DivisionConfigureSubscreen {
                 "DIV_VS_COORD:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
     }
 
+    private static void addDivisionVoidstrikeAttackGeometryRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            VoidstrikeAttackGeometry effGeom,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        VoidstrikeAttackGeometry[] opts = VoidstrikeAttackGeometry.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = "DIV_VS_GEOM:" + opts[i].name();
+            if (opts[i] == effGeom) sel = i;
+        }
+        String labelText = "Strike Geometry: " + effGeom.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 82f, 20f, 86f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_VS_GEOM:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
+    private static void addDivisionVoidstrikeSplitModeRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            VoidstrikeSplitMode effSplit,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        VoidstrikeSplitMode[] opts = VoidstrikeSplitMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = "DIV_VS_SPLIT:" + opts[i].name();
+            if (opts[i] == effSplit) sel = i;
+        }
+        String labelText = "Wing Split: " + effSplit.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 82f, 20f, 86f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_VS_SPLIT:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
+    private static void addDivisionVoidstrikeGunneryModeRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            VoidstrikeGunneryMode effGun,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        VoidstrikeGunneryMode[] opts = VoidstrikeGunneryMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = "DIV_VS_GUN:" + opts[i].name();
+            if (opts[i] == effGun) sel = i;
+        }
+        String labelText = "Strike Gunnery: " + effGun.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 96f, 20f, 100f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_VS_GUN:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
+    private static void addDivisionVoidstrikeAoaCorrectionRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            VoidstrikeAoaCorrection effAoa,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        VoidstrikeAoaCorrection[] opts = VoidstrikeAoaCorrection.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = "DIV_VS_AOA:" + opts[i].name();
+            if (opts[i] == effAoa) sel = i;
+        }
+        String labelText = "AoA Correction: " + effAoa.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 86f, 20f, 90f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_VS_AOA:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
     private static void addDivisionVoidstrikeDepthRow(
             final DivisionEditorDialog dialog,
             TooltipMakerAPI col,
@@ -1534,6 +1698,42 @@ final class DivisionConfigureSubscreen {
             VoidstrikeCoordinationMode mode =
                     "INHERIT".equals(arg) ? null : VoidstrikeCoordinationMode.valueOf(arg);
             PermanentDivisionManager.updateIndividualDivisionVoidstrikeCoordination(activeDivisionId, mode);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_VS_GEOM:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_GEOM:".length());
+            VoidstrikeAttackGeometry geom =
+                    "INHERIT".equals(arg) ? null : VoidstrikeAttackGeometry.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionVoidstrikeAttackGeometry(activeDivisionId, geom);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_VS_SPLIT:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_SPLIT:".length());
+            VoidstrikeSplitMode split =
+                    "INHERIT".equals(arg) ? null : VoidstrikeSplitMode.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionVoidstrikeSplitMode(activeDivisionId, split);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_VS_GUN:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_GUN:".length());
+            VoidstrikeGunneryMode gun =
+                    "INHERIT".equals(arg) ? null : VoidstrikeGunneryMode.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionVoidstrikeGunneryMode(activeDivisionId, gun);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_VS_AOA:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_AOA:".length());
+            VoidstrikeAoaCorrection aoa =
+                    "INHERIT".equals(arg) ? null : VoidstrikeAoaCorrection.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionVoidstrikeAoaCorrection(activeDivisionId, aoa);
             dialog.rebuildContent();
             return true;
         }

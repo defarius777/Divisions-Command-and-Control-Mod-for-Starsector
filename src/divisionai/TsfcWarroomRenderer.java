@@ -2635,11 +2635,26 @@ public class TsfcWarroomRenderer {
             ShipAPI focusShip,
             float alphaMult,
             float animProgress) {
+        renderHighContrastCaptaincyFiringArcsWorldSpace(
+                engine,
+                viewport,
+                focusShip,
+                focusShip != null ? focusShip.getSelectedGroupAPI() : null,
+                alphaMult,
+                animProgress);
+    }
+
+    public static void renderHighContrastCaptaincyFiringArcsWorldSpace(
+            CombatEngineAPI engine,
+            ViewportAPI viewport,
+            ShipAPI focusShip,
+            com.fs.starfarer.api.combat.WeaponGroupAPI selectedGroup,
+            float alphaMult,
+            float animProgress) {
         if (engine == null || viewport == null || focusShip == null) return;
         if (focusShip.isHulk() || !focusShip.isAlive() || focusShip.getLocation() == null) return;
         if (alphaMult <= 0.02f || animProgress <= 0.005f) return;
 
-        com.fs.starfarer.api.combat.WeaponGroupAPI selectedGroup = focusShip.getSelectedGroupAPI();
         if (selectedGroup == null) return;
 
         float alpha = Math.min(1.0f, Math.max(0.55f, alphaMult)) * Math.min(1.0f, animProgress);
@@ -2920,9 +2935,13 @@ public class TsfcWarroomRenderer {
 
     /**
      * Matches {@code com.fs.starfarer.renderers.E.o00000(lineTex, wx, wy, currAngleDeg, spreadDeg, radius, ...)}
-     * for the perpendicular aim/spread ladder bars at {@code stepRadius * i} and {@code radius}, enforcing
-     * vanilla's minimum {@code 15.0f} world-unit arc length so 0-spread beam/hardpoint weapons (such as Rift Lances)
-     * have high-contrast aim bars aligned with vanilla's aim ladder.
+     * for the perpendicular aim/spread bracket ticks at {@code stepRadius * i} and {@code radius}.
+     *
+     * <p>In vanilla Starsector ({@code com.fs.starfarer.renderers.E.o00000} bytecodes 107-276), each range step draws
+     * two 3.0-world-unit edge ticks: one at {@code centerRad - spreadRad / 2} extending inward by {@code 3.0f / radius},
+     * and one at {@code centerRad + spreadRad / 2} extending inward by {@code -3.0f / radius} (enforcing a minimum
+     * {@code 15.0f} world-unit separation between outer edges). Drawing a continuous arc across the full {@code spreadDeg}
+     * is NOT what vanilla does and projects false concentric firing arcs when the AI blooms recoil spread on autopilot.
      */
     private static void drawVanillaMatchedAimBarWorld(
             float wx,
@@ -2948,29 +2967,40 @@ public class TsfcWarroomRenderer {
             arcLen = 15.0f;
             spreadRad = 15.0f / radius;
         }
-        int steps = Math.max(2, Math.min(24, (int) Math.ceil(arcLen / 12.0f)));
-        float startRad = centerRad - spreadRad * 0.5f;
-        float stepRad = spreadRad / steps;
-        float rEff = Math.max(1f, radius - 0.5f);
+        float tickWorldLen = 3.0f;
+        float tickRad = tickWorldLen / radius;
+        float leftEdgeRad = centerRad - spreadRad * 0.5f;
+        float rightEdgeRad = centerRad + spreadRad * 0.5f;
+        float rEff = Math.max(1f, radius);
 
-        // Pass 1: Dark high-contrast casing
+        float cosL0 = (float) Math.cos(leftEdgeRad);
+        float sinL0 = (float) Math.sin(leftEdgeRad);
+        float cosL1 = (float) Math.cos(leftEdgeRad + tickRad);
+        float sinL1 = (float) Math.sin(leftEdgeRad + tickRad);
+
+        float cosR0 = (float) Math.cos(rightEdgeRad - tickRad);
+        float sinR0 = (float) Math.sin(rightEdgeRad - tickRad);
+        float cosR1 = (float) Math.cos(rightEdgeRad);
+        float sinR1 = (float) Math.sin(rightEdgeRad);
+
+        // Pass 1: Dark high-contrast casing for left and right aim bracket ticks
         GL11.glLineWidth(bgWidth);
         GL11.glColor4f(bgR, bgG, bgB, bgAlpha);
-        GL11.glBegin(GL11.GL_LINE_STRIP);
-        for (int i = 0; i <= steps; i++) {
-            float ang = startRad + stepRad * i;
-            GL11.glVertex2f(wx + (float) Math.cos(ang) * rEff, wy + (float) Math.sin(ang) * rEff);
-        }
+        GL11.glBegin(GL11.GL_LINES);
+        GL11.glVertex2f(wx + cosL0 * rEff, wy + sinL0 * rEff);
+        GL11.glVertex2f(wx + cosL1 * rEff, wy + sinL1 * rEff);
+        GL11.glVertex2f(wx + cosR0 * rEff, wy + sinR0 * rEff);
+        GL11.glVertex2f(wx + cosR1 * rEff, wy + sinR1 * rEff);
         GL11.glEnd();
 
-        // Pass 2: Bright high-contrast foreground bar
+        // Pass 2: Bright high-contrast foreground for left and right aim bracket ticks
         GL11.glLineWidth(fgWidth);
         GL11.glColor4f(fgR, fgG, fgB, fgAlpha);
-        GL11.glBegin(GL11.GL_LINE_STRIP);
-        for (int i = 0; i <= steps; i++) {
-            float ang = startRad + stepRad * i;
-            GL11.glVertex2f(wx + (float) Math.cos(ang) * rEff, wy + (float) Math.sin(ang) * rEff);
-        }
+        GL11.glBegin(GL11.GL_LINES);
+        GL11.glVertex2f(wx + cosL0 * rEff, wy + sinL0 * rEff);
+        GL11.glVertex2f(wx + cosL1 * rEff, wy + sinL1 * rEff);
+        GL11.glVertex2f(wx + cosR0 * rEff, wy + sinR0 * rEff);
+        GL11.glVertex2f(wx + cosR1 * rEff, wy + sinR1 * rEff);
         GL11.glEnd();
     }
 }

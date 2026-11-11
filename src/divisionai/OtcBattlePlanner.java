@@ -254,20 +254,31 @@ public class OtcBattlePlanner {
             if (currentlyVis) {
                 plan.lastTargetVisibleTime = now;
             }
-            boolean targetValid = plan.target != null && plan.target.isAbleCombatEffective()
-                    && (currentlyVis || (now - plan.lastTargetVisibleTime) <= 6.5f);
             boolean hasCarrierParticipant = false;
+            float maxCarrierPackageWindow = 36f;
+            boolean anyCarrierVoidstrikeAirborne = false;
             for (Iterator<DivisionState> it = plan.participants.iterator(); it.hasNext(); ) {
                 DivisionState p = it.next();
                 if (!p.isAbleCombatEffective()
                         || p.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                         || (plan.committed && p.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE)) {
                     it.remove();
-                } else if (p.archetype != null && p.archetype.isCarrierArchetype()) {
+                } else if ((p.archetype != null && p.archetype.isCarrierArchetype()) || p.hasCarrierCapability) {
                     hasCarrierParticipant = true;
+                    float pkgWin = p.lastVoidstrikeApproachTimeoutSec + p.lastVoidstrikePassTimeoutSec;
+                    if (pkgWin > maxCarrierPackageWindow) {
+                        maxCarrierPackageWindow = pkgWin;
+                    }
+                    if (!p.voidstrikeEgressActive
+                            && (p.voidstrikeStage == 2 || p.activeVoidstrikeSortieNumber > 0)) {
+                        anyCarrierVoidstrikeAirborne = true;
+                    }
                 }
             }
-            float effStrikeWindow = hasCarrierParticipant ? 24f : STRIKE_WINDOW;
+            float visGrace = hasCarrierParticipant ? 20.0f : 6.5f;
+            boolean targetValid = plan.target != null && plan.target.isAbleCombatEffective()
+                    && (currentlyVis || (now - plan.lastTargetVisibleTime) <= visGrace || (plan.committed && anyCarrierVoidstrikeAirborne));
+            float effStrikeWindow = hasCarrierParticipant ? maxCarrierPackageWindow : STRIKE_WINDOW;
             if (!targetValid || plan.participants.isEmpty()) {
                 if (!plan.committed && plan.target != null) {
                     logOrder(engine, myGroup, "strike_abort", String.format(

@@ -81,6 +81,7 @@ public class DivisionAITestSuite {
         testBabylonStationBastionTargetingAndModuleFocusFire();
         testFeignedRetreatForceDisparityFriendlyProtectionAndMinimalSignals();
         testPursuitDeploymentAndRearguardC2();
+        testAdvancedStrikeCraftGunneryAndHierarchicalSectors();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -1513,8 +1514,847 @@ public class DivisionAITestSuite {
     }
 
     /**
-     * Scenario 7: UI/UX Testing Harness (Deployment Window 14x7 Enlargement, Succinctness & Button Budgets).
+     * Scenario 10: Advanced Strike Craft Gunnery (L-Crossfire & Pincer Attack Geometries,
+     * 3-Tier Hierarchical Firing Sectors: Voidstrike -> Squadron -> Craft, and Low vs Strong
+     * Angle-of-Attack Correction with Off-Boresight Fire-Gating).
      */
+    private static void testAdvancedStrikeCraftGunneryAndHierarchicalSectors() {
+        System.out.println("\n--- Scenario 10: Advanced Strike Craft Gunnery (L-Crossfire, Hierarchical Sectors & AoA Correction) ---");
+
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+        DivisionState carrierDiv = new DivisionState(
+                "p_cv_div", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "Fleet Carrier Div 1", pCmdr);
+        DivisionState enemyDiv = new DivisionState(
+                "e_bb_div", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Battle Div 1", eCmdr);
+        pGroup.divisions.add(carrierDiv);
+        eGroup.divisions.add(enemyDiv);
+
+        SimArena arena = new SimArena("10. Advanced Strike Craft Gunnery", "L-Crossfire, Hierarchical Sectors & AoA", pGroup, eGroup);
+        SimShipState targetState = arena.addShip(
+                enemyDiv, "tgt_cap", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP,
+                0f, 1800f, 50f, 1200f, 3, 0);
+        targetState.facing = 240f;
+        targetState.velocity.set(45f, 0f); // Strafing east at 45 u/s
+        com.fs.starfarer.api.combat.ShipAPI targetShip = targetState.proxy;
+
+        // 1. Verify Multi-Axis Attack Geometry (Direct, L-Crossfire, Pincer)
+        float directSq0 = divisionai.VoidstrikeCoordinator.computeSquadronAttackAngleOffsetDeg(
+                divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.DIRECT_ASSAULT, 0, 2, true, targetShip, 0f, 1f);
+        float directSq1 = divisionai.VoidstrikeCoordinator.computeSquadronAttackAngleOffsetDeg(
+                divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.DIRECT_ASSAULT, 1, 2, true, targetShip, 0f, 1f);
+        float anvilSq0 = divisionai.VoidstrikeCoordinator.computeSquadronAttackAngleOffsetDeg(
+                divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE, 0, 2, true, targetShip, 0f, 1f);
+        float anvilSq1 = divisionai.VoidstrikeCoordinator.computeSquadronAttackAngleOffsetDeg(
+                divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE, 1, 2, true, targetShip, 0f, 1f);
+        float pincerSq0 = divisionai.VoidstrikeCoordinator.computeSquadronAttackAngleOffsetDeg(
+                divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT, 0, 2, true, targetShip, 0f, 1f);
+        float pincerSq1 = divisionai.VoidstrikeCoordinator.computeSquadronAttackAngleOffsetDeg(
+                divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT, 1, 2, true, targetShip, 0f, 1f);
+
+        boolean geometryOk = Math.abs(directSq0) < 0.1f && Math.abs(directSq1) < 0.1f
+                && Math.abs(anvilSq0) < 0.1f && Math.abs(Math.abs(anvilSq1) - 85f) < 0.1f
+                && Math.abs(pincerSq0 - (-55f)) < 0.1f && Math.abs(pincerSq1 - 55f) < 0.1f;
+
+        // 2. Verify 3-Tier Hierarchical Firing Sectors (Voidstrike -> Squadron -> Craft) for PRECISION vs AREA_SATURATION
+        SimShipState bomberSampleState = arena.addShip(
+                carrierDiv, "bmr_0", "Dagger 1", "dagger", HullSize.FIGHTER,
+                0f, 1300f, 180f, 500f, 1, 0);
+        com.fs.starfarer.api.combat.ShipAPI bomberSample = bomberSampleState.proxy;
+
+        divisionai.VoidstrikeCoordinator.FiringSectorAssignment precC0 =
+                divisionai.VoidstrikeCoordinator.computeHierarchicalFiringSector(
+                        divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION,
+                        divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG,
+                        targetShip, bomberSample, 0, 2, 0, 2, 0, 4, 0f, 1f, 1f, 0f);
+        divisionai.VoidstrikeCoordinator.FiringSectorAssignment precC3 =
+                divisionai.VoidstrikeCoordinator.computeHierarchicalFiringSector(
+                        divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION,
+                        divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG,
+                        targetShip, bomberSample, 1, 2, 1, 2, 3, 4, 0f, 1f, 1f, 0f);
+
+        // In AREA_SATURATION across 2 participating divisions x 2 squadrons/div x 4 craft/squadron (16 craft total),
+        // every division, squadron, and craft must receive a strictly increasing, non-overlapping lateral sector offset
+        // spanning the target ship's silhouette + evasion envelope (> 380u total span for a 165u-radius capital)!
+        List<Float> areaLateralOffsets = new ArrayList<>();
+        float areaSpanWidth = 0f;
+        for (int dIdx = 0; dIdx < 2; dIdx++) {
+            for (int sIdx = 0; sIdx < 2; sIdx++) {
+                for (int cIdx = 0; cIdx < 4; cIdx++) {
+                    divisionai.VoidstrikeCoordinator.FiringSectorAssignment sec =
+                            divisionai.VoidstrikeCoordinator.computeHierarchicalFiringSector(
+                                    divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION,
+                                    divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG,
+                                    targetShip, bomberSample, dIdx, 2, sIdx, 2, cIdx, 4, 0f, 1f, 1f, 0f);
+                    areaSpanWidth = sec.voidstrikeSpanWidth;
+                    areaLateralOffsets.add(sec.craftLateralOffset);
+                }
+            }
+        }
+        boolean strictlyMonotonicSectors = (areaLateralOffsets.size() == 16);
+        for (int i = 1; i < areaLateralOffsets.size(); i++) {
+            if (areaLateralOffsets.get(i) <= areaLateralOffsets.get(i - 1) + 15f) {
+                strictlyMonotonicSectors = false;
+                break;
+            }
+        }
+        float totalCraftSpread = areaLateralOffsets.get(areaLateralOffsets.size() - 1) - areaLateralOffsets.get(0);
+        boolean sectorsOk = (precC0.voidstrikeSpanWidth <= 36.1f)
+                && (Math.abs(precC3.craftLateralOffset - precC0.craftLateralOffset) <= 36.1f)
+                && (areaSpanWidth >= 380f)
+                && strictlyMonotonicSectors
+                && (totalCraftSpread >= 330f);
+
+        // 3. Verify LOW vs STRONG Angle-of-Attack Correction (Ballistic Lead, Lateral Slip Damping & Off-Boresight Fire-Gating)
+        divisionai.VoidstrikeCoordinator.FiringSectorAssignment lowSec =
+                divisionai.VoidstrikeCoordinator.computeHierarchicalFiringSector(
+                        divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION,
+                        divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.LOW,
+                        targetShip, bomberSample, 0, 1, 0, 1, 0, 1, 0f, 1f, 1f, 0f);
+        divisionai.VoidstrikeCoordinator.FiringSectorAssignment strongSec =
+                divisionai.VoidstrikeCoordinator.computeHierarchicalFiringSector(
+                        divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION,
+                        divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG,
+                        targetShip, bomberSample, 0, 1, 0, 1, 0, 1, 0f, 1f, 1f, 0f);
+        boolean leadScaleOk = (strongSec.worldAimPoint.x > lowSec.worldAimPoint.x + 12f);
+
+        // Off-boresight bomber (facing 45 deg when target is at ~90 deg north, with heavy 120 u/s sideways drift):
+        final SimShipState bomberStrongState = arena.addShip(
+                carrierDiv, "bmr_strong", "Cobra 1", "cobra", HullSize.FIGHTER,
+                0f, 1320f, 180f, 500f, 1, 0);
+        bomberStrongState.facing = 45f; // 40+ deg off-boresight
+        bomberStrongState.velocity.set(120f, 60f); // Heavy lateral slip
+
+        final SimShipState bomberLowState = arena.addShip(
+                carrierDiv, "bmr_low", "Cobra 2", "cobra", HullSize.FIGHTER,
+                0f, 1320f, 180f, 500f, 1, 0);
+        bomberLowState.facing = 45f;
+        bomberLowState.velocity.set(120f, 60f);
+
+        boolean gatedStrongOffBoresight = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                bomberStrongState.proxy, bomberStrongState.aiFlags, targetShip, strongSec,
+                divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 480f);
+        boolean gatedLowOffBoresight = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                bomberLowState.proxy, bomberLowState.aiFlags, targetShip, lowSec,
+                divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.LOW, true, 480f);
+
+        // Once bomberStrong aligns within 6.5 deg of worldAimPoint, fire-gate opens so torpedoes release cleanly!
+        float alignedAng = (float) Math.toDegrees(Math.atan2(
+                strongSec.worldAimPoint.y - bomberStrongState.location.y,
+                strongSec.worldAimPoint.x - bomberStrongState.location.x));
+        if (alignedAng < 0f) alignedAng += 360f;
+        bomberStrongState.facing = alignedAng;
+        boolean gatedWhenAligned = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                bomberStrongState.proxy, bomberStrongState.aiFlags, targetShip, strongSec,
+                divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 480f);
+
+        boolean aoaOk = leadScaleOk
+                && gatedStrongOffBoresight
+                && !gatedLowOffBoresight
+                && !gatedWhenAligned
+                && (bomberStrongState.velocity.y > bomberLowState.velocity.y + 40f);
+
+        // 3b. Closed-Loop 60 Hz Voidstrike Maneuver Rehearsal Suite:
+        //   (A) Coordinated Stage 1 Marshalling -> Stage 2 L-Crossfire (Anvil 0 deg + Hammer +-85 deg orthogonal dogleg)
+        //   (B) Pincer Envelopment (+-55 deg Port & Starboard jaws brackets)
+        //   (C) Split-Wing Voidstrikes (SPLIT_AXES & SPLIT_TARGETS hitting 3 enemy division ships inside ONE Voidstrike entity)
+        //   (D) Culmination & 60 Hz Egress Recovery back to carrier
+        boolean lCrossfireRehearsalOk = rehearseClosedLoopLCrossfireVoidstrike();
+        boolean pincerRehearsalOk = rehearseClosedLoopPincerVoidstrike();
+        boolean splitTargetsRehearsalOk = rehearseClosedLoopSplitTargetsVoidstrike();
+        boolean maxRangePkgEmergencyOk = rehearseMaxRangePackageDrivenAndEmergencyVoidstrike();
+
+        check(geometryOk && sectorsOk && aoaOk
+                        && lCrossfireRehearsalOk && pincerRehearsalOk && splitTargetsRehearsalOk && maxRangePkgEmergencyOk,
+                "Scenario 10: Advanced Strike Craft Gunnery & Closed-Loop Voidstrike Rehearsal (L-Crossfire, Pincer, Split-Wing Axes/Targets, Max-Range Package Timeouts & Emergency-Only Recall)",
+                String.format(Locale.ROOT,
+                        "geometry=[direct=%.0f/%.0f, anvil=%.0f/%.0f, pincer=%.0f/%.0f], sectors=[precSpan=%.1fu, areaSpan=%.1fu, 16craftSpread=%.1fu, monotonic=%b], aoa=[leadX=%.1f>%.1f, strongGateOffBore=%b, lowGate=%b, alignedGate=%b], rehearsals=[LCrossfire=%b, Pincer=%b, SplitTargets1Entity=%b, MaxRangePkgEmergency=%b]",
+                        directSq0, directSq1, anvilSq0, anvilSq1, pincerSq0, pincerSq1,
+                        precC0.voidstrikeSpanWidth, areaSpanWidth, totalCraftSpread, strictlyMonotonicSectors,
+                        strongSec.worldAimPoint.x, lowSec.worldAimPoint.x,
+                        gatedStrongOffBoresight, gatedLowOffBoresight, gatedWhenAligned,
+                        lCrossfireRehearsalOk, pincerRehearsalOk, splitTargetsRehearsalOk, maxRangePkgEmergencyOk));
+
+        // 4. Verify the 4x4 Showcase Mission Matrix (16 missions, ~300+ DP per side, 6+ Cruiser+ carriers per side, baked-in PermanentDivisionSpecs)
+        int missionsVerified = 0;
+        boolean allDivsBaked = true;
+        for (int r = 1; r <= 4; r++) {
+            for (int c = 1; c <= 4; c++) {
+                String mid = divisionai.DivisionShowcaseMissions.getMissionId(r, c);
+                com.fs.starfarer.api.mission.MissionDefinitionPlugin plugin;
+                try {
+                    Class<?> mCls = Class.forName("data.missions." + mid + ".MissionDefinition");
+                    plugin = (com.fs.starfarer.api.mission.MissionDefinitionPlugin) mCls.getDeclaredConstructor().newInstance();
+                } catch (Exception ex) {
+                    throw new RuntimeException("Failed to load MissionDefinition for " + mid, ex);
+                }
+                final int[] memberSeq = new int[]{0};
+                final List<String> briefings = new ArrayList<>();
+                com.fs.starfarer.api.mission.MissionDefinitionAPI mockApi =
+                        (com.fs.starfarer.api.mission.MissionDefinitionAPI) Proxy.newProxyInstance(
+                                com.fs.starfarer.api.mission.MissionDefinitionAPI.class.getClassLoader(),
+                                new Class<?>[]{com.fs.starfarer.api.mission.MissionDefinitionAPI.class},
+                                (p, m, a) -> {
+                                    String n = m.getName();
+                                    if ("addBriefingItem".equals(n) && a != null && a.length > 0 && a[0] instanceof String) {
+                                        briefings.add((String) a[0]);
+                                        return null;
+                                    }
+                                    if ("addToFleet".equals(n)) {
+                                        final String[] idHolder = new String[]{"m_" + (++memberSeq[0])};
+                                        final String vId = (a != null && a.length > 1 && a[1] instanceof String) ? (String) a[1] : "heron_Strike";
+                                        return (com.fs.starfarer.api.fleet.FleetMemberAPI) Proxy.newProxyInstance(
+                                                com.fs.starfarer.api.fleet.FleetMemberAPI.class.getClassLoader(),
+                                                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                                                (mp, mm, ma) -> {
+                                                    String mn = mm.getName();
+                                                    if ("getId".equals(mn)) return idHolder[0];
+                                                    if ("setId".equals(mn) && ma != null && ma.length > 0 && ma[0] instanceof String) {
+                                                        idHolder[0] = (String) ma[0];
+                                                        return null;
+                                                    }
+                                                    if ("getSpecId".equals(mn)) return vId;
+                                                    Class<?> rt = mm.getReturnType();
+                                                    if (rt == boolean.class) return false;
+                                                    if (rt == int.class) return 0;
+                                                    if (rt == float.class) return 0f;
+                                                    return null;
+                                                });
+                                    }
+                                    Class<?> rt = m.getReturnType();
+                                    if (rt == boolean.class) return false;
+                                    if (rt == int.class) return 0;
+                                    if (rt == float.class) return 0f;
+                                    return null;
+                                });
+                plugin.defineMission(mockApi);
+                divisionai.PermanentDivisionManager.MissionScenarioBundle bundle =
+                        divisionai.PermanentDivisionManager.getRegisteredMissionScenarioTemplate(mid);
+                int expectedP = (r == 4) ? 8 : 9;
+                int expectedE = (c == 4) ? 8 : 9;
+                boolean briefingOk = briefings.size() == 1
+                        && briefings.get(0).contains("This is a dynamic wargame scenario taught at the academy based on historical military doctrine.");
+                if (bundle == null
+                        || !briefingOk
+                        || bundle.playerDivisions.size() != expectedP
+                        || bundle.enemyDivisions.size() != expectedE) {
+                    allDivsBaked = false;
+                } else {
+                    int pCarrierShips = 0;
+                    int eCarrierShips = 0;
+                    int pFrigateShips = 0;
+                    int eFrigateShips = 0;
+                    int pFrigDivs = 0;
+                    int eFrigDivs = 0;
+                    for (divisionai.PermanentDivisionManager.PermanentDivisionSpec s : bundle.playerDivisions) {
+                        if (s.archetype != null && s.archetype.isCarrierArchetype()) {
+                            pCarrierShips += s.memberIds.size();
+                            if (s.customVoidstrikeGunneryMode != divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION
+                                    || s.customVoidstrikeAoaCorrection != divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG) {
+                                allDivsBaked = false;
+                            }
+                        }
+                        if (s.archetype == DivisionArchetype.FRIGATE_DIVISION
+                                || s.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                                || s.archetype == DivisionArchetype.PHASE_DIVISION) {
+                            pFrigDivs++;
+                            pFrigateShips += s.memberIds.size();
+                        }
+                    }
+                    for (divisionai.PermanentDivisionManager.PermanentDivisionSpec s : bundle.enemyDivisions) {
+                        if (s.archetype != null && s.archetype.isCarrierArchetype()) {
+                            eCarrierShips += s.memberIds.size();
+                        }
+                        if (s.archetype == DivisionArchetype.FRIGATE_DIVISION
+                                || s.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                                || s.archetype == DivisionArchetype.PHASE_DIVISION) {
+                            eFrigDivs++;
+                            eFrigateShips += s.memberIds.size();
+                        }
+                    }
+                    if (pCarrierShips < 6 || eCarrierShips < 6
+                            || pFrigateShips != 20 || eFrigateShips != 20
+                            || pFrigDivs != 4 || eFrigDivs != 4) {
+                        allDivsBaked = false;
+                    }
+                    missionsVerified++;
+                }
+            }
+        }
+        divisionai.PermanentDivisionManager.clearActiveMissionScenario();
+        check(missionsVerified == 16 && allDivsBaked,
+                "4x4 Showcase Mission Matrix (16 missions, academy wargame flavor text, 6+ Cruiser+ Carriers & 20 Frigates across 4 doctrinal divisions per fleet)",
+                String.format(Locale.ROOT, "missionsVerified=%d/16, allDivsBaked=%b", missionsVerified, allDivsBaked));
+    }
+
+    private static com.fs.starfarer.api.combat.FighterWingAPI createRehearsalWing(
+            final SimShipState carrierState,
+            final List<SimShipState> craftStates,
+            final boolean isBomber,
+            final boolean[] returningOverride) {
+        final List<com.fs.starfarer.api.combat.ShipAPI> memberProxies = new ArrayList<>();
+        for (SimShipState cs : craftStates) {
+            memberProxies.add(cs.proxy);
+        }
+        final com.fs.starfarer.api.loading.FighterWingSpecAPI specProxy =
+                (com.fs.starfarer.api.loading.FighterWingSpecAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.loading.FighterWingSpecAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.loading.FighterWingSpecAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("isBomber".equals(n)) return isBomber;
+                            if ("getNumFighters".equals(n)) return craftStates.size();
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+        com.fs.starfarer.api.combat.FighterWingAPI wingProxy =
+                (com.fs.starfarer.api.combat.FighterWingAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.FighterWingAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("equals".equals(n)) return p == a[0];
+                            if ("hashCode".equals(n)) return System.identityHashCode(p);
+                            if ("getSpec".equals(n)) return specProxy;
+                            if ("getRole".equals(n)) {
+                                return isBomber
+                                        ? com.fs.starfarer.api.loading.WingRole.BOMBER
+                                        : com.fs.starfarer.api.loading.WingRole.FIGHTER;
+                            }
+                            if ("getSourceShip".equals(n)) return carrierState.proxy;
+                            if ("getWingMembers".equals(n)) return memberProxies;
+                            if ("getLeader".equals(n)) return memberProxies.isEmpty() ? null : memberProxies.get(0);
+                            if ("isReturning".equals(n)) {
+                                return (returningOverride != null && returningOverride[0]) || carrierState.pullBackFighters;
+                            }
+                            if ("orderReturn".equals(n)) {
+                                if (returningOverride != null) returningOverride[0] = true;
+                                return null;
+                            }
+                            if ("stopReturning".equals(n)) {
+                                if (returningOverride != null) returningOverride[0] = false;
+                                return null;
+                            }
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+        for (SimShipState cs : craftStates) {
+            cs.wing = wingProxy;
+        }
+        carrierState.wings.add(wingProxy);
+        return wingProxy;
+    }
+
+    private static void stepRehearsalFighterKinematics60Hz(SimShipState f, float dt) {
+        if (!f.alive) return;
+        f.givenCommands.clear();
+        f.blockedCommands.clear();
+        Object mdObj = f.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MOVEMENT_DEST);
+        Vector2f goal = (mdObj instanceof Vector2f)
+                ? (Vector2f) mdObj
+                : (f.shipTarget != null ? f.shipTarget.getLocation() : null);
+        if (goal != null) {
+            float dx = goal.x - f.location.x;
+            float dy = goal.y - f.location.y;
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            if (d > 4f) {
+                float desAng = (float) Math.toDegrees(Math.atan2(dy, dx));
+                if (desAng < 0f) desAng += 360f;
+                float diff = desAng - f.facing;
+                while (diff > 180f) diff -= 360f;
+                while (diff < -180f) diff += 360f;
+                float maxTurn = 135f * dt;
+                f.facing = (f.facing + Math.max(-maxTurn, Math.min(maxTurn, diff)) + 360f) % 360f;
+                double rad = Math.toRadians(f.facing);
+                f.velocity.set((float) Math.cos(rad) * f.maxSpeed, (float) Math.sin(rad) * f.maxSpeed);
+                f.location.x += f.velocity.x * dt;
+                f.location.y += f.velocity.y * dt;
+            }
+        }
+    }
+
+    /**
+     * Rehearsal A: Closed-Loop 60 Hz Coordinated L-Crossfire Voidstrike (Stage 0 -> Stage 1 Marshal -> Stage 2 L-Dogleg -> Terminal Run -> Egress).
+     */
+    private static boolean rehearseClosedLoopLCrossfireVoidstrike() {
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+        DivisionState carrierDiv = new DivisionState(
+                "reh_l_cdiv", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div. I", pCmdr);
+        carrierDiv.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
+        carrierDiv.voidstrikeObservance = divisionai.PermanentDivisionManager.VoidstrikeTargetObservance.HIGH;
+        carrierDiv.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED;
+        carrierDiv.voidstrikeAttackGeometry = divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE;
+        carrierDiv.voidstrikeSplitMode = divisionai.PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES;
+        carrierDiv.voidstrikeGunneryMode = divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION;
+        carrierDiv.voidstrikeAoaCorrection = divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG;
+        carrierDiv.voidstrikeStage = 0;
+        carrierDiv.voidstrikeStageStartTime = -999f;
+
+        DivisionState enemyDiv = new DivisionState(
+                "reh_l_ediv", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Battle Div. I", eCmdr);
+        carrierDiv.targetEnemyDivision = enemyDiv;
+        pGroup.divisions.add(carrierDiv);
+        eGroup.divisions.add(enemyDiv);
+
+        SimArena arena = new SimArena("Rehearsal A: L-Crossfire", "Coordinated Stage 1 Marshal & 90-Deg L-Dogleg", pGroup, eGroup);
+        SimShipState carrier = arena.addShip(carrierDiv, "reh_c1", "HSS Legion", "legion", HullSize.CAPITAL_SHIP, 0f, 0f, 50f, 1200f, 2, 4);
+        carrierDiv.centroid.set(0f, 0f);
+        pGroup.shipIdToDivision.put(carrier.id, carrierDiv);
+
+        SimShipState enemyCap = arena.addShip(enemyDiv, "reh_e1", "PLS Conquest", "conquest", HullSize.CAPITAL_SHIP, 0f, 1500f, 45f, 1200f, 2, 0);
+        enemyCap.facing = 270f; // Shield facing South toward carrier (0, 0)
+        enemyDiv.centroid.set(0f, 1500f);
+        eGroup.shipIdToDivision.put(enemyCap.id, enemyDiv);
+
+        boolean[] ret0 = new boolean[]{false};
+        boolean[] ret1 = new boolean[]{false};
+        List<SimShipState> anvilWing = new ArrayList<>();
+        List<SimShipState> hammerWing = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            SimShipState fa = arena.addShip(carrierDiv, "anvil_f" + i, "Dagger A" + i, "dagger", HullSize.FIGHTER, -30f + i * 30f, 20f, 220f, 500f, 1, 0);
+            anvilWing.add(fa);
+            SimShipState fh = arena.addShip(carrierDiv, "hammer_f" + i, "Dagger H" + i, "dagger", HullSize.FIGHTER, -30f + i * 30f, -20f, 220f, 500f, 1, 0);
+            hammerWing.add(fh);
+        }
+        createRehearsalWing(carrier, anvilWing, true, ret0);
+        createRehearsalWing(carrier, hammerWing, true, ret1);
+
+        boolean sawStage1HoldWithoutPrematureRush = false;
+        float maxHammerLateralX = 0f;
+        float maxAnvilLateralX = 0f;
+        boolean hammerHeldFireOnDogleg = false;
+        boolean anvilReachedTarget = false;
+        boolean hammerReachedTargetFromFlank = false;
+        boolean singleVoidstrikeEntityMaintained = true;
+        boolean sawActiveVoidstrike = false;
+
+        float dt = 0.05f;
+        for (int step = 0; step <= 320; step++) {
+            float now = step * dt;
+            if (step % 5 == 0) {
+                divisionai.VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(carrierDiv, pGroup, enemyCap.proxy, now);
+                divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, eGroup, now);
+            }
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, now);
+
+            if (carrierDiv.voidstrikeStage == 1 && now >= 1.5f) {
+                float maxYInStage1 = -9999f;
+                for (SimShipState f : anvilWing) maxYInStage1 = Math.max(maxYInStage1, f.location.y);
+                for (SimShipState f : hammerWing) maxYInStage1 = Math.max(maxYInStage1, f.location.y);
+                if (maxYInStage1 < 650f && maxYInStage1 > 120f) {
+                    sawStage1HoldWithoutPrematureRush = true;
+                }
+            }
+
+            List<divisionai.VoidstrikeCoordinator.VoidstrikeRecord> activeVs = divisionai.VoidstrikeCoordinator.getActiveVoidstrikes();
+            if (!activeVs.isEmpty()) {
+                sawActiveVoidstrike = true;
+                if (activeVs.size() > 1) {
+                    singleVoidstrikeEntityMaintained = false;
+                }
+            }
+
+            for (SimShipState f : hammerWing) {
+                float absX = Math.abs(f.location.x);
+                if (absX > maxHammerLateralX) maxHammerLateralX = absX;
+                if (absX > 300f && f.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE)) {
+                    hammerHeldFireOnDogleg = true;
+                }
+                if (dist(f.location, enemyCap.location) <= 420f && Math.abs(f.location.x) >= 180f) {
+                    hammerReachedTargetFromFlank = true;
+                }
+            }
+            for (SimShipState f : anvilWing) {
+                if (f.location.y < 1200f) {
+                    maxAnvilLateralX = Math.max(maxAnvilLateralX, Math.abs(f.location.x));
+                }
+                if (dist(f.location, enemyCap.location) <= 420f) {
+                    anvilReachedTarget = true;
+                }
+            }
+
+            for (SimShipState f : anvilWing) stepRehearsalFighterKinematics60Hz(f, dt);
+            for (SimShipState f : hammerWing) stepRehearsalFighterKinematics60Hz(f, dt);
+        }
+
+        return sawStage1HoldWithoutPrematureRush
+                && maxHammerLateralX >= 450f
+                && maxAnvilLateralX <= 220f
+                && hammerHeldFireOnDogleg
+                && anvilReachedTarget
+                && hammerReachedTargetFromFlank
+                && sawActiveVoidstrike
+                && singleVoidstrikeEntityMaintained;
+    }
+
+    /**
+     * Rehearsal B: Closed-Loop 60 Hz Pincer Envelopment Voidstrike (Port -55 deg Jaw & Starboard +55 deg Jaw in 1 Voidstrike Entity).
+     */
+    private static boolean rehearseClosedLoopPincerVoidstrike() {
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+        DivisionState carrierDiv = new DivisionState(
+                "reh_p_cdiv", 0, 1, DivisionArchetype.LIGHT_CARRIER_DIVISION, "Carrier Div. II", pCmdr);
+        carrierDiv.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
+        carrierDiv.voidstrikeObservance = divisionai.PermanentDivisionManager.VoidstrikeTargetObservance.HIGH;
+        carrierDiv.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+        carrierDiv.voidstrikeAttackGeometry = divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT;
+        carrierDiv.voidstrikeSplitMode = divisionai.PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES;
+        carrierDiv.voidstrikeGunneryMode = divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION;
+        carrierDiv.voidstrikeAoaCorrection = divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG;
+        carrierDiv.voidstrikeStage = 2;
+
+        DivisionState enemyDiv = new DivisionState(
+                "reh_p_ediv", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Battle Div. I", eCmdr);
+        carrierDiv.targetEnemyDivision = enemyDiv;
+        pGroup.divisions.add(carrierDiv);
+        eGroup.divisions.add(enemyDiv);
+
+        SimArena arena = new SimArena("Rehearsal B: Pincer", "Two-Jaw +-55 Deg Envelopment", pGroup, eGroup);
+        SimShipState carrier = arena.addShip(carrierDiv, "reh_pc1", "HSS Mora", "mora", HullSize.CRUISER, 0f, 0f, 55f, 1100f, 2, 2);
+        carrierDiv.centroid.set(0f, 0f);
+        pGroup.shipIdToDivision.put(carrier.id, carrierDiv);
+
+        SimShipState enemyCap = arena.addShip(enemyDiv, "reh_pe1", "PLS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, 1400f, 45f, 1200f, 2, 0);
+        enemyCap.facing = 270f;
+        enemyDiv.centroid.set(0f, 1400f);
+        eGroup.shipIdToDivision.put(enemyCap.id, enemyDiv);
+
+        List<SimShipState> jawPort = new ArrayList<>();
+        List<SimShipState> jawStbd = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            jawPort.add(arena.addShip(carrierDiv, "jawP_f" + i, "Perdition P" + i, "perdition", HullSize.FIGHTER, -20f + i * 20f, 0f, 220f, 500f, 1, 0));
+            jawStbd.add(arena.addShip(carrierDiv, "jawS_f" + i, "Perdition S" + i, "perdition", HullSize.FIGHTER, -20f + i * 20f, 0f, 220f, 500f, 1, 0));
+        }
+        createRehearsalWing(carrier, jawPort, true, new boolean[]{false});
+        createRehearsalWing(carrier, jawStbd, true, new boolean[]{false});
+
+        float minXReached = 0f;
+        float maxXReached = 0f;
+        boolean portArrived = false;
+        boolean stbdArrived = false;
+        boolean singleVoidstrikeMaintained = true;
+
+        float dt = 0.05f;
+        for (int step = 0; step <= 260; step++) {
+            float now = step * dt;
+            if (step % 5 == 0) {
+                divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, eGroup, now);
+            }
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, now);
+
+            List<divisionai.VoidstrikeCoordinator.VoidstrikeRecord> activeVs = divisionai.VoidstrikeCoordinator.getActiveVoidstrikes();
+            if (activeVs.size() > 1) {
+                singleVoidstrikeMaintained = false;
+            }
+            for (SimShipState f : jawPort) {
+                minXReached = Math.min(minXReached, f.location.x);
+                maxXReached = Math.max(maxXReached, f.location.x);
+                if (dist(f.location, enemyCap.location) <= 420f) portArrived = true;
+            }
+            for (SimShipState f : jawStbd) {
+                minXReached = Math.min(minXReached, f.location.x);
+                maxXReached = Math.max(maxXReached, f.location.x);
+                if (dist(f.location, enemyCap.location) <= 420f) stbdArrived = true;
+            }
+            for (SimShipState f : jawPort) stepRehearsalFighterKinematics60Hz(f, dt);
+            for (SimShipState f : jawStbd) stepRehearsalFighterKinematics60Hz(f, dt);
+        }
+
+        return minXReached <= -360f
+                && maxXReached >= 360f
+                && portArrived
+                && stbdArrived
+                && singleVoidstrikeMaintained;
+    }
+
+    /**
+     * Rehearsal C: Closed-Loop 60 Hz Split-Wing Voidstrike (`SPLIT_TARGETS`) distributing 3 squadrons across
+     * 3 ships of an enemy Cruiser Division while remaining unified inside ONE Voidstrike entity, followed by
+     * sortie culmination and 60 Hz egress recovery back to the carrier.
+     */
+    private static boolean rehearseClosedLoopSplitTargetsVoidstrike() {
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+        DivisionState carrierDiv = new DivisionState(
+                "reh_s_cdiv", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "Split Carrier Div. I", pCmdr);
+        carrierDiv.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
+        carrierDiv.voidstrikeObservance = divisionai.PermanentDivisionManager.VoidstrikeTargetObservance.HIGH;
+        carrierDiv.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+        carrierDiv.voidstrikeAttackGeometry = divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.DIRECT_ASSAULT;
+        carrierDiv.voidstrikeSplitMode = divisionai.PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS;
+        carrierDiv.voidstrikeGunneryMode = divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION;
+        carrierDiv.voidstrikeAoaCorrection = divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG;
+        carrierDiv.voidstrikeStage = 2;
+
+        DivisionState enemyDiv = new DivisionState(
+                "reh_s_ediv", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Cruiser Div. I", eCmdr);
+        carrierDiv.targetEnemyDivision = enemyDiv;
+        pGroup.divisions.add(carrierDiv);
+        eGroup.divisions.add(enemyDiv);
+
+        SimArena arena = new SimArena("Rehearsal C: Split-Wing Targets", "3 Squadrons -> 3 Enemy Ships in 1 Voidstrike Entity", pGroup, eGroup);
+        SimShipState carrier = arena.addShip(carrierDiv, "reh_sc1", "TTS Astral", "astral", HullSize.CAPITAL_SHIP, 0f, 0f, 50f, 1200f, 2, 3);
+        carrierDiv.centroid.set(0f, 0f);
+        pGroup.shipIdToDivision.put(carrier.id, carrierDiv);
+
+        SimShipState eShip0 = arena.addShip(enemyDiv, "reh_se0", "PLS Eagle 1", "eagle", HullSize.CRUISER, 0f, 1350f, 50f, 1000f, 1, 0);
+        SimShipState eShip1 = arena.addShip(enemyDiv, "reh_se1", "PLS Eagle 2", "eagle", HullSize.CRUISER, -420f, 1300f, 50f, 1000f, 1, 0);
+        SimShipState eShip2 = arena.addShip(enemyDiv, "reh_se2", "PLS Falcon 3", "falcon", HullSize.CRUISER, 420f, 1300f, 55f, 1000f, 1, 0);
+        enemyDiv.flagship = eShip0.proxy;
+        enemyDiv.centroid.set(0f, 1320f);
+        eGroup.shipIdToDivision.put(eShip0.id, enemyDiv);
+        eGroup.shipIdToDivision.put(eShip1.id, enemyDiv);
+        eGroup.shipIdToDivision.put(eShip2.id, enemyDiv);
+
+        boolean[] ret0 = new boolean[]{false};
+        boolean[] ret1 = new boolean[]{false};
+        boolean[] ret2 = new boolean[]{false};
+        List<SimShipState> w0 = new ArrayList<>();
+        List<SimShipState> w1 = new ArrayList<>();
+        List<SimShipState> w2 = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            w0.add(arena.addShip(carrierDiv, "sw0_f" + i, "Trident A" + i, "trident", HullSize.FIGHTER, -20f + i * 20f, 0f, 225f, 500f, 1, 0));
+            w1.add(arena.addShip(carrierDiv, "sw1_f" + i, "Trident B" + i, "trident", HullSize.FIGHTER, -20f + i * 20f, 0f, 225f, 500f, 1, 0));
+            w2.add(arena.addShip(carrierDiv, "sw2_f" + i, "Trident C" + i, "trident", HullSize.FIGHTER, -20f + i * 20f, 0f, 225f, 500f, 1, 0));
+        }
+        createRehearsalWing(carrier, w0, true, ret0);
+        createRehearsalWing(carrier, w1, true, ret1);
+        createRehearsalWing(carrier, w2, true, ret2);
+
+        boolean hitE0 = false;
+        boolean hitE1 = false;
+        boolean hitE2 = false;
+        boolean sawSingleSplitEntityWith3Targets = false;
+        boolean neverFragmentedIntoMultipleVoidstrikes = true;
+        boolean egressRecoveredToCarrier = false;
+
+        float dt = 0.05f;
+        for (int step = 0; step <= 320; step++) {
+            float now = step * dt;
+            if (hitE0 && hitE1 && hitE2 && !ret0[0]) {
+                // Simulate bombers expending ordnance once all 3 enemy division ships have been struck
+                for (SimShipState f : w0) f.strikeAmmo = 0;
+                for (SimShipState f : w1) f.strikeAmmo = 0;
+                for (SimShipState f : w2) f.strikeAmmo = 0;
+                ret0[0] = true;
+                ret1[0] = true;
+                ret2[0] = true;
+            }
+            if (step % 5 == 0) {
+                divisionai.VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(carrierDiv, pGroup, eShip0.proxy, now);
+                divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, eGroup, now);
+            }
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, now);
+
+            List<divisionai.VoidstrikeCoordinator.VoidstrikeRecord> activeVs = divisionai.VoidstrikeCoordinator.getActiveVoidstrikes();
+            if (activeVs.size() > 1) {
+                neverFragmentedIntoMultipleVoidstrikes = false;
+            }
+            if (activeVs.size() == 1) {
+                divisionai.VoidstrikeCoordinator.VoidstrikeRecord rec = activeVs.get(0);
+                if (rec.splitWingActive && rec.distinctTargetCount == 3 && rec.voidstrikeNumber == 1) {
+                    sawSingleSplitEntityWith3Targets = true;
+                }
+            }
+
+            for (SimShipState f : w0) {
+                if (dist(f.location, eShip0.location) <= 260f) hitE0 = true;
+                stepRehearsalFighterKinematics60Hz(f, dt);
+            }
+            for (SimShipState f : w1) {
+                if (dist(f.location, eShip1.location) <= 260f) hitE1 = true;
+                stepRehearsalFighterKinematics60Hz(f, dt);
+            }
+            for (SimShipState f : w2) {
+                if (dist(f.location, eShip2.location) <= 260f) hitE2 = true;
+                stepRehearsalFighterKinematics60Hz(f, dt);
+            }
+
+            if (ret0[0] && activeVs.isEmpty() && dist(w0.get(0).location, carrier.location) <= 680f) {
+                egressRecoveredToCarrier = true;
+            }
+        }
+
+        return hitE0 && hitE1 && hitE2
+                && sawSingleSplitEntityWith3Targets
+                && neverFragmentedIntoMultipleVoidstrikes
+                && egressRecoveredToCarrier;
+    }
+
+    /**
+     * Rehearsal D: Closed-Loop 60 Hz Maximum-Range Voidstrike (7,200u cross-map), Package-Driven Timeouts
+     * (`MassedStrikePackageProfile`), Premature Return Cancellation on Armed Bombers, and Emergency-Only Pullback.
+     */
+    private static boolean rehearseMaxRangePackageDrivenAndEmergencyVoidstrike() {
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+        DivisionState carrierDiv = new DivisionState(
+                "reh_mr_cdiv", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "MaxRange Carrier Div. I", pCmdr);
+        carrierDiv.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
+        carrierDiv.voidstrikeObservance = divisionai.PermanentDivisionManager.VoidstrikeTargetObservance.HIGH;
+        carrierDiv.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+        carrierDiv.voidstrikeAttackGeometry = divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE;
+        carrierDiv.voidstrikeSplitMode = divisionai.PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES;
+        carrierDiv.voidstrikeGunneryMode = divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION;
+        carrierDiv.voidstrikeAoaCorrection = divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG;
+        carrierDiv.voidstrikeStage = 2;
+
+        DivisionState enemyDiv = new DivisionState(
+                "reh_mr_ediv", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Far Enemy Battle Div. I", eCmdr);
+        carrierDiv.targetEnemyDivision = enemyDiv;
+        pGroup.divisions.add(carrierDiv);
+        eGroup.divisions.add(enemyDiv);
+
+        SimArena arena = new SimArena("Rehearsal D: Max-Range Package Strike", "7,200u Cross-Map Strike & Emergency-Only Recall", pGroup, eGroup);
+        SimShipState carrier = arena.addShip(carrierDiv, "reh_mrc1", "HSS Mora", "mora", HullSize.CRUISER, 0f, -3200f, 45f, 1000f, 1, 3);
+        carrierDiv.centroid.set(0f, -3200f);
+        pGroup.shipIdToDivision.put(carrier.id, carrierDiv);
+
+        // Enemy capital is 7,200u away at (0, +4000) — far beyond vanilla's 4,000u fighter leash and old 38s timeout!
+        SimShipState enemyCap = arena.addShip(enemyDiv, "reh_mre1", "ISS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, 4000f, 40f, 1200f, 2, 0);
+        enemyCap.facing = 270f;
+        enemyDiv.flagship = enemyCap.proxy;
+        enemyDiv.centroid.set(0f, 4000f);
+        eGroup.shipIdToDivision.put(enemyCap.id, enemyDiv);
+
+        boolean[] ret0 = new boolean[]{false};
+        boolean[] ret1 = new boolean[]{false};
+        List<SimShipState> slowBomberWing = new ArrayList<>();
+        List<SimShipState> escortFighterWing = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            // Slow heavy torpedo bombers (145 u/s) with strikeAmmo = 2
+            SimShipState b = arena.addShip(carrierDiv, "mr_bmr_" + i, "Trident " + i, "trident", HullSize.FIGHTER, -20f + i * 20f, -3150f, 145f, 520f, 2, 0);
+            slowBomberWing.add(b);
+            // Fast gun-only strike fighters (250 u/s) with strikeAmmo = 0
+            SimShipState f = arena.addShip(carrierDiv, "mr_ftr_" + i, "Broadsword " + i, "broadsword", HullSize.FIGHTER, -20f + i * 20f, -3180f, 250f, 420f, 0, 0);
+            escortFighterWing.add(f);
+        }
+        createRehearsalWing(carrier, slowBomberWing, true, ret0);
+        createRehearsalWing(carrier, escortFighterWing, false, ret1);
+
+        // 1. Verify MassedStrikePackageProfile upon execution weights speed toward the 145 u/s bombers and grants > 85s approach timeout!
+        divisionai.VoidstrikeCoordinator.MassedStrikePackageProfile pkg =
+                divisionai.VoidstrikeCoordinator.computeMassedStrikePackageProfile(carrierDiv, enemyCap.proxy);
+        boolean packageProfileOk = pkg.maxEffectivePackageMass >= 10f
+                && pkg.initialArmedBomberCount == 3
+                && pkg.effectivePackageSpeed >= 140f && pkg.effectivePackageSpeed <= 185f
+                && pkg.executionDistanceToTarget >= 7000f
+                && pkg.packageApproachTimeoutSec >= 85f
+                && pkg.packageStrikePassTimeoutSec >= 26f;
+
+        boolean prematureReturnCancelledOk = false;
+        boolean survivedPastOld38sTimeout = false;
+        boolean nonEmergencyDidNotPullBack = true;
+        boolean bombersExpendedOrdnanceAtTarget = false;
+        String culminationReasonSeen = null;
+
+        float dt = 0.10f;
+        for (int step = 0; step <= 700; step++) {
+            float now = step * dt;
+
+            // At t = 15s (bombers ~1,000u downrange with full ammo), simulate:
+            //  (a) vanilla M.fighterNeedsRefit prematurely ordering return on 95%-hull bombers (ret0[0] = true), and
+            //  (b) a non-emergency division intent (HOLD_IN_RESERVE) while bombers are committed downrange!
+            if (step == 150) {
+                for (SimShipState b : slowBomberWing) {
+                    b.hullLevel = 0.95f;
+                }
+                ret0[0] = true;
+                carrierDiv.currentIntent = DivisionIntentType.HOLD_IN_RESERVE;
+            }
+            if (step == 160) {
+                carrierDiv.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
+            }
+
+            // Once the slow bombers actually reach weapon release range (<= 380u) of the enemy capital at ~52s,
+            // they drop their torpedoes (strikeAmmo = 0)!
+            boolean allBombersInReleaseRange = true;
+            for (SimShipState b : slowBomberWing) {
+                if (dist(b.location, enemyCap.location) > 380f) {
+                    allBombersInReleaseRange = false;
+                    break;
+                }
+            }
+            if (allBombersInReleaseRange && slowBomberWing.get(0).strikeAmmo > 0) {
+                for (SimShipState b : slowBomberWing) {
+                    b.strikeAmmo = 0;
+                }
+                bombersExpendedOrdnanceAtTarget = true;
+            }
+
+            if (step % 3 == 0) {
+                divisionai.VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(carrierDiv, pGroup, enemyCap.proxy, now);
+                divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, eGroup, now);
+            }
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, now);
+
+            if (step == 152) {
+                // Verify premature return on 95%-hull armed bombers was immediately cancelled and non-emergency HOLD_IN_RESERVE did not pull back!
+                prematureReturnCancelledOk = !ret0[0] && !carrier.pullBackFighters;
+                if (carrier.pullBackFighters) {
+                    nonEmergencyDidNotPullBack = false;
+                }
+            }
+            if (now >= 42.0f && !bombersExpendedOrdnanceAtTarget) {
+                List<divisionai.VoidstrikeCoordinator.VoidstrikeRecord> activeAt42 = divisionai.VoidstrikeCoordinator.getActiveVoidstrikes();
+                if (activeAt42.size() == 1 && activeAt42.get(0).voidstrikeNumber == 1) {
+                    survivedPastOld38sTimeout = true;
+                }
+            }
+
+            for (SimShipState b : slowBomberWing) stepRehearsalFighterKinematics60Hz(b, dt);
+            for (SimShipState f : escortFighterWing) stepRehearsalFighterKinematics60Hz(f, dt);
+
+            if (bombersExpendedOrdnanceAtTarget && divisionai.VoidstrikeCoordinator.getActiveVoidstrikes().isEmpty()) {
+                culminationReasonSeen = "ordnance expended";
+                break;
+            }
+        }
+
+        // Finally, verify that a GENUINE emergency (carrier at 88% flux under close enemy attack) DOES trigger emergency pullback!
+        for (SimShipState b : slowBomberWing) b.strikeAmmo = 2;
+        ret0[0] = false;
+        carrier.fluxLevel = 0.88f;
+        carrierDiv.localEnemyStrength = 20f;
+        boolean emergencyTriggeredOk = divisionai.VoidstrikeCoordinator.isVoidstrikeEmergencyPullbackRequired(
+                carrier.proxy, carrierDiv, pGroup, enemyCap.proxy);
+        divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, 90f);
+        boolean emergencyPulledBackOk = emergencyTriggeredOk && carrier.pullBackFighters && carrierDiv.voidstrikeEmergencyRecallActive;
+
+        return packageProfileOk
+                && prematureReturnCancelledOk
+                && nonEmergencyDidNotPullBack
+                && survivedPastOld38sTimeout
+                && bombersExpendedOrdnanceAtTarget
+                && "ordnance expended".equals(culminationReasonSeen)
+                && emergencyPulledBackOk;
+    }
     private static void testUIHarnessAndUXSuccinctness() throws Exception {
         System.out.println("\n--- Scenario 7: UI/UX Testing Harness (Deployment Window 14x7 & Succinctness Audit) ---");
         File uiPreviewOut = new File("build/ui_preview.html");

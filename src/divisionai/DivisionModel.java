@@ -605,6 +605,14 @@ public class DivisionModel {
                 PermanentDivisionManager.VoidstrikeTargetObservance.MEDIUM;
         public PermanentDivisionManager.VoidstrikeCoordinationMode voidstrikeCoordination =
                 PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED;
+        public PermanentDivisionManager.VoidstrikeAttackGeometry voidstrikeAttackGeometry =
+                PermanentDivisionManager.VoidstrikeAttackGeometry.DIRECT_ASSAULT;
+        public PermanentDivisionManager.VoidstrikeSplitMode voidstrikeSplitMode =
+                PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED;
+        public PermanentDivisionManager.VoidstrikeGunneryMode voidstrikeGunneryMode =
+                PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION;
+        public PermanentDivisionManager.VoidstrikeAoaCorrection voidstrikeAoaCorrection =
+                PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG;
         public PermanentDivisionManager.ShipSkillCoordinationMode shipSkillCoordination =
                 PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED;
         public PermanentDivisionManager.DivisionRammingMode rammingMode =
@@ -647,7 +655,15 @@ public class DivisionModel {
          * instead of burning fresh numbers. Cleared when egress begins.
          */
         public int activeVoidstrikeSortieNumber = 0;
+        public boolean voidstrikeEmergencyRecallActive = false;
+        public float lastVoidstrikePackageMass = 0f;
+        public float lastVoidstrikeEffectiveSpeed = 180f;
+        public float lastVoidstrikeApproachTimeoutSec = 45f;
+        public float lastVoidstrikePassTimeoutSec = 24f;
         public final Vector2f voidstrikeMarshalPoint = new Vector2f(0f, 0f);
+        public int voidstrikeTerminalAlignedCraftCount = 0;
+        public int voidstrikeFireGatedCraftCount = 0;
+        public float lastVoidstrikeSpanWidth = 0f;
 
         // Item E (Trade Space for Time / Tactical Retreat) & Item F (Feigned Retreat & Trap Suspicion)
         public final Vector2f spaceOffsetVector = new Vector2f(0f, 0f);

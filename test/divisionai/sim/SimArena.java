@@ -223,6 +223,9 @@ public class SimArena {
         public final ShipwideAIFlags aiFlags = new ShipwideAIFlags();
         public final List<WeaponAPI> weapons = new ArrayList<>();
         public final List<SimWeaponMount> weaponMounts = new ArrayList<>();
+        public final List<com.fs.starfarer.api.combat.FighterWingAPI> wings = new ArrayList<>();
+        public com.fs.starfarer.api.combat.FighterWingAPI wing = null;
+        public boolean pullBackFighters = false;
         public ShipAPI proxy;
 
         public SimShipState(
@@ -634,14 +637,35 @@ public class SimArena {
                         if ("isStationModule".equals(n)) return isStationModule;
                         if ("getParentStation".equals(n)) return parentStation;
                         if ("getChildModulesCopy".equals(n)) return new ArrayList<ShipAPI>(childModules);
+                        if ("isFighter".equals(n)) {
+                            return hullSize == HullSize.FIGHTER;
+                        }
                         if ("isExpired".equals(n) || "isRetreating".equals(n) || "isDirectRetreat".equals(n)
-                                || "isFighter".equals(n) || "isDrone".equals(n)
+                                || "isDrone".equals(n)
                                 || "isAlly".equals(n) || "isShuttlePod".equals(n)) {
                             return Boolean.FALSE;
                         }
                         if ("getLocation".equals(n)) return location;
                         if ("getVelocity".equals(n)) return velocity;
                         if ("getFacing".equals(n)) return facing;
+                        if ("setFacing".equals(n)) {
+                            if (a != null && a.length > 0 && a[0] instanceof Number) {
+                                facing = ((Number) a[0]).floatValue();
+                            }
+                            return null;
+                        }
+                        if ("getMaxTurnRate".equals(n)) {
+                            return hullSize == HullSize.FIGHTER ? 120f : 45f;
+                        }
+                        if ("getAllWings".equals(n)) return wings;
+                        if ("getWing".equals(n)) return wing;
+                        if ("isPullBackFighters".equals(n)) return pullBackFighters;
+                        if ("setPullBackFighters".equals(n)) {
+                            if (a != null && a.length > 0 && a[0] instanceof Boolean) {
+                                pullBackFighters = (Boolean) a[0];
+                            }
+                            return null;
+                        }
                         if (detailedCombatModel && "getAngularVelocity".equals(n)) return angularVelocity;
                         if ("getFluxLevel".equals(n)) return fluxLevel;
                         if ("getHullLevel".equals(n)) return hullLevel;
@@ -682,6 +706,7 @@ public class SimArena {
                             if (hullSize == HullSize.DESTROYER) return 85f;
                             return 55f;
                         }
+                        if ("getFighterTimeBeforeRefit".equals(n)) return 600f;
                         if ("getAIFlags".equals(n)) return aiFlags;
                         if ("getNumFighterBays".equals(n)) return fighterBays;
                         if ("getAllWeapons".equals(n)) return weapons;

@@ -40,7 +40,11 @@ import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.SquadronFormation;
 import divisionai.PermanentDivisionManager.ShipSkillCoordinationMode;
+import divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection;
+import divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry;
 import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
+import divisionai.PermanentDivisionManager.VoidstrikeGunneryMode;
+import divisionai.PermanentDivisionManager.VoidstrikeSplitMode;
 import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
@@ -736,6 +740,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 // Rows 7a-7g: Carrier & Wing Voidstrike Behavior Doctrine (collapsed under "Carrier Options" button per UI Items D & E)
                 VoidstrikeTargetObservance currVsObs = doctrine.getVoidstrikeObservance(dt);
                 VoidstrikeCoordinationMode currVsCoord = doctrine.getVoidstrikeCoordination(dt);
+                VoidstrikeAttackGeometry currVsGeom = doctrine.getVoidstrikeAttackGeometry(dt);
+                VoidstrikeSplitMode currVsSplit = doctrine.getVoidstrikeSplitMode(dt);
+                VoidstrikeGunneryMode currVsGun = doctrine.getVoidstrikeGunneryMode(dt);
+                VoidstrikeAoaCorrection currVsAoa = doctrine.getVoidstrikeAoaCorrection(dt);
                 SquadronFormation currFtrFm = doctrine.getFighterFormation(dt);
                 SquadronFormation currFtrVsFm = doctrine.getFighterVoidstrikeFormation(dt);
                 SquadronFormation currBmbFm = doctrine.getBomberFormation(dt);
@@ -784,6 +792,50 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             baseColor,
                             darkColor,
                             highlight,
+                            gray);
+
+                    addVoidstrikeAttackGeometryRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Strike Geometry: " + currVsGeom.displayName,
+                            currVsGeom,
+                            "SET_VS_GEOM:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive,
+                            gray);
+
+                    addVoidstrikeSplitModeRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Wing Split: " + currVsSplit.displayName,
+                            currVsSplit,
+                            "SET_VS_SPLIT:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            gray);
+
+                    addVoidstrikeGunneryModeRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Strike Gunnery: " + currVsGun.displayName,
+                            currVsGun,
+                            "SET_VS_GUN:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            gray);
+
+                    addVoidstrikeAoaCorrectionRow(
+                            body,
+                            bodyWidth - 16f,
+                            "AoA Correction: " + currVsAoa.displayName,
+                            currVsAoa,
+                            "SET_VS_AOA:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive,
                             gray);
 
                     addSquadronFormationRow(
@@ -2722,6 +2774,50 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             return;
         }
+        if (cmd.startsWith("SET_VS_GEOM:")) {
+            String rest = cmd.substring("SET_VS_GEOM:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                VoidstrikeAttackGeometry geom = VoidstrikeAttackGeometry.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeVoidstrikeAttackGeometry(dt, geom);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_VS_SPLIT:")) {
+            String rest = cmd.substring("SET_VS_SPLIT:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                VoidstrikeSplitMode split = VoidstrikeSplitMode.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeVoidstrikeSplitMode(dt, split);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_VS_GUN:")) {
+            String rest = cmd.substring("SET_VS_GUN:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                VoidstrikeGunneryMode gun = VoidstrikeGunneryMode.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeVoidstrikeGunneryMode(dt, gun);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_VS_AOA:")) {
+            String rest = cmd.substring("SET_VS_AOA:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                VoidstrikeAoaCorrection aoa = VoidstrikeAoaCorrection.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeVoidstrikeAoaCorrection(dt, aoa);
+                rebuildContent();
+            }
+            return;
+        }
         if (cmd.startsWith("SET_FTR_FM:")) {
             String rest = cmd.substring("SET_FTR_FM:".length());
             int sep = rest.indexOf(':');
@@ -3217,6 +3313,114 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 labels, acts, sel, 116f, 22f, 122f, baseColor, darkColor, activeValueColor,
                 null, true, 0f, activeValueColor,
                 currentCoord != null ? currentCoord.summary : null, gray, 6f);
+    }
+
+    private void addVoidstrikeAttackGeometryRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            VoidstrikeAttackGeometry currentGeom,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        VoidstrikeAttackGeometry[] opts = VoidstrikeAttackGeometry.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentGeom) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 94f, 22f, 100f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentGeom != null ? currentGeom.summary : null, gray, 6f);
+    }
+
+    private void addVoidstrikeSplitModeRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            VoidstrikeSplitMode currentSplit,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        VoidstrikeSplitMode[] opts = VoidstrikeSplitMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentSplit) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 94f, 22f, 100f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentSplit != null ? currentSplit.summary : null, gray, 6f);
+    }
+
+    private void addVoidstrikeGunneryModeRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            VoidstrikeGunneryMode currentGun,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        VoidstrikeGunneryMode[] opts = VoidstrikeGunneryMode.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentGun) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 102f, 22f, 108f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentGun != null ? currentGun.summary : null, gray, 6f);
+    }
+
+    private void addVoidstrikeAoaCorrectionRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            VoidstrikeAoaCorrection currentAoa,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        VoidstrikeAoaCorrection[] opts = VoidstrikeAoaCorrection.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentAoa) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 94f, 22f, 100f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentAoa != null ? currentAoa.summary : null, gray, 6f);
     }
 
     private void addVoidstrikeDepthRow(

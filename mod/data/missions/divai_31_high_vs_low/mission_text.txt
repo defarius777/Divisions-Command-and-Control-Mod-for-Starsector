@@ -1,0 +1,4 @@
+This is a dynamic wargame scenario taught at the academy based on historical military doctrine.
+
+BLUFOR: Tri-Tachyon (High Tech)
+OPFOR: Hegemony (Low Tech)

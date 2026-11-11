@@ -505,6 +505,9 @@ public class DivisionDeploymentDialogOrganizer {
 
         ensureHandles(ui);
         if (!handlesResolved) return;
+        if (PermanentDivisionManager.resolveActiveMissionScenario() != null) {
+            PermanentDivisionManager.ensureMissionDeploymentPointCap(engine);
+        }
 
         try {
             boolean showingDeploy = (boolean) isShowingDeploymentDialogHandle.invoke(ui);

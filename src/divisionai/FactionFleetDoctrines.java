@@ -726,6 +726,26 @@ public final class FactionFleetDoctrines {
                 if (vsCoord != null && !vsCoord.isEmpty()) {
                     cfg.setVoidstrikeCoordination(dt, VoidstrikeCoordinationMode.fromId(vsCoord, cfg.getVoidstrikeCoordination(dt)));
                 }
+                String vsGeom = JsonReflectBridge.optString(dtJson, "voidstrikeAttackGeometry", null);
+                if (vsGeom != null && !vsGeom.isEmpty()) {
+                    cfg.setVoidstrikeAttackGeometry(dt, PermanentDivisionManager.VoidstrikeAttackGeometry.fromId(
+                            vsGeom, cfg.getVoidstrikeAttackGeometry(dt)));
+                }
+                String vsSplit = JsonReflectBridge.optString(dtJson, "voidstrikeSplitMode", null);
+                if (vsSplit != null && !vsSplit.isEmpty()) {
+                    cfg.setVoidstrikeSplitMode(dt, PermanentDivisionManager.VoidstrikeSplitMode.fromId(
+                            vsSplit, cfg.getVoidstrikeSplitMode(dt)));
+                }
+                String vsGun = JsonReflectBridge.optString(dtJson, "voidstrikeGunneryMode", null);
+                if (vsGun != null && !vsGun.isEmpty()) {
+                    cfg.setVoidstrikeGunneryMode(dt, PermanentDivisionManager.VoidstrikeGunneryMode.fromId(
+                            vsGun, cfg.getVoidstrikeGunneryMode(dt)));
+                }
+                String vsAoa = JsonReflectBridge.optString(dtJson, "voidstrikeAoaCorrection", null);
+                if (vsAoa != null && !vsAoa.isEmpty()) {
+                    cfg.setVoidstrikeAoaCorrection(dt, PermanentDivisionManager.VoidstrikeAoaCorrection.fromId(
+                            vsAoa, cfg.getVoidstrikeAoaCorrection(dt)));
+                }
                 String ftrFm = JsonReflectBridge.optString(dtJson, "fighterFormation", null);
                 if (ftrFm != null && !ftrFm.isEmpty()) {
                     cfg.setFighterFormation(dt, SquadronFormation.fromId(ftrFm, cfg.getFighterFormation(dt)));

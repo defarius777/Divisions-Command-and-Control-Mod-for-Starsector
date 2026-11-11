@@ -196,21 +196,38 @@ public class DivisionAutoFormer {
         Set<String> assignedIds = new HashSet<>(battleGroup.shipIdToDivision.keySet());
 
         if (eligibleShips != null && !eligibleShips.isEmpty()) {
-            String detectedFactionId = resolveFactionIdForCombatShips(eligibleShips, engine, battleGroup.side);
-            battleGroup.factionId = detectedFactionId;
-            battleGroup.nomenclatureCategory = DivisionNomenclature.resolveCategoryForCombatShips(
-                    eligibleShips,
-                    detectedFactionId,
-                    false);
-            PermanentDivisionManager.FleetDoctrineConfig fDoc =
-                    FactionFleetDoctrines.getDoctrineForFactionId(detectedFactionId, null);
-            battleGroup.authority = fDoc.getOtcAuthority();
-            battleGroup.fleetWideFormation = fDoc.getFleetWideFormation();
-            battleGroup.multiDivisionSetpieceDoctrine = fDoc.getMultiDivisionSetpiece();
-            battleGroup.deployInFleetFormation = fDoc.isDeployInFleetFormation();
-            battleGroup.orchestratedAdvance = fDoc.isOrchestratedAdvance();
-            battleGroup.plays.clear();
-            battleGroup.plays.addAll(fDoc.getEnabledPlays());
+            PermanentDivisionManager.MissionScenarioBundle missionBundle =
+                    (battleGroup.side == 1) ? PermanentDivisionManager.resolveActiveMissionScenario() : null;
+            if (missionBundle != null) {
+                battleGroup.factionId = missionBundle.enemyFactionId;
+                battleGroup.nomenclatureCategory = missionBundle.enemyNomenclature;
+                PermanentDivisionManager.FleetDoctrineConfig fDoc = missionBundle.enemyDoctrine;
+                if (fDoc != null) {
+                    battleGroup.authority = fDoc.getOtcAuthority();
+                    battleGroup.fleetWideFormation = fDoc.getFleetWideFormation();
+                    battleGroup.multiDivisionSetpieceDoctrine = fDoc.getMultiDivisionSetpiece();
+                    battleGroup.deployInFleetFormation = fDoc.isDeployInFleetFormation();
+                    battleGroup.orchestratedAdvance = fDoc.isOrchestratedAdvance();
+                    battleGroup.plays.clear();
+                    battleGroup.plays.addAll(fDoc.getEnabledPlays());
+                }
+            } else {
+                String detectedFactionId = resolveFactionIdForCombatShips(eligibleShips, engine, battleGroup.side);
+                battleGroup.factionId = detectedFactionId;
+                battleGroup.nomenclatureCategory = DivisionNomenclature.resolveCategoryForCombatShips(
+                        eligibleShips,
+                        detectedFactionId,
+                        false);
+                PermanentDivisionManager.FleetDoctrineConfig fDoc =
+                        FactionFleetDoctrines.getDoctrineForFactionId(detectedFactionId, null);
+                battleGroup.authority = fDoc.getOtcAuthority();
+                battleGroup.fleetWideFormation = fDoc.getFleetWideFormation();
+                battleGroup.multiDivisionSetpieceDoctrine = fDoc.getMultiDivisionSetpiece();
+                battleGroup.deployInFleetFormation = fDoc.isDeployInFleetFormation();
+                battleGroup.orchestratedAdvance = fDoc.isOrchestratedAdvance();
+                battleGroup.plays.clear();
+                battleGroup.plays.addAll(fDoc.getEnabledPlays());
+            }
         }
 
         List<ShipCapabilityProfile> unassigned = new ArrayList<>();
@@ -234,6 +251,17 @@ public class DivisionAutoFormer {
                 return Float.compare(a.ship.getLocation().x, b.ship.getLocation().x);
             }
         });
+
+        // 0. If this is a baked-in Mission Scenario, bind Enemy hulls directly to the scenario's pre-baked enemy divisions!
+        if (battleGroup.side == 1) {
+            unassigned = PermanentDivisionManager.applyMissionEnemyDivisionsInCombat(
+                    battleGroup,
+                    unassigned,
+                    newlyCreated);
+            if (unassigned.isEmpty()) {
+                return newlyCreated;
+            }
+        }
 
         // 1. Inherit campaign-sorted divisions from any instanced NPC CampaignFleetAPI first!
         // Any ship that belongs to an instanced NPC CampaignFleetAPI but was NOT placed in a division by

@@ -368,6 +368,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private MethodHandle areWeaponArcsOnHandle = null;
     private Object arcRendererInstance = null;
     private MethodHandle arcRendererAnimProgressGetter = null;
+    private MethodHandle arcRendererStateGetter = null;
+    private MethodHandle arcRendererAnimObjGetter = null;
+    private MethodHandle baseAnimGetProgressHandle = null;
+    private MethodHandle arcRendererCurrentGroupGetter = null;
     private MethodHandle worldToMapScreenHandle = null;
     private MethodHandle mapGetIconHandle = null;
     private MethodHandle iconRenderSpriteHandle = null;
@@ -493,10 +497,40 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     String animField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
                             cl, arcRenCls, "F", "\u00d300000");
                     this.arcRendererAnimProgressGetter = arLookup.findGetter(arcRenCls, animField, float.class);
+                    ObfuscatedBytecodeBridge.ClassBytecodeInfo arInfo =
+                            ObfuscatedBytecodeBridge.readClassInfo(cl, arcRenCls.getName());
+                    if (arInfo != null) {
+                        for (int i = 0, n = arInfo.fields.size(); i < n; i++) {
+                            ObfuscatedBytecodeBridge.MemberEntry f = arInfo.fields.get(i);
+                            if (f.descriptor == null || !f.descriptor.startsWith("L") || !f.descriptor.endsWith(";")) {
+                                continue;
+                            }
+                            String fieldTypeName = f.descriptor.substring(1, f.descriptor.length() - 1).replace('/', '.');
+                            try {
+                                Class<?> fieldCls = Class.forName(fieldTypeName, false, cl);
+                                if (fieldCls.isEnum() && this.arcRendererStateGetter == null) {
+                                    this.arcRendererStateGetter = arLookup.findGetter(arcRenCls, f.name, fieldCls);
+                                } else if (fieldTypeName.endsWith(".BaseAnimation") && this.arcRendererAnimObjGetter == null) {
+                                    this.arcRendererAnimObjGetter = arLookup.findGetter(arcRenCls, f.name, fieldCls);
+                                    this.baseAnimGetProgressHandle = lookup.findVirtual(
+                                            fieldCls, "getProgress", MethodType.methodType(float.class));
+                                } else if (com.fs.starfarer.api.combat.WeaponGroupAPI.class.isAssignableFrom(fieldCls)
+                                        && !"return".equals(f.name)
+                                        && this.arcRendererCurrentGroupGetter == null) {
+                                    this.arcRendererCurrentGroupGetter = arLookup.findGetter(arcRenCls, f.name, fieldCls);
+                                }
+                            } catch (Throwable ignoredField) {
+                            }
+                        }
+                    }
                 }
             } catch (Throwable ignored) {
                 this.arcRendererInstance = null;
                 this.arcRendererAnimProgressGetter = null;
+                this.arcRendererStateGetter = null;
+                this.arcRendererAnimObjGetter = null;
+                this.baseAnimGetProgressHandle = null;
+                this.arcRendererCurrentGroupGetter = null;
             }
             String worldToMapScreenName = ObfuscatedBytecodeBridge.resolveMethodNameByDescriptor(
                     cl, mdClass, "o00000", "(Lorg/lwjgl/util/vector/Vector2f;)Lorg/lwjgl/util/vector/Vector2f;");
@@ -766,16 +800,66 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         if (!attachedToWarroom) {
             ensureAttachedToWarroomUI();
         }
-        if (arcRendererInstance != null && arcRendererAnimProgressGetter != null) {
-            try {
-                float val = (float) arcRendererAnimProgressGetter.invoke(arcRendererInstance);
-                if (!Float.isNaN(val)) {
-                    return Math.max(0f, Math.min(1f, val));
+        if (arcRendererInstance != null) {
+            if (arcRendererStateGetter != null) {
+                try {
+                    Object stateObj = arcRendererStateGetter.invoke(arcRendererInstance);
+                    if (stateObj instanceof Enum<?>) {
+                        int ord = ((Enum<?>) stateObj).ordinal();
+                        // com.fs.starfarer.renderers.super$o ordinals:
+                        //   0 = OPENING (anim.getProgress())
+                        //   1 = CLOSING (1.0f - anim.getProgress())
+                        //   2 = OPEN    (1.0f)
+                        //   3 = IDLE    (0.0f)
+                        if (ord == 2) {
+                            return 1.0f;
+                        }
+                        if (ord == 3) {
+                            return 0.0f;
+                        }
+                        float animProg = 1.0f;
+                        if (arcRendererAnimObjGetter != null && baseAnimGetProgressHandle != null) {
+                            Object animObj = arcRendererAnimObjGetter.invoke(arcRendererInstance);
+                            if (animObj != null) {
+                                animProg = (float) baseAnimGetProgressHandle.invoke(animObj);
+                            }
+                        }
+                        float val = (ord == 0) ? animProg : (1.0f - animProg);
+                        if (!Float.isNaN(val)) {
+                            return Math.max(0f, Math.min(1f, val));
+                        }
+                    }
+                } catch (Throwable ignored) {
                 }
-            } catch (Throwable ignored) {
+            }
+            if (arcRendererAnimProgressGetter != null) {
+                try {
+                    float val = (float) arcRendererAnimProgressGetter.invoke(arcRendererInstance);
+                    if (!Float.isNaN(val)) {
+                        return Math.max(0f, Math.min(1f, val));
+                    }
+                } catch (Throwable ignored) {
+                }
             }
         }
         return 1.0f;
+    }
+
+    public com.fs.starfarer.api.combat.WeaponGroupAPI getArcRendererActiveWeaponGroup(ShipAPI fallbackShip) {
+        if (!attachedToWarroom) {
+            ensureAttachedToWarroomUI();
+        }
+        if (arcRendererInstance != null && arcRendererCurrentGroupGetter != null) {
+            try {
+                Object grp = arcRendererCurrentGroupGetter.invoke(arcRendererInstance);
+                if (grp instanceof com.fs.starfarer.api.combat.WeaponGroupAPI) {
+                    return (com.fs.starfarer.api.combat.WeaponGroupAPI) grp;
+                }
+                return null;
+            } catch (Throwable ignored) {
+            }
+        }
+        return fallbackShip != null ? fallbackShip.getSelectedGroupAPI() : null;
     }
 
     @Override

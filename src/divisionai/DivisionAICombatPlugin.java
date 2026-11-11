@@ -344,8 +344,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             return;
         }
         float arcAlpha = Math.min(1.0f, Math.max(0.65f, configuredBattleMult * 3.5f)) * Math.max(0f, 1f - cmdMapOpacity);
+        com.fs.starfarer.api.combat.WeaponGroupAPI activeGroup = (!showingCameraFeed && tacticalOverlay != null)
+                ? tacticalOverlay.getArcRendererActiveWeaponGroup(focusShip)
+                : focusShip.getSelectedGroupAPI();
         TsfcWarroomRenderer.renderHighContrastCaptaincyFiringArcsWorldSpace(
-                engine, viewport, focusShip, arcAlpha, animProgress);
+                engine, viewport, focusShip, activeGroup, arcAlpha, animProgress);
     }
 
     @Override
@@ -405,6 +408,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         if (deploymentOrganizer == null) {
             deploymentOrganizer = new DivisionDeploymentDialogOrganizer();
+        }
+        if (PermanentDivisionManager.resolveActiveMissionScenario() != null) {
+            PermanentDivisionManager.ensureMissionDeploymentPointCap(engine);
         }
         // Organize the Deployment Window even while the combat engine is paused during deployment
         deploymentOrganizer.setBattleContext(playerGroup, enemyGroup, musicController);
@@ -708,8 +714,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     side0OpposingView);
         }
 
-        // Enforce 60 Hz frame-accurate ship system coordination, standoff braking cutoffs, and scouting discipline
+        // Enforce 60 Hz frame-accurate ship system coordination, standoff braking cutoffs, scouting discipline,
+        // and terminal Voidstrike strike craft gunnery / AoA fire-gating
         ShipSystemCoordinator.advanceEveryFrame(engine, playerGroup, alliedAiGroup, enemyGroup, now);
+        VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(engine, playerGroup, alliedAiGroup, enemyGroup, now);
 
         // Ensure every active FighterWing has a non-null leader and non-null leaderFlockingAI so vanilla
         // FighterAI.advance never throws a NullPointerException when a wing leader is killed while returning

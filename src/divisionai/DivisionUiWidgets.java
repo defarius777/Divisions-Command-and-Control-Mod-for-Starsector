@@ -1106,6 +1106,33 @@ public final class DivisionUiWidgets {
                 return new String[]{"Voidstrike Launch: " + coord.displayName, coord.summary};
             }
         }
+        if (actionId.startsWith("SET_VS_GEOM:") || actionId.startsWith("DIV_VS_GEOM:")) {
+            String tok = extractTrailingToken(actionId);
+            if ("INHERIT".equals(tok)) return inheritTooltipSpec("Strike Geometry");
+            PermanentDivisionManager.VoidstrikeAttackGeometry geom =
+                    PermanentDivisionManager.VoidstrikeAttackGeometry.fromId(tok, null);
+            if (geom != null) {
+                return new String[]{"Strike Geometry: " + geom.displayName, geom.summary};
+            }
+        }
+        if (actionId.startsWith("SET_VS_GUN:") || actionId.startsWith("DIV_VS_GUN:")) {
+            String tok = extractTrailingToken(actionId);
+            if ("INHERIT".equals(tok)) return inheritTooltipSpec("Strike Gunnery");
+            PermanentDivisionManager.VoidstrikeGunneryMode gun =
+                    PermanentDivisionManager.VoidstrikeGunneryMode.fromId(tok, null);
+            if (gun != null) {
+                return new String[]{"Strike Gunnery: " + gun.displayName, gun.summary};
+            }
+        }
+        if (actionId.startsWith("SET_VS_AOA:") || actionId.startsWith("DIV_VS_AOA:")) {
+            String tok = extractTrailingToken(actionId);
+            if ("INHERIT".equals(tok)) return inheritTooltipSpec("AoA Correction");
+            PermanentDivisionManager.VoidstrikeAoaCorrection aoa =
+                    PermanentDivisionManager.VoidstrikeAoaCorrection.fromId(tok, null);
+            if (aoa != null) {
+                return new String[]{"AoA Correction: " + aoa.displayName, aoa.summary};
+            }
+        }
         if (actionId.startsWith("SET_VS_DEPTH:") || actionId.startsWith("DIV_VS_DEPTH:")) {
             String tok = extractTrailingToken(actionId);
             if ("INHERIT".equals(tok)) return inheritTooltipSpec("Voidstrike Depth");
@@ -1396,6 +1423,24 @@ public final class DivisionUiWidgets {
             return new String[]{
                     "Voidstrike Launch Coordination",
                     "Controls whether carrier wings orbit and marshal into a single synchronized strike package (Coordinated) or launch immediately in successive waves (Uncoordinated)."
+            };
+        }
+        if (lower.startsWith("strike geometry")) {
+            return new String[]{
+                    "Voidstrike Attack Geometry",
+                    "Controls the multi-axis approach geometry of strike squadrons: Direct (frontal), L-Crossfire (90 deg hammer-and-anvil crossfire), or Pincer (+-55 deg converging jaws)."
+            };
+        }
+        if (lower.startsWith("strike gunnery")) {
+            return new String[]{
+                    "Voidstrike Gunnery Mode",
+                    "Controls whether strike craft aim at the target ship's core (Precision) or partition the target's silhouette and evasion envelope into hierarchical Voidstrike -> Squadron -> Craft firing sectors (Area)."
+            };
+        }
+        if (lower.startsWith("aoa correction")) {
+            return new String[]{
+                    "Terminal Angle-of-Attack Correction",
+                    "Controls terminal run-in alignment, ballistic lead, lateral slip damping, and off-boresight fire-gating (<= 6.5 deg under Strong) for unguided torpedo/rocket bombers."
             };
         }
         if (lower.startsWith("voidstrike depth")) {

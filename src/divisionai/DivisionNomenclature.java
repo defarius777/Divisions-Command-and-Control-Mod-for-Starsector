@@ -459,6 +459,10 @@ public final class DivisionNomenclature {
     }
 
     public static NomenclatureCategory getPlayerNomenclatureCategory() {
+        PermanentDivisionManager.MissionScenarioBundle bundle = PermanentDivisionManager.resolveActiveMissionScenario();
+        if (bundle != null && bundle.playerNomenclature != null) {
+            return bundle.playerNomenclature;
+        }
         return getPlayerNamingConfig().getPreset().category;
     }
 
