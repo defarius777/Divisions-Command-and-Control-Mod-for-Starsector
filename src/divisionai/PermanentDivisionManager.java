@@ -1632,6 +1632,17 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, VoidstrikeSplitMode> voidstrikeSplitModeByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, VoidstrikeGunneryMode> voidstrikeGunneryModeByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, VoidstrikeAoaCorrection> voidstrikeAoaCorrectionByType = new LinkedHashMap<>();
+        private boolean migratedUnifiedVoidstrikeDefaultV1 = true;
+
+        private void ensureUnifiedVoidstrikeDefaultsMigrated() {
+            if (!migratedUnifiedVoidstrikeDefaultV1) {
+                migratedUnifiedVoidstrikeDefaultV1 = true;
+                for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
+                    voidstrikeAttackGeometryByType.put(dt, defaultVoidstrikeAttackGeometryFor(dt));
+                    voidstrikeSplitModeByType.put(dt, defaultVoidstrikeSplitModeFor(dt));
+                }
+            }
+        }
         private final Map<DoctrineDivisionType, SquadronFormation> fighterFormationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, SquadronFormation> fighterVoidstrikeFormationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, SquadronFormation> bomberFormationByType = new LinkedHashMap<>();
@@ -1891,22 +1902,10 @@ public class PermanentDivisionManager {
         }
 
         public static VoidstrikeAttackGeometry defaultVoidstrikeAttackGeometryFor(DoctrineDivisionType dt) {
-            if (dt == DoctrineDivisionType.FLEET_CARRIER || dt == DoctrineDivisionType.CARRIER_GROUP) {
-                return VoidstrikeAttackGeometry.ANVIL_CROSSFIRE;
-            }
-            if (dt == DoctrineDivisionType.LIGHT_CARRIER) {
-                return VoidstrikeAttackGeometry.PINCER_ENVELOPMENT;
-            }
             return VoidstrikeAttackGeometry.DIRECT_ASSAULT;
         }
 
         public static VoidstrikeSplitMode defaultVoidstrikeSplitModeFor(DoctrineDivisionType dt) {
-            if (dt == DoctrineDivisionType.FLEET_CARRIER || dt == DoctrineDivisionType.CARRIER_GROUP) {
-                return VoidstrikeSplitMode.SPLIT_AXES;
-            }
-            if (dt == DoctrineDivisionType.LIGHT_CARRIER) {
-                return VoidstrikeSplitMode.SPLIT_TARGETS;
-            }
             return VoidstrikeSplitMode.UNIFIED;
         }
 
@@ -2005,23 +2004,27 @@ public class PermanentDivisionManager {
         }
 
         public VoidstrikeAttackGeometry getVoidstrikeAttackGeometry(DoctrineDivisionType dt) {
+            ensureUnifiedVoidstrikeDefaultsMigrated();
             if (dt == null) return VoidstrikeAttackGeometry.DIRECT_ASSAULT;
             VoidstrikeAttackGeometry v = voidstrikeAttackGeometryByType.get(dt);
             return v != null ? v : defaultVoidstrikeAttackGeometryFor(dt);
         }
 
         public void setVoidstrikeAttackGeometry(DoctrineDivisionType dt, VoidstrikeAttackGeometry geom) {
+            ensureUnifiedVoidstrikeDefaultsMigrated();
             if (dt == null || geom == null) return;
             voidstrikeAttackGeometryByType.put(dt, geom);
         }
 
         public VoidstrikeSplitMode getVoidstrikeSplitMode(DoctrineDivisionType dt) {
+            ensureUnifiedVoidstrikeDefaultsMigrated();
             if (dt == null) return VoidstrikeSplitMode.UNIFIED;
             VoidstrikeSplitMode v = voidstrikeSplitModeByType.get(dt);
             return v != null ? v : defaultVoidstrikeSplitModeFor(dt);
         }
 
         public void setVoidstrikeSplitMode(DoctrineDivisionType dt, VoidstrikeSplitMode splitMode) {
+            ensureUnifiedVoidstrikeDefaultsMigrated();
             if (dt == null || splitMode == null) return;
             voidstrikeSplitModeByType.put(dt, splitMode);
         }

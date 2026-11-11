@@ -309,10 +309,8 @@ public final class DivisionShowcaseMissions {
                     || dt == DoctrineDivisionType.CARRIER_GROUP) {
                 cfg.setVoidstrikeObservance(dt, VoidstrikeTargetObservance.HIGH);
                 cfg.setVoidstrikeCoordination(dt, VoidstrikeCoordinationMode.COORDINATED);
-                cfg.setVoidstrikeAttackGeometry(dt, VoidstrikeAttackGeometry.ANVIL_CROSSFIRE);
-                cfg.setVoidstrikeSplitMode(dt, (dt == DoctrineDivisionType.LIGHT_CARRIER)
-                        ? PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
-                        : PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES);
+                cfg.setVoidstrikeAttackGeometry(dt, VoidstrikeAttackGeometry.DIRECT_ASSAULT);
+                cfg.setVoidstrikeSplitMode(dt, PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED);
                 cfg.setVoidstrikeGunneryMode(dt, VoidstrikeGunneryMode.AREA_SATURATION);
                 cfg.setVoidstrikeAoaCorrection(dt, VoidstrikeAoaCorrection.STRONG);
             }
@@ -378,10 +376,8 @@ public final class DivisionShowcaseMissions {
             if (tmpl.archetype != null && tmpl.archetype.isCarrierArchetype()) {
                 spec.customVoidstrikeObservance = tmpl.voidstrikeObservance;
                 spec.customVoidstrikeCoordination = tmpl.voidstrikeCoordination;
-                spec.customVoidstrikeAttackGeometry = tmpl.voidstrikeGeometry;
-                spec.customVoidstrikeSplitMode = (tmpl.suffixId != null && tmpl.suffixId.contains("2"))
-                        ? PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
-                        : PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES;
+                spec.customVoidstrikeAttackGeometry = VoidstrikeAttackGeometry.DIRECT_ASSAULT;
+                spec.customVoidstrikeSplitMode = PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED;
                 spec.customVoidstrikeGunneryMode = tmpl.voidstrikeGunnery;
                 spec.customVoidstrikeAoaCorrection = tmpl.voidstrikeAoa;
                 spec.customFighterFormation = SquadronFormation.LINE_ABREAST;

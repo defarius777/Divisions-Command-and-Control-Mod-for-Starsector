@@ -3584,7 +3584,7 @@ public class UITestHarness {
         boolean vsDoctrinePropagatedOk = cDiv1.voidstrikeObservance == PermanentDivisionManager.VoidstrikeTargetObservance.HIGH
                 && cDiv1.voidstrikeCoordination == PermanentDivisionManager.VoidstrikeCoordinationMode.COORDINATED
                 && cDiv1.voidstrikeAttackGeometry == PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE
-                && cDiv1.voidstrikeSplitMode == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && cDiv1.voidstrikeSplitMode == PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED
                 && cDiv1.voidstrikeGunneryMode == PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION
                 && cDiv1.voidstrikeAoaCorrection == PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG
                 && cDiv1.fighterFormation == PermanentDivisionManager.SquadronFormation.WEDGE

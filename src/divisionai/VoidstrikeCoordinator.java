@@ -889,19 +889,21 @@ public class VoidstrikeCoordinator {
                 } else if (wingTargetShip != null && wingTargetShip.isAlive()) {
                     boolean hasUnexpendedOrdnance = hasUnexpendedStrikeOrdnance(fighter, isBomberWing);
                     boolean isFiniteAmmoCraft = isBomberWing || hasFiniteAmmoStrikeWeapons(fighter);
+                    float maxWepRange = computeMaxStrikeWeaponRange(fighter);
                     float dToAssignedNow = DivisionUiWidgets.distance(fighter.getLocation(), wingTargetShip.getLocation());
                     boolean inTerminalDropRange = dToAssignedNow <= 820f;
                     float minContinueHull = isFiniteAmmoCraft
-                            ? (inTerminalDropRange ? 0.34f : 0.55f)
-                            : 0.52f;
-                    boolean criticalSelfPreservationRetreat = (!inTerminalDropRange && fighter.getHullLevel() < 0.48f)
-                            || (!isFiniteAmmoCraft && fighter.getHullLevel() < 0.46f)
-                            || (dToAssignedNow > 420f && fighter.getHullLevel() < 0.32f);
+                            ? (inTerminalDropRange ? 0.38f : 0.56f)
+                            : 0.54f;
+                    boolean criticalSelfPreservationRetreat = (!inTerminalDropRange && fighter.getHullLevel() < 0.50f)
+                            || (!isFiniteAmmoCraft && fighter.getHullLevel() < 0.48f)
+                            || (dToAssignedNow > 420f && fighter.getHullLevel() < 0.36f);
                     if (!holdFightersInFormation && !emergencyPullback && inVoidstrike && wing.isReturning(fighter) && !criticalSelfPreservationRetreat) {
                         boolean shouldKeepPressing = isFiniteAmmoCraft
                                 ? (hasUnexpendedOrdnance && fighter.getHullLevel() >= minContinueHull)
                                 : (fighter.getHullLevel() >= minContinueHull);
-                        if (shouldKeepPressing && !fighter.isLanding() && fighter.getFighterTimeBeforeRefit() > 2.5f) {
+                        boolean refitTimerOk = fighter.getFighterTimeBeforeRefit() <= 0f || fighter.getFighterTimeBeforeRefit() > 2.5f;
+                        if (shouldKeepPressing && !fighter.isLanding() && refitTimerOk) {
                             cancelPrematureFighterReturn(wing, fighter);
                         }
                     }
@@ -925,12 +927,16 @@ public class VoidstrikeCoordinator {
                         continue;
                     }
                     // Item C: Target Selection Observance (FREE, MEDIUM, HIGH) with Split-Wing target support
-                    // Only assert DO_NOT_BACK_OFF once inside terminal attack range (<= 760u) so strike craft in transit
-                    // retain full self-preservation and anti-AA jinking when flying past enemy PD!
+                    // Only assert DO_NOT_BACK_OFF on finite-ammo bombers while closing into their weapon release window
+                    // (never inside point-blank ramming distance and never on gun/beam fighters that need standoff space!).
+                    boolean holdTerminalCommit = isFiniteAmmoCraft
+                            && hasUnexpendedOrdnance
+                            && dToAssignedNow <= Math.max(760f, maxWepRange + 160f)
+                            && dToAssignedNow > Math.max(280f, maxWepRange * 0.48f);
                     if (observance == VoidstrikeTargetObservance.HIGH) {
                         fFlags.setFlag(AIFlags.MANEUVER_TARGET, DivisionCommanderAI.FLAG_TTL * 1.5f, wingTargetShip);
                         fFlags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, DivisionCommanderAI.FLAG_TTL * 1.5f, wingTargetShip);
-                        if (dToAssignedNow <= 760f && hasOrdnance) {
+                        if (holdTerminalCommit) {
                             fFlags.setFlag(AIFlags.DO_NOT_BACK_OFF, DivisionCommanderAI.FLAG_TTL);
                         } else {
                             fFlags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
@@ -938,7 +944,7 @@ public class VoidstrikeCoordinator {
                         fighter.setShipTarget(wingTargetShip);
                     } else if (observance == VoidstrikeTargetObservance.MEDIUM) {
                         fFlags.setFlag(AIFlags.MANEUVER_TARGET, DivisionCommanderAI.FLAG_TTL, wingTargetShip);
-                        if (dToAssignedNow > 760f) {
+                        if (!holdTerminalCommit) {
                             fFlags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
                         }
                         ShipAPI currTgt = fighter.getShipTarget();
@@ -952,7 +958,7 @@ public class VoidstrikeCoordinator {
                         }
                     } else {
                         // FREE observance: allow engaging targets of opportunity along flight path
-                        if (dToAssignedNow > 760f) {
+                        if (!holdTerminalCommit) {
                             fFlags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
                         }
                         ShipAPI currTgt = fighter.getShipTarget();
@@ -981,14 +987,15 @@ public class VoidstrikeCoordinator {
 
                     boolean unguidedCraft = isBomberWing || hasUnguidedStrikeMunitions(fighter);
                     boolean onFlankingDogleg = false;
+                    float terminalStartRange = 880f;
 
-                    // Dress squadron formation, multi-axis dogleg (L-Crossfire / Pincer / Split-Wing), & Voidstrike depth on approach (dEnemy > 420f)
+                    // Dress squadron formation, multi-axis dogleg (L-Crossfire / Pincer / Split-Wing), & Voidstrike depth on approach
                     if (wingLeader != null && wingLeader.isAlive() && dEnemy > 420f) {
                         if (Math.abs(legAngleOffsetDeg) > 5f && hasOrdnance && dEnemy <= 2600f) {
                             // Multi-axis Flanking Gate (L-Shaped Crossfire, Pincer Envelopment, or Split-Wing):
                             // Steer the squadron through an offset turning gate along -legFwd so strike craft roll in along legFwd.
-                            // For steep L-Crossfire Hammer legs (>= 70 deg), use a 2-segment outer elbow while upstream of the target
-                            // so bombers break wide outside the target's front shield arc before turning 90 degrees inward!
+                            // If the squadron is already within weapon release range or taking AA fire, abort the dogleg immediately
+                            // and turn directly into the attack run so strike craft never die flying sideways through flak!
                             float gateDist = 660f + rankIdx * 90f;
                             float centeredCol = colIdx - (activeColsInRank - 1) * 0.5f;
                             Vector2f flankGate = new Vector2f(
@@ -1007,77 +1014,52 @@ public class VoidstrikeCoordinator {
                                     }
                                 }
                             }
-                            Vector2f gateWaypoint = activeGate;
-                            if (fighter == wingLeader) {
-                                gateWaypoint = computeAntiAaEvasionWaypoint(fighter, attackTarget, activeGate, wIdx, cIdx, now);
-                                fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, gateWaypoint);
-                            } else {
-                                Vector2f leaderLoc = wingLeader.getLocation();
-                                Vector2f desiredCraftPos = new Vector2f(
-                                        leaderLoc.x + slotOffset.x,
-                                        leaderLoc.y + slotOffset.y);
-                                float dSlot = DivisionUiWidgets.distance(fighter.getLocation(), desiredCraftPos);
-                                if (dSlot > 65f) {
-                                    gateWaypoint = computeAntiAaEvasionWaypoint(fighter, attackTarget, desiredCraftPos, wIdx, cIdx, now);
-                                    fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, gateWaypoint);
-                                } else {
-                                    Vector2f craftGate = new Vector2f(
-                                            activeGate.x + slotOffset.x,
-                                            activeGate.y + slotOffset.y);
-                                    gateWaypoint = computeAntiAaEvasionWaypoint(fighter, attackTarget, craftGate, wIdx, cIdx, now);
-                                    fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, gateWaypoint);
-                                }
-                            }
+                            Vector2f craftGate = new Vector2f(
+                                    activeGate.x + slotOffset.x * 0.45f,
+                                    activeGate.y + slotOffset.y * 0.45f);
+                            Vector2f gateWaypoint = computeAntiAaEvasionWaypoint(fighter, attackTarget, craftGate, wIdx, cIdx, now);
+
+                            boolean fighterUnderAaFire = fighter.getHullLevel() < 0.92f
+                                    || (fighter.getFluxTracker() != null && fighter.getFluxTracker().getFluxLevel() >= 0.08f);
                             float curToTgtX = (attackTarget.getLocation().x - fighter.getLocation().x) / Math.max(1f, dEnemy);
                             float curToTgtY = (attackTarget.getLocation().y - fighter.getLocation().y) / Math.max(1f, dEnemy);
                             float cosLegAlign = curToTgtX * legFwdX + curToTgtY * legFwdY;
-                            boolean alignedWithTerminalLeg = (cosLegAlign >= 0.96f)
-                                    || (dEnemy <= 560f && cosLegAlign >= 0.88f)
-                                    || (DivisionUiWidgets.distance(fighter.getLocation(), flankGate) <= 115f);
+                            boolean alignedWithTerminalLeg = (cosLegAlign >= 0.92f)
+                                    || (dEnemy <= 680f && cosLegAlign >= 0.76f)
+                                    || (fighterUnderAaFire && dEnemy <= 850f)
+                                    || (DivisionUiWidgets.distance(fighter.getLocation(), flankGate) <= 165f)
+                                    || (DivisionUiWidgets.distance(fighter.getLocation(), craftGate) <= 165f)
+                                    || (DivisionUiWidgets.distance(fighter.getLocation(), gateWaypoint) <= 155f);
                             if (!alignedWithTerminalLeg) {
                                 onFlankingDogleg = true;
+                                fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, gateWaypoint);
                                 steerFighterTowardPoint60Hz(fighter, gateWaypoint, true);
                                 if (unguidedCraft) {
                                     fighter.blockCommandForOneFrame(ShipCommand.FIRE);
                                 }
+                            } else {
+                                Vector2f craftGoal = new Vector2f(
+                                        attackTarget.getLocation().x + slotOffset.x * 0.45f,
+                                        attackTarget.getLocation().y + slotOffset.y * 0.45f);
+                                fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, craftGoal);
                             }
                         } else {
-                            float centeredCol = colIdx - (activeColsInRank - 1) * 0.5f;
-                            Vector2f rankLeadTarget = new Vector2f(
-                                    attackTarget.getLocation().x - legFwdX * (rankIdx * 110f) + legRightX * (centeredCol * 95f),
-                                    attackTarget.getLocation().y - legFwdY * (rankIdx * 110f) + legRightY * (centeredCol * 95f));
-                            if (fighter != wingLeader) {
-                                Vector2f leaderLoc = wingLeader.getLocation();
-                                Vector2f desiredCraftPos = new Vector2f(
-                                        leaderLoc.x + slotOffset.x,
-                                        leaderLoc.y + slotOffset.y);
-                                float dSlot = DivisionUiWidgets.distance(fighter.getLocation(), desiredCraftPos);
-                                Vector2f craftGoal = (dSlot > 75f)
-                                        ? desiredCraftPos
-                                        : new Vector2f(rankLeadTarget.x + slotOffset.x, rankLeadTarget.y + slotOffset.y);
+                            // Direct approach: project a clean forward approach target (never steering wingmen backward
+                            // toward wingLeader + slotOffset and never overriding vanilla FighterAI obstacle avoidance at 60 Hz).
+                            Vector2f craftGoal = new Vector2f(
+                                    attackTarget.getLocation().x + slotOffset.x * 0.45f,
+                                    attackTarget.getLocation().y + slotOffset.y * 0.45f);
+                            if (dEnemy > terminalStartRange) {
                                 craftGoal = computeAntiAaEvasionWaypoint(fighter, attackTarget, craftGoal, wIdx, cIdx, now);
-                                fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, craftGoal);
-                                if (dEnemy > 780f) {
-                                    steerFighterTowardPoint60Hz(fighter, craftGoal, false);
-                                }
-                                if (dSlot > 380f && dEnemy > 850f) {
-                                    fFlags.setFlag(AIFlags.ESCORT_OTHER_SHIP, DivisionCommanderAI.FLAG_TTL, wingLeader);
-                                }
-                            } else {
-                                Vector2f evasiveLeadGoal = computeAntiAaEvasionWaypoint(
-                                        fighter, attackTarget, rankLeadTarget, wIdx, cIdx, now);
-                                fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, evasiveLeadGoal);
-                                if (dEnemy > 780f) {
-                                    steerFighterTowardPoint60Hz(fighter, evasiveLeadGoal, false);
-                                }
                             }
+                            fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, craftGoal);
                         }
                     }
 
-                    // Advanced Strike Craft Gunnery on Terminal Attack Run (dEnemy <= 780u, once dogleg gate is cleared):
+                    // Advanced Strike Craft Gunnery on Terminal Attack Run (once dogleg gate is cleared):
                     //  - Hierarchical Firing Sectors (Voidstrike -> Squadron -> Craft) for PRECISION vs AREA_SATURATION
-                    //  - Angle-of-Attack Correction (LOW vs STRONG) with ballistic lead, slip damping, and off-boresight fire-gating
-                    if (!onFlankingDogleg && hasOrdnance && dEnemy <= 780f) {
+                    //  - Angle-of-Attack Correction (LOW vs STRONG) with ballistic lead, slip damping, and standoff release
+                    if (!onFlankingDogleg && hasOrdnance && (unguidedCraft || isFiniteAmmoCraft) && dEnemy <= terminalStartRange) {
                         FiringSectorAssignment sector = computeHierarchicalFiringSector(
                                 gunneryMode,
                                 aoaCorrection,
@@ -1198,6 +1180,8 @@ public class VoidstrikeCoordinator {
         if (fighter == null || !fighter.isAlive() || fighter.isHulk()) return 0f;
         List<WeaponAPI> weapons = fighter.getAllWeapons();
         if (weapons == null || weapons.isEmpty()) return 1f;
+        int missileStrikeCurr = 0;
+        int missileStrikeMax = 0;
         int primaryAmmoCurr = 0;
         int primaryAmmoMax = 0;
         int anyAmmoCurr = 0;
@@ -1212,11 +1196,20 @@ public class VoidstrikeCoordinator {
                 boolean isPdOnly = w.getSpec() != null && w.getSpec().getAIHints() != null
                         && (w.getSpec().getAIHints().contains(AIHints.PD_ONLY)
                         || (w.getSpec().getAIHints().contains(AIHints.PD) && w.getType() != WeaponType.MISSILE));
+                boolean isMissileOrStrike = w.getType() == WeaponType.MISSILE
+                        || (w.getSpec() != null && w.getSpec().getAIHints() != null && w.getSpec().getAIHints().contains(AIHints.STRIKE));
+                if (!isPdOnly && isMissileOrStrike) {
+                    missileStrikeCurr += curA;
+                    missileStrikeMax += maxA;
+                }
                 if (!isPdOnly) {
                     primaryAmmoCurr += curA;
                     primaryAmmoMax += maxA;
                 }
             }
+        }
+        if (missileStrikeMax > 0) {
+            return (float) missileStrikeCurr / (float) missileStrikeMax;
         }
         if (primaryAmmoMax > 0) {
             return (float) primaryAmmoCurr / (float) primaryAmmoMax;
@@ -1766,19 +1759,14 @@ public class VoidstrikeCoordinator {
             boolean blocksFlightCorridor = proj > -60f && proj < (dAssigned - 160f) && perp <= aaCorridorRadius;
 
             boolean switchForAaCorridor = blocksFlightCorridor && (dCand + 320f < dAssigned);
-            boolean switchForCloseProximity = dCand <= 1050f && (dCand + 380f < dAssigned);
-            boolean switchUnderFire = squadronTakingFire && dCand <= 1450f && (dCand + 260f < dAssigned);
+            boolean switchUnderFire = squadronTakingFire && blocksFlightCorridor && dCand <= 1450f && (dCand + 260f < dAssigned);
             boolean switchFromFastKiter = assignedIsFastKiter && dCand <= 1900f && (dCand + 360f < dAssigned);
-            boolean switchForMediumObs = observance == VoidstrikeTargetObservance.MEDIUM
-                    && dCand <= 1200f && (dCand + 280f < dAssigned);
             boolean switchForFreeObs = observance == VoidstrikeTargetObservance.FREE
-                    && dCand <= 1650f && (dCand + 200f < dAssigned);
+                    && dCand <= 1550f && (dCand + 280f < dAssigned);
 
             if (switchForAaCorridor
-                    || switchForCloseProximity
                     || switchUnderFire
                     || switchFromFastKiter
-                    || switchForMediumObs
                     || switchForFreeObs) {
                 float candScore = -dCand
                         + (blocksFlightCorridor ? 420f : 0f)
@@ -1794,12 +1782,11 @@ public class VoidstrikeCoordinator {
 
     /**
      * Computes an anti-AA evasive waypoint for a strike craft in transit or egress:
-     *  1. Lateral + radial threat-skirting around any non-target enemy combat ship within 960u of the fighter
-     *     or within 720u of the flight segment {@code fighter -> rawWaypoint}, so squadrons curve around intervening
-     *     enemy PD/AA envelopes rather than flying straight over hostile decks.
-     *  2. Dynamic phase-staggered sinusoidal evasive weaving/jinking perpendicular to the flight vector whenever
-     *     the craft is taking fire (hull < 95% or flux >= 6%) or passing within 1100u of any enemy combat ship
-     *     while outside final boresight release alignment (dEnemy > 540u).
+     *  1. Smooth lateral + radial threat-skirting around any non-target enemy combat ship whose PD/AA envelope
+     *     (580u + collisionRadius) intersects the flight segment {@code fighter -> rawWaypoint}, so squadrons
+     *     curve around intervening hostile decks without zig-zagging in open space.
+     *  2. Modest evasive weaving ONLY when the fighter is physically inside a non-target ship's PD envelope (<= 560u)
+     *     and actively taking fire, never outside enemy PD range.
      */
     public static Vector2f computeAntiAaEvasionWaypoint(
             ShipAPI fighter,
@@ -1843,38 +1830,40 @@ public class VoidstrikeCoordinator {
             if (dShip < minDistToNonTargetEnemy) {
                 minDistToNonTargetEnemy = dShip;
             }
-            float keepOutRadius = 820f + Math.max(50f, eShip.getCollisionRadius());
+            float keepOutRadius = 580f + Math.max(45f, eShip.getCollisionRadius());
             float relX = eShip.getLocation().x - fLoc.x;
             float relY = eShip.getLocation().y - fLoc.y;
             float proj = relX * dirX + relY * dirY;
             float signedLat = relX * rightX + relY * rightY;
             float absLat = Math.abs(signedLat);
 
-            if (dShip <= keepOutRadius || (proj > -80f && proj < Math.min(segDist + 180f, 1650f) && absLat <= keepOutRadius)) {
+            if (dShip <= keepOutRadius || (proj > -40f && proj < Math.min(segDist + 120f, 1350f) && absLat <= keepOutRadius)) {
                 float pushSide = (signedLat > 0f) ? -1f : 1f;
                 float penetration = Math.max(0f, keepOutRadius - Math.min(dShip, absLat));
-                float lateralPush = Math.min(520f, 180f + penetration * 0.85f);
+                float lateralPush = Math.min(280f, 120f + penetration * 0.55f);
                 avoidOffsetX += rightX * (pushSide * lateralPush);
                 avoidOffsetY += rightY * (pushSide * lateralPush);
                 if (dShip < keepOutRadius && dShip > 1f) {
                     float awayX = (fLoc.x - eShip.getLocation().x) / dShip;
                     float awayY = (fLoc.y - eShip.getLocation().y) / dShip;
-                    float radialPush = Math.min(380f, (keepOutRadius - dShip) * 0.75f);
+                    float radialPush = Math.min(220f, (keepOutRadius - dShip) * 0.55f);
                     avoidOffsetX += awayX * radialPush;
                     avoidOffsetY += awayY * radialPush;
                 }
             }
         }
 
-        boolean takingFire = fighter.getHullLevel() < 0.92f
-                || (fighter.getFluxTracker() != null && fighter.getFluxTracker().getFluxLevel() >= 0.08f);
-        boolean inNonTargetAaZone = minDistToNonTargetEnemy <= 980f;
-        if ((takingFire || inNonTargetAaZone) && (attackTarget == null || dTarget > 1250f)) {
-            float jinkPhase = now * 4.4f + wingIdx * 1.45f + craftIdx * 2.05f;
-            float jinkAmp = takingFire
-                    ? (fighter.getHullLevel() < 0.78f ? 225f : 155f)
-                    : 90f;
-            float jinkOffset = (float) Math.sin(jinkPhase) * jinkAmp;
+        float totalAvoidMag = (float) Math.sqrt(avoidOffsetX * avoidOffsetX + avoidOffsetY * avoidOffsetY);
+        if (totalAvoidMag > 320f) {
+            avoidOffsetX = (avoidOffsetX / totalAvoidMag) * 320f;
+            avoidOffsetY = (avoidOffsetY / totalAvoidMag) * 320f;
+        }
+
+        boolean takingFire = fighter.getHullLevel() < 0.90f
+                || (fighter.getFluxTracker() != null && fighter.getFluxTracker().getFluxLevel() >= 0.12f);
+        if (takingFire && minDistToNonTargetEnemy <= 540f && (attackTarget == null || dTarget > 900f)) {
+            float jinkPhase = now * 2.8f + wingIdx * 1.45f + craftIdx * 2.05f;
+            float jinkOffset = (float) Math.sin(jinkPhase) * 55f;
             avoidOffsetX += rightX * jinkOffset;
             avoidOffsetY += rightY * jinkOffset;
         }
@@ -2082,7 +2071,7 @@ public class VoidstrikeCoordinator {
             }
         }
         float chosen = (maxMissileRange > 0f) ? maxMissileRange : ((maxGunRange > 0f) ? maxGunRange : 520f);
-        return Math.max(280f, Math.min(900f, chosen));
+        return Math.max(300f, Math.min(950f, chosen));
     }
 
     /**
@@ -2173,13 +2162,18 @@ public class VoidstrikeCoordinator {
         float desiredFacing = (float) Math.toDegrees(Math.atan2(aimDirY, aimDirX));
         if (desiredFacing < 0f) desiredFacing += 360f;
 
-        // Project terminal run-in corridor waypoint beyond the aim point so the craft flies straight through the release line
+        float targetRad = (target != null && target.getCollisionRadius() > 0f) ? target.getCollisionRadius() : 90f;
+        float maxWepRange = computeMaxStrikeWeaponRange(fighter);
+        float minStandoffFloor = Math.max(targetRad + 180f, 340f);
+
+        // Aim movement toward the target point while outside standoff floor (never projecting +240u past the enemy hull)
         if (fFlags != null) {
-            Vector2f runInWaypoint = new Vector2f(
-                    sector.worldAimPoint.x + aimDirX * 240f,
-                    sector.worldAimPoint.y + aimDirY * 240f);
-            fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, runInWaypoint);
-            fFlags.setFlag(AIFlags.DO_NOT_BACK_OFF, DivisionCommanderAI.FLAG_TTL);
+            fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, sector.worldAimPoint);
+            if (dEnemy > minStandoffFloor) {
+                fFlags.setFlag(AIFlags.DO_NOT_BACK_OFF, DivisionCommanderAI.FLAG_TTL);
+            } else {
+                fFlags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
+            }
         }
 
         boolean isStrong = (aoaCorrection != VoidstrikeAoaCorrection.LOW);
@@ -2212,14 +2206,15 @@ public class VoidstrikeCoordinator {
             fighter.setFacing(newFacing);
             angleDiff = shortestAngleDiffDeg(newFacing, desiredFacing);
 
-            // Lock helm commands for this frame so FighterAI.advance() (which runs after EveryFrameCombatPlugin.advance
-            // inside CombatEngine.advanceInner) cannot overwrite our AoA-corrected nose alignment or inject sideslip:
-            fighter.giveCommand(ShipCommand.ACCELERATE, null, 0);
-            fighter.blockCommandForOneFrame(ShipCommand.DECELERATE);
-            fighter.blockCommandForOneFrame(ShipCommand.ACCELERATE_BACKWARDS);
-            if (isStrong) {
-                fighter.blockCommandForOneFrame(ShipCommand.STRAFE_LEFT);
-                fighter.blockCommandForOneFrame(ShipCommand.STRAFE_RIGHT);
+            // Only lock forward acceleration while still outside standoff release floor so bombers never kamikaze into the hull
+            if (dEnemy > minStandoffFloor) {
+                fighter.giveCommand(ShipCommand.ACCELERATE, null, 0);
+                fighter.blockCommandForOneFrame(ShipCommand.DECELERATE);
+                fighter.blockCommandForOneFrame(ShipCommand.ACCELERATE_BACKWARDS);
+                if (isStrong) {
+                    fighter.blockCommandForOneFrame(ShipCommand.STRAFE_LEFT);
+                    fighter.blockCommandForOneFrame(ShipCommand.STRAFE_RIGHT);
+                }
             }
             if (angleDiff > 1.5f) {
                 fighter.giveCommand(ShipCommand.TURN_LEFT, null, 0);
@@ -2233,24 +2228,21 @@ public class VoidstrikeCoordinator {
             }
         }
 
-        // Fire-Gate Discipline under STRONG AoA: hold unguided torpedo/rocket release if nose is off-boresight (> 6.5 deg)
-        if (isStrong && hasUnguidedOrdnance && Math.abs(angleDiff) > 6.5f && dEnemy > 220f) {
+        // Fire-Gate Discipline under STRONG AoA: hold unguided torpedo/rocket release when off-boresight (> 9.5 deg)
+        // while outside standoff release floor (dEnemy > 380u), releasing immediately once aligned!
+        if (isStrong && hasUnguidedOrdnance && Math.abs(angleDiff) > 9.5f && dEnemy > 380f) {
             fighter.blockCommandForOneFrame(ShipCommand.FIRE);
             return true;
         }
 
-        // On-Boresight Trigger Release: when aligned with sector.worldAimPoint (which is offset laterally in AREA_SATURATION
-        // and led ahead in STRONG AoA, causing vanilla FighterAI's center-mass check to hesitate), trigger weapon release
-        // down the assigned firing lane once inside weapon range.
-        float alignGateDeg = isStrong ? 6.5f : 14.0f;
-        if (Math.abs(angleDiff) <= alignGateDeg && dEnemy <= 680f) {
-            float targetRad = (target != null && target.getCollisionRadius() > 0f) ? target.getCollisionRadius() : 90f;
-            float releaseEnvelope = computeMaxStrikeWeaponRange(fighter) + targetRad * 0.85f;
-            if (dEnemy <= releaseEnvelope) {
-                fighter.giveCommand(ShipCommand.FIRE, sector.worldAimPoint, 0);
-                fighter.giveCommand(ShipCommand.FIRE, sector.worldAimPoint, 1);
-                fighter.giveCommand(ShipCommand.FIRE, sector.worldAimPoint, 2);
-            }
+        // Standoff On-Boresight Trigger Release: launch ordnance immediately upon entering maximum weapon range
+        // so strike craft utilize their full weapon range envelope for survivability rather than diving to point-blank range!
+        float alignGateDeg = isStrong ? 12.0f : 18.0f;
+        float releaseEnvelope = maxWepRange + targetRad * 0.90f;
+        if (Math.abs(angleDiff) <= alignGateDeg && dEnemy <= releaseEnvelope) {
+            fighter.giveCommand(ShipCommand.FIRE, sector.worldAimPoint, 0);
+            fighter.giveCommand(ShipCommand.FIRE, sector.worldAimPoint, 1);
+            fighter.giveCommand(ShipCommand.FIRE, sector.worldAimPoint, 2);
         }
         return false;
     }
@@ -2581,7 +2573,8 @@ public class VoidstrikeCoordinator {
                 // If an armed bomber was prematurely marked returning by vanilla while not in emergency recall, cancel return!
                 if (wing.isReturning(f) && !emergencyRecall && stagingOrStriking) {
                     boolean finiteAmmoCraft = isBomberWing || hasFiniteAmmoStrikeWeapons(f);
-                    if (finiteAmmoCraft && hasUnexpended && f.getHullLevel() >= 0.20f && !f.isLanding() && f.getFighterTimeBeforeRefit() > 2.5f) {
+                    boolean refitTimerOk = f.getFighterTimeBeforeRefit() <= 0f || f.getFighterTimeBeforeRefit() > 2.5f;
+                    if (finiteAmmoCraft && hasUnexpended && f.getHullLevel() >= 0.20f && !f.isLanding() && refitTimerOk) {
                         cancelPrematureFighterReturn(wing, f);
                     }
                 }
