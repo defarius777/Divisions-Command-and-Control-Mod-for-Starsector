@@ -1855,12 +1855,71 @@ public class DivisionAITestSuite {
 
     private static void stepRehearsalFighterKinematics60Hz(SimShipState f, float dt) {
         if (!f.alive) return;
+        // 1. Integrate position from velocity set in the previous frame (including any EveryFrameCombatPlugin /
+        // VoidstrikeCoordinator 60 Hz steering), matching vanilla CombatEngine.advanceInner intra-frame ordering!
+        f.location.x += f.velocity.x * dt;
+        f.location.y += f.velocity.y * dt;
+
         f.givenCommands.clear();
         f.blockedCommands.clear();
-        Object mdObj = f.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MOVEMENT_DEST);
-        Vector2f goal = (mdObj instanceof Vector2f)
-                ? (Vector2f) mdObj
-                : (f.shipTarget != null ? f.shipTarget.getLocation() : null);
+
+        // 2. Vanilla FighterAI & Wingman Formation Follow (never reads AIFlags.MOVEMENT_DEST!):
+        com.fs.starfarer.api.combat.ShipAPI leader = (f.wing != null) ? f.wing.getLeader() : f.proxy;
+        boolean isWingLeader = (leader == null || leader == f.proxy);
+        boolean isReturning = (f.wing != null && f.wing.isReturning(f.proxy));
+
+        if (!isWingLeader && !isReturning && leader != null && leader.isAlive()) {
+            List<com.fs.starfarer.api.combat.ShipAPI> members = f.wing.getWingMembers();
+            int slotIdx = Math.max(1, members.indexOf(f.proxy));
+            int rank = (slotIdx + 1) / 2;
+            float sideSign = (slotIdx % 2 == 1) ? -1f : 1f;
+            float back = rank * 36f;
+            float lat = sideSign * rank * 36f;
+            double lRad = Math.toRadians(leader.getFacing());
+            float fwdX = (float) Math.cos(lRad);
+            float fwdY = (float) Math.sin(lRad);
+            float rightX = fwdY;
+            float rightY = -fwdX;
+            float slotX = leader.getLocation().x - fwdX * back + rightX * lat;
+            float slotY = leader.getLocation().y - fwdY * back + rightY * lat;
+            float dx = slotX - f.location.x;
+            float dy = slotY - f.location.y;
+            float dSlot = (float) Math.sqrt(dx * dx + dy * dy);
+            float tVx = leader.getVelocity().x;
+            float tVy = leader.getVelocity().y;
+            if (dSlot > 2f) {
+                float catchSpd = Math.min(f.maxSpeed, dSlot * 3.2f);
+                tVx += (dx / dSlot) * catchSpd;
+                tVy += (dy / dSlot) * catchSpd;
+                float tSpd = (float) Math.sqrt(tVx * tVx + tVy * tVy);
+                if (tSpd > f.maxSpeed) {
+                    tVx *= (f.maxSpeed / tSpd);
+                    tVy *= (f.maxSpeed / tSpd);
+                }
+            }
+            float blend = Math.min(1f, dt * 5.0f);
+            f.velocity.set(
+                    f.velocity.x * (1f - blend) + tVx * blend,
+                    f.velocity.y * (1f - blend) + tVy * blend);
+            f.facing = leader.getFacing();
+            return;
+        }
+
+        Object campObj = f.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION);
+        Object escObj = f.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.ESCORT_OTHER_SHIP);
+        boolean doNotPursue = f.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_PURSUE);
+        Object mtObj = f.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MANEUVER_TARGET);
+        Vector2f goal = null;
+        if (campObj instanceof Vector2f) {
+            goal = (Vector2f) campObj;
+        } else if (doNotPursue && escObj instanceof com.fs.starfarer.api.combat.ShipAPI) {
+            goal = ((com.fs.starfarer.api.combat.ShipAPI) escObj).getLocation();
+        } else if (f.shipTarget != null && f.shipTarget.isAlive()) {
+            goal = f.shipTarget.getLocation();
+        } else if (mtObj instanceof com.fs.starfarer.api.combat.ShipAPI
+                && ((com.fs.starfarer.api.combat.ShipAPI) mtObj).isAlive()) {
+            goal = ((com.fs.starfarer.api.combat.ShipAPI) mtObj).getLocation();
+        }
         if (goal != null) {
             float dx = goal.x - f.location.x;
             float dy = goal.y - f.location.y;
@@ -1874,9 +1933,12 @@ public class DivisionAITestSuite {
                 float maxTurn = 135f * dt;
                 f.facing = (f.facing + Math.max(-maxTurn, Math.min(maxTurn, diff)) + 360f) % 360f;
                 double rad = Math.toRadians(f.facing);
-                f.velocity.set((float) Math.cos(rad) * f.maxSpeed, (float) Math.sin(rad) * f.maxSpeed);
-                f.location.x += f.velocity.x * dt;
-                f.location.y += f.velocity.y * dt;
+                float thrustVx = (float) Math.cos(rad) * f.maxSpeed;
+                float thrustVy = (float) Math.sin(rad) * f.maxSpeed;
+                float blend = Math.min(1f, dt * 4.5f);
+                f.velocity.set(
+                        f.velocity.x * (1f - blend) + thrustVx * blend,
+                        f.velocity.y * (1f - blend) + thrustVy * blend);
             }
         }
     }

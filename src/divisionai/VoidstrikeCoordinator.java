@@ -897,6 +897,19 @@ public class VoidstrikeCoordinator {
                         useLegBasis ? legFwdY : fwdY,
                         useLegBasis ? legRightX : rightX,
                         useLegBasis ? legRightY : rightY);
+                Vector2f intraWingOffset = computeSquadronCraftSlotOffset(
+                        sqdnForm,
+                        cIdx,
+                        wingMembers.size(),
+                        0,
+                        1,
+                        0,
+                        1,
+                        36f,
+                        useLegBasis ? legFwdX : fwdX,
+                        useLegBasis ? legFwdY : fwdY,
+                        useLegBasis ? legRightX : rightX,
+                        useLegBasis ? legRightY : rightY);
 
                 if (holdFightersInFormation) {
                     if (fighter.getId() != null) {
@@ -963,6 +976,8 @@ public class VoidstrikeCoordinator {
                                 fighter.getVelocity().y * 0.82f + desiredVy * 0.18f);
                     }
                 } else if (wingTargetShip != null && wingTargetShip.isAlive()) {
+                    fFlags.unsetFlag(AIFlags.CAMP_LOCATION);
+                    fFlags.unsetFlag(AIFlags.ESCORT_OTHER_SHIP);
                     boolean hasUnexpendedOrdnance = hasUnexpendedStrikeOrdnance(fighter, isBomberWing);
                     boolean isFiniteAmmoCraft = isBomberWing || hasFiniteAmmoStrikeWeapons(fighter);
                     float maxWepRange = computeMaxStrikeWeaponRange(fighter);
@@ -1108,8 +1123,8 @@ public class VoidstrikeCoordinator {
                                 }
                             }
                             Vector2f craftGate = new Vector2f(
-                                    activeGate.x + slotOffset.x * 0.45f,
-                                    activeGate.y + slotOffset.y * 0.45f);
+                                    activeGate.x + intraWingOffset.x,
+                                    activeGate.y + intraWingOffset.y);
                             Vector2f gateWaypoint = computeAntiAaEvasionWaypoint(fighter, attackTarget, craftGate, wIdx, cIdx, now);
 
                             boolean fighterUnderAaFire = fighter.getHullLevel() < 0.92f
@@ -1159,21 +1174,27 @@ public class VoidstrikeCoordinator {
                                 }
                             } else {
                                 Vector2f craftGoal = new Vector2f(
-                                        attackTarget.getLocation().x + slotOffset.x * 0.45f,
-                                        attackTarget.getLocation().y + slotOffset.y * 0.45f);
+                                        attackTarget.getLocation().x + intraWingOffset.x,
+                                        attackTarget.getLocation().y + intraWingOffset.y);
                                 fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, craftGoal);
+                                if (attackTarget != focusEnemyShip && dEnemy > terminalStartRange) {
+                                    steerFighterTowardPoint60Hz(fighter, craftGoal, true);
+                                }
                             }
                         } else {
                             // Direct approach (or Anvil 0-deg leg of L-Crossfire): project a clean forward approach target.
                             // When part of a multi-angle strike (e.g. 0-deg Anvil leg paired with an 85-deg Hammer dogleg),
                             // gently pace velocity outside enemy PD range (> 820u) so the Anvil leg arrives simultaneously with the Hammer leg!
                             Vector2f craftGoal = new Vector2f(
-                                    attackTarget.getLocation().x + slotOffset.x * 0.45f,
-                                    attackTarget.getLocation().y + slotOffset.y * 0.45f);
+                                    attackTarget.getLocation().x + intraWingOffset.x,
+                                    attackTarget.getLocation().y + intraWingOffset.y);
                             if (dEnemy > terminalStartRange) {
                                 craftGoal = computeAntiAaEvasionWaypoint(fighter, attackTarget, craftGoal, wIdx, cIdx, now);
                             }
                             fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, craftGoal);
+                            if (attackTarget != focusEnemyShip && dEnemy > terminalStartRange) {
+                                steerFighterTowardPoint60Hz(fighter, craftGoal, true);
+                            }
                             if (multiAngleStrikeActive && maxArmedSubWingEtaSec > 1.2f && dEnemy > 820f && fighter.getVelocity() != null) {
                                 boolean fighterUnderAaFire = fighter.getHullLevel() < 0.92f
                                         || (fighter.getFluxTracker() != null && fighter.getFluxTracker().getFluxLevel() >= 0.08f);
@@ -2268,6 +2289,8 @@ public class VoidstrikeCoordinator {
      * and runs after `EveryFrameCombatPlugin.advance` inside `CombatEngine.advanceInner`, this helper issues explicit
      * turn/throttle commands and blocks opposing commands for one frame via `blockCommandForOneFrame`.
      */
+    private static float currentFrameDt = 0.016f;
+
     public static void steerFighterTowardPoint60Hz(ShipAPI fighter, Vector2f dest, boolean fullSpeed) {
         if (fighter == null || fighter.getLocation() == null || dest == null) return;
         float dx = dest.x - fighter.getLocation().x;
@@ -2282,13 +2305,15 @@ public class VoidstrikeCoordinator {
 
         float dt = (Global.getCombatEngine() != null && Global.getCombatEngine().getElapsedInLastFrame() > 0f)
                 ? Math.min(0.05f, Global.getCombatEngine().getElapsedInLastFrame())
-                : 0.016f;
+                : currentFrameDt;
         boolean underHeavyFire = fighter.getHullLevel() < 0.80f
                 || (fighter.getFluxTracker() != null && fighter.getFluxTracker().getFluxLevel() >= 0.22f);
         float maxTurnRate = Math.max(120f, fighter.getMaxTurnRate() > 0f ? fighter.getMaxTurnRate() : 180f);
         float angleDiff = shortestAngleDiffDeg(fighter.getFacing(), desiredFacing);
         if (!underHeavyFire || Math.abs(angleDiff) > 38f) {
-            float maxStep = maxTurnRate * dt;
+            // Apply 2.2x maxTurnRate * dt so EveryFrameCombatPlugin cleanly overcomes any intra-frame counter-turn
+            // applied earlier in the same frame by vanilla FighterAI / AttackRunManeuver toward CARRIER_FIGHTER_TARGET!
+            float maxStep = maxTurnRate * 2.2f * dt;
             float step = Math.max(-maxStep, Math.min(maxStep, angleDiff));
             float newFacing = (fighter.getFacing() + step) % 360f;
             if (newFacing < 0f) newFacing += 360f;
@@ -2317,8 +2342,8 @@ public class VoidstrikeCoordinator {
         if (fighter.getVelocity() != null) {
             Vector2f vel = fighter.getVelocity();
             float maxSpd = fighter.getMaxSpeed() > 0f ? fighter.getMaxSpeed() : 220f;
-            float targetSpd = fullSpeed ? (maxSpd * 0.92f) : (maxSpd * Math.min(0.85f, Math.max(0.35f, dist / 260f)));
-            float blend = Math.min(0.25f, dt * 8.0f);
+            float targetSpd = fullSpeed ? (maxSpd * 0.94f) : (maxSpd * Math.min(0.85f, Math.max(0.35f, dist / 260f)));
+            float blend = Math.min(0.85f, dt * 28.0f);
             vel.set(
                     vel.x * (1f - blend) + dirX * targetSpd * blend,
                     vel.y * (1f - blend) + dirY * targetSpd * blend);
@@ -2379,7 +2404,7 @@ public class VoidstrikeCoordinator {
         float maxDampDist = isStrong ? 880f : 650f;
         float dt = (Global.getCombatEngine() != null && Global.getCombatEngine().getElapsedInLastFrame() > 0f)
                 ? Math.min(0.05f, Global.getCombatEngine().getElapsedInLastFrame())
-                : 0.016f;
+                : currentFrameDt;
         float frameScale = Math.max(0.25f, Math.min(4.0f, dt / 0.016f));
 
         if (dEnemy <= maxDampDist && dEnemy > minInnerDiveFloor && fighter.getVelocity() != null) {
@@ -2457,6 +2482,13 @@ public class VoidstrikeCoordinator {
             BattleGroupState alliedAiGroup,
             BattleGroupState enemyGroup,
             float now) {
+        if (engine != null && engine.getElapsedInLastFrame() > 0f) {
+            currentFrameDt = Math.min(0.05f, engine.getElapsedInLastFrame());
+        } else if (Global.getCombatEngine() != null && Global.getCombatEngine().getElapsedInLastFrame() > 0f) {
+            currentFrameDt = Math.min(0.05f, Global.getCombatEngine().getElapsedInLastFrame());
+        } else {
+            currentFrameDt = 0.033f;
+        }
         advanceGroupStrikeCraftEveryFrame(playerGroup, now);
         advanceGroupStrikeCraftEveryFrame(alliedAiGroup, now);
         advanceGroupStrikeCraftEveryFrame(enemyGroup, now);
