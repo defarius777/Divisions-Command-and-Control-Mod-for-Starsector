@@ -3091,8 +3091,9 @@ public class OtcAI {
             if (!isPursuitInterception && anyOrganizedCombatEnemy && isUnassignedContact) {
                 if (eDiv.members.size() <= 1 && rawVisFp <= 14f) {
                     unassignedStragglerPenalty = -580f;
-                } else if (rawVisFp < 32f && minDivDist > 1050f) {
-                    unassignedStragglerPenalty = -340f;
+                } else if (rawVisFp < 48f) {
+                    float distFade = Math.max(0.32f, Math.min(1.0f, (minDivDist - 620f) / 680f));
+                    unassignedStragglerPenalty = -380f * distFade;
                 }
             }
             float frontlineContactBonus = (minDivDist <= 1450f ? (1450f - minDivDist) * 0.32f : 0f)
@@ -3110,7 +3111,7 @@ public class OtcAI {
                     && (eDiv == myGroup.primaryThreatEnemyDivision
                     || (eDiv.id != null && eDiv.id.equals(myGroup.primaryThreatEnemyDivision.id)));
             float incumbentBonus = (isCurrentPrimary && overkillPrimaryPenalty == 0f && unablePenalty == 0f && feignPenalty == 0f)
-                    ? (isUnassignedContact ? 135f : 240f)
+                    ? (isUnassignedContact ? 195f : 280f)
                     : 0f;
 
             float score;

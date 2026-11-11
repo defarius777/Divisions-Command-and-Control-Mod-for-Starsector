@@ -1215,10 +1215,13 @@ public class DivisionCommanderAI {
         // enemy division has entered the approach lane.
         if (prevCarrierTarget != null && prevCarrierTarget.isAbleCombatEffective()) {
             boolean visNow = OtcAI.isDivisionVisibleToSide(engine, div.side, prevCarrierTarget);
+            boolean armedCommittedDownrange = !div.voidstrikeEgressActive
+                    && VoidstrikeCoordinator.hasArmedStrikeCraftCommittedDownrange(div);
             boolean airborneWaveActive = !div.voidstrikeEgressActive
                     && (div.voidstrikeStage == 1
                     || div.voidstrikeStage == 2
                     || div.activeVoidstrikeSortieNumber > 0
+                    || armedCommittedDownrange
                     || VoidstrikeCoordinator.hasArmedStrikeCraftAirborne(div));
             if (visNow || airborneWaveActive) {
                 Vector2f prevPos = OtcAI.getVisibleCentroidForSide(engine, div.side, prevCarrierTarget);
@@ -1247,7 +1250,12 @@ public class DivisionCommanderAI {
                         && carrierTargetDiv.id != null
                         && carrierTargetDiv.id.startsWith("unassigned_enemy_contacts_")
                         && carrierTargetDiv.getAliveMembers().size() <= 1;
-                boolean closerTargetIntervening = carrierTargetDiv != null
+                // Once armed bombers are committed downrange (>= 460u from carriers) against a multi-ship or organized
+                // target, never retarget the carrier division mid-sortie on Main Effort shifts — doing so resets
+                // Pincer/L-Crossfire dogleg gate latches and aborts active torpedo runs before weapon release!
+                boolean lockCommittedWaveOnTarget = armedCommittedDownrange && !prevIsTinyUnassignedContact;
+                boolean closerTargetIntervening = !lockCommittedWaveOnTarget
+                        && carrierTargetDiv != null
                         && carrierTargetDiv != prevCarrierTarget
                         && !newIsTinyUnassignedContact
                         && (prevScreenedByCloserEnemy
@@ -1255,7 +1263,7 @@ public class DivisionCommanderAI {
                         || (airborneWaveActive && newDist + 1150f < prevDist && newIsHeavierLineTarget)
                         || ((prevIsLightSkirmisher || prevIsTinyUnassignedContact) && newIsHeavierLineTarget && newDist <= prevDist + 950f));
                 boolean alreadyInTerminalEnvelope = VoidstrikeCoordinator.hasStrikeCraftInTerminalEnvelope(
-                        div, prevCarrierTarget, 980f);
+                        div, prevCarrierTarget, 1250f);
                 if (carrierTargetDiv == null || (airborneWaveActive && (!closerTargetIntervening || alreadyInTerminalEnvelope))) {
                     boolean emergencyCloseThreat = carrierTargetDiv != null
                             && carrierTargetDiv != prevCarrierTarget
@@ -1808,6 +1816,17 @@ public class DivisionCommanderAI {
             float now) {
 
         DivisionState target = task.targetEnemy;
+        if (div.archetype != null && div.archetype.isCarrierArchetype()
+                && div.targetEnemyDivision != null
+                && div.targetEnemyDivision.isAbleCombatEffective()
+                && !(div.targetEnemyDivision.id != null
+                && div.targetEnemyDivision.id.startsWith("unassigned_enemy_contacts_")
+                && div.targetEnemyDivision.getAliveMembers().size() <= 1)
+                && !div.voidstrikeEgressActive
+                && VoidstrikeCoordinator.hasArmedStrikeCraftCommittedDownrange(div)
+                && OtcAI.isDivisionVisibleToSide(engine, div.side, div.targetEnemyDivision)) {
+            target = div.targetEnemyDivision;
+        }
         boolean targetValid = target != null && target.isCombatEffective()
                 && OtcAI.isDivisionVisibleToSide(engine, div.side, target);
         boolean binding = auth.isBinding();

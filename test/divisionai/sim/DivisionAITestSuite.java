@@ -83,6 +83,7 @@ public class DivisionAITestSuite {
         testPursuitDeploymentAndRearguardC2();
         testAdvancedStrikeCraftGunneryAndHierarchicalSectors();
         testPirateHordeC2AndVoidstrikeLifecycle();
+        testBattle2StrikecraftAndMultiCarrierFixes();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -3034,6 +3035,265 @@ public class DivisionAITestSuite {
                 String.format(Locale.ROOT, "orgBeatsIndep=%b, hysteresis=%b, activePass=%b, releasedOnEgress=%b, wave1Reached=%b, wipedReleased=%b, wave2IsTwo=%b",
                         organizedBeatsIndepClusterOk, incumbentHysteresisHeldOk, activeDuringPassOk,
                         releasedOnEgressOk, wave1IsOneAndReachedOk, sortieNumReleasedAfterWipeoutOk, wave2IncrementedToTwoOk));
+    }
+
+    /**
+     * Scenario 10c: Strike-craft & Multi-Carrier Voidstrike C2 Fixes:
+     *  1. Regenerating-ammo / PD escort mechs & interceptors (ammoPerSec > 0 or PD/ANTI_FTR hints) are NOT classified
+     *     as finite-ammo bombers, allowing Voidstrikes to culminate immediately on "ordnance expended" once real bombers
+     *     drop their torpedoes instead of lingering in flak for 60s until "strike pass complete".
+     *  2. Long-range standoff torpedo/MIRV/DEM bombers (attackRunRange >= 1100u, weaponRange = 1200u) scale
+     *     computeMaxStrikeWeaponRange to 1200u and Pincer/Crossfire flanking gate distance to 960u (vs 620u for short-range).
+     *  3. Carrier divisions with armed strike craft committed downrange (>= 460u from carriers) hold target lock on
+     *     their active multi-ship target division across Main Effort shifts so Pincer dogleg gates never reset mid-run.
+     *  4. OtcBattlePlanner does not split a 2-division ALPHA_STRIKE carrier air wing in half by drafting a lone
+     *     carrier division into MARSHAL while its sister ALPHA_STRIKE carrier division is recovering or airborne.
+     */
+    private static void testBattle2StrikecraftAndMultiCarrierFixes() {
+        System.out.println("\n--- Scenario 10c: Regenerating Escort Ammo Exclusion, Standoff Bomber Gate Scaling, Target Lock & Unified Multi-Carrier Alpha ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "aggressive");
+
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+        DivisionState battleDiv = new DivisionState("b2_bat1", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+        DivisionState carDiv1 = new DivisionState("b2_car1", 0, 2, DivisionArchetype.LIGHT_CARRIER_DIVISION, "Carrier Div 1", pCmdr);
+        DivisionState carDiv2 = new DivisionState("b2_car2", 0, 3, DivisionArchetype.LIGHT_CARRIER_DIVISION, "Carrier Div 2", pCmdr);
+        carDiv1.hasCarrierCapability = true;
+        carDiv2.hasCarrierCapability = true;
+        carDiv1.openingMission = DivisionMissionType.ALPHA_STRIKE;
+        carDiv1.mainMission = DivisionMissionType.ALPHA_STRIKE;
+        carDiv2.openingMission = DivisionMissionType.ALPHA_STRIKE;
+        carDiv2.mainMission = DivisionMissionType.ALPHA_STRIKE;
+        carDiv1.voidstrikeAttackGeometry = divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT;
+        carDiv2.voidstrikeAttackGeometry = divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT;
+        pGroup.divisions.add(battleDiv);
+        pGroup.divisions.add(carDiv1);
+        pGroup.divisions.add(carDiv2);
+        pGroup.mainEffortDivision = battleDiv;
+
+        DivisionState enemyDivA = new DivisionState("b2_ea", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Independent Contact 1", eCmdr);
+        DivisionState enemyDivB = new DivisionState("b2_eb", 1, 2, DivisionArchetype.CRUISER_DIVISION, "Warband I", eCmdr);
+        eGroup.divisions.add(enemyDivA);
+        eGroup.divisions.add(enemyDivB);
+
+        SimArena arena = new SimArena("Scenario 10c: Strike-Craft & Multi-Carrier C2", "Regen Ammo Filter, 1200u Bomber Gate, Target Lock & Unified Alpha", pGroup, eGroup);
+        SimShipState pCap = arena.addShip(battleDiv, "b2_pcap", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, 0f, 50f, 1200f, 2, 0);
+        SimShipState c1 = arena.addShip(carDiv1, "b2_c1", "HSS Heron", "heron", HullSize.CRUISER, -250f, -900f, 75f, 1000f, 0, 2);
+        SimShipState c2 = arena.addShip(carDiv2, "b2_c2", "HSS Chester", "condor", HullSize.DESTROYER, 250f, -450f, 70f, 1000f, 0, 2);
+        battleDiv.flagship = pCap.proxy;
+        carDiv1.flagship = c1.proxy;
+        carDiv2.flagship = c2.proxy;
+        pGroup.shipIdToDivision.put(pCap.id, battleDiv);
+        pGroup.shipIdToDivision.put(c1.id, carDiv1);
+        pGroup.shipIdToDivision.put(c2.id, carDiv2);
+
+        SimShipState ea1 = arena.addShip(enemyDivA, "b2_ea1", "Raider Cruiser", "eradicator_pirates", HullSize.CRUISER, -200f, 1250f, 70f, 1000f, 2, 0);
+        SimShipState ea2 = arena.addShip(enemyDivA, "b2_ea2", "Raider Escort", "enforcer", HullSize.DESTROYER, -100f, 1280f, 75f, 900f, 1, 0);
+        enemyDivA.flagship = ea1.proxy;
+        eGroup.shipIdToDivision.put(ea1.id, enemyDivA);
+        eGroup.shipIdToDivision.put(ea2.id, enemyDivA);
+
+        SimShipState eb1 = arena.addShip(enemyDivB, "b2_eb1", "Warband Cruiser", "dominator", HullSize.CRUISER, 350f, 1050f, 55f, 1000f, 2, 0);
+        SimShipState eb2 = arena.addShip(enemyDivB, "b2_eb2", "Warband Escort", "manticore", HullSize.DESTROYER, 450f, 1080f, 70f, 1000f, 1, 0);
+        enemyDivB.flagship = eb1.proxy;
+        eGroup.shipIdToDivision.put(eb1.id, enemyDivB);
+        eGroup.shipIdToDivision.put(eb2.id, enemyDivB);
+
+        // 1. Build a regenerating-ammo + PD gun mech wing (like MSS_Aznable: 7-ammo @ 2.3/s beam + 100-ammo PD chaingun)
+        //    and a long-range 1200u standoff torpedo bomber wing (attackRunRange = 1500u, ammo = 1 @ 0/s).
+        final int[] bomberTorpAmmo = new int[]{1};
+        com.fs.starfarer.api.combat.WeaponAPI regenBeam = (com.fs.starfarer.api.combat.WeaponAPI) java.lang.reflect.Proxy.newProxyInstance(
+                SimArena.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.WeaponAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("usesAmmo".equals(n)) return true;
+                    if ("getAmmo".equals(n)) return 7;
+                    if ("getMaxAmmo".equals(n)) return 7;
+                    if ("getAmmoPerSecond".equals(n)) return 2.3f;
+                    if ("getRange".equals(n)) return 600f;
+                    if ("getType".equals(n)) return com.fs.starfarer.api.combat.WeaponAPI.WeaponType.ENERGY;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final com.fs.starfarer.api.loading.WeaponSpecAPI pdSpec = (com.fs.starfarer.api.loading.WeaponSpecAPI) java.lang.reflect.Proxy.newProxyInstance(
+                SimArena.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.loading.WeaponSpecAPI.class},
+                (p, m, a) -> {
+                    if ("getAIHints".equals(m.getName())) {
+                        return java.util.EnumSet.of(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD);
+                    }
+                    if ("getAmmoPerSecond".equals(m.getName())) return 0f;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        com.fs.starfarer.api.combat.WeaponAPI pdChaingun = (com.fs.starfarer.api.combat.WeaponAPI) java.lang.reflect.Proxy.newProxyInstance(
+                SimArena.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.WeaponAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("usesAmmo".equals(n)) return true;
+                    if ("getAmmo".equals(n)) return 100;
+                    if ("getMaxAmmo".equals(n)) return 100;
+                    if ("getAmmoPerSecond".equals(n)) return 0f;
+                    if ("getRange".equals(n)) return 450f;
+                    if ("getType".equals(n)) return com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC;
+                    if ("getSpec".equals(n)) return pdSpec;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        com.fs.starfarer.api.combat.WeaponAPI standoffTorp = (com.fs.starfarer.api.combat.WeaponAPI) java.lang.reflect.Proxy.newProxyInstance(
+                SimArena.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.WeaponAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("usesAmmo".equals(n)) return true;
+                    if ("getAmmo".equals(n)) return bomberTorpAmmo[0];
+                    if ("getMaxAmmo".equals(n)) return 1;
+                    if ("getAmmoPerSecond".equals(n)) return 0f;
+                    if ("getRange".equals(n)) return 1200f;
+                    if ("getType".equals(n)) return com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+
+        SimShipState escortMech = arena.addShip(carDiv1, "b2_mech", "Mech Escort", "broadsword", HullSize.FIGHTER, -180f, 820f, 200f, 600f, 0, 0);
+        escortMech.weapons.clear();
+        escortMech.weapons.add(regenBeam);
+        escortMech.weapons.add(pdChaingun);
+
+        SimShipState lrBomber = arena.addShip(carDiv2, "b2_bomber", "EIS Dagger", "dagger", HullSize.FIGHTER, -160f, 840f, 160f, 1200f, 0, 0);
+        lrBomber.weapons.clear();
+        lrBomber.weapons.add(standoffTorp);
+
+        // Attach wings: escortMech has WingRole.FIGHTER, lrBomber has WingRole.BOMBER + attackRunRange = 1500f
+        boolean[] mechRet = new boolean[]{false};
+        boolean[] bomberRet = new boolean[]{false};
+        createRehearsalWing(c1, java.util.Collections.singletonList(escortMech), false, mechRet);
+        final com.fs.starfarer.api.loading.FighterWingSpecAPI lrSpec = (com.fs.starfarer.api.loading.FighterWingSpecAPI) java.lang.reflect.Proxy.newProxyInstance(
+                SimArena.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.loading.FighterWingSpecAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("isBomber".equals(n)) return true;
+                    if ("getRole".equals(n)) return com.fs.starfarer.api.loading.WingRole.BOMBER;
+                    if ("getAttackRunRange".equals(n)) return 1500f;
+                    if ("getNumFighters".equals(n)) return 1;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        com.fs.starfarer.api.combat.FighterWingAPI lrWing = (com.fs.starfarer.api.combat.FighterWingAPI) java.lang.reflect.Proxy.newProxyInstance(
+                SimArena.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == a[0];
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("getWingMembers".equals(n)) return java.util.Collections.singletonList(lrBomber.proxy);
+                    if ("getLeader".equals(n)) return lrBomber.proxy;
+                    if ("getSourceShip".equals(n)) return c2.proxy;
+                    if ("getRole".equals(n)) return com.fs.starfarer.api.loading.WingRole.BOMBER;
+                    if ("getSpec".equals(n)) return lrSpec;
+                    if ("isReturning".equals(n)) return bomberRet[0];
+                    if ("orderReturn".equals(n)) {
+                        bomberRet[0] = true;
+                        return null;
+                    }
+                    if ("stopReturning".equals(n)) {
+                        bomberRet[0] = false;
+                        return null;
+                    }
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        lrBomber.wing = lrWing;
+        c2.wings.add(lrWing);
+
+        boolean regenMechExcludedFromFiniteBombersOk = !divisionai.VoidstrikeCoordinator.hasFiniteAmmoStrikeWeapons(escortMech.proxy)
+                && divisionai.VoidstrikeCoordinator.hasFiniteAmmoStrikeWeapons(lrBomber.proxy);
+        float lrMaxRange = divisionai.VoidstrikeCoordinator.computeMaxStrikeWeaponRange(lrBomber.proxy);
+        float lrGateDist = divisionai.VoidstrikeCoordinator.computeDoctrinalFlankingGateBaseDist(lrWing, lrMaxRange);
+        float stdGateDist = divisionai.VoidstrikeCoordinator.computeDoctrinalFlankingGateBaseDist(escortMech.wing, 600f);
+        boolean standoffGateScaledOk = Math.abs(lrMaxRange - 1200f) < 1f
+                && Math.abs(lrGateDist - 960f) < 1f
+                && Math.abs(stdGateDist - 620f) < 1f;
+
+        // 2. Verify Voidstrike culminates on "ordnance expended" once lrBomber drops its torpedo even while escortMech
+        //    still holds 7/7 regenerating beam charges & 100/100 PD ammo!
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(battleDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(carDiv1);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(carDiv2);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyDivA);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyDivB);
+        carDiv1.hasCarrierCapability = true;
+        carDiv2.hasCarrierCapability = true;
+        carDiv1.currentIntent = DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
+        carDiv2.currentIntent = DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
+        carDiv1.targetEnemyDivision = enemyDivA;
+        carDiv2.targetEnemyDivision = enemyDivA;
+        pGroup.primaryThreatEnemyDivision = enemyDivA;
+
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, pGroup);
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, eGroup);
+        divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, eGroup, 10.0f);
+        List<divisionai.VoidstrikeCoordinator.VoidstrikeRecord> activeVs = divisionai.VoidstrikeCoordinator.getActiveVoidstrikes();
+        boolean mergedTwoDivWaveOk = (activeVs.size() == 1) && activeVs.get(0).participatingDivisionIds.size() == 2;
+
+        // Shift Main Effort to closer enemyDivB while lrBomber is committed downrange (1290u from c2!) -> carDiv2 must HOLD target lock on enemyDivA!
+        pGroup.primaryThreatEnemyDivision = enemyDivB;
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(arena.engineProxy, pGroup, eGroup, 11.0f);
+        boolean downrangeTargetLockHeldOk = (carDiv2.targetEnemyDivision == enemyDivA);
+
+        // Expend bomber torpedo at t=14.5s (>3.0s sortie age): escortMech still has 7/7 regen beam & 100 PD rounds -> must culminate "ordnance expended"!
+        bomberTorpAmmo[0] = 0;
+        bomberRet[0] = true;
+        divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, eGroup, 14.5f);
+        boolean culminatedOrdnanceExpendedOk = divisionai.VoidstrikeCoordinator.getActiveVoidstrikes().isEmpty()
+                && carDiv1.voidstrikeEgressActive
+                && carDiv2.voidstrikeEgressActive;
+
+        // 3. Multi-carrier Kill-Box unity: if carDiv2 finishes egress first while carDiv1 is still in voidstrikeEgressActive,
+        //    OtcBattlePlanner must NOT split the 2-division Alpha Strike air wing by locking carDiv2 into a solo Kill-Box!
+        carDiv2.voidstrikeEgressActive = false;
+        carDiv2.activeVoidstrikeSortieNumber = 0;
+        carDiv2.voidstrikeStage = 0;
+        carDiv1.voidstrikeEgressActive = true;
+        pGroup.strikePlan = null;
+        divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 22.0f);
+        boolean noSplitSoloCarrierKillBoxOk = (pGroup.strikePlan == null)
+                || !pGroup.strikePlan.participants.contains(carDiv2);
+
+        check(regenMechExcludedFromFiniteBombersOk
+                        && standoffGateScaledOk
+                        && mergedTwoDivWaveOk
+                        && downrangeTargetLockHeldOk
+                        && culminatedOrdnanceExpendedOk
+                        && noSplitSoloCarrierKillBoxOk,
+                "Strike-Craft & Multi-Carrier Fixes: Regenerating/PD escort ammo excluded, 1200u bomber gate scaled to 960u, downrange target lock holds, ordnance-expended culmination fires cleanly, and Alpha carriers stay unified",
+                String.format(Locale.ROOT, "regenExcluded=%b, gateScaled=%b (wep=%.0f, lrGate=%.0f, stdGate=%.0f), merged2Div=%b, targetLock=%b, ordExpended=%b, unifiedAlpha=%b",
+                        regenMechExcludedFromFiniteBombersOk, standoffGateScaledOk, lrMaxRange, lrGateDist, stdGateDist,
+                        mergedTwoDivWaveOk, downrangeTargetLockHeldOk, culminatedOrdnanceExpendedOk, noSplitSoloCarrierKillBoxOk));
     }
 
     private static float dist(Vector2f a, Vector2f b) {

@@ -389,11 +389,33 @@ public class OtcBattlePlanner {
         Vector2f targetPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, target);
 
         List<DivisionState> strikers = new ArrayList<>();
+        int totalAlphaCarrierDivsInReach = 0;
+        boolean sisterAlphaCarrierBusyOrRecovering = false;
         for (DivisionState d : active) {
             if (d == myGroup.mainEffortDivision || d == myGroup.reserveDivision || d == myGroup.reinforcingDivision) continue;
+            if (d.archetype != null && d.archetype.isCarrierArchetype()
+                    && DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.ALPHA_STRIKE
+                    && d.avgFluxLevel < 0.60f
+                    && DivisionUiWidgets.distance(d.centroid, targetPos) <= STRIKE_MAX_RANGE) {
+                totalAlphaCarrierDivsInReach++;
+                if (d.voidstrikeEgressActive || d.voidstrikeStage == 2 || d.activeVoidstrikeSortieNumber > 0) {
+                    sisterAlphaCarrierBusyOrRecovering = true;
+                }
+            }
             if (!isStrikeCandidate(d, myGroup, now)) continue;
             if (DivisionUiWidgets.distance(d.centroid, targetPos) > STRIKE_MAX_RANGE) continue;
             strikers.add(d);
+        }
+        // Keep multi-division Alpha Strike air wings unified: if another ALPHA_STRIKE carrier division is currently
+        // finishing egress recovery or already airborne on a Voidstrike, do not draft a lone carrier division into a
+        // separate MARSHAL hold that splits a 22-squadron strike package into two half-strength 10-squadron waves!
+        if (totalAlphaCarrierDivsInReach >= 2 && sisterAlphaCarrierBusyOrRecovering) {
+            for (Iterator<DivisionState> it = strikers.iterator(); it.hasNext(); ) {
+                DivisionState s = it.next();
+                if (s.archetype != null && s.archetype.isCarrierArchetype()) {
+                    it.remove();
+                }
+            }
         }
         boolean mainEffortCanFix = myGroup.mainEffortDivision != null
                 && myGroup.mainEffortDivision.isCombatEffective()
