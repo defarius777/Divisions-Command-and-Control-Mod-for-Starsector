@@ -269,6 +269,7 @@ public class DivisionModel {
         public float lastTargetVisibleTime;
         public float strikeTime;
         public boolean committed;
+        public boolean carrierSortieCommitted;
         public float commitTime = -100f;
         public ShipAPI focusShip;
     }

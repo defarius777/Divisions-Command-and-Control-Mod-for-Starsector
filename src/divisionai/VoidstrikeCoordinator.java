@@ -3124,6 +3124,16 @@ public class VoidstrikeCoordinator {
         while (histIt.hasNext()) {
             VoidstrikeRecord hRec = histIt.next();
             if ((now - hRec.lastActiveTime) > 1.25f) {
+                if (hRec.voidstrikeNumber > 0 && (hRec.reachedTarget || hRec.emergencyRecallTriggered)) {
+                    if (hRec.culminationReason == null) {
+                        String reason = hRec.emergencyRecallTriggered
+                                ? "emergency recall"
+                                : "lost local advantage";
+                        hRec.culminationReason = reason;
+                        DivisionCombatLog.logVoidstrikeCulminated(hRec.side, hRec.voidstrikeNumber, reason, now);
+                    }
+                    releaseSortieNumber(hRec);
+                }
                 histIt.remove();
             } else if (hRec.side == side) {
                 existingForSide.add(hRec);
@@ -3262,7 +3272,7 @@ public class VoidstrikeCoordinator {
                 // and only allocate a Voidstrike number once it becomes visible to the player!
                 int assignedNumber = (side == VOIDSTRIKE_SIDE_ENEMY && !isVisibleToPlayer)
                         ? 0
-                        : claimSortieNumber(clusterDivs, updatedForSide, sideIdx);
+                        : claimSortieNumber(clusterDivs, updatedForSide, existingForSide, sideIdx);
                 matched = new VoidstrikeRecord(side, assignedNumber, primaryTargetKey);
                 matched.createdTime = now;
             } else if (matched.voidstrikeNumber <= 0 && (side != VOIDSTRIKE_SIDE_ENEMY || isVisibleToPlayer)) {
@@ -3272,7 +3282,7 @@ public class VoidstrikeCoordinator {
                 if (clusterFighters.size() >= 3 && spread > effectiveCohesionRadius) {
                     continue;
                 }
-                matched.voidstrikeNumber = claimSortieNumber(clusterDivs, updatedForSide, sideIdx);
+                matched.voidstrikeNumber = claimSortieNumber(clusterDivs, updatedForSide, existingForSide, sideIdx);
                 if (matched.createdTime < 0f) {
                     matched.createdTime = now;
                 }
@@ -3617,13 +3627,18 @@ public class VoidstrikeCoordinator {
                         && returningWingKeys.containsAll(leftover.participatingWingKeys);
                 if (!allWingsReturned && leftover.voidstrikeNumber > 0 && (now - leftover.lastActiveTime) <= 1.25f) {
                     recentVoidstrikeHistory.add(leftover);
-                } else if (leftover.voidstrikeNumber > 0) {
-                    if (allWingsReturned && leftover.culminationReason == null) {
-                        String reason = leftover.emergencyRecallTriggered
-                                ? "emergency recall"
-                                : ((!leftover.initialBomberWingKeys.isEmpty() || leftover.initialArmedBomberCount > 0 || leftover.reachedTarget)
-                                ? "ordnance expended"
-                                : "strike pass complete");
+                } else if (leftover.voidstrikeNumber > 0 && (allWingsReturned || leftover.reachedTarget || leftover.emergencyRecallTriggered)) {
+                    if (leftover.culminationReason == null) {
+                        String reason;
+                        if (leftover.emergencyRecallTriggered) {
+                            reason = "emergency recall";
+                        } else if (allWingsReturned) {
+                            reason = (!leftover.initialBomberWingKeys.isEmpty() || leftover.initialArmedBomberCount > 0 || leftover.reachedTarget)
+                                    ? "ordnance expended"
+                                    : "strike pass complete";
+                        } else {
+                            reason = "lost local advantage";
+                        }
                         leftover.culminationReason = reason;
                         DivisionCombatLog.logVoidstrikeCulminated(side, leftover.voidstrikeNumber, reason, now);
                     }
@@ -3838,20 +3853,47 @@ public class VoidstrikeCoordinator {
      * counter value for the side.
      */
     static int claimSortieNumber(Set<DivisionState> clusterDivs, List<VoidstrikeRecord> liveThisTick, int sideIdx) {
+        return claimSortieNumber(clusterDivs, liveThisTick, null, sideIdx);
+    }
+
+    static int claimSortieNumber(
+            Set<DivisionState> clusterDivs,
+            List<VoidstrikeRecord> liveThisTick,
+            List<VoidstrikeRecord> existingForSide,
+            int sideIdx) {
+        int targetSide = sideIdx == 2 ? VOIDSTRIKE_SIDE_ALLIED : (sideIdx == 1 ? VOIDSTRIKE_SIDE_ENEMY : VOIDSTRIKE_SIDE_PLAYER);
         if (clusterDivs != null) {
             for (DivisionState d : clusterDivs) {
                 if (d == null || d.activeVoidstrikeSortieNumber <= 0 || d.voidstrikeEgressActive) continue;
+                int cand = d.activeVoidstrikeSortieNumber;
                 boolean taken = false;
-                for (VoidstrikeRecord r : liveThisTick) {
-                    if (r != null && r.voidstrikeNumber == d.activeVoidstrikeSortieNumber) { taken = true; break; }
-                }
-                for (VoidstrikeRecord r : activeVoidstrikes) {
-                    if (r != null && r.voidstrikeNumber == d.activeVoidstrikeSortieNumber
-                            && r.side == (sideIdx == 2 ? VOIDSTRIKE_SIDE_ALLIED : (sideIdx == 1 ? VOIDSTRIKE_SIDE_ENEMY : VOIDSTRIKE_SIDE_PLAYER))) {
-                        taken = true; break;
+                if (liveThisTick != null) {
+                    for (VoidstrikeRecord r : liveThisTick) {
+                        if (r != null && r.voidstrikeNumber == cand) { taken = true; break; }
                     }
                 }
-                if (!taken) return d.activeVoidstrikeSortieNumber;
+                if (!taken && existingForSide != null) {
+                    for (VoidstrikeRecord r : existingForSide) {
+                        if (r != null && r.voidstrikeNumber == cand) { taken = true; break; }
+                    }
+                }
+                if (!taken) {
+                    for (VoidstrikeRecord r : activeVoidstrikes) {
+                        if (r != null && r.voidstrikeNumber == cand && r.side == targetSide) {
+                            taken = true;
+                            break;
+                        }
+                    }
+                }
+                if (!taken) {
+                    for (VoidstrikeRecord r : recentVoidstrikeHistory) {
+                        if (r != null && r.voidstrikeNumber == cand && r.side == targetSide) {
+                            taken = true;
+                            break;
+                        }
+                    }
+                }
+                if (!taken) return cand;
             }
         }
         return nextVoidstrikeNumberBySide[sideIdx]++;
@@ -3863,8 +3905,7 @@ public class VoidstrikeCoordinator {
         for (BattleGroupState g : new BattleGroupState[] { lastVoidstrikePlayerGroup, lastVoidstrikeAlliedGroup, lastVoidstrikeEnemyGroup }) {
             if (g == null || g.divisions == null) continue;
             for (DivisionState d : g.divisions) {
-                if (d != null && (d.activeVoidstrikeSortieNumber == rec.voidstrikeNumber
-                        || (d.id != null && rec.participatingDivisionIds.contains(d.id)))) {
+                if (d != null && d.activeVoidstrikeSortieNumber == rec.voidstrikeNumber) {
                     d.activeVoidstrikeSortieNumber = 0;
                 }
             }

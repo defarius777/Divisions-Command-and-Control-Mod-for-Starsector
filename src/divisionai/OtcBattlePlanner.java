@@ -255,15 +255,24 @@ public class OtcBattlePlanner {
                 plan.lastTargetVisibleTime = now;
             }
             boolean hasCarrierParticipant = false;
+            boolean hasSurfaceParticipant = false;
             float maxCarrierPackageWindow = 36f;
             boolean anyCarrierVoidstrikeAirborne = false;
             for (Iterator<DivisionState> it = plan.participants.iterator(); it.hasNext(); ) {
                 DivisionState p = it.next();
+                boolean isCarrierPart = (p.archetype != null && p.archetype.isCarrierArchetype()) || p.hasCarrierCapability;
+                if (plan.committed && isCarrierPart && p.voidstrikeEgressActive) {
+                    plan.carrierSortieCommitted = true;
+                }
                 if (!p.isAbleCombatEffective()
                         || p.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
-                        || (plan.committed && p.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE)) {
+                        || (plan.committed && p.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE)
+                        || (plan.committed && isCarrierPart && p.voidstrikeEgressActive)) {
+                    if (p.otcOrder.type == OtcOrderType.MARSHAL || p.otcOrder.type == OtcOrderType.EXECUTE_STRIKE) {
+                        p.otcOrder.clear();
+                    }
                     it.remove();
-                } else if ((p.archetype != null && p.archetype.isCarrierArchetype()) || p.hasCarrierCapability) {
+                } else if (isCarrierPart) {
                     hasCarrierParticipant = true;
                     float pkgWin = p.lastVoidstrikeApproachTimeoutSec + p.lastVoidstrikePassTimeoutSec;
                     if (pkgWin > maxCarrierPackageWindow) {
@@ -272,14 +281,26 @@ public class OtcBattlePlanner {
                     if (!p.voidstrikeEgressActive
                             && (p.voidstrikeStage == 2 || p.activeVoidstrikeSortieNumber > 0)) {
                         anyCarrierVoidstrikeAirborne = true;
+                        if (plan.committed) {
+                            plan.carrierSortieCommitted = true;
+                        }
                     }
+                } else {
+                    hasSurfaceParticipant = true;
                 }
             }
             float visGrace = hasCarrierParticipant ? 20.0f : 6.5f;
             boolean targetValid = plan.target != null && plan.target.isAbleCombatEffective()
                     && (currentlyVis || (now - plan.lastTargetVisibleTime) <= visGrace || (plan.committed && anyCarrierVoidstrikeAirborne));
-            float effStrikeWindow = hasCarrierParticipant ? maxCarrierPackageWindow : STRIKE_WINDOW;
-            if (!targetValid || plan.participants.isEmpty()) {
+            float effStrikeWindow = hasCarrierParticipant
+                    ? (plan.carrierSortieCommitted ? maxCarrierPackageWindow : Math.max(STRIKE_WINDOW, 22f))
+                    : STRIKE_WINDOW;
+            boolean carrierPassFinished = plan.committed
+                    && hasCarrierParticipant
+                    && plan.carrierSortieCommitted
+                    && !anyCarrierVoidstrikeAirborne
+                    && (!hasSurfaceParticipant || (now - plan.commitTime) > STRIKE_WINDOW);
+            if (!targetValid || plan.participants.isEmpty() || carrierPassFinished) {
                 if (!plan.committed && plan.target != null) {
                     logOrder(engine, myGroup, "strike_abort", String.format(
                             "Strike on \"%s\" cancelled (%s).",
@@ -294,6 +315,9 @@ public class OtcBattlePlanner {
             } else if (!plan.committed && (now >= plan.strikeTime || allMarshalled(engine, myGroup, plan))) {
                 plan.committed = true;
                 plan.commitTime = now;
+                if (anyCarrierVoidstrikeAirborne) {
+                    plan.carrierSortieCommitted = true;
+                }
                 plan.focusShip = pickStrikeFocusShip(engine, myGroup.side, plan.target);
                 logOrder(engine, myGroup, "strike_commit", String.format(
                         "Execute: %d division(s) strike \"%s\" together%s.",

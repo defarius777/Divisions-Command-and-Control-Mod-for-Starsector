@@ -3054,10 +3054,6 @@ public class OtcAI {
             float overkillPrimaryPenalty = (ableVisibleEnemyCount >= 2 && nonMainCommittedFp >= eDiv.overkillCapFp)
                     ? -1600f
                     : 0f;
-            float unassignedStragglerPenalty = (!isPursuitInterception && anyOrganizedCombatEnemy && isUnassignedContact
-                    && eDiv.members.size() <= 1 && rawVisFp <= 14f)
-                    ? -560f
-                    : 0f;
 
             // Item D (Independent Ship Disposition Alignment):
             // When our fleet has a substantial independent ship component (organizationRatio < 0.75),
@@ -3089,6 +3085,16 @@ public class OtcAI {
                 float dd = DivisionUiWidgets.distance(myDiv.centroid, visCentroid);
                 if (dd < minDivDist) minDivDist = dd;
             }
+            // Deprioritize unorganized "Independent Contact" spatial clusters for Main Effort while cohesive enemy
+            // combat divisions remain active, unless the cluster holds capital-grade mass or is right in our heavy line's face!
+            float unassignedStragglerPenalty = 0f;
+            if (!isPursuitInterception && anyOrganizedCombatEnemy && isUnassignedContact) {
+                if (eDiv.members.size() <= 1 && rawVisFp <= 14f) {
+                    unassignedStragglerPenalty = -580f;
+                } else if (rawVisFp < 32f && minDivDist > 1050f) {
+                    unassignedStragglerPenalty = -340f;
+                }
+            }
             float frontlineContactBonus = (minDivDist <= 1450f ? (1450f - minDivDist) * 0.32f : 0f)
                     + (eDiv.inRangeFirepowerScore > 25f ? 180f * threatWeight : 0f);
             // While able mobile enemy combat divisions are actively screening in front of an orbital station (> 1550u away),
@@ -3098,6 +3104,14 @@ public class OtcAI {
                     : 0f;
             // Item F Defensive Counter: if an enemy division is suspected of feigning retreat, discount its lure priority
             float feignPenalty = (eDiv.enemyFeignedRetreatSuspicion >= 0.60f) ? -320f : 0f;
+            // Incumbent primary-threat hysteresis: prevent Main Effort from ping-ponging across nearby contacts every 1.5s
+            // on minor centroid/distance shifts while the current primary target remains able, un-overkilled, and non-feigning.
+            boolean isCurrentPrimary = myGroup.primaryThreatEnemyDivision != null
+                    && (eDiv == myGroup.primaryThreatEnemyDivision
+                    || (eDiv.id != null && eDiv.id.equals(myGroup.primaryThreatEnemyDivision.id)));
+            float incumbentBonus = (isCurrentPrimary && overkillPrimaryPenalty == 0f && unablePenalty == 0f && feignPenalty == 0f)
+                    ? (isUnassignedContact ? 135f : 240f)
+                    : 0f;
 
             float score;
             if (myGroup.useConvergence) {
@@ -3117,7 +3131,7 @@ public class OtcAI {
                 score = visFp * 9.5f + avgConv * 0.55f + collapseBonus + auxPenalty + unablePenalty
                         + edgePinchBonus + cogBonus + overkillPrimaryPenalty + unassignedStragglerPenalty + pursuitContextBonus
                         + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
-                        + feignPenalty - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
+                        + feignPenalty + incumbentBonus - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
             } else {
                 // Human OTC decision-making: weights Firepower value, Space Strongpoint/Weak Point seams, Time pinning, and Map-Edge pinching.
                 // Multi-division target synthesis scales smoothly with the square of organizationRatio (the fraction of the fleet in divisions).
@@ -3140,7 +3154,7 @@ public class OtcAI {
                 score = visFp * 9.5f + avgConv * 0.65f + isolationBonus + spaceSeamBonus + pinnedBonus + collapseBonus + edgePinchBonus
                         + cogBonus + overkillPrimaryPenalty + unassignedStragglerPenalty + pursuitContextBonus
                         + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
-                        + feignPenalty + auxPenalty + unablePenalty
+                        + feignPenalty + incumbentBonus + auxPenalty + unablePenalty
                         - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
             }
             if (score > bestScore) {

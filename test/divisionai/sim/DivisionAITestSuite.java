@@ -82,6 +82,7 @@ public class DivisionAITestSuite {
         testFeignedRetreatForceDisparityFriendlyProtectionAndMinimalSignals();
         testPursuitDeploymentAndRearguardC2();
         testAdvancedStrikeCraftGunneryAndHierarchicalSectors();
+        testPirateHordeC2AndVoidstrikeLifecycle();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -2867,6 +2868,172 @@ public class DivisionAITestSuite {
                         unInterleaved, div1MinX, div1MaxX, div2MinX, div2MaxX,
                         divCruiser.centroid.y, divDestroyer.centroid.y,
                         campPGroup.currentPhase, divCruiser.stationPoint.y, divDestroyer.stationPoint.y));
+    }
+
+    /**
+     * Regression test for Pirate Horde live battle telemetry (Issues A, B, and C):
+     *  A. Multi-ship unorganized "Independent Contact" spatial clusters do not hijack Main Effort from organized
+     *     enemy divisions outside point-blank range, and incumbent primaryThreatEnemyDivision holds hysteresis.
+     *  B. Committed carrier Kill-Box StrikePlans release immediately when the Voidstrike enters egress/culminates
+     *     rather than keeping carriers locked on a stale target for a second sortie.
+     *  C. Wiped-out enemy Voidstrikes that reached target culminate cleanly after the 1.25s hysteresis window and
+     *     release their sortie number so the next deckload increments to Voidstrike 2 instead of re-logging Voidstrike 1.
+     */
+    private static void testPirateHordeC2AndVoidstrikeLifecycle() {
+        System.out.println("\n--- Scenario 10b: Pirate Horde C2 Stability, Carrier StrikePlan Release & Wiped-Out Voidstrike Numbering ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "aggressive");
+
+        // --- Issue A: Organized division beats closer 3-ship Independent Contact cluster + incumbent hysteresis ---
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+        DivisionState battleDiv = new DivisionState("p_bat1", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+        pGroup.divisions.add(battleDiv);
+        pGroup.mainEffortDivision = battleDiv;
+
+        DivisionState warband1 = new DivisionState("e_wb1", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Warband I", eCmdr);
+        DivisionState pack1 = new DivisionState("e_pk1", 1, 2, DivisionArchetype.CRUISER_DIVISION, "1st Pack", eCmdr);
+        eGroup.divisions.add(warband1);
+        eGroup.divisions.add(pack1);
+
+        SimArena arena = new SimArena("Scenario 10b: Pirate Horde C2", "Main Effort Stability, Kill-Box Release & Enemy Voidstrike Numbering", pGroup, eGroup);
+        SimShipState pCap = arena.addShip(battleDiv, "ph_pc1", "HSS Conquest", "conquest", HullSize.CAPITAL_SHIP, 0f, 0f, 55f, 1200f, 2, 0);
+        battleDiv.flagship = pCap.proxy;
+        pGroup.shipIdToDivision.put(pCap.id, battleDiv);
+
+        // Warband I at y=1850u (26 FP total), 1st Pack at y=1920u (26 FP total)
+        SimShipState wbCru = arena.addShip(warband1, "ph_wb1", "Vetala", "eradicator_pirates", HullSize.CRUISER, -250f, 1850f, 70f, 1000f, 2, 0);
+        SimShipState wbDes = arena.addShip(warband1, "ph_wb2", "Cormac", "enforcer", HullSize.DESTROYER, -150f, 1850f, 75f, 900f, 1, 0);
+        warband1.flagship = wbCru.proxy;
+        eGroup.shipIdToDivision.put(wbCru.id, warband1);
+        eGroup.shipIdToDivision.put(wbDes.id, warband1);
+
+        SimShipState pkCru = arena.addShip(pack1, "ph_pk1", "Thatcher", "eradicator_pirates", HullSize.CRUISER, 250f, 1920f, 70f, 1000f, 2, 0);
+        SimShipState pkDes = arena.addShip(pack1, "ph_pk2", "Tyrfing", "enforcer", HullSize.DESTROYER, 350f, 1920f, 75f, 900f, 1, 0);
+        pack1.flagship = pkCru.proxy;
+        eGroup.shipIdToDivision.put(pkCru.id, pack1);
+        eGroup.shipIdToDivision.put(pkDes.id, pack1);
+
+        // 3 ungrouped Pirate frigates/destroyers closer at y=1350u (~22 FP) -> forms "Independent Contact 1" in arena.runSimulation
+        SimShipState ind1 = new SimShipState("ph_ind1", "Stray Shrike", "shrike", 1, HullSize.DESTROYER, 0f, 1350f, 95f, 800f, 1, 0);
+        SimShipState ind2 = new SimShipState("ph_ind2", "Stray Hound 1", "hound", 1, HullSize.FRIGATE, 80f, 1360f, 120f, 600f, 1, 0);
+        SimShipState ind3 = new SimShipState("ph_ind3", "Stray Hound 2", "hound", 1, HullSize.FRIGATE, -80f, 1360f, 120f, 600f, 1, 0);
+        arena.ships.add(ind1);
+        arena.ships.add(ind2);
+        arena.ships.add(ind3);
+
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(battleDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(warband1);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(pack1);
+        arena.runSimulation(1.0f);
+        boolean organizedBeatsIndepClusterOk = (pGroup.primaryThreatEnemyDivision == warband1);
+
+        // Move 1st Pack slightly closer than Warband I (y=1760 vs y=1850) -> incumbent hysteresis keeps Warband I!
+        pkCru.location.set(250f, 1760f);
+        pkDes.location.set(350f, 1760f);
+        arena.runSimulation(1.6f);
+        boolean incumbentHysteresisHeldOk = (pGroup.primaryThreatEnemyDivision == warband1);
+
+        // --- Issue B: Committed carrier StrikePlan releases immediately on Voidstrike egress ---
+        DivisionState cDiv1 = new DivisionState("p_car1", 0, 2, DivisionArchetype.LIGHT_CARRIER_DIVISION, "Carrier Div 1", pCmdr);
+        cDiv1.hasCarrierCapability = true;
+        cDiv1.openingMission = DivisionMissionType.ALPHA_STRIKE;
+        cDiv1.mainMission = DivisionMissionType.ALPHA_STRIKE;
+        cDiv1.lastVoidstrikeApproachTimeoutSec = 45f;
+        cDiv1.lastVoidstrikePassTimeoutSec = 48f;
+        cDiv1.voidstrikeStage = 2;
+        cDiv1.activeVoidstrikeSortieNumber = 2;
+        SimShipState cShip = arena.addShip(cDiv1, "ph_car1", "HSS Heron", "heron", HullSize.CRUISER, 0f, -600f, 75f, 1000f, 0, 3);
+        cDiv1.flagship = cShip.proxy;
+        pGroup.divisions.add(cDiv1);
+        pGroup.shipIdToDivision.put(cShip.id, cDiv1);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(cDiv1);
+        cDiv1.hasCarrierCapability = true;
+
+        divisionai.DivisionModel.StrikePlan sp = new divisionai.DivisionModel.StrikePlan();
+        sp.target = warband1;
+        sp.setpieceType = divisionai.PermanentDivisionManager.MultiDivisionSetpiece.CONVERGENCE_KILL_BOX;
+        sp.participants.add(cDiv1);
+        sp.createdTime = 50f;
+        sp.lastTargetVisibleTime = 60f;
+        sp.strikeTime = 58f;
+        sp.committed = true;
+        sp.carrierSortieCommitted = true;
+        sp.commitTime = 58f;
+        pGroup.strikePlan = sp;
+
+        // While airborne (t=62s, only 4s into 93s package window), StrikePlan stays active
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, pGroup);
+        divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 62f);
+        boolean activeDuringPassOk = (pGroup.strikePlan == sp)
+                && (cDiv1.otcOrder.type == divisionai.DivisionModel.OtcOrderType.EXECUTE_STRIKE);
+
+        // Once Voidstrike culminates and enters egress at t=70s (still well inside 93s window), StrikePlan terminates!
+        cDiv1.voidstrikeEgressActive = true;
+        cDiv1.activeVoidstrikeSortieNumber = 0;
+        divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 70f);
+        boolean releasedOnEgressOk = (pGroup.strikePlan == null)
+                && (cDiv1.otcOrder.type != divisionai.DivisionModel.OtcOrderType.EXECUTE_STRIKE);
+
+        // --- Issue C: Wiped-out enemy Voidstrike that reachedTarget releases number & increments next deckload ---
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        DivisionState enemyCarrierDiv = new DivisionState("e_cpack", 1, 3, DivisionArchetype.LIGHT_CARRIER_DIVISION, "1st Pack", eCmdr);
+        enemyCarrierDiv.currentIntent = DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
+        enemyCarrierDiv.targetEnemyDivision = battleDiv;
+        BattleGroupState cleanEnemyGroup = new BattleGroupState(1, eCmdr);
+        cleanEnemyGroup.divisions.add(enemyCarrierDiv);
+        SimShipState eCarrier = arena.addShip(enemyCarrierDiv, "ph_ec1", "Colossus Mk.III", "colossus3", HullSize.CRUISER, 0f, 1600f, 50f, 900f, 0, 2);
+        enemyCarrierDiv.flagship = eCarrier.proxy;
+        cleanEnemyGroup.shipIdToDivision.put(eCarrier.id, enemyCarrierDiv);
+
+        boolean[] eRet = new boolean[]{false};
+        List<SimShipState> eBombers = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            SimShipState eb = arena.addShip(enemyCarrierDiv, "ph_eb_" + i, "Piranha " + i, "piranha", HullSize.FIGHTER, -15f + i * 30f, 200f, 150f, 450f, 2, 0);
+            eBombers.add(eb);
+        }
+        createRehearsalWing(eCarrier, eBombers, true, eRet);
+
+        // Wave 1 arrives at Battle Div 1 (y=200 -> dist=200u) at t=10s -> Enemy Voidstrike 1, reachedTarget = true
+        divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, cleanEnemyGroup, 10f);
+        List<divisionai.VoidstrikeCoordinator.VoidstrikeRecord> eVsWave1 = divisionai.VoidstrikeCoordinator.getActiveVoidstrikes();
+        boolean wave1IsOneAndReachedOk = (eVsWave1.size() == 1)
+                && eVsWave1.get(0).voidstrikeNumber == 1
+                && eVsWave1.get(0).reachedTarget;
+
+        // Wave 1 is completely shot down by AA (alive=false, NOT returning!) at t=12s, expires > 1.25s later at t=14s
+        for (SimShipState eb : eBombers) eb.alive = false;
+        divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, cleanEnemyGroup, 12f);
+        divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, cleanEnemyGroup, 14f);
+        boolean sortieNumReleasedAfterWipeoutOk = (enemyCarrierDiv.activeVoidstrikeSortieNumber == 0);
+
+        // Replacement deckload launches against Cruiser division at t=25s -> must claim Enemy Voidstrike 2 (never reuse 1!)
+        DivisionState pCruDiv = new DivisionState("p_cru1", 0, 3, DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div 1", pCmdr);
+        SimShipState pCru = arena.addShip(pCruDiv, "ph_pcru1", "HSS Champion", "champion", HullSize.CRUISER, -900f, -200f, 65f, 1000f, 2, 0);
+        pCruDiv.flagship = pCru.proxy;
+        pGroup.divisions.add(pCruDiv);
+        pGroup.shipIdToDivision.put(pCru.id, pCruDiv);
+        enemyCarrierDiv.targetEnemyDivision = pCruDiv;
+        for (int i = 0; i < 2; i++) {
+            eBombers.get(i).alive = true;
+            eBombers.get(i).location.set(-900f + i * 25f, 300f);
+            eBombers.get(i).shipTarget = pCru.proxy;
+        }
+        divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, cleanEnemyGroup, 25f);
+        List<divisionai.VoidstrikeCoordinator.VoidstrikeRecord> eVsWave2 = divisionai.VoidstrikeCoordinator.getActiveVoidstrikes();
+        boolean wave2IncrementedToTwoOk = (eVsWave2.size() == 1) && eVsWave2.get(0).voidstrikeNumber == 2;
+
+        check(organizedBeatsIndepClusterOk
+                        && incumbentHysteresisHeldOk
+                        && activeDuringPassOk
+                        && releasedOnEgressOk
+                        && wave1IsOneAndReachedOk
+                        && sortieNumReleasedAfterWipeoutOk
+                        && wave2IncrementedToTwoOk,
+                "Pirate Horde C2 Fixes: Organized division beats Independent Contact cluster, incumbent hysteresis holds, Kill-Box StrikePlan releases on egress, and wiped-out Voidstrike increments sortie number",
+                String.format(Locale.ROOT, "orgBeatsIndep=%b, hysteresis=%b, activePass=%b, releasedOnEgress=%b, wave1Reached=%b, wipedReleased=%b, wave2IsTwo=%b",
+                        organizedBeatsIndepClusterOk, incumbentHysteresisHeldOk, activeDuringPassOk,
+                        releasedOnEgressOk, wave1IsOneAndReachedOk, sortieNumReleasedAfterWipeoutOk, wave2IncrementedToTwoOk));
     }
 
     private static float dist(Vector2f a, Vector2f b) {
