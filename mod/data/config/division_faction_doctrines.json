@@ -43,7 +43,7 @@
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "LOW",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "FLEET_CARRIER": {
@@ -60,7 +60,7 @@
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 3
+          "voidstrikeSquadronWidth": 4
         },
         "FRIGATE": {
           "stationSpacing": 375,
@@ -82,7 +82,7 @@
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "MISSILE_BATTLESHIP": {
@@ -181,7 +181,7 @@
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "FLEET_CARRIER": {
@@ -198,7 +198,7 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3
+          "voidstrikeSquadronWidth": 4
         },
         "FRIGATE": {
           "stationSpacing": 375,
@@ -220,7 +220,7 @@
           "voidstrikeAoaCorrection": "STRONG",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "MISSILE_BATTLESHIP": {
@@ -304,7 +304,7 @@
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "FLEET_CARRIER": {
@@ -321,7 +321,7 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3
+          "voidstrikeSquadronWidth": 4
         },
         "FRIGATE": {
           "stationSpacing": 375,
@@ -343,7 +343,7 @@
           "voidstrikeAoaCorrection": "STRONG",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "MISSILE_BATTLESHIP": {
@@ -428,7 +428,7 @@
           "voidstrikeSplitMode": "SPLIT_TARGETS",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "FLEET_CARRIER": {
@@ -462,7 +462,7 @@
           "fighterVoidstrikeFormation": "WEDGE",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "voidstrikeAttackGeometry": "PINCER_ENVELOPMENT",
@@ -561,7 +561,7 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "FLEET_CARRIER": {
@@ -593,7 +593,7 @@
           "stationKeepingMult": 0.94,
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
@@ -717,7 +717,7 @@
           "standoffRange": 1450,
           "stationKeepingMult": 0.85,
           "bomberVoidstrikeFormation": "LINE_ABREAST",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "LIGHT_CARRIER": {
@@ -733,7 +733,7 @@
           "stationKeepingMult": 0.86,
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "LINE_AHEAD",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "ESCORT_CARRIER": {
@@ -748,7 +748,7 @@
           "standoffRange": 1250,
           "stationKeepingMult": 0.88,
           "mainMission": "DECKLOAD_STRIKE",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       },
@@ -833,7 +833,7 @@
           "standoffRange": 1450,
           "stationKeepingMult": 0.85,
           "bomberVoidstrikeFormation": "LINE_ABREAST",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "LIGHT_CARRIER": {
@@ -849,7 +849,7 @@
           "stationKeepingMult": 0.86,
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "LINE_AHEAD",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "ESCORT_CARRIER": {
@@ -864,7 +864,7 @@
           "standoffRange": 1250,
           "stationKeepingMult": 0.88,
           "mainMission": "DECKLOAD_STRIKE",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -926,7 +926,9 @@
           "voidstrikeAttackGeometry": "DIRECT_ASSAULT",
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "LOW"
+          "voidstrikeAoaCorrection": "LOW",
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeSquadronWidth": 4
         },
         "FLEET_CARRIER": {
           "stationSpacing": 625,
@@ -968,12 +970,13 @@
           "voidstrikeObservance": "FREE",
           "fighterFormation": "LINE_ABREAST",
           "fighterVoidstrikeFormation": "LINE_ABREAST",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeCoordination": "COORDINATED",
           "voidstrikeAttackGeometry": "DIRECT_ASSAULT",
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "STRONG"
+          "voidstrikeAoaCorrection": "STRONG",
+          "voidstrikeSquadronDepth": 2
         },
         "STRIKE_CRUISER": {
           "stationSpacing": 490,
@@ -1020,13 +1023,14 @@
           "fighterVoidstrikeFormation": "WEDGE",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "voidstrikeAttackGeometry": "DIRECT_ASSAULT",
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "PRECISION",
-          "voidstrikeAoaCorrection": "STRONG"
+          "voidstrikeAoaCorrection": "STRONG",
+          "voidstrikeSquadronDepth": 2
         },
         "FLEET_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -1041,7 +1045,7 @@
           "stationKeepingMult": 0.88,
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -1080,7 +1084,7 @@
           "fighterVoidstrikeFormation": "WEDGE",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -1122,13 +1126,14 @@
           "fighterVoidstrikeFormation": "WEDGE",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
-          "voidstrikeAoaCorrection": "STRONG"
+          "voidstrikeAoaCorrection": "STRONG",
+          "voidstrikeSquadronDepth": 2
         }
       }
     },
@@ -1172,7 +1177,9 @@
           "voidstrikeAttackGeometry": "DIRECT_ASSAULT",
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "LOW"
+          "voidstrikeAoaCorrection": "LOW",
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeSquadronWidth": 4
         },
         "CRUISER": {
           "stationSpacing": 450,
@@ -1211,7 +1218,9 @@
           "voidstrikeAttackGeometry": "DIRECT_ASSAULT",
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "LOW"
+          "voidstrikeAoaCorrection": "LOW",
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeSquadronWidth": 4
         },
         "FLEET_CARRIER": {
           "formation": "NONE",
@@ -1221,7 +1230,9 @@
           "voidstrikeAttackGeometry": "DIRECT_ASSAULT",
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "LOW"
+          "voidstrikeAoaCorrection": "LOW",
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeSquadronWidth": 4
         },
         "FORCE": {
           "formation": "NONE",
@@ -1252,7 +1263,9 @@
           "voidstrikeAttackGeometry": "DIRECT_ASSAULT",
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "LOW"
+          "voidstrikeAoaCorrection": "LOW",
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeSquadronWidth": 4
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 550,
@@ -1404,7 +1417,9 @@
           "voidstrikeAttackGeometry": "DIRECT_ASSAULT",
           "voidstrikeSplitMode": "SPLIT_TARGETS",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "LOW"
+          "voidstrikeAoaCorrection": "LOW",
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeSquadronWidth": 4
         },
         "MISSILE_CRUISER": {
           "standoffRange": 1050,
@@ -1432,7 +1447,9 @@
           "stationKeepingMult": 1.15,
           "formation": "NONE",
           "fighterFormation": "SEMICIRCLE",
-          "fighterVoidstrikeFormation": "SEMICIRCLE"
+          "fighterVoidstrikeFormation": "SEMICIRCLE",
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeSquadronWidth": 4
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "FREE",
@@ -1445,7 +1462,9 @@
           "divisionInterval": 1050,
           "standoffRange": 1200,
           "stationKeepingMult": 1.15,
-          "formation": "NONE"
+          "formation": "NONE",
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeSquadronWidth": 4
         }
       }
     },
@@ -1502,7 +1521,7 @@
           "divisionInterval": 1250,
           "standoffRange": 1450,
           "stationKeepingMult": 0.92,
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "LIGHT_CARRIER": {
@@ -1517,7 +1536,7 @@
           "standoffRange": 1380,
           "stationKeepingMult": 0.94,
           "mainMission": "ALPHA_STRIKE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "ESCORT_CARRIER": {
@@ -1531,7 +1550,7 @@
           "divisionInterval": 1000,
           "standoffRange": 1250,
           "stationKeepingMult": 0.95,
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -1552,7 +1571,7 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "CRUISER": {
@@ -1569,7 +1588,7 @@
           "voidstrikeSplitMode": "SPLIT_TARGETS",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "FLEET_CARRIER": {
@@ -1597,7 +1616,7 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "MISSILE_BATTLESHIP": {
@@ -1665,7 +1684,7 @@
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "fighterFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
@@ -1685,7 +1704,7 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronDepth": 3
+          "voidstrikeSquadronDepth": 2
         },
         "FRIGATE": {
           "standoffRange": 720,
@@ -1784,7 +1803,7 @@
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "fighterFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
@@ -1804,7 +1823,7 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronDepth": 3
+          "voidstrikeSquadronDepth": 2
         },
         "FRIGATE": {
           "standoffRange": 720,
@@ -1904,7 +1923,7 @@
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "fighterFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
@@ -1924,7 +1943,7 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronDepth": 3
+          "voidstrikeSquadronDepth": 2
         },
         "FRIGATE": {
           "standoffRange": 720,
@@ -2078,7 +2097,7 @@
           "stationKeepingMult": 0.88,
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "ESCORT_CARRIER": {
@@ -2092,7 +2111,7 @@
           "divisionInterval": 980,
           "standoffRange": 1250,
           "stationKeepingMult": 0.9,
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2190,7 +2209,7 @@
           "stationKeepingMult": 0.88,
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "ESCORT_CARRIER": {
@@ -2204,7 +2223,7 @@
           "divisionInterval": 980,
           "standoffRange": 1250,
           "stationKeepingMult": 0.9,
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2264,7 +2283,7 @@
           "fighterVoidstrikeFormation": "WEDGE",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
@@ -2304,7 +2323,7 @@
           "standoffRange": 1280,
           "stationKeepingMult": 0.94,
           "mainMission": "ALPHA_STRIKE",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2359,7 +2378,7 @@
           "fighterVoidstrikeFormation": "WEDGE",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
@@ -2386,7 +2405,7 @@
           "standoffRange": 1380,
           "stationKeepingMult": 0.94,
           "mainMission": "ALPHA_STRIKE",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2459,7 +2478,7 @@
           "stationKeepingMult": 1.0,
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "LIGHT_CARRIER": {
@@ -2477,7 +2496,7 @@
           "fighterVoidstrikeFormation": "WEDGE",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2536,7 +2555,7 @@
           "divisionInterval": 1180,
           "standoffRange": 1350,
           "stationKeepingMult": 0.9,
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "LIGHT_CARRIER": {
@@ -2551,7 +2570,7 @@
           "standoffRange": 1250,
           "stationKeepingMult": 0.92,
           "mainMission": "DECKLOAD_STRIKE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "ESCORT_CARRIER": {
@@ -2565,7 +2584,7 @@
           "divisionInterval": 960,
           "standoffRange": 1150,
           "stationKeepingMult": 0.95,
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2620,7 +2639,7 @@
           "divisionInterval": 1180,
           "standoffRange": 1350,
           "stationKeepingMult": 0.9,
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "LIGHT_CARRIER": {
@@ -2635,7 +2654,7 @@
           "standoffRange": 1250,
           "stationKeepingMult": 0.92,
           "mainMission": "DECKLOAD_STRIKE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "ESCORT_CARRIER": {
@@ -2649,7 +2668,7 @@
           "divisionInterval": 960,
           "standoffRange": 1150,
           "stationKeepingMult": 0.95,
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2696,7 +2715,7 @@
           "stationKeepingMult": 1.1,
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2839,7 +2858,7 @@
           "standoffRange": 900,
           "stationKeepingMult": 1.2,
           "mainMission": "DECKLOAD_STRIKE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2902,7 +2921,7 @@
           "stationKeepingMult": 1.1,
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -2980,7 +2999,7 @@
           "stationKeepingMult": 0.94,
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "ESCORT_CARRIER": {
@@ -2995,7 +3014,7 @@
           "standoffRange": 1350,
           "stationKeepingMult": 0.95,
           "mainMission": "ALPHA_STRIKE",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -3046,7 +3065,7 @@
           "standoffRange": 1400,
           "stationKeepingMult": 0.84,
           "bomberVoidstrikeFormation": "LINE_ABREAST",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "LIGHT_CARRIER": {
@@ -3061,7 +3080,7 @@
           "standoffRange": 1300,
           "stationKeepingMult": 0.86,
           "mainMission": "ALPHA_STRIKE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -3126,14 +3145,15 @@
           "fighterVoidstrikeFormation": "WEDGE",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeObservance": "HIGH",
           "voidstrikeCoordination": "COORDINATED",
           "voidstrikeAttackGeometry": "PINCER_ENVELOPMENT",
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "standoffRange": 1400
+          "standoffRange": 1400,
+          "voidstrikeSquadronDepth": 2
         },
         "PHASE": {
           "stationSpacing": 450,
@@ -3182,7 +3202,7 @@
           "standoffRange": 1300,
           "stationKeepingMult": 0.9,
           "mainMission": "ALPHA_STRIKE",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -3254,7 +3274,7 @@
           "voidstrikeSplitMode": "SPLIT_TARGETS",
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "FLEET_CARRIER": {
@@ -3366,7 +3386,7 @@
           "stationKeepingMult": 0.92,
           "mainMission": "ALPHA_STRIKE",
           "formation": "FORWARD_SEMICIRCLE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }
@@ -3522,7 +3542,7 @@
           "fighterVoidstrikeFormation": "WEDGE",
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 3,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         },
         "ESCORT_CARRIER": {
@@ -3539,7 +3559,7 @@
           "voidstrikeAoaCorrection": "STRONG",
           "fighterFormation": "WEDGE",
           "fighterVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 2,
+          "voidstrikeSquadronWidth": 4,
           "voidstrikeSquadronDepth": 2
         }
       }

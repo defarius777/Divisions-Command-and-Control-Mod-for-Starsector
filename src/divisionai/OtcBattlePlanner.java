@@ -388,6 +388,12 @@ public class OtcBattlePlanner {
             for (DivisionState d : active) {
                 if (d == myGroup.mainEffortDivision || d == myGroup.reserveDivision || d == myGroup.reinforcingDivision) continue;
                 if (d.archetype == DivisionArchetype.SERVICE_GROUP || !d.detachedStragglerIds.isEmpty()) continue;
+                DivisionMissionType dMis = DivisionCommanderAI.resolveActiveMission(d, now);
+                if (dMis == DivisionMissionType.COMBAT_SPACE_PATROL
+                        || dMis == DivisionMissionType.SPACE_SUPERIORITY
+                        || dMis == DivisionMissionType.SCREEN
+                        || dMis == DivisionMissionType.RESERVE) continue;
+                if (d.archetype != null && d.archetype.isCarrierArchetype() && dMis != DivisionMissionType.ALPHA_STRIKE) continue;
                 if (d.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                         || d.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) continue;
                 if (d.avgFluxLevel >= 0.48f || d.effectiveHpRatio < 0.55f) continue;

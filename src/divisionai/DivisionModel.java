@@ -642,7 +642,7 @@ public class DivisionModel {
         public PermanentDivisionManager.SquadronFormation bomberVoidstrikeFormation =
                 PermanentDivisionManager.SquadronFormation.LINE_ABREAST;
         public int voidstrikeSquadronDepth = 2;
-        public int voidstrikeSquadronWidth = 2;
+        public int voidstrikeSquadronWidth = 4;
 
         // Coordinated Voidstrike staging (0 = Orbit Carrier, 1 = Form Up at Marshal Point, 2 = Attack Run)
         public int voidstrikeStage = 2;

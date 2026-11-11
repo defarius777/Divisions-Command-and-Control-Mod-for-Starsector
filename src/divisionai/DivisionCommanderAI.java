@@ -3879,10 +3879,18 @@ public class DivisionCommanderAI {
                 flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
             }
             if (ship.getNumFighterBays() > 0) {
-                if (div.currentIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL
-                        && distToEnemy > 2400f
-                        && (div.targetFriendlyDivision == null || div.targetFriendlyDivision.localEnemyStrength < 8f)) {
-                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, FLAG_TTL, focusEnemyShip);
+                if (div.currentIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL) {
+                    ShipAPI protectedAnchor = (div.targetFriendlyDivision != null
+                            && div.targetFriendlyDivision.flagship != null
+                            && div.targetFriendlyDivision.flagship.isAlive())
+                            ? div.targetFriendlyDivision.flagship
+                            : ship;
+                    float distToProtected = distance(protectedAnchor.getLocation(), focusEnemyShip.getLocation());
+                    if (distToEnemy <= 1100f || distToProtected <= 1250f) {
+                        directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
+                    } else if (protectedAnchor != ship) {
+                        flags.setFlag(AIFlags.ESCORT_OTHER_SHIP, FLAG_TTL, protectedAnchor);
+                    }
                 } else if (div.voidstrikeCoordination != VoidstrikeCoordinationMode.COORDINATED
                         || div.voidstrikeStage == 2) {
                     directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);

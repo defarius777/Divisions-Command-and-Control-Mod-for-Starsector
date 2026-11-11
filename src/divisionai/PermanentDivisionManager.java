@@ -1633,6 +1633,7 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, VoidstrikeGunneryMode> voidstrikeGunneryModeByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, VoidstrikeAoaCorrection> voidstrikeAoaCorrectionByType = new LinkedHashMap<>();
         private boolean migratedUnifiedVoidstrikeDefaultV1 = true;
+        private boolean migratedCarrierStrikeWidth4V1 = true;
 
         private void ensureUnifiedVoidstrikeDefaultsMigrated() {
             if (!migratedUnifiedVoidstrikeDefaultV1) {
@@ -1640,6 +1641,19 @@ public class PermanentDivisionManager {
                 for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
                     voidstrikeAttackGeometryByType.put(dt, defaultVoidstrikeAttackGeometryFor(dt));
                     voidstrikeSplitModeByType.put(dt, defaultVoidstrikeSplitModeFor(dt));
+                }
+            }
+            if (!migratedCarrierStrikeWidth4V1) {
+                migratedCarrierStrikeWidth4V1 = true;
+                for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
+                    Integer curD = voidstrikeSquadronDepthByType.get(dt);
+                    Integer curW = voidstrikeSquadronWidthByType.get(dt);
+                    if (curD == null || curD == 3) {
+                        voidstrikeSquadronDepthByType.put(dt, defaultVoidstrikeSquadronDepthFor(dt));
+                    }
+                    if (curW == null || curW <= 3) {
+                        voidstrikeSquadronWidthByType.put(dt, defaultVoidstrikeSquadronWidthFor(dt));
+                    }
                 }
             }
         }
@@ -1885,7 +1899,9 @@ public class PermanentDivisionManager {
         }
 
         public static VoidstrikeTargetObservance defaultVoidstrikeObservanceFor(DoctrineDivisionType dt) {
-            if (dt == DoctrineDivisionType.FLEET_CARRIER || dt == DoctrineDivisionType.LIGHT_CARRIER) {
+            if (dt == DoctrineDivisionType.FLEET_CARRIER
+                    || dt == DoctrineDivisionType.LIGHT_CARRIER
+                    || dt == DoctrineDivisionType.CARRIER_GROUP) {
                 return VoidstrikeTargetObservance.HIGH;
             }
             if (dt == DoctrineDivisionType.ESCORT_CARRIER) {
@@ -1895,9 +1911,6 @@ public class PermanentDivisionManager {
         }
 
         public static VoidstrikeCoordinationMode defaultVoidstrikeCoordinationFor(DoctrineDivisionType dt) {
-            if (dt == DoctrineDivisionType.ESCORT_CARRIER) {
-                return VoidstrikeCoordinationMode.UNCOORDINATED;
-            }
             return VoidstrikeCoordinationMode.COORDINATED;
         }
 
@@ -1919,6 +1932,7 @@ public class PermanentDivisionManager {
         public static VoidstrikeAoaCorrection defaultVoidstrikeAoaCorrectionFor(DoctrineDivisionType dt) {
             if (dt == DoctrineDivisionType.FLEET_CARRIER
                     || dt == DoctrineDivisionType.LIGHT_CARRIER
+                    || dt == DoctrineDivisionType.ESCORT_CARRIER
                     || dt == DoctrineDivisionType.CARRIER_GROUP) {
                 return VoidstrikeAoaCorrection.STRONG;
             }
@@ -1970,15 +1984,11 @@ public class PermanentDivisionManager {
         }
 
         public static int defaultVoidstrikeSquadronDepthFor(DoctrineDivisionType dt) {
-            if (dt == DoctrineDivisionType.FLEET_CARRIER) return 3;
-            if (dt == DoctrineDivisionType.LIGHT_CARRIER || dt == DoctrineDivisionType.CARRIER_GROUP) return 2;
             return 2;
         }
 
         public static int defaultVoidstrikeSquadronWidthFor(DoctrineDivisionType dt) {
-            if (dt == DoctrineDivisionType.FLEET_CARRIER) return 3;
-            if (dt == DoctrineDivisionType.LIGHT_CARRIER || dt == DoctrineDivisionType.CARRIER_GROUP) return 2;
-            return 2;
+            return 4;
         }
 
         public VoidstrikeTargetObservance getVoidstrikeObservance(DoctrineDivisionType dt) {
@@ -2142,6 +2152,7 @@ public class PermanentDivisionManager {
         }
 
         public int getVoidstrikeSquadronDepth(DoctrineDivisionType dt) {
+            ensureUnifiedVoidstrikeDefaultsMigrated();
             if (dt == null) return 2;
             Integer v = voidstrikeSquadronDepthByType.get(dt);
             int raw = v != null ? v : defaultVoidstrikeSquadronDepthFor(dt);
@@ -2149,19 +2160,22 @@ public class PermanentDivisionManager {
         }
 
         public void setVoidstrikeSquadronDepth(DoctrineDivisionType dt, int depth) {
+            ensureUnifiedVoidstrikeDefaultsMigrated();
             if (dt == null) return;
             int clamped = Math.max(MIN_VOIDSTRIKE_SQUADRON_DEPTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_DEPTH, depth));
             voidstrikeSquadronDepthByType.put(dt, clamped);
         }
 
         public int getVoidstrikeSquadronWidth(DoctrineDivisionType dt) {
-            if (dt == null) return 2;
+            ensureUnifiedVoidstrikeDefaultsMigrated();
+            if (dt == null) return 4;
             Integer v = voidstrikeSquadronWidthByType.get(dt);
             int raw = v != null ? v : defaultVoidstrikeSquadronWidthFor(dt);
             return Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, raw));
         }
 
         public void setVoidstrikeSquadronWidth(DoctrineDivisionType dt, int width) {
+            ensureUnifiedVoidstrikeDefaultsMigrated();
             if (dt == null) return;
             int clamped = Math.max(MIN_VOIDSTRIKE_SQUADRON_WIDTH, Math.min(MAX_VOIDSTRIKE_SQUADRON_WIDTH, width));
             voidstrikeSquadronWidthByType.put(dt, clamped);

@@ -633,7 +633,9 @@ public class VoidstrikeCoordinator {
                 || (div.currentIntent == DivisionIntentType.CLOSE_UP && focusEnemyShip == null)
                 || (div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT && div.localEnemyStrength < 10f && focusEnemyShip == null)));
 
+        boolean isCapMission = div.currentIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
         boolean coordinatedStagingActive = !holdFightersInFormation
+                && !isCapMission
                 && focusEnemyShip != null
                 && focusEnemyShip.isAlive()
                 && (div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
@@ -655,11 +657,23 @@ public class VoidstrikeCoordinator {
             div.fighterPullbackShipIds.remove(carrier.getId());
         }
 
-        ShipAPI escortAnchor = (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk())
+        ShipAPI escortAnchor = (isCapMission
+                && div.targetFriendlyDivision != null
+                && div.targetFriendlyDivision.flagship != null
+                && div.targetFriendlyDivision.flagship.isAlive()
+                && !div.targetFriendlyDivision.flagship.isHulk())
+                ? div.targetFriendlyDivision.flagship
+                : ((div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk())
                 ? div.flagship
-                : carrier;
+                : carrier);
+
+        ShipAPI capInterceptTarget = isCapMission
+                ? findCapInterceptTarget(escortAnchor, carrier, focusEnemyShip)
+                : null;
+        boolean holdCapPatrolOverFriendly = isCapMission && !holdFightersInFormation && capInterceptTarget == null;
 
         boolean inVoidstrike = !holdFightersInFormation
+                && !isCapMission
                 && focusEnemyShip != null
                 && focusEnemyShip.isAlive()
                 && (div.currentIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
@@ -829,11 +843,15 @@ public class VoidstrikeCoordinator {
 
             // Resolve per-squadron target ship (supports SPLIT_TARGETS within the same Voidstrike entity
             // plus dynamic closer-target switching when an intervening enemy ship screens the assigned target or fires AA)
-            ShipAPI rawWingTargetShip = (inVoidstrike && focusEnemyShip != null && focusEnemyShip.isAlive())
+            ShipAPI rawWingTargetShip = isCapMission
+                    ? capInterceptTarget
+                    : ((inVoidstrike && focusEnemyShip != null && focusEnemyShip.isAlive())
                     ? resolveWingVoidstrikeTargetShip(div, focusEnemyShip, globalSqdnIdx, Math.max(1, totalDivWings))
-                    : focusEnemyShip;
-            ShipAPI wingTargetShip = resolveSurvivableSquadronTargetShip(
-                    carrier, div, wingLeader, wingMembers, rawWingTargetShip, observance, isBomberWing);
+                    : focusEnemyShip);
+            ShipAPI wingTargetShip = isCapMission
+                    ? capInterceptTarget
+                    : resolveSurvivableSquadronTargetShip(
+                            carrier, div, wingLeader, wingMembers, rawWingTargetShip, observance, isBomberWing);
             if (wingTargetShip == null || !wingTargetShip.isAlive() || wingTargetShip.isHulk()) {
                 wingTargetShip = rawWingTargetShip;
             }
@@ -915,7 +933,7 @@ public class VoidstrikeCoordinator {
                         useLegBasis ? legRightX : rightX,
                         useLegBasis ? legRightY : rightY);
 
-                if (holdFightersInFormation) {
+                if (holdFightersInFormation || holdCapPatrolOverFriendly) {
                     if (fighter.getId() != null) {
                         flankingGateClearedTargetByFighter.remove(fighter.getId());
                     }
@@ -924,11 +942,21 @@ public class VoidstrikeCoordinator {
                     fFlags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
                     fFlags.setFlag(AIFlags.DO_NOT_PURSUE, DivisionCommanderAI.FLAG_TTL);
                     fFlags.setFlag(AIFlags.ESCORT_OTHER_SHIP, DivisionCommanderAI.FLAG_TTL, escortAnchor);
+                    float capArcOffsetX = 0f;
+                    float capArcOffsetY = 0f;
+                    if (holdCapPatrolOverFriendly && totalDivWings > 1) {
+                        double capAng = ((globalSqdnIdx / (double) Math.max(1, totalDivWings - 1)) - 0.5) * (Math.PI * 0.75);
+                        float capRad = Math.max(220f, escortAnchor.getCollisionRadius() + 160f);
+                        float localCapFwd = (float) Math.cos(capAng) * capRad;
+                        float localCapRight = (float) Math.sin(capAng) * capRad;
+                        capArcOffsetX = fwdX * localCapFwd + rightX * localCapRight;
+                        capArcOffsetY = fwdY * localCapFwd + rightY * localCapRight;
+                    }
                     Vector2f patrolSlot = new Vector2f(
-                            escortAnchor.getLocation().x + slotOffset.x,
-                            escortAnchor.getLocation().y + slotOffset.y);
+                            escortAnchor.getLocation().x + capArcOffsetX + slotOffset.x,
+                            escortAnchor.getLocation().y + capArcOffsetY + slotOffset.y);
                     fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, patrolSlot);
-                    steerFighterTowardPoint60Hz(fighter, patrolSlot, true);
+                    steerFighterTowardPoint60Hz(fighter, patrolSlot, !holdCapPatrolOverFriendly);
                 } else if (coordinatedStagingActive && div.voidstrikeStage == 0
                         && (DivisionUiWidgets.distance(fighter.getLocation(), carrier.getLocation()) <= 950f
                         || DivisionUiWidgets.distance(fighter.getLocation(), div.voidstrikeMarshalPoint) <= 950f)) {
@@ -1288,6 +1316,47 @@ public class VoidstrikeCoordinator {
      * Returns true if {@code fighter} carries unguided or low-turn-rate strike munitions (torpedoes,
      * rockets, bombs, or non-beam ballistic/energy strike weapons) that require nose-on AoA alignment.
      */
+    private static ShipAPI findCapInterceptTarget(
+            ShipAPI escortAnchor,
+            ShipAPI carrier,
+            ShipAPI focusEnemyShip) {
+        if (escortAnchor == null || carrier == null) return null;
+        int myOwner = carrier.getOwner();
+        float capRadiusAroundProtected = 1250f;
+        float capRadiusAroundCarrier = 1100f;
+
+        // 1. Prioritize enemy bombers/fighters inside the CAP umbrella around the protected division or carrier
+        ShipAPI bestFighterThreat = null;
+        float bestFighterScore = -1f;
+        for (ShipAPI f : cachedAliveFighters) {
+            if (f == null || !f.isAlive() || f.isHulk() || f.getOwner() == myOwner) continue;
+            float dProt = DivisionUiWidgets.distance(f.getLocation(), escortAnchor.getLocation());
+            float dCar = DivisionUiWidgets.distance(f.getLocation(), carrier.getLocation());
+            if (dProt > capRadiusAroundProtected && dCar > capRadiusAroundCarrier) continue;
+            boolean isBomber = f.getWing() != null
+                    && ((f.getWing().getSpec() != null && f.getWing().getSpec().isBomber())
+                    || f.getWing().getRole() == com.fs.starfarer.api.loading.WingRole.BOMBER);
+            float score = (isBomber ? 2000f : 1000f) - Math.min(dProt, dCar);
+            if (score > bestFighterScore) {
+                bestFighterScore = score;
+                bestFighterThreat = f;
+            }
+        }
+        if (bestFighterThreat != null) {
+            return bestFighterThreat;
+        }
+
+        // 2. Otherwise intercept focusEnemyShip only when it enters the CAP defense perimeter
+        if (focusEnemyShip != null && focusEnemyShip.isAlive() && !focusEnemyShip.isHulk()) {
+            float dProt = DivisionUiWidgets.distance(focusEnemyShip.getLocation(), escortAnchor.getLocation());
+            float dCar = DivisionUiWidgets.distance(focusEnemyShip.getLocation(), carrier.getLocation());
+            if (dProt <= capRadiusAroundProtected || dCar <= capRadiusAroundCarrier) {
+                return focusEnemyShip;
+            }
+        }
+        return null;
+    }
+
     private static boolean isStandoffGunshipOrCorvette(com.fs.starfarer.api.combat.FighterWingAPI wing, ShipAPI fighter) {
         if (wing != null && wing.getSpec() != null) {
             com.fs.starfarer.api.loading.FighterWingSpecAPI spec = wing.getSpec();

@@ -4156,7 +4156,11 @@ public class UITestHarness {
                 && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
                 && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getVoidstrikeSplitMode(DoctrineDivisionType.LIGHT_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
                 && FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null).isPlayEnabled(PermanentDivisionManager.OtcPlay.MARTYRDOM)
-                && FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null).getRammingMode(DoctrineDivisionType.FRIGATE) == PermanentDivisionManager.DivisionRammingMode.DIRECT_RAM;
+                && FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null).getRammingMode(DoctrineDivisionType.FRIGATE) == PermanentDivisionManager.DivisionRammingMode.DIRECT_RAM
+                && PermanentDivisionManager.FleetDoctrineConfig.defaultVoidstrikeSquadronDepthFor(DoctrineDivisionType.FLEET_CARRIER) == 2
+                && PermanentDivisionManager.FleetDoctrineConfig.defaultVoidstrikeSquadronWidthFor(DoctrineDivisionType.FLEET_CARRIER) == 4
+                && PermanentDivisionManager.FleetDoctrineConfig.defaultVoidstrikeSquadronDepthFor(DoctrineDivisionType.LIGHT_CARRIER) == 2
+                && PermanentDivisionManager.FleetDoctrineConfig.defaultVoidstrikeSquadronWidthFor(DoctrineDivisionType.LIGHT_CARRIER) == 4;
 
         // Verify New Battle Bugs (A, B, C) & Feature Changes (A, B, C):
         // Bug A: Urgent comms from Alpha Core ship suppressed when an Alpha Core was OTC from the start
