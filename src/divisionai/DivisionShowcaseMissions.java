@@ -177,6 +177,7 @@ public final class DivisionShowcaseMissions {
         final VoidstrikeTargetObservance voidstrikeObservance;
         final VoidstrikeCoordinationMode voidstrikeCoordination;
         final VoidstrikeAttackGeometry voidstrikeGeometry;
+        final PermanentDivisionManager.VoidstrikeSplitMode voidstrikeSplitMode;
         final VoidstrikeGunneryMode voidstrikeGunnery;
         final VoidstrikeAoaCorrection voidstrikeAoa;
         final List<ShipSpecEntry> ships = new ArrayList<>();
@@ -195,6 +196,25 @@ public final class DivisionShowcaseMissions {
                 VoidstrikeGunneryMode voidstrikeGunnery,
                 VoidstrikeAoaCorrection voidstrikeAoa,
                 ShipSpecEntry... entries) {
+            this(suffixId, divisionName, archetype, formation, openingMission, mainMission, lineStation,
+                    voidstrikeObservance, voidstrikeCoordination, voidstrikeGeometry, null, voidstrikeGunnery, voidstrikeAoa, entries);
+        }
+
+        BakedDivisionTemplate(
+                String suffixId,
+                String divisionName,
+                DivisionArchetype archetype,
+                DivisionFormation formation,
+                DivisionMissionType openingMission,
+                DivisionMissionType mainMission,
+                LineStation lineStation,
+                VoidstrikeTargetObservance voidstrikeObservance,
+                VoidstrikeCoordinationMode voidstrikeCoordination,
+                VoidstrikeAttackGeometry voidstrikeGeometry,
+                PermanentDivisionManager.VoidstrikeSplitMode voidstrikeSplitMode,
+                VoidstrikeGunneryMode voidstrikeGunnery,
+                VoidstrikeAoaCorrection voidstrikeAoa,
+                ShipSpecEntry... entries) {
             this.suffixId = suffixId;
             this.divisionName = divisionName;
             this.archetype = archetype;
@@ -205,6 +225,7 @@ public final class DivisionShowcaseMissions {
             this.voidstrikeObservance = voidstrikeObservance;
             this.voidstrikeCoordination = voidstrikeCoordination;
             this.voidstrikeGeometry = voidstrikeGeometry;
+            this.voidstrikeSplitMode = voidstrikeSplitMode;
             this.voidstrikeGunnery = voidstrikeGunnery;
             this.voidstrikeAoa = voidstrikeAoa;
             if (entries != null) {
@@ -309,9 +330,6 @@ public final class DivisionShowcaseMissions {
                     || dt == DoctrineDivisionType.CARRIER_GROUP) {
                 cfg.setVoidstrikeObservance(dt, VoidstrikeTargetObservance.HIGH);
                 cfg.setVoidstrikeCoordination(dt, VoidstrikeCoordinationMode.COORDINATED);
-                cfg.setVoidstrikeAttackGeometry(dt, VoidstrikeAttackGeometry.DIRECT_ASSAULT);
-                cfg.setVoidstrikeSplitMode(dt, PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED);
-                cfg.setVoidstrikeGunneryMode(dt, VoidstrikeGunneryMode.AREA_SATURATION);
                 cfg.setVoidstrikeAoaCorrection(dt, VoidstrikeAoaCorrection.STRONG);
             }
         }
@@ -376,8 +394,12 @@ public final class DivisionShowcaseMissions {
             if (tmpl.archetype != null && tmpl.archetype.isCarrierArchetype()) {
                 spec.customVoidstrikeObservance = tmpl.voidstrikeObservance;
                 spec.customVoidstrikeCoordination = tmpl.voidstrikeCoordination;
-                spec.customVoidstrikeAttackGeometry = VoidstrikeAttackGeometry.DIRECT_ASSAULT;
-                spec.customVoidstrikeSplitMode = PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED;
+                spec.customVoidstrikeAttackGeometry = tmpl.voidstrikeGeometry != null
+                        ? tmpl.voidstrikeGeometry
+                        : VoidstrikeAttackGeometry.DIRECT_ASSAULT;
+                spec.customVoidstrikeSplitMode = tmpl.voidstrikeSplitMode != null
+                        ? tmpl.voidstrikeSplitMode
+                        : PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED;
                 spec.customVoidstrikeGunneryMode = tmpl.voidstrikeGunnery;
                 spec.customVoidstrikeAoaCorrection = tmpl.voidstrikeAoa;
                 spec.customFighterFormation = SquadronFormation.LINE_ABREAST;
@@ -572,7 +594,8 @@ public final class DivisionShowcaseMissions {
                         LineStation.REAR,
                         VoidstrikeTargetObservance.HIGH,
                         VoidstrikeCoordinationMode.COORDINATED,
-                        VoidstrikeAttackGeometry.ANVIL_CROSSFIRE,
+                        VoidstrikeAttackGeometry.DIRECT_ASSAULT,
+                        PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED,
                         VoidstrikeGunneryMode.AREA_SATURATION,
                         VoidstrikeAoaCorrection.STRONG,
                         new ShipSpecEntry("legion_Strike", "Forge of Orion", false, true,
@@ -595,7 +618,8 @@ public final class DivisionShowcaseMissions {
                         LineStation.REAR,
                         VoidstrikeTargetObservance.HIGH,
                         VoidstrikeCoordinationMode.COORDINATED,
-                        VoidstrikeAttackGeometry.PINCER_ENVELOPMENT,
+                        VoidstrikeAttackGeometry.DIRECT_ASSAULT,
+                        PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED,
                         VoidstrikeGunneryMode.AREA_SATURATION,
                         VoidstrikeAoaCorrection.STRONG,
                         new ShipSpecEntry("mora_Torpedo", "Redoubtable", false, true,
@@ -749,6 +773,7 @@ public final class DivisionShowcaseMissions {
                         VoidstrikeTargetObservance.HIGH,
                         VoidstrikeCoordinationMode.COORDINATED,
                         VoidstrikeAttackGeometry.ANVIL_CROSSFIRE,
+                        PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES,
                         VoidstrikeGunneryMode.AREA_SATURATION,
                         VoidstrikeAoaCorrection.STRONG,
                         new ShipSpecEntry("heron_Strike", "Kazeron Wing", false, true,
@@ -772,6 +797,7 @@ public final class DivisionShowcaseMissions {
                         VoidstrikeTargetObservance.HIGH,
                         VoidstrikeCoordinationMode.COORDINATED,
                         VoidstrikeAttackGeometry.PINCER_ENVELOPMENT,
+                        PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES,
                         VoidstrikeGunneryMode.AREA_SATURATION,
                         VoidstrikeAoaCorrection.STRONG,
                         new ShipSpecEntry("heron_Strike", "Hesiod Flight", false, true,
@@ -925,7 +951,8 @@ public final class DivisionShowcaseMissions {
                         LineStation.REAR,
                         VoidstrikeTargetObservance.HIGH,
                         VoidstrikeCoordinationMode.COORDINATED,
-                        VoidstrikeAttackGeometry.ANVIL_CROSSFIRE,
+                        VoidstrikeAttackGeometry.PINCER_ENVELOPMENT,
+                        PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES,
                         VoidstrikeGunneryMode.AREA_SATURATION,
                         VoidstrikeAoaCorrection.STRONG,
                         new ShipSpecEntry("astral_Strike", "Cloud Matrix", false, true,
@@ -949,6 +976,7 @@ public final class DivisionShowcaseMissions {
                         VoidstrikeTargetObservance.HIGH,
                         VoidstrikeCoordinationMode.COORDINATED,
                         VoidstrikeAttackGeometry.PINCER_ENVELOPMENT,
+                        PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS,
                         VoidstrikeGunneryMode.AREA_SATURATION,
                         VoidstrikeAoaCorrection.STRONG,
                         new ShipSpecEntry("heron_Strike", "Market Correction", false, true,
@@ -1099,7 +1127,8 @@ public final class DivisionShowcaseMissions {
                         LineStation.REAR,
                         VoidstrikeTargetObservance.HIGH,
                         VoidstrikeCoordinationMode.COORDINATED,
-                        VoidstrikeAttackGeometry.ANVIL_CROSSFIRE,
+                        VoidstrikeAttackGeometry.PINCER_ENVELOPMENT,
+                        PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS,
                         VoidstrikeGunneryMode.AREA_SATURATION,
                         VoidstrikeAoaCorrection.STRONG,
                         new ShipSpecEntry("legion_xiv_Automated", "Infinite Manifold", false, true,
@@ -1126,6 +1155,7 @@ public final class DivisionShowcaseMissions {
                         VoidstrikeTargetObservance.HIGH,
                         VoidstrikeCoordinationMode.COORDINATED,
                         VoidstrikeAttackGeometry.PINCER_ENVELOPMENT,
+                        PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES,
                         VoidstrikeGunneryMode.AREA_SATURATION,
                         VoidstrikeAoaCorrection.STRONG,
                         new ShipSpecEntry("legion_xiv_Automated", "Singular Horizon", false, true,

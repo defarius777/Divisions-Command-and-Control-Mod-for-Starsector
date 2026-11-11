@@ -4143,8 +4143,20 @@ public class UITestHarness {
                 && new File("mod/data/config/division_faction_library.json").isFile()
                 && new File("mod/data/config/division_faction_doctrines.json").isFile()
                 && FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null).getFleetWideFormation() == PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD
+                && FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED
+                && FactionFleetDoctrines.getDoctrineForFactionId("persean", null).getVoidstrikeAttackGeometry(DoctrineDivisionType.LIGHT_CARRIER) == PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE
+                && FactionFleetDoctrines.getDoctrineForFactionId("persean", null).getVoidstrikeSplitMode(DoctrineDivisionType.LIGHT_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null).getVoidstrikeAttackGeometry(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT
+                && FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null).getVoidstrikeSplitMode(DoctrineDivisionType.ESCORT_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
+                && FactionFleetDoctrines.getDoctrineForFactionId("uaf", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
+                && FactionFleetDoctrines.getDoctrineForFactionId("uaf", null).getVoidstrikeSplitMode(DoctrineDivisionType.LIGHT_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && FactionFleetDoctrines.getDoctrineForFactionId("tahlan_legioinfernalis", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
                 && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getOtcAuthority() == OtcAuthority.POSITIVE_CONTROL
-                && FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null).isPlayEnabled(PermanentDivisionManager.OtcPlay.MARTYRDOM);
+                && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
+                && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getVoidstrikeSplitMode(DoctrineDivisionType.LIGHT_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null).isPlayEnabled(PermanentDivisionManager.OtcPlay.MARTYRDOM)
+                && FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null).getRammingMode(DoctrineDivisionType.FRIGATE) == PermanentDivisionManager.DivisionRammingMode.DIRECT_RAM;
 
         // Verify New Battle Bugs (A, B, C) & Feature Changes (A, B, C):
         // Bug A: Urgent comms from Alpha Core ship suppressed when an Alpha Core was OTC from the start

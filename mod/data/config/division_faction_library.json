@@ -692,7 +692,10 @@
       "merchantOrganizationRating": "high"
     },
     "tahlan_legioinfernalis": {
-      "organizationRating": "very_high"
+      "organizationRating": "very_high",
+      "aliases": [
+        "tahlan_daemons"
+      ]
     },
     "maybegoogle": {
       "aliases": [

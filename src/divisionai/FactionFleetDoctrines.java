@@ -714,9 +714,23 @@ public final class FactionFleetDoctrines {
                     cfg.setSetpieceAttack(dt, DivisionSetpieceAttack.fromId(spAtk, cfg.getSetpieceAttack(dt)));
                 }
                 String skCoord = JsonReflectBridge.optString(dtJson, "shipSkillCoordination", null);
-                if (skCoord != null && !skCoord.isEmpty()) {
+                if (skCoord != null) {
                     cfg.setShipSkillCoordination(dt, PermanentDivisionManager.ShipSkillCoordinationMode.fromId(
                             skCoord, cfg.getShipSkillCoordination(dt)));
+                }
+                String ramMode = JsonReflectBridge.optString(dtJson, "rammingMode", null);
+                if (ramMode != null) {
+                    cfg.setRammingMode(dt, PermanentDivisionManager.DivisionRammingMode.fromId(
+                            ramMode, cfg.getRammingMode(dt)));
+                }
+                String ramScope = JsonReflectBridge.optString(dtJson, "rammingTargetScope", null);
+                if (ramScope != null) {
+                    cfg.setRammingTargetScope(dt, PermanentDivisionManager.DivisionRammingTargetScope.fromId(
+                            ramScope, cfg.getRammingTargetScope(dt)));
+                }
+                if (JsonReflectBridge.has(dtJson, "maxRammingSlots")) {
+                    cfg.setMaxRammingSlots(dt, JsonReflectBridge.optInt(
+                            dtJson, "maxRammingSlots", cfg.getMaxRammingSlots(dt)));
                 }
                 String vsObs = JsonReflectBridge.optString(dtJson, "voidstrikeObservance", null);
                 if (vsObs != null && !vsObs.isEmpty()) {
@@ -1790,7 +1804,7 @@ public final class FactionFleetDoctrines {
                                     replacement.archetype);
                             updated.memberIds.addAll(s.memberIds);
                             updated.flagshipMemberId = s.flagshipMemberId;
-                            updated.customStandoffRange = s.customStandoffRange;
+                            copyCustomSpecFields(updated, s);
                             specs.set(i, updated);
                             writeNpcDivisionsToMemory(oldMem, specs);
                             break;
@@ -1963,13 +1977,7 @@ public final class FactionFleetDoctrines {
                         copy.flagshipMemberId = spec.flagshipMemberId;
                         copy.memberIds.addAll(spec.memberIds);
                         copy.doctrine = spec.doctrine;
-                        copy.customStationSpacing = spec.customStationSpacing;
-                        copy.customDivisionInterval = spec.customDivisionInterval;
-                        copy.customStandoffRange = spec.customStandoffRange;
-                        copy.customOpeningMission = spec.customOpeningMission;
-                        copy.customMainMission = spec.customMainMission;
-                        copy.customLineStation = spec.customLineStation;
-                        copy.customFormation = spec.customFormation;
+                        copyCustomSpecFields(copy, spec);
                         memberToSpec.put(mId, copy);
                     }
                 }
@@ -2064,13 +2072,7 @@ public final class FactionFleetDoctrines {
                 effectiveSpec.flagshipMemberId = spec.flagshipMemberId;
                 effectiveSpec.memberIds.addAll(spec.memberIds);
                 effectiveSpec.doctrine = spec.doctrine;
-                effectiveSpec.customStationSpacing = spec.customStationSpacing;
-                effectiveSpec.customDivisionInterval = spec.customDivisionInterval;
-                effectiveSpec.customStandoffRange = spec.customStandoffRange;
-                effectiveSpec.customOpeningMission = spec.customOpeningMission;
-                effectiveSpec.customMainMission = spec.customMainMission;
-                effectiveSpec.customLineStation = spec.customLineStation;
-                effectiveSpec.customFormation = spec.customFormation;
+                copyCustomSpecFields(effectiveSpec, spec);
             }
 
             DivisionState combatDiv = PermanentDivisionManager.instantiateCombatDivisionFromSpec(
@@ -2087,6 +2089,35 @@ public final class FactionFleetDoctrines {
         }
 
         return leftover;
+    }
+
+    private static void copyCustomSpecFields(PermanentDivisionSpec dst, PermanentDivisionSpec src) {
+        if (dst == null || src == null) return;
+        dst.customStationSpacing = src.customStationSpacing;
+        dst.customDivisionInterval = src.customDivisionInterval;
+        dst.customStandoffRange = src.customStandoffRange;
+        dst.customOpeningMission = src.customOpeningMission;
+        dst.customMainMission = src.customMainMission;
+        dst.customLineStation = src.customLineStation;
+        dst.customFormation = src.customFormation;
+        dst.customMovementStickiness = src.customMovementStickiness;
+        dst.customVoidstrikeObservance = src.customVoidstrikeObservance;
+        dst.customVoidstrikeCoordination = src.customVoidstrikeCoordination;
+        dst.customVoidstrikeAttackGeometry = src.customVoidstrikeAttackGeometry;
+        dst.customVoidstrikeSplitMode = src.customVoidstrikeSplitMode;
+        dst.customVoidstrikeGunneryMode = src.customVoidstrikeGunneryMode;
+        dst.customVoidstrikeAoaCorrection = src.customVoidstrikeAoaCorrection;
+        dst.customFighterFormation = src.customFighterFormation;
+        dst.customFighterVoidstrikeFormation = src.customFighterVoidstrikeFormation;
+        dst.customBomberFormation = src.customBomberFormation;
+        dst.customBomberVoidstrikeFormation = src.customBomberVoidstrikeFormation;
+        dst.customVoidstrikeSquadronDepth = src.customVoidstrikeSquadronDepth;
+        dst.customVoidstrikeSquadronWidth = src.customVoidstrikeSquadronWidth;
+        dst.customSetpieceAttack = src.customSetpieceAttack;
+        dst.customShipSkillCoordination = src.customShipSkillCoordination;
+        dst.customRammingMode = src.customRammingMode;
+        dst.customRammingTargetScope = src.customRammingTargetScope;
+        dst.customMaxRammingSlots = src.customMaxRammingSlots;
     }
 
     public static void applyFactionDoctrineToCombatDivision(
