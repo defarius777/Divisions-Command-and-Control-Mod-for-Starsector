@@ -1000,6 +1000,15 @@ public final class ShipSystemCoordinator {
                             helmGoal = (div.hasRouteWaypoint && distShipToObj > 1250f && div.routeWaypoint != null)
                                     ? div.routeWaypoint
                                     : objLoc;
+                        } else if (!div.hasRouteWaypoint
+                                && (distShipToObj <= 1350f
+                                || DivisionCommanderAI.distance(campGoal, objLoc) > distShipToObj - 240f)) {
+                            float sdx = campGoal.x - objLoc.x;
+                            float sdy = campGoal.y - objLoc.y;
+                            float sDist = (float) Math.sqrt(sdx * sdx + sdy * sdy);
+                            helmGoal = (sDist > 240f)
+                                    ? new Vector2f(objLoc.x + (sdx / sDist) * 240f, objLoc.y + (sdy / sDist) * 240f)
+                                    : campGoal;
                         } else {
                             helmGoal = campGoal;
                         }
@@ -1917,7 +1926,7 @@ public final class ShipSystemCoordinator {
 
         ship.blockCommandForOneFrame(ShipCommand.ACCELERATE_BACKWARDS);
         if (Math.abs(diff) <= 65f) {
-            if (distToGoal <= 240f && spd > 55f) {
+            if (distToObj <= 460f && distToGoal <= 240f && spd > 55f) {
                 ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
                 ship.giveCommand(ShipCommand.DECELERATE, null, 0);
             } else {

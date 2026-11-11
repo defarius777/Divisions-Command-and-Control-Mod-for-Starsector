@@ -1221,19 +1221,46 @@ public class OtcBattlePlanner {
             DivisionState target = allocation.get(d);
             if (target == null) target = primary;
             // Keep existing flank target sticky unless it is no longer combat-effective, is overkilled while
-            // another target was allocated by distributeFire, or a new target is >1400u closer
+            // another target was allocated by distributeFire, is a light frigate/phase pack while primary is a
+            // heavier combat division, or a new target is >900u closer
             if (d.otcOrder.type == OtcOrderType.FLANK
                     && d.otcOrder.targetEnemy != null
                     && d.otcOrder.targetEnemy.isCombatEffective()
                     && OtcAI.isDivisionVisibleToSide(engine, myGroup.side, d.otcOrder.targetEnemy)) {
                 DivisionState prevTarget = d.otcOrder.targetEnemy;
                 boolean prevOverkilled = prevTarget.isOverkilled && target != null && target != prevTarget && !target.isOverkilled;
+                boolean prevIsLightSkirmisher = prevTarget.archetype == DivisionArchetype.FRIGATE_DIVISION
+                        || prevTarget.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                        || prevTarget.archetype == DivisionArchetype.PHASE_DIVISION;
+                boolean betterHeavyTargetAvailable = prevIsLightSkirmisher
+                        && primary != null && primary != prevTarget && primary.isCombatEffective()
+                        && primary.archetype != DivisionArchetype.FRIGATE_DIVISION
+                        && primary.archetype != DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                        && primary.archetype != DivisionArchetype.PHASE_DIVISION;
                 if (!prevOverkilled
-                        && (target == null || DivisionUiWidgets.distance(d.centroid, prevTarget.centroid) <= DivisionUiWidgets.distance(d.centroid, target.centroid) + 1400f)) {
+                        && !betterHeavyTargetAvailable
+                        && (target == null || DivisionUiWidgets.distance(d.centroid, prevTarget.centroid) <= DivisionUiWidgets.distance(d.centroid, target.centroid) + 900f)) {
                     target = prevTarget;
                 }
             }
             if (target == null || !target.isCombatEffective()) continue;
+            // Avoid wide-arc FLANK ("Doubling") orders against fast enemy Frigate/Phase skirmisher packs that are
+            // themselves flanking (which causes two frigate divisions to circle each other in a wide-arc carousel);
+            // let distributeFire's ENGAGE_ASSIGNED order stand so our fast divisions close directly into gun range!
+            boolean targetIsFastLightFlanker = (target.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || target.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                    || target.archetype == DivisionArchetype.PHASE_DIVISION)
+                    && (target.currentIntent == DivisionIntentType.WORK_FLANK || !flankMission);
+            if (targetIsFastLightFlanker) {
+                if (primary != null && primary != target && primary.isCombatEffective()
+                        && primary.archetype != DivisionArchetype.FRIGATE_DIVISION
+                        && primary.archetype != DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                        && primary.archetype != DivisionArchetype.PHASE_DIVISION) {
+                    target = primary;
+                } else {
+                    continue;
+                }
+            }
             // OTC Overkill cap on flankers: a low-threat auxiliary/flank pack (< 22 effective FP) needs at most 1 flanker
             // when primary threat is a different active enemy division!
             List<DivisionState> existingForTarget = flankersByTarget.get(target);

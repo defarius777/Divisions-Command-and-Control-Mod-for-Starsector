@@ -2793,7 +2793,8 @@ public class DivisionCommanderAI {
         boolean paceMixedDivisionSpeed = outOfCombatMarch
                 && alive.size() >= 2
                 && (maxMemberSpeed - minSustainableSpeed) > 16f
-                && maxMemberSpeed > minSustainableSpeed * 1.18f;
+                && maxMemberSpeed > minSustainableSpeed * 1.18f
+                && (minSustainableSpeed < 105f || maxMemberSpeed > minSustainableSpeed * 1.38f);
 
         // Pre-scan for any division member requiring immediate extraction so healthy division mates can step onto
         // the interposing line-of-fire chord to cover and screen its withdrawal!
@@ -2859,7 +2860,17 @@ public class DivisionCommanderAI {
                     || (div.synchronizedSkillManeuverActive && div.synchronizedSkillStage > 0)
                     || (div.activeSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE && div.setpieceStage > 0));
 
-            boolean isDetachedStraggler = !shipInRamCharge && div.detachedStragglerIds.contains(ship.getId());
+            boolean uncapturedObjAdvance = div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
+                    && div.targetObjective != null
+                    && div.targetObjective.getLocation() != null
+                    && div.targetObjective.getOwner() != div.side;
+            boolean advancingAheadOntoObjective = uncapturedObjAdvance
+                    && (div.underDirectObjectiveOrder
+                    || distance(ship.getLocation(), div.targetObjective.getLocation())
+                            <= distance(div.centroid, div.targetObjective.getLocation()) + 380f);
+            boolean isDetachedStraggler = !shipInRamCharge
+                    && !advancingAheadOntoObjective
+                    && div.detachedStragglerIds.contains(ship.getId());
             if (isDetachedStraggler) {
                 // Detached straggler: route around any intervening enemy battle line out of contact to rejoin the Core Cluster,
                 // without freezing the Core Cluster in CLOSE_UP!
@@ -3007,6 +3018,7 @@ public class DivisionCommanderAI {
             float distToDivCenter = distance(ship.getLocation(), div.centroid);
             boolean shipStraggling = !shipInRamCharge
                     && !uncapturedDirectObjMarch
+                    && !advancingAheadOntoObjective
                     && div.coreMemberCount >= 2
                     && distToDivCenter > (div.stationKeepingRadius * 1.38f);
 
@@ -3324,15 +3336,21 @@ public class DivisionCommanderAI {
                     flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL);
                     flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                     Vector2f objLoc = div.targetObjective.getLocation();
+                    float distShipToObjNow = distance(ship.getLocation(), objLoc);
                     Vector2f capGoal;
-                    if (shipIdx == 0 || slotPos == null) {
-                        capGoal = objLoc;
-                    } else if (!div.hasRouteWaypoint && distance(div.centroid, objLoc) <= 1050f) {
+                    if (shipIdx == 0 || ship == div.flagship || slotPos == null) {
+                        capGoal = (div.hasRouteWaypoint && distShipToObjNow > 1250f && div.routeWaypoint != null)
+                                ? div.routeWaypoint
+                                : objLoc;
+                    } else if (!div.hasRouteWaypoint
+                            && (distance(div.centroid, objLoc) <= 1350f
+                            || distShipToObjNow <= 1350f
+                            || distance(slotPos, objLoc) > distShipToObjNow - 240f)) {
                         float sdx = slotPos.x - objLoc.x;
                         float sdy = slotPos.y - objLoc.y;
                         float sDist = (float) Math.sqrt(sdx * sdx + sdy * sdy);
-                        if (sDist > 260f) {
-                            capGoal = new Vector2f(objLoc.x + (sdx / sDist) * 260f, objLoc.y + (sdy / sDist) * 260f);
+                        if (sDist > 240f) {
+                            capGoal = new Vector2f(objLoc.x + (sdx / sDist) * 240f, objLoc.y + (sdy / sDist) * 240f);
                         } else {
                             capGoal = slotPos;
                         }
@@ -3784,12 +3802,18 @@ public class DivisionCommanderAI {
                 : Float.MAX_VALUE;
         float contactDist = Math.min(distToFocus, nearestEnemyDist);
         float distToSlot = distance(ship.getLocation(), slotPos);
+        boolean enemyIsLightOrFlanking = div.targetEnemyDivision != null
+                && (div.targetEnemyDivision.archetype == DivisionArchetype.FRIGATE_DIVISION
+                || div.targetEnemyDivision.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                || div.targetEnemyDivision.archetype == DivisionArchetype.PHASE_DIVISION
+                || div.targetEnemyDivision.currentIntent == DivisionIntentType.WORK_FLANK);
         boolean targetCorneredOrWeak = div.targetEnemyDivision != null
                 && (div.targetEnemyDivision.edgeProximityPinch >= 0.25f
                 || div.targetEnemyDivision.isUnableDivision
                 || div.targetEnemyDivision.retreatingFraction >= 0.35f
                 || DivisionState.isDivisionEscapingInPursuit(com.fs.starfarer.api.Global.getCombatEngine(), div.targetEnemyDivision)
-                || div.targetEnemyDivision.combatThreatWeight <= 0.62f);
+                || div.targetEnemyDivision.combatThreatWeight <= 0.62f
+                || enemyIsLightOrFlanking);
         if (focusEnemyShip != null && distToFocus < 2200f) {
             directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
             if (targetCorneredOrWeak && !div.hasRouteWaypoint && ship.getFluxLevel() < 0.56f) {

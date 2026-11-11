@@ -99,7 +99,10 @@ public class DivisionFormationNavigator {
                 && alive.size() >= 2
                 && (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
                 || div.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE
-                || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX)
+                || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX
+                || div.currentIntent == DivisionIntentType.WORK_FLANK
+                || div.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION
+                || div.currentIntent == DivisionIntentType.REINFORCE_DIVISION)
                 && marchDist > 1f) {
             // Only use the short 680u cautious step on TAKE_AND_HOLD when advancing into enemy-controlled space
             // (Station assault, Pursuit battle, or Enemy Space on the objective) or under a Cautious commander.
@@ -208,12 +211,28 @@ public class DivisionFormationNavigator {
                 desiredFwdY = 0f;
             }
         } else {
+            boolean longFlankOrScreenMarch = (div.currentIntent == DivisionIntentType.WORK_FLANK
+                    || div.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION
+                    || div.currentIntent == DivisionIntentType.REINFORCE_DIVISION
+                    || div.hasRouteWaypoint)
+                    && marchDist > 680f;
             if (div.targetEnemyDivision != null && !(uncapturedObjectiveMarch && marchDist > 450f)) {
                 Vector2f visEnemy = OtcAI.getVisibleCentroidForSide(engine, div.side, div.targetEnemyDivision);
                 float dx = visEnemy.x - div.centroid.x;
                 float dy = visEnemy.y - div.centroid.y;
                 float len = (float) Math.sqrt(dx * dx + dy * dy);
-                if (len > 1f) {
+                if (longFlankOrScreenMarch && len > 1350f && marchDist > 1f) {
+                    // While marching along a wide flank or screening transit outside gun range, align the formation
+                    // carriage along the travel direction (blended gently toward the enemy) so Echelon/Line Abreast
+                    // ships do not crab 90 degrees sideways or whip their tail slots in a wide arc!
+                    float mx = marchDirX * 0.72f + (len > 1f ? (dx / len) * 0.28f : 0f);
+                    float my = marchDirY * 0.72f + (len > 1f ? (dy / len) * 0.28f : 0f);
+                    float mLen = (float) Math.sqrt(mx * mx + my * my);
+                    if (mLen > 0.001f) {
+                        desiredFwdX = mx / mLen;
+                        desiredFwdY = my / mLen;
+                    }
+                } else if (len > 1f) {
                     desiredFwdX = dx / len;
                     desiredFwdY = dy / len;
                 }
@@ -524,12 +543,17 @@ public class DivisionFormationNavigator {
 
                 // When marching out of combat with mixed ship speeds, anchor the longitudinal reference to the slowest
                 // core member's rank progress so fast ships dress onto the slowest ship's sustainable pace!
+                // Fast light skirmisher divisions (where all core ships have minSpd >= 105 su/s and maxSpd <= minSpd * 1.38f,
+                // e.g. 150-speed Lashers + 120-speed Centurion in Frigate Div. I) do not use tight <200u CAMP_LOCATION
+                // braking, because placing CAMP_LOCATION 45..185u ahead of a 150-speed frigate triggers vanilla BasicShipAI's
+                // <450u arrival stop-and-spin behavior!
                 float minSpd = computeDivisionSustainableSpeed(div, alive);
                 float maxSpd = computeDivisionMaxMemberSpeed(div, alive);
                 boolean mixedSpeedOutOfCombat = outOfCombatMarch
                         && !(div.underDirectObjectiveOrder && uncapturedObjectiveMarch)
                         && (maxSpd - minSpd) > 16f
-                        && maxSpd > minSpd * 1.18f;
+                        && maxSpd > minSpd * 1.18f
+                        && (minSpd < 105f || maxSpd > minSpd * 1.38f);
                 if (mixedSpeedOutOfCombat) {
                     int[] allSlots = (n > 1)
                             ? resolvePersistentSlots(div, alive, leadIdx, currentCentroidSlots, formation)
@@ -562,14 +586,15 @@ public class DivisionFormationNavigator {
                 float alongError = errX * fwdX + errY * fwdY;
                 float latError = Math.abs(errX * latX + errY * latY);
 
-                float alongThreshold = mixedSpeedOutOfCombat ? 15f : 45f;
+                float alongThreshold = mixedSpeedOutOfCombat ? 15f : 55f;
                 if (alongError > alongThreshold) {
                 // Ship is ahead of its assigned rank: place its target along its true lateral lane.
-                // When pacing a mixed-speed division out of combat, pull aheadOfShipLead tight (45..185u) so BasicShipAI
-                // enters its proportional arrival-braking zone and matches the slowest ship's sustainable speed!
+                // When pacing a heavy mixed-speed division out of combat, pull aheadOfShipLead tight (45..185u) so
+                // faster ships match the slowest ship's sustainable speed; for fast uniform/frigate divisions keep
+                // aheadOfShipLead >= 460u so ships never stall inside BasicShipAI's <450u arrival-braking zone!
                 float aheadOfShipLead = mixedSpeedOutOfCombat
                         ? Math.min(marchDist, Math.max(45f, 185f - alongError * 0.85f - latError * 0.15f))
-                        : Math.min(marchDist, Math.max(260f, 580f - alongError * 0.45f - latError * 0.20f));
+                        : Math.min(marchDist, Math.max(460f, 680f - alongError * 0.40f - latError * 0.15f));
                 float dressLead = alongError + aheadOfShipLead;
                 if (dressLead < marchDist) {
                 slotX = trueRankX + fwdX * dressLead;
@@ -578,7 +603,7 @@ public class DivisionFormationNavigator {
                 } else if (latError > 95f) {
                 // Ship is laterally out of its lane (e.g. wheeling into NW/NE objective): pull carriage closer along fwd
                 // so the lateral steering angle toward its lane is sharp (~30-45 deg) instead of diluted over 1950u!
-                float lateralDressLead = Math.max(420f, Math.min(950f, 1150f - latError * 0.85f));
+                float lateralDressLead = Math.max(480f, Math.min(950f, 1150f - latError * 0.85f));
                 if (marchDist > lateralDressLead) {
                 slotX = trueRankX + fwdX * lateralDressLead;
                 slotY = trueRankY + fwdY * lateralDressLead;
@@ -1267,11 +1292,16 @@ public class DivisionFormationNavigator {
             BattleGroupState myGroup) {
         Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, flankerDiv.side, enemyDiv);
         float weaponRange = (flankerDiv.avgEngageRange > 250f) ? flankerDiv.avgEngageRange : flankerDiv.standoffRange;
+        boolean enemyIsLightOrFlanking = enemyDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
+                || enemyDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                || enemyDiv.archetype == DivisionArchetype.PHASE_DIVISION
+                || enemyDiv.currentIntent == DivisionIntentType.WORK_FLANK;
         boolean targetCorneredOrWeak = enemyDiv.edgeProximityPinch >= 0.25f
                 || enemyDiv.isUnableDivision
                 || enemyDiv.retreatingFraction >= 0.35f
                 || DivisionState.isDivisionEscapingInPursuit(engine, enemyDiv)
-                || enemyDiv.combatThreatWeight <= 0.62f;
+                || enemyDiv.combatThreatWeight <= 0.62f
+                || enemyIsLightOrFlanking;
         float flankRadius = targetCorneredOrWeak
                 ? Math.max(540f, Math.min(840f, weaponRange * 0.78f))
                 : Math.max(1250f, flankerDiv.standoffRange + enemyDiv.spreadRadius * 0.55f + flankerDiv.stationSpacing * 0.65f);
@@ -1307,12 +1337,14 @@ public class DivisionFormationNavigator {
                 outStation.set(
                         visEnemyPos.x + perpX * flankRadius * lateralMult * assignedSide + fwdX * flankRadius * depthMult,
                         visEnemyPos.y + perpY * flankRadius * lateralMult * assignedSide + fwdY * flankRadius * depthMult);
-                if (flankerDiv.useConvergence) {
-                    BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
-                            engine, flankerDiv, enemyDiv, myGroup, null, visEnemyPos, outStation, 52f, outStation);
-                } else {
-                    BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
-                            engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 48f, 7, outStation);
+                if (!enemyIsLightOrFlanking) {
+                    if (flankerDiv.useConvergence) {
+                        BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
+                                engine, flankerDiv, enemyDiv, myGroup, null, visEnemyPos, outStation, 52f, outStation);
+                    } else {
+                        BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
+                                engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 48f, 7, outStation);
+                    }
                 }
                 clampToMapBounds(engine, outStation, mapClampMargin);
                 return;
@@ -1345,12 +1377,14 @@ public class DivisionFormationNavigator {
         outStation.set(
                 visEnemyPos.x + perpX * flankRadius * sideSign,
                 visEnemyPos.y + perpY * flankRadius * sideSign);
-        if (flankerDiv.useConvergence) {
-            BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
-                    engine, flankerDiv, enemyDiv, myGroup, null, visEnemyPos, outStation, 60f, outStation);
-        } else {
-            BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
-                    engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 55f, 7, outStation);
+        if (!enemyIsLightOrFlanking) {
+            if (flankerDiv.useConvergence) {
+                BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
+                        engine, flankerDiv, enemyDiv, myGroup, null, visEnemyPos, outStation, 60f, outStation);
+            } else {
+                BattlefieldFirepowerEvaluator.optimizeStationAlongArc(
+                        engine, flankerDiv, enemyDiv, visEnemyPos, outStation, 55f, 7, outStation);
+            }
         }
         clampToMapBounds(engine, outStation, mapClampMargin);
     }
@@ -1376,13 +1410,23 @@ public class DivisionFormationNavigator {
         if (intent == DivisionIntentType.CLOSE_UP) {
             return;
         }
-        // When marching onto a player-ordered or uncaptured control point within 1,350u, drive directly onto the
+        // When marching onto a player-ordered or uncaptured control point, drive directly onto the
         // control point rather than projecting a wide-arc detour around nearby contesting enemies.
+        float directObjCutoff = div.underDirectObjectiveOrder ? 2400f : 1350f;
         if (intent == DivisionIntentType.TAKE_AND_HOLD
                 && div.targetObjective != null
                 && (div.underDirectObjectiveOrder || div.targetObjective.getOwner() != div.side)
-                && DivisionCommanderAI.distance(div.centroid, div.stationPoint) <= 1350f) {
+                && DivisionCommanderAI.distance(div.centroid, div.stationPoint) <= directObjCutoff) {
             return;
+        }
+
+        boolean flankTargetIsLightOrFlanking = false;
+        if (intent == DivisionIntentType.WORK_FLANK && div.targetEnemyDivision != null) {
+            DivisionState fTgt = div.targetEnemyDivision;
+            flankTargetIsLightOrFlanking = fTgt.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || fTgt.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                    || fTgt.archetype == DivisionArchetype.PHASE_DIVISION
+                    || fTgt.currentIntent == DivisionIntentType.WORK_FLANK;
         }
 
         // Direct close-in attack intents do not detour around their own attack target once within 2400u,
@@ -1393,10 +1437,13 @@ public class DivisionFormationNavigator {
                 || intent == DivisionIntentType.TOT_ALPHA_STRIKE
                 || intent == DivisionIntentType.HARASSING_MISSILE_ATTACK
                 || intent == DivisionIntentType.GIVE_GENERAL_CHASE
-                || intent == DivisionIntentType.CLOSE_AND_ENGAGE);
+                || intent == DivisionIntentType.CLOSE_AND_ENGAGE
+                || flankTargetIsLightOrFlanking);
 
         DivisionState ignoreDirectTarget = directAttackIntent ? div.targetEnemyDivision : null;
-        DivisionState flankTarget = (intent == DivisionIntentType.WORK_FLANK) ? div.targetEnemyDivision : null;
+        DivisionState flankTarget = (intent == DivisionIntentType.WORK_FLANK && !flankTargetIsLightOrFlanking)
+                ? div.targetEnemyDivision
+                : null;
 
         float preferredSide = DivisionCommanderAI.assignedFlankSide(div, div.targetEnemyDivision, myGroup);
         if (preferredSide == 0f) {
