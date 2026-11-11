@@ -4,6 +4,30 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.1.2] — 2026-11-11
+
+### Fixed
+- **Voidstrike Split-Wing (`Pincer Envelopment` / `L-Crossfire` / `Split Axes` / `Split Targets`) Multi-Angle Lethality & Synchronization:**
+  - **One-Way Latched Flanking Gates (`flankingGateClearedTargetByFighter`):** Fixed a memoryless gate-oscillation bug in `VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery` where strike craft reaching their flanking turning gate (`<= 185u`) would step inward toward the enemy, fall outside the gate radius while still turning, and flip back into `onFlankingDogleg = true` (blocking `ShipCommand.FIRE` and turning 180° back toward the gate). Once a fighter or its squadron leader clears its flanking gate or crosses the gate plane inward, gate clearance is now latched for that target until ordnance expenditure or return.
+  - **Multi-Angle Time-on-Target (ToT) Jaw Pacing:** Added `maxArmedSubWingEtaSec` synchronization across all armed sub-wings in a multi-angle strike (`PINCER_ENVELOPMENT`, `ANVIL_CROSSFIRE`, `SPLIT_AXES`). Shorter/faster attack legs (such as the `0°` Anvil leg in L-Crossfire or the nearer Pincer jaw) pace their approach speed while outside enemy PD range (`> 820u` and not under fire) so all attack axes roll in and release ordnance simultaneously to split and overwhelm enemy PD.
+  - **Compact Per-Jaw Formation Indexing & AA-Aware Flank Selection:** Indexed `subColIdx` and `subRankIdx` per sub-wing/jaw (`gateDist = 620 + subRankIdx * 65u`) rather than across all 18+ squadrons in a division, and updated `resolveExposedFlankSign` to penalize flanks guarded by adjacent non-target enemy AA ships within `720u`.
+  - **Active Voidstrike Cohesion Across Wide Pincer Jaws:** Updated `reconcileVoidstrikesForSide` Step 1 so squadrons already belonging to the same active `VoidstrikeRecord` remain unified in a single Voidstrike entity even when Port and Starboard Pincer jaws separate by `> 1,200u`.
+- **Strike Craft Survivability, Standoff Release & Modded Gunship/Corvette Compatibility:**
+  - **PD-Gated Evasive Jinking:** Restricted sinusoidal anti-AA jinking in `computeAntiAaEvasionWaypoint` to actual enemy PD threat envelopes (`dToTarget <= 880u` or within `760u` of an adjacent enemy AA ship, or when actively taking shield/hull damage) so strike craft fly straight at 100% speed during long-range approach instead of bleeding speed outside PD range.
+  - **Full-Range Standoff Ordnance Release & No Point-Blank Dive-Through:** Removed the `+240u` behind-target dive projection on `MOVEMENT_DEST`, raised `applyTerminalStrikeCraftGunnery`'s damping envelope to `880u` (closing the `680..880u` gate turn-in dead zone), and triggered on-boresight ordnance release immediately upon entering `maxWepRange + targetRad * 0.90f` (up to `950u` for long-range torpedoes).
+  - **Standoff Gunships / Corvettes (`isStandoffGunshipOrCorvette`) & Inner Dive Floor (`minInnerDiveFloor`):** Excluded standoff gunship/corvette wings (wings tagged `"attack_at_an_angle"` or with `"Gunship"`, `"Corvette"`, `"Artillery"`, or `"Platform"` role descriptions, such as UAF Auroran gunships/corvettes) from the 60 Hz dive-bomber nose/velocity lock, and added a hard inner dive floor (`targetRad + 45u`) that releases all 60 Hz velocity/facing overrides and asserts `BACK_OFF` so no strike craft or corvette ever flies onto the center of an enemy ship.
+  - **Coordinated Stage 0/1 Range Gate & Forward Slot Projection:** Scoped `Stage 0` carrier orbit and `Stage 1` marshalling to squadrons within `950u` of their carrier or marshal point (preventing mid-flight recall loops when a second carrier division joins a strike), and replaced backward wingman slot-chasing with forward slot offsets on the attack target.
+- **Independent Contact Classification & OTC / Carrier Target Prioritization:**
+  - Fixed `DivisionAICombatPlugin.populateSpatialContactClusters` hardcoding all unassigned opposing ship clusters (`"Independent Contact X"`) to `CRUISER_DIVISION` and shifting contact numbers when ships entered/left Fog of War; contact clusters now receive accurate hull-based archetypes (`FRIGATE_DIVISION`, `DESTROYER_DIVISION`, `CRUISER_DIVISION`, `BATTLESHIP_DIVISION`) and reserve pooled slots by living flagship ID.
+  - Excluded Carrier divisions (`isCarrierDivision`) from surface-line `nonMainCommittedFp` overkill in `OtcAI.pickPrimaryEnemyTargetDivision` and penalized lone 1-ship `"Independent Contact"` stragglers when organized enemy divisions are visible so neither the Fleet Commander (OTC) nor Carrier Divisions abandon enemy Cruiser/Capital divisions to chase lone stragglers.
+  - Restored `DIRECT_ASSAULT` + `UNIFIED` as the default Voidstrike geometry/split doctrine for newly created divisions and standard faction doctrines (`PermanentDivisionManager`, `DivisionShowcaseMissions`).
+- **Frigate Division Movement, Objective Capture Wingman Braking & Mutual `WORK_FLANK` Anti-Orbiting:**
+  - Fixed `DivisionCommanderAI.selectDivisionFormation` locking 100% of `FRIGATE_DIVISION`s into `PROTECTIVE_CIRCLE` whenever any enemy carrier existed on the map; Frigate Divisions only adopt `PROTECTIVE_CIRCLE` when actively screening (`SCREEN_DIVISION`) or under an active incoming Voidstrike within `1,650u`.
+  - Fixed wingman braking on `TAKE_AND_HOLD` objective capture orders so wingmen decelerate and hold their formation slots once within `slotTol` (`85u`) inside the capture ring.
+  - Added mutual `WORK_FLANK` detection so opposing divisions both attempting to flank each other at `500..650u` standoff collapse their standoff distance (`0.42x`) and engage decisively instead of mutually orbiting.
+
+---
+
 ## [v1.1.1d] — 2026-11-10
 
 ### Fixed
