@@ -393,7 +393,10 @@ public class OtcBattlePlanner {
                         || dMis == DivisionMissionType.SPACE_SUPERIORITY
                         || dMis == DivisionMissionType.SCREEN
                         || dMis == DivisionMissionType.RESERVE) continue;
-                if (d.archetype != null && d.archetype.isCarrierArchetype() && dMis != DivisionMissionType.ALPHA_STRIKE) continue;
+                if (d.archetype != null && d.archetype.isCarrierArchetype()) {
+                    if (dMis != DivisionMissionType.ALPHA_STRIKE) continue;
+                    if (d.voidstrikeEgressActive || d.voidstrikeStage == 2 || d.activeVoidstrikeSortieNumber > 0) continue;
+                }
                 if (d.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                         || d.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) continue;
                 if (d.avgFluxLevel >= 0.48f || d.effectiveHpRatio < 0.55f) continue;
@@ -586,6 +589,7 @@ public class OtcBattlePlanner {
         DivisionMissionType mission = DivisionCommanderAI.resolveActiveMission(d, now);
         if (d.archetype.isCarrierArchetype()) {
             if (d.avgFluxLevel >= 0.60f) return false;
+            if (d.voidstrikeEgressActive || d.voidstrikeStage == 2 || d.activeVoidstrikeSortieNumber > 0) return false;
             if (mission == DivisionMissionType.ALPHA_STRIKE) return true;
             return myGroup.authority == OtcAuthority.POSITIVE_CONTROL
                     && mission != DivisionMissionType.COMBAT_SPACE_PATROL

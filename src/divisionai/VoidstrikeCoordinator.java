@@ -345,11 +345,12 @@ public class VoidstrikeCoordinator {
         // abort the airborne wave! Keep voidstrikeStage = 2 so the airborne squadrons press home on the new target!
         if (targetChanged) {
             div.voidstrikeLastTargetKey = targetKey;
-            if (hadPreviousTarget && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
+            if (hadPreviousTarget) {
                 if (div.voidstrikeStage == 2 && (wingsCommittedDownrange > 0 || wingsClearedCarriers > 0)) {
                     return;
                 }
-                if (div.voidstrikeStage == 1 && wingsClearedCarriers > 0) {
+                if (div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE
+                        && div.voidstrikeStage == 1 && wingsClearedCarriers > 0) {
                     return;
                 }
             }
@@ -636,6 +637,7 @@ public class VoidstrikeCoordinator {
         boolean isCapMission = div.currentIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
         boolean coordinatedStagingActive = !holdFightersInFormation
                 && !isCapMission
+                && div.voidstrikeStage != 2
                 && focusEnemyShip != null
                 && focusEnemyShip.isAlive()
                 && (div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
@@ -2986,8 +2988,7 @@ public class VoidstrikeCoordinator {
                         && (div.voidstrikeStage == 0
                         || div.voidstrikeStage == 1
                         || div.currentIntent == DivisionModel.DivisionIntentType.MARSHAL_FOR_STRIKE)
-                        && !alreadyActive
-                        && distFromCarrier < 460f) {
+                        && !alreadyActive) {
                     continue;
                 }
             }
@@ -3291,7 +3292,7 @@ public class VoidstrikeCoordinator {
                 if (wc.center != null) {
                     boolean mergedSubCenter = false;
                     for (Vector2f sc : matched.subWingCenters) {
-                        if (DivisionUiWidgets.distance(sc, wc.center) <= 320f) {
+                        if (DivisionUiWidgets.distance(sc, wc.center) <= 680f) {
                             sc.set((sc.x + wc.center.x) * 0.5f, (sc.y + wc.center.y) * 0.5f);
                             mergedSubCenter = true;
                             break;
@@ -3307,8 +3308,32 @@ public class VoidstrikeCoordinator {
                     }
                 }
             }
-            matched.subWingCount = Math.max(1, matched.subWingCenters.size());
             matched.distinctTargetCount = Math.max(1, distinctTargetShipIds.size());
+            int maxDoctrinalSubWings = 1;
+            for (DivisionState cd : clusterDivs) {
+                if (cd == null) continue;
+                int divAxes = 1;
+                if (cd.voidstrikeAttackGeometry == VoidstrikeAttackGeometry.ANVIL_CROSSFIRE
+                        || cd.voidstrikeAttackGeometry == VoidstrikeAttackGeometry.PINCER_ENVELOPMENT) {
+                    divAxes = 2;
+                }
+                if (cd.voidstrikeSplitMode == VoidstrikeSplitMode.SPLIT_AXES) {
+                    divAxes = Math.max(divAxes, cd.voidstrikeAttackGeometry == VoidstrikeAttackGeometry.DIRECT_ASSAULT ? 3 : 2);
+                } else if (cd.voidstrikeSplitMode == VoidstrikeSplitMode.SPLIT_TARGETS) {
+                    divAxes = Math.max(divAxes, matched.distinctTargetCount);
+                }
+                if (divAxes > maxDoctrinalSubWings) {
+                    maxDoctrinalSubWings = divAxes;
+                }
+            }
+            if (clusterDivs.size() > 1) {
+                maxDoctrinalSubWings = Math.max(maxDoctrinalSubWings, Math.min(4, clusterDivs.size() * 2));
+            }
+            int rawSubWings = Math.min(maxDoctrinalSubWings, Math.max(1, matched.subWingCenters.size()));
+            if (hasSplitWingsOrMultiAxis && cluster.size() >= 2 && maxDoctrinalSubWings >= 2) {
+                rawSubWings = Math.max(2, rawSubWings);
+            }
+            matched.subWingCount = Math.min(cluster.size(), rawSubWings);
             matched.splitWingActive = hasSplitWingsOrMultiAxis && (cluster.size() >= 2);
             DivisionState primaryTargetDiv = null;
             for (WingStrikeCandidate wc : cluster) {
@@ -3488,7 +3513,7 @@ public class VoidstrikeCoordinator {
             }
 
             float effectivePassLimitSec = armedBombersPressingInTerminal
-                    ? (matched.packageStrikePassTimeoutSec * 1.55f)
+                    ? Math.min(58.0f, matched.packageStrikePassTimeoutSec * 1.25f)
                     : matched.packageStrikePassTimeoutSec;
             boolean strikePassComplete = matched.reachedTarget
                     && matched.reachedTargetTime >= 0f
@@ -3767,7 +3792,7 @@ public class VoidstrikeCoordinator {
         float rawPassSec = 22.0f
                 + ((bomberSpreadSpan + geomExtra * 0.65f + rankDepthSpan + splitSpread) / Math.max(85f, rec.effectivePackageSpeed))
                 + 3.5f * rec.subWingCount;
-        rec.packageStrikePassTimeoutSec = Math.max(STRIKE_PASS_CULMINATION_SECONDS, Math.min(85.0f, rawPassSec));
+        rec.packageStrikePassTimeoutSec = Math.max(STRIKE_PASS_CULMINATION_SECONDS, Math.min(48.0f, rawPassSec));
 
         for (DivisionState d : clusterDivs) {
             if (d != null) {
