@@ -1211,7 +1211,8 @@ public class DivisionCommanderAI {
         }
         // Item C: Keep the carrier division's target sticky while strike wings are marshaling or airborne on a run
         // (supporting maximum-range strikes across the entire map without arbitrary distance cutoffs!), unless the
-        // current target is destroyed/combat-ineffective or a new emergency threat is on top of the carrier division.
+        // current target is destroyed/combat-ineffective, screened behind a closer enemy division, or a closer/heavier
+        // enemy division has entered the approach lane.
         if (prevCarrierTarget != null && prevCarrierTarget.isAbleCombatEffective()) {
             boolean visNow = OtcAI.isDivisionVisibleToSide(engine, div.side, prevCarrierTarget);
             boolean airborneWaveActive = !div.voidstrikeEgressActive
@@ -1222,18 +1223,41 @@ public class DivisionCommanderAI {
             if (visNow || airborneWaveActive) {
                 Vector2f prevPos = OtcAI.getVisibleCentroidForSide(engine, div.side, prevCarrierTarget);
                 float prevDist = distance(div.centroid, prevPos);
-                if (carrierTargetDiv == null || airborneWaveActive) {
+                List<DivisionState> visibleEnemyDivs = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
+                boolean prevScreenedByCloserEnemy = isEnemyDivisionScreenedByCloserEnemy(
+                        engine, div, prevCarrierTarget, visibleEnemyDivs);
+                boolean prevIsLightSkirmisher = prevCarrierTarget.archetype == DivisionArchetype.FRIGATE_DIVISION
+                        || prevCarrierTarget.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                        || prevCarrierTarget.archetype == DivisionArchetype.PHASE_DIVISION;
+                boolean newIsHeavierLineTarget = carrierTargetDiv != null
+                        && carrierTargetDiv != prevCarrierTarget
+                        && (carrierTargetDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
+                        || carrierTargetDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                        || carrierTargetDiv.archetype == DivisionArchetype.CRUISER_DIVISION
+                        || carrierTargetDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                        || carrierTargetDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                        || carrierTargetDiv.archetype.isCarrierArchetype());
+                float newDist = (carrierTargetDiv != null)
+                        ? distance(div.centroid, OtcAI.getVisibleCentroidForSide(engine, div.side, carrierTargetDiv))
+                        : Float.MAX_VALUE;
+                boolean closerTargetIntervening = carrierTargetDiv != null
+                        && carrierTargetDiv != prevCarrierTarget
+                        && (prevScreenedByCloserEnemy
+                        || (newDist + 420f < prevDist)
+                        || (prevIsLightSkirmisher && newIsHeavierLineTarget && newDist <= prevDist + 950f));
+                boolean alreadyInTerminalEnvelope = VoidstrikeCoordinator.hasStrikeCraftInTerminalEnvelope(
+                        div, prevCarrierTarget, 980f);
+                if (carrierTargetDiv == null || (airborneWaveActive && (!closerTargetIntervening || alreadyInTerminalEnvelope))) {
                     boolean emergencyCloseThreat = carrierTargetDiv != null
                             && carrierTargetDiv != prevCarrierTarget
-                            && distance(div.centroid, OtcAI.getVisibleCentroidForSide(engine, div.side, carrierTargetDiv)) <= 1050f
+                            && newDist <= 1050f
                             && div.localEnemyStrength >= 16f
                             && div.avgFluxLevel >= 0.55f;
                     if (!emergencyCloseThreat) {
                         carrierTargetDiv = prevCarrierTarget;
                     }
-                } else {
-                    Vector2f newPos = OtcAI.getVisibleCentroidForSide(engine, div.side, carrierTargetDiv);
-                    if (prevDist <= distance(div.centroid, newPos) + 1650f) {
+                } else if (!closerTargetIntervening) {
+                    if (prevDist <= newDist + 1650f) {
                         carrierTargetDiv = prevCarrierTarget;
                     }
                 }
@@ -4268,6 +4292,7 @@ public class DivisionCommanderAI {
         List<DivisionState> enemyDivs = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
         boolean anyAbleVisibleEnemy = false;
         boolean anyAbleVisibleMobileCombatEnemy = false;
+        boolean anyAbleVisibleHeavyOrLineEnemy = false;
         for (DivisionState eDiv : enemyDivs) {
             if (eDiv.isAbleCombatEffective() && OtcAI.isDivisionVisibleToSide(engine, myDiv.side, eDiv)) {
                 anyAbleVisibleEnemy = true;
@@ -4275,6 +4300,14 @@ public class DivisionCommanderAI {
                         && eDiv.archetype != DivisionArchetype.SERVICE_GROUP
                         && eDiv.combatThreatWeight > 0.55f) {
                     anyAbleVisibleMobileCombatEnemy = true;
+                    if (eDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                            || (eDiv.archetype != null && eDiv.archetype.isCarrierArchetype())) {
+                        anyAbleVisibleHeavyOrLineEnemy = true;
+                    }
                 }
             }
         }
@@ -4414,6 +4447,33 @@ public class DivisionCommanderAI {
                     || myDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
                     || myDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
                     || myDiv.archetype == DivisionArchetype.PHASE_DIVISION;
+            boolean isCarrierDiv = myDiv.archetype != null && myDiv.archetype.isCarrierArchetype();
+
+            if (isCarrierDiv) {
+                // Carrier divisions strongly prefer unscreened Destroyer, Cruiser, Carrier, or Battleship targets
+                // and avoid sending strike packages across intervening enemy AA screens to chase fast kiting frigates!
+                if (isEnemyDivisionScreenedByCloserEnemy(engine, myDiv, eDiv, enemyDivs)) {
+                    score -= 780f;
+                }
+                boolean enemyIsLightSkirmisher = eDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
+                        || eDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                        || eDiv.archetype == DivisionArchetype.PHASE_DIVISION;
+                if (enemyIsLightSkirmisher) {
+                    if (anyAbleVisibleHeavyOrLineEnemy) {
+                        score -= 540f;
+                    }
+                    if (eDiv.avgMaxSpeed >= 155f || eDiv.getAliveMembers().size() <= 2) {
+                        score -= 320f;
+                    }
+                } else if (eDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
+                        || eDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                        || eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
+                        || eDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                        || eDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                        || (eDiv.archetype != null && eDiv.archetype.isCarrierArchetype())) {
+                    score += 420f;
+                }
+            }
 
             if (myDiv.useConvergence) {
                 // Convergence Division Commander (Alpha Core flagship or non-human fleet):
@@ -4475,6 +4535,49 @@ public class DivisionCommanderAI {
         return best;
     }
 
+    /**
+     * Returns true if {@code targetDiv} lies behind another visible able enemy division {@code blocker} along the
+     * approach corridor from {@code myDiv.centroid}, such that strike craft or ships advancing toward {@code targetDiv}
+     * would have to fly through {@code blocker}'s AA / engagement envelope first.
+     */
+    static boolean isEnemyDivisionScreenedByCloserEnemy(
+            CombatEngineAPI engine,
+            DivisionState myDiv,
+            DivisionState targetDiv,
+            List<DivisionState> enemyDivs) {
+        if (myDiv == null || targetDiv == null || enemyDivs == null || enemyDivs.size() <= 1) {
+            return false;
+        }
+        Vector2f origin = myDiv.centroid;
+        Vector2f tgtPos = OtcAI.getVisibleCentroidForSide(engine, myDiv.side, targetDiv);
+        if (origin == null || tgtPos == null) return false;
+        float dx = tgtPos.x - origin.x;
+        float dy = tgtPos.y - origin.y;
+        float dTarget = (float) Math.sqrt(dx * dx + dy * dy);
+        if (dTarget <= 1150f) return false;
+        float uX = dx / dTarget;
+        float uY = dy / dTarget;
+
+        for (DivisionState other : enemyDivs) {
+            if (other == null || other == targetDiv || !other.isAbleCombatEffective()) continue;
+            if (!OtcAI.isDivisionVisibleToSide(engine, myDiv.side, other)) continue;
+            if (other.archetype == DivisionArchetype.SERVICE_GROUP) continue;
+            Vector2f oPos = OtcAI.getVisibleCentroidForSide(engine, myDiv.side, other);
+            if (oPos == null) continue;
+            float odx = oPos.x - origin.x;
+            float ody = oPos.y - origin.y;
+            float dOther = (float) Math.sqrt(odx * odx + ody * ody);
+            if (dOther + 360f >= dTarget) continue;
+            float proj = odx * uX + ody * uY;
+            float perp = Math.abs(odx * (-uY) + ody * uX);
+            float corridorWidth = 920f + Math.max(120f, other.stationKeepingRadius * 0.65f);
+            if (proj > 180f && proj < (dTarget - 220f) && perp <= corridorWidth) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static void directShipAndFightersOntoTarget(ShipAPI ship, ShipwideAIFlags flags, ShipAPI focusEnemyShip) {
         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, null);
     }
@@ -4501,17 +4604,28 @@ public class DivisionCommanderAI {
                 VoidstrikeTargetObservance obs = (div != null && div.voidstrikeObservance != null)
                         ? div.voidstrikeObservance
                         : VoidstrikeTargetObservance.MEDIUM;
+                ShipAPI carrierStrikeTgt = VoidstrikeCoordinator.resolveSurvivableSquadronTargetShip(
+                        ship, div, null, null, focusEnemyShip, obs, true);
+                if (carrierStrikeTgt == null || !carrierStrikeTgt.isAlive() || carrierStrikeTgt.isHulk()) {
+                    carrierStrikeTgt = focusEnemyShip;
+                }
+                boolean splitTargetsActive = div != null
+                        && div.voidstrikeSplitMode == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS;
                 if (obs == VoidstrikeTargetObservance.HIGH) {
-                    ship.setForceCarrierTarget(focusEnemyShip);
-                    ship.setForceCarrierTargetTime(2.2f);
-                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 2.2f, focusEnemyShip);
+                    if (!splitTargetsActive) {
+                        ship.setForceCarrierTarget(carrierStrikeTgt);
+                        ship.setForceCarrierTargetTime(1.2f);
+                    }
+                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 1.2f, carrierStrikeTgt);
                 } else if (obs == VoidstrikeTargetObservance.MEDIUM) {
-                    ship.setForceCarrierTarget(focusEnemyShip);
-                    ship.setForceCarrierTargetTime(1.2f);
-                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 1.2f, focusEnemyShip);
+                    if (!splitTargetsActive) {
+                        ship.setForceCarrierTarget(carrierStrikeTgt);
+                        ship.setForceCarrierTargetTime(0.9f);
+                    }
+                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 0.9f, carrierStrikeTgt);
                 } else {
                     // FREE observance: light carrier target suggestion only
-                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 0.75f, focusEnemyShip);
+                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, FLAG_TTL * 0.6f, carrierStrikeTgt);
                 }
             }
         }

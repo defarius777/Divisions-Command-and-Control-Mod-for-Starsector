@@ -2347,13 +2347,56 @@ public class DivisionAITestSuite {
         divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, 90f);
         boolean emergencyPulledBackOk = emergencyTriggeredOk && carrier.pullBackFighters && carrierDiv.voidstrikeEmergencyRecallActive;
 
+        // Also verify:
+        //  (1) Closer-target switching (resolveSurvivableSquadronTargetShip) when an intervening enemy ship blocks the flight corridor,
+        //  (2) Anti-AA threat-skirting & dynamic jinking (computeAntiAaEvasionWaypoint) around non-target AA ships, and
+        //  (3) Self-preservation break-off when a strike craft is heavily damaged (< 48% hull) outside terminal range.
+        carrier.fluxLevel = 0f;
+        carrierDiv.localEnemyStrength = 0f;
+        carrierDiv.voidstrikeEmergencyRecallActive = false;
+        carrierDiv.voidstrikeEgressActive = false;
+        SimShipState interveningAaCruiser = arena.addShip(enemyDiv, "reh_mre_aa", "TTS Anubis", "anubis", HullSize.CRUISER, 0f, -1800f, 90f, 800f, 1, 0);
+        eGroup.shipIdToDivision.put(interveningAaCruiser.id, enemyDiv);
+        slowBomberWing.get(0).location.set(0f, -2900f);
+        slowBomberWing.get(0).hullLevel = 0.85f;
+        com.fs.starfarer.api.combat.ShipAPI switchedTarget = divisionai.VoidstrikeCoordinator.resolveSurvivableSquadronTargetShip(
+                carrier.proxy,
+                carrierDiv,
+                slowBomberWing.get(0).proxy,
+                java.util.Collections.singletonList(slowBomberWing.get(0).proxy),
+                enemyCap.proxy,
+                divisionai.PermanentDivisionManager.VoidstrikeTargetObservance.HIGH,
+                true);
+        boolean switchedToCloserBlockerOk = (switchedTarget == interveningAaCruiser.proxy);
+
+        Vector2f rawGoal = new Vector2f(0f, 4000f);
+        Vector2f evasiveGoal = divisionai.VoidstrikeCoordinator.computeAntiAaEvasionWaypoint(
+                slowBomberWing.get(0).proxy,
+                enemyCap.proxy,
+                rawGoal,
+                0,
+                0,
+                12.5f);
+        boolean aaEvasionDeflectedOk = Math.abs(evasiveGoal.x - rawGoal.x) >= 80f;
+
+        for (SimShipState b : slowBomberWing) {
+            b.location.set(0f, -2900f);
+            b.hullLevel = 0.40f;
+        }
+        ret0[0] = false;
+        divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, 95f);
+        boolean damagedCraftBrokeOffOk = ret0[0];
+
         return packageProfileOk
                 && prematureReturnCancelledOk
                 && nonEmergencyDidNotPullBack
                 && survivedPastOld38sTimeout
                 && bombersExpendedOrdnanceAtTarget
                 && "ordnance expended".equals(culminationReasonSeen)
-                && emergencyPulledBackOk;
+                && emergencyPulledBackOk
+                && switchedToCloserBlockerOk
+                && aaEvasionDeflectedOk
+                && damagedCraftBrokeOffOk;
     }
     private static void testUIHarnessAndUXSuccinctness() throws Exception {
         System.out.println("\n--- Scenario 7: UI/UX Testing Harness (Deployment Window 14x7 & Succinctness Audit) ---");

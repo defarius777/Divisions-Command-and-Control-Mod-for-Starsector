@@ -1326,11 +1326,21 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         try {
             CombatFleetManagerAPI fm = engine.getFleetManager(side);
             if (fm == null) return 0f;
-            List<com.fs.starfarer.api.fleet.FleetMemberAPI> list = null;
-            if ("deployed".equals(bucket)) list = fm.getDeployedCopy();
-            else if ("destroyed".equals(bucket)) list = fm.getDestroyedCopy();
-            else if ("retreated".equals(bucket)) list = fm.getRetreatedCopy();
-            if (list == null) return 0f;
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> list = new java.util.ArrayList<>();
+            if ("deployed".equals(bucket)) {
+                if (fm.getDeployedCopy() != null) list.addAll(fm.getDeployedCopy());
+            } else if ("destroyed".equals(bucket)) {
+                if (fm.getDestroyedCopy() != null) list.addAll(fm.getDestroyedCopy());
+                if (fm.getDisabledCopy() != null) {
+                    for (com.fs.starfarer.api.fleet.FleetMemberAPI dm : fm.getDisabledCopy()) {
+                        if (dm != null && !list.contains(dm)) {
+                            list.add(dm);
+                        }
+                    }
+                }
+            } else if ("retreated".equals(bucket)) {
+                if (fm.getRetreatedCopy() != null) list.addAll(fm.getRetreatedCopy());
+            }
             float sum = 0f;
             for (com.fs.starfarer.api.fleet.FleetMemberAPI m : list) {
                 if (m != null && !m.isFighterWing()) {
