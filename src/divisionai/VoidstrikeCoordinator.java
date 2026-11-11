@@ -345,9 +345,13 @@ public class VoidstrikeCoordinator {
         // abort the airborne wave! Keep voidstrikeStage = 2 so the airborne squadrons press home on the new target!
         if (targetChanged) {
             div.voidstrikeLastTargetKey = targetKey;
-            if (hadPreviousTarget && div.voidstrikeStage == 2 && wingsCommittedDownrange > 0
-                    && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
-                return;
+            if (hadPreviousTarget && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
+                if (div.voidstrikeStage == 2 && (wingsCommittedDownrange > 0 || wingsClearedCarriers > 0)) {
+                    return;
+                }
+                if (div.voidstrikeStage == 1 && wingsClearedCarriers > 0) {
+                    return;
+                }
             }
             div.voidstrikeStage = 0;
             div.voidstrikeStageStartTime = now;
@@ -978,6 +982,7 @@ public class VoidstrikeCoordinator {
                 } else if (wingTargetShip != null && wingTargetShip.isAlive()) {
                     fFlags.unsetFlag(AIFlags.CAMP_LOCATION);
                     fFlags.unsetFlag(AIFlags.ESCORT_OTHER_SHIP);
+                    fFlags.unsetFlag(AIFlags.DO_NOT_PURSUE);
                     boolean hasUnexpendedOrdnance = hasUnexpendedStrikeOrdnance(fighter, isBomberWing);
                     boolean isFiniteAmmoCraft = isBomberWing || hasFiniteAmmoStrikeWeapons(fighter);
                     float maxWepRange = computeMaxStrikeWeaponRange(fighter);
@@ -2247,9 +2252,14 @@ public class VoidstrikeCoordinator {
                 : 0f;
 
         Vector2f tLoc = target.getLocation();
+        // Clamp the physical aim point lateral offset to +-65% of the target's collision radius so Area Saturation
+        // salvos bracket the entire physical hull silhouette without aiming unguided torpedoes into empty space outside the hull!
+        float maxHullAimOffset = Math.max(28f, targetRadius * 0.65f);
+        float hullLateralAim = Math.max(-maxHullAimOffset, Math.min(maxHullAimOffset, out.craftLateralOffset));
+        float hullDepthAim = Math.max(-maxHullAimOffset * 0.5f, Math.min(maxHullAimOffset * 0.5f, out.craftDepthOffset));
         out.worldSectorPoint.set(
-                tLoc.x + legRightX * out.craftLateralOffset + legFwdX * out.craftDepthOffset,
-                tLoc.y + legRightY * out.craftLateralOffset + legFwdY * out.craftDepthOffset);
+                tLoc.x + legRightX * hullLateralAim + legFwdX * hullDepthAim,
+                tLoc.y + legRightY * hullLateralAim + legFwdY * hullDepthAim);
 
         float leadFactor = (aoaCorrection == VoidstrikeAoaCorrection.LOW) ? 0.55f : 1.00f;
         out.worldAimPoint.set(
