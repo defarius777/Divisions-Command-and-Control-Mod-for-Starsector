@@ -816,6 +816,55 @@ public final class FactionFleetDoctrines {
                 cfg.setOpeningMission(DoctrineDivisionType.CRUISER, DivisionMissionType.CLOSE_ACTION);
                 cfg.setMainMission(DoctrineDivisionType.CRUISER, DivisionMissionType.CLOSE_ACTION);
             }
+            // Dynamic carrier doctrine synthesis for unknown modded factions
+            int cvWeight = fd.getCarriers();
+            int phaseWeight = fd.getPhaseShips();
+            int shipQuality = fd.getShipQuality();
+            int shipSize = fd.getShipSize();
+            boolean disorderlyRaider = !fd.isStrictComposition() && shipQuality <= 2 && aggr >= 4;
+            if (disorderlyRaider) {
+                for (DoctrineDivisionType cdt : new DoctrineDivisionType[]{
+                        DoctrineDivisionType.FLEET_CARRIER,
+                        DoctrineDivisionType.LIGHT_CARRIER,
+                        DoctrineDivisionType.ESCORT_CARRIER,
+                        DoctrineDivisionType.CARRIER_GROUP}) {
+                    cfg.setVoidstrikeTargetingBias(cdt, PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION);
+                    cfg.setVoidstrikeFocusCarriers(cdt, false);
+                    cfg.setVoidstrikeObservance(cdt, VoidstrikeTargetObservance.FREE);
+                    cfg.setVoidstrikeCoordination(cdt, VoidstrikeCoordinationMode.UNCOORDINATED);
+                    cfg.setVoidstrikeAttackGeometry(cdt, PermanentDivisionManager.VoidstrikeAttackGeometry.DIRECT_ASSAULT);
+                    cfg.setVoidstrikeSplitMode(cdt, PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS);
+                }
+            } else {
+                PermanentDivisionManager.VoidstrikeAttackGeometry dynGeom = (phaseWeight >= 2 || shipQuality >= 4)
+                        ? PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT
+                        : ((cvWeight >= 3)
+                        ? PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE
+                        : PermanentDivisionManager.VoidstrikeAttackGeometry.DIRECT_ASSAULT);
+                PermanentDivisionManager.VoidstrikeSplitMode dynSplit = (dynGeom == PermanentDivisionManager.VoidstrikeAttackGeometry.DIRECT_ASSAULT)
+                        ? PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED
+                        : PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES;
+                boolean hunterCv = (cvWeight >= 3 || shipQuality >= 4);
+                cfg.setVoidstrikeTargetingBias(DoctrineDivisionType.FLEET_CARRIER,
+                        shipSize >= 4
+                                ? PermanentDivisionManager.VoidstrikeTargetingBias.CAPITALS_FIRST
+                                : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS);
+                cfg.setVoidstrikeFocusCarriers(DoctrineDivisionType.FLEET_CARRIER, shipQuality >= 5);
+                cfg.setVoidstrikeAttackGeometry(DoctrineDivisionType.FLEET_CARRIER, dynGeom);
+                cfg.setVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER, dynSplit);
+
+                cfg.setVoidstrikeTargetingBias(DoctrineDivisionType.LIGHT_CARRIER,
+                        PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS);
+                cfg.setVoidstrikeFocusCarriers(DoctrineDivisionType.LIGHT_CARRIER, hunterCv);
+                cfg.setVoidstrikeAttackGeometry(DoctrineDivisionType.LIGHT_CARRIER, dynGeom);
+                cfg.setVoidstrikeSplitMode(DoctrineDivisionType.LIGHT_CARRIER, dynSplit);
+
+                cfg.setVoidstrikeTargetingBias(DoctrineDivisionType.CARRIER_GROUP,
+                        PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS);
+                cfg.setVoidstrikeFocusCarriers(DoctrineDivisionType.CARRIER_GROUP, hunterCv);
+                cfg.setVoidstrikeAttackGeometry(DoctrineDivisionType.CARRIER_GROUP, dynGeom);
+                cfg.setVoidstrikeSplitMode(DoctrineDivisionType.CARRIER_GROUP, dynSplit);
+            }
         }
         return cfg;
     }

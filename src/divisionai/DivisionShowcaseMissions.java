@@ -365,6 +365,7 @@ public final class DivisionShowcaseMissions {
             ShowcaseFaction fac) {
 
         List<BakedDivisionTemplate> templates = buildRosterTemplates(fac);
+        FleetDoctrineConfig doctrine = FactionFleetDoctrines.getDoctrineForFactionId(fac.factionId, null);
         List<PermanentDivisionSpec> outSpecs = new ArrayList<>(templates.size());
         String sideTag = (side == FleetSide.PLAYER) ? "P" : "E";
 
@@ -392,7 +393,16 @@ public final class DivisionShowcaseMissions {
             spec.customMainMission = tmpl.mainMission;
             spec.customLineStation = tmpl.lineStation;
             if (tmpl.archetype != null && tmpl.archetype.isCarrierArchetype()) {
-                spec.customVoidstrikeTargetingBias = PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+                DoctrineDivisionType cdt = DoctrineDivisionType.forArchetype(tmpl.archetype);
+                boolean isPrimaryFleetWing = tmpl.suffixId != null && tmpl.suffixId.endsWith("_1");
+                spec.customVoidstrikeTargetingBias = isPrimaryFleetWing
+                        ? PermanentDivisionManager.VoidstrikeTargetingBias.CAPITALS_FIRST
+                        : (doctrine != null
+                        ? doctrine.getVoidstrikeTargetingBias(cdt)
+                        : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS);
+                if (doctrine != null) {
+                    spec.customVoidstrikeFocusCarriers = Boolean.valueOf(doctrine.isVoidstrikeFocusCarriers(cdt));
+                }
                 spec.customVoidstrikeObservance = tmpl.voidstrikeObservance;
                 spec.customVoidstrikeCoordination = tmpl.voidstrikeCoordination;
                 spec.customVoidstrikeAttackGeometry = tmpl.voidstrikeGeometry != null

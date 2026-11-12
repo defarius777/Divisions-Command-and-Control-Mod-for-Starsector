@@ -294,7 +294,8 @@
         "jaydeepiracy",
         "jdp_flowerfish",
         "hmi_sv",
-        "fang"
+        "fang",
+        "armaarmatura_pirates"
       ],
       "organizationRating": "low",
       "patrolOrganizationRating": "low",
@@ -356,7 +357,9 @@
       "aliases": [
         "brighton",
         "hmi_brighton",
-        "pack"
+        "pack",
+        "roider",
+        "roider_bulk"
       ],
       "organizationRating": "average",
       "patrolOrganizationRating": "average",
@@ -526,7 +529,9 @@
     "mercenary": {
       "aliases": [
         "famous_bounty",
-        "ml_bounty"
+        "ml_bounty",
+        "cabal",
+        "the_deserter"
       ],
       "organizationRating": "high",
       "patrolOrganizationRating": "high",
@@ -635,7 +640,11 @@
         "nex_derelict",
         "domres",
         "indevo_derelict",
-        "indevo_converters"
+        "indevo_converters",
+        "armaa_derelict",
+        "sotf_dustkeepers",
+        "sotf_dustkeepers_burnouts",
+        "sotf_dustkeepers_proxies"
       ],
       "nomenclatureCategory": "POST_AI_WAR",
       "namingStyle": "POST_AI_WAR_UNKNOWN",
@@ -664,7 +673,11 @@
         "rat_abyssals_harmony",
         "rat_abyssals_serenity",
         "rat_abyssals_solitude",
-        "rat_abyssals_wastes"
+        "rat_abyssals_wastes",
+        "blade_breakers",
+        "sotf_dreaminggestalt",
+        "sotf_symphony",
+        "jdp_sixth"
       ],
       "nomenclatureCategory": "ABYSSAL_ERROR",
       "namingStyle": "ABYSSAL_ERROR",
@@ -686,7 +699,12 @@
         "tahlan_greathouses",
         "blackrock_driveyards",
         "dassault_mikoyan",
-        "sms_curator"
+        "sms_curator",
+        "6eme_bureau",
+        "apex_design",
+        "jdp_eridaniutopia",
+        "jdp_fabriqueorbitale",
+        "jdp_technology"
       ],
       "organizationRating": "high",
       "merchantOrganizationRating": "high"
@@ -694,7 +712,10 @@
     "tahlan_legioinfernalis": {
       "organizationRating": "very_high",
       "aliases": [
-        "tahlan_daemons"
+        "tahlan_daemons",
+        "tahlan_legiodaemons",
+        "tahlan_legioelite",
+        "tahlan_allmother"
       ]
     },
     "maybegoogle": {
@@ -705,6 +726,30 @@
         "jdp_laplacians"
       ],
       "organizationRating": "average"
+    },
+    "armaarmatura": {
+      "aliases": [
+        "armaarmatura_arusthai",
+        "armaarmatura_atac",
+        "armaarmatura_boss",
+        "armaarmatura_market",
+        "sotf_sierra_faction"
+      ],
+      "organizationRating": "very_high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "average",
+      "namingStyle": "STANDARD_PREFIX",
+      "basePreset": "STRIKE_WING",
+      "defaultNumbering": "ARABIC"
+    },
+    "vic": {
+      "aliases": [],
+      "organizationRating": "very_high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "high",
+      "namingStyle": "STANDARD_PREFIX",
+      "basePreset": "CORPORATE_SECURITY",
+      "defaultNumbering": "ROMAN"
     }
   }
 }

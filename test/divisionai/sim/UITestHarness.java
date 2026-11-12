@@ -4144,17 +4144,26 @@ public class UITestHarness {
                 && new File("mod/data/config/division_faction_doctrines.json").isFile()
                 && FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null).getFleetWideFormation() == PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD
                 && FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED
+                && FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null).getVoidstrikeTargetingBias(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeTargetingBias.CAPITALS_FIRST
                 && FactionFleetDoctrines.getDoctrineForFactionId("persean", null).getVoidstrikeAttackGeometry(DoctrineDivisionType.LIGHT_CARRIER) == PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE
                 && FactionFleetDoctrines.getDoctrineForFactionId("persean", null).getVoidstrikeSplitMode(DoctrineDivisionType.LIGHT_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && FactionFleetDoctrines.getDoctrineForFactionId("persean", null).isVoidstrikeFocusCarriers(DoctrineDivisionType.LIGHT_CARRIER)
                 && FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null).getVoidstrikeAttackGeometry(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeAttackGeometry.PINCER_ENVELOPMENT
                 && FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null).getVoidstrikeTargetingBias(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeTargetingBias.CAPITALS_FIRST
+                && FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null).isVoidstrikeFocusCarriers(DoctrineDivisionType.FLEET_CARRIER)
                 && FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null).getVoidstrikeSplitMode(DoctrineDivisionType.ESCORT_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
                 && FactionFleetDoctrines.getDoctrineForFactionId("uaf", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
                 && FactionFleetDoctrines.getDoctrineForFactionId("uaf", null).getVoidstrikeSplitMode(DoctrineDivisionType.LIGHT_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && FactionFleetDoctrines.getDoctrineForFactionId("armaarmatura", null).isVoidstrikeFocusCarriers(DoctrineDivisionType.FLEET_CARRIER)
+                && FactionFleetDoctrines.getDoctrineForFactionId("vic", null).isVoidstrikeFocusCarriers(DoctrineDivisionType.LIGHT_CARRIER)
+                && FactionFleetDoctrines.getDoctrineForFactionId("pirates", null).getVoidstrikeTargetingBias(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION
                 && FactionFleetDoctrines.getDoctrineForFactionId("tahlan_legioinfernalis", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && FactionFleetDoctrines.getDoctrineForFactionId("tahlan_legiodaemons", null).isVoidstrikeFocusCarriers(DoctrineDivisionType.FLEET_CARRIER)
                 && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getOtcAuthority() == OtcAuthority.POSITIVE_CONTROL
                 && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getVoidstrikeSplitMode(DoctrineDivisionType.FLEET_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
                 && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getVoidstrikeSplitMode(DoctrineDivisionType.LIGHT_CARRIER) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_AXES
+                && FactionFleetDoctrines.getDoctrineForFactionId("remnant", null).getVoidstrikeSplitMode(DoctrineDivisionType.CARRIER_GROUP) == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS
                 && FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null).isPlayEnabled(PermanentDivisionManager.OtcPlay.MARTYRDOM)
                 && FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null).getRammingMode(DoctrineDivisionType.FRIGATE) == PermanentDivisionManager.DivisionRammingMode.DIRECT_RAM
                 && PermanentDivisionManager.FleetDoctrineConfig.defaultVoidstrikeSquadronDepthFor(DoctrineDivisionType.FLEET_CARRIER) == 2
