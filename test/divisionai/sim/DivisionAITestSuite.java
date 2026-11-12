@@ -3444,6 +3444,70 @@ public class DivisionAITestSuite {
         boolean conveyorWaveCulminatedOk = divisionai.VoidstrikeCoordinator.getActiveVoidstrikes().isEmpty()
                 && carDiv2.voidstrikeEgressActive;
 
+        //    (d) Friendly-Fire Prevention & Clear-Lane Sidestep (Battle 5 regression):
+        //        1) Stationary friendly capital (pCap Onslaught) directly between bomber and enemyDivA.flagship:
+        //           applyTerminalStrikeCraftGunnery MUST block ShipCommand.FIRE, withhold giveCommand(FIRE), and steer
+        //           the bomber laterally around pCap's shoulder!
+        //        2) Fast-moving friendly frigate (ff1) crossing into the torpedo's 1.0s flight path from outside the
+        //           instant t=0 bore ray: findFriendlyBlockingStrikeLineOfFire MUST predict the intercept and block FIRE!
+        //        3) Once friendly hulls clear the firing corridor, ShipCommand.FIRE releases cleanly onto enemyDivA!
+        origTorpAmmo[0] = 1;
+        ea1.location.set(0f, 1400f);
+        ea1.velocity.set(0f, 0f);
+        lrBomber.location.set(0f, 550f);
+        lrBomber.facing = 90f;
+        lrBomber.velocity.set(0f, 160f);
+        pCap.location.set(20f, 980f);
+        pCap.velocity.set(0f, 0f);
+        ff1.location.set(-900f, -900f);
+        ff2.location.set(-900f, -950f);
+        ff3.location.set(-900f, -1000f);
+        divisionai.VoidstrikeCoordinator.FiringSectorAssignment ffSec =
+                divisionai.VoidstrikeCoordinator.computeHierarchicalFiringSector(
+                        divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION,
+                        divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG,
+                        ea1.proxy, lrBomber.proxy, 0, 1, 0, 1, 0, 1, 0f, 1f, 1f, 0f);
+        lrBomber.givenCommands.clear();
+        lrBomber.blockedCommands.clear();
+        boolean blockedByFriendlyCap = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                lrBomber.proxy, lrBomber.aiFlags, ea1.proxy, ffSec,
+                divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 850f);
+        boolean capFireHeldAndSkirted = blockedByFriendlyCap
+                && lrBomber.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE)
+                && !lrBomber.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE)
+                && lrBomber.velocity.x < -15f;
+
+        // Move pCap clear, place fast friendly frigate ff1 at (-220, 950) sprinting +220 u/s across x=0 torpedo lane!
+        pCap.location.set(-900f, 0f);
+        ff1.location.set(-220f, 950f);
+        ff1.velocity.set(220f, 0f);
+        lrBomber.location.set(0f, 550f);
+        lrBomber.facing = 90f;
+        lrBomber.velocity.set(0f, 160f);
+        lrBomber.givenCommands.clear();
+        lrBomber.blockedCommands.clear();
+        boolean blockedByCrossingFrigate = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                lrBomber.proxy, lrBomber.aiFlags, ea1.proxy, ffSec,
+                divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 850f);
+        boolean crossingFrigateHeld = blockedByCrossingFrigate
+                && lrBomber.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE)
+                && !lrBomber.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE);
+
+        // Clear ff1 out of the lane -> bomber fires cleanly!
+        ff1.location.set(-900f, -900f);
+        ff1.velocity.set(0f, 0f);
+        lrBomber.location.set(0f, 550f);
+        lrBomber.facing = 90f;
+        lrBomber.velocity.set(0f, 160f);
+        lrBomber.givenCommands.clear();
+        lrBomber.blockedCommands.clear();
+        boolean gatedWhenLaneClear = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                lrBomber.proxy, lrBomber.aiFlags, ea1.proxy, ffSec,
+                divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 850f);
+        boolean firesCleanlyWhenClear = !gatedWhenLaneClear
+                && lrBomber.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE);
+        boolean friendlyFirePreventionOk = capFireHeldAndSkirted && crossingFrigateHeld && firesCleanlyWhenClear;
+
         check(regenMechExcludedFromFiniteBombersOk
                         && standoffGateScaledOk
                         && mergedTwoDivWaveOk
@@ -3453,13 +3517,14 @@ public class DivisionAITestSuite {
                         && adaptivePrecisionSpanOk
                         && postEgressAlphaCarrierAlignedOk
                         && doublingDoesNotBounceMainEffortOk
-                        && conveyorWaveCulminatedOk,
-                "Strike-Craft & Multi-Carrier Fixes: Regenerating/PD escort ammo excluded, 1200u bomber gate scaled to 960u (at csv attackRunRange=600), downrange target lock holds, ordnance-expended culmination fires cleanly (incl. staggered replacements), Alpha carriers stay unified & re-align post-egress, Doubling holds Main Effort, and mega-Precision span adapts",
-                String.format(Locale.ROOT, "regenExcluded=%b, gateScaled=%b (wep=%.0f, lrGate=%.0f, stdGate=%.0f), merged2Div=%b, targetLock=%b, ordExpended=%b, unifiedAlpha=%b, precSpan=[4sq=%.0f,20sq=%.0f], postEgressAlign=%b, doublingHold=%b, conveyorCulm=%b",
+                        && conveyorWaveCulminatedOk
+                        && friendlyFirePreventionOk,
+                "Strike-Craft & Multi-Carrier Fixes: Regenerating/PD escort ammo excluded, 1200u bomber gate scaled to 960u (at csv attackRunRange=600), downrange target lock holds, ordnance-expended culmination fires cleanly (incl. staggered replacements), Alpha carriers stay unified & re-align post-egress, Doubling holds Main Effort, mega-Precision span adapts, and friendly-fire line-of-fire gate + sidestep protects allies",
+                String.format(Locale.ROOT, "regenExcluded=%b, gateScaled=%b (wep=%.0f, lrGate=%.0f, stdGate=%.0f), merged2Div=%b, targetLock=%b, ordExpended=%b, unifiedAlpha=%b, precSpan=[4sq=%.0f,20sq=%.0f], postEgressAlign=%b, doublingHold=%b, conveyorCulm=%b, noFriendlyFire=%b",
                         regenMechExcludedFromFiniteBombersOk, standoffGateScaledOk, lrMaxRange, lrGateDist, stdGateDist,
                         mergedTwoDivWaveOk, downrangeTargetLockHeldOk, culminatedOrdnanceExpendedOk, noSplitSoloCarrierKillBoxOk,
                         smallPrec.voidstrikeSpanWidth, megaPrec.voidstrikeSpanWidth,
-                        postEgressAlphaCarrierAlignedOk, doublingDoesNotBounceMainEffortOk, conveyorWaveCulminatedOk));
+                        postEgressAlphaCarrierAlignedOk, doublingDoesNotBounceMainEffortOk, conveyorWaveCulminatedOk, friendlyFirePreventionOk));
     }
 
     private static float dist(Vector2f a, Vector2f b) {

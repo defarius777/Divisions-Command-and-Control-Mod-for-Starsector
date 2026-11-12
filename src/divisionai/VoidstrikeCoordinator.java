@@ -1247,7 +1247,7 @@ public class VoidstrikeCoordinator {
                     boolean unguidedCraft = isBomberWing || hasUnguidedStrikeMunitions(fighter);
                     boolean onFlankingDogleg = false;
                     float baseGateDist = computeDoctrinalFlankingGateBaseDist(wing, maxWepRange);
-                    float terminalStartRange = Math.max(880f, baseGateDist + 220f);
+                    float terminalStartRange = Math.max(880f, Math.max(baseGateDist + 220f, maxWepRange + 140f));
 
                     // Dress squadron formation, multi-axis dogleg (L-Crossfire / Pincer / Split-Wing), & Voidstrike depth on approach
                     boolean isStandoffGunship = isStandoffGunshipOrCorvette(wing, fighter);
@@ -1361,14 +1361,17 @@ public class VoidstrikeCoordinator {
                             // Direct approach (or Anvil 0-deg leg of L-Crossfire): project a clean forward approach target.
                             // When part of a multi-angle strike (e.g. 0-deg Anvil leg paired with an 85-deg Hammer dogleg),
                             // gently pace velocity outside enemy PD range (> 820u) so the Anvil leg arrives simultaneously with the Hammer leg!
-                            Vector2f craftGoal = new Vector2f(
+                            Vector2f rawDirectGoal = new Vector2f(
                                     attackTarget.getLocation().x + intraWingOffset.x,
                                     attackTarget.getLocation().y + intraWingOffset.y);
-                            if (dEnemy > terminalStartRange) {
-                                craftGoal = computeAntiAaEvasionWaypoint(fighter, attackTarget, craftGoal, wIdx, cIdx, now);
+                            Vector2f craftGoal = rawDirectGoal;
+                            boolean deviatedAroundObstacle = false;
+                            if (dEnemy > terminalStartRange || dEnemy > 520f) {
+                                craftGoal = computeAntiAaEvasionWaypoint(fighter, attackTarget, rawDirectGoal, wIdx, cIdx, now);
+                                deviatedAroundObstacle = DivisionUiWidgets.distance(craftGoal, rawDirectGoal) >= 24f;
                             }
                             fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, craftGoal);
-                            if (attackTarget != focusEnemyShip && dEnemy > terminalStartRange) {
+                            if ((attackTarget != focusEnemyShip || deviatedAroundObstacle) && dEnemy > terminalStartRange) {
                                 steerFighterTowardPoint60Hz(fighter, craftGoal, true);
                             }
                             float pdStandOffCheck = Math.max(820f, baseGateDist + 180f);
@@ -1427,6 +1430,13 @@ public class VoidstrikeCoordinator {
                                 dEnemy);
                         div.voidstrikeTerminalAlignedCraftCount++;
                         if (fireGated) {
+                            div.voidstrikeFireGatedCraftCount++;
+                        }
+                    } else if (hasOrdnance && (unguidedCraft || isFiniteAmmoCraft) && dEnemy <= maxWepRange + 320f) {
+                        // Even when on a flanking dogleg or flying a standoff gunship/corvette outside terminal AoA control,
+                        // never allow vanilla FighterAI to loose torpedoes, rockets, or bombs into the back of a friendly hull!
+                        if (findFriendlyBlockingStrikeLineOfFire(fighter, attackTarget, attackTarget.getLocation()) != null) {
+                            fighter.blockCommandForOneFrame(ShipCommand.FIRE);
                             div.voidstrikeFireGatedCraftCount++;
                         }
                     }
@@ -2074,31 +2084,50 @@ public class VoidstrikeCoordinator {
         return false;
     }
 
+    private static List<ShipAPI> frameCachedCombatShipsSide0 = null;
+    private static List<ShipAPI> frameCachedCombatShipsSide1 = null;
+
     /**
      * Collects all live non-fighter enemy combat ships opposing {@code mySideOwner}.
      */
     static List<ShipAPI> collectEnemyCombatShipsForOwner(int mySideOwner) {
+        if (mySideOwner == 0 && frameCachedCombatShipsSide1 != null) {
+            return frameCachedCombatShipsSide1;
+        }
+        if (mySideOwner == 1 && frameCachedCombatShipsSide0 != null) {
+            return frameCachedCombatShipsSide0;
+        }
+        return buildLiveCombatShipsForOwner(mySideOwner == 0 ? 1 : 0);
+    }
+
+    /**
+     * Collects all live non-fighter friendly combat ships on {@code mySideOwner}'s side (including allied AI hulls).
+     */
+    static List<ShipAPI> collectFriendlyCombatShipsForOwner(int mySideOwner) {
+        if (mySideOwner == 0 && frameCachedCombatShipsSide0 != null) {
+            return frameCachedCombatShipsSide0;
+        }
+        if (mySideOwner == 1 && frameCachedCombatShipsSide1 != null) {
+            return frameCachedCombatShipsSide1;
+        }
+        return buildLiveCombatShipsForOwner(mySideOwner);
+    }
+
+    private static List<ShipAPI> buildLiveCombatShipsForOwner(int targetOwner) {
         List<ShipAPI> out = new ArrayList<>();
         Set<String> seenIds = new HashSet<>();
-        BattleGroupState oppGroup = (mySideOwner == 0) ? lastVoidstrikeEnemyGroup : lastVoidstrikePlayerGroup;
-        if (oppGroup != null && oppGroup.divisions != null) {
-            for (DivisionState eDiv : oppGroup.divisions) {
-                if (eDiv == null || eDiv.members == null) continue;
-                for (ShipAPI s : eDiv.members) {
-                    if (s == null || !s.isAlive() || s.isHulk() || s.isFighter() || s.getOwner() == mySideOwner) continue;
-                    if (s.getLocation() == null) continue;
-                    if (s.getId() == null || seenIds.add(s.getId())) {
-                        out.add(s);
-                    }
-                }
-            }
+        if (targetOwner == 0) {
+            appendGroupNonFighterCombatShips(lastVoidstrikePlayerGroup, 0, seenIds, out);
+            appendGroupNonFighterCombatShips(lastVoidstrikeAlliedGroup, 0, seenIds, out);
+        } else {
+            appendGroupNonFighterCombatShips(lastVoidstrikeEnemyGroup, 1, seenIds, out);
         }
         CombatEngineAPI engine = (lastVoidstrikeUpdateEngine != null)
                 ? lastVoidstrikeUpdateEngine
                 : Global.getCombatEngine();
         if (engine != null && engine.getShips() != null) {
             for (ShipAPI s : engine.getShips()) {
-                if (s == null || !s.isAlive() || s.isHulk() || s.isFighter() || s.getOwner() == mySideOwner) continue;
+                if (s == null || !s.isAlive() || s.isHulk() || s.isFighter() || s.getOwner() != targetOwner) continue;
                 if (s.getLocation() == null) continue;
                 if (s.getId() == null || seenIds.add(s.getId())) {
                     out.add(s);
@@ -2106,6 +2135,24 @@ public class VoidstrikeCoordinator {
             }
         }
         return out;
+    }
+
+    private static void appendGroupNonFighterCombatShips(
+            BattleGroupState group,
+            int targetOwner,
+            Set<String> seenIds,
+            List<ShipAPI> out) {
+        if (group == null || group.divisions == null) return;
+        for (DivisionState d : group.divisions) {
+            if (d == null || d.members == null) continue;
+            for (ShipAPI s : d.members) {
+                if (s == null || !s.isAlive() || s.isHulk() || s.isFighter() || s.getOwner() != targetOwner) continue;
+                if (s.getLocation() == null) continue;
+                if (s.getId() == null || seenIds.add(s.getId())) {
+                    out.add(s);
+                }
+            }
+        }
     }
 
     /**
@@ -2269,6 +2316,40 @@ public class VoidstrikeCoordinator {
                     float radialPush = Math.min(220f, (keepOutRadius - dShip) * 0.55f);
                     avoidOffsetX += awayX * radialPush;
                     avoidOffsetY += awayY * radialPush;
+                }
+            }
+        }
+
+        if (attackTarget != null && dTarget <= 1550f && dTarget > 360f) {
+            ShipAPI parentCarrier = (fighter.getWing() != null) ? fighter.getWing().getSourceShip() : null;
+            List<ShipAPI> allies = collectFriendlyCombatShipsForOwner(fighter.getOwner());
+            for (ShipAPI ally : allies) {
+                if (ally == null || ally == fighter || ally == attackTarget || !ally.isAlive() || ally.isHulk() || ally.isFighter()) {
+                    continue;
+                }
+                if (ally.isPhased() || ally.getLocation() == null) continue;
+                ShipAPI.HullSize hs = ally.getHullSize();
+                if (hs != ShipAPI.HullSize.CAPITAL_SHIP && hs != ShipAPI.HullSize.CRUISER && hs != ShipAPI.HullSize.DESTROYER) {
+                    continue;
+                }
+                float relX = ally.getLocation().x - fLoc.x;
+                float relY = ally.getLocation().y - fLoc.y;
+                float proj = relX * dirX + relY * dirY;
+                if (ally == parentCarrier && proj <= 65f) continue;
+                float signedLat = relX * rightX + relY * rightY;
+                float absLat = Math.abs(signedLat);
+                float allyClearRad = Math.max(55f, ally.getCollisionRadius()) + 80f;
+                if (proj > 15f && proj < Math.min(segDist - 70f, dTarget - 110f) && absLat <= allyClearRad) {
+                    float pushSide;
+                    if (absLat > 24f) {
+                        pushSide = (signedLat > 0f) ? -1f : 1f;
+                    } else {
+                        pushSide = ((wingIdx & 1) == 0) ? -1f : 1f;
+                    }
+                    float penetration = Math.max(0f, allyClearRad - absLat);
+                    float lateralPush = Math.min(260f, 115f + penetration * 0.70f);
+                    avoidOffsetX += rightX * (pushSide * lateralPush);
+                    avoidOffsetY += rightY * (pushSide * lateralPush);
                 }
             }
         }
@@ -2748,6 +2829,43 @@ public class VoidstrikeCoordinator {
             }
         }
 
+        // Friendly-Fire Prevention & Clear-Lane Sidestep:
+        // Never force ShipCommand.FIRE (and actively block vanilla FighterAI's trigger!) when any friendly surface
+        // warship lies in the torpedo/rocket/drift-bomb trajectory or will cross into the projectile's flight path!
+        // Instead, hold fire and sidestep smoothly around the friendly hull's port/starboard shoulder to open a clean lane.
+        ShipAPI blockingAlly = findFriendlyBlockingStrikeLineOfFire(fighter, target, sector.worldAimPoint);
+        if (blockingAlly != null && blockingAlly.getLocation() != null) {
+            fighter.blockCommandForOneFrame(ShipCommand.FIRE);
+            if (dEnemy > minInnerDiveFloor) {
+                float rightX = aimDirY;
+                float rightY = -aimDirX;
+                float relAx = blockingAlly.getLocation().x - fighter.getLocation().x;
+                float relAy = blockingAlly.getLocation().y - fighter.getLocation().y;
+                float signedLat = relAx * rightX + relAy * rightY;
+                float skirtSign;
+                if (Math.abs(signedLat) > 22f) {
+                    skirtSign = (signedLat > 0f) ? -1f : 1f;
+                } else {
+                    String parityKey = (fighter.getWing() != null && fighter.getWing().getLeader() != null
+                            && fighter.getWing().getLeader().getId() != null)
+                            ? fighter.getWing().getLeader().getId()
+                            : (fighter.getId() != null ? fighter.getId() : "0");
+                    skirtSign = ((parityKey.hashCode() & 1) == 0) ? -1f : 1f;
+                }
+                boolean driftBomb = hasDriftBombOrdnance(fighter);
+                float allyRad = Math.max(40f, blockingAlly.getCollisionRadius());
+                float clearDist = allyRad + (driftBomb ? 135f : 105f);
+                Vector2f clearLaneGoal = new Vector2f(
+                        blockingAlly.getLocation().x + rightX * skirtSign * clearDist + aimDirX * 150f,
+                        blockingAlly.getLocation().y + rightY * skirtSign * clearDist + aimDirY * 150f);
+                if (fFlags != null) {
+                    fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, clearLaneGoal);
+                }
+                steerFighterTowardPoint60Hz(fighter, clearLaneGoal, true);
+            }
+            return true;
+        }
+
         // Fire-Gate Discipline under STRONG AoA: hold unguided torpedo/rocket release when off-boresight (> 9.5 deg)
         // while outside standoff release floor (dEnemy > 380u), releasing immediately once aligned!
         if (isStrong && hasUnguidedOrdnance && Math.abs(angleDiff) > 9.5f && dEnemy > 380f) {
@@ -2765,6 +2883,135 @@ public class VoidstrikeCoordinator {
             fighter.giveCommand(ShipCommand.FIRE, sector.worldAimPoint, 2);
         }
         return false;
+    }
+
+    public static boolean hasDriftBombOrdnance(ShipAPI fighter) {
+        if (fighter == null || fighter.getAllWeapons() == null) return false;
+        for (WeaponAPI w : fighter.getAllWeapons()) {
+            if (w == null || w.isDecorative() || w.isPermanentlyDisabled()) continue;
+            if (w.usesAmmo() && w.getAmmo() <= 0) continue;
+            if (w.getSpec() != null && w.getSpec().getAIHints() != null
+                    && w.getSpec().getAIHints().contains(AIHints.BOMB)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Checks whether any friendly non-fighter combat ship lies inside {@code fighter}'s strike ordnance line-of-fire
+     * toward {@code aimPoint} / {@code target} — testing both instant geometric corridor clearance (along both the
+     * aim vector and the fighter's physical nose bore) and predictive closest-approach over the projectile's flight
+     * time {@code t in [0.06s, tImpact]} against moving friendly ships (such as flanking frigates or brawling capitals).
+     * Returns the closest blocking friendly ship, or {@code null} if the firing lane is clear.
+     */
+    public static ShipAPI findFriendlyBlockingStrikeLineOfFire(
+            ShipAPI fighter,
+            ShipAPI target,
+            Vector2f aimPoint) {
+        if (fighter == null || fighter.getLocation() == null) return null;
+        Vector2f p0 = fighter.getLocation();
+        Vector2f goal = (aimPoint != null)
+                ? aimPoint
+                : ((target != null) ? target.getLocation() : null);
+        if (goal == null) return null;
+
+        float dx = goal.x - p0.x;
+        float dy = goal.y - p0.y;
+        float distAim = (float) Math.sqrt(dx * dx + dy * dy);
+        if (distAim < 1f) return null;
+        float aimDirX = dx / distAim;
+        float aimDirY = dy / distAim;
+
+        float boreRad = (float) Math.toRadians(fighter.getFacing());
+        float boreX = (float) Math.cos(boreRad);
+        float boreY = (float) Math.sin(boreRad);
+
+        float dTargetCenter = (target != null && target.getLocation() != null)
+                ? DivisionUiWidgets.distance(p0, target.getLocation())
+                : distAim;
+        float targetRad = (target != null && target.getCollisionRadius() > 0f)
+                ? target.getCollisionRadius()
+                : 85f;
+        boolean isDriftBomb = hasDriftBombOrdnance(fighter);
+        boolean isUnguided = isDriftBomb || hasUnguidedStrikeMunitions(fighter);
+        float maxBlockProj = Math.max(85f, dTargetCenter - targetRad * (isDriftBomb ? 0.12f : 0.45f));
+        float margin = isDriftBomb ? 95f : (isUnguided ? 65f : 48f);
+
+        float vpX;
+        float vpY;
+        float tImpact;
+        if (isDriftBomb) {
+            float fvX = (fighter.getVelocity() != null) ? fighter.getVelocity().x : 0f;
+            float fvY = (fighter.getVelocity() != null) ? fighter.getVelocity().y : 0f;
+            vpX = fvX + boreX * 70f;
+            vpY = fvY + boreY * 70f;
+            float effSpd = Math.max(110f, (float) Math.sqrt(vpX * vpX + vpY * vpY));
+            tImpact = Math.min(3.2f, maxBlockProj / effSpd);
+        } else {
+            float projSpd = computeStrikeProjectileSpeed(fighter);
+            vpX = aimDirX * projSpd;
+            vpY = aimDirY * projSpd;
+            tImpact = Math.min(2.6f, maxBlockProj / Math.max(240f, projSpd));
+        }
+
+        ShipAPI parentCarrier = (fighter.getWing() != null) ? fighter.getWing().getSourceShip() : null;
+        List<ShipAPI> allies = collectFriendlyCombatShipsForOwner(fighter.getOwner());
+        ShipAPI closestBlocker = null;
+        float closestProj = Float.MAX_VALUE;
+
+        for (ShipAPI ally : allies) {
+            if (ally == null || ally == fighter || ally == target || !ally.isAlive() || ally.isHulk() || ally.isFighter()) {
+                continue;
+            }
+            if (ally.isPhased() || ally.getLocation() == null) continue;
+
+            float relX = ally.getLocation().x - p0.x;
+            float relY = ally.getLocation().y - p0.y;
+            float projAim = relX * aimDirX + relY * aimDirY;
+            if (ally == parentCarrier && projAim <= 35f) continue;
+
+            float rawColRad = Math.max(35f, ally.getCollisionRadius());
+            ShieldAPI sh = ally.getShield();
+            float allyBaseRad = (sh != null && sh.isOn())
+                    ? Math.max(rawColRad * 0.85f, sh.getRadius())
+                    : (rawColRad * 0.82f);
+            float safeRad = allyBaseRad + margin;
+
+            float perpAim = Math.abs(-relX * aimDirY + relY * aimDirX);
+            boolean blocksAimRay = projAim > -20f && projAim <= maxBlockProj && perpAim < safeRad;
+
+            float projBore = relX * boreX + relY * boreY;
+            float perpBore = Math.abs(-relX * boreY + relY * boreX);
+            boolean blocksBoreRay = projBore > -15f && projBore <= maxBlockProj && perpBore < (allyBaseRad + margin * 0.90f);
+
+            boolean blocksMovingPath = false;
+            if (!blocksAimRay && !blocksBoreRay && projAim > -75f && projAim <= maxBlockProj + 220f) {
+                float vaX = (ally.getVelocity() != null) ? ally.getVelocity().x : 0f;
+                float vaY = (ally.getVelocity() != null) ? ally.getVelocity().y : 0f;
+                float vrX = vaX - vpX;
+                float vrY = vaY - vpY;
+                float vrSq = vrX * vrX + vrY * vrY;
+                if (vrSq > 1f) {
+                    float tStar = -(relX * vrX + relY * vrY) / vrSq;
+                    if (tStar >= 0.06f && tStar <= tImpact) {
+                        float cx = relX + vrX * tStar;
+                        float cy = relY + vrY * tStar;
+                        float minD = (float) Math.sqrt(cx * cx + cy * cy);
+                        blocksMovingPath = minD < (allyBaseRad + margin * 0.85f);
+                    }
+                }
+            }
+
+            if (blocksAimRay || blocksBoreRay || blocksMovingPath) {
+                float sortProj = Math.max(0f, projAim);
+                if (sortProj < closestProj) {
+                    closestProj = sortProj;
+                    closestBlocker = ally;
+                }
+            }
+        }
+        return closestBlocker;
     }
 
     /**
@@ -2785,9 +3032,23 @@ public class VoidstrikeCoordinator {
         } else {
             currentFrameDt = 0.033f;
         }
-        advanceGroupStrikeCraftEveryFrame(playerGroup, now);
-        advanceGroupStrikeCraftEveryFrame(alliedAiGroup, now);
-        advanceGroupStrikeCraftEveryFrame(enemyGroup, now);
+        if (engine != null) {
+            lastVoidstrikeUpdateEngine = engine;
+        }
+        if (playerGroup != null) lastVoidstrikePlayerGroup = playerGroup;
+        if (alliedAiGroup != null) lastVoidstrikeAlliedGroup = alliedAiGroup;
+        if (enemyGroup != null) lastVoidstrikeEnemyGroup = enemyGroup;
+
+        frameCachedCombatShipsSide0 = buildLiveCombatShipsForOwner(0);
+        frameCachedCombatShipsSide1 = buildLiveCombatShipsForOwner(1);
+        try {
+            advanceGroupStrikeCraftEveryFrame(playerGroup, now);
+            advanceGroupStrikeCraftEveryFrame(alliedAiGroup, now);
+            advanceGroupStrikeCraftEveryFrame(enemyGroup, now);
+        } finally {
+            frameCachedCombatShipsSide0 = null;
+            frameCachedCombatShipsSide1 = null;
+        }
     }
 
     private static void advanceGroupStrikeCraftEveryFrame(BattleGroupState group, float now) {
