@@ -3191,7 +3191,7 @@ public class DivisionAITestSuite {
                     String n = m.getName();
                     if ("isBomber".equals(n)) return true;
                     if ("getRole".equals(n)) return com.fs.starfarer.api.loading.WingRole.BOMBER;
-                    if ("getAttackRunRange".equals(n)) return 1500f;
+                    if ("getAttackRunRange".equals(n)) return 600f; // Matches wing_data.csv for Dagger / Trident / EIS Dagger / JDP Trident!
                     if ("getNumFighters".equals(n)) return 1;
                     Class<?> rt = m.getReturnType();
                     if (rt == boolean.class) return false;
@@ -3284,16 +3284,34 @@ public class DivisionAITestSuite {
         boolean noSplitSoloCarrierKillBoxOk = (pGroup.strikePlan == null)
                 || !pGroup.strikePlan.participants.contains(carDiv2);
 
+        // 4. Verify Precision gunnery stays pinpoint (36u) for < 8 squadrons and widens anti-flak dispersion (> 90u) for >= 16 merged squadrons
+        divisionai.VoidstrikeCoordinator.FiringSectorAssignment smallPrec =
+                divisionai.VoidstrikeCoordinator.computeHierarchicalFiringSector(
+                        divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION,
+                        divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG,
+                        enemyDivA.flagship, lrBomber.proxy, 0, 1, 0, 4, 0, 3, 0f, 1f, 1f, 0f);
+        divisionai.VoidstrikeCoordinator.FiringSectorAssignment megaPrec =
+                divisionai.VoidstrikeCoordinator.computeHierarchicalFiringSector(
+                        divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION,
+                        divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG,
+                        enemyDivA.flagship, lrBomber.proxy, 0, 2, 0, 10, 0, 3, 0f, 1f, 1f, 0f);
+        boolean adaptivePrecisionSpanOk = smallPrec.voidstrikeSpanWidth >= 30f
+                && smallPrec.voidstrikeSpanWidth <= 36.1f
+                && megaPrec.voidstrikeSpanWidth >= 100f
+                && megaPrec.voidstrikeSpanWidth <= 165f;
+
         check(regenMechExcludedFromFiniteBombersOk
                         && standoffGateScaledOk
                         && mergedTwoDivWaveOk
                         && downrangeTargetLockHeldOk
                         && culminatedOrdnanceExpendedOk
-                        && noSplitSoloCarrierKillBoxOk,
-                "Strike-Craft & Multi-Carrier Fixes: Regenerating/PD escort ammo excluded, 1200u bomber gate scaled to 960u, downrange target lock holds, ordnance-expended culmination fires cleanly, and Alpha carriers stay unified",
-                String.format(Locale.ROOT, "regenExcluded=%b, gateScaled=%b (wep=%.0f, lrGate=%.0f, stdGate=%.0f), merged2Div=%b, targetLock=%b, ordExpended=%b, unifiedAlpha=%b",
+                        && noSplitSoloCarrierKillBoxOk
+                        && adaptivePrecisionSpanOk,
+                "Strike-Craft & Multi-Carrier Fixes: Regenerating/PD escort ammo excluded, 1200u bomber gate scaled to 960u (at csv attackRunRange=600), downrange target lock holds, ordnance-expended culmination fires cleanly, Alpha carriers stay unified, and mega-Precision anti-flak span adapts",
+                String.format(Locale.ROOT, "regenExcluded=%b, gateScaled=%b (wep=%.0f, lrGate=%.0f, stdGate=%.0f), merged2Div=%b, targetLock=%b, ordExpended=%b, unifiedAlpha=%b, precSpan=[4sq=%.0f,20sq=%.0f]",
                         regenMechExcludedFromFiniteBombersOk, standoffGateScaledOk, lrMaxRange, lrGateDist, stdGateDist,
-                        mergedTwoDivWaveOk, downrangeTargetLockHeldOk, culminatedOrdnanceExpendedOk, noSplitSoloCarrierKillBoxOk));
+                        mergedTwoDivWaveOk, downrangeTargetLockHeldOk, culminatedOrdnanceExpendedOk, noSplitSoloCarrierKillBoxOk,
+                        smallPrec.voidstrikeSpanWidth, megaPrec.voidstrikeSpanWidth));
     }
 
     private static float dist(Vector2f a, Vector2f b) {
