@@ -567,7 +567,7 @@ public class DivisionAutoFormer {
         div.avgEngageRange = rangeSum / count;
 
         div.hasCarrierCapability = div.archetype.isCarrierArchetype() || (carrierShips > 0);
-        div.hasMissileStrikeCapability = !div.hasCarrierCapability
+        div.hasMissileStrikeCapability = !div.archetype.isCarrierArchetype()
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
                 && (div.archetype.isMissileArchetype()
                 || (div.archetype == DivisionArchetype.PHASE_DIVISION)
@@ -579,7 +579,7 @@ public class DivisionAutoFormer {
                 || (div.archetype == DivisionArchetype.FRIGATE_DIVISION)
                 || (div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION)
                 || (pdShips > 0);
-        div.isFastFlanker = !div.hasCarrierCapability
+        div.isFastFlanker = !div.archetype.isCarrierArchetype()
                 && div.archetype != DivisionArchetype.BATTLESHIP_DIVISION
                 && div.archetype != DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
                 && div.archetype != DivisionArchetype.CRUISER_DIVISION
@@ -605,6 +605,8 @@ public class DivisionAutoFormer {
             div.openingPhaseDurationSeconds = docCfg.getOpeningDurationSeconds();
             div.openingMission = docCfg.getOpeningMission(docType);
             div.mainMission = docCfg.getMainMission(docType);
+            div.strikeCraftOpeningMission = docCfg.getStrikeCraftOpeningMission(docType);
+            div.strikeCraftMainMission = docCfg.getStrikeCraftMainMission(docType);
             div.lineStation = docCfg.getLineStation(docType);
             div.doctrinalFormation = docCfg.getFormation(docType);
         } else {
@@ -615,6 +617,10 @@ public class DivisionAutoFormer {
             div.openingPhaseDurationSeconds = 45f;
             div.openingMission = docType.defaultOpeningMission;
             div.mainMission = docType.defaultMainMission;
+            div.strikeCraftOpeningMission =
+                    PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftOpeningMissionFor(docType);
+            div.strikeCraftMainMission =
+                    PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftMainMissionFor(docType);
             div.lineStation = docType.defaultLineStation;
             div.doctrinalFormation = docType.defaultFormation;
         }

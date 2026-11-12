@@ -927,6 +927,12 @@ public class PermanentDivisionManager {
                 "Exchanges fire at maximum gun range and gives ground when pressed.",
                 false,
                 LineStation.CENTER),
+        CARRIER_STANDOFF(
+                "Carrier Standoff",
+                "Carrier Standoff",
+                "Holds astern out of enemy gun range while flight decks operate.",
+                false,
+                LineStation.REAR),
         ENVELOPMENT(
                 "Envelopment",
                 "Envelopment",
@@ -1023,13 +1029,21 @@ public class PermanentDivisionManager {
 
         public static List<DivisionMissionType> getOptionsForDivisionType(boolean isCarrierType) {
             List<DivisionMissionType> list = new ArrayList<>();
-            for (DivisionMissionType m : values()) {
-                if (m == RESERVE) {
-                    list.add(m);
-                } else if (isCarrierType && m.carrierSpecific) {
-                    list.add(m);
-                } else if (!isCarrierType && !m.carrierSpecific) {
-                    list.add(m);
+            if (isCarrierType) {
+                list.add(CARRIER_STANDOFF);
+                list.add(STANDOFF_ENGAGEMENT);
+                list.add(CLOSE_ACTION);
+                list.add(SCREEN);
+                list.add(SCOUTING);
+                list.add(ENVELOPMENT);
+                list.add(TOT_ALPHA_STRIKE);
+                list.add(RESERVE);
+                list.add(MARTYRDOM);
+            } else {
+                for (DivisionMissionType m : values()) {
+                    if (!m.carrierSpecific) {
+                        list.add(m);
+                    }
                 }
             }
             return list;
@@ -1067,6 +1081,87 @@ public class PermanentDivisionManager {
                 return DivisionMissionType.valueOf(LEGACY_NAMES.getOrDefault(id, id));
             } catch (IllegalArgumentException e) {
                 return fallback;
+            }
+        }
+    }
+
+    /**
+     * Independent Strike Craft Mission (Opening & Main) assignable to ANY division under Strike Craft Options.
+     * Decouples what a division's fighter/bomber squadrons do from what its ship hulls do (e.g. Converted Hangar
+     * Destroyers or Battlecarriers fighting in Close Action while their wings run CAP or Alpha Voidstrikes).
+     */
+    public enum StrikeCraftMissionType {
+        MATCH_DIVISION(
+                "Match Division",
+                "Match Div.",
+                "Squadrons support the division's hull mission and target."),
+        ARMED_RECONNAISSANCE(
+                "Armed Recon",
+                "Armed Recon",
+                "Squadrons scout ahead and strike targets of opportunity."),
+        SPACE_SUPERIORITY(
+                "Space Superiority",
+                "Space Sup.",
+                "Squadrons sweep enemy bombers, fighters, and light escorts."),
+        COMBAT_SPACE_PATROL(
+                "Combat Space Patrol",
+                "CAP",
+                "Squadrons maintain a defensive interceptor umbrella over friendlies."),
+        CYCLIC_STRIKES(
+                "Cyclic Voidstrikes",
+                "Cyclic Voidstrikes",
+                "Squadrons launch continuous voidstrike waves against enemy ships."),
+        DECKLOAD_STRIKE(
+                "Deckload Voidstrike",
+                "Deck Voidstrike",
+                "Squadrons marshal together into synchronized division voidstrikes."),
+        ALPHA_STRIKE(
+                "Alpha Voidstrike",
+                "Alpha Voidstrike",
+                "Squadrons coordinate multi-division voidstrikes on priority targets."),
+        HOLD_ON_DECK(
+                "Hold on Deck",
+                "Hold on Deck",
+                "Keeps strike craft recalled on deck until ordered otherwise.");
+
+        public final String dropdownLabel;
+        public final String shortName;
+        public final String summary;
+
+        StrikeCraftMissionType(String dropdownLabel, String shortName, String summary) {
+            this.dropdownLabel = dropdownLabel;
+            this.shortName = shortName;
+            this.summary = summary;
+        }
+
+        public static StrikeCraftMissionType fromLegacyCarrierMission(DivisionMissionType mis) {
+            if (mis == null) return null;
+            switch (mis) {
+                case ARMED_RECONNAISSANCE:
+                    return ARMED_RECONNAISSANCE;
+                case SPACE_SUPERIORITY:
+                    return SPACE_SUPERIORITY;
+                case COMBAT_SPACE_PATROL:
+                    return COMBAT_SPACE_PATROL;
+                case CYCLIC_STRIKES:
+                    return CYCLIC_STRIKES;
+                case DECKLOAD_STRIKE:
+                    return DECKLOAD_STRIKE;
+                case ALPHA_STRIKE:
+                    return ALPHA_STRIKE;
+                default:
+                    return null;
+            }
+        }
+
+        public static StrikeCraftMissionType fromId(String id, StrikeCraftMissionType fallback) {
+            if (id == null) return fallback;
+            try {
+                return StrikeCraftMissionType.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                DivisionMissionType legacy = DivisionMissionType.fromId(id.trim(), null);
+                StrikeCraftMissionType mapped = fromLegacyCarrierMission(legacy);
+                return mapped != null ? mapped : fallback;
             }
         }
     }
@@ -1187,8 +1282,8 @@ public class PermanentDivisionManager {
                 1350,
                 1600,
                 0.95f,
-                DivisionMissionType.ARMED_RECONNAISSANCE,
-                DivisionMissionType.ALPHA_STRIKE,
+                DivisionMissionType.CARRIER_STANDOFF,
+                DivisionMissionType.CARRIER_STANDOFF,
                 LineStation.REAR,
                 DivisionFormation.LINE_ABREAST),
         LIGHT_CARRIER(
@@ -1198,8 +1293,8 @@ public class PermanentDivisionManager {
                 1250,
                 1450,
                 0.95f,
-                DivisionMissionType.ARMED_RECONNAISSANCE,
-                DivisionMissionType.DECKLOAD_STRIKE,
+                DivisionMissionType.CARRIER_STANDOFF,
+                DivisionMissionType.CARRIER_STANDOFF,
                 LineStation.REAR,
                 DivisionFormation.LINE_ABREAST),
         ESCORT_CARRIER(
@@ -1209,8 +1304,8 @@ public class PermanentDivisionManager {
                 1150,
                 1350,
                 0.95f,
-                DivisionMissionType.COMBAT_SPACE_PATROL,
-                DivisionMissionType.CYCLIC_STRIKES,
+                DivisionMissionType.CARRIER_STANDOFF,
+                DivisionMissionType.CARRIER_STANDOFF,
                 LineStation.REAR,
                 DivisionFormation.FORWARD_SEMICIRCLE),
         CARRIER_GROUP(
@@ -1220,8 +1315,8 @@ public class PermanentDivisionManager {
                 1300,
                 1450,
                 0.95f,
-                DivisionMissionType.ARMED_RECONNAISSANCE,
-                DivisionMissionType.DECKLOAD_STRIKE,
+                DivisionMissionType.CARRIER_STANDOFF,
+                DivisionMissionType.CARRIER_STANDOFF,
                 LineStation.REAR,
                 DivisionFormation.PROTECTIVE_CIRCLE),
         PHASE(
@@ -1661,6 +1756,8 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, Float> stationKeepingByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> openingMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> mainMissionByType = new LinkedHashMap<>();
+        private Map<DoctrineDivisionType, StrikeCraftMissionType> strikeCraftOpeningMissionByType = new LinkedHashMap<>();
+        private Map<DoctrineDivisionType, StrikeCraftMissionType> strikeCraftMainMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, LineStation> lineStationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionFormation> formationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, VoidstrikeTargetingBias> voidstrikeTargetingBiasByType = new LinkedHashMap<>();
@@ -1734,6 +1831,8 @@ public class PermanentDivisionManager {
                 stationKeepingByType.put(dt, dt.defaultStationKeepingMult);
                 openingMissionByType.put(dt, dt.defaultOpeningMission);
                 mainMissionByType.put(dt, dt.defaultMainMission);
+                strikeCraftOpeningMissionByType.put(dt, defaultStrikeCraftOpeningMissionFor(dt));
+                strikeCraftMainMissionByType.put(dt, defaultStrikeCraftMainMissionFor(dt));
                 lineStationByType.put(dt, dt.defaultLineStation);
                 formationByType.put(dt, dt.defaultFormation);
                 voidstrikeTargetingBiasByType.put(dt, defaultVoidstrikeTargetingBiasFor(dt));
@@ -1937,6 +2036,32 @@ public class PermanentDivisionManager {
         public void setMovementStickiness(DoctrineDivisionType dt, DivisionMovementStickiness stickiness) {
             if (dt == null || stickiness == null) return;
             setStationKeepingMult(dt, stickiness.stationKeepingMult);
+        }
+
+        public static StrikeCraftMissionType defaultStrikeCraftOpeningMissionFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.FLEET_CARRIER
+                    || dt == DoctrineDivisionType.LIGHT_CARRIER
+                    || dt == DoctrineDivisionType.CARRIER_GROUP) {
+                return StrikeCraftMissionType.ARMED_RECONNAISSANCE;
+            }
+            if (dt == DoctrineDivisionType.ESCORT_CARRIER) {
+                return StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+            }
+            return StrikeCraftMissionType.MATCH_DIVISION;
+        }
+
+        public static StrikeCraftMissionType defaultStrikeCraftMainMissionFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.FLEET_CARRIER) {
+                return StrikeCraftMissionType.ALPHA_STRIKE;
+            }
+            if (dt == DoctrineDivisionType.LIGHT_CARRIER
+                    || dt == DoctrineDivisionType.CARRIER_GROUP) {
+                return StrikeCraftMissionType.DECKLOAD_STRIKE;
+            }
+            if (dt == DoctrineDivisionType.ESCORT_CARRIER) {
+                return StrikeCraftMissionType.CYCLIC_STRIKES;
+            }
+            return StrikeCraftMissionType.MATCH_DIVISION;
         }
 
         public static VoidstrikeTargetingBias defaultVoidstrikeTargetingBiasFor(DoctrineDivisionType dt) {
@@ -2320,23 +2445,83 @@ public class PermanentDivisionManager {
         public DivisionMissionType getOpeningMission(DoctrineDivisionType dt) {
             if (dt == null) return DivisionMissionType.SCOUTING;
             DivisionMissionType m = openingMissionByType.get(dt);
+            if (m != null && m.isCarrierMission) {
+                return DivisionMissionType.CARRIER_STANDOFF;
+            }
             return m != null ? m : dt.defaultOpeningMission;
         }
 
         public void setOpeningMission(DoctrineDivisionType dt, DivisionMissionType mission) {
             if (dt == null || mission == null) return;
-            openingMissionByType.put(dt, mission);
+            if (mission.isCarrierMission) {
+                StrikeCraftMissionType sc = StrikeCraftMissionType.fromLegacyCarrierMission(mission);
+                if (sc != null) {
+                    setStrikeCraftOpeningMission(dt, sc);
+                }
+                openingMissionByType.put(dt, DivisionMissionType.CARRIER_STANDOFF);
+            } else {
+                openingMissionByType.put(dt, mission);
+            }
         }
 
         public DivisionMissionType getMainMission(DoctrineDivisionType dt) {
             if (dt == null) return DivisionMissionType.CLOSE_ACTION;
             DivisionMissionType m = mainMissionByType.get(dt);
+            if (m != null && m.isCarrierMission) {
+                return DivisionMissionType.CARRIER_STANDOFF;
+            }
             return m != null ? m : dt.defaultMainMission;
         }
 
         public void setMainMission(DoctrineDivisionType dt, DivisionMissionType mission) {
             if (dt == null || mission == null) return;
-            mainMissionByType.put(dt, mission);
+            if (mission.isCarrierMission) {
+                StrikeCraftMissionType sc = StrikeCraftMissionType.fromLegacyCarrierMission(mission);
+                if (sc != null) {
+                    setStrikeCraftMainMission(dt, sc);
+                }
+                mainMissionByType.put(dt, DivisionMissionType.CARRIER_STANDOFF);
+            } else {
+                mainMissionByType.put(dt, mission);
+            }
+        }
+
+        public StrikeCraftMissionType getStrikeCraftOpeningMission(DoctrineDivisionType dt) {
+            if (dt == null) return StrikeCraftMissionType.MATCH_DIVISION;
+            if (strikeCraftOpeningMissionByType != null) {
+                StrikeCraftMissionType sc = strikeCraftOpeningMissionByType.get(dt);
+                if (sc != null) return sc;
+            }
+            DivisionMissionType legacy = openingMissionByType.get(dt);
+            StrikeCraftMissionType mapped = StrikeCraftMissionType.fromLegacyCarrierMission(legacy);
+            return mapped != null ? mapped : defaultStrikeCraftOpeningMissionFor(dt);
+        }
+
+        public void setStrikeCraftOpeningMission(DoctrineDivisionType dt, StrikeCraftMissionType mission) {
+            if (dt == null || mission == null) return;
+            if (strikeCraftOpeningMissionByType == null) {
+                strikeCraftOpeningMissionByType = new LinkedHashMap<>();
+            }
+            strikeCraftOpeningMissionByType.put(dt, mission);
+        }
+
+        public StrikeCraftMissionType getStrikeCraftMainMission(DoctrineDivisionType dt) {
+            if (dt == null) return StrikeCraftMissionType.MATCH_DIVISION;
+            if (strikeCraftMainMissionByType != null) {
+                StrikeCraftMissionType sc = strikeCraftMainMissionByType.get(dt);
+                if (sc != null) return sc;
+            }
+            DivisionMissionType legacy = mainMissionByType.get(dt);
+            StrikeCraftMissionType mapped = StrikeCraftMissionType.fromLegacyCarrierMission(legacy);
+            return mapped != null ? mapped : defaultStrikeCraftMainMissionFor(dt);
+        }
+
+        public void setStrikeCraftMainMission(DoctrineDivisionType dt, StrikeCraftMissionType mission) {
+            if (dt == null || mission == null) return;
+            if (strikeCraftMainMissionByType == null) {
+                strikeCraftMainMissionByType = new LinkedHashMap<>();
+            }
+            strikeCraftMainMissionByType.put(dt, mission);
         }
 
         public int getMin(DoctrineHullCategory cat) {
@@ -2747,6 +2932,20 @@ public class PermanentDivisionManager {
         saveFleetDoctrine(cfg);
     }
 
+    public static void updateDivisionTypeStrikeCraftMission(
+            DoctrineDivisionType dt,
+            boolean isOpening,
+            StrikeCraftMissionType mission) {
+        if (dt == null || mission == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        if (isOpening) {
+            cfg.setStrikeCraftOpeningMission(dt, mission);
+        } else {
+            cfg.setStrikeCraftMainMission(dt, mission);
+        }
+        saveFleetDoctrine(cfg);
+    }
+
     public static void updateDivisionTypeLineStation(DoctrineDivisionType dt, LineStation ps) {
         if (dt == null || ps == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
@@ -3054,6 +3253,8 @@ public class PermanentDivisionManager {
         public Integer customStandoffRange = null;
         public DivisionMissionType customOpeningMission = null;
         public DivisionMissionType customMainMission = null;
+        public StrikeCraftMissionType customStrikeCraftOpeningMission = null;
+        public StrikeCraftMissionType customStrikeCraftMainMission = null;
         public LineStation customLineStation = null;
         public DivisionFormation customFormation = null;
         public DivisionMovementStickiness customMovementStickiness = null;
@@ -3425,6 +3626,9 @@ public class PermanentDivisionManager {
 
     public static DivisionMissionType resolveEffectiveOpeningMission(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
         if (spec != null && spec.customOpeningMission != null) {
+            if (spec.customOpeningMission.isCarrierMission) {
+                return DivisionMissionType.CARRIER_STANDOFF;
+            }
             return spec.customOpeningMission;
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
@@ -3433,10 +3637,45 @@ public class PermanentDivisionManager {
 
     public static DivisionMissionType resolveEffectiveMainMission(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
         if (spec != null && spec.customMainMission != null) {
+            if (spec.customMainMission.isCarrierMission) {
+                return DivisionMissionType.CARRIER_STANDOFF;
+            }
             return spec.customMainMission;
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
         return cfg != null ? cfg.getMainMission(dt) : dt.defaultMainMission;
+    }
+
+    public static StrikeCraftMissionType resolveEffectiveStrikeCraftOpeningMission(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customStrikeCraftOpeningMission != null) {
+            return spec.customStrikeCraftOpeningMission;
+        }
+        if (spec != null && spec.customOpeningMission != null && spec.customOpeningMission.isCarrierMission) {
+            StrikeCraftMissionType mapped = StrikeCraftMissionType.fromLegacyCarrierMission(spec.customOpeningMission);
+            if (mapped != null) return mapped;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null
+                ? cfg.getStrikeCraftOpeningMission(dt)
+                : FleetDoctrineConfig.defaultStrikeCraftOpeningMissionFor(dt);
+    }
+
+    public static StrikeCraftMissionType resolveEffectiveStrikeCraftMainMission(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customStrikeCraftMainMission != null) {
+            return spec.customStrikeCraftMainMission;
+        }
+        if (spec != null && spec.customMainMission != null && spec.customMainMission.isCarrierMission) {
+            StrikeCraftMissionType mapped = StrikeCraftMissionType.fromLegacyCarrierMission(spec.customMainMission);
+            if (mapped != null) return mapped;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null
+                ? cfg.getStrikeCraftMainMission(dt)
+                : FleetDoctrineConfig.defaultStrikeCraftMainMissionFor(dt);
     }
 
     public static LineStation resolveEffectiveLineStation(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
@@ -3723,6 +3962,28 @@ public class PermanentDivisionManager {
             @Override
             public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customSetpieceAttack = setpiece;
+            }
+        });
+    }
+
+    public static void updateIndividualDivisionStrikeCraftMission(
+            String divisionId,
+            final boolean isOpening,
+            final StrikeCraftMissionType mission) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                if (isOpening) {
+                    spec.customStrikeCraftOpeningMission = mission;
+                    if (spec.customOpeningMission != null && spec.customOpeningMission.isCarrierMission) {
+                        spec.customOpeningMission = DivisionMissionType.CARRIER_STANDOFF;
+                    }
+                } else {
+                    spec.customStrikeCraftMainMission = mission;
+                    if (spec.customMainMission != null && spec.customMainMission.isCarrierMission) {
+                        spec.customMainMission = DivisionMissionType.CARRIER_STANDOFF;
+                    }
+                }
             }
         });
     }
@@ -5170,6 +5431,12 @@ public class PermanentDivisionManager {
         div.mainMission = (optionalSpec != null)
                 ? resolveEffectiveMainMission(optionalSpec, cfg)
                 : cfg.getMainMission(dt);
+        div.strikeCraftOpeningMission = (optionalSpec != null)
+                ? resolveEffectiveStrikeCraftOpeningMission(optionalSpec, cfg)
+                : cfg.getStrikeCraftOpeningMission(dt);
+        div.strikeCraftMainMission = (optionalSpec != null)
+                ? resolveEffectiveStrikeCraftMainMission(optionalSpec, cfg)
+                : cfg.getStrikeCraftMainMission(dt);
         div.lineStation = (optionalSpec != null)
                 ? resolveEffectiveLineStation(optionalSpec, cfg)
                 : cfg.getLineStation(dt);
@@ -5991,6 +6258,14 @@ public class PermanentDivisionManager {
         Object cStandoff = map.get("customLineStandoff");
         Object cOpenMis = map.get("customOpeningMission");
         Object cMainMis = map.get("customMainMission");
+        Object cScOpenMis = map.get("customStrikeCraftOpeningMission");
+        Object cScMainMis = map.get("customStrikeCraftMainMission");
+        if (cScOpenMis instanceof String) {
+            spec.customStrikeCraftOpeningMission = StrikeCraftMissionType.fromId((String) cScOpenMis, null);
+        }
+        if (cScMainMis instanceof String) {
+            spec.customStrikeCraftMainMission = StrikeCraftMissionType.fromId((String) cScMainMis, null);
+        }
         Object cPrefSpace = map.get("customPreferredSpace");
         Object cForm = map.get("customFormation");
         Object cSticky = map.get("customMovementStickiness");
@@ -6142,6 +6417,12 @@ public class PermanentDivisionManager {
         if (spec.customStandoffRange != null) map.put("customLineStandoff", spec.customStandoffRange);
         if (spec.customOpeningMission != null) map.put("customOpeningMission", spec.customOpeningMission.name());
         if (spec.customMainMission != null) map.put("customMainMission", spec.customMainMission.name());
+        if (spec.customStrikeCraftOpeningMission != null) {
+            map.put("customStrikeCraftOpeningMission", spec.customStrikeCraftOpeningMission.name());
+        }
+        if (spec.customStrikeCraftMainMission != null) {
+            map.put("customStrikeCraftMainMission", spec.customStrikeCraftMainMission.name());
+        }
         if (spec.customLineStation != null) map.put("customPreferredSpace", spec.customLineStation.name());
         if (spec.customFormation != null) map.put("customFormation", spec.customFormation.name());
         if (spec.customMovementStickiness != null) map.put("customMovementStickiness", spec.customMovementStickiness.name());

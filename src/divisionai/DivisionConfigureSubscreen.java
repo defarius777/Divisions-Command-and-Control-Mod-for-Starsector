@@ -17,6 +17,7 @@ import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
 import divisionai.PermanentDivisionManager.DivisionRammingMode;
 import divisionai.PermanentDivisionManager.DivisionRammingTargetScope;
@@ -475,7 +476,11 @@ final class DivisionConfigureSubscreen {
                 highlight,
                 gray);
 
-        // 7. Carrier & Wing Voidstrike Behavior Settings (collapsed under "Carrier Options" button per UI Items D & E)
+        // 7. Strike Craft & Wing Voidstrike Behavior Settings (collapsed under "Strike Craft Options")
+        StrikeCraftMissionType effScOpenMis =
+                PermanentDivisionManager.resolveEffectiveStrikeCraftOpeningMission(spec, doctrineCfg);
+        StrikeCraftMissionType effScMainMis =
+                PermanentDivisionManager.resolveEffectiveStrikeCraftMainMission(spec, doctrineCfg);
         VoidstrikeTargetingBias effVsBias =
                 PermanentDivisionManager.resolveEffectiveVoidstrikeTargetingBias(spec, doctrineCfg);
         boolean effVsFocusCv =
@@ -510,6 +515,8 @@ final class DivisionConfigureSubscreen {
                 leftCol,
                 colWidth - 16f,
                 dialog.carrierOptionsExpanded,
+                effScOpenMis,
+                effScMainMis,
                 effVsObs,
                 effVsCoord,
                 effVsDepth,
@@ -521,6 +528,34 @@ final class DivisionConfigureSubscreen {
                 gray);
 
         if (dialog.carrierOptionsExpanded) {
+            addDivisionStrikeCraftMissionDropdownRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Opening Strike Craft:",
+                    "DIV_SC_OPEN_DD",
+                    effScOpenMis,
+                    spec.customStrikeCraftOpeningMission != null,
+                    "DIV_SC_OPEN_MIS:",
+                    baseColor,
+                    darkColor,
+                    positive,
+                    gray);
+
+            addDivisionStrikeCraftMissionDropdownRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Main Strike Craft:",
+                    "DIV_SC_MAIN_DD",
+                    effScMainMis,
+                    spec.customStrikeCraftMainMission != null,
+                    "DIV_SC_MAIN_MIS:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    gray);
+
             addDivisionVoidstrikeTargetingBiasRow(
                     dialog,
                     leftCol,
@@ -1609,6 +1644,8 @@ final class DivisionConfigureSubscreen {
             TooltipMakerAPI col,
             float rowWidth,
             boolean expanded,
+            StrikeCraftMissionType effScOpenMis,
+            StrikeCraftMissionType effScMainMis,
             VoidstrikeTargetObservance effVsObs,
             VoidstrikeCoordinationMode effVsCoord,
             int effVsDepth,
@@ -1622,12 +1659,12 @@ final class DivisionConfigureSubscreen {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
-        LabelAPI carLbl = rowUi.addPara("Carrier Options:", 0f, baseColor);
+        LabelAPI carLbl = rowUi.addPara("Strike Craft Options:", 0f, baseColor);
         float carLblBot = DivisionUiWidgets.wrapLabelInPlace(carLbl, CONTROL_COL_X - 12f, 4f, 4f);
-        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) carLbl, "Carrier Options:");
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) carLbl, "Strike Craft Options:");
 
         String toggleAct = "TOGGLE_DIV_CARRIER_OPTIONS";
-        String btnText = (expanded ? "[^] " : "[v] ") + "Carrier Options";
+        String btnText = (expanded ? "[^] " : "[v] ") + "Strike Craft Options";
         ButtonAPI bToggle = dialog.registerButton(
                 rowUi.addButton(
                         btnText,
@@ -1645,9 +1682,13 @@ final class DivisionConfigureSubscreen {
         }
         bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
 
+        String scMisSummary = (effScOpenMis == effScMainMis)
+                ? effScOpenMis.shortName
+                : (effScOpenMis.shortName + " -> " + effScMainMis.shortName);
         String summary = String.format(
                 Locale.ROOT,
-                "%s / %s  |  %dx%d",
+                "%s  |  %s / %s  |  %dx%d",
+                scMisSummary,
                 effVsObs.displayName,
                 effVsCoord.displayName,
                 effVsDepth,
@@ -1683,6 +1724,26 @@ final class DivisionConfigureSubscreen {
                 labelText, dropdownKey, dialog.expandedDropdownKey, effMission,
                 DivisionMissionType.missionsForArchetype(archetype),
                 true, true, isCustom, true, actionPrefix,
+                baseColor, darkColor, activeColor, gray);
+    }
+
+    private static void addDivisionStrikeCraftMissionDropdownRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            String labelText,
+            String dropdownKey,
+            StrikeCraftMissionType effMission,
+            boolean isCustom,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeColor,
+            Color gray) {
+        DivisionUiWidgets.addStrikeCraftMissionDropdownRow(
+                col, rowWidth, CONTROL_COL_X, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, dropdownKey, dialog.expandedDropdownKey, effMission,
+                true, isCustom, actionPrefix,
                 baseColor, darkColor, activeColor, gray);
     }
 
@@ -1797,6 +1858,26 @@ final class DivisionConfigureSubscreen {
             String arg = cmd.substring("DIV_RAM_SLOTS:".length());
             Integer slots = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
             PermanentDivisionManager.updateIndividualDivisionMaxRammingSlots(activeDivisionId, slots);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_SC_OPEN_MIS:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_SC_OPEN_MIS:".length());
+            StrikeCraftMissionType mis =
+                    "INHERIT".equals(arg) ? null : StrikeCraftMissionType.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionStrikeCraftMission(activeDivisionId, true, mis);
+            dialog.expandedDropdownKey = null;
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_SC_MAIN_MIS:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_SC_MAIN_MIS:".length());
+            StrikeCraftMissionType mis =
+                    "INHERIT".equals(arg) ? null : StrikeCraftMissionType.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionStrikeCraftMission(activeDivisionId, false, mis);
+            dialog.expandedDropdownKey = null;
             dialog.rebuildContent();
             return true;
         }

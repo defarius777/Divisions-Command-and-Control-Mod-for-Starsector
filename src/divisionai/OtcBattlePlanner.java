@@ -11,6 +11,7 @@ import divisionai.DivisionModel.DivisionState;
 import divisionai.DivisionModel.StrikePlan;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.FleetWideFormation;
 import divisionai.PermanentDivisionManager.MultiDivisionSetpiece;
@@ -393,8 +394,8 @@ public class OtcBattlePlanner {
         boolean sisterAlphaCarrierBusyOrRecovering = false;
         for (DivisionState d : active) {
             if (d == myGroup.mainEffortDivision || d == myGroup.reserveDivision || d == myGroup.reinforcingDivision) continue;
-            if (d.archetype != null && d.archetype.isCarrierArchetype()
-                    && DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.ALPHA_STRIKE
+            if (DivisionCommanderAI.hasDivisionStrikeCraftCapability(d)
+                    && DivisionCommanderAI.resolveActiveStrikeCraftMission(d, now) == StrikeCraftMissionType.ALPHA_STRIKE
                     && d.avgFluxLevel < 0.60f
                     && DivisionUiWidgets.distance(d.centroid, targetPos) <= STRIKE_MAX_RANGE) {
                 totalAlphaCarrierDivsInReach++;
@@ -412,7 +413,7 @@ public class OtcBattlePlanner {
         if (totalAlphaCarrierDivsInReach >= 2 && sisterAlphaCarrierBusyOrRecovering) {
             for (Iterator<DivisionState> it = strikers.iterator(); it.hasNext(); ) {
                 DivisionState s = it.next();
-                if (s.archetype != null && s.archetype.isCarrierArchetype()) {
+                if (DivisionCommanderAI.isCarrierStandoffPosture(s, now)) {
                     it.remove();
                 }
             }
@@ -435,12 +436,13 @@ public class OtcBattlePlanner {
                 if (d == myGroup.mainEffortDivision || d == myGroup.reserveDivision || d == myGroup.reinforcingDivision) continue;
                 if (d.archetype == DivisionArchetype.SERVICE_GROUP || !d.detachedStragglerIds.isEmpty()) continue;
                 DivisionMissionType dMis = DivisionCommanderAI.resolveActiveMission(d, now);
+                StrikeCraftMissionType dScMis = DivisionCommanderAI.resolveActiveStrikeCraftMission(d, now);
                 if (dMis == DivisionMissionType.COMBAT_SPACE_PATROL
                         || dMis == DivisionMissionType.SPACE_SUPERIORITY
                         || dMis == DivisionMissionType.SCREEN
                         || dMis == DivisionMissionType.RESERVE) continue;
-                if (d.archetype != null && d.archetype.isCarrierArchetype()) {
-                    if (dMis != DivisionMissionType.ALPHA_STRIKE) continue;
+                if (DivisionCommanderAI.isCarrierStandoffPosture(d, now)) {
+                    if (dScMis != StrikeCraftMissionType.ALPHA_STRIKE) continue;
                     if (d.voidstrikeEgressActive || d.voidstrikeStage == 2 || d.activeVoidstrikeSortieNumber > 0) continue;
                 }
                 if (d.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
@@ -633,14 +635,15 @@ public class OtcBattlePlanner {
             return false;
         }
         DivisionMissionType mission = DivisionCommanderAI.resolveActiveMission(d, now);
-        if (d.archetype.isCarrierArchetype()) {
+        StrikeCraftMissionType scMission = DivisionCommanderAI.resolveActiveStrikeCraftMission(d, now);
+        if (DivisionCommanderAI.isCarrierStandoffPosture(d, now)) {
             if (d.avgFluxLevel >= 0.60f) return false;
             if (d.voidstrikeEgressActive || d.voidstrikeStage == 2 || d.activeVoidstrikeSortieNumber > 0) return false;
-            if (mission == DivisionMissionType.ALPHA_STRIKE) return true;
+            if (scMission == StrikeCraftMissionType.ALPHA_STRIKE) return true;
             return myGroup.authority == OtcAuthority.POSITIVE_CONTROL
-                    && mission != DivisionMissionType.COMBAT_SPACE_PATROL
-                    && mission != DivisionMissionType.SPACE_SUPERIORITY
-                    && mission != DivisionMissionType.RESERVE;
+                    && scMission != StrikeCraftMissionType.COMBAT_SPACE_PATROL
+                    && scMission != StrikeCraftMissionType.SPACE_SUPERIORITY
+                    && scMission != StrikeCraftMissionType.HOLD_ON_DECK;
         }
         if (mission == DivisionMissionType.TOT_ALPHA_STRIKE) {
             return d.avgFluxLevel < 0.48f && (now - d.lastBreakOffTimestamp) >= 12f;
@@ -1089,9 +1092,9 @@ public class OtcBattlePlanner {
         boolean orchestratedAdvanceActive = OtcAI.isOrchestratedAdvanceActive(engine, myGroup, null);
         DivisionState sharedAlphaCarrierTarget = null;
         for (DivisionState d : pool) {
-            boolean isCarrierDiv = d.archetype != null && d.archetype.isCarrierArchetype();
+            boolean isCarrierDiv = DivisionCommanderAI.isCarrierStandoffPosture(d, now);
             boolean isAlphaStrikeCarrier = isCarrierDiv
-                    && DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.ALPHA_STRIKE;
+                    && DivisionCommanderAI.resolveActiveStrikeCraftMission(d, now) == StrikeCraftMissionType.ALPHA_STRIKE;
             if (isAlphaStrikeCarrier
                     && sharedAlphaCarrierTarget == null
                     && primary != null

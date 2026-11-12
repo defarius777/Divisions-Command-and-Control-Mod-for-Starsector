@@ -84,6 +84,7 @@ public class DivisionAITestSuite {
         testAdvancedStrikeCraftGunneryAndHierarchicalSectors();
         testPirateHordeC2AndVoidstrikeLifecycle();
         testBattle2StrikecraftAndMultiCarrierFixes();
+        testDecoupledHullAndStrikeCraftMissions();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -3974,6 +3975,192 @@ public class DivisionAITestSuite {
                         smallPrec.voidstrikeSpanWidth, megaPrec.voidstrikeSpanWidth,
                         postEgressAlphaCarrierAlignedOk, doublingDoesNotBounceMainEffortOk, conveyorWaveCulminatedOk,
                         friendlyFirePreventionOk, targetingBiasOk));
+    }
+
+    /**
+     * Scenario 11: Decoupled Division Hull Missions vs. Strike Craft Missions.
+     * Verifies:
+     *  1. A Destroyer Division with Converted Hangars set to Hull = CLOSE_ACTION + Strike Craft = COMBAT_SPACE_PATROL
+     *     charges enemy warships with its destroyer hulls (CLOSE_AND_ENGAGE, MANEUVER_TARGET on enemy cruiser) while
+     *     its fighter squadrons fly FLY_COMBAT_SPACE_PATROL over the friendly Battleship Main Effort without getting
+     *     force-targeted onto the distant enemy line!
+     *  2. When that Converted Hangar Destroyer Division switches Strike Craft Mission to ALPHA_STRIKE alongside a
+     *     Fleet Carrier Division (Hull = CARRIER_STANDOFF, Strike Craft = ALPHA_STRIKE), the destroyers still brawl up
+     *     front on CLOSE_ACTION while the carrier holds astern, AND both divisions' bombers merge into a single unified
+     *     2-division Time-on-Target Alpha Voidstrike!
+     *  3. A Battlecarrier Division (FLEET_CARRIER_DIVISION) explicitly given Hull = CLOSE_ACTION + Strike Craft =
+     *     COMBAT_SPACE_PATROL advances into gun range (CLOSE_AND_ENGAGE, not clamped astern) while its air wing flies CAP.
+     */
+    private static void testDecoupledHullAndStrikeCraftMissions() {
+        System.out.println("--- Scenario 11: Decoupled Hull Missions vs. Strike Craft Missions (Converted Hangars & Battlecarriers) ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        pGroup.authority = OtcAuthority.FIRE_DISTRIBUTION_ONLY;
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+        DivisionState battleDiv = new DivisionState("sc_bat", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+        battleDiv.openingMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        battleDiv.mainMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+
+        DivisionState ddHangarDiv = new DivisionState("sc_dd_ch", 0, 2, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 1", pCmdr);
+        ddHangarDiv.openingMission = DivisionMissionType.CLOSE_ACTION;
+        ddHangarDiv.mainMission = DivisionMissionType.CLOSE_ACTION;
+        ddHangarDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+        ddHangarDiv.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+        ddHangarDiv.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+
+        DivisionState fleetCvDiv = new DivisionState("sc_cv", 0, 3, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div 1", pCmdr);
+        fleetCvDiv.hasCarrierCapability = true;
+        fleetCvDiv.openingMission = DivisionMissionType.CARRIER_STANDOFF;
+        fleetCvDiv.mainMission = DivisionMissionType.CARRIER_STANDOFF;
+        fleetCvDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.ALPHA_STRIKE;
+        fleetCvDiv.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.ALPHA_STRIKE;
+        fleetCvDiv.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+
+        pGroup.divisions.add(battleDiv);
+        pGroup.divisions.add(ddHangarDiv);
+        pGroup.divisions.add(fleetCvDiv);
+        pGroup.mainEffortDivision = battleDiv;
+
+        DivisionState enemyLine = new DivisionState("sc_enemy", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Cruiser Line", eCmdr);
+        eGroup.divisions.add(enemyLine);
+        pGroup.primaryThreatEnemyDivision = enemyLine;
+
+        SimArena arena = new SimArena("Scenario 11: Decoupled Hull & Strike Craft Missions", "Converted Hangar DD Brawl + CAP / Alpha Strike", pGroup, eGroup);
+        SimShipState pBat = arena.addShip(battleDiv, "sc_pbat", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, -600f, 50f, 1200f, 2, 0);
+        SimShipState dd1 = arena.addShip(ddHangarDiv, "sc_dd1", "HSS Enforcer (CH)", "enforcer", HullSize.DESTROYER, -220f, -150f, 90f, 800f, 0, 1);
+        SimShipState dd2 = arena.addShip(ddHangarDiv, "sc_dd2", "HSS Hammerhead (CH)", "hammerhead", HullSize.DESTROYER, 220f, -150f, 95f, 800f, 0, 1);
+        SimShipState cv1 = arena.addShip(fleetCvDiv, "sc_cv1", "HSS Astral", "astral", HullSize.CAPITAL_SHIP, 0f, -1500f, 45f, 1000f, 0, 4);
+        battleDiv.flagship = pBat.proxy;
+        ddHangarDiv.flagship = dd1.proxy;
+        fleetCvDiv.flagship = cv1.proxy;
+        pGroup.shipIdToDivision.put(pBat.id, battleDiv);
+        pGroup.shipIdToDivision.put(dd1.id, ddHangarDiv);
+        pGroup.shipIdToDivision.put(dd2.id, ddHangarDiv);
+        pGroup.shipIdToDivision.put(cv1.id, fleetCvDiv);
+
+        SimShipState ec1 = arena.addShip(enemyLine, "sc_ec1", "PLS Eagle", "eagle", HullSize.CRUISER, 0f, 1550f, 80f, 1000f, 2, 0);
+        SimShipState ec2 = arena.addShip(enemyLine, "sc_ec2", "PLS Falcon", "falcon", HullSize.CRUISER, 260f, 1600f, 95f, 1000f, 2, 0);
+        enemyLine.flagship = ec1.proxy;
+        eGroup.shipIdToDivision.put(ec1.id, enemyLine);
+        eGroup.shipIdToDivision.put(ec2.id, enemyLine);
+
+        // Attach 1 fighter/bomber wing to dd1 (Converted Hangar) and 1 bomber wing to cv1
+        final com.fs.starfarer.api.combat.WeaponAPI torpWep = (com.fs.starfarer.api.combat.WeaponAPI) Proxy.newProxyInstance(
+                SimArena.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.WeaponAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("usesAmmo".equals(n)) return true;
+                    if ("getAmmo".equals(n) || "getMaxAmmo".equals(n)) return 2;
+                    if ("getAmmoPerSecond".equals(n)) return 0f;
+                    if ("getRange".equals(n)) return 900f;
+                    if ("getType".equals(n)) return com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+
+        SimShipState ddFighter = arena.addShip(ddHangarDiv, "sc_ddf1", "Talon 1", "talon_wing", HullSize.FIGHTER, -220f, -450f, 220f, 400f, 0, 0);
+        ddHangarDiv.members.remove(ddFighter.proxy);
+        ddHangarDiv.profiles.removeIf(p -> p.ship == ddFighter.proxy);
+        ddFighter.weapons.clear();
+        ddFighter.weapons.add(torpWep);
+
+        SimShipState cvBomber = arena.addShip(fleetCvDiv, "sc_cvb1", "Dagger 1", "dagger_wing", HullSize.FIGHTER, 0f, -900f, 180f, 900f, 1, 0);
+        fleetCvDiv.members.remove(cvBomber.proxy);
+        fleetCvDiv.profiles.removeIf(p -> p.ship == cvBomber.proxy);
+        cvBomber.weapons.clear();
+        cvBomber.weapons.add(torpWep);
+
+        boolean[] ddRet = new boolean[]{false};
+        boolean[] cvRet = new boolean[]{false};
+        createRehearsalWing(dd1, java.util.Collections.singletonList(ddFighter), true, ddRet);
+        createRehearsalWing(cv1, java.util.Collections.singletonList(cvBomber), true, cvRet);
+
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(battleDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(ddHangarDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(fleetCvDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyLine);
+
+        battleDiv.openingMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        battleDiv.mainMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        ddHangarDiv.openingMission = DivisionMissionType.CLOSE_ACTION;
+        ddHangarDiv.mainMission = DivisionMissionType.CLOSE_ACTION;
+        ddHangarDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+        ddHangarDiv.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+        ddHangarDiv.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+        fleetCvDiv.openingMission = DivisionMissionType.CARRIER_STANDOFF;
+        fleetCvDiv.mainMission = DivisionMissionType.CARRIER_STANDOFF;
+        fleetCvDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.ALPHA_STRIKE;
+        fleetCvDiv.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.ALPHA_STRIKE;
+        fleetCvDiv.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, pGroup);
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, eGroup);
+        divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 20.0f);
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(arena.engineProxy, pGroup, eGroup, 20.0f);
+
+        // 1. Verify DD hulls execute CLOSE_ACTION while their Converted Hangar wings execute COMBAT_SPACE_PATROL!
+        DivisionIntentType step1HullIntent = ddHangarDiv.currentIntent;
+        DivisionIntentType step1ScIntent = ddHangarDiv.currentStrikeCraftIntent;
+        DivisionState step1ScFriendly = ddHangarDiv.getEffectiveStrikeCraftTargetFriendlyDivision();
+        boolean step1HasCft = dd1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CARRIER_FIGHTER_TARGET);
+        boolean ddHullBrawlsAndSquadronCapsOk = (step1HullIntent == DivisionIntentType.CLOSE_AND_ENGAGE
+                || step1HullIntent == DivisionIntentType.PRESS_HOME
+                || step1HullIntent == DivisionIntentType.WORK_FLANK)
+                && ddHangarDiv.targetEnemyDivision == enemyLine
+                && step1ScIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL
+                && step1ScFriendly == battleDiv
+                && !step1HasCft;
+
+        // 2. Switch DD Strike Craft Mission to ALPHA_STRIKE alongside Carrier Div 1 (CARRIER_STANDOFF + ALPHA_STRIKE):
+        //    DD hulls STILL brawl on CLOSE_ACTION, Carrier hull holds CARRIER_STANDOFF, and both wings merge into 1 Voidstrike!
+        ddHangarDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.ALPHA_STRIKE;
+        ddHangarDiv.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.ALPHA_STRIKE;
+        ddFighter.location.set(-150f, 350f);
+        cvBomber.location.set(50f, -600f);
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(arena.engineProxy, pGroup, eGroup, 25.0f);
+        divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, eGroup, 25.0f);
+        List<divisionai.VoidstrikeCoordinator.VoidstrikeRecord> mergedAlphaVs =
+                divisionai.VoidstrikeCoordinator.getActiveVoidstrikes();
+        DivisionIntentType step2DdHullIntent = ddHangarDiv.currentIntent;
+        DivisionIntentType step2DdScIntent = ddHangarDiv.currentStrikeCraftIntent;
+        DivisionIntentType step2CvIntent = fleetCvDiv.currentIntent;
+        java.util.Set<String> step2DivIds = mergedAlphaVs.isEmpty() ? java.util.Collections.emptySet() : mergedAlphaVs.get(0).participatingDivisionIds;
+        boolean ddAndCvMergedAlphaStrikeOk = (step2DdHullIntent == DivisionIntentType.CLOSE_AND_ENGAGE
+                || step2DdHullIntent == DivisionIntentType.PRESS_HOME
+                || step2DdHullIntent == DivisionIntentType.WORK_FLANK)
+                && step2DdScIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                && step2CvIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                && mergedAlphaVs.size() == 1
+                && step2DivIds.contains(ddHangarDiv.id)
+                && step2DivIds.contains(fleetCvDiv.id);
+
+        // 3. Battlecarrier test: give Carrier Div 1 explicit Hull Mission = CLOSE_ACTION + Strike Craft = COMBAT_SPACE_PATROL
+        //    -> Battlecarrier hull advances on CLOSE_AND_ENGAGE (stationPoint ahead of -600y, NOT clamped -450u behind Main Effort!),
+        //       while its air wing flies FLY_COMBAT_SPACE_PATROL!
+        fleetCvDiv.openingMission = DivisionMissionType.CLOSE_ACTION;
+        fleetCvDiv.mainMission = DivisionMissionType.CLOSE_ACTION;
+        fleetCvDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+        fleetCvDiv.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+        fleetCvDiv.intentCommitUntil = 0f;
+        fleetCvDiv.lastIntentChangeTime = -99f;
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(arena.engineProxy, pGroup, eGroup, 35.0f);
+        boolean battlecarrierDualMissionOk = (fleetCvDiv.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE
+                || fleetCvDiv.currentIntent == DivisionIntentType.PRESS_HOME)
+                && fleetCvDiv.currentStrikeCraftIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL
+                && fleetCvDiv.stationPoint.y > -600f;
+
+        check(ddHullBrawlsAndSquadronCapsOk && ddAndCvMergedAlphaStrikeOk && battlecarrierDualMissionOk,
+                "Decoupled Hull & Strike Craft Missions: Converted Hangar DD brawls up front while flying CAP or merging into fleet-wide Alpha Voidstrike, and Battlecarrier on CLOSE_ACTION advances with CAP umbrella",
+                String.format(Locale.ROOT, "ddBrawlCap=%b (hull=%s, sc=%s, fr=%s, cft=%b), ddCvMergedAlpha=%b (hull=%s, sc=%s, cv=%s, vsCount=%d, divs=%s), battlecarrierDual=%b (hull=%s, sc=%s, stnY=%.0f)",
+                        ddHullBrawlsAndSquadronCapsOk, step1HullIntent, step1ScIntent, step1ScFriendly != null ? step1ScFriendly.id : "null", step1HasCft,
+                        ddAndCvMergedAlphaStrikeOk, step2DdHullIntent, step2DdScIntent, step2CvIntent, mergedAlphaVs.size(), step2DivIds,
+                        battlecarrierDualMissionOk, fleetCvDiv.currentIntent, fleetCvDiv.currentStrikeCraftIntent, fleetCvDiv.stationPoint.y));
     }
 
     private static float dist(Vector2f a, Vector2f b) {

@@ -28,6 +28,7 @@ import divisionai.PermanentDivisionManager.DoctrineDivisionType;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
 import divisionai.PermanentDivisionManager.DivisionRammingMode;
 import divisionai.PermanentDivisionManager.DivisionRammingTargetScope;
@@ -846,7 +847,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         highlight,
                         gray);
 
-                // Rows 7a-7g: Carrier & Wing Voidstrike Behavior Doctrine (collapsed under "Carrier Options" button per UI Items D & E)
+                // Rows 7a-7g: Strike Craft & Wing Voidstrike Behavior Doctrine (collapsed under "Strike Craft Options")
+                StrikeCraftMissionType currScOpenMis = doctrine.getStrikeCraftOpeningMission(dt);
+                StrikeCraftMissionType currScMainMis = doctrine.getStrikeCraftMainMission(dt);
                 VoidstrikeTargetingBias currVsBias = doctrine.getVoidstrikeTargetingBias(dt);
                 boolean currVsFocusCv = doctrine.isVoidstrikeFocusCarriers(dt);
                 VoidstrikeTargetObservance currVsObs = doctrine.getVoidstrikeObservance(dt);
@@ -868,6 +871,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         bodyWidth - 16f,
                         dt,
                         carrierOptsExpanded,
+                        currScOpenMis,
+                        currScMainMis,
                         currVsObs,
                         currVsCoord,
                         currFtrFm,
@@ -883,6 +888,30 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         gray);
 
                 if (carrierOptsExpanded) {
+                    addStrikeCraftMissionDropdownRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Opening Strike Craft:",
+                            "SC_OPEN_DD:" + dt.name(),
+                            currScOpenMis,
+                            "SET_SC_OPEN_MIS:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive,
+                            gray);
+
+                    addStrikeCraftMissionDropdownRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Main Strike Craft:",
+                            "SC_MAIN_DD:" + dt.name(),
+                            currScMainMis,
+                            "SET_SC_MAIN_MIS:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            gray);
+
                     addVoidstrikeTargetingBiasRow(
                             body,
                             bodyWidth - 16f,
@@ -1629,16 +1658,24 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
         bCard.getPosition().inTL(14f, 3f);
 
+        FleetDoctrineConfig docMeta = PermanentDivisionManager.getFleetDoctrine();
+        StrikeCraftMissionType metaScOpen = docMeta.getStrikeCraftOpeningMission(dt);
+        StrikeCraftMissionType metaScMain = docMeta.getStrikeCraftMainMission(dt);
+        String scSuffix = (metaScOpen != StrikeCraftMissionType.MATCH_DIVISION
+                || metaScMain != StrikeCraftMissionType.MATCH_DIVISION)
+                ? ("  |  SC: " + metaScOpen.shortName + " -> " + metaScMain.shortName)
+                : "";
         String meta = String.format(
                 Locale.ROOT,
-                "%s  |  %s  |  Spacing %du / Interval %du / Standoff %du  |  %s -> %s",
+                "%s  |  %s  |  Spacing %du / Interval %du / Standoff %du  |  %s -> %s%s",
                 currLineStation.displayName,
                 currFormation.shortName,
                 currSpacing,
                 currInter,
                 currStandoff,
                 currOpenMis.shortName,
-                currMainMis.shortName);
+                currMainMis.shortName,
+                scSuffix);
         LabelAPI metaLbl = rowUi.addPara(meta, 0f, expanded ? positive : gray);
         float metaBot = DivisionUiWidgets.wrapLabelInPlace(metaLbl, rowWidth - 290f, 282f, 5f);
 
@@ -3324,6 +3361,30 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             return;
         }
+        if (cmd.startsWith("SET_SC_OPEN_MIS:")) {
+            String rest = cmd.substring("SET_SC_OPEN_MIS:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                StrikeCraftMissionType mis = StrikeCraftMissionType.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeStrikeCraftMission(dt, true, mis);
+                expandedDropdownKey = null;
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_SC_MAIN_MIS:")) {
+            String rest = cmd.substring("SET_SC_MAIN_MIS:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                StrikeCraftMissionType mis = StrikeCraftMissionType.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeStrikeCraftMission(dt, false, mis);
+                expandedDropdownKey = null;
+                rebuildContent();
+            }
+            return;
+        }
         if (cmd.startsWith("SET_MIN:")) {
             String rest = cmd.substring("SET_MIN:".length());
             int sep = rest.indexOf(':');
@@ -3615,6 +3676,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             float rowWidth,
             DoctrineDivisionType dt,
             boolean expanded,
+            StrikeCraftMissionType currScOpenMis,
+            StrikeCraftMissionType currScMainMis,
             VoidstrikeTargetObservance currVsObs,
             VoidstrikeCoordinationMode currVsCoord,
             SquadronFormation currFtrFm,
@@ -3632,12 +3695,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
-        LabelAPI carOptLbl = rowUi.addPara("Carrier Options:", 0f, baseColor);
+        LabelAPI carOptLbl = rowUi.addPara("Strike Craft Options:", 0f, baseColor);
         float carLblBot = DivisionUiWidgets.wrapLabelInPlace(carOptLbl, CONTROL_COL_X - 14f, 6f, 5f);
-        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) carOptLbl, "Carrier Options:");
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) carOptLbl, "Strike Craft Options:");
 
         String toggleAct = "TOGGLE_CARRIER_OPTS:" + dt.name();
-        String btnText = (expanded ? "[^] " : "[v] ") + "Carrier Options";
+        String btnText = (expanded ? "[^] " : "[v] ") + "Strike Craft Options";
         ButtonAPI bToggle = registerButton(
                 rowUi.addButton(
                         btnText,
@@ -3658,9 +3721,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         FleetDoctrineConfig docNow = PermanentDivisionManager.getFleetDoctrine();
         String biasSummary = docNow.getVoidstrikeTargetingBias(dt).shortName
                 + (docNow.isVoidstrikeFocusCarriers(dt) ? " (+Carriers)" : "");
+        String scMisSummary = (currScOpenMis == currScMainMis)
+                ? currScOpenMis.shortName
+                : (currScOpenMis.shortName + " -> " + currScMainMis.shortName);
         String summary = String.format(
                 Locale.ROOT,
-                "Bias: %s  |  Voidstrike: %s / %s  |  %dx%d  |  Ftr: %s/%s  |  Bmb: %s/%s",
+                "Missions: %s  |  Bias: %s  |  Voidstrike: %s / %s  |  %dx%d  |  Ftr: %s/%s  |  Bmb: %s/%s",
+                scMisSummary,
                 biasSummary,
                 currVsObs.displayName,
                 currVsCoord.displayName,
@@ -3957,6 +4024,24 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 body, rowWidth, CONTROL_COL_X, subPanelPlugin, buttonRegistrar,
                 labelText, dropdownKey, expandedDropdownKey, currentMission, primaryOptions,
                 false, false, false, false, selectActionPrefix,
+                baseColor, darkColor, activeValueColor, gray);
+    }
+
+    private void addStrikeCraftMissionDropdownRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            String dropdownKey,
+            StrikeCraftMissionType currentMission,
+            String selectActionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        DivisionUiWidgets.addStrikeCraftMissionDropdownRow(
+                body, rowWidth, CONTROL_COL_X, subPanelPlugin, buttonRegistrar,
+                labelText, dropdownKey, expandedDropdownKey, currentMission,
+                false, false, selectActionPrefix,
                 baseColor, darkColor, activeValueColor, gray);
     }
 

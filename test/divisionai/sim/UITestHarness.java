@@ -470,9 +470,9 @@ public class UITestHarness {
                 && "Deckload Voidstrike (Carrier)".equals(DivisionMissionType.DECKLOAD_STRIKE.dropdownLabel)
                 && "Alpha Voidstrike (Carrier)".equals(DivisionMissionType.ALPHA_STRIKE.dropdownLabel);
         boolean uiItemE_carrierOptionsBtn = docSrc.contains("TOGGLE_CARRIER_OPTS:")
-                && docSrc.contains("\"Carrier Options\"")
+                && docSrc.contains("\"Strike Craft Options\"")
                 && edSrc.contains("TOGGLE_DIV_CARRIER_OPTIONS")
-                && edSrc.contains("\"Carrier Options\"");
+                && edSrc.contains("\"Strike Craft Options\"");
         boolean uiItemF_hullLimitsDesc = docSrc.contains(
                 "Sets the minimum and maximum ships of each hull class that Fleet Organization and Auto-Assign will group into a single division");
         boolean uiItemG_divTypeDropdown = edSrc.contains("addDivisionArchetypeDropdownRow")
@@ -562,6 +562,35 @@ public class UITestHarness {
                 "v1.1.2 Strike Craft Pure-Command Newtonian Physics (Zero setFacing/vel.set), Inbound-Only Gate, Bay Landing Handoff & Flank Latch",
                 String.format(Locale.ROOT, "zeroDirectKinematics=%b, inboundGate=true, landingHandoff=true, flankHysteresisLatch=true",
                         zeroDirectFighterKinematics));
+
+        // E4. v1.1.2 Organizational Split: Hull Missions (incl. CARRIER_STANDOFF) vs Strike Craft Missions (inside Strike Craft Options)
+        FleetDoctrineConfig splitCheckCfg = new FleetDoctrineConfig();
+        boolean defaultSplitOk = splitCheckCfg.getOpeningMission(DoctrineDivisionType.FLEET_CARRIER) == DivisionMissionType.CARRIER_STANDOFF
+                && splitCheckCfg.getMainMission(DoctrineDivisionType.FLEET_CARRIER) == DivisionMissionType.CARRIER_STANDOFF
+                && splitCheckCfg.getStrikeCraftOpeningMission(DoctrineDivisionType.FLEET_CARRIER)
+                        == PermanentDivisionManager.StrikeCraftMissionType.ARMED_RECONNAISSANCE
+                && splitCheckCfg.getStrikeCraftMainMission(DoctrineDivisionType.FLEET_CARRIER)
+                        == PermanentDivisionManager.StrikeCraftMissionType.ALPHA_STRIKE
+                && splitCheckCfg.getStrikeCraftMainMission(DoctrineDivisionType.DESTROYER)
+                        == PermanentDivisionManager.StrikeCraftMissionType.MATCH_DIVISION;
+        splitCheckCfg.setMainMission(DoctrineDivisionType.LIGHT_CARRIER, DivisionMissionType.ALPHA_STRIKE);
+        boolean legacyMigrationOk = splitCheckCfg.getMainMission(DoctrineDivisionType.LIGHT_CARRIER) == DivisionMissionType.CARRIER_STANDOFF
+                && splitCheckCfg.getStrikeCraftMainMission(DoctrineDivisionType.LIGHT_CARRIER)
+                        == PermanentDivisionManager.StrikeCraftMissionType.ALPHA_STRIKE;
+        List<DivisionMissionType> hullDropdownMissions =
+                DivisionMissionType.getOptionsForDivisionType(true);
+        boolean hullDropdownCleanOk = hullDropdownMissions.contains(DivisionMissionType.CARRIER_STANDOFF)
+                && hullDropdownMissions.contains(DivisionMissionType.CLOSE_ACTION)
+                && !hullDropdownMissions.contains(DivisionMissionType.ALPHA_STRIKE);
+        boolean scUiDropdownsWiredOk = docSrc.contains("SET_SC_OPEN_MIS:")
+                && docSrc.contains("SET_SC_MAIN_MIS:")
+                && edSrc.contains("DIV_SC_OPEN_MIS:")
+                && edSrc.contains("DIV_SC_MAIN_MIS:");
+        res.record(
+                defaultSplitOk && legacyMigrationOk && hullDropdownCleanOk && scUiDropdownsWiredOk,
+                "v1.1.2 Hull Mission vs Strike Craft Mission Split: CARRIER_STANDOFF, Strike Craft Options dropdowns, Match Division default, and Legacy Carrier Save Migration",
+                String.format(Locale.ROOT, "defaults=%b, legacyMigration=%b, hullDropdownClean=%b, scUiWired=%b",
+                        defaultSplitOk, legacyMigrationOk, hullDropdownCleanOk, scUiDropdownsWiredOk));
 
         // F. Commander portrait and level badge on left side of ship icons
         boolean itemFOk = edSrc.contains("renderCommanderPortraitSprite")
@@ -2023,7 +2052,8 @@ public class UITestHarness {
                 "SET_STICKINESS:DESTROYER:STRICT", "SET_DOC:SPEARHEAD", "AUTO_ASSIGN", "CREATE_DIV",
                 "CLEAR_ALL_DIVS", "OPEN_DIV:div_1", "DELETE_DIV:div_1",
                 "OTC_CHANGE", "OTC_AUTH_PREV", "FLEET_FORMATION_NEXT", "FLEET_ORCHESTRATED_ADVANCE",
-                "DIV_STATION_SPACING:300", "DIV_FORMATION:FORWARD_WEDGE", "SET_ARCH:CRUISER_DIVISION"
+                "DIV_STATION_SPACING:300", "DIV_FORMATION:FORWARD_WEDGE", "SET_ARCH:CRUISER_DIVISION",
+                "SET_SC_OPEN_MIS:DESTROYER:COMBAT_SPACE_PATROL", "DIV_SC_MAIN_MIS:ALPHA_STRIKE"
         };
         boolean allActionTooltipsOk = true;
         for (String act : sampleActions) {
@@ -2035,7 +2065,8 @@ public class UITestHarness {
         }
         String[] sampleLabels = new String[]{
                 "Battle Line Structure:", "Squadron Formation:", "Line Spacing:", "Opening Mission:",
-                "Main Mission:", "Division Cohesion:", "Ramming Options:", "Carrier Options:",
+                "Main Mission:", "Division Cohesion:", "Ramming Options:", "Strike Craft Options:",
+                "Opening Strike Craft:", "Main Strike Craft:",
                 "Reserve Depth:", "Standoff Range:", "Callsign:", "Posture:", "Division Type:"
         };
         boolean allLabelTooltipsOk = true;

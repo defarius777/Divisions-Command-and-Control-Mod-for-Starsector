@@ -20,6 +20,7 @@ import divisionai.PermanentDivisionManager.AutoAssignCapability;
 import divisionai.PermanentDivisionManager.AutoAssignHull;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
 import divisionai.PermanentDivisionManager.DivisionRammingMode;
 import divisionai.PermanentDivisionManager.DivisionRammingTargetScope;
@@ -572,7 +573,7 @@ public final class DivisionUiWidgets {
             }
             if (includeAllFallbackOptions || ordered.isEmpty()) {
                 for (DivisionMissionType m : DivisionMissionType.values()) {
-                    if (!ordered.contains(m)) {
+                    if (!m.isCarrierMission && !ordered.contains(m)) {
                         ordered.add(m);
                     }
                 }
@@ -604,6 +605,138 @@ public final class DivisionUiWidgets {
                 float optHintBottom = 0f;
                 if (hintText != null && !hintText.isEmpty()) {
                     LabelAPI optHintLbl = optUi.addPara(hintText, 0f, selected ? activeColor : gray);
+                    float availOptHintW = rowWidth - hintColX - 8f;
+                    if (availOptHintW >= 68f) {
+                        optHintBottom = wrapLabelInPlace(optHintLbl, availOptHintW, hintColX, 4f);
+                    } else {
+                        optHintBottom = wrapLabelInPlace(optHintLbl, rowWidth - (controlColX + 12f) - 8f, controlColX + 12f, optBtnY + 22f);
+                    }
+                }
+                float finalOptH = Math.max(optRowH, Math.max(optBtnY + 20f, optHintBottom) + 3f);
+                resizeRowToFit(optPanel, optUi, rowWidth, finalOptH);
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                parent.addCustom(optPanel, hasInheritOption ? 1f : 2f);
+            }
+        }
+    }
+
+    public static void addStrikeCraftMissionDropdownRow(
+            TooltipMakerAPI parent,
+            float rowWidth,
+            float controlColX,
+            CustomUIPanelPlugin subPanelPlugin,
+            ButtonRegistrar registrar,
+            String labelText,
+            String dropdownKey,
+            String expandedDropdownKey,
+            StrikeCraftMissionType currentMission,
+            boolean hasInheritOption,
+            boolean isCustom,
+            String selectActionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeColor,
+            Color gray) {
+
+        StrikeCraftMissionType effMis = currentMission != null
+                ? currentMission
+                : StrikeCraftMissionType.MATCH_DIVISION;
+        boolean expanded = dropdownKey.equals(expandedDropdownKey);
+        float mainRowH = hasInheritOption ? 26f : 28f;
+        float optRowH = hasInheritOption ? 24f : 26f;
+        float toggleBtnW = hasInheritOption ? 286f : 268f;
+        float toggleBtnH = hasInheritOption ? 21f : 22f;
+        float optBtnW = hasInheritOption ? 274f : 256f;
+        float hintColX = controlColX + (hasInheritOption ? 294f : 280f);
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, mainRowH, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, mainRowH, false);
+
+        LabelAPI rowLbl = rowUi.addPara(labelText, 0f, baseColor);
+        float lblX = hasInheritOption ? 4f : 6f;
+        float lblY = hasInheritOption ? 4f : 5f;
+        float lblBottom = wrapLabelInPlace(rowLbl, controlColX - lblX - 8f, lblX, lblY);
+        attachRowLabelTooltip(rowUi, (UIComponentAPI) rowLbl, labelText);
+
+        String toggleAct = "TOGGLE_DD:" + dropdownKey;
+        String btnText = (expanded ? "[^] " : "[v] ") + effMis.dropdownLabel;
+        Color toggleColor = hasInheritOption ? (isCustom ? activeColor : baseColor) : activeColor;
+        ButtonAPI bToggle = registrar.register(
+                rowUi.addButton(btnText, toggleAct, toggleColor, darkColor, Alignment.LMID, CutStyle.TL_BR, toggleBtnW, toggleBtnH, 0f),
+                toggleAct);
+        if (expanded) bToggle.highlight();
+        float btnY = hasInheritOption ? 2f : 3f;
+        bToggle.getPosition().inTL(controlColX, btnY);
+        addTooltip(
+                rowUi,
+                bToggle,
+                labelText.replace(":", "") + ": " + effMis.dropdownLabel,
+                effMis.summary);
+
+        float hintBottom = 0f;
+        if (effMis.summary != null && !effMis.summary.isEmpty()) {
+            LabelAPI hintLbl = rowUi.addPara(effMis.summary, 0f, gray);
+            float availHintW = rowWidth - hintColX - 8f;
+            if (availHintW >= 68f) {
+                hintBottom = wrapLabelInPlace(hintLbl, availHintW, hintColX, hasInheritOption ? 4f : 5f);
+            } else {
+                hintBottom = wrapLabelInPlace(hintLbl, rowWidth - controlColX - 8f, controlColX, btnY + toggleBtnH + 3f);
+            }
+            addTooltip(rowUi, (UIComponentAPI) hintLbl, effMis.dropdownLabel, effMis.summary);
+        }
+
+        float finalMainH = Math.max(mainRowH, Math.max(Math.max(lblBottom, btnY + toggleBtnH), hintBottom) + 4f);
+        resizeRowToFit(rowPanel, rowUi, rowWidth, finalMainH);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        parent.addCustom(rowPanel, 2f);
+
+        if (expanded) {
+            if (hasInheritOption) {
+                CustomPanelAPI inhPanel = Global.getSettings().createCustom(rowWidth, optRowH, subPanelPlugin);
+                TooltipMakerAPI inhUi = inhPanel.createUIElement(rowWidth, optRowH, false);
+                String inhAct = selectActionPrefix + "INHERIT";
+                ButtonAPI bInh = registrar.register(
+                        inhUi.addButton(
+                                (!isCustom ? "* " : "   ") + "Inherit Doctrine Default",
+                                inhAct,
+                                !isCustom ? activeColor : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                optBtnW,
+                                20f,
+                                0f),
+                        inhAct);
+                if (!isCustom) bInh.highlight();
+                bInh.getPosition().inTL(controlColX + 12f, 2f);
+                inhUi.setHeightSoFar(optRowH);
+                inhPanel.addUIElement(inhUi).inTL(0f, 0f);
+                parent.addCustom(inhPanel, 1f);
+            }
+
+            for (StrikeCraftMissionType opt : StrikeCraftMissionType.values()) {
+                boolean selected = hasInheritOption ? (isCustom && opt == effMis) : (opt == effMis);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, optRowH, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, optRowH, false);
+                String selAct = selectActionPrefix + opt.name();
+                ButtonAPI bOpt = registrar.register(
+                        optUi.addButton(
+                                (selected ? "* " : "   ") + opt.dropdownLabel,
+                                selAct,
+                                selected ? activeColor : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                optBtnW,
+                                20f,
+                                0f),
+                        selAct);
+                if (selected) bOpt.highlight();
+                float optBtnY = hasInheritOption ? 2f : 3f;
+                bOpt.getPosition().inTL(controlColX + 12f, optBtnY);
+                float optHintBottom = 0f;
+                if (opt.summary != null && !opt.summary.isEmpty()) {
+                    LabelAPI optHintLbl = optUi.addPara(opt.summary, 0f, selected ? activeColor : gray);
                     float availOptHintW = rowWidth - hintColX - 8f;
                     if (availOptHintW >= 68f) {
                         optHintBottom = wrapLabelInPlace(optHintLbl, availOptHintW, hintColX, 4f);
@@ -1217,11 +1350,33 @@ public final class DivisionUiWidgets {
                 return new String[]{"Ship Skills: " + mode.displayName, mode.summary};
             }
         }
-        if (actionId.startsWith("TOGGLE_CARRIER_OPTS:")) {
+        if (actionId.startsWith("TOGGLE_CARRIER_OPTS:") || "TOGGLE_DIV_CARRIER_OPTIONS".equals(actionId)) {
             return new String[]{
-                    "Carrier & Voidstrike Options",
-                    "Expand or collapse doctrinal carrier air-wing settings for this division type: Voidstrike Focus, Voidstrike Launch, Squadron Depth & Width, and Fighter/Bomber Patrol & Voidstrike Formations."
+                    "Strike Craft & Voidstrike Options",
+                    "Expand or collapse strike-craft squadron missions (Match Division, Combat Space Patrol, Space Superiority, Cyclic/Deckload/Alpha Voidstrike, Armed Reconnaissance) and Voidstrike doctrine for any division with fighter bays or Converted Hangars."
             };
+        }
+        if (actionId.startsWith("SET_SC_OPEN_MIS:") || actionId.startsWith("DIV_SC_OPEN_MIS:")) {
+            String tok = extractTrailingToken(actionId);
+            if ("INHERIT".equals(tok)) return inheritTooltipSpec("Opening Strike Craft Mission");
+            StrikeCraftMissionType mis = StrikeCraftMissionType.fromId(tok, null);
+            if (mis != null) {
+                return new String[]{
+                        "Opening Strike Craft Mission: " + mis.dropdownLabel,
+                        mis.summary + " Active whenever ships in this division carry fighter bays or Converted Hangars."
+                };
+            }
+        }
+        if (actionId.startsWith("SET_SC_MAIN_MIS:") || actionId.startsWith("DIV_SC_MAIN_MIS:")) {
+            String tok = extractTrailingToken(actionId);
+            if ("INHERIT".equals(tok)) return inheritTooltipSpec("Main Strike Craft Mission");
+            StrikeCraftMissionType mis = StrikeCraftMissionType.fromId(tok, null);
+            if (mis != null) {
+                return new String[]{
+                        "Main Strike Craft Mission: " + mis.dropdownLabel,
+                        mis.summary + " Active after the opening phase whenever ships in this division carry fighter bays or Converted Hangars."
+                };
+            }
         }
         if (actionId.startsWith("SET_VS_BIAS:") || actionId.startsWith("DIV_VS_BIAS:")) {
             String tok = extractTrailingToken(actionId);
@@ -1557,10 +1712,22 @@ public final class DivisionUiWidgets {
                     "Maximum number of ships in this division allowed to execute offensive ramming passes simultaneously (1-10)."
             };
         }
-        if (lower.startsWith("carrier options")) {
+        if (lower.startsWith("strike craft options") || lower.startsWith("carrier options")) {
             return new String[]{
-                    "Carrier & Voidstrike Options",
-                    "Configures air-wing Voidstrike target focus, launch coordination, wave depth & width, and fighter/bomber squadron formations."
+                    "Strike Craft & Voidstrike Options",
+                    "Configures independent Opening & Main Strike Craft Missions (Match Division, CAP, Space Superiority, Cyclic/Deckload/Alpha Voidstrikes, Armed Recon), target bias, launch coordination, wave geometry, and squadron formations for any division with fighter bays or Converted Hangars."
+            };
+        }
+        if (lower.startsWith("opening strike craft")) {
+            return new String[]{
+                    "Opening Strike Craft Mission",
+                    "Mission flown by this division's fighter/bomber squadrons during the opening window (30-60s), completely independent of the parent ships' hull mission."
+            };
+        }
+        if (lower.startsWith("main strike craft")) {
+            return new String[]{
+                    "Main Strike Craft Mission",
+                    "Mission flown by this division's fighter/bomber squadrons after the opening window, allowing Converted Hangar surface divisions and battlecarriers to brawl up close while their air wings fly CAP or Voidstrikes."
             };
         }
         if (lower.startsWith("target bias")) {

@@ -24,6 +24,7 @@ import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
 import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.DoctrineHullCategory;
@@ -930,15 +931,22 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         final DivisionFormation effForm = PermanentDivisionManager.resolveEffectiveFormation(spec, doctrineCfg);
         DivisionMissionType effOpen = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
         DivisionMissionType effMain = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
+        StrikeCraftMissionType effScOpen = PermanentDivisionManager.resolveEffectiveStrikeCraftOpeningMission(spec, doctrineCfg);
+        StrikeCraftMissionType effScMain = PermanentDivisionManager.resolveEffectiveStrikeCraftMainMission(spec, doctrineCfg);
+        boolean hasIndepSc = effScOpen != StrikeCraftMissionType.MATCH_DIVISION
+                || effScMain != StrikeCraftMissionType.MATCH_DIVISION;
 
         PersonAPI cap = (flagship != null) ? flagship.getCaptain() : null;
         String rawCmdrDesc = (cap != null && !cap.isDefault())
                 ? (cap.getNameString() + " [" + cap.getPersonalityAPI().getDisplayName() + "]")
                 : "No Officer";
-        String cmdrDesc = truncateText(rawCmdrDesc, 26);
+        String cmdrDesc = truncateText(rawCmdrDesc, hasIndepSc ? 18 : 26);
+        String scTag = hasIndepSc
+                ? ("  |  SC: " + (effScOpen == effScMain ? effScOpen.shortName : (effScOpen.shortName + "->" + effScMain.shortName)))
+                : "";
 
         LabelAPI sub1 = topUi.addPara(
-                "%s  |  %s  |  %su / %su  |  %s -> %s",
+                "%s  |  %s  |  %su / %su  |  %s -> %s%s",
                 2f,
                 isSelected ? positive : gray,
                 cmdrDesc,
@@ -946,7 +954,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 String.valueOf(effIntra),
                 String.valueOf(effStandoff),
                 effOpen.shortName,
-                effMain.shortName);
+                effMain.shortName,
+                scTag);
         sub1.getPosition().inTL(26f, 30f);
         DivisionUiWidgets.addTooltip(
                 topUi,
@@ -955,8 +964,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 "Commander: " + rawCmdrDesc
                         + " | Line Station: " + effSpace.displayName + " (" + effSpace.summary + ")"
                         + " | Station Spacing: " + effIntra + "u | Standoff Range: " + effStandoff + "u"
-                        + " | Opening Mission: " + effOpen.dropdownLabel
-                        + " -> Main Mission: " + effMain.dropdownLabel + ".");
+                        + " | Hull Mission: " + effOpen.dropdownLabel + " -> " + effMain.dropdownLabel
+                        + " | Strike Craft Mission: " + effScOpen.dropdownLabel + " -> " + effScMain.dropdownLabel + ".");
 
         final boolean flagshipDivCard = isFlagshipDivision(spec, members);
         final CustomPanelAPI[] badgeRef = new CustomPanelAPI[1];

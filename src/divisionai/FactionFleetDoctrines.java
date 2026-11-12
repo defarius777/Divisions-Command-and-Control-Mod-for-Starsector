@@ -2156,6 +2156,8 @@ public final class FactionFleetDoctrines {
         dst.customStandoffRange = src.customStandoffRange;
         dst.customOpeningMission = src.customOpeningMission;
         dst.customMainMission = src.customMainMission;
+        dst.customStrikeCraftOpeningMission = src.customStrikeCraftOpeningMission;
+        dst.customStrikeCraftMainMission = src.customStrikeCraftMainMission;
         dst.customLineStation = src.customLineStation;
         dst.customFormation = src.customFormation;
         dst.customMovementStickiness = src.customMovementStickiness;

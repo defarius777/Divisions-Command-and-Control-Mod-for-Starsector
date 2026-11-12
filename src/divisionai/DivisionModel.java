@@ -423,6 +423,23 @@ public class DivisionModel {
                 PermanentDivisionManager.DivisionMissionType.SCOUTING;
         public PermanentDivisionManager.DivisionMissionType mainMission =
                 PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION;
+        public PermanentDivisionManager.StrikeCraftMissionType strikeCraftOpeningMission = null;
+        public PermanentDivisionManager.StrikeCraftMissionType strikeCraftMainMission = null;
+        public DivisionIntentType currentStrikeCraftIntent = null;
+        public DivisionState strikeCraftTargetEnemyDivision = null;
+        public DivisionState strikeCraftTargetFriendlyDivision = null;
+
+        public DivisionIntentType getEffectiveStrikeCraftIntent() {
+            return currentStrikeCraftIntent != null ? currentStrikeCraftIntent : currentIntent;
+        }
+
+        public DivisionState getEffectiveStrikeCraftTargetEnemyDivision() {
+            return currentStrikeCraftIntent != null ? strikeCraftTargetEnemyDivision : targetEnemyDivision;
+        }
+
+        public DivisionState getEffectiveStrikeCraftTargetFriendlyDivision() {
+            return currentStrikeCraftIntent != null ? strikeCraftTargetFriendlyDivision : targetFriendlyDivision;
+        }
         public PermanentDivisionManager.LineStation lineStation =
                 PermanentDivisionManager.LineStation.CENTER;
         public PermanentDivisionManager.DivisionFormation doctrinalFormation =

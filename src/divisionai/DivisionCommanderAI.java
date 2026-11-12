@@ -27,6 +27,7 @@ import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.FleetWideFormation;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
+import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.LineStation;
 import divisionai.PermanentDivisionManager.SquadronFormation;
@@ -142,6 +143,10 @@ public class DivisionCommanderAI {
 
             // Keep maneuver anchors tracking moving targets between intent evaluations
             refreshStationPoint(engine, div, myGroup, enemyGroup, now);
+
+            // Evaluate independent Strike Craft mission channel (CAP, Voidstrikes, Sweep, Recon, or Match Division)
+            // for any division with fighter bays or active wings without clobbering hull maneuver orders!
+            evaluateDivisionStrikeCraftChannel(engine, div, myGroup, enemyGroup, now);
 
             // Scope Item 1: Advance Setpiece Division Attack staging (Stage 1 IP dress -> Stage 2 formation pass)
             updateAndApplySetpieceDivisionAttack(engine, div, myGroup, now);
@@ -361,10 +366,8 @@ public class DivisionCommanderAI {
         boolean inOpeningWindow = isInOpeningWindow(div, now);
         DivisionMissionType activeMission = inOpeningWindow ? div.openingMission : div.mainMission;
         if (activeMission == null) {
-            if (div.archetype.isCarrierArchetype()) {
-                activeMission = inOpeningWindow
-                        ? DivisionMissionType.ARMED_RECONNAISSANCE
-                        : DivisionMissionType.DECKLOAD_STRIKE;
+            if (div.archetype != null && div.archetype.isCarrierArchetype()) {
+                activeMission = DivisionMissionType.CARRIER_STANDOFF;
             } else {
                 activeMission = inOpeningWindow
                         ? DivisionMissionType.SCOUTING
@@ -386,6 +389,72 @@ public class DivisionCommanderAI {
             activeMission = div.mainMission;
         }
         return activeMission;
+    }
+
+    /**
+     * Resolves the division's active Strike Craft Mission (Opening vs Main), auto-migrating any legacy carrier
+     * DivisionMissionType assigned directly in tests or old saves, and transitioning Armed Reconnaissance -> Main
+     * Strike Craft Mission once enemy contact is made within 3,200u.
+     */
+    public static StrikeCraftMissionType resolveActiveStrikeCraftMission(DivisionState div, float now) {
+        if (div == null) return StrikeCraftMissionType.MATCH_DIVISION;
+        boolean inOpeningWindow = isInOpeningWindow(div, now);
+        StrikeCraftMissionType scMission = inOpeningWindow
+                ? div.strikeCraftOpeningMission
+                : div.strikeCraftMainMission;
+        DivisionMissionType rawHullMission = inOpeningWindow ? div.openingMission : div.mainMission;
+        if (rawHullMission != null && rawHullMission.isCarrierMission) {
+            StrikeCraftMissionType legacy = StrikeCraftMissionType.fromLegacyCarrierMission(rawHullMission);
+            if (legacy != null) {
+                scMission = legacy;
+            }
+        }
+        if (scMission == null) {
+            if (div.archetype != null && div.archetype.isCarrierArchetype()) {
+                scMission = inOpeningWindow
+                        ? StrikeCraftMissionType.ARMED_RECONNAISSANCE
+                        : StrikeCraftMissionType.DECKLOAD_STRIKE;
+            } else {
+                scMission = StrikeCraftMissionType.MATCH_DIVISION;
+            }
+        }
+        if (inOpeningWindow
+                && scMission == StrikeCraftMissionType.ARMED_RECONNAISSANCE) {
+            StrikeCraftMissionType mainSc = div.strikeCraftMainMission;
+            if (div.mainMission != null && div.mainMission.isCarrierMission) {
+                mainSc = StrikeCraftMissionType.fromLegacyCarrierMission(div.mainMission);
+            }
+            if (mainSc != null
+                    && mainSc != StrikeCraftMissionType.ARMED_RECONNAISSANCE
+                    && mainSc != StrikeCraftMissionType.MATCH_DIVISION) {
+                DivisionState scTgt = div.getEffectiveStrikeCraftTargetEnemyDivision();
+                if (div.localEnemyStrength >= 4f
+                        || div.engagementLevel >= 0.08f
+                        || (scTgt != null
+                        && scTgt.isCombatEffective()
+                        && distance(div.centroid, scTgt.centroid) <= 3200f)) {
+                    scMission = mainSc;
+                }
+            }
+        }
+        return scMission;
+    }
+
+    public static boolean hasDivisionStrikeCraftCapability(DivisionState div) {
+        if (div == null) return false;
+        if (div.hasCarrierCapability) return true;
+        for (ShipAPI s : div.getAliveMembers()) {
+            if (s == null) continue;
+            if (s.getNumFighterBays() > 0) return true;
+            if (s.getAllWings() != null && !s.getAllWings().isEmpty()) return true;
+        }
+        return false;
+    }
+
+    public static boolean isCarrierStandoffPosture(DivisionState div, float now) {
+        if (div == null) return false;
+        DivisionMissionType m = resolveActiveMission(div, now);
+        return m == DivisionMissionType.CARRIER_STANDOFF || (m != null && m.isCarrierMission);
     }
 
     static boolean isInOpeningWindow(DivisionState div, float now) {
@@ -499,8 +568,7 @@ public class DivisionCommanderAI {
                 || !OtcAI.isDivisionVisibleToSide(engine, div.side, div.targetEnemyDivision))) {
             return true;
         }
-        if (div.archetype != null
-                && div.archetype.isCarrierArchetype()
+        if (hasDivisionStrikeCraftCapability(div)
                 && !div.voidstrikeEgressActive
                 && div.voidstrikeStage == 0
                 && div.activeVoidstrikeSortieNumber <= 0
@@ -508,20 +576,21 @@ public class DivisionCommanderAI {
             List<DivisionState> effEnemies = (enemyGroup != null)
                     ? OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup)
                     : null;
-            if (resolveActiveMission(div, now) == DivisionMissionType.ALPHA_STRIKE
+            DivisionState curScTarget = div.getEffectiveStrikeCraftTargetEnemyDivision();
+            if (resolveActiveStrikeCraftMission(div, now) == StrikeCraftMissionType.ALPHA_STRIKE
                     && myGroup != null
                     && myGroup.primaryThreatEnemyDivision != null
-                    && myGroup.primaryThreatEnemyDivision != div.targetEnemyDivision
+                    && myGroup.primaryThreatEnemyDivision != curScTarget
                     && myGroup.primaryThreatEnemyDivision.isCombatEffective()
                     && OtcAI.isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)
                     && !hasHigherPriorityVoidstrikeBiasTarget(
                             engine, div.side, div, myGroup.primaryThreatEnemyDivision, effEnemies)) {
                 return true;
             }
-            if (div.targetEnemyDivision != null
+            if (curScTarget != null
                     && effEnemies != null
                     && hasHigherPriorityVoidstrikeBiasTarget(
-                            engine, div.side, div, div.targetEnemyDivision, effEnemies)) {
+                            engine, div.side, div, curScTarget, effEnemies)) {
                 return true;
             }
         }
@@ -899,7 +968,7 @@ public class DivisionCommanderAI {
         // Step 8: Cohesion check (reform core cluster ONLY when out of enemy contact)
         // Item C: Carrier divisions operate at standoff or maximum strike range; never pull carriers into CLOSE_UP when
         // a target enemy division exists, because CLOSE_UP interrupts carrier Voidstrikes!
-        boolean carrierHasStrikeTarget = (div.archetype != null && div.archetype.isCarrierArchetype())
+        boolean carrierHasStrikeTarget = isCarrierStandoffPosture(div, now)
                 && (nearestEnemyDiv != null || prevEnemyTarget != null);
         boolean linearSkillBurnInFlight = div.hasActiveLinearSkillBurn
                 || div.synchronizedSkillManeuverActive
@@ -925,9 +994,10 @@ public class DivisionCommanderAI {
         boolean strikeCooldownElapsed = (now - div.lastBreakOffTimestamp) >= 12.0f;
         boolean soloStrikeAllowed = isSoloStrikeAllowed(myGroup, distToMissileTarget);
 
-        if (activeMission.isCarrierMission && trySelectCarrierMissionIntent(
-                engine, div, myGroup, enemyGroup, activeMission, missionPhaseTag,
-                prevEnemyTarget, nearestEnemyDiv, endangeredFriendlyDiv, heavyFriendlyToScreen, uncapturedObj, now)) {
+        if ((activeMission == DivisionMissionType.CARRIER_STANDOFF || activeMission.isCarrierMission)
+                && trySelectCarrierMissionIntent(
+                        engine, div, myGroup, enemyGroup, activeMission, missionPhaseTag,
+                        prevEnemyTarget, nearestEnemyDiv, endangeredFriendlyDiv, heavyFriendlyToScreen, uncapturedObj, now)) {
             return;
         }
 
@@ -1218,36 +1288,32 @@ public class DivisionCommanderAI {
         return "the contact zone";
     }
 
-    static boolean trySelectCarrierMissionIntent(
+    static DivisionState selectStickyStrikeCraftTargetDivision(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup,
             BattleGroupState enemyGroup,
-            DivisionMissionType activeMission,
-            String missionPhaseTag,
+            StrikeCraftMissionType scMission,
             DivisionState prevCarrierTarget,
             DivisionState nearestEnemyDiv,
-            DivisionState endangeredFriendlyDiv,
-            DivisionState heavyFriendlyToScreen,
-            BattleObjectiveAPI uncapturedObj,
-            float now) {
-
+            DivisionState endangeredFriendlyDiv) {
         List<DivisionState> allEffectiveEnemies = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
         DivisionState carrierTargetDiv = nearestEnemyDiv;
-        if (activeMission == DivisionMissionType.ALPHA_STRIKE
+        if (scMission == StrikeCraftMissionType.ALPHA_STRIKE
+                && myGroup != null
                 && myGroup.primaryThreatEnemyDivision != null
                 && OtcAI.isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)
                 && !hasHigherPriorityVoidstrikeBiasTarget(
                         engine, div.side, div, myGroup.primaryThreatEnemyDivision, allEffectiveEnemies)) {
             carrierTargetDiv = myGroup.primaryThreatEnemyDivision;
-        } else if (activeMission == DivisionMissionType.COMBAT_SPACE_PATROL
+        } else if (scMission == StrikeCraftMissionType.COMBAT_SPACE_PATROL
                 && endangeredFriendlyDiv != null) {
             DivisionState threatToFriend = findBestEnemyDivisionFor(engine, endangeredFriendlyDiv, myGroup, enemyGroup, false, prevCarrierTarget);
             if (threatToFriend != null) {
                 carrierTargetDiv = threatToFriend;
             }
         }
-        // Item C: Keep the carrier division's target sticky while strike wings are marshaling or airborne on a run
+        // Item C: Keep the strike-craft channel's target sticky while strike wings are marshaling or airborne on a run
         // (supporting maximum-range strikes across the entire map without arbitrary distance cutoffs!), unless the
         // current target is destroyed/combat-ineffective, screened behind a closer enemy division, or a closer/heavier
         // enemy division has entered the approach lane.
@@ -1263,9 +1329,8 @@ public class DivisionCommanderAI {
             if (visNow || airborneWaveActive) {
                 Vector2f prevPos = OtcAI.getVisibleCentroidForSide(engine, div.side, prevCarrierTarget);
                 float prevDist = distance(div.centroid, prevPos);
-                List<DivisionState> visibleEnemyDivs = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
                 boolean prevScreenedByCloserEnemy = isEnemyDivisionScreenedByCloserEnemy(
-                        engine, div, prevCarrierTarget, visibleEnemyDivs);
+                        engine, div, prevCarrierTarget, allEffectiveEnemies);
                 boolean prevIsLightSkirmisher = prevCarrierTarget.archetype == DivisionArchetype.FRIGATE_DIVISION
                         || prevCarrierTarget.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
                         || prevCarrierTarget.archetype == DivisionArchetype.PHASE_DIVISION;
@@ -1287,9 +1352,6 @@ public class DivisionCommanderAI {
                         && carrierTargetDiv.id != null
                         && carrierTargetDiv.id.startsWith("unassigned_enemy_contacts_")
                         && carrierTargetDiv.getAliveMembers().size() <= 1;
-                // Once armed bombers are committed downrange (>= 460u from carriers) against a multi-ship or organized
-                // target, never retarget the carrier division mid-sortie on Main Effort shifts — doing so resets
-                // Pincer/L-Crossfire dogleg gate latches and aborts active torpedo runs before weapon release!
                 boolean lockCommittedWaveOnTarget = armedCommittedDownrange && !prevIsTinyUnassignedContact;
                 int prevBiasTier = getVoidstrikeTargetBiasTier(engine, div.side, div, prevCarrierTarget);
                 int newBiasTier = (carrierTargetDiv != null)
@@ -1326,12 +1388,9 @@ public class DivisionCommanderAI {
                         carrierTargetDiv = prevCarrierTarget;
                     }
                 } else if (!closerTargetIntervening) {
-                    // When an ALPHA_STRIKE carrier division is between sorties (!airborneWaveActive), allow it to
-                    // re-align onto the battlegroup's shared primaryThreatEnemyDivision (or another ALPHA_STRIKE
-                    // carrier division's active target) rather than staying glued to an old Kill-Box target 1,650u away
-                    // while sister carrier divisions strike the Main Effort target!
-                    boolean alignBetweenWavesToSharedAlphaTarget = activeMission == DivisionMissionType.ALPHA_STRIKE
+                    boolean alignBetweenWavesToSharedAlphaTarget = scMission == StrikeCraftMissionType.ALPHA_STRIKE
                             && carrierTargetDiv != null
+                            && myGroup != null
                             && carrierTargetDiv == myGroup.primaryThreatEnemyDivision;
                     if (!alignBetweenWavesToSharedAlphaTarget && prevDist <= newDist + 1650f) {
                         carrierTargetDiv = prevCarrierTarget;
@@ -1339,9 +1398,136 @@ public class DivisionCommanderAI {
                 }
             }
         }
+        return carrierTargetDiv;
+    }
 
-        String baseReason = missionPhaseTag + activeMission.shortName;
-        switch (activeMission) {
+    /**
+     * Evaluates and updates the division's independent Strike Craft C2 channel ({@code currentStrikeCraftIntent},
+     * {@code strikeCraftTargetEnemyDivision}, {@code strikeCraftTargetFriendlyDivision}) so surface divisions with
+     * Converted Hangars and brawling Battlecarriers can run independent CAP, Sweep, Recon, or Voidstrike missions
+     * without overriding their ships' hull maneuver orders.
+     */
+    static void evaluateDivisionStrikeCraftChannel(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup,
+            float now) {
+        if (div == null) return;
+        if (!hasDivisionStrikeCraftCapability(div)) {
+            div.currentStrikeCraftIntent = null;
+            div.strikeCraftTargetEnemyDivision = null;
+            div.strikeCraftTargetFriendlyDivision = null;
+            return;
+        }
+        DivisionMissionType hullMission = resolveActiveMission(div, now);
+        StrikeCraftMissionType scMission = resolveActiveStrikeCraftMission(div, now);
+        boolean hullIsCarrierStandoff = hullMission == DivisionMissionType.CARRIER_STANDOFF
+                || (hullMission != null && hullMission.isCarrierMission);
+        if (hullIsCarrierStandoff || scMission == StrikeCraftMissionType.MATCH_DIVISION) {
+            div.currentStrikeCraftIntent = null;
+            div.strikeCraftTargetEnemyDivision = null;
+            div.strikeCraftTargetFriendlyDivision = null;
+            return;
+        }
+
+        DivisionState prevScTarget = div.strikeCraftTargetEnemyDivision != null
+                ? div.strikeCraftTargetEnemyDivision
+                : div.targetEnemyDivision;
+        boolean preferVoidstrikeBias = scMission == StrikeCraftMissionType.ALPHA_STRIKE
+                || scMission == StrikeCraftMissionType.DECKLOAD_STRIKE
+                || scMission == StrikeCraftMissionType.CYCLIC_STRIKES;
+        DivisionState nearestEnemyDiv = findBestEnemyDivisionFor(
+                engine, div, myGroup, enemyGroup, preferVoidstrikeBias, prevScTarget);
+        DivisionState endangeredFriendlyDiv = findEndangeredFriendlyDivision(div, myGroup);
+        DivisionState heavyFriendlyToScreen = findHeavyFriendlyDivisionToScreen(div, myGroup);
+        DivisionState scTargetDiv = selectStickyStrikeCraftTargetDivision(
+                engine, div, myGroup, enemyGroup, scMission, prevScTarget, nearestEnemyDiv, endangeredFriendlyDiv);
+
+        switch (scMission) {
+            case HOLD_ON_DECK:
+                div.currentStrikeCraftIntent = DivisionIntentType.HOLD_IN_RESERVE;
+                div.strikeCraftTargetEnemyDivision = null;
+                div.strikeCraftTargetFriendlyDivision = null;
+                break;
+            case COMBAT_SPACE_PATROL: {
+                DivisionState protectedFriendly = (endangeredFriendlyDiv != null)
+                        ? endangeredFriendlyDiv
+                        : ((heavyFriendlyToScreen != null)
+                        ? heavyFriendlyToScreen
+                        : ((myGroup != null && myGroup.mainEffortDivision != null) ? myGroup.mainEffortDivision : div));
+                div.currentStrikeCraftIntent = DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
+                div.strikeCraftTargetFriendlyDivision = protectedFriendly;
+                div.strikeCraftTargetEnemyDivision = scTargetDiv;
+                break;
+            }
+            case SPACE_SUPERIORITY:
+                div.currentStrikeCraftIntent = DivisionIntentType.FLY_FIGHTER_SWEEP;
+                div.strikeCraftTargetEnemyDivision = scTargetDiv;
+                div.strikeCraftTargetFriendlyDivision = null;
+                break;
+            case ARMED_RECONNAISSANCE:
+                div.currentStrikeCraftIntent = DivisionIntentType.FLY_ARMED_RECONNAISSANCE;
+                div.strikeCraftTargetEnemyDivision = scTargetDiv;
+                div.strikeCraftTargetFriendlyDivision = null;
+                break;
+            case CYCLIC_STRIKES:
+                div.currentStrikeCraftIntent = DivisionIntentType.FLY_CYCLIC_STRIKES;
+                div.strikeCraftTargetEnemyDivision = scTargetDiv;
+                div.strikeCraftTargetFriendlyDivision = null;
+                break;
+            case DECKLOAD_STRIKE:
+                div.currentStrikeCraftIntent = DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
+                div.strikeCraftTargetEnemyDivision = scTargetDiv;
+                div.strikeCraftTargetFriendlyDivision = null;
+                break;
+            case ALPHA_STRIKE: {
+                boolean otcMarshal = div.otcOrder != null
+                        && div.otcOrder.isActive(now)
+                        && div.otcOrder.type == OtcOrderType.MARSHAL;
+                div.currentStrikeCraftIntent = otcMarshal
+                        ? DivisionIntentType.MARSHAL_FOR_STRIKE
+                        : DivisionIntentType.LAUNCH_ALPHA_STRIKE;
+                div.strikeCraftTargetEnemyDivision = scTargetDiv;
+                div.strikeCraftTargetFriendlyDivision = null;
+                break;
+            }
+            case MATCH_DIVISION:
+            default:
+                div.currentStrikeCraftIntent = null;
+                div.strikeCraftTargetEnemyDivision = null;
+                div.strikeCraftTargetFriendlyDivision = null;
+                break;
+        }
+    }
+
+    static boolean trySelectCarrierMissionIntent(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup,
+            DivisionMissionType activeMission,
+            String missionPhaseTag,
+            DivisionState prevCarrierTarget,
+            DivisionState nearestEnemyDiv,
+            DivisionState endangeredFriendlyDiv,
+            DivisionState heavyFriendlyToScreen,
+            BattleObjectiveAPI uncapturedObj,
+            float now) {
+
+        StrikeCraftMissionType scMission = resolveActiveStrikeCraftMission(div, now);
+        DivisionState carrierTargetDiv = selectStickyStrikeCraftTargetDivision(
+                engine, div, myGroup, enemyGroup, scMission, prevCarrierTarget, nearestEnemyDiv, endangeredFriendlyDiv);
+
+        String scLabel = (scMission != null && scMission != StrikeCraftMissionType.MATCH_DIVISION)
+                ? scMission.shortName
+                : activeMission.shortName;
+        String baseReason = missionPhaseTag + scLabel;
+        switch (scMission) {
+            case HOLD_ON_DECK: {
+                String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
+                return commitIntent(engine, div, DivisionIntentType.HOLD_IN_RESERVE, targetLabel, baseReason, now);
+            }
             case ARMED_RECONNAISSANCE: {
                 div.targetEnemyDivision = carrierTargetDiv;
                 String targetLabel;
@@ -1381,7 +1567,8 @@ public class DivisionCommanderAI {
                 }
                 return commitIntent(engine, div, DivisionIntentType.FLY_COMBAT_SPACE_PATROL, targetLabel, baseReason, now);
             }
-            case CYCLIC_STRIKES: {
+            case CYCLIC_STRIKES:
+            case MATCH_DIVISION: {
                 String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
                 return commitIntent(engine, div, DivisionIntentType.FLY_CYCLIC_STRIKES, targetLabel, baseReason, now);
             }
@@ -2450,8 +2637,8 @@ public class DivisionCommanderAI {
                 }
             }
         }
-        // Keep carrier divisions behind the friendly combat line so they never drift forward into enemy gun range
-        if (div.archetype.isCarrierArchetype()
+        // Keep carrier-standoff divisions behind the friendly combat line so they never drift forward into enemy gun range
+        if (isCarrierStandoffPosture(div, now)
                 && myGroup != null
                 && myGroup.mainEffortDivision != null
                 && myGroup.mainEffortDivision != div
@@ -2853,18 +3040,39 @@ public class DivisionCommanderAI {
             focusEnemyShip = plan.focusShip;
         }
 
-        ShipAPI strikeFocusEnemyShip = focusEnemyShip;
-        if (strikeFocusEnemyShip == null
-                && !div.voidstrikeEgressActive
-                && div.targetEnemyDivision != null
-                && (div.voidstrikeStage == 1
-                || div.voidstrikeStage == 2
-                || div.activeVoidstrikeSortieNumber > 0
-                || div.currentIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
-                || div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
-                || div.currentIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
-                || VoidstrikeCoordinator.hasArmedStrikeCraftAirborne(div))) {
+        DivisionIntentType scIntent = div.getEffectiveStrikeCraftIntent();
+        DivisionState scTargetEnemyDiv = div.getEffectiveStrikeCraftTargetEnemyDivision();
+        ShipAPI strikeFocusEnemyShip;
+        if (div.currentStrikeCraftIntent != null) {
             strikeFocusEnemyShip = VoidstrikeCoordinator.resolveVoidstrikeFocusShip(div);
+            if (strikeFocusEnemyShip == null && scTargetEnemyDiv != null) {
+                strikeFocusEnemyShip = pickFocusEnemyShip(
+                        engine,
+                        div.side,
+                        scTargetEnemyDiv,
+                        div.centroid,
+                        div.useConvergence || (myGroup != null && myGroup.useConvergence));
+            }
+            if (plan != null && plan.committed && plan.focusShip != null
+                    && plan.focusShip.isAlive() && !plan.focusShip.isHulk()
+                    && resolveActiveStrikeCraftMission(div, now) == StrikeCraftMissionType.ALPHA_STRIKE
+                    && OtcAI.isShipVisibleToSide(engine, div.side, plan.focusShip)) {
+                strikeFocusEnemyShip = plan.focusShip;
+            }
+        } else {
+            strikeFocusEnemyShip = focusEnemyShip;
+            if (strikeFocusEnemyShip == null
+                    && !div.voidstrikeEgressActive
+                    && scTargetEnemyDiv != null
+                    && (div.voidstrikeStage == 1
+                    || div.voidstrikeStage == 2
+                    || div.activeVoidstrikeSortieNumber > 0
+                    || scIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                    || scIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
+                    || scIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
+                    || VoidstrikeCoordinator.hasArmedStrikeCraftAirborne(div))) {
+                strikeFocusEnemyShip = VoidstrikeCoordinator.resolveVoidstrikeFocusShip(div);
+            }
         }
 
         VoidstrikeCoordinator.updateDivisionVoidstrikeStaging(div, myGroup, strikeFocusEnemyShip, now);
@@ -3126,12 +3334,20 @@ public class DivisionCommanderAI {
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                 flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, safeSlotPos);
                 if (ship.getAllWings() != null && !ship.getAllWings().isEmpty()) {
+                    if (div.currentStrikeCraftIntent != null) {
+                        applyIndependentStrikeCraftTargetFlags(ship, flags, strikeFocusEnemyShip, div);
+                    } else if (isCarrierStandoffPosture(div, now)
+                            && div.currentIntent != DivisionIntentType.FLY_COMBAT_SPACE_PATROL
+                            && div.currentIntent != DivisionIntentType.HOLD_IN_RESERVE) {
+                        applyCarrierBayTargetObservanceFlags(ship, flags, strikeFocusEnemyShip, div);
+                    }
                     VoidstrikeCoordinator.dressShipStrikeCraftInFormation(ship, shipIdx, strikeFocusEnemyShip, div, myGroup, now);
                 }
                 continue;
             }
 
             applyIntentFlagsToShip(engine, ship, shipIdx, flags, slotPos, crowdedByPeer, focusEnemyShip, div, myGroup, enemyGroup, now);
+            applyIndependentStrikeCraftTargetFlags(ship, flags, strikeFocusEnemyShip, div);
             VoidstrikeCoordinator.dressShipStrikeCraftInFormation(ship, shipIdx, strikeFocusEnemyShip, div, myGroup, now);
         }
     }
@@ -4821,7 +5037,8 @@ public class DivisionCommanderAI {
                     || myDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
                     || myDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
                     || myDiv.archetype == DivisionArchetype.PHASE_DIVISION;
-            boolean isCarrierDiv = myDiv.archetype != null && myDiv.archetype.isCarrierArchetype();
+            boolean isCarrierDiv = (myDiv.archetype != null && myDiv.archetype.isCarrierArchetype())
+                    || (preferMissilePrey && hasDivisionStrikeCraftCapability(myDiv));
 
             if (isCarrierDiv) {
                 PermanentDivisionManager.VoidstrikeTargetingBias vsBias = myDiv.voidstrikeTargetingBias != null
@@ -5003,38 +5220,8 @@ public class DivisionCommanderAI {
         } else {
             flags.unsetFlag(AIFlags.MANEUVER_TARGET);
         }
-        if (ship.getNumFighterBays() > 0) {
-            boolean holdingForCoord = div != null
-                    && div.voidstrikeCoordination == VoidstrikeCoordinationMode.COORDINATED
-                    && (div.voidstrikeStage == 0 || div.voidstrikeStage == 1);
-            if (!holdingForCoord) {
-                VoidstrikeTargetObservance obs = (div != null && div.voidstrikeObservance != null)
-                        ? div.voidstrikeObservance
-                        : VoidstrikeTargetObservance.MEDIUM;
-                ShipAPI carrierStrikeTgt = VoidstrikeCoordinator.resolveSurvivableSquadronTargetShip(
-                        ship, div, null, null, focusEnemyShip, obs, true);
-                if (carrierStrikeTgt == null || !carrierStrikeTgt.isAlive() || carrierStrikeTgt.isHulk()) {
-                    carrierStrikeTgt = focusEnemyShip;
-                }
-                boolean splitTargetsActive = div != null
-                        && div.voidstrikeSplitMode == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS;
-                if (obs == VoidstrikeTargetObservance.HIGH) {
-                    if (!splitTargetsActive) {
-                        ship.setForceCarrierTarget(carrierStrikeTgt);
-                        ship.setForceCarrierTargetTime(1.2f);
-                    }
-                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 1.2f, carrierStrikeTgt);
-                } else if (obs == VoidstrikeTargetObservance.MEDIUM) {
-                    if (!splitTargetsActive) {
-                        ship.setForceCarrierTarget(carrierStrikeTgt);
-                        ship.setForceCarrierTargetTime(0.9f);
-                    }
-                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 0.9f, carrierStrikeTgt);
-                } else {
-                    // FREE observance: light carrier target suggestion only
-                    flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, FLAG_TTL * 0.6f, carrierStrikeTgt);
-                }
-            }
+        if (ship.getNumFighterBays() > 0 && (div == null || div.currentStrikeCraftIntent == null)) {
+            applyCarrierBayTargetObservanceFlags(ship, flags, focusEnemyShip, div);
         }
         ShipAPI currTarget = ship.getShipTarget();
         float distFocus = distance(ship.getLocation(), focusEnemyShip.getLocation());
@@ -5057,6 +5244,83 @@ public class DivisionCommanderAI {
         }
         if (distFocus <= 2200f && (preferFocus || distFocus <= distance(ship.getLocation(), currTarget.getLocation()) + 450f)) {
             applyBasicShipAiTargetOverride(ship, focusEnemyShip);
+        }
+    }
+
+    private static void applyCarrierBayTargetObservanceFlags(
+            ShipAPI ship,
+            ShipwideAIFlags flags,
+            ShipAPI targetEnemyShip,
+            DivisionState div) {
+        if (ship == null || targetEnemyShip == null || !targetEnemyShip.isAlive() || targetEnemyShip.isHulk()) return;
+        boolean holdingForCoord = div != null
+                && div.voidstrikeCoordination == VoidstrikeCoordinationMode.COORDINATED
+                && (div.voidstrikeStage == 0 || div.voidstrikeStage == 1);
+        if (holdingForCoord) return;
+        VoidstrikeTargetObservance obs = (div != null && div.voidstrikeObservance != null)
+                ? div.voidstrikeObservance
+                : VoidstrikeTargetObservance.MEDIUM;
+        ShipAPI carrierStrikeTgt = VoidstrikeCoordinator.resolveSurvivableSquadronTargetShip(
+                ship, div, null, null, targetEnemyShip, obs, true);
+        if (carrierStrikeTgt == null || !carrierStrikeTgt.isAlive() || carrierStrikeTgt.isHulk()) {
+            carrierStrikeTgt = targetEnemyShip;
+        }
+        boolean splitTargetsActive = div != null
+                && div.voidstrikeSplitMode == PermanentDivisionManager.VoidstrikeSplitMode.SPLIT_TARGETS;
+        if (obs == VoidstrikeTargetObservance.HIGH) {
+            if (!splitTargetsActive) {
+                ship.setForceCarrierTarget(carrierStrikeTgt);
+                ship.setForceCarrierTargetTime(1.2f);
+            }
+            flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 1.2f, carrierStrikeTgt);
+        } else if (obs == VoidstrikeTargetObservance.MEDIUM) {
+            if (!splitTargetsActive) {
+                ship.setForceCarrierTarget(carrierStrikeTgt);
+                ship.setForceCarrierTargetTime(0.9f);
+            }
+            flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 0.9f, carrierStrikeTgt);
+        } else {
+            flags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, FLAG_TTL * 0.6f, carrierStrikeTgt);
+        }
+    }
+
+    /**
+     * Applies fighter-bay target flags for divisions running an independent Strike Craft Mission (CAP, Sweep, Recon,
+     * Cyclic/Deckload/Alpha Voidstrike, or Reserve) so ship hull maneuver targets never hijack squadron missions.
+     */
+    private static void applyIndependentStrikeCraftTargetFlags(
+            ShipAPI ship,
+            ShipwideAIFlags flags,
+            ShipAPI strikeFocusEnemyShip,
+            DivisionState div) {
+        if (ship == null || flags == null || div == null || div.currentStrikeCraftIntent == null) return;
+        if (ship.getNumFighterBays() <= 0 && (ship.getAllWings() == null || ship.getAllWings().isEmpty())) return;
+        DivisionIntentType scIntent = div.currentStrikeCraftIntent;
+        if (scIntent == DivisionIntentType.HOLD_IN_RESERVE) {
+            flags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
+            ship.setForceCarrierTarget(null);
+            return;
+        }
+        if (scIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL) {
+            DivisionState scFriend = div.getEffectiveStrikeCraftTargetFriendlyDivision();
+            ShipAPI protectedAnchor = (scFriend != null && scFriend.flagship != null && scFriend.flagship.isAlive())
+                    ? scFriend.flagship
+                    : ship;
+            boolean inCapInterceptBand = strikeFocusEnemyShip != null
+                    && strikeFocusEnemyShip.isAlive()
+                    && !strikeFocusEnemyShip.isHulk()
+                    && (distance(ship.getLocation(), strikeFocusEnemyShip.getLocation()) <= 1100f
+                    || distance(protectedAnchor.getLocation(), strikeFocusEnemyShip.getLocation()) <= 1250f);
+            if (inCapInterceptBand) {
+                applyCarrierBayTargetObservanceFlags(ship, flags, strikeFocusEnemyShip, div);
+            } else {
+                flags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
+                ship.setForceCarrierTarget(null);
+            }
+            return;
+        }
+        if (strikeFocusEnemyShip != null && strikeFocusEnemyShip.isAlive() && !strikeFocusEnemyShip.isHulk()) {
+            applyCarrierBayTargetObservanceFlags(ship, flags, strikeFocusEnemyShip, div);
         }
     }
 

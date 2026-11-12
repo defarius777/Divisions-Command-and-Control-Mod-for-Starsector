@@ -247,14 +247,16 @@ public class VoidstrikeCoordinator {
             return;
         }
 
-        boolean isDeckOrMultiDivStrike = div.currentIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
-                || div.currentIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
-                || div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
-                || div.currentIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
-                || div.currentIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
-                || div.currentIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
-                || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
-                || div.currentIntent == DivisionIntentType.PRESS_HOME
+        DivisionIntentType scIntent = div.getEffectiveStrikeCraftIntent();
+        DivisionState scTargetEnemyDiv = div.getEffectiveStrikeCraftTargetEnemyDivision();
+        boolean isDeckOrMultiDivStrike = scIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
+                || scIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                || scIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
+                || scIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
+                || scIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
+                || scIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
+                || scIntent == DivisionIntentType.TOT_ALPHA_STRIKE
+                || scIntent == DivisionIntentType.PRESS_HOME
                 || (myGroup != null && myGroup.strikePlan != null && myGroup.strikePlan.participants.contains(div));
 
         // Physical egress recovery tracking: after a Voidstrike culminates, div.voidstrikeEgressActive remains true
@@ -290,7 +292,7 @@ public class VoidstrikeCoordinator {
         }
 
         if (div.voidstrikeCoordination == VoidstrikeCoordinationMode.UNCOORDINATED
-                && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
+                && scIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
             div.voidstrikeStage = 2;
             return;
         }
@@ -337,12 +339,12 @@ public class VoidstrikeCoordinator {
         }
         div.voidstrikeMarshalPoint.set(mx, my);
 
-        String targetKey = (div.targetEnemyDivision != null ? div.targetEnemyDivision.id : focusEnemyShip.getId());
+        String targetKey = (scTargetEnemyDiv != null ? scTargetEnemyDiv.id : focusEnemyShip.getId());
         boolean hadPreviousTarget = (div.voidstrikeLastTargetKey != null);
         boolean targetChanged = (!hadPreviousTarget || !div.voidstrikeLastTargetKey.equals(targetKey));
 
         // If enemy is already at point-blank knife-fight range (< 850u), skip staging and strike immediately
-        if (dist < 850f && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
+        if (dist < 850f && scIntent != DivisionIntentType.MARSHAL_FOR_STRIKE) {
             div.voidstrikeStage = 2;
             div.voidstrikeLastTargetKey = targetKey;
             return;
@@ -357,7 +359,7 @@ public class VoidstrikeCoordinator {
                 if (div.voidstrikeStage == 2 && (wingsCommittedDownrange > 0 || wingsClearedCarriers > 0)) {
                     return;
                 }
-                if (div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE
+                if (scIntent != DivisionIntentType.MARSHAL_FOR_STRIKE
                         && div.voidstrikeStage == 1 && wingsClearedCarriers > 0) {
                     return;
                 }
@@ -369,7 +371,7 @@ public class VoidstrikeCoordinator {
         // During OTC MARSHAL_FOR_STRIKE countdown, keep wings in Stage 0 -> Stage 1 at the marshal point
         // (instead of pulling them back into carrier bays!) so they are already formed up when the strike commits!
         // However, if armed strike craft are already committed downrange in Stage 2, never yank them back mid-run!
-        if (div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE) {
+        if (scIntent == DivisionIntentType.MARSHAL_FOR_STRIKE) {
             if (div.voidstrikeStage == 2) {
                 if (wingsCommittedDownrange == 0 || !hasArmedStrikeCraftCommittedDownrange(div)) {
                     div.voidstrikeStage = 1;
@@ -655,19 +657,21 @@ public class VoidstrikeCoordinator {
         div.voidstrikeEmergencyRecallActive = emergencyPullback;
         boolean armedCommittedDownrange = hasArmedStrikeCraftCommittedDownrange(div);
 
+        DivisionIntentType scIntent = div.getEffectiveStrikeCraftIntent();
+        DivisionState scFriendlyDiv = div.getEffectiveStrikeCraftTargetFriendlyDivision();
         boolean holdFightersInFormation = emergencyPullback
                 || (!armedCommittedDownrange && (div.voidstrikeEgressActive
-                || (div.currentIntent == DivisionIntentType.HOLD_IN_RESERVE && focusEnemyShip == null)
-                || (div.currentIntent == DivisionIntentType.CLOSE_UP && focusEnemyShip == null)
-                || (div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT && div.localEnemyStrength < 10f && focusEnemyShip == null)));
+                || scIntent == DivisionIntentType.HOLD_IN_RESERVE
+                || (scIntent == DivisionIntentType.CLOSE_UP && focusEnemyShip == null)
+                || (scIntent == DivisionIntentType.HAUL_OUT_TO_VENT && div.localEnemyStrength < 10f && focusEnemyShip == null)));
 
-        boolean isCapMission = div.currentIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
+        boolean isCapMission = scIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
         boolean coordinatedStagingActive = !holdFightersInFormation
                 && !isCapMission
                 && div.voidstrikeStage != 2
                 && focusEnemyShip != null
                 && focusEnemyShip.isAlive()
-                && (div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
+                && (scIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
                 || (div.voidstrikeCoordination == VoidstrikeCoordinationMode.COORDINATED
                 && (div.voidstrikeStage == 0 || div.voidstrikeStage == 1)));
 
@@ -687,11 +691,11 @@ public class VoidstrikeCoordinator {
         }
 
         ShipAPI escortAnchor = (isCapMission
-                && div.targetFriendlyDivision != null
-                && div.targetFriendlyDivision.flagship != null
-                && div.targetFriendlyDivision.flagship.isAlive()
-                && !div.targetFriendlyDivision.flagship.isHulk())
-                ? div.targetFriendlyDivision.flagship
+                && scFriendlyDiv != null
+                && scFriendlyDiv.flagship != null
+                && scFriendlyDiv.flagship.isAlive()
+                && !scFriendlyDiv.flagship.isHulk())
+                ? scFriendlyDiv.flagship
                 : ((div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk())
                 ? div.flagship
                 : carrier);
@@ -705,13 +709,13 @@ public class VoidstrikeCoordinator {
                 && !isCapMission
                 && focusEnemyShip != null
                 && focusEnemyShip.isAlive()
-                && (div.currentIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
-                || div.currentIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
-                || div.currentIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
-                || div.currentIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
-                || div.currentIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
-                || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
-                || div.currentIntent == DivisionIntentType.PRESS_HOME
+                && (scIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
+                || scIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                || scIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
+                || scIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
+                || scIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
+                || scIntent == DivisionIntentType.TOT_ALPHA_STRIKE
+                || scIntent == DivisionIntentType.PRESS_HOME
                 || (myGroup != null && myGroup.strikePlan != null && myGroup.strikePlan.participants.contains(div))
                 || DivisionUiWidgets.distance(carrier.getLocation(), focusEnemyShip.getLocation()) > 650f);
 
@@ -1729,8 +1733,9 @@ public class VoidstrikeCoordinator {
             return;
         }
         float maxDist = DivisionUiWidgets.distance(carrier.getLocation(), focusEnemyShip.getLocation());
-        if (div != null && div.targetEnemyDivision != null && div.targetEnemyDivision.members != null) {
-            for (ShipAPI em : div.targetEnemyDivision.members) {
+        DivisionState scTargetEnemyDiv = div != null ? div.getEffectiveStrikeCraftTargetEnemyDivision() : null;
+        if (scTargetEnemyDiv != null && scTargetEnemyDiv.members != null) {
+            for (ShipAPI em : scTargetEnemyDiv.members) {
                 if (em != null && em.isAlive() && !em.isHulk() && em.getLocation() != null) {
                     float d = DivisionUiWidgets.distance(carrier.getLocation(), em.getLocation());
                     if (d > maxDist) maxDist = d;
@@ -1941,9 +1946,10 @@ public class VoidstrikeCoordinator {
         Vector2f origin = (div.centroid != null && (div.centroid.x != 0f || div.centroid.y != 0f))
                 ? div.centroid
                 : (carriers.get(0).getLocation() != null ? carriers.get(0).getLocation() : new Vector2f());
+        DivisionState scTargetEnemyDiv = div.getEffectiveStrikeCraftTargetEnemyDivision();
         Vector2f targetLoc = (focusEnemyShip != null && focusEnemyShip.getLocation() != null)
                 ? focusEnemyShip.getLocation()
-                : ((div.targetEnemyDivision != null) ? div.targetEnemyDivision.centroid : origin);
+                : ((scTargetEnemyDiv != null) ? scTargetEnemyDiv.centroid : origin);
         float execDist = DivisionUiWidgets.distance(origin, targetLoc);
         profile.executionDistanceToTarget = execDist;
 
@@ -2033,12 +2039,13 @@ public class VoidstrikeCoordinator {
         VoidstrikeSplitMode splitMode = div.voidstrikeSplitMode != null
                 ? div.voidstrikeSplitMode
                 : VoidstrikeSplitMode.UNIFIED;
+        DivisionState scTargetEnemyDiv = div.getEffectiveStrikeCraftTargetEnemyDivision();
         if (splitMode != VoidstrikeSplitMode.SPLIT_TARGETS
-                || div.targetEnemyDivision == null
+                || scTargetEnemyDiv == null
                 || totalSquadrons <= 1) {
             return focusEnemyShip;
         }
-        List<ShipAPI> enemyAlive = div.targetEnemyDivision.getAliveMembers();
+        List<ShipAPI> enemyAlive = scTargetEnemyDiv.getAliveMembers();
         if (enemyAlive == null || enemyAlive.size() <= 1) {
             return focusEnemyShip;
         }
@@ -3141,11 +3148,14 @@ public class VoidstrikeCoordinator {
         if (group == null || group.divisions == null || group.isPassiveOpposingView) return;
         for (DivisionState div : group.divisions) {
             if (div == null) continue;
-            if (!div.voidstrikeEgressActive && (div.targetEnemyDivision == null || !div.targetEnemyDivision.isCombatEffective())) {
+            DivisionIntentType scIntent = div.getEffectiveStrikeCraftIntent();
+            boolean isCap = scIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
+            DivisionState scTargetDiv = div.getEffectiveStrikeCraftTargetEnemyDivision();
+            if (!div.voidstrikeEgressActive && !isCap && (scTargetDiv == null || !scTargetDiv.isCombatEffective())) {
                 continue;
             }
             ShipAPI focusEnemyShip = resolveVoidstrikeFocusShip(div);
-            if (!div.voidstrikeEgressActive && (focusEnemyShip == null || !focusEnemyShip.isAlive() || focusEnemyShip.isHulk())) {
+            if (!div.voidstrikeEgressActive && !isCap && (focusEnemyShip == null || !focusEnemyShip.isAlive() || focusEnemyShip.isHulk())) {
                 continue;
             }
 
@@ -3199,17 +3209,18 @@ public class VoidstrikeCoordinator {
     }
 
     public static ShipAPI resolveVoidstrikeFocusShip(DivisionState div) {
-        if (div == null || div.targetEnemyDivision == null) return null;
+        DivisionState scTargetDiv = div != null ? div.getEffectiveStrikeCraftTargetEnemyDivision() : null;
+        if (scTargetDiv == null) return null;
         PermanentDivisionManager.VoidstrikeTargetingBias bias = div.voidstrikeTargetingBias != null
                 ? div.voidstrikeTargetingBias
                 : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
         boolean focusCarriers = div.voidstrikeFocusCarriers;
-        ShipAPI flag = div.targetEnemyDivision.flagship;
+        ShipAPI flag = scTargetDiv.flagship;
         boolean flagAlive = flag != null && flag.isAlive() && !flag.isHulk() && !flag.isFighter();
         if (bias == PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION && !focusCarriers) {
             if (flagAlive) return flag;
         }
-        List<ShipAPI> enemyAlive = div.targetEnemyDivision.getAliveMembers();
+        List<ShipAPI> enemyAlive = scTargetDiv.getAliveMembers();
         if (enemyAlive == null || enemyAlive.isEmpty()) {
             return flagAlive ? flag : null;
         }
@@ -3463,9 +3474,14 @@ public class VoidstrikeCoordinator {
 
         // Emergency-Only Pullback: only discard a carrier's strike wings as returning when the carrier/division is
         // in a genuine emergency pullback or post-culmination egress with no armed craft still pressing downrange!
+        DivisionModel.DivisionIntentType scIntent = div != null ? div.getEffectiveStrikeCraftIntent() : null;
+        DivisionState scTargetEnemyDiv = div != null ? div.getEffectiveStrikeCraftTargetEnemyDivision() : null;
         boolean stagingOrStriking = div != null
-                && div.targetEnemyDivision != null
-                && (div.currentIntent == DivisionModel.DivisionIntentType.MARSHAL_FOR_STRIKE
+                && scTargetEnemyDiv != null
+                && (scIntent == DivisionModel.DivisionIntentType.MARSHAL_FOR_STRIKE
+                || scIntent == DivisionModel.DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                || scIntent == DivisionModel.DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
+                || scIntent == DivisionModel.DivisionIntentType.FLY_CYCLIC_STRIKES
                 || div.voidstrikeStage == 1
                 || div.voidstrikeStage == 2);
         boolean armedDownrange = hasArmedStrikeCraftCommittedDownrange(div);
@@ -3473,9 +3489,9 @@ public class VoidstrikeCoordinator {
         boolean carrierPullingBack = emergencyRecall
                 || (!armedDownrange && ((div != null && div.voidstrikeEgressActive)
                 || (carrier.isPullBackFighters() && !stagingOrStriking)
-                || (div != null && div.targetEnemyDivision == null && (div.currentIntent == DivisionModel.DivisionIntentType.HOLD_IN_RESERVE
-                || div.currentIntent == DivisionModel.DivisionIntentType.BREAK_OFF_AND_RETIRE
-                || div.currentIntent == DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT))));
+                || (div != null && scTargetEnemyDiv == null && (scIntent == DivisionModel.DivisionIntentType.HOLD_IN_RESERVE
+                || scIntent == DivisionModel.DivisionIntentType.BREAK_OFF_AND_RETIRE
+                || scIntent == DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT))));
         if (carrierPullingBack) {
             for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
                 returningWingKeys.add(carrier.getId() + "#wing_" + wIdx);
@@ -3575,8 +3591,8 @@ public class VoidstrikeCoordinator {
 
             // Map any fighter target (or enemy ship target) up to its parent enemy division so brief fighter-to-fighter
             // target switches during a dogfight never fragment or re-instantiate a new Voidstrike!
-            DivisionState targetEnemyDiv = (div != null && div.targetEnemyDivision != null && div.targetEnemyDivision.isCombatEffective())
-                    ? div.targetEnemyDivision
+            DivisionState targetEnemyDiv = (scTargetEnemyDiv != null && scTargetEnemyDiv.isCombatEffective())
+                    ? scTargetEnemyDiv
                     : null;
             if (targetEnemyDiv == null && targetEnemyShip != null && opposingGroup != null && opposingGroup.shipIdToDivision != null) {
                 ShipAPI lookupShip = targetEnemyShip;
@@ -3599,7 +3615,7 @@ public class VoidstrikeCoordinator {
             boolean alreadyActive = activeWingKeysSnapshot != null && activeWingKeysSnapshot.contains(wingKey);
             float distFromCarrier = DivisionUiWidgets.distance(wingCenter, carrier.getLocation());
             if (div != null) {
-                if (div.currentIntent == DivisionModel.DivisionIntentType.FLY_COMBAT_SPACE_PATROL) {
+                if (scIntent == DivisionModel.DivisionIntentType.FLY_COMBAT_SPACE_PATROL) {
                     if (targetEnemyShip == null || (!alreadyActive && distFromCarrier < 260f)) {
                         continue;
                     }
@@ -3607,7 +3623,7 @@ public class VoidstrikeCoordinator {
                 if (div.voidstrikeCoordination == VoidstrikeCoordinationMode.COORDINATED
                         && (div.voidstrikeStage == 0
                         || div.voidstrikeStage == 1
-                        || div.currentIntent == DivisionModel.DivisionIntentType.MARSHAL_FOR_STRIKE)
+                        || scIntent == DivisionModel.DivisionIntentType.MARSHAL_FOR_STRIKE)
                         && !alreadyActive) {
                     continue;
                 }
@@ -3982,7 +3998,7 @@ public class VoidstrikeCoordinator {
                 }
                 if (d.voidstrikeCoordination == VoidstrikeCoordinationMode.COORDINATED
                         && (d.voidstrikeStage == 0 || d.voidstrikeStage == 1
-                        || d.currentIntent == DivisionModel.DivisionIntentType.MARSHAL_FOR_STRIKE)) {
+                        || d.getEffectiveStrikeCraftIntent() == DivisionModel.DivisionIntentType.MARSHAL_FOR_STRIKE)) {
                     anyWingInStagingHold = true;
                 }
             }
@@ -4542,7 +4558,7 @@ public class VoidstrikeCoordinator {
         if (div.voidstrikeEgressActive) {
             return false;
         }
-        DivisionModel.DivisionIntentType in = div.currentIntent;
+        DivisionModel.DivisionIntentType in = div.getEffectiveStrikeCraftIntent();
         if (in == DivisionModel.DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
                 || in == DivisionModel.DivisionIntentType.LAUNCH_ALPHA_STRIKE
                 || in == DivisionModel.DivisionIntentType.FLY_CYCLIC_STRIKES
