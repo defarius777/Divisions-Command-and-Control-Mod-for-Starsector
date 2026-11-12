@@ -1635,12 +1635,30 @@ public class DivisionAITestSuite {
         bomberLowState.facing = 45f;
         bomberLowState.velocity.set(120f, 60f);
 
+        // 53 lines below verify off-boresight gating + multi-frame Newtonian AoA slip cancellation (zero instant vel.set jump!):
         boolean gatedStrongOffBoresight = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
                 bomberStrongState.proxy, bomberStrongState.aiFlags, targetShip, strongSec,
                 divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 480f);
         boolean gatedLowOffBoresight = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
                 bomberLowState.proxy, bomberLowState.aiFlags, targetShip, lowSec,
                 divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.LOW, true, 480f);
+        // Verify zero instantaneous velocity mutation inside applyTerminalStrikeCraftGunnery itself:
+        boolean zeroInstantVelTeleport = Math.abs(bomberStrongState.velocity.x - 120f) < 0.01f
+                && Math.abs(bomberStrongState.velocity.y - 60f) < 0.01f;
+
+        // Step 24 frames at 60 Hz (0.40s) through Newtonian thruster kinematics: STRONG AoA actively cancels lateral slip
+        // via RCS STRAFE_LEFT/RIGHT + tight PD nose turn, achieving higher forward velocity and lower lateral slip than LOW!
+        for (int af = 0; af < 24; af++) {
+            stepRehearsalFighterKinematics60Hz(bomberStrongState, 1f / 60f);
+            stepRehearsalFighterKinematics60Hz(bomberLowState, 1f / 60f);
+            divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                    bomberStrongState.proxy, bomberStrongState.aiFlags, targetShip, strongSec,
+                    divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 480f);
+            divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                    bomberLowState.proxy, bomberLowState.aiFlags, targetShip, lowSec,
+                    divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.LOW, true, 480f);
+        }
+        boolean strongSlipBetter = Math.abs(bomberStrongState.velocity.x) + 12f < Math.abs(bomberLowState.velocity.x);
 
         // Once bomberStrong aligns within 6.5 deg of worldAimPoint, fire-gate opens so torpedoes release cleanly!
         float alignedAng = (float) Math.toDegrees(Math.atan2(
@@ -1648,6 +1666,7 @@ public class DivisionAITestSuite {
                 strongSec.worldAimPoint.x - bomberStrongState.location.x));
         if (alignedAng < 0f) alignedAng += 360f;
         bomberStrongState.facing = alignedAng;
+        bomberStrongState.angularVelocity = 0f;
         boolean gatedWhenAligned = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
                 bomberStrongState.proxy, bomberStrongState.aiFlags, targetShip, strongSec,
                 divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 480f);
@@ -1656,28 +1675,39 @@ public class DivisionAITestSuite {
                 && gatedStrongOffBoresight
                 && !gatedLowOffBoresight
                 && !gatedWhenAligned
-                && (bomberStrongState.velocity.y > bomberLowState.velocity.y + 40f);
+                && zeroInstantVelTeleport
+                && strongSlipBetter;
 
         // 3b. Closed-Loop 60 Hz Voidstrike Maneuver Rehearsal Suite:
         //   (A) Coordinated Stage 1 Marshalling -> Stage 2 L-Crossfire (Anvil 0 deg + Hammer +-85 deg orthogonal dogleg)
         //   (B) Pincer Envelopment (+-55 deg Port & Starboard jaws brackets)
         //   (C) Split-Wing Voidstrikes (SPLIT_AXES & SPLIT_TARGETS hitting 3 enemy division ships inside ONE Voidstrike entity)
         //   (D) Culmination & 60 Hz Egress Recovery back to carrier
+        //   (E) Battle 9 Regression: Zero Fighters Mating With Ship Centers & Zero Non-Physical Squadron Snap-Turns / Jinking
+        rehearsalSnapTurnViolations = 0;
+        rehearsalVelTeleportViolations = 0;
+        rehearsalWingmanSteerViolations = 0;
         boolean lCrossfireRehearsalOk = rehearseClosedLoopLCrossfireVoidstrike();
         boolean pincerRehearsalOk = rehearseClosedLoopPincerVoidstrike();
         boolean splitTargetsRehearsalOk = rehearseClosedLoopSplitTargetsVoidstrike();
         boolean maxRangePkgEmergencyOk = rehearseMaxRangePackageDrivenAndEmergencyVoidstrike();
+        boolean physicsAndAntiMatingOk = rehearseFighterPhysicsAndAntiMatingInvariants();
+        boolean zeroKinematicViolations = (rehearsalSnapTurnViolations == 0
+                && rehearsalVelTeleportViolations == 0
+                && rehearsalWingmanSteerViolations == 0);
 
         check(geometryOk && sectorsOk && aoaOk
-                        && lCrossfireRehearsalOk && pincerRehearsalOk && splitTargetsRehearsalOk && maxRangePkgEmergencyOk,
-                "Scenario 10: Advanced Strike Craft Gunnery & Closed-Loop Voidstrike Rehearsal (L-Crossfire, Pincer, Split-Wing Axes/Targets, Max-Range Package Timeouts & Emergency-Only Recall)",
+                        && lCrossfireRehearsalOk && pincerRehearsalOk && splitTargetsRehearsalOk
+                        && maxRangePkgEmergencyOk && physicsAndAntiMatingOk && zeroKinematicViolations,
+                "Scenario 10: Advanced Strike Craft Gunnery, Newtonian Flight Physics & Closed-Loop Voidstrike Rehearsal (Zero Ship-Center Mating & Zero Snap-Turns)",
                 String.format(Locale.ROOT,
-                        "geometry=[direct=%.0f/%.0f, anvil=%.0f/%.0f, pincer=%.0f/%.0f], sectors=[precSpan=%.1fu, areaSpan=%.1fu, 16craftSpread=%.1fu, monotonic=%b], aoa=[leadX=%.1f>%.1f, strongGateOffBore=%b, lowGate=%b, alignedGate=%b], rehearsals=[LCrossfire=%b, Pincer=%b, SplitTargets1Entity=%b, MaxRangePkgEmergency=%b]",
+                        "geometry=[direct=%.0f/%.0f, anvil=%.0f/%.0f, pincer=%.0f/%.0f], sectors=[precSpan=%.1fu, areaSpan=%.1fu, 16craftSpread=%.1fu, monotonic=%b], aoa=[leadX=%.1f>%.1f, strongGateOffBore=%b, lowGate=%b, alignedGate=%b, zeroTeleport=%b], rehearsals=[LCrossfire=%b, Pincer=%b, SplitTargets1Entity=%b, MaxRangePkgEmergency=%b, AntiMatingPhysics=%b, snapViol=%d, velViol=%d, wingmanViol=%d]",
                         directSq0, directSq1, anvilSq0, anvilSq1, pincerSq0, pincerSq1,
                         precC0.voidstrikeSpanWidth, areaSpanWidth, totalCraftSpread, strictlyMonotonicSectors,
                         strongSec.worldAimPoint.x, lowSec.worldAimPoint.x,
-                        gatedStrongOffBoresight, gatedLowOffBoresight, gatedWhenAligned,
-                        lCrossfireRehearsalOk, pincerRehearsalOk, splitTargetsRehearsalOk, maxRangePkgEmergencyOk));
+                        gatedStrongOffBoresight, gatedLowOffBoresight, gatedWhenAligned, zeroInstantVelTeleport,
+                        lCrossfireRehearsalOk, pincerRehearsalOk, splitTargetsRehearsalOk, maxRangePkgEmergencyOk,
+                        physicsAndAntiMatingOk, rehearsalSnapTurnViolations, rehearsalVelTeleportViolations, rehearsalWingmanSteerViolations));
 
         // 4. Verify the 4x4 Showcase Mission Matrix (16 missions, ~300+ DP per side, 6+ Cruiser+ carriers per side, baked-in PermanentDivisionSpecs)
         int missionsVerified = 0;
@@ -1855,22 +1885,34 @@ public class DivisionAITestSuite {
         return wingProxy;
     }
 
+    private static int rehearsalSnapTurnViolations = 0;
+    private static int rehearsalVelTeleportViolations = 0;
+    private static int rehearsalWingmanSteerViolations = 0;
+
+    private static float shortestDeg(float fromDeg, float toDeg) {
+        float diff = (toDeg - fromDeg) % 360f;
+        if (diff > 180f) diff -= 360f;
+        if (diff < -180f) diff += 360f;
+        return diff;
+    }
+
     private static void stepRehearsalFighterKinematics60Hz(SimShipState f, float dt) {
         if (!f.alive) return;
-        // 1. Integrate position from velocity set in the previous frame (including any EveryFrameCombatPlugin /
-        // VoidstrikeCoordinator 60 Hz steering), matching vanilla CombatEngine.advanceInner intra-frame ordering!
+        // 1. Integrate position from velocity (matching vanilla CombatEngine.advance Step 1)
         f.location.x += f.velocity.x * dt;
         f.location.y += f.velocity.y * dt;
 
-        f.givenCommands.clear();
-        f.blockedCommands.clear();
-
-        // 2. Vanilla FighterAI & Wingman Formation Follow (never reads AIFlags.MOVEMENT_DEST!):
         com.fs.starfarer.api.combat.ShipAPI leader = (f.wing != null) ? f.wing.getLeader() : f.proxy;
         boolean isWingLeader = (leader == null || leader == f.proxy);
         boolean isReturning = (f.wing != null && f.wing.isReturning(f.proxy));
 
+        // 2. Non-leader, non-returning wingmen follow their Wing Leader smoothly via vanilla maneuvers.N:
+        //    Verify VoidstrikeCoordinator NEVER injects competing helm turn overrides onto wingmen!
         if (!isWingLeader && !isReturning && leader != null && leader.isAlive()) {
+            if (f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_LEFT)
+                    || f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_RIGHT)) {
+                rehearsalWingmanSteerViolations++;
+            }
             List<com.fs.starfarer.api.combat.ShipAPI> members = f.wing.getWingMembers();
             int slotIdx = Math.max(1, members.indexOf(f.proxy));
             int rank = (slotIdx + 1) / 2;
@@ -1890,7 +1932,7 @@ public class DivisionAITestSuite {
             float tVx = leader.getVelocity().x;
             float tVy = leader.getVelocity().y;
             if (dSlot > 2f) {
-                float catchSpd = Math.min(f.maxSpeed, dSlot * 3.2f);
+                float catchSpd = Math.min(f.maxSpeed, dSlot * 3.0f);
                 tVx += (dx / dSlot) * catchSpd;
                 tVy += (dy / dSlot) * catchSpd;
                 float tSpd = (float) Math.sqrt(tVx * tVx + tVy * tVy);
@@ -1899,50 +1941,173 @@ public class DivisionAITestSuite {
                     tVy *= (f.maxSpeed / tSpd);
                 }
             }
-            float blend = Math.min(1f, dt * 5.0f);
-            f.velocity.set(
-                    f.velocity.x * (1f - blend) + tVx * blend,
-                    f.velocity.y * (1f - blend) + tVy * blend);
-            f.facing = leader.getFacing();
+            float maxDv = 420f * dt;
+            float dvx = tVx - f.velocity.x;
+            float dvy = tVy - f.velocity.y;
+            float dvMag = (float) Math.sqrt(dvx * dvx + dvy * dvy);
+            if (dvMag > maxDv && dvMag > 1e-4f) {
+                dvx *= (maxDv / dvMag);
+                dvy *= (maxDv / dvMag);
+            }
+            f.velocity.set(f.velocity.x + dvx, f.velocity.y + dvy);
+            float maxTurn = 135f * dt;
+            float angDiff = shortestDeg(f.facing, leader.getFacing());
+            f.facing = (f.facing + Math.max(-maxTurn, Math.min(maxTurn, angDiff)) + 360f) % 360f;
+            f.givenCommands.clear();
+            f.blockedCommands.clear();
             return;
         }
 
+        // 3. Vanilla FighterAI fallback commands (appended AFTER EveryFrameCombatPlugin commands, respecting blockedCommands
+        //    and first-turn-command precedence exactly as in decompiled Ship.advance!):
         Object campObj = f.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION);
         Object escObj = f.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.ESCORT_OTHER_SHIP);
         boolean doNotPursue = f.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_PURSUE);
         Object mtObj = f.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MANEUVER_TARGET);
         Vector2f goal = null;
-        if (campObj instanceof Vector2f) {
+        boolean landingApproach = false;
+        if (isReturning && f.wing != null && f.wing.getSourceShip() != null) {
+            Vector2f cLoc = f.wing.getSourceShip().getLocation();
+            // Model offset launch bays (-85, -45) / (+85, +45) away from carrier center so returning craft land at their bay!
+            float baySide = ((f.id.hashCode() & 1) == 0) ? -85f : 85f;
+            goal = new Vector2f(cLoc.x + baySide, cLoc.y - 45f);
+            landingApproach = true;
+        } else if (campObj instanceof Vector2f) {
             goal = (Vector2f) campObj;
         } else if (doNotPursue && escObj instanceof com.fs.starfarer.api.combat.ShipAPI) {
-            goal = ((com.fs.starfarer.api.combat.ShipAPI) escObj).getLocation();
+            // Vanilla EscortTargetManeuverV3 orbits outside collisionRadius rather than sitting on (0,0) center!
+            com.fs.starfarer.api.combat.ShipAPI esc = (com.fs.starfarer.api.combat.ShipAPI) escObj;
+            float escR = Math.max(180f, esc.getCollisionRadius() + 95f);
+            double orbA = (f.id.hashCode() & 7) * (Math.PI * 0.25);
+            goal = new Vector2f(
+                    esc.getLocation().x + (float) Math.cos(orbA) * escR,
+                    esc.getLocation().y + (float) Math.sin(orbA) * escR);
         } else if (f.shipTarget != null && f.shipTarget.isAlive()) {
             goal = f.shipTarget.getLocation();
         } else if (mtObj instanceof com.fs.starfarer.api.combat.ShipAPI
                 && ((com.fs.starfarer.api.combat.ShipAPI) mtObj).isAlive()) {
             goal = ((com.fs.starfarer.api.combat.ShipAPI) mtObj).getLocation();
         }
+
+        boolean pluginGaveTurn = f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_LEFT)
+                || f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_RIGHT)
+                || f.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_LEFT)
+                || f.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_RIGHT);
+        boolean pluginGaveThrust = f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.ACCELERATE)
+                || f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.DECELERATE)
+                || f.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.ACCELERATE)
+                || f.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.DECELERATE);
+
         if (goal != null) {
             float dx = goal.x - f.location.x;
             float dy = goal.y - f.location.y;
             float d = (float) Math.sqrt(dx * dx + dy * dy);
-            if (d > 4f) {
+            if (d > 6f) {
                 float desAng = (float) Math.toDegrees(Math.atan2(dy, dx));
                 if (desAng < 0f) desAng += 360f;
-                float diff = desAng - f.facing;
-                while (diff > 180f) diff -= 360f;
-                while (diff < -180f) diff += 360f;
-                float maxTurn = 135f * dt;
-                f.facing = (f.facing + Math.max(-maxTurn, Math.min(maxTurn, diff)) + 360f) % 360f;
-                double rad = Math.toRadians(f.facing);
-                float thrustVx = (float) Math.cos(rad) * f.maxSpeed;
-                float thrustVy = (float) Math.sin(rad) * f.maxSpeed;
-                float blend = Math.min(1f, dt * 4.5f);
-                f.velocity.set(
-                        f.velocity.x * (1f - blend) + thrustVx * blend,
-                        f.velocity.y * (1f - blend) + thrustVy * blend);
+                float diff = shortestDeg(f.facing, desAng);
+                float stopDeg = (f.angularVelocity * Math.abs(f.angularVelocity)) / (2.0f * 380f);
+                float lead = diff - stopDeg;
+                if (!pluginGaveTurn) {
+                    if (lead > 1.8f) {
+                        f.proxy.giveCommand(com.fs.starfarer.api.combat.ShipCommand.TURN_LEFT, null, 0);
+                    } else if (lead < -1.8f) {
+                        f.proxy.giveCommand(com.fs.starfarer.api.combat.ShipCommand.TURN_RIGHT, null, 0);
+                    }
+                }
+                if (!pluginGaveThrust) {
+                    if (landingApproach && d < 120f && Math.hypot(f.velocity.x, f.velocity.y) > 90f) {
+                        f.proxy.giveCommand(com.fs.starfarer.api.combat.ShipCommand.DECELERATE, null, 0);
+                    } else if (Math.abs(diff) > 100f && Math.hypot(f.velocity.x, f.velocity.y) > f.maxSpeed * 0.45f) {
+                        f.proxy.giveCommand(com.fs.starfarer.api.combat.ShipCommand.DECELERATE, null, 0);
+                    } else {
+                        f.proxy.giveCommand(com.fs.starfarer.api.combat.ShipCommand.ACCELERATE, null, 0);
+                    }
+                }
             }
         }
+
+        // 4. Newtonian Ship.engineController.processCommands integration (strict maxTurnRate, turnAccel, and linAccel):
+        float maxTurnRate = 135f;
+        float turnAccel = 380f;
+        float linAccel = Math.max(260f, f.accel);
+
+        boolean turnL = f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_LEFT);
+        boolean turnR = f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_RIGHT);
+        if (turnL && !turnR) {
+            f.angularVelocity = Math.min(maxTurnRate, f.angularVelocity + turnAccel * dt);
+        } else if (turnR && !turnL) {
+            f.angularVelocity = Math.max(-maxTurnRate, f.angularVelocity - turnAccel * dt);
+        } else {
+            float damp = turnAccel * dt;
+            if (Math.abs(f.angularVelocity) <= damp) {
+                f.angularVelocity = 0f;
+            } else {
+                f.angularVelocity -= Math.signum(f.angularVelocity) * damp;
+            }
+        }
+
+        float prevFacing = f.facing;
+        f.facing = (f.facing + f.angularVelocity * dt) % 360f;
+        if (f.facing < 0f) f.facing += 360f;
+        if (Math.abs(shortestDeg(prevFacing, f.facing)) > maxTurnRate * dt + 0.5f) {
+            rehearsalSnapTurnViolations++;
+        }
+
+        double rad = Math.toRadians(f.facing);
+        float noseX = (float) Math.cos(rad);
+        float noseY = (float) Math.sin(rad);
+        float leftX = -noseY;
+        float leftY = noseX;
+
+        float prevVx = f.velocity.x;
+        float prevVy = f.velocity.y;
+        float vFwd = prevVx * noseX + prevVy * noseY;
+        float vLeft = prevVx * leftX + prevVy * leftY;
+
+        boolean decel = f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.DECELERATE);
+        boolean accelCmd = f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.ACCELERATE);
+        boolean strafeL = f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.STRAFE_LEFT);
+        boolean strafeR = f.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.STRAFE_RIGHT);
+
+        if (decel) {
+            float dStep = linAccel * dt;
+            vFwd = (Math.abs(vFwd) <= dStep) ? 0f : (vFwd - Math.signum(vFwd) * dStep);
+            float lStep = linAccel * 0.80f * dt;
+            vLeft = (Math.abs(vLeft) <= lStep) ? 0f : (vLeft - Math.signum(vLeft) * lStep);
+        } else if (accelCmd) {
+            vFwd = Math.min(f.maxSpeed, vFwd + linAccel * dt);
+            float lStep = linAccel * 0.55f * dt;
+            vLeft = (Math.abs(vLeft) <= lStep) ? 0f : (vLeft - Math.signum(vLeft) * lStep);
+        }
+
+        if (strafeL && !strafeR) {
+            vLeft += linAccel * 0.65f * dt;
+        } else if (strafeR && !strafeL) {
+            vLeft -= linAccel * 0.65f * dt;
+        }
+
+        float newVx = noseX * vFwd + leftX * vLeft;
+        float newVy = noseY * vFwd + leftY * vLeft;
+        float newSpd = (float) Math.sqrt(newVx * newVx + newVy * newVy);
+        if (newSpd > f.maxSpeed && newSpd > 1e-4f) {
+            newVx *= (f.maxSpeed / newSpd);
+            newVy *= (f.maxSpeed / newSpd);
+        }
+        float dv = (float) Math.hypot(newVx - prevVx, newVy - prevVy);
+        float maxAllowedDv = linAccel * 1.35f * dt;
+        if (dv > maxAllowedDv && dv > 1e-4f) {
+            newVx = prevVx + (newVx - prevVx) * (maxAllowedDv / dv);
+            newVy = prevVy + (newVy - prevVy) * (maxAllowedDv / dv);
+            dv = maxAllowedDv;
+        }
+        if (dv > linAccel * 1.40f * dt + 1.0f) {
+            rehearsalVelTeleportViolations++;
+        }
+        f.velocity.set(newVx, newVy);
+
+        f.givenCommands.clear();
+        f.blockedCommands.clear();
     }
 
     /**
@@ -2461,6 +2626,187 @@ public class DivisionAITestSuite {
                 && switchedToCloserBlockerOk
                 && aaEvasionDeflectedOk
                 && damagedCraftBrokeOffOk;
+    }
+
+    /**
+     * Rehearsal E (Battle 9 Regression): Verifies that:
+     *  (1) Returning strike craft release steering outside landingHandOffDist so they fly to offset launch bays
+     *      instead of getting pinned to carrier.getLocation() ("fighters mating with ships").
+     *  (2) Post-Voidstrike Egress (`voidstrikeEgressActive`) and 1-Squadron CAP never place waypoints on
+     *      `(escortAnchor.x, escortAnchor.y)` center.
+     *  (3) Outbound bombers that have flown over/past an enemy ship (and infinite-ammo fixed-gun interceptors)
+     *      are NEVER pulled 180 deg back into `target.getLocation()`.
+     *  (4) Sudden 180-deg Voidstrike Egress orders and enemy omni-shield wobbles during `ANVIL_CROSSFIRE` produce
+     *      smooth Newtonian banking curves (`|dFacing| <= maxTurnRate*dt`, `|dv| <= accel*dt`, zero flank-sign flips).
+     */
+    private static boolean rehearseFighterPhysicsAndAntiMatingInvariants() {
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+        DivisionState carrierDiv = new DivisionState(
+                "reh_b9_cdiv", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div. B9", pCmdr);
+        carrierDiv.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
+        carrierDiv.voidstrikeObservance = divisionai.PermanentDivisionManager.VoidstrikeTargetObservance.HIGH;
+        carrierDiv.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+        carrierDiv.voidstrikeAttackGeometry = divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE;
+        carrierDiv.voidstrikeSplitMode = divisionai.PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED;
+        carrierDiv.voidstrikeGunneryMode = divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.AREA_SATURATION;
+        carrierDiv.voidstrikeAoaCorrection = divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG;
+        carrierDiv.voidstrikeStage = 2;
+
+        DivisionState enemyDiv = new DivisionState(
+                "reh_b9_ediv", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Battle Div. B9", eCmdr);
+        carrierDiv.targetEnemyDivision = enemyDiv;
+        pGroup.divisions.add(carrierDiv);
+        eGroup.divisions.add(enemyDiv);
+
+        SimArena arena = new SimArena("Rehearsal E: Physics & Anti-Mating", "Battle 9 Regression Suite", pGroup, eGroup);
+        SimShipState carrier = arena.addShip(carrierDiv, "b9_cv", "ISS Shoebill", "shoebill", HullSize.CRUISER, 0f, 0f, 55f, 1100f, 1, 2);
+        carrierDiv.flagship = carrier.proxy;
+        carrierDiv.centroid.set(0f, 0f);
+        pGroup.shipIdToDivision.put(carrier.id, carrierDiv);
+
+        SimShipState enemyCap = arena.addShip(enemyDiv, "b9_ecap", "Pirate Atlas Mk.II", "atlas2", HullSize.CAPITAL_SHIP, 0f, 1500f, 45f, 1200f, 2, 0);
+        enemyCap.detailedCombatModel = true;
+        enemyCap.facing = 269f;
+        enemyDiv.flagship = enemyCap.proxy;
+        enemyDiv.centroid.set(0f, 1500f);
+        eGroup.shipIdToDivision.put(enemyCap.id, enemyDiv);
+
+        boolean[] retBombers = new boolean[]{false};
+        boolean[] retGunFighters = new boolean[]{false};
+        List<SimShipState> bomberWing = new ArrayList<>();
+        List<SimShipState> gunWing = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            SimShipState b = arena.addShip(carrierDiv, "b9_bmr_" + i, "Dagger " + i, "dagger", HullSize.FIGHTER, -25f + i * 25f, 360f, 210f, 520f, 1, 0);
+            b.facing = 90f;
+            b.velocity.set(0f, 200f);
+            bomberWing.add(b);
+
+            // Infinite-ammo fixed-gun fighter (strikeAmmo = 0, fixed narrow-arc ballistic autocannon)
+            SimShipState g = arena.addShip(carrierDiv, "b9_gun_" + i, "Broadsword " + i, "broadsword", HullSize.FIGHTER, -25f + i * 25f, 1220f, 240f, 450f, 0, 0);
+            g.weaponMounts.clear();
+            g.weapons.clear();
+            SimArena.SimWeaponMount fixedGun = new SimArena.SimWeaponMount(
+                    "b9_ac_" + i,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.SMALL,
+                    com.fs.starfarer.api.combat.DamageType.KINETIC,
+                    500f, 10f, 0f, 40f, 80f, 20f, 0.5f, false, 0, false, false, false);
+            g.weaponMounts.add(fixedGun);
+            g.weapons.add(fixedGun.proxy);
+            g.facing = 90f;
+            g.velocity.set(0f, 220f);
+            gunWing.add(g);
+        }
+        createRehearsalWing(carrier, bomberWing, true, retBombers);
+        createRehearsalWing(carrier, gunWing, false, retGunFighters);
+
+        // (1) Verify flank-sign hysteresis latch prevents 170-deg (+85 <-> -85) flip-flop when enemy omni-shield wobbles:
+        float signAt269 = divisionai.VoidstrikeCoordinator.computeSquadronAttackAngleOffsetDeg(
+                divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE,
+                divisionai.PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED,
+                1, 2, true, enemyCap.proxy, 0f, 1f);
+        enemyCap.facing = 271f; // Wobble shield 2 deg across 270-deg centerline!
+        float signAt271 = divisionai.VoidstrikeCoordinator.computeSquadronAttackAngleOffsetDeg(
+                divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.ANVIL_CROSSFIRE,
+                divisionai.PermanentDivisionManager.VoidstrikeSplitMode.UNIFIED,
+                1, 2, true, enemyCap.proxy, 0f, 1f);
+        boolean flankLatchSteady = Math.abs(signAt269) > 80f && Math.signum(signAt269) == Math.signum(signAt271);
+
+        // (2) Verify outbound bomber past enemy hull & infinite-ammo gun fighter are NEVER pulled back into target center:
+        SimShipState leadBomber = bomberWing.get(0);
+        leadBomber.location.set(0f, 1790f); // 290u past enemyCap at (0, 1500), flying North away from enemyCap!
+        leadBomber.facing = 90f;
+        leadBomber.velocity.set(0f, 205f);
+        leadBomber.givenCommands.clear();
+        divisionai.VoidstrikeCoordinator.FiringSectorAssignment secOut =
+                divisionai.VoidstrikeCoordinator.computeHierarchicalFiringSector(
+                        divisionai.PermanentDivisionManager.VoidstrikeGunneryMode.PRECISION,
+                        divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG,
+                        enemyCap.proxy, leadBomber.proxy, 0, 1, 0, 2, 0, 3, 0f, 1f, 1f, 0f);
+        boolean outboundDidNotEngage = !divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                leadBomber.proxy, leadBomber.aiFlags, enemyCap.proxy, secOut,
+                divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true,
+                dist(leadBomber.location, enemyCap.location))
+                && !leadBomber.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_LEFT)
+                && !leadBomber.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_RIGHT);
+
+        // Verify infinite-ammo fixed-gun fighter at dEnemy = 280u on DIRECT_ASSAULT is never locked into terminal dive steering:
+        carrierDiv.voidstrikeAttackGeometry = divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry.DIRECT_ASSAULT;
+        gunWing.get(0).givenCommands.clear();
+        divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, 2.0f);
+        boolean gunFighterNotDiveLocked = !gunWing.get(0).givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_LEFT)
+                && !gunWing.get(0).givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_RIGHT)
+                && !gunWing.get(0).aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_BACK_OFF);
+
+        // (3) Trigger sudden 180-deg Voidstrike Egress while sprinting North at +205 u/s:
+        //     Verify smooth Newtonian banking turn (cannot flip South in 1-3 frames!) and clean handoff outside carrier center!
+        for (int i = 0; i < 3; i++) {
+            bomberWing.get(i).location.set(-20f + i * 20f, 620f);
+            bomberWing.get(i).facing = 90f;
+            bomberWing.get(i).velocity.set(0f, 205f);
+            bomberWing.get(i).strikeAmmo = 0;
+        }
+        retBombers[0] = true;
+        carrierDiv.voidstrikeEgressActive = true;
+        carrier.pullBackFighters = true;
+
+        float dt60 = 1f / 60f;
+        boolean stillMovingNorthAfter3Frames = false;
+        boolean handedOffInsideLandingEnvelope = false;
+        boolean landedAtOffsetBayWithoutCenterMating = false;
+        float minDistToCarrierCenter = 9999f;
+
+        for (int fStep = 0; fStep < 420; fStep++) {
+            float tNow = 10f + fStep * dt60;
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, tNow);
+            if (fStep == 3) {
+                // After 3 frames (0.05s), a real fighter at +205 u/s North CANNOT have snapped its velocity South!
+                stillMovingNorthAfter3Frames = (leadBomber.velocity.y > 140f);
+            }
+            float dCenter = dist(leadBomber.location, carrier.location);
+            minDistToCarrierCenter = Math.min(minDistToCarrierCenter, dCenter);
+            if (dCenter <= 420f
+                    && leadBomber.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MOVEMENT_DEST) == null
+                    && leadBomber.givenCommands.isEmpty()) {
+                handedOffInsideLandingEnvelope = true;
+            }
+            for (SimShipState b : bomberWing) stepRehearsalFighterKinematics60Hz(b, dt60);
+            for (SimShipState g : gunWing) stepRehearsalFighterKinematics60Hz(g, dt60);
+
+            float baySide = ((leadBomber.id.hashCode() & 1) == 0) ? -85f : 85f;
+            Vector2f expectedBay = new Vector2f(carrier.location.x + baySide, carrier.location.y - 45f);
+            if (dist(leadBomber.location, expectedBay) <= 35f && dCenter >= 55f) {
+                landedAtOffsetBayWithoutCenterMating = true;
+                break;
+            }
+        }
+
+        // (4) Verify 1-Squadron CAP (`totalDivWings == 1`) places patrolSlot well forward of escortAnchor, never at (0,0) center:
+        carrier.wings.remove(1); // Leave exactly 1 squadron on carrier
+        retBombers[0] = false;
+        for (SimShipState b : bomberWing) b.strikeAmmo = 1;
+        carrierDiv.voidstrikeEgressActive = false;
+        carrier.pullBackFighters = false;
+        carrierDiv.currentIntent = DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
+        enemyCap.location.set(0f, 4800f); // Live enemy far outside CAP intercept radius so holdCapPatrolOverFriendly = true!
+        divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, 20f);
+        Object capDestObj = leadBomber.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MOVEMENT_DEST);
+        boolean singleSquadronCapOffCenter = (capDestObj instanceof Vector2f)
+                && dist((Vector2f) capDestObj, carrier.location) >= 220f;
+
+        return flankLatchSteady
+                && outboundDidNotEngage
+                && gunFighterNotDiveLocked
+                && stillMovingNorthAfter3Frames
+                && handedOffInsideLandingEnvelope
+                && landedAtOffsetBayWithoutCenterMating
+                && minDistToCarrierCenter >= 45f
+                && singleSquadronCapOffCenter;
     }
     private static void testUIHarnessAndUXSuccinctness() throws Exception {
         System.out.println("\n--- Scenario 7: UI/UX Testing Harness (Deployment Window 14x7 & Succinctness Audit) ---");
@@ -3472,10 +3818,19 @@ public class DivisionAITestSuite {
         boolean blockedByFriendlyCap = divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
                 lrBomber.proxy, lrBomber.aiFlags, ea1.proxy, ffSec,
                 divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 850f);
-        boolean capFireHeldAndSkirted = blockedByFriendlyCap
+        boolean fireHeldAndTurnCommanded = blockedByFriendlyCap
                 && lrBomber.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE)
                 && !lrBomber.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE)
-                && lrBomber.velocity.x < -15f;
+                && (lrBomber.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TURN_LEFT)
+                || lrBomber.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.STRAFE_LEFT));
+        // Step 18 Newtonian frames (0.30s at 60 Hz) to verify smooth physical sidestep around pCap's port shoulder:
+        for (int sf = 0; sf < 18; sf++) {
+            stepRehearsalFighterKinematics60Hz(lrBomber, 1f / 60f);
+            divisionai.VoidstrikeCoordinator.applyTerminalStrikeCraftGunnery(
+                    lrBomber.proxy, lrBomber.aiFlags, ea1.proxy, ffSec,
+                    divisionai.PermanentDivisionManager.VoidstrikeAoaCorrection.STRONG, true, 850f);
+        }
+        boolean capFireHeldAndSkirted = fireHeldAndTurnCommanded && lrBomber.velocity.x < -15f;
 
         // Move pCap clear, place fast friendly frigate ff1 at (-220, 950) sprinting +220 u/s across x=0 torpedo lane!
         pCap.location.set(-900f, 0f);

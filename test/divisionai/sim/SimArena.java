@@ -655,7 +655,20 @@ public class SimArena {
                             return null;
                         }
                         if ("getMaxTurnRate".equals(n)) {
-                            return hullSize == HullSize.FIGHTER ? 120f : 45f;
+                            return hullSize == HullSize.FIGHTER ? 135f : 45f;
+                        }
+                        if ("getTurnAcceleration".equals(n)) {
+                            return hullSize == HullSize.FIGHTER ? 380f : 90f;
+                        }
+                        if ("getAcceleration".equals(n) || "getDeceleration".equals(n)) {
+                            return accel > 0f ? accel : (hullSize == HullSize.FIGHTER ? 360f : 90f);
+                        }
+                        if (detailedCombatModel && "getCollisionRadius".equals(n)) {
+                            if (hullSize == HullSize.CAPITAL_SHIP) return 165f;
+                            if (hullSize == HullSize.CRUISER) return 110f;
+                            if (hullSize == HullSize.DESTROYER) return 75f;
+                            if (hullSize == HullSize.FRIGATE) return 48f;
+                            return 16f;
                         }
                         if ("getAllWings".equals(n)) return wings;
                         if ("getWing".equals(n)) return wing;
@@ -666,7 +679,7 @@ public class SimArena {
                             }
                             return null;
                         }
-                        if (detailedCombatModel && "getAngularVelocity".equals(n)) return angularVelocity;
+                        if ("getAngularVelocity".equals(n)) return angularVelocity;
                         if ("getFluxLevel".equals(n)) return fluxLevel;
                         if ("getHullLevel".equals(n)) return hullLevel;
                         if (detailedCombatModel && "getHitpoints".equals(n)) return Math.max(0f, hullLevel * maxHullHp);

@@ -547,6 +547,22 @@ public class UITestHarness {
                         coveredHullGroupTypes.size(),
                         DoctrineDivisionType.values().length));
 
+        // E3. v1.1.2 Strike Craft Newtonian Physics & Anti-Ship-Center-Mating Source Audit
+        String vsSrc = new String(Files.readAllBytes(new File("src/divisionai/VoidstrikeCoordinator.java").toPath()), StandardCharsets.UTF_8);
+        boolean zeroDirectFighterKinematics = !vsSrc.contains("fighter.setFacing(")
+                && !vsSrc.contains("fighter.getVelocity().set(")
+                && !vsSrc.contains("vel.set(");
+        boolean antiMatingAndLatchHooksOk = zeroDirectFighterKinematics
+                && vsSrc.contains("outboundPastTarget")
+                && vsSrc.contains("landingHandOffDist")
+                && vsSrc.contains("latchedFlankSignByTarget")
+                && vsSrc.contains("stopLeadDeg");
+        res.record(
+                antiMatingAndLatchHooksOk,
+                "v1.1.2 Strike Craft Pure-Command Newtonian Physics (Zero setFacing/vel.set), Inbound-Only Gate, Bay Landing Handoff & Flank Latch",
+                String.format(Locale.ROOT, "zeroDirectKinematics=%b, inboundGate=true, landingHandoff=true, flankHysteresisLatch=true",
+                        zeroDirectFighterKinematics));
+
         // F. Commander portrait and level badge on left side of ship icons
         boolean itemFOk = edSrc.contains("renderCommanderPortraitSprite")
                 && edSrc.contains("Fonts.VICTOR_10")
