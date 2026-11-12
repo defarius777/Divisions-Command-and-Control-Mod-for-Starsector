@@ -132,7 +132,8 @@ final class DivisionConfigureSubscreen {
         LabelAPI titleLbl = navUi.addTitle(
                 spec.name.toUpperCase(Locale.ROOT) + " - " + spec.archetype.shortPrefix.toUpperCase(Locale.ROOT),
                 highlight);
-        titleLbl.getPosition().inTL(198f, 3f);
+        float disbandX = DIALOG_WIDTH - 72f - 130f - 8f - 144f;
+        DivisionUiWidgets.wrapLabelInPlace(titleLbl, disbandX - 198f - 10f, 198f, 3f);
 
         String delAct = "DELETE_DIV:" + spec.id;
         ButtonAPI bDisband = dialog.registerButton(
@@ -170,7 +171,7 @@ final class DivisionConfigureSubscreen {
         CustomPanelAPI nameRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, dialog.subPanelPlugin);
         TooltipMakerAPI nameUi = nameRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
         LabelAPI callLbl = nameUi.addPara("Callsign:", 0f, baseColor);
-        callLbl.getPosition().inTL(2f, 5f);
+        DivisionUiWidgets.wrapLabelInPlace(callLbl, 60f, 2f, 5f);
         DivisionUiWidgets.attachRowLabelTooltip(nameUi, (com.fs.starfarer.api.ui.UIComponentAPI) callLbl, "Callsign:");
         dialog.activeNameField = nameUi.addTextField(230f, Fonts.DEFAULT_SMALL, 0f);
         dialog.activeNameField.setText(spec.name);
@@ -192,7 +193,7 @@ final class DivisionConfigureSubscreen {
         bSaveName.getPosition().inTL(304f, 3f);
 
         LabelAPI postLbl = nameUi.addPara("Posture:", 0f, baseColor);
-        postLbl.getPosition().inTL(416f, 5f);
+        DivisionUiWidgets.wrapLabelInPlace(postLbl, 58f, 416f, 5f);
         DivisionUiWidgets.attachRowLabelTooltip(nameUi, (com.fs.starfarer.api.ui.UIComponentAPI) postLbl, "Posture:");
         DoctrineOption[] doctrines = DoctrineOption.values();
         float dx = 478f;
@@ -813,7 +814,7 @@ final class DivisionConfigureSubscreen {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
         LabelAPI unitLbl = rowUi.addPara(labelText, 0f, isCustom ? activeColor : baseColor, labelText);
-        unitLbl.getPosition().inTL(4f, 4f);
+        float unitLblBot = DivisionUiWidgets.wrapLabelInPlace(unitLbl, CONTROL_COL_X - 12f, 4f, 4f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) unitLbl, labelText);
 
         float x = CONTROL_COL_X;
@@ -838,7 +839,7 @@ final class DivisionConfigureSubscreen {
         if (!isCustom) bInh.highlight();
         bInh.getPosition().inTL(x + 124f, 3f);
 
-        rowUi.setHeightSoFar(26f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(26f, unitLblBot + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
     }
@@ -862,7 +863,7 @@ final class DivisionConfigureSubscreen {
                 ? String.format(Locale.ROOT, "Standoff: %du (Guns %du)", effStandoff, longestGunRange)
                 : String.format(Locale.ROOT, "Standoff: %du", effStandoff);
         LabelAPI stLbl = rowUi.addPara(label, 0f, isCustom ? highlight : baseColor, label);
-        stLbl.getPosition().inTL(4f, 4f);
+        float stLblBot = DivisionUiWidgets.wrapLabelInPlace(stLbl, CONTROL_COL_X - 12f, 4f, 4f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) stLbl, "Standoff Range:");
 
         float x = CONTROL_COL_X;
@@ -893,7 +894,7 @@ final class DivisionConfigureSubscreen {
         if (!isCustom) bInh.highlight();
         bInh.getPosition().inTL(x + 278f, 3f);
 
-        rowUi.setHeightSoFar(26f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(26f, stLblBot + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
     }
@@ -926,7 +927,7 @@ final class DivisionConfigureSubscreen {
             @Override
             public void render(float alphaMult) {
                 CustomPanelAPI self = rowPanelRef[0];
-                if (self == null || self.getPosition() == null) return;
+                if (!DivisionUiWidgets.isPanelVisibleOnScreen(self)) return;
                 PositionAPI rp = self.getPosition();
                 boolean flagshipDivSelected = dialog.isSelectedDivisionFlagship();
                 // Render active formation preview icon in the header bar at CONTROL_COL_X
@@ -961,7 +962,7 @@ final class DivisionConfigureSubscreen {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
         String labelText = "Formation: " + effFormation.shortName;
         LabelAPI fmLbl = rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText);
-        fmLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.wrapLabelInPlace(fmLbl, CONTROL_COL_X - 10f, 4f, 4f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) fmLbl, labelText);
 
         String inhAct = "DIV_FORMATION:INHERIT";
@@ -1134,7 +1135,7 @@ final class DivisionConfigureSubscreen {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
         LabelAPI ramLbl = rowUi.addPara("Ramming Options:", 0f, baseColor);
-        ramLbl.getPosition().inTL(4f, 4f);
+        float ramLblBot = DivisionUiWidgets.wrapLabelInPlace(ramLbl, CONTROL_COL_X - 12f, 4f, 4f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) ramLbl, "Ramming Options:");
 
         String toggleAct = "TOGGLE_DIV_RAMMING_OPTIONS";
@@ -1164,11 +1165,14 @@ final class DivisionConfigureSubscreen {
                         effRamMode.displayName,
                         effRamScope.displayName,
                         effRamSlots);
-        rowUi.addPara(summary, 0f, effRamMode != DivisionRammingMode.OFF ? positive : gray)
-                .getPosition()
-                .inTL(CONTROL_COL_X + 212f, 4f);
+        LabelAPI ramSumLbl = rowUi.addPara(summary, 0f, effRamMode != DivisionRammingMode.OFF ? positive : gray);
+        float sumX = CONTROL_COL_X + 212f;
+        float availRight = rowWidth - sumX - 6f;
+        float ramSumBot = (availRight >= 80f)
+                ? DivisionUiWidgets.wrapLabelInPlace(ramSumLbl, availRight, sumX, 4f)
+                : DivisionUiWidgets.wrapLabelInPlace(ramSumLbl, rowWidth - CONTROL_COL_X - 8f, CONTROL_COL_X, 25f);
 
-        rowUi.setHeightSoFar(26f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(26f, Math.max(ramLblBot, ramSumBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
     }
@@ -1268,7 +1272,7 @@ final class DivisionConfigureSubscreen {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
         String labelText = "Carrier Priority: " + (effFocusCarriers ? "Focus On" : "Standard");
         LabelAPI rowLbl = rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText);
-        rowLbl.getPosition().inTL(4f, 4f);
+        float rowLblBot = DivisionUiWidgets.wrapLabelInPlace(rowLbl, CONTROL_COL_X - 12f, 4f, 4f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) rowLbl, labelText);
 
         String toggleAct = "DIV_VS_CV_FOCUS:TOGGLE";
@@ -1303,7 +1307,7 @@ final class DivisionConfigureSubscreen {
         }
         bInh.getPosition().inTL(CONTROL_COL_X + 186f, 3f);
 
-        rowUi.setHeightSoFar(26f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(26f, rowLblBot + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
     }
@@ -1545,7 +1549,7 @@ final class DivisionConfigureSubscreen {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
         LabelAPI archLbl = rowUi.addPara("Division Type:", 0f, baseColor);
-        archLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.wrapLabelInPlace(archLbl, CONTROL_COL_X - 12f, 4f, 4f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) archLbl, "Division Type:");
 
         String toggleAct = "TOGGLE_DD:" + dropdownKey;
@@ -1619,7 +1623,7 @@ final class DivisionConfigureSubscreen {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
 
         LabelAPI carLbl = rowUi.addPara("Carrier Options:", 0f, baseColor);
-        carLbl.getPosition().inTL(4f, 4f);
+        float carLblBot = DivisionUiWidgets.wrapLabelInPlace(carLbl, CONTROL_COL_X - 12f, 4f, 4f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) carLbl, "Carrier Options:");
 
         String toggleAct = "TOGGLE_DIV_CARRIER_OPTIONS";
@@ -1648,9 +1652,14 @@ final class DivisionConfigureSubscreen {
                 effVsCoord.displayName,
                 effVsDepth,
                 effVsWidth);
-        rowUi.addPara(summary, 0f, expanded ? highlight : gray).getPosition().inTL(CONTROL_COL_X + 212f, 4f);
+        LabelAPI carSumLbl = rowUi.addPara(summary, 0f, expanded ? highlight : gray);
+        float sumX = CONTROL_COL_X + 212f;
+        float availRight = rowWidth - sumX - 6f;
+        float carSumBot = (availRight >= 80f)
+                ? DivisionUiWidgets.wrapLabelInPlace(carSumLbl, availRight, sumX, 4f)
+                : DivisionUiWidgets.wrapLabelInPlace(carSumLbl, rowWidth - CONTROL_COL_X - 8f, CONTROL_COL_X, 25f);
 
-        rowUi.setHeightSoFar(26f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(26f, Math.max(carLblBot, carSumBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
     }

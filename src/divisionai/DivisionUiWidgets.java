@@ -121,7 +121,6 @@ public final class DivisionUiWidgets {
         float h = pos.getHeight();
 
         Color border = Misc.getBasePlayerColor();
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -158,7 +157,59 @@ public final class DivisionUiWidgets {
         GL11.glVertex2f(x, y + h);
         GL11.glEnd();
 
-        GL11.glPopAttrib();
+        GL11.glLineWidth(1.0f);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    /**
+     * Wraps a {@link LabelAPI} in-place to {@code maxWidth} pixels using Starsector's native bitmap
+     * font wrapper ({@link LabelAPI#autoSizeToWidth(float)}), anchors it at {@code (x, y)}, and returns
+     * its bottom Y extent ({@code y + wrappedHeight}).
+     */
+    public static float wrapLabelInPlace(LabelAPI lbl, float maxWidth, float x, float y) {
+        if (lbl == null) return y;
+        float safeW = Math.max(48f, (float) Math.floor(maxWidth));
+        PositionAPI pos = lbl.autoSizeToWidth(safeW);
+        if (pos == null) {
+            pos = lbl.getPosition();
+        }
+        if (pos != null) {
+            pos.inTL(x, y);
+            return y + Math.max(15f, pos.getHeight());
+        }
+        return y + 16f;
+    }
+
+    /**
+     * Resizes both a row's {@link CustomPanelAPI} and its {@link TooltipMakerAPI} when wrapped multi-line
+     * labels or stacked sub-rows exceed {@code baseRowHeight}.
+     */
+    public static void resizeRowToFit(CustomPanelAPI rowPanel, TooltipMakerAPI rowUi, float rowWidth, float requiredHeight) {
+        float h = (float) Math.ceil(requiredHeight);
+        if (rowUi != null) {
+            rowUi.setHeightSoFar(h);
+            if (rowUi.getPosition() != null) {
+                rowUi.getPosition().setSize(rowWidth, h);
+            }
+        }
+        if (rowPanel != null && rowPanel.getPosition() != null) {
+            rowPanel.getPosition().setSize(rowWidth, h);
+        }
+    }
+
+    /**
+     * Fast vertical screen-bounds check so off-screen rows inside a scroll panel skip custom OpenGL draws.
+     */
+    public static boolean isPanelVisibleOnScreen(CustomPanelAPI panel) {
+        if (panel == null || panel.getPosition() == null) return false;
+        PositionAPI p = panel.getPosition();
+        float py = p.getY();
+        float ph = p.getHeight();
+        float screenH = (Global.getSettings() != null && Global.getSettings().getScreenHeight() > 0f)
+                ? Global.getSettings().getScreenHeight()
+                : 1080f;
+        return (py + ph >= -32f) && (py <= screenH + 32f);
     }
 
     /**
@@ -194,13 +245,32 @@ public final class DivisionUiWidgets {
             Color summaryColor,
             float summaryY) {
 
+        boolean hasInherit = (inheritActionId != null);
+        float singleLineControlsEnd = controlColX + (optionLabels.length * btnStride) + (hasInherit ? inheritBtnWidth : 0f);
+        boolean stackButtonsBelow = hasInherit && (singleLineControlsEnd > rowWidth - 6f);
+
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, rowHeight, panelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowHeight, false);
         LabelAPI rowLbl = rowUi.addPara(labelText, 0f, labelColor, labelHighlightSpan != null ? labelHighlightSpan : labelText);
-        rowLbl.getPosition().inTL(labelX, labelY);
+
+        float maxLabelW = stackButtonsBelow
+                ? (rowWidth - inheritBtnWidth - labelX - 12f)
+                : (controlColX - labelX - 8f);
+        float lblBottom = wrapLabelInPlace(rowLbl, maxLabelW, labelX, labelY);
         attachRowLabelTooltip(rowUi, (UIComponentAPI) rowLbl, labelText);
 
-        float xCursor = controlColX;
+        float btnY = stackButtonsBelow ? Math.max(24f, lblBottom + 3f) : 3f;
+        float xCursor = stackButtonsBelow ? labelX : controlColX;
+        float effBtnStride = btnStride;
+        float effBtnWidth = btnWidth;
+        if (stackButtonsBelow && optionLabels.length > 0) {
+            float availBtnW = rowWidth - labelX - 6f;
+            if (optionLabels.length * effBtnStride > availBtnW) {
+                effBtnStride = (float) Math.floor(availBtnW / optionLabels.length);
+                effBtnWidth = Math.max(44f, effBtnStride - 4f);
+            }
+        }
+
         for (int i = 0; i < optionLabels.length; i++) {
             boolean selected = (i == selectedIndex);
             String act = optionActionIds[i];
@@ -212,19 +282,18 @@ public final class DivisionUiWidgets {
                             darkColor,
                             Alignment.MID,
                             CutStyle.ALL,
-                            btnWidth,
+                            effBtnWidth,
                             btnHeight,
                             0f),
                     act);
             if (selected) {
                 btn.highlight();
             }
-            btn.getPosition().inTL(xCursor, 3f);
-            attachActionTooltip(rowUi, btn, act);
-            xCursor += btnStride;
+            btn.getPosition().inTL(xCursor, btnY);
+            xCursor += effBtnStride;
         }
 
-        if (inheritActionId != null) {
+        if (hasInherit) {
             ButtonAPI bInh = registrar.register(
                     rowUi.addButton(
                             "Inherit",
@@ -240,17 +309,32 @@ public final class DivisionUiWidgets {
             if (!isCustomValue) {
                 bInh.highlight();
             }
-            bInh.getPosition().inTL(xCursor, 3f);
-            attachActionTooltip(rowUi, bInh, inheritActionId);
+            if (stackButtonsBelow) {
+                bInh.getPosition().inTL(rowWidth - inheritBtnWidth - 4f, 2f);
+            } else {
+                bInh.getPosition().inTL(xCursor, 3f);
+                xCursor += inheritBtnWidth + 4f;
+            }
         }
 
+        float controlsBottom = btnY + btnHeight;
+        float sumBottom = 0f;
         if (summaryText != null && !summaryText.isEmpty()) {
             LabelAPI sumLbl = rowUi.addPara(summaryText, 0f, summaryColor);
-            sumLbl.getPosition().inTL(xCursor + 8f, summaryY);
+            float sumStartX = xCursor + 8f;
+            float availRightW = rowWidth - sumStartX - 8f;
+            if (!stackButtonsBelow && availRightW >= 180f) {
+                sumBottom = wrapLabelInPlace(sumLbl, availRightW, sumStartX, summaryY);
+            } else {
+                float belowX = stackButtonsBelow ? labelX : controlColX;
+                float belowY = Math.max(controlsBottom, lblBottom) + 3f;
+                sumBottom = wrapLabelInPlace(sumLbl, rowWidth - belowX - 8f, belowX, belowY);
+            }
             attachRowLabelTooltip(rowUi, (UIComponentAPI) sumLbl, labelText);
         }
 
-        rowUi.setHeightSoFar(rowHeight);
+        float finalRowH = Math.max(rowHeight, Math.max(Math.max(lblBottom, controlsBottom), sumBottom) + 4f);
+        resizeRowToFit(rowPanel, rowUi, rowWidth, finalRowH);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         parent.addCustom(rowPanel, 2f);
     }
@@ -278,13 +362,14 @@ public final class DivisionUiWidgets {
 
         final float btnW = hasInheritButton ? 96f : 112f;
         final float btnGap = hasInheritButton ? 5f : 6f;
-        final float rowH = hasInheritButton ? 50f : 28f;
+        final float baseRowH = hasInheritButton ? 50f : 28f;
         final float btnH = hasInheritButton ? 20f : 22f;
         final float iconXOffset = hasInheritButton ? 11f : 12f;
         final float iconSize = hasInheritButton ? 14f : 15f;
         final ButtonAPI[] formButtons = new ButtonAPI[options.length];
+        final CustomPanelAPI[] rowPanelRef = new CustomPanelAPI[1];
 
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, rowH, new BaseCustomUIPanelPlugin() {
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, baseRowH, new BaseCustomUIPanelPlugin() {
             @Override
             public void buttonPressed(Object buttonId) {
                 if (pressRelay != null) {
@@ -294,6 +379,7 @@ public final class DivisionUiWidgets {
 
             @Override
             public void render(float alphaMult) {
+                if (!isPanelVisibleOnScreen(rowPanelRef[0])) return;
                 for (int i = 0; i < options.length; i++) {
                     SquadronFormation sf = options[i];
                     ButtonAPI btn = formButtons[i];
@@ -312,11 +398,15 @@ public final class DivisionUiWidgets {
                 }
             }
         });
+        rowPanelRef[0] = rowPanel;
 
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, baseRowH, false);
         Color lblColor = hasInheritButton ? (isCustom ? highlight : baseColor) : activeColor;
         LabelAPI rowLbl = rowUi.addPara(labelText, 0f, lblColor, labelText);
-        rowLbl.getPosition().inTL(hasInheritButton ? 4f : 6f, hasInheritButton ? 4f : 5f);
+        float lblX = hasInheritButton ? 4f : 6f;
+        float lblY = hasInheritButton ? 4f : 5f;
+        float maxLblW = hasInheritButton ? (rowWidth - 96f) : (controlColX - lblX - 8f);
+        float lblBottom = wrapLabelInPlace(rowLbl, maxLblW, lblX, lblY);
         attachRowLabelTooltip(rowUi, (UIComponentAPI) rowLbl, labelText);
 
         if (hasInheritButton) {
@@ -335,14 +425,13 @@ public final class DivisionUiWidgets {
                     inhAct);
             if (!isCustom) bInh.highlight();
             bInh.getPosition().inTL(rowWidth - 86f, 2f);
-            attachActionTooltip(rowUi, bInh, inhAct);
         }
 
+        float by = hasInheritButton ? Math.max(25f, lblBottom + 3f) : 3f;
         for (int i = 0; i < options.length; i++) {
             SquadronFormation sf = options[i];
             boolean selected = (sf == currentFormation);
             float bx = hasInheritButton ? (4f + i * (btnW + btnGap)) : (controlColX + i * (btnW + btnGap));
-            float by = hasInheritButton ? 25f : 3f;
             String act = actionPrefix + sf.name();
             Color selCol = hasInheritButton ? (isCustom ? highlight : activeColor) : activeColor;
             ButtonAPI bForm = registrar.register(
@@ -359,11 +448,11 @@ public final class DivisionUiWidgets {
                     act);
             if (selected) bForm.highlight();
             bForm.getPosition().inTL(bx, by);
-            attachActionTooltip(rowUi, bForm, act);
             formButtons[i] = bForm;
         }
 
-        rowUi.setHeightSoFar(rowH);
+        float finalRowH = Math.max(baseRowH, Math.max(lblBottom, by + btnH) + 4f);
+        resizeRowToFit(rowPanel, rowUi, rowWidth, finalRowH);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         parent.addCustom(rowPanel, 2f);
     }
@@ -404,7 +493,9 @@ public final class DivisionUiWidgets {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, mainRowH, false);
 
         LabelAPI rowLbl = rowUi.addPara(labelText, 0f, baseColor);
-        rowLbl.getPosition().inTL(hasInheritOption ? 4f : 6f, hasInheritOption ? 4f : 5f);
+        float lblX = hasInheritOption ? 4f : 6f;
+        float lblY = hasInheritOption ? 4f : 5f;
+        float lblBottom = wrapLabelInPlace(rowLbl, controlColX - lblX - 8f, lblX, lblY);
         attachRowLabelTooltip(rowUi, (UIComponentAPI) rowLbl, labelText);
 
         String toggleAct = "TOGGLE_DD:" + dropdownKey;
@@ -414,7 +505,8 @@ public final class DivisionUiWidgets {
                 rowUi.addButton(btnText, toggleAct, toggleColor, darkColor, Alignment.LMID, CutStyle.TL_BR, toggleBtnW, toggleBtnH, 0f),
                 toggleAct);
         if (expanded) bToggle.highlight();
-        bToggle.getPosition().inTL(controlColX, hasInheritOption ? 2f : 3f);
+        float btnY = hasInheritOption ? 2f : 3f;
+        bToggle.getPosition().inTL(controlColX, btnY);
         addTooltip(
                 rowUi,
                 bToggle,
@@ -424,12 +516,18 @@ public final class DivisionUiWidgets {
                         ? (" (Default Line Station: " + currentMission.autoLineStation.displayName + ").")
                         : ""));
 
+        float hintBottom = 0f;
         String topHint = showLineStationHint
                 ? (currentMission.autoLineStation != null ? currentMission.autoLineStation.displayName : "")
                 : currentMission.summary;
         if (topHint != null && !topHint.isEmpty()) {
             LabelAPI hintLbl = rowUi.addPara(topHint, 0f, gray);
-            hintLbl.getPosition().inTL(hintColX, hasInheritOption ? 4f : 5f);
+            float availHintW = rowWidth - hintColX - 8f;
+            if (availHintW >= 68f) {
+                hintBottom = wrapLabelInPlace(hintLbl, availHintW, hintColX, hasInheritOption ? 4f : 5f);
+            } else {
+                hintBottom = wrapLabelInPlace(hintLbl, rowWidth - controlColX - 8f, controlColX, btnY + toggleBtnH + 3f);
+            }
             addTooltip(
                     rowUi,
                     (UIComponentAPI) hintLbl,
@@ -437,7 +535,8 @@ public final class DivisionUiWidgets {
                     currentMission.summary);
         }
 
-        rowUi.setHeightSoFar(mainRowH);
+        float finalMainH = Math.max(mainRowH, Math.max(Math.max(lblBottom, btnY + toggleBtnH), hintBottom) + 4f);
+        resizeRowToFit(rowPanel, rowUi, rowWidth, finalMainH);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         parent.addCustom(rowPanel, 2f);
 
@@ -460,7 +559,6 @@ public final class DivisionUiWidgets {
                         inhAct);
                 if (!isCustom) bInh.highlight();
                 bInh.getPosition().inTL(controlColX + 12f, 2f);
-                attachActionTooltip(inhUi, bInh, inhAct);
                 inhUi.setHeightSoFar(optRowH);
                 inhPanel.addUIElement(inhUi).inTL(0f, 0f);
                 parent.addCustom(inhPanel, 1f);
@@ -501,10 +599,20 @@ public final class DivisionUiWidgets {
                                 0f),
                         selAct);
                 if (selected) bOpt.highlight();
-                bOpt.getPosition().inTL(controlColX + 12f, hasInheritOption ? 2f : 3f);
-                attachActionTooltip(optUi, bOpt, selAct);
-                optUi.addPara(hintText, 0f, selected ? activeColor : gray).getPosition().inTL(hintColX, 4f);
-                optUi.setHeightSoFar(optRowH);
+                float optBtnY = hasInheritOption ? 2f : 3f;
+                bOpt.getPosition().inTL(controlColX + 12f, optBtnY);
+                float optHintBottom = 0f;
+                if (hintText != null && !hintText.isEmpty()) {
+                    LabelAPI optHintLbl = optUi.addPara(hintText, 0f, selected ? activeColor : gray);
+                    float availOptHintW = rowWidth - hintColX - 8f;
+                    if (availOptHintW >= 68f) {
+                        optHintBottom = wrapLabelInPlace(optHintLbl, availOptHintW, hintColX, 4f);
+                    } else {
+                        optHintBottom = wrapLabelInPlace(optHintLbl, rowWidth - (controlColX + 12f) - 8f, controlColX + 12f, optBtnY + 22f);
+                    }
+                }
+                float finalOptH = Math.max(optRowH, Math.max(optBtnY + 20f, optHintBottom) + 3f);
+                resizeRowToFit(optPanel, optUi, rowWidth, finalOptH);
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
                 parent.addCustom(optPanel, hasInheritOption ? 1f : 2f);
             }
@@ -541,10 +649,11 @@ public final class DivisionUiWidgets {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, rowHeight, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowHeight, false);
         LabelAPI rowLbl = rowUi.addPara(labelText, 0f, labelColor, labelText);
-        rowLbl.getPosition().inTL(labelX, labelY);
+        float startX = hasInheritButton ? (controlColX - 24f) : controlColX;
+        float lblBottom = wrapLabelInPlace(rowLbl, startX - labelX - 8f, labelX, labelY);
         attachRowLabelTooltip(rowUi, (UIComponentAPI) rowLbl, labelText);
 
-        float xCursor = hasInheritButton ? (controlColX - 24f) : controlColX;
+        float xCursor = startX;
         if (hasPlusMinusButtons) {
             String decAct = actionPrefix + Math.max(PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH, currentValue - 1);
             ButtonAPI bDec = registrar.register(
@@ -552,7 +661,6 @@ public final class DivisionUiWidgets {
                     decAct);
             bDec.setEnabled(currentValue > PermanentDivisionManager.MIN_VOIDSTRIKE_SQUADRON_DEPTH);
             bDec.getPosition().inTL(xCursor, 3f);
-            attachActionTooltip(rowUi, bDec, decAct);
             xCursor += 38f;
         }
 
@@ -575,7 +683,6 @@ public final class DivisionUiWidgets {
                     valAct);
             if (selected) bVal.highlight();
             bVal.getPosition().inTL(xCursor, 3f);
-            attachActionTooltip(rowUi, bVal, valAct);
             xCursor += btnStride;
         }
 
@@ -586,7 +693,6 @@ public final class DivisionUiWidgets {
                     incAct);
             bInc.setEnabled(currentValue < PermanentDivisionManager.MAX_VOIDSTRIKE_SQUADRON_DEPTH);
             bInc.getPosition().inTL(xCursor, 3f);
-            attachActionTooltip(rowUi, bInc, incAct);
         }
 
         if (hasInheritButton) {
@@ -605,16 +711,20 @@ public final class DivisionUiWidgets {
                     inhAct);
             if (!isCustom) bInh.highlight();
             bInh.getPosition().inTL(xCursor + 4f, 3f);
-            attachActionTooltip(rowUi, bInh, inhAct);
         }
 
-        rowUi.setHeightSoFar(rowHeight);
+        float finalRowH = Math.max(rowHeight, Math.max(lblBottom, 3f + btnH) + 4f);
+        resizeRowToFit(rowPanel, rowUi, rowWidth, finalRowH);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         parent.addCustom(rowPanel, 2f);
     }
 
     public static final float DEFAULT_TOOLTIP_WIDTH = 390f;
     private static TooltipMakerAPI fallbackTooltipHost = null;
+
+    public static void resetFallbackTooltipHost() {
+        fallbackTooltipHost = null;
+    }
 
     private static TooltipMakerAPI resolveTooltipHost(TooltipMakerAPI host) {
         if (host != null) {
@@ -837,6 +947,16 @@ public final class DivisionUiWidgets {
                         "Offensive Ramming Options",
                         "Expand or collapse offensive ramming overrides for this division: Ramming Mode, Ram Target Scope, and Max Ramming Attack Slots."
                 };
+            case "EXPAND_ALL_HULL_GROUPS":
+                return new String[]{
+                        "Expand All Hull Groups",
+                        "Expand every hull-class group in Division Defaults so all 16 division types are visible."
+                };
+            case "COLLAPSE_ALL_HULL_GROUPS":
+                return new String[]{
+                        "Collapse All Hull Groups",
+                        "Collapse all hull-class groups in Division Defaults into a compact overview."
+                };
             case "OTC_CHANGE":
                 return new String[]{
                         "Change Tactical Commander (OTC)",
@@ -868,6 +988,19 @@ public final class DivisionUiWidgets {
                 };
             default:
                 break;
+        }
+
+        if (actionId.startsWith("TOGGLE_HULL_GROUP:")) {
+            return new String[]{
+                    "Hull-Class Division Defaults",
+                    "Click to expand or collapse doctrinal division defaults for all division types in this hull class."
+            };
+        }
+        if (actionId.startsWith("TOGGLE_DT_CARD:")) {
+            return new String[]{
+                    "Division Type Settings",
+                    "Click to expand or collapse doctrinal spacing, formation, mission, and tactical modifiers for this division type."
+            };
         }
 
         if (actionId.startsWith("TOGGLE_DD:")) {

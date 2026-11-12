@@ -94,6 +94,55 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         NAMING_SCHEME
     }
 
+    public enum DoctrineHullGroup {
+        BATTLESHIPS(
+                "Battleships & Capitals",
+                DoctrineDivisionType.BATTLESHIP,
+                DoctrineDivisionType.MISSILE_BATTLESHIP),
+        CRUISERS(
+                "Cruisers",
+                DoctrineDivisionType.CRUISER,
+                DoctrineDivisionType.MISSILE_CRUISER,
+                DoctrineDivisionType.STRIKE_CRUISER),
+        DESTROYERS(
+                "Destroyers",
+                DoctrineDivisionType.DESTROYER,
+                DoctrineDivisionType.MISSILE_DESTROYER),
+        FRIGATES(
+                "Frigates",
+                DoctrineDivisionType.FRIGATE,
+                DoctrineDivisionType.MISSILE_FRIGATE),
+        CARRIERS(
+                "Carriers & Strike Wings",
+                DoctrineDivisionType.FLEET_CARRIER,
+                DoctrineDivisionType.LIGHT_CARRIER,
+                DoctrineDivisionType.ESCORT_CARRIER,
+                DoctrineDivisionType.CARRIER_GROUP),
+        SPECIAL(
+                "Phase, Auxiliaries & Mixed",
+                DoctrineDivisionType.PHASE,
+                DoctrineDivisionType.SERVICE_GROUP,
+                DoctrineDivisionType.FORCE);
+
+        public final String displayName;
+        public final DoctrineDivisionType[] divisionTypes;
+
+        DoctrineHullGroup(String displayName, DoctrineDivisionType... divisionTypes) {
+            this.displayName = displayName;
+            this.divisionTypes = divisionTypes;
+        }
+
+        public static DoctrineHullGroup forDivisionType(DoctrineDivisionType dt) {
+            if (dt == null) return SPECIAL;
+            for (DoctrineHullGroup g : values()) {
+                for (DoctrineDivisionType member : g.divisionTypes) {
+                    if (member == dt) return g;
+                }
+            }
+            return SPECIAL;
+        }
+    }
+
     private static final String OTC_AUTHORITY_DROPDOWN_KEY = "OTC_AUTHORITY";
     private static final String NAMING_PRESET_DROPDOWN_KEY = "NAMING_PRESET";
     private static final DivisionArchetype[] CUSTOMIZABLE_ARCHETYPES = {
@@ -121,7 +170,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private ScrollPanelAPI activeBodyScroller = null;
     private float savedScrollY = 0f;
     private boolean closed = false;
-    private ActiveTab activeTab = ActiveTab.ALL_DOCTRINE;
+    private ActiveTab activeTab = ActiveTab.BATTLE_GROUP_COMMAND;
     private String expandedDropdownKey = null;
     private String pendingConfirmationCmd = null;
     private int lastReinitFleetCount = -1;
@@ -141,11 +190,16 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
     private final Map<ButtonAPI, CheckboxBinding> activeCheckboxes = new LinkedHashMap<>();
     private final Map<DivisionArchetype, TextFieldAPI> prefixTextFields = new LinkedHashMap<>();
+    private final java.util.Set<DoctrineHullGroup> expandedHullGroups =
+            java.util.EnumSet.noneOf(DoctrineHullGroup.class);
+    private final java.util.Set<DoctrineDivisionType> collapsedDivisionTypes =
+            java.util.EnumSet.noneOf(DoctrineDivisionType.class);
     private final java.util.Set<DoctrineDivisionType> expandedCarrierOptionsTypes =
             java.util.EnumSet.noneOf(DoctrineDivisionType.class);
     private final java.util.Set<DoctrineDivisionType> expandedRammingOptionsTypes =
             java.util.EnumSet.noneOf(DoctrineDivisionType.class);
     private TextFieldAPI customOtcTitleField = null;
+    private TooltipMakerAPI dialogTooltipHost = null;
     private String pendingAction = null;
 
     private final CustomUIPanelPlugin subPanelPlugin = new BaseCustomUIPanelPlugin() {
@@ -182,6 +236,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         activeCheckboxes.clear();
         prefixTextFields.clear();
         customOtcTitleField = null;
+        dialogTooltipHost = null;
+        DivisionUiWidgets.resetFallbackTooltipHost();
         if (parentCoreUI != null && rootOverlayPanel != null) {
             parentCoreUI.removeComponent(rootOverlayPanel);
         }
@@ -219,7 +275,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private ButtonAPI registerButton(ButtonAPI button, String actionId) {
         if (button != null && actionId != null) {
             activeButtons.put(button, actionId);
-            DivisionUiWidgets.attachActionTooltip(null, button, actionId);
+            DivisionUiWidgets.attachActionTooltip(dialogTooltipHost, button, actionId);
         }
         return button;
     }
@@ -228,7 +284,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         if (checkbox != null && actionId != null) {
             checkbox.setChecked(initialChecked);
             activeCheckboxes.put(checkbox, new CheckboxBinding(actionId, initialChecked));
-            DivisionUiWidgets.attachActionTooltip(null, checkbox, actionId);
+            DivisionUiWidgets.attachActionTooltip(dialogTooltipHost, checkbox, actionId);
         }
         return checkbox;
     }
@@ -244,6 +300,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         otcPennantBoxes.clear();
         prefixTextFields.clear();
         customOtcTitleField = null;
+        dialogTooltipHost = null;
+        DivisionUiWidgets.resetFallbackTooltipHost();
 
         if (contentContainer != null) {
             rootOverlayPanel.removeComponent(contentContainer);
@@ -256,6 +314,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         contentContainer = Global.getSettings().createCustom(DIALOG_WIDTH, DIALOG_HEIGHT, subPanelPlugin);
         rootOverlayPanel.addComponent(contentContainer).inTL(x, y);
+        dialogTooltipHost = contentContainer.createUIElement(16f, 16f, false);
 
         FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
 
@@ -453,7 +512,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             String statusNote = lastAppliedDoctrineFleetCount >= 0
                     ? ("Applied to personal faction (" + lastAppliedDoctrineFleetCount + " colony fleet(s)).")
                     : "Apply this doctrine to your personal colony fleets.";
-            fbUi.addPara(statusNote, 0f, lastAppliedDoctrineFleetCount >= 0 ? positive : gray).getPosition().inTL(6f, 6f);
+            LabelAPI statusLbl = fbUi.addPara(statusNote, 0f, lastAppliedDoctrineFleetCount >= 0 ? positive : gray);
+            float noteBottom = DivisionUiWidgets.wrapLabelInPlace(statusLbl, factionBarW - 268f, 6f, 6f);
             ButtonAPI bApplyDocFaction = registerButton(
                     fbUi.addButton(
                             "Apply to Colony Fleets",
@@ -467,7 +527,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             0f),
                     "APPLY_DOCTRINE_TO_FACTION_FLEETS");
             bApplyDocFaction.getPosition().inTL(factionBarW - 254f, 3f);
-            fbUi.setHeightSoFar(30f);
+            DivisionUiWidgets.resizeRowToFit(factionBar, fbUi, factionBarW, Math.max(30f, noteBottom + 4f));
             factionBar.addUIElement(fbUi).inTL(0f, 0f);
             body.addCustom(factionBar, 2f);
         }
@@ -523,13 +583,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.DIVISION_MODIFIERS) {
             body.addSectionHeading(
-                    "DIVISION DEFAULTS",
+                    "DIVISION DEFAULTS  (Click a Hull Group to Expand / Collapse)",
                     highlight,
                     darkColor,
                     Alignment.LMID,
                     4f);
 
-            // Opening Mission Duration (30s - 60s)
+            // Opening Mission Duration (30s - 60s) + Expand All / Collapse All buttons
             addOpeningDurationRow(
                     body,
                     bodyWidth - 16f,
@@ -538,28 +598,54 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     darkColor,
                     positive);
 
-            for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
-                int currSpacing = doctrine.getStationSpacing(dt);
-                int currInter = doctrine.getDivisionInterval(dt);
-                int currStandoff = doctrine.getStandoffRange(dt);
-                DivisionMissionType currOpenMis = doctrine.getOpeningMission(dt);
-                DivisionMissionType currMainMis = doctrine.getMainMission(dt);
-                LineStation currLineStation = doctrine.getLineStation(dt);
-                DivisionFormation currFormation = doctrine.getFormation(dt);
-                DivisionMovementStickiness currStickiness = doctrine.getMovementStickiness(dt);
+            for (DoctrineHullGroup group : DoctrineHullGroup.values()) {
+                boolean groupExpanded = expandedHullGroups.contains(group);
+                addHullGroupAccordionRow(
+                        body,
+                        bodyWidth - 16f,
+                        group,
+                        groupExpanded,
+                        doctrine,
+                        baseColor,
+                        darkColor,
+                        highlight,
+                        positive,
+                        gray);
+                if (!groupExpanded) {
+                    continue;
+                }
 
-                String dtTitle = String.format(
-                        Locale.ROOT,
-                        "%s  |  %s  |  %s  |  %du / %du / %du  |  %s -> %s",
-                        dt.displayName.toUpperCase(Locale.ROOT),
-                        currLineStation.displayName,
-                        currFormation.shortName,
-                        currSpacing,
-                        currInter,
-                        currStandoff,
-                        currOpenMis.shortName,
-                        currMainMis.shortName);
-                body.addSectionHeading(dtTitle, baseColor, darkColor, Alignment.LMID, 6f);
+                for (DoctrineDivisionType dt : group.divisionTypes) {
+                    int currSpacing = doctrine.getStationSpacing(dt);
+                    int currInter = doctrine.getDivisionInterval(dt);
+                    int currStandoff = doctrine.getStandoffRange(dt);
+                    DivisionMissionType currOpenMis = doctrine.getOpeningMission(dt);
+                    DivisionMissionType currMainMis = doctrine.getMainMission(dt);
+                    LineStation currLineStation = doctrine.getLineStation(dt);
+                    DivisionFormation currFormation = doctrine.getFormation(dt);
+                    DivisionMovementStickiness currStickiness = doctrine.getMovementStickiness(dt);
+
+                    boolean dtCollapsed = collapsedDivisionTypes.contains(dt);
+                    addDivisionTypeCardHeaderRow(
+                            body,
+                            bodyWidth - 16f,
+                            dt,
+                            !dtCollapsed,
+                            currLineStation,
+                            currFormation,
+                            currSpacing,
+                            currInter,
+                            currStandoff,
+                            currOpenMis,
+                            currMainMis,
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            positive,
+                            gray);
+                    if (dtCollapsed) {
+                        continue;
+                    }
 
                 // Row 1: Intra-division spacing (in units)
                 addUnitModifierRow(
@@ -938,15 +1024,16 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             darkColor,
                             positive);
 
-                    addVoidstrikeDepthRow(
-                            body,
-                            bodyWidth - 16f,
-                            "Voidstrike Width: " + currVsWidth,
-                            currVsWidth,
-                            "SET_VS_WIDTH:" + dt.name() + ":",
-                            baseColor,
-                            darkColor,
-                            highlight);
+                        addVoidstrikeDepthRow(
+                                body,
+                                bodyWidth - 16f,
+                                "Voidstrike Width: " + currVsWidth,
+                                currVsWidth,
+                                "SET_VS_WIDTH:" + dt.name() + ":",
+                                baseColor,
+                                darkColor,
+                                highlight);
+                    }
                 }
             }
         }
@@ -1089,13 +1176,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color highlight,
             Color positive,
             Color gray) {
-        float rowH = 32f;
+        float rowH = 34f;
         CustomPanelAPI row = Global.getSettings().createCustom(rowWidth, rowH, subPanelPlugin);
         TooltipMakerAPI ui = row.createUIElement(rowWidth, rowH, false);
 
         boolean capOn = doctrine.isCapabilityEnabled(cap);
-        ui.addPara(cap.displayName + ":", 2f).getPosition().inTL(4f, 2f);
-        ui.addPara(cap.summary, gray, 1f).getPosition().inTL(4f, 17f);
+        LabelAPI titleLbl = ui.addPara(cap.displayName + ":", 0f, capOn ? positive : baseColor);
+        float titleBot = DivisionUiWidgets.wrapLabelInPlace(titleLbl, 273f, 4f, 2f);
+        LabelAPI descLbl = ui.addPara(cap.summary, 0f, gray);
+        float descBot = DivisionUiWidgets.wrapLabelInPlace(descLbl, 273f, 4f, titleBot + 1f);
 
         float x = 285f;
         ButtonAPI bMaster = registerButton(
@@ -1137,7 +1226,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             x += 140f;
         }
 
-        ui.setHeightSoFar(rowH);
+        DivisionUiWidgets.resizeRowToFit(row, ui, rowWidth, Math.max(rowH, descBot + 4f));
         row.addUIElement(ui).inTL(0f, 0f);
         body.addCustom(row, 3f);
     }
@@ -1157,7 +1246,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI ui = row.createUIElement(rowWidth, rowH, false);
 
         boolean hullOn = doctrine.isHullEnabled(hull);
-        ui.addPara(hull.displayName + " Divisions:", 2f).getPosition().inTL(4f, 6f);
+        LabelAPI hullLbl = ui.addPara(hull.displayName + " Divisions:", 0f, hullOn ? positive : baseColor);
+        float lblBot = DivisionUiWidgets.wrapLabelInPlace(hullLbl, 273f, 4f, 6f);
 
         float x = 285f;
         ButtonAPI bMaster = registerButton(
@@ -1199,7 +1289,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             x += 122f;
         }
 
-        ui.setHeightSoFar(rowH);
+        DivisionUiWidgets.resizeRowToFit(row, ui, rowWidth, Math.max(rowH, lblBot + 4f));
         row.addUIElement(ui).inTL(0f, 0f);
         body.addCustom(row, 3f);
     }
@@ -1300,16 +1390,23 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 if (isCurrent) bOpt.highlight();
                 bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
 
-                optUi.addPara(opt.summary, 0f, gray).getPosition().inTL(CONTROL_COL_X + 484f, 5f);
-                optUi.setHeightSoFar(28f);
+                LabelAPI optSumLbl = optUi.addPara(opt.summary, 0f, gray);
+                float sumBot = DivisionUiWidgets.wrapLabelInPlace(
+                        optSumLbl, rowWidth - (CONTROL_COL_X + 484f) - 8f, CONTROL_COL_X + 484f, 5f);
+                DivisionUiWidgets.resizeRowToFit(optPanel, optUi, rowWidth, Math.max(28f, sumBot + 4f));
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
                 body.addCustom(optPanel, 2f);
             }
         } else {
+            float descW = rowWidth - CONTROL_COL_X - 10f;
             CustomPanelAPI descPanel = Global.getSettings().createCustom(rowWidth, 22f, subPanelPlugin);
-            TooltipMakerAPI descUi = descPanel.createUIElement(rowWidth - CONTROL_COL_X - 10f, 22f, false);
-            descUi.addPara(currentPreset.summary, 0f, gray);
-            descUi.setHeightSoFar(22f);
+            TooltipMakerAPI descUi = descPanel.createUIElement(descW, 22f, false);
+            LabelAPI descLbl = descUi.addPara(currentPreset.summary, 0f, gray);
+            float descBot = DivisionUiWidgets.wrapLabelInPlace(descLbl, descW - 6f, 0f, 2f);
+            float descH = Math.max(22f, descBot + 3f);
+            descUi.setHeightSoFar(descH);
+            if (descUi.getPosition() != null) descUi.getPosition().setSize(descW, descH);
+            if (descPanel.getPosition() != null) descPanel.getPosition().setSize(rowWidth, descH);
             descPanel.addUIElement(descUi).inTL(CONTROL_COL_X, 0f);
             body.addCustom(descPanel, 2f);
         }
@@ -1317,7 +1414,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         // 2. Numbering Style Row
         CustomPanelAPI numRow = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
         TooltipMakerAPI numUi = numRow.createUIElement(rowWidth, 30f, false);
-        numUi.addPara("Numbering Style:", 0f, baseColor).getPosition().inTL(6f, 6f);
+        LabelAPI numLbl = numUi.addPara("Numbering Style:", 0f, baseColor);
+        DivisionUiWidgets.wrapLabelInPlace(numLbl, CONTROL_COL_X - 14f, 6f, 6f);
 
         float xCursor = CONTROL_COL_X;
         for (NumberingStyle style : NumberingStyle.values()) {
@@ -1346,7 +1444,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         // 3. Custom Officer in Tactical Command Title Row
         CustomPanelAPI otcTitleRow = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
         TooltipMakerAPI otcTitleUi = otcTitleRow.createUIElement(rowWidth, 30f, false);
-        otcTitleUi.addPara("Officer in Tactical Command:", 0f, baseColor).getPosition().inTL(6f, 6f);
+        LabelAPI otcTitleLbl = otcTitleUi.addPara("Officer in Tactical Command:", 0f, baseColor);
+        float otcLblBot = DivisionUiWidgets.wrapLabelInPlace(otcTitleLbl, CONTROL_COL_X - 14f, 6f, 6f);
         customOtcTitleField = otcTitleUi.addTextField(240f, 22f, "graphics/fonts/insignia15LTaa.fnt", 0f);
         customOtcTitleField.setText(namingCfg.getCustomOtcTitle());
         customOtcTitleField.getPosition().inTL(CONTROL_COL_X, 4f);
@@ -1356,12 +1455,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 true,
                 false,
                 currentPreset.defaultOtcTitle);
-        otcTitleUi.addPara(
+        LabelAPI otcPrevLbl = otcTitleUi.addPara(
                 "Active Officer in Tactical Command Tag: [%s]",
                 0f,
                 gray,
                 positive,
-                resolvedOtcPreview).getPosition().inTL(CONTROL_COL_X + 256f, 6f);
+                resolvedOtcPreview);
+        float prevX = CONTROL_COL_X + 256f;
+        float saveBtnX = rowWidth - 182f;
+        float otcPrevBot = DivisionUiWidgets.wrapLabelInPlace(otcPrevLbl, saveBtnX - prevX - 10f, prevX, 6f);
 
         ButtonAPI bSavePrefixes = registerButton(
                 otcTitleUi.addButton(
@@ -1375,9 +1477,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         24f,
                         0f),
                 "SAVE_CUSTOM_PREFIXES");
-        bSavePrefixes.getPosition().inTL(rowWidth - 182f, 3f);
+        bSavePrefixes.getPosition().inTL(saveBtnX, 3f);
 
-        otcTitleUi.setHeightSoFar(30f);
+        DivisionUiWidgets.resizeRowToFit(
+                otcTitleRow, otcTitleUi, rowWidth, Math.max(30f, Math.max(otcLblBot, otcPrevBot) + 4f));
         otcTitleRow.addUIElement(otcTitleUi).inTL(0f, 0f);
         body.addCustom(otcTitleRow, 4f);
 
@@ -1393,7 +1496,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             CustomPanelAPI archRow = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
             TooltipMakerAPI archUi = archRow.createUIElement(rowWidth, 28f, false);
 
-            archUi.addPara(arch.shortPrefix + ":", 0f, baseColor).getPosition().inTL(6f, 5f);
+            LabelAPI archLbl = archUi.addPara(arch.shortPrefix + ":", 0f, baseColor);
+            float archLblBot = DivisionUiWidgets.wrapLabelInPlace(archLbl, CONTROL_COL_X - 14f, 6f, 5f);
 
             TextFieldAPI tf = archUi.addTextField(240f, 22f, "graphics/fonts/insignia15LTaa.fnt", 0f);
             tf.setText(namingCfg.getPrefixForArchetype(arch));
@@ -1402,18 +1506,145 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
             String sample1 = DivisionNomenclature.formatPlayerDivisionName(arch, 1);
             String sample2 = DivisionNomenclature.formatPlayerDivisionName(arch, 2);
-            archUi.addPara(
+            LabelAPI sampleLbl = archUi.addPara(
                     "Preview:  \"%s\",  \"%s\"",
                     0f,
                     gray,
                     highlight,
                     sample1,
-                    sample2).getPosition().inTL(CONTROL_COL_X + 256f, 5f);
+                    sample2);
+            float sampleBot = DivisionUiWidgets.wrapLabelInPlace(
+                    sampleLbl, rowWidth - (CONTROL_COL_X + 256f) - 8f, CONTROL_COL_X + 256f, 5f);
 
-            archUi.setHeightSoFar(28f);
+            DivisionUiWidgets.resizeRowToFit(
+                    archRow, archUi, rowWidth, Math.max(28f, Math.max(archLblBot, sampleBot) + 4f));
             archRow.addUIElement(archUi).inTL(0f, 0f);
             body.addCustom(archRow, 2f);
         }
+    }
+
+    private void addHullGroupAccordionRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            DoctrineHullGroup group,
+            boolean expanded,
+            FleetDoctrineConfig doctrine,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+        float baseH = 32f;
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, baseH, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, baseH, false);
+
+        String toggleAct = "TOGGLE_HULL_GROUP:" + group.name();
+        String btnLabel = String.format(
+                Locale.ROOT,
+                "%s %s (%d)",
+                expanded ? "[-]" : "[+]",
+                group.displayName.toUpperCase(Locale.ROOT),
+                group.divisionTypes.length);
+        ButtonAPI bGroup = registerButton(
+                rowUi.addButton(
+                        btnLabel,
+                        toggleAct,
+                        expanded ? highlight : positive,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        286f,
+                        24f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bGroup.highlight();
+        }
+        bGroup.getPosition().inTL(4f, 4f);
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < group.divisionTypes.length; i++) {
+            DoctrineDivisionType dt = group.divisionTypes[i];
+            if (i > 0) sb.append("  |  ");
+            sb.append(dt.displayName.replace(" Division", ""))
+                    .append(": ")
+                    .append(doctrine.getFormation(dt).shortName)
+                    .append(" (")
+                    .append(doctrine.getOpeningMission(dt).shortName)
+                    .append(" -> ")
+                    .append(doctrine.getMainMission(dt).shortName);
+            if (dt.isCarrierType()) {
+                sb.append(", ").append(doctrine.getVoidstrikeTargetingBias(dt).shortName);
+                if (doctrine.isVoidstrikeFocusCarriers(dt)) {
+                    sb.append(" +CV");
+                }
+            }
+            sb.append(")");
+        }
+        LabelAPI digestLbl = rowUi.addPara(sb.toString(), 0f, expanded ? baseColor : gray);
+        float digestBot = DivisionUiWidgets.wrapLabelInPlace(digestLbl, rowWidth - 308f, 300f, 7f);
+
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(baseH, digestBot + 5f));
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, expanded ? 4f : 3f);
+    }
+
+    private void addDivisionTypeCardHeaderRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            DoctrineDivisionType dt,
+            boolean expanded,
+            LineStation currLineStation,
+            DivisionFormation currFormation,
+            int currSpacing,
+            int currInter,
+            int currStandoff,
+            DivisionMissionType currOpenMis,
+            DivisionMissionType currMainMis,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+        float baseH = 28f;
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, baseH, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, baseH, false);
+
+        String toggleAct = "TOGGLE_DT_CARD:" + dt.name();
+        String btnLabel = (expanded ? "[-] " : "[+] ") + dt.displayName.toUpperCase(Locale.ROOT);
+        ButtonAPI bCard = registerButton(
+                rowUi.addButton(
+                        btnLabel,
+                        toggleAct,
+                        expanded ? highlight : baseColor,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.ALL,
+                        258f,
+                        22f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bCard.highlight();
+        }
+        bCard.getPosition().inTL(14f, 3f);
+
+        String meta = String.format(
+                Locale.ROOT,
+                "%s  |  %s  |  Spacing %du / Interval %du / Standoff %du  |  %s -> %s",
+                currLineStation.displayName,
+                currFormation.shortName,
+                currSpacing,
+                currInter,
+                currStandoff,
+                currOpenMis.shortName,
+                currMainMis.shortName);
+        LabelAPI metaLbl = rowUi.addPara(meta, 0f, expanded ? positive : gray);
+        float metaBot = DivisionUiWidgets.wrapLabelInPlace(metaLbl, rowWidth - 290f, 282f, 5f);
+
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(baseH, metaBot + 4f));
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 4f);
     }
 
     private void addOpeningDurationRow(
@@ -1428,7 +1659,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
         String label = String.format(Locale.ROOT, "Opening Duration: %ds", currentSeconds);
-        rowUi.addPara(label, 0f, activeValueColor, label).getPosition().inTL(6f, 5f);
+        LabelAPI durLbl = rowUi.addPara(label, 0f, activeValueColor, label);
+        float lblBot = DivisionUiWidgets.wrapLabelInPlace(durLbl, CONTROL_COL_X - 14f, 6f, 5f);
 
         float xCursor = CONTROL_COL_X;
         for (int sec : OPENING_DURATION_PRESETS) {
@@ -1453,7 +1685,35 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             xCursor += 76f;
         }
 
-        rowUi.setHeightSoFar(28f);
+        ButtonAPI bExpandAll = registerButton(
+                rowUi.addButton(
+                        "Expand All",
+                        "EXPAND_ALL_HULL_GROUPS",
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        116f,
+                        22f,
+                        0f),
+                "EXPAND_ALL_HULL_GROUPS");
+        bExpandAll.getPosition().inTL(rowWidth - 116f - 8f - 116f, 3f);
+
+        ButtonAPI bCollapseAll = registerButton(
+                rowUi.addButton(
+                        "Collapse All",
+                        "COLLAPSE_ALL_HULL_GROUPS",
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        116f,
+                        22f,
+                        0f),
+                "COLLAPSE_ALL_HULL_GROUPS");
+        bCollapseAll.getPosition().inTL(rowWidth - 116f, 3f);
+
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(28f, lblBot + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 4f);
     }
@@ -1476,7 +1736,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         float bw = (float) Math.round(boxW);
         float bh = (float) Math.round(boxH);
 
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -1505,7 +1764,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             GL11.glVertex2f(bx + 1f, by + bh - 1f);
             GL11.glEnd();
         }
-        GL11.glPopAttrib();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
 
         // 2. Render Naval Pennant sprite centered in box
         try {
@@ -1536,7 +1796,6 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
 
         // 3. Draw deployment-style double-lined golden box when selected, or slate border when unselected
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
@@ -1570,7 +1829,9 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             GL11.glVertex2f(bx, by + bh);
             GL11.glEnd();
         }
-        GL11.glPopAttrib();
+        GL11.glLineWidth(1.0f);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
     }
 
     private void addAuthorityDropdownRow(
@@ -1588,13 +1849,21 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         final float cardGap = 24f;
         final float totalCardsW = allAuths.length * cardW + (allAuths.length - 1) * cardGap;
         final float startX = Math.max(CONTROL_COL_X, Math.round((rowWidth - totalCardsW) * 0.5f));
-        final float bannerPanelH = 266f;
+        final float textW = rowWidth - 24f;
+        final int maxChars = Math.max(80, Math.round(textW / 7.2f));
+        List<String> descLines = DivisionEditorDialog.wrapTextToLines(current.summary, maxChars);
+        List<String> posLines = DivisionEditorDialog.wrapTextToLines(current.positiveText, maxChars);
+        List<String> negLines = DivisionEditorDialog.wrapTextToLines(current.negativeText, maxChars);
+        final float lineStep = 17f;
+        final float bannerPanelH = 204f
+                + (descLines.size() + posLines.size() + negLines.size()) * lineStep
+                + 12f;
         final CustomPanelAPI[] bannerRef = new CustomPanelAPI[1];
 
         BaseCustomUIPanelPlugin bannerPlugin = new BaseCustomUIPanelPlugin() {
             @Override
             public void renderBelow(float alphaMult) {
-                if (bannerRef[0] == null || bannerRef[0].getPosition() == null) return;
+                if (!DivisionUiWidgets.isPanelVisibleOnScreen(bannerRef[0])) return;
                 PositionAPI p = bannerRef[0].getPosition();
                 float px = p.getX();
                 float py = p.getY();
@@ -1617,7 +1886,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         LabelAPI headerLbl = Global.getSettings().createLabel(current.dropdownLabel, Fonts.ORBITRON_20AA);
         headerLbl.setColor(new Color(255, 222, 90, 255));
         headerLbl.setAlignment(Alignment.MID);
-        bannerPanel.addComponent((UIComponentAPI) headerLbl).setSize(rowWidth - 20f, 22f).inTL(10f, 180f);
+        bannerPanel.addComponent((UIComponentAPI) headerLbl).setSize(textW, 22f).inTL(12f, 180f);
         DivisionUiWidgets.addTooltip(
                 body,
                 (UIComponentAPI) headerLbl,
@@ -1626,20 +1895,31 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 current.positiveText,
                 current.negativeText);
 
-        LabelAPI summaryLbl = Global.getSettings().createLabel(current.summary, Fonts.GROUP_NUM_FONT);
-        summaryLbl.setColor(new Color(195, 220, 240, 245));
-        summaryLbl.setAlignment(Alignment.MID);
-        bannerPanel.addComponent((UIComponentAPI) summaryLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 204f);
-
-        LabelAPI posLbl = Global.getSettings().createLabel(current.positiveText, Fonts.GROUP_NUM_FONT);
-        posLbl.setColor(Misc.getPositiveHighlightColor());
-        posLbl.setAlignment(Alignment.MID);
-        bannerPanel.addComponent((UIComponentAPI) posLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 223f);
-
-        LabelAPI negLbl = Global.getSettings().createLabel(current.negativeText, Fonts.GROUP_NUM_FONT);
-        negLbl.setColor(Misc.getNegativeHighlightColor());
-        negLbl.setAlignment(Alignment.MID);
-        bannerPanel.addComponent((UIComponentAPI) negLbl).setSize(rowWidth - 20f, 16f).inTL(10f, 242f);
+        float textY = 204f;
+        Color descColor = new Color(195, 220, 240, 245);
+        for (String line : descLines) {
+            LabelAPI summaryLbl = Global.getSettings().createLabel(line, Fonts.GROUP_NUM_FONT);
+            summaryLbl.setColor(descColor);
+            summaryLbl.setAlignment(Alignment.MID);
+            bannerPanel.addComponent((UIComponentAPI) summaryLbl).setSize(textW, 16f).inTL(12f, textY);
+            textY += lineStep;
+        }
+        textY += 2f;
+        for (String line : posLines) {
+            LabelAPI posLbl = Global.getSettings().createLabel(line, Fonts.GROUP_NUM_FONT);
+            posLbl.setColor(Misc.getPositiveHighlightColor());
+            posLbl.setAlignment(Alignment.MID);
+            bannerPanel.addComponent((UIComponentAPI) posLbl).setSize(textW, 16f).inTL(12f, textY);
+            textY += lineStep;
+        }
+        textY += 2f;
+        for (String line : negLines) {
+            LabelAPI negLbl = Global.getSettings().createLabel(line, Fonts.GROUP_NUM_FONT);
+            negLbl.setColor(Misc.getNegativeHighlightColor());
+            negLbl.setAlignment(Alignment.MID);
+            bannerPanel.addComponent((UIComponentAPI) negLbl).setSize(textW, 16f).inTL(12f, textY);
+            textY += lineStep;
+        }
 
         body.addCustom(bannerPanel, 4f);
     }
@@ -1652,10 +1932,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         BaseCustomUIPanelPlugin plugin = new BaseCustomUIPanelPlugin() {
             @Override
             public void renderBelow(float alphaMult) {
-                if (ref[0] == null || ref[0].getPosition() == null) return;
+                if (!DivisionUiWidgets.isPanelVisibleOnScreen(ref[0])) return;
                 PositionAPI p = ref[0].getPosition();
                 DivisionDeploymentDialogOrganizer.renderFleetFormationIcon(
-                        formation, p.getX() + CONTROL_COL_X - 18f, p.getY() + rowHeight * 0.5f, 28f, alphaMult, true);
+                        formation, p.getX() + CONTROL_COL_X - 18f, p.getY() + p.getHeight() * 0.5f, 28f, alphaMult, true);
             }
         };
         CustomPanelAPI panel = Global.getSettings().createCustom(rowWidth, rowHeight, plugin);
@@ -1679,7 +1959,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = createFleetFormationIconRow(rowWidth, 30f, current);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
         LabelAPI fwLbl = rowUi.addPara("Fleet Formation:", 0f, baseColor);
-        fwLbl.getPosition().inTL(6f, 6f);
+        float fwLblBot = DivisionUiWidgets.wrapLabelInPlace(fwLbl, CONTROL_COL_X - 38f, 6f, 6f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) fwLbl, "Fleet Formation:");
 
         String toggleAct = "TOGGLE_DD:" + ddKey;
@@ -1724,7 +2004,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
         bDep.getPosition().inTL(CONTROL_COL_X + 244f, 4f);
 
-        rowUi.setHeightSoFar(30f);
+        LabelAPI fwSumLbl = rowUi.addPara(current.summary, 0f, gray);
+        float fwSumX = CONTROL_COL_X + 438f;
+        float fwSumBot = DivisionUiWidgets.wrapLabelInPlace(fwSumLbl, rowWidth - fwSumX - 8f, fwSumX, 6f);
+
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(30f, Math.max(fwLblBot, fwSumBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 3f);
 
@@ -1751,11 +2035,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 }
                 bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
 
-                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
-                        .getPosition()
-                        .inTL(CONTROL_COL_X + 252f, 5f);
+                LabelAPI optSum = optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray);
+                float optSumBot = DivisionUiWidgets.wrapLabelInPlace(
+                        optSum, rowWidth - (CONTROL_COL_X + 252f) - 8f, CONTROL_COL_X + 252f, 5f);
 
-                optUi.setHeightSoFar(28f);
+                DivisionUiWidgets.resizeRowToFit(optPanel, optUi, rowWidth, Math.max(28f, optSumBot + 4f));
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
                 body.addCustom(optPanel, 2f);
             }
@@ -1777,7 +2061,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
         LabelAPI mspLbl = rowUi.addPara("Multi-Div Setpiece:", 0f, baseColor);
-        mspLbl.getPosition().inTL(6f, 6f);
+        float mspLblBot = DivisionUiWidgets.wrapLabelInPlace(mspLbl, CONTROL_COL_X - 14f, 6f, 6f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) mspLbl, "Multi-Div Setpiece:");
 
         String toggleAct = "TOGGLE_DD:" + ddKey;
@@ -1804,11 +2088,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 "Multi-Div Setpiece: " + current.displayName,
                 current.summary);
 
-        rowUi.addPara(current.summary, 0f, expanded ? activeValueColor : gray)
-                .getPosition()
-                .inTL(CONTROL_COL_X + 252f, 6f);
+        LabelAPI curSumLbl = rowUi.addPara(current.summary, 0f, expanded ? activeValueColor : gray);
+        float curSumBot = DivisionUiWidgets.wrapLabelInPlace(
+                curSumLbl, rowWidth - (CONTROL_COL_X + 252f) - 8f, CONTROL_COL_X + 252f, 6f);
 
-        rowUi.setHeightSoFar(30f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(30f, Math.max(mspLblBot, curSumBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 3f);
 
@@ -1835,11 +2119,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 }
                 bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
 
-                optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray)
-                        .getPosition()
-                        .inTL(CONTROL_COL_X + 252f, 5f);
+                LabelAPI optSumLbl = optUi.addPara(option.summary, 0f, isCurrent ? activeValueColor : gray);
+                float optSumBot = DivisionUiWidgets.wrapLabelInPlace(
+                        optSumLbl, rowWidth - (CONTROL_COL_X + 252f) - 8f, CONTROL_COL_X + 252f, 5f);
 
-                optUi.setHeightSoFar(28f);
+                DivisionUiWidgets.resizeRowToFit(optPanel, optUi, rowWidth, Math.max(28f, optSumBot + 4f));
                 optPanel.addUIElement(optUi).inTL(0f, 0f);
                 body.addCustom(optPanel, 2f);
             }
@@ -1862,7 +2146,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         String label = play.displayName;
         LabelAPI playLbl = rowUi.addPara(label, 0f, enabled ? activeValueColor : gray, label);
-        playLbl.getPosition().inTL(6f, 6f);
+        float lblBot = DivisionUiWidgets.wrapLabelInPlace(playLbl, CONTROL_COL_X - 14f, 6f, 6f);
         DivisionUiWidgets.addTooltip(
                 rowUi,
                 (UIComponentAPI) playLbl,
@@ -1901,9 +2185,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         if (!enabled) bOff.highlight();
         bOff.getPosition().inTL(CONTROL_COL_X + 64f, 4f);
 
-        rowUi.addPara(play.summary, 0f, gray).getPosition().inTL(CONTROL_COL_X + 136f, 6f);
+        LabelAPI playSumLbl = rowUi.addPara(play.summary, 0f, gray);
+        playSumLbl.autoSizeToWidth(Math.max(120f, rowWidth - (CONTROL_COL_X + 136f) - 8f)).inTL(CONTROL_COL_X + 136f, 6f);
+        float sumBot = 6f + Math.max(16f, playSumLbl.getPosition().getHeight());
 
-        rowUi.setHeightSoFar(30f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(30f, Math.max(lblBot, sumBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
 
         body.addCustom(rowPanel, 3f);
@@ -1942,6 +2228,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
             @Override
             public void render(float alphaMult) {
+                if (!DivisionUiWidgets.isPanelVisibleOnScreen(rowPanelRef[0])) return;
                 for (int i = 0; i < formations.length; i++) {
                     DivisionFormation f = formations[i];
                     ButtonAPI btn = formButtons[i];
@@ -1962,10 +2249,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, rowH, false);
         LabelAPI fmLbl = rowUi.addPara(labelText, 0f, activeValueColor, labelText);
-        fmLbl.getPosition().inTL(6f, 5f);
+        float fmLblBot = DivisionUiWidgets.wrapLabelInPlace(fmLbl, CONTROL_COL_X - 14f, 6f, 5f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) fmLbl, labelText);
         float summaryX = CONTROL_COL_X + cols * (btnW + btnGap) + 8f;
-        rowUi.addPara(currentFormation.summary, 0f, gray).getPosition().inTL(summaryX, 16f);
+        LabelAPI fmSumLbl = rowUi.addPara(currentFormation.summary, 0f, gray);
+        float fmSumBot = DivisionUiWidgets.wrapLabelInPlace(fmSumLbl, rowWidth - summaryX - 8f, summaryX, 4f);
 
         for (int i = 0; i < formations.length; i++) {
             DivisionFormation f = formations[i];
@@ -1994,7 +2282,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             formButtons[i] = bForm;
         }
 
-        rowUi.setHeightSoFar(rowH);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(rowH, Math.max(fmLblBot, fmSumBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }
@@ -2187,7 +2475,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
         LabelAPI unitLbl = rowUi.addPara(labelText, 0f, activeValueColor, labelText);
-        unitLbl.getPosition().inTL(6f, 5f);
+        float unitLblBot = DivisionUiWidgets.wrapLabelInPlace(unitLbl, CONTROL_COL_X - 14f, 6f, 5f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) unitLbl, labelText);
 
         float xCursor = CONTROL_COL_X;
@@ -2249,7 +2537,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         bInc.setEnabled(currentValue < maxVal);
         bInc.getPosition().inTL(xCursor, 3f);
 
-        rowUi.setHeightSoFar(28f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(28f, unitLblBot + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }
@@ -2274,7 +2562,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 activeValueColor,
                 labelText,
                 String.valueOf(currentValue));
-        limLbl.getPosition().inTL(6f, 5f);
+        float limLblBot = DivisionUiWidgets.wrapLabelInPlace(limLbl, CONTROL_COL_X - 14f, 6f, 5f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) limLbl, labelText);
 
         float xCursor = CONTROL_COL_X;
@@ -2337,7 +2625,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         bInc.setEnabled(currentValue < PermanentDivisionManager.MAX_DIVISION_SIZE);
         bInc.getPosition().inTL(xCursor, 3f);
 
-        rowUi.setHeightSoFar(28f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(28f, limLblBot + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }
@@ -2483,17 +2771,55 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         if ("TAB:ALL".equals(cmd)) {
             activeTab = ActiveTab.ALL_DOCTRINE;
+            savedScrollY = 0f;
             rebuildContent();
             return;
         }
         if ("TAB:OTC_COMMAND".equals(cmd)) {
             activeTab = ActiveTab.BATTLE_GROUP_COMMAND;
+            savedScrollY = 0f;
             rebuildContent();
             return;
         }
         if ("TAB:NAMING".equals(cmd)) {
             activeTab = ActiveTab.NAMING_SCHEME;
+            savedScrollY = 0f;
             rebuildContent();
+            return;
+        }
+        if ("EXPAND_ALL_HULL_GROUPS".equals(cmd)) {
+            for (DoctrineHullGroup g : DoctrineHullGroup.values()) {
+                expandedHullGroups.add(g);
+            }
+            collapsedDivisionTypes.clear();
+            rebuildContent();
+            return;
+        }
+        if ("COLLAPSE_ALL_HULL_GROUPS".equals(cmd)) {
+            expandedHullGroups.clear();
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("TOGGLE_HULL_GROUP:")) {
+            try {
+                DoctrineHullGroup g = DoctrineHullGroup.valueOf(cmd.substring("TOGGLE_HULL_GROUP:".length()));
+                if (!expandedHullGroups.remove(g)) {
+                    expandedHullGroups.add(g);
+                }
+                rebuildContent();
+            } catch (IllegalArgumentException ignored) {
+            }
+            return;
+        }
+        if (cmd.startsWith("TOGGLE_DT_CARD:")) {
+            try {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(cmd.substring("TOGGLE_DT_CARD:".length()));
+                if (!collapsedDivisionTypes.remove(dt)) {
+                    collapsedDivisionTypes.add(dt);
+                }
+                rebuildContent();
+            } catch (IllegalArgumentException ignored) {
+            }
             return;
         }
         if (cmd.startsWith("SET_NAMING_PRESET:")) {
@@ -2596,6 +2922,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         if (cmd.startsWith("TOGGLE_RAMMING_OPTS:")) {
             try {
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(cmd.substring("TOGGLE_RAMMING_OPTS:".length()));
+                expandedHullGroups.add(DoctrineHullGroup.forDivisionType(dt));
+                collapsedDivisionTypes.remove(dt);
                 if (!expandedRammingOptionsTypes.remove(dt)) {
                     expandedRammingOptionsTypes.add(dt);
                 }
@@ -2649,16 +2977,19 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
         if ("TAB:MODIFIERS".equals(cmd)) {
             activeTab = ActiveTab.DIVISION_MODIFIERS;
+            savedScrollY = 0f;
             rebuildContent();
             return;
         }
         if ("TAB:AUTO_ASSIGN".equals(cmd)) {
             activeTab = ActiveTab.AUTO_ASSIGN_SCHEMES;
+            savedScrollY = 0f;
             rebuildContent();
             return;
         }
         if ("TAB:HULLS".equals(cmd)) {
             activeTab = ActiveTab.HULL_LIMITS;
+            savedScrollY = 0f;
             rebuildContent();
             return;
         }
@@ -2715,6 +3046,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         if (cmd.startsWith("TOGGLE_CARRIER_OPTS:")) {
             try {
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(cmd.substring("TOGGLE_CARRIER_OPTS:".length()));
+                expandedHullGroups.add(DoctrineHullGroup.forDivisionType(dt));
+                collapsedDivisionTypes.remove(dt);
                 if (!expandedCarrierOptionsTypes.remove(dt)) {
                     expandedCarrierOptionsTypes.add(dt);
                 }
@@ -3132,7 +3465,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
         LabelAPI ramOptLbl = rowUi.addPara("Ramming Options:", 0f, baseColor);
-        ramOptLbl.getPosition().inTL(6f, 5f);
+        float ramLblBot = DivisionUiWidgets.wrapLabelInPlace(ramOptLbl, CONTROL_COL_X - 14f, 6f, 5f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) ramOptLbl, "Ramming Options:");
 
         String toggleAct = "TOGGLE_RAMMING_OPTS:" + dt.name();
@@ -3162,11 +3495,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         currRamMode.displayName,
                         currRamScope.displayName,
                         currRamSlots);
-        rowUi.addPara(summary, 0f, currRamMode != DivisionRammingMode.OFF ? positive : gray)
-                .getPosition()
-                .inTL(CONTROL_COL_X + 216f, 5f);
+        LabelAPI ramSumLbl = rowUi.addPara(summary, 0f, currRamMode != DivisionRammingMode.OFF ? positive : gray);
+        float ramSumBot = DivisionUiWidgets.wrapLabelInPlace(
+                ramSumLbl, rowWidth - (CONTROL_COL_X + 216f) - 8f, CONTROL_COL_X + 216f, 5f);
 
-        rowUi.setHeightSoFar(28f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(28f, Math.max(ramLblBot, ramSumBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }
@@ -3300,7 +3633,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
 
         LabelAPI carOptLbl = rowUi.addPara("Carrier Options:", 0f, baseColor);
-        carOptLbl.getPosition().inTL(6f, 5f);
+        float carLblBot = DivisionUiWidgets.wrapLabelInPlace(carOptLbl, CONTROL_COL_X - 14f, 6f, 5f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) carOptLbl, "Carrier Options:");
 
         String toggleAct = "TOGGLE_CARRIER_OPTS:" + dt.name();
@@ -3322,9 +3655,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
         bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
 
+        FleetDoctrineConfig docNow = PermanentDivisionManager.getFleetDoctrine();
+        String biasSummary = docNow.getVoidstrikeTargetingBias(dt).shortName
+                + (docNow.isVoidstrikeFocusCarriers(dt) ? " (+Carriers)" : "");
         String summary = String.format(
                 Locale.ROOT,
-                "Voidstrike: %s / %s  |  %dx%d  |  Ftr: %s/%s  |  Bmb: %s/%s",
+                "Bias: %s  |  Voidstrike: %s / %s  |  %dx%d  |  Ftr: %s/%s  |  Bmb: %s/%s",
+                biasSummary,
                 currVsObs.displayName,
                 currVsCoord.displayName,
                 currVsDepth,
@@ -3333,9 +3670,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 currFtrVsFm.shortName,
                 currBmbFm.shortName,
                 currBmbVsFm.shortName);
-        rowUi.addPara(summary, 0f, expanded ? highlight : gray).getPosition().inTL(CONTROL_COL_X + 216f, 5f);
+        LabelAPI carSumLbl = rowUi.addPara(summary, 0f, expanded ? highlight : gray);
+        float carSumBot = DivisionUiWidgets.wrapLabelInPlace(
+                carSumLbl, rowWidth - (CONTROL_COL_X + 216f) - 8f, CONTROL_COL_X + 216f, 5f);
 
-        rowUi.setHeightSoFar(28f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(28f, Math.max(carLblBot, carSumBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }
@@ -3380,7 +3719,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
         String labelText = "Carrier Priority: " + (focusCarriers ? "Focus On" : "Standard");
         LabelAPI rowLbl = rowUi.addPara(labelText, 0f, focusCarriers ? positive : baseColor, labelText);
-        rowLbl.getPosition().inTL(6f, 5f);
+        float rowLblBot = DivisionUiWidgets.wrapLabelInPlace(rowLbl, CONTROL_COL_X - 14f, 6f, 5f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) rowLbl, labelText);
 
         ButtonAPI cb = registerCheckbox(
@@ -3400,10 +3739,11 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 "Prioritize enemy Carrier divisions and carrier hulls within target bias.",
                 0f,
                 gray);
-        sumLbl.getPosition().inTL(CONTROL_COL_X + 194f, 6f);
+        float sumBot = DivisionUiWidgets.wrapLabelInPlace(
+                sumLbl, rowWidth - (CONTROL_COL_X + 194f) - 8f, CONTROL_COL_X + 194f, 6f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) sumLbl, labelText);
 
-        rowUi.setHeightSoFar(28f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(28f, Math.max(rowLblBot, sumBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         body.addCustom(rowPanel, 2f);
     }

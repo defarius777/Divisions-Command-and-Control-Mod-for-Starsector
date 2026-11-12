@@ -515,6 +515,38 @@ public class UITestHarness {
                 "Item E: Scroll bar offset preserved across UI actions in Fleet Doctrine and Fleet Organization/Configure Division",
                 "FleetDoctrineDialog + DivisionEditorDialog scroll state hooks verified");
 
+        // E2. v1.1.2 Fleet Doctrine Performance, Hull-Type Accordion & In-Place Text Wrapping Audit
+        String widgetsSrc = new String(Files.readAllBytes(new File("src/divisionai/DivisionUiWidgets.java").toPath()), StandardCharsets.UTF_8);
+        java.util.EnumSet<DoctrineDivisionType> coveredHullGroupTypes = java.util.EnumSet.noneOf(DoctrineDivisionType.class);
+        boolean hullGroupNoDupes = true;
+        for (FleetDoctrineDialog.DoctrineHullGroup hg : FleetDoctrineDialog.DoctrineHullGroup.values()) {
+            for (DoctrineDivisionType dt : hg.divisionTypes) {
+                if (!coveredHullGroupTypes.add(dt)) {
+                    hullGroupNoDupes = false;
+                }
+            }
+        }
+        boolean hullGroupsCoverAll16 = hullGroupNoDupes
+                && FleetDoctrineDialog.DoctrineHullGroup.values().length == 6
+                && coveredHullGroupTypes.size() == DoctrineDivisionType.values().length;
+        boolean fastOpenAndWrapOk = hullGroupsCoverAll16
+                && docSrc.contains("activeTab = ActiveTab.BATTLE_GROUP_COMMAND;")
+                && docSrc.contains("TOGGLE_HULL_GROUP:")
+                && docSrc.contains("TOGGLE_DT_CARD:")
+                && docSrc.contains("EXPAND_ALL_HULL_GROUPS")
+                && docSrc.contains("COLLAPSE_ALL_HULL_GROUPS")
+                && docSrc.contains("dialogTooltipHost")
+                && edSrc.contains("dialogTooltipHost")
+                && widgetsSrc.contains("wrapLabelInPlace(")
+                && widgetsSrc.contains("isPanelVisibleOnScreen(");
+        res.record(
+                fastOpenAndWrapOk,
+                "v1.1.2 Fleet Doctrine Fast Open, 6-Group Hull-Type Accordion (16/16 types), Viewport Culling & In-Place Text Wrapping",
+                String.format(Locale.ROOT, "hullGroups=%d, coveredTypes=%d/%d, fastOpenTab=BATTLE_GROUP_COMMAND, wrapInPlace=true",
+                        FleetDoctrineDialog.DoctrineHullGroup.values().length,
+                        coveredHullGroupTypes.size(),
+                        DoctrineDivisionType.values().length));
+
         // F. Commander portrait and level badge on left side of ship icons
         boolean itemFOk = edSrc.contains("renderCommanderPortraitSprite")
                 && edSrc.contains("Fonts.VICTOR_10")

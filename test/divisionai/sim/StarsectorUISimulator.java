@@ -1912,8 +1912,35 @@ public class StarsectorUISimulator {
         FleetDoctrineDialog dialog = new FleetDoctrineDialog(hostCoreUI);
         dialog.show();
 
+        // Verify initial open lands on lightweight Command Scheme (< 45 buttons vs ~1,210 previously)
+        List<LabelAPI> initLabels = new ArrayList<>();
+        List<ButtonAPI> initButtons = new ArrayList<>();
+        collectLabelsAndButtonsRecursive(hostCoreUI, initLabels, initButtons);
+        if (initButtons.isEmpty() || initButtons.size() > 45) {
+            System.out.println("FAIL FleetDoctrineDialog initial button count too high: " + initButtons.size());
+            return false;
+        }
+
+        // Verify Division Defaults starts cleanly collapsed into 6 Hull-Type groups (< 35 buttons)
+        dialog.buttonPressed("TAB:MODIFIERS");
+        dialog.advance(0.1f);
+        List<LabelAPI> modCollapsedLabels = new ArrayList<>();
+        List<ButtonAPI> modCollapsedButtons = new ArrayList<>();
+        collectLabelsAndButtonsRecursive(hostCoreUI, modCollapsedLabels, modCollapsedButtons);
+        if (modCollapsedButtons.size() < 15 || modCollapsedButtons.size() > 35) {
+            System.out.println("FAIL Division Defaults collapsed hull-group button count unexpected: " + modCollapsedButtons.size());
+            return false;
+        }
+
+        final float dialogLeft = Math.round((1920f - FleetDoctrineDialog.DIALOG_WIDTH) * 0.5f);
+        final float dialogRight = dialogLeft + FleetDoctrineDialog.DIALOG_WIDTH;
+
         for (String tabCmd : new String[]{
-                "TAB:ALL",
+                "TOGGLE_HULL_GROUP:BATTLESHIPS",
+                "TOGGLE_RAMMING_OPTS:BATTLESHIP",
+                "TOGGLE_DT_CARD:BATTLESHIP",
+                "TOGGLE_DT_CARD:BATTLESHIP",
+                "TOGGLE_HULL_GROUP:CARRIERS",
                 "TOGGLE_CARRIER_OPTS:FLEET_CARRIER",
                 "SET_VS_BIAS:FLEET_CARRIER:CAPITALS_FIRST",
                 "SET_VS_CV_FOCUS:FLEET_CARRIER:TOGGLE",
@@ -1926,9 +1953,15 @@ public class StarsectorUISimulator {
                 "SET_VS_GEOM:FLEET_CARRIER:ANVIL_CROSSFIRE",
                 "SET_VS_GUN:FLEET_CARRIER:AREA_SATURATION",
                 "SET_VS_AOA:FLEET_CARRIER:STRONG",
+                "EXPAND_ALL_HULL_GROUPS",
+                "COLLAPSE_ALL_HULL_GROUPS",
                 "TAB:OTC_COMMAND",
+                "TOGGLE_DD:FLEET_WIDE_FORMATION_DD",
+                "TOGGLE_DD:MULTI_DIV_SETPIECE_DD",
+                "TAB:AUTO_ASSIGN",
                 "TAB:HULLS",
                 "TAB:NAMING",
+                "TOGGLE_DD:NAMING_PRESET",
                 "TAB:ALL"}) {
             dialog.buttonPressed(tabCmd);
             dialog.advance(0.1f);
@@ -1938,8 +1971,18 @@ public class StarsectorUISimulator {
             if (labels.isEmpty() || buttons.isEmpty()) {
                 return false;
             }
+            if (!assertPositionTreeInvariantsAndRecompute(hostCoreUI.getPosition())) {
+                return false;
+            }
             for (LabelAPI lbl : labels) {
                 if (!isPurePrintableAscii(lbl.getText())) {
+                    return false;
+                }
+                PositionAPI lp = lbl.getPosition();
+                if (lp != null && lp.getWidth() > 0f && (lp.getX() + lp.getWidth() > dialogRight + 4f)) {
+                    System.out.println("FAIL FleetDoctrineDialog label overflow on " + tabCmd
+                            + ": right=" + (lp.getX() + lp.getWidth()) + " > dialogRight=" + dialogRight
+                            + " text=\"" + lbl.getText() + "\"");
                     return false;
                 }
             }
@@ -1947,9 +1990,13 @@ public class StarsectorUISimulator {
                 if (!isPurePrintableAscii(btn.getText())) {
                     return false;
                 }
-            }
-            if (!assertPositionTreeInvariantsAndRecompute(hostCoreUI.getPosition())) {
-                return false;
+                PositionAPI bp = btn.getPosition();
+                if (bp != null && bp.getWidth() > 0f && (bp.getX() + bp.getWidth() > dialogRight + 4f)) {
+                    System.out.println("FAIL FleetDoctrineDialog button overflow on " + tabCmd
+                            + ": right=" + (bp.getX() + bp.getWidth()) + " > dialogRight=" + dialogRight
+                            + " text=\"" + btn.getText() + "\"");
+                    return false;
+                }
             }
             if (!verifyAttachedTooltipsInTree(hostCoreUI, 8)) {
                 return false;
@@ -1971,6 +2018,8 @@ public class StarsectorUISimulator {
                 "SET_OTC_AUTH:COMMAND_BY_DIRECTION",
                 "OPEN_DIV:div_1",
                 "TOGGLE_DD:DIV_ARCH_DD",
+                "TOGGLE_DD:DIV_OPEN_MIS_DD",
+                "TOGGLE_DIV_RAMMING_OPTIONS",
                 "TOGGLE_DIV_CARRIER_OPTIONS",
                 "DIV_VS_BIAS:CAPITALS_FIRST",
                 "DIV_VS_CV_FOCUS:TOGGLE",
@@ -2002,8 +2051,32 @@ public class StarsectorUISimulator {
             if (labels.isEmpty() || buttons.isEmpty()) {
                 return false;
             }
+            if (!assertPositionTreeInvariantsAndRecompute(hostCoreUI.getPosition())) {
+                return false;
+            }
+            float edDialogLeft = Math.max(20f, (1920f - DivisionEditorDialog.DIALOG_WIDTH) * 0.5f);
+            float edDialogRight = edDialogLeft + DivisionEditorDialog.DIALOG_WIDTH;
+            float edLeftColRight = edDialogLeft + 12f + (DivisionEditorDialog.DIALOG_WIDTH - 36f) * 0.5f;
+            boolean inSingleDivView = cmd != null && !"BACK_TO_LIST".equals(cmd) && !cmd.startsWith("SET_OTC_AUTH:");
             for (LabelAPI lbl : labels) {
                 if (!isPurePrintableAscii(lbl.getText())) {
+                    return false;
+                }
+                PositionAPI lp = lbl.getPosition();
+                if (lp != null && lp.getWidth() > 0f && (lp.getX() + lp.getWidth() > edDialogRight + 4f)) {
+                    System.out.println("FAIL DivisionEditorDialog label overflow on " + cmd
+                            + ": right=" + (lp.getX() + lp.getWidth()) + " > edDialogRight=" + edDialogRight
+                            + " text=\"" + lbl.getText() + "\"");
+                    return false;
+                }
+                // Ensure labels in Configure Division's left settings column never bleed across into the right ship pool
+                if (inSingleDivView && lp != null && lp.getWidth() > 0f
+                        && lp.getY() < (1080f - Math.max(20f, (1080f - DivisionEditorDialog.DIALOG_HEIGHT) * 0.5f) - 108f)
+                        && lp.getX() < edLeftColRight - 10f
+                        && (lp.getX() + lp.getWidth() > edLeftColRight + 4f)) {
+                    System.out.println("FAIL Configure Division left-column label bleeds into right column on " + cmd
+                            + ": right=" + (lp.getX() + lp.getWidth()) + " > leftColRight=" + edLeftColRight
+                            + " text=\"" + lbl.getText() + "\"");
                     return false;
                 }
             }
@@ -2011,9 +2084,22 @@ public class StarsectorUISimulator {
                 if (!isPurePrintableAscii(btn.getText())) {
                     return false;
                 }
-            }
-            if (!assertPositionTreeInvariantsAndRecompute(hostCoreUI.getPosition())) {
-                return false;
+                PositionAPI bp = btn.getPosition();
+                if (bp != null && bp.getWidth() > 0f && (bp.getX() + bp.getWidth() > edDialogRight + 4f)) {
+                    System.out.println("FAIL DivisionEditorDialog button overflow on " + cmd
+                            + ": right=" + (bp.getX() + bp.getWidth()) + " > edDialogRight=" + edDialogRight
+                            + " text=\"" + btn.getText() + "\"");
+                    return false;
+                }
+                if (inSingleDivView && bp != null && bp.getWidth() > 0f
+                        && bp.getY() < (1080f - Math.max(20f, (1080f - DivisionEditorDialog.DIALOG_HEIGHT) * 0.5f) - 108f)
+                        && bp.getX() < edLeftColRight - 10f
+                        && (bp.getX() + bp.getWidth() > edLeftColRight + 4f)) {
+                    System.out.println("FAIL Configure Division left-column button bleeds into right column on " + cmd
+                            + ": right=" + (bp.getX() + bp.getWidth()) + " > leftColRight=" + edLeftColRight
+                            + " text=\"" + btn.getText() + "\"");
+                    return false;
+                }
             }
             if (!verifyAttachedTooltipsInTree(hostCoreUI, 6)) {
                 return false;

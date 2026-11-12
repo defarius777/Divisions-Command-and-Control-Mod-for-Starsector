@@ -165,6 +165,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
     };
 
+    private TooltipMakerAPI dialogTooltipHost = null;
+
     public DivisionEditorDialog(UIPanelAPI hostCoreUI) {
         this.hostCoreUI = hostCoreUI;
     }
@@ -172,7 +174,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     ButtonAPI registerButton(ButtonAPI button, String actionId) {
         if (button != null && actionId != null) {
             activeButtons.put(button, actionId);
-            DivisionUiWidgets.attachActionTooltip(null, button, actionId);
+            DivisionUiWidgets.attachActionTooltip(dialogTooltipHost, button, actionId);
         }
         return button;
     }
@@ -181,7 +183,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         if (checkbox != null && actionId != null) {
             checkbox.setChecked(initialChecked);
             activeCheckboxes.put(checkbox, new CheckboxBinding(actionId, initialChecked));
-            DivisionUiWidgets.attachActionTooltip(null, checkbox, actionId);
+            DivisionUiWidgets.attachActionTooltip(dialogTooltipHost, checkbox, actionId);
         }
         return checkbox;
     }
@@ -223,6 +225,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         rootModalPanel = null;
         contentContainer = null;
+        dialogTooltipHost = null;
+        DivisionUiWidgets.resetFallbackTooltipHost();
         activeNameField = null;
     }
 
@@ -291,6 +295,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             rootModalPanel.removeComponent(contentContainer);
             contentContainer = null;
         }
+        dialogTooltipHost = null;
+        DivisionUiWidgets.resetFallbackTooltipHost();
         activeNameField = null;
 
         float screenW = Global.getSettings().getScreenWidth();
@@ -300,6 +306,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         contentContainer = Global.getSettings().createCustom(DIALOG_WIDTH, DIALOG_HEIGHT, subPanelPlugin);
         rootModalPanel.addComponent(contentContainer).inTL(boxX, boxYTop);
+        dialogTooltipHost = contentContainer.createUIElement(16f, 16f, false);
 
         List<PermanentDivisionSpec> divisions = PermanentDivisionManager.getPermanentDivisions();
         if (selectedOverviewDivisionId != null && PermanentDivisionManager.getDivisionById(selectedOverviewDivisionId) == null) {
