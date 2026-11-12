@@ -392,6 +392,7 @@ public final class DivisionShowcaseMissions {
             spec.customMainMission = tmpl.mainMission;
             spec.customLineStation = tmpl.lineStation;
             if (tmpl.archetype != null && tmpl.archetype.isCarrierArchetype()) {
+                spec.customVoidstrikeTargetingBias = PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
                 spec.customVoidstrikeObservance = tmpl.voidstrikeObservance;
                 spec.customVoidstrikeCoordination = tmpl.voidstrikeCoordination;
                 spec.customVoidstrikeAttackGeometry = tmpl.voidstrikeGeometry != null

@@ -45,6 +45,7 @@ import divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry;
 import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
 import divisionai.PermanentDivisionManager.VoidstrikeGunneryMode;
 import divisionai.PermanentDivisionManager.VoidstrikeSplitMode;
+import divisionai.PermanentDivisionManager.VoidstrikeTargetingBias;
 import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
@@ -127,7 +128,18 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private int lastAppliedDoctrineFleetCount = -1;
     private int lastAppliedNamingFleetCount = -1;
 
+    private static final class CheckboxBinding {
+        final String actionId;
+        boolean expectedChecked;
+
+        CheckboxBinding(String actionId, boolean expectedChecked) {
+            this.actionId = actionId;
+            this.expectedChecked = expectedChecked;
+        }
+    }
+
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
+    private final Map<ButtonAPI, CheckboxBinding> activeCheckboxes = new LinkedHashMap<>();
     private final Map<DivisionArchetype, TextFieldAPI> prefixTextFields = new LinkedHashMap<>();
     private final java.util.Set<DoctrineDivisionType> expandedCarrierOptionsTypes =
             java.util.EnumSet.noneOf(DoctrineDivisionType.class);
@@ -167,6 +179,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         commitCustomPrefixTextFields();
         closed = true;
         activeButtons.clear();
+        activeCheckboxes.clear();
         prefixTextFields.clear();
         customOtcTitleField = null;
         if (parentCoreUI != null && rootOverlayPanel != null) {
@@ -211,6 +224,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         return button;
     }
 
+    private ButtonAPI registerCheckbox(ButtonAPI checkbox, String actionId, boolean initialChecked) {
+        if (checkbox != null && actionId != null) {
+            checkbox.setChecked(initialChecked);
+            activeCheckboxes.put(checkbox, new CheckboxBinding(actionId, initialChecked));
+            DivisionUiWidgets.attachActionTooltip(null, checkbox, actionId);
+        }
+        return checkbox;
+    }
+
     private void rebuildContent() {
         if (rootOverlayPanel == null) return;
         if (activeBodyScroller != null) {
@@ -218,6 +240,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             activeBodyScroller = null;
         }
         activeButtons.clear();
+        activeCheckboxes.clear();
         otcPennantBoxes.clear();
         prefixTextFields.clear();
         customOtcTitleField = null;
@@ -738,6 +761,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         gray);
 
                 // Rows 7a-7g: Carrier & Wing Voidstrike Behavior Doctrine (collapsed under "Carrier Options" button per UI Items D & E)
+                VoidstrikeTargetingBias currVsBias = doctrine.getVoidstrikeTargetingBias(dt);
+                boolean currVsFocusCv = doctrine.isVoidstrikeFocusCarriers(dt);
                 VoidstrikeTargetObservance currVsObs = doctrine.getVoidstrikeObservance(dt);
                 VoidstrikeCoordinationMode currVsCoord = doctrine.getVoidstrikeCoordination(dt);
                 VoidstrikeAttackGeometry currVsGeom = doctrine.getVoidstrikeAttackGeometry(dt);
@@ -772,6 +797,27 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         gray);
 
                 if (carrierOptsExpanded) {
+                    addVoidstrikeTargetingBiasRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Target Bias: " + currVsBias.displayName,
+                            currVsBias,
+                            "SET_VS_BIAS:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            highlight,
+                            gray);
+
+                    addVoidstrikeFocusCarriersRow(
+                            body,
+                            bodyWidth - 16f,
+                            currVsFocusCv,
+                            "SET_VS_CV_FOCUS:" + dt.name() + ":TOGGLE",
+                            baseColor,
+                            highlight,
+                            positive,
+                            gray);
+
                     addVoidstrikeObservanceRow(
                             body,
                             bodyWidth - 16f,
@@ -2315,6 +2361,18 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
         }
 
+        if (pendingAction == null) {
+            for (Map.Entry<ButtonAPI, CheckboxBinding> entry : activeCheckboxes.entrySet()) {
+                ButtonAPI cb = entry.getKey();
+                CheckboxBinding bind = entry.getValue();
+                if (cb != null && bind != null && cb.isChecked() != bind.expectedChecked) {
+                    bind.expectedChecked = cb.isChecked();
+                    pendingAction = bind.actionId;
+                    break;
+                }
+            }
+        }
+
         if (pendingAction != null) {
             String cmd = pendingAction;
             pendingAction = null;
@@ -2750,6 +2808,27 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 PermanentDivisionManager.updateDivisionTypeMovementStickiness(dt, ms);
                 rebuildContent();
             }
+            return;
+        }
+        if (cmd.startsWith("SET_VS_BIAS:")) {
+            String rest = cmd.substring("SET_VS_BIAS:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                VoidstrikeTargetingBias bias = VoidstrikeTargetingBias.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeVoidstrikeTargetingBias(dt, bias);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_VS_CV_FOCUS:")) {
+            String rest = cmd.substring("SET_VS_CV_FOCUS:".length());
+            int sep = rest.indexOf(':');
+            String dtStr = sep > 0 ? rest.substring(0, sep) : rest;
+            DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
+            boolean curr = PermanentDivisionManager.getFleetDoctrine().isVoidstrikeFocusCarriers(dt);
+            PermanentDivisionManager.updateDivisionTypeVoidstrikeFocusCarriers(dt, !curr);
+            rebuildContent();
             return;
         }
         if (cmd.startsWith("SET_VS_OBS:")) {
@@ -3255,6 +3334,74 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 currBmbFm.shortName,
                 currBmbVsFm.shortName);
         rowUi.addPara(summary, 0f, expanded ? highlight : gray).getPosition().inTL(CONTROL_COL_X + 216f, 5f);
+
+        rowUi.setHeightSoFar(28f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 2f);
+    }
+
+    private void addVoidstrikeTargetingBiasRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            VoidstrikeTargetingBias currentBias,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        VoidstrikeTargetingBias[] opts = VoidstrikeTargetingBias.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentBias) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 136f, 22f, 142f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentBias != null ? currentBias.summary : null, gray, 6f);
+    }
+
+    private void addVoidstrikeFocusCarriersRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            boolean focusCarriers,
+            String toggleActionId,
+            Color baseColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 28f, false);
+        String labelText = "Carrier Priority: " + (focusCarriers ? "Focus On" : "Standard");
+        LabelAPI rowLbl = rowUi.addPara(labelText, 0f, focusCarriers ? positive : baseColor, labelText);
+        rowLbl.getPosition().inTL(6f, 5f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) rowLbl, labelText);
+
+        ButtonAPI cb = registerCheckbox(
+                rowUi.addCheckbox(
+                        180f,
+                        22f,
+                        "Focus on Carriers",
+                        toggleActionId,
+                        focusCarriers ? highlight : baseColor,
+                        ButtonAPI.UICheckboxSize.SMALL,
+                        0f),
+                toggleActionId,
+                focusCarriers);
+        cb.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        LabelAPI sumLbl = rowUi.addPara(
+                "Prioritize enemy Carrier divisions and carrier hulls within target bias.",
+                0f,
+                gray);
+        sumLbl.getPosition().inTL(CONTROL_COL_X + 194f, 6f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) sumLbl, labelText);
 
         rowUi.setHeightSoFar(28f);
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);

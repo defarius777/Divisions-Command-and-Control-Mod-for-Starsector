@@ -126,7 +126,18 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     boolean rammingOptionsExpanded = false;
     private boolean closed = false;
 
+    private static final class CheckboxBinding {
+        final String actionId;
+        boolean expectedChecked;
+
+        CheckboxBinding(String actionId, boolean expectedChecked) {
+            this.actionId = actionId;
+            this.expectedChecked = expectedChecked;
+        }
+    }
+
     private final Map<ButtonAPI, String> activeButtons = new LinkedHashMap<>();
+    private final Map<ButtonAPI, CheckboxBinding> activeCheckboxes = new LinkedHashMap<>();
     private final List<ShipIconTile> shipIconTiles = new ArrayList<>();
     private final List<DropTargetZone> dropTargetZones = new ArrayList<>();
     private String pendingAction = null;
@@ -166,6 +177,15 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         return button;
     }
 
+    ButtonAPI registerCheckbox(ButtonAPI checkbox, String actionId, boolean initialChecked) {
+        if (checkbox != null && actionId != null) {
+            checkbox.setChecked(initialChecked);
+            activeCheckboxes.put(checkbox, new CheckboxBinding(actionId, initialChecked));
+            DivisionUiWidgets.attachActionTooltip(null, checkbox, actionId);
+        }
+        return checkbox;
+    }
+
     public void show() {
         if (hostCoreUI == null) return;
         float screenW = Global.getSettings().getScreenWidth();
@@ -193,6 +213,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         savePendingNameFieldIfAny();
         closed = true;
         activeButtons.clear();
+        activeCheckboxes.clear();
         shipIconTiles.clear();
         dropTargetZones.clear();
         pressedTile = null;
@@ -215,6 +236,18 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 btn.setChecked(false);
                 pendingAction = entry.getValue();
                 break;
+            }
+        }
+
+        if (pendingAction == null) {
+            for (Map.Entry<ButtonAPI, CheckboxBinding> entry : activeCheckboxes.entrySet()) {
+                ButtonAPI cb = entry.getKey();
+                CheckboxBinding bind = entry.getValue();
+                if (cb != null && bind != null && cb.isChecked() != bind.expectedChecked) {
+                    bind.expectedChecked = cb.isChecked();
+                    pendingAction = bind.actionId;
+                    break;
+                }
             }
         }
 
@@ -247,6 +280,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             singleRightScroller = null;
         }
         activeButtons.clear();
+        activeCheckboxes.clear();
         shipIconTiles.clear();
         otcPennantTiles.clear();
         dropTargetZones.clear();
@@ -2043,6 +2077,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     private boolean isPointOverAnyButton(float x, float y) {
         for (ButtonAPI btn : activeButtons.keySet()) {
             if (btn != null && isPointInside(x, y, btn.getPosition())) {
+                return true;
+            }
+        }
+        for (ButtonAPI cb : activeCheckboxes.keySet()) {
+            if (cb != null && isPointInside(x, y, cb.getPosition())) {
                 return true;
             }
         }

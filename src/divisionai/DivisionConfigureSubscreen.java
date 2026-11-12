@@ -31,6 +31,7 @@ import divisionai.PermanentDivisionManager.VoidstrikeAttackGeometry;
 import divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode;
 import divisionai.PermanentDivisionManager.VoidstrikeGunneryMode;
 import divisionai.PermanentDivisionManager.VoidstrikeSplitMode;
+import divisionai.PermanentDivisionManager.VoidstrikeTargetingBias;
 import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
 
 import java.awt.Color;
@@ -474,6 +475,10 @@ final class DivisionConfigureSubscreen {
                 gray);
 
         // 7. Carrier & Wing Voidstrike Behavior Settings (collapsed under "Carrier Options" button per UI Items D & E)
+        VoidstrikeTargetingBias effVsBias =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeTargetingBias(spec, doctrineCfg);
+        boolean effVsFocusCv =
+                PermanentDivisionManager.resolveEffectiveVoidstrikeFocusCarriers(spec, doctrineCfg);
         VoidstrikeTargetObservance effVsObs =
                 PermanentDivisionManager.resolveEffectiveVoidstrikeObservance(spec, doctrineCfg);
         VoidstrikeCoordinationMode effVsCoord =
@@ -515,6 +520,28 @@ final class DivisionConfigureSubscreen {
                 gray);
 
         if (dialog.carrierOptionsExpanded) {
+            addDivisionVoidstrikeTargetingBiasRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effVsBias,
+                    spec.customVoidstrikeTargetingBias != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
+            addDivisionVoidstrikeFocusCarriersRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effVsFocusCv,
+                    spec.customVoidstrikeFocusCarriers != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+
             addDivisionVoidstrikeObservanceRow(
                     dialog,
                     leftCol,
@@ -1200,6 +1227,87 @@ final class DivisionConfigureSubscreen {
                 "DIV_RAM_SCOPE:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
     }
 
+    private static void addDivisionVoidstrikeTargetingBiasRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            VoidstrikeTargetingBias effBias,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        VoidstrikeTargetingBias[] opts = VoidstrikeTargetingBias.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].shortName;
+            acts[i] = "DIV_VS_BIAS:" + opts[i].name();
+            if (opts[i] == effBias) sel = i;
+        }
+        String labelText = "Target Bias: " + effBias.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 94f, 20f, 98f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_VS_BIAS:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
+    private static void addDivisionVoidstrikeFocusCarriersRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            boolean effFocusCarriers,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+        String labelText = "Carrier Priority: " + (effFocusCarriers ? "Focus On" : "Standard");
+        LabelAPI rowLbl = rowUi.addPara(labelText, 0f, isCustom ? highlight : baseColor, labelText);
+        rowLbl.getPosition().inTL(4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) rowLbl, labelText);
+
+        String toggleAct = "DIV_VS_CV_FOCUS:TOGGLE";
+        ButtonAPI cb = dialog.registerCheckbox(
+                rowUi.addCheckbox(
+                        178f,
+                        20f,
+                        "Focus on Carriers",
+                        toggleAct,
+                        effFocusCarriers ? (isCustom ? highlight : activeColor) : baseColor,
+                        ButtonAPI.UICheckboxSize.SMALL,
+                        0f),
+                toggleAct,
+                effFocusCarriers);
+        cb.getPosition().inTL(CONTROL_COL_X, 3f);
+
+        String inhAct = "DIV_VS_CV_FOCUS:INHERIT";
+        ButtonAPI bInh = dialog.registerButton(
+                rowUi.addButton(
+                        "Inherit",
+                        inhAct,
+                        !isCustom ? activeColor : baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.ALL,
+                        72f,
+                        20f,
+                        0f),
+                inhAct);
+        if (!isCustom) {
+            bInh.highlight();
+        }
+        bInh.getPosition().inTL(CONTROL_COL_X + 186f, 3f);
+
+        rowUi.setHeightSoFar(26f);
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
     private static void addDivisionVoidstrikeObservanceRow(
             final DivisionEditorDialog dialog,
             TooltipMakerAPI col,
@@ -1680,6 +1788,36 @@ final class DivisionConfigureSubscreen {
             String arg = cmd.substring("DIV_RAM_SLOTS:".length());
             Integer slots = "INHERIT".equals(arg) ? null : Integer.parseInt(arg);
             PermanentDivisionManager.updateIndividualDivisionMaxRammingSlots(activeDivisionId, slots);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_VS_BIAS:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_BIAS:".length());
+            VoidstrikeTargetingBias bias =
+                    "INHERIT".equals(arg) ? null : VoidstrikeTargetingBias.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionVoidstrikeTargetingBias(activeDivisionId, bias);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_VS_CV_FOCUS:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_VS_CV_FOCUS:".length());
+            if ("INHERIT".equals(arg)) {
+                PermanentDivisionManager.updateIndividualDivisionVoidstrikeFocusCarriers(activeDivisionId, null);
+            } else {
+                PermanentDivisionSpec curSpec = null;
+                for (PermanentDivisionSpec s : PermanentDivisionManager.getPermanentDivisions()) {
+                    if (s != null && activeDivisionId.equals(s.id)) {
+                        curSpec = s;
+                        break;
+                    }
+                }
+                boolean currEff = PermanentDivisionManager.resolveEffectiveVoidstrikeFocusCarriers(
+                        curSpec, PermanentDivisionManager.getFleetDoctrine());
+                PermanentDivisionManager.updateIndividualDivisionVoidstrikeFocusCarriers(
+                        activeDivisionId, Boolean.valueOf(!currEff));
+            }
             dialog.rebuildContent();
             return true;
         }

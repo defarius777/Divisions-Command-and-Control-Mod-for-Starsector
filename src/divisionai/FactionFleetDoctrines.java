@@ -732,6 +732,15 @@ public final class FactionFleetDoctrines {
                     cfg.setMaxRammingSlots(dt, JsonReflectBridge.optInt(
                             dtJson, "maxRammingSlots", cfg.getMaxRammingSlots(dt)));
                 }
+                String vsBias = JsonReflectBridge.optString(dtJson, "voidstrikeTargetingBias", null);
+                if (vsBias != null && !vsBias.isEmpty()) {
+                    cfg.setVoidstrikeTargetingBias(dt, PermanentDivisionManager.VoidstrikeTargetingBias.fromId(
+                            vsBias, cfg.getVoidstrikeTargetingBias(dt)));
+                }
+                if (JsonReflectBridge.has(dtJson, "voidstrikeFocusCarriers")) {
+                    cfg.setVoidstrikeFocusCarriers(dt, JsonReflectBridge.optBoolean(
+                            dtJson, "voidstrikeFocusCarriers", cfg.isVoidstrikeFocusCarriers(dt)));
+                }
                 String vsObs = JsonReflectBridge.optString(dtJson, "voidstrikeObservance", null);
                 if (vsObs != null && !vsObs.isEmpty()) {
                     cfg.setVoidstrikeObservance(dt, VoidstrikeTargetObservance.fromId(vsObs, cfg.getVoidstrikeObservance(dt)));
@@ -2101,6 +2110,8 @@ public final class FactionFleetDoctrines {
         dst.customLineStation = src.customLineStation;
         dst.customFormation = src.customFormation;
         dst.customMovementStickiness = src.customMovementStickiness;
+        dst.customVoidstrikeTargetingBias = src.customVoidstrikeTargetingBias;
+        dst.customVoidstrikeFocusCarriers = src.customVoidstrikeFocusCarriers;
         dst.customVoidstrikeObservance = src.customVoidstrikeObservance;
         dst.customVoidstrikeCoordination = src.customVoidstrikeCoordination;
         dst.customVoidstrikeAttackGeometry = src.customVoidstrikeAttackGeometry;

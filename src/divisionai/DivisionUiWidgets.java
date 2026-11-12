@@ -1090,6 +1090,23 @@ public final class DivisionUiWidgets {
                     "Expand or collapse doctrinal carrier air-wing settings for this division type: Voidstrike Focus, Voidstrike Launch, Squadron Depth & Width, and Fighter/Bomber Patrol & Voidstrike Formations."
             };
         }
+        if (actionId.startsWith("SET_VS_BIAS:") || actionId.startsWith("DIV_VS_BIAS:")) {
+            String tok = extractTrailingToken(actionId);
+            if ("INHERIT".equals(tok)) return inheritTooltipSpec("Target Bias");
+            PermanentDivisionManager.VoidstrikeTargetingBias bias =
+                    PermanentDivisionManager.VoidstrikeTargetingBias.fromId(tok, null);
+            if (bias != null) {
+                return new String[]{"Voidstrike Target Bias: " + bias.displayName, bias.summary};
+            }
+        }
+        if (actionId.startsWith("SET_VS_CV_FOCUS:") || actionId.startsWith("DIV_VS_CV_FOCUS:")) {
+            String tok = extractTrailingToken(actionId);
+            if ("INHERIT".equals(tok)) return inheritTooltipSpec("Focus on Carriers");
+            return new String[]{
+                    "Focus on Carriers",
+                    "When checked, Voidstrikes prioritize enemy Carrier divisions and carrier hulls (ships with fighter bays) within the active Target Bias tier."
+            };
+        }
         if (actionId.startsWith("SET_VS_OBS:") || actionId.startsWith("DIV_VS_OBS:")) {
             String tok = extractTrailingToken(actionId);
             if ("INHERIT".equals(tok)) return inheritTooltipSpec("Voidstrike Focus");
@@ -1411,6 +1428,18 @@ public final class DivisionUiWidgets {
             return new String[]{
                     "Carrier & Voidstrike Options",
                     "Configures air-wing Voidstrike target focus, launch coordination, wave depth & width, and fighter/bomber squadron formations."
+            };
+        }
+        if (lower.startsWith("target bias")) {
+            return new String[]{
+                    "Voidstrike Targeting Bias",
+                    "Controls which enemy hull classes carrier Voidstrikes prioritize: Free Selection (any viable target), Cruisers & Capitals, or Capitals First."
+            };
+        }
+        if (lower.startsWith("carrier priority") || lower.startsWith("focus on carriers")) {
+            return new String[]{
+                    "Focus on Carriers Modifier",
+                    "When enabled, Voidstrikes hunt enemy Carrier divisions and carrier hulls first within the selected Target Bias tier."
             };
         }
         if (lower.startsWith("voidstrike focus")) {

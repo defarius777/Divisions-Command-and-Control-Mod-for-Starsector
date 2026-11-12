@@ -94,7 +94,7 @@ public class DivisionCommanderAI {
                     && div.avgFluxLevel < 0.86f
                     && div.currentIntent != DivisionIntentType.PRESS_HOME
                     && div.currentIntent != DivisionIntentType.GIVE_GENERAL_CHASE;
-            if (playerObjectiveUrgent || fullAssaultUrgent || (cadenceDue && (!committed || hasUrgentTrigger(engine, div, myGroup, now)))) {
+            if (playerObjectiveUrgent || fullAssaultUrgent || (cadenceDue && (!committed || hasUrgentTrigger(engine, div, myGroup, enemyGroup, now)))) {
                 DivisionIntentType prevIntent = div.currentIntent;
                 DivisionState prevEnemy = div.targetEnemyDivision;
                 DivisionState prevFriendly = div.targetFriendlyDivision;
@@ -460,6 +460,15 @@ public class DivisionCommanderAI {
 
     /** Events that break intent commitment and force an immediate re-evaluation. */
     static boolean hasUrgentTrigger(CombatEngineAPI engine, DivisionState div, BattleGroupState myGroup, float now) {
+        return hasUrgentTrigger(engine, div, myGroup, null, now);
+    }
+
+    static boolean hasUrgentTrigger(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup,
+            float now) {
         if (div.underDirectObjectiveOrder && div.targetObjective != null) {
             if (div.avgFluxLevel >= 0.84f) return true;
             BattleObjectiveAPI currentAssigned = findTaskManagerObjectiveForDivision(engine, div, myGroup, div.targetObjective);
@@ -492,17 +501,29 @@ public class DivisionCommanderAI {
         }
         if (div.archetype != null
                 && div.archetype.isCarrierArchetype()
-                && resolveActiveMission(div, now) == DivisionMissionType.ALPHA_STRIKE
                 && !div.voidstrikeEgressActive
                 && div.voidstrikeStage == 0
                 && div.activeVoidstrikeSortieNumber <= 0
-                && !VoidstrikeCoordinator.hasArmedStrikeCraftCommittedDownrange(div)
-                && myGroup != null
-                && myGroup.primaryThreatEnemyDivision != null
-                && myGroup.primaryThreatEnemyDivision != div.targetEnemyDivision
-                && myGroup.primaryThreatEnemyDivision.isCombatEffective()
-                && OtcAI.isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)) {
-            return true;
+                && !VoidstrikeCoordinator.hasArmedStrikeCraftCommittedDownrange(div)) {
+            List<DivisionState> effEnemies = (enemyGroup != null)
+                    ? OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup)
+                    : null;
+            if (resolveActiveMission(div, now) == DivisionMissionType.ALPHA_STRIKE
+                    && myGroup != null
+                    && myGroup.primaryThreatEnemyDivision != null
+                    && myGroup.primaryThreatEnemyDivision != div.targetEnemyDivision
+                    && myGroup.primaryThreatEnemyDivision.isCombatEffective()
+                    && OtcAI.isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)
+                    && !hasHigherPriorityVoidstrikeBiasTarget(
+                            engine, div.side, div, myGroup.primaryThreatEnemyDivision, effEnemies)) {
+                return true;
+            }
+            if (div.targetEnemyDivision != null
+                    && effEnemies != null
+                    && hasHigherPriorityVoidstrikeBiasTarget(
+                            engine, div.side, div, div.targetEnemyDivision, effEnemies)) {
+                return true;
+            }
         }
         if (div.targetFriendlyDivision != null && !div.targetFriendlyDivision.isCombatEffective()) return true;
         if (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
@@ -1211,10 +1232,13 @@ public class DivisionCommanderAI {
             BattleObjectiveAPI uncapturedObj,
             float now) {
 
+        List<DivisionState> allEffectiveEnemies = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
         DivisionState carrierTargetDiv = nearestEnemyDiv;
         if (activeMission == DivisionMissionType.ALPHA_STRIKE
                 && myGroup.primaryThreatEnemyDivision != null
-                && OtcAI.isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)) {
+                && OtcAI.isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)
+                && !hasHigherPriorityVoidstrikeBiasTarget(
+                        engine, div.side, div, myGroup.primaryThreatEnemyDivision, allEffectiveEnemies)) {
             carrierTargetDiv = myGroup.primaryThreatEnemyDivision;
         } else if (activeMission == DivisionMissionType.COMBAT_SPACE_PATROL
                 && endangeredFriendlyDiv != null) {
@@ -1267,11 +1291,26 @@ public class DivisionCommanderAI {
                 // target, never retarget the carrier division mid-sortie on Main Effort shifts — doing so resets
                 // Pincer/L-Crossfire dogleg gate latches and aborts active torpedo runs before weapon release!
                 boolean lockCommittedWaveOnTarget = armedCommittedDownrange && !prevIsTinyUnassignedContact;
+                int prevBiasTier = getVoidstrikeTargetBiasTier(engine, div.side, div, prevCarrierTarget);
+                int newBiasTier = (carrierTargetDiv != null)
+                        ? getVoidstrikeTargetBiasTier(engine, div.side, div, carrierTargetDiv)
+                        : prevBiasTier;
+                boolean newOutranksUnderBias = carrierTargetDiv != null
+                        && carrierTargetDiv != prevCarrierTarget
+                        && newBiasTier > prevBiasTier;
+                boolean prevOutranksNewUnderBias = carrierTargetDiv != null
+                        && carrierTargetDiv != prevCarrierTarget
+                        && prevBiasTier > newBiasTier;
+                if (prevOutranksNewUnderBias) {
+                    prevScreenedByCloserEnemy = false;
+                }
                 boolean closerTargetIntervening = !lockCommittedWaveOnTarget
                         && carrierTargetDiv != null
                         && carrierTargetDiv != prevCarrierTarget
                         && !newIsTinyUnassignedContact
-                        && (prevScreenedByCloserEnemy
+                        && !prevOutranksNewUnderBias
+                        && (newOutranksUnderBias
+                        || prevScreenedByCloserEnemy
                         || (!airborneWaveActive && newDist + 650f < prevDist)
                         || (airborneWaveActive && newDist + 1150f < prevDist && newIsHeavierLineTarget)
                         || ((prevIsLightSkirmisher || prevIsTinyUnassignedContact) && newIsHeavierLineTarget && newDist <= prevDist + 950f));
@@ -4359,7 +4398,257 @@ public class DivisionCommanderAI {
         return isDirectPlayerShipOrder(ship, tm, true);
     }
 
-    static DivisionState findBestEnemyDivisionFor(
+    /**
+     * Inspects visible alive combat hulls in {@code eDiv} and returns a bitmask:
+     *  bit 0 (1): has CAPITAL_SHIP
+     *  bit 1 (2): has CRUISER
+     *  bit 2 (4): has Carrier hull (numFighterBays > 0 or carrier archetype)
+     *  bits 8..15: total visible fighter bays (clamped 0..32)
+     */
+    public static int inspectVisibleEnemyDivisionHullMask(
+            CombatEngineAPI engine,
+            int observerSide,
+            DivisionState eDiv) {
+        if (eDiv == null || !eDiv.isCombatEffective()) return 0;
+        boolean hasCap = false;
+        boolean hasCruiser = false;
+        boolean hasCarrier = (eDiv.archetype != null && eDiv.archetype.isCarrierArchetype());
+        int totalBays = 0;
+        int inspectedVisible = 0;
+        if (eDiv.members != null) {
+            for (ShipAPI s : eDiv.members) {
+                if (s == null || !s.isAlive() || s.isHulk() || s.isFighter()) continue;
+                if (engine != null && !OtcAI.isShipVisibleToSide(engine, observerSide, s)) continue;
+                inspectedVisible++;
+                ShipAPI.HullSize hs = s.getHullSize();
+                if (hs == ShipAPI.HullSize.CAPITAL_SHIP) hasCap = true;
+                else if (hs == ShipAPI.HullSize.CRUISER) hasCruiser = true;
+                int bays = s.getNumFighterBays();
+                if (bays > 0) {
+                    hasCarrier = true;
+                    totalBays += bays;
+                }
+            }
+        }
+        if (inspectedVisible == 0 && eDiv.archetype != null) {
+            if (eDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || eDiv.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION) {
+                hasCap = true;
+            } else if (eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
+                    || eDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                    || eDiv.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
+                    || eDiv.archetype == DivisionArchetype.FLEET_CARRIER_DIVISION
+                    || eDiv.archetype == DivisionArchetype.LIGHT_CARRIER_DIVISION) {
+                hasCruiser = true;
+            }
+        }
+        int clampedBays = Math.min(32, totalBays);
+        return (hasCap ? 1 : 0) | (hasCruiser ? 2 : 0) | (hasCarrier ? 4 : 0) | (clampedBays << 8);
+    }
+
+    /**
+     * Computes ordinal priority tier (0..5) of {@code eDiv} under {@code carrierDiv}'s
+     * {@link PermanentDivisionManager.VoidstrikeTargetingBias} and {@code voidstrikeFocusCarriers}.
+     */
+    public static int getVoidstrikeTargetBiasTier(
+            CombatEngineAPI engine,
+            int observerSide,
+            DivisionState carrierDiv,
+            DivisionState eDiv) {
+        if (carrierDiv == null || eDiv == null) return 0;
+        PermanentDivisionManager.VoidstrikeTargetingBias bias = carrierDiv.voidstrikeTargetingBias != null
+                ? carrierDiv.voidstrikeTargetingBias
+                : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+        boolean focusCv = carrierDiv.voidstrikeFocusCarriers;
+        int mask = inspectVisibleEnemyDivisionHullMask(engine, observerSide, eDiv);
+        boolean hasCap = (mask & 1) != 0;
+        boolean hasCruiser = (mask & 2) != 0;
+        boolean hasCv = (mask & 4) != 0;
+
+        switch (bias) {
+            case FREE_SELECTION:
+                return (focusCv && hasCv) ? 2 : 1;
+            case CRUISERS_AND_CAPITALS:
+                if (hasCap || hasCruiser) {
+                    return (focusCv && hasCv) ? 4 : 3;
+                }
+                return (focusCv && hasCv) ? 2 : 0;
+            case CAPITALS_FIRST:
+            default:
+                if (hasCap) {
+                    return (focusCv && hasCv) ? 5 : 4;
+                }
+                if (hasCruiser) {
+                    return (focusCv && hasCv) ? 3 : 2;
+                }
+                return (focusCv && hasCv) ? 1 : 0;
+        }
+    }
+
+    public static int getMaxVisibleVoidstrikeBiasTier(
+            CombatEngineAPI engine,
+            int observerSide,
+            DivisionState carrierDiv,
+            List<DivisionState> enemyDivs) {
+        if (carrierDiv == null || enemyDivs == null || enemyDivs.isEmpty()) return 0;
+        boolean anyAble = false;
+        for (DivisionState e : enemyDivs) {
+            if (e != null && e.isAbleCombatEffective() && OtcAI.isDivisionVisibleToSide(engine, observerSide, e)
+                    && !BattlefieldFirepowerEvaluator.isStationBastionDivision(e)
+                    && e.archetype != DivisionArchetype.SERVICE_GROUP) {
+                anyAble = true;
+                break;
+            }
+        }
+        int maxTier = 0;
+        for (DivisionState e : enemyDivs) {
+            if (e == null || !e.isCombatEffective() || !OtcAI.isDivisionVisibleToSide(engine, observerSide, e)) continue;
+            if (anyAble && (e.isUnableDivision || e.retreatingFraction >= 0.5f)) continue;
+            if (e.archetype == DivisionArchetype.SERVICE_GROUP) continue;
+            int t = getVoidstrikeTargetBiasTier(engine, observerSide, carrierDiv, e);
+            if (t > maxTier) maxTier = t;
+        }
+        return maxTier;
+    }
+
+    public static boolean hasHigherPriorityVoidstrikeBiasTarget(
+            CombatEngineAPI engine,
+            int observerSide,
+            DivisionState carrierDiv,
+            DivisionState candidate,
+            List<DivisionState> enemyDivs) {
+        if (carrierDiv == null || candidate == null || enemyDivs == null || enemyDivs.isEmpty()) return false;
+        int candTier = getVoidstrikeTargetBiasTier(engine, observerSide, carrierDiv, candidate);
+        int maxTier = getMaxVisibleVoidstrikeBiasTier(engine, observerSide, carrierDiv, enemyDivs);
+        return maxTier > candTier;
+    }
+
+    static boolean hasEqualOrHigherUnderCapBiasAlternative(
+            CombatEngineAPI engine,
+            int observerSide,
+            DivisionState carrierDiv,
+            DivisionState currentCandidate,
+            List<DivisionState> enemyDivs) {
+        if (carrierDiv == null || currentCandidate == null || enemyDivs == null) return false;
+        int currTier = getVoidstrikeTargetBiasTier(engine, observerSide, carrierDiv, currentCandidate);
+        for (DivisionState otherE : enemyDivs) {
+            if (otherE == null || otherE == currentCandidate || !otherE.isAbleCombatEffective()) continue;
+            if (!OtcAI.isDivisionVisibleToSide(engine, observerSide, otherE)) continue;
+            if (!otherE.isOverkilled && getVoidstrikeTargetBiasTier(engine, observerSide, carrierDiv, otherE) >= currTier) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Computes doctrinal Voidstrike target-selection score bonus/penalty for {@code candidateEnemy}
+     * based on {@code carrierDiv.voidstrikeTargetingBias} and {@code carrierDiv.voidstrikeFocusCarriers}.
+     */
+    public static float computeVoidstrikeTargetBiasAdjustment(
+            CombatEngineAPI engine,
+            int observerSide,
+            DivisionState carrierDiv,
+            DivisionState candidateEnemy,
+            List<DivisionState> enemyDivs) {
+        if (carrierDiv == null || candidateEnemy == null || enemyDivs == null || enemyDivs.isEmpty()) {
+            return 0f;
+        }
+        PermanentDivisionManager.VoidstrikeTargetingBias bias = carrierDiv.voidstrikeTargetingBias != null
+                ? carrierDiv.voidstrikeTargetingBias
+                : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+        boolean focusCv = carrierDiv.voidstrikeFocusCarriers;
+        if (bias == PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION && !focusCv) {
+            return 0f;
+        }
+
+        boolean anyAble = false;
+        for (DivisionState e : enemyDivs) {
+            if (e != null && e.isAbleCombatEffective() && OtcAI.isDivisionVisibleToSide(engine, observerSide, e)
+                    && !BattlefieldFirepowerEvaluator.isStationBastionDivision(e)
+                    && e.archetype != DivisionArchetype.SERVICE_GROUP) {
+                anyAble = true;
+                break;
+            }
+        }
+
+        boolean anyVisCap = false;
+        boolean anyVisCruiser = false;
+        boolean anyVisCarrier = false;
+        boolean anyVisHeavyCarrier = false;
+        boolean anyVisCapCarrier = false;
+        for (DivisionState e : enemyDivs) {
+            if (e == null || !e.isCombatEffective() || !OtcAI.isDivisionVisibleToSide(engine, observerSide, e)) continue;
+            if (anyAble && (e.isUnableDivision || e.retreatingFraction >= 0.5f)) continue;
+            if (e.archetype == DivisionArchetype.SERVICE_GROUP) continue;
+            int m = inspectVisibleEnemyDivisionHullMask(engine, observerSide, e);
+            boolean cCap = (m & 1) != 0;
+            boolean cCr = (m & 2) != 0;
+            boolean cCv = (m & 4) != 0;
+            if (cCap) anyVisCap = true;
+            if (cCr) anyVisCruiser = true;
+            if (cCv) {
+                anyVisCarrier = true;
+                if (cCap || cCr) anyVisHeavyCarrier = true;
+                if (cCap) anyVisCapCarrier = true;
+            }
+        }
+
+        int candMask = inspectVisibleEnemyDivisionHullMask(engine, observerSide, candidateEnemy);
+        boolean candHasCap = (candMask & 1) != 0;
+        boolean candHasCruiser = (candMask & 2) != 0;
+        boolean candHasCv = (candMask & 4) != 0;
+        int candBays = (candMask >>> 8) & 0xFF;
+
+        float adj = 0f;
+        if (bias == PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS) {
+            if (anyVisCap || anyVisCruiser) {
+                if (candHasCap || candHasCruiser) {
+                    adj += candHasCap ? 1650f : 1450f;
+                } else {
+                    adj -= 2200f;
+                }
+            }
+        } else if (bias == PermanentDivisionManager.VoidstrikeTargetingBias.CAPITALS_FIRST) {
+            if (anyVisCap) {
+                if (candHasCap) {
+                    adj += 2100f;
+                } else if (candHasCruiser) {
+                    adj -= 950f;
+                } else {
+                    adj -= 2600f;
+                }
+            } else if (anyVisCruiser) {
+                if (candHasCruiser) {
+                    adj += 1450f;
+                } else {
+                    adj -= 2200f;
+                }
+            }
+        }
+
+        if (focusCv && anyVisCarrier) {
+            boolean cvMatchesHullBias = (bias == PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION)
+                    || (bias == PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS
+                    && (!anyVisHeavyCarrier || candHasCap || candHasCruiser))
+                    || (bias == PermanentDivisionManager.VoidstrikeTargetingBias.CAPITALS_FIRST
+                    && (!anyVisCap || candHasCap || !anyVisCapCarrier));
+            if (candHasCv && cvMatchesHullBias) {
+                float cvBonus = (bias == PermanentDivisionManager.VoidstrikeTargetingBias.CAPITALS_FIRST
+                        && anyVisCap && !candHasCap)
+                        ? 1350f
+                        : 1850f;
+                adj += cvBonus + Math.min(390f, candBays * 65f);
+            } else if (!candHasCv) {
+                boolean gentleCapHold = (bias == PermanentDivisionManager.VoidstrikeTargetingBias.CAPITALS_FIRST
+                        && candHasCap && !anyVisCapCarrier);
+                adj -= gentleCapHold ? 450f : 950f;
+            }
+        }
+        return adj;
+    }
+
+    public static DivisionState findBestEnemyDivisionFor(
             CombatEngineAPI engine,
             DivisionState myDiv,
             BattleGroupState myGroup,
@@ -4461,7 +4750,12 @@ public class DivisionCommanderAI {
                         break;
                     }
                 }
-                if (otherUnderCapExists && (peerCommittedFp >= eDiv.overkillCapFp || eDiv.isOverkilled)) {
+                boolean skipCarrierBiasOverkillPenalty = myDiv.archetype != null
+                        && myDiv.archetype.isCarrierArchetype()
+                        && !hasEqualOrHigherUnderCapBiasAlternative(engine, myDiv.side, myDiv, eDiv, enemyDivs);
+                if (otherUnderCapExists
+                        && !skipCarrierBiasOverkillPenalty
+                        && (peerCommittedFp >= eDiv.overkillCapFp || eDiv.isOverkilled)) {
                     score -= 1150f;
                 }
                 // Enemy Center of Gravity & Beleaguered Friendly Line Relief
@@ -4530,11 +4824,19 @@ public class DivisionCommanderAI {
             boolean isCarrierDiv = myDiv.archetype != null && myDiv.archetype.isCarrierArchetype();
 
             if (isCarrierDiv) {
-                // Carrier divisions strongly prefer unscreened Destroyer, Cruiser, Carrier, or Battleship targets
-                // and avoid sending strike packages across intervening enemy AA screens to chase fast kiting frigates!
-                if (isEnemyDivisionScreenedByCloserEnemy(engine, myDiv, eDiv, enemyDivs)) {
-                    score -= 780f;
+                PermanentDivisionManager.VoidstrikeTargetingBias vsBias = myDiv.voidstrikeTargetingBias != null
+                        ? myDiv.voidstrikeTargetingBias
+                        : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+                boolean strictBiasActive = vsBias != PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION
+                        || myDiv.voidstrikeFocusCarriers;
+                int eBiasTier = getVoidstrikeTargetBiasTier(engine, myDiv.side, myDiv, eDiv);
+                int maxBiasTier = getMaxVisibleVoidstrikeBiasTier(engine, myDiv.side, myDiv, enemyDivs);
+                if (!strictBiasActive || eBiasTier < maxBiasTier) {
+                    if (isEnemyDivisionScreenedByCloserEnemy(engine, myDiv, eDiv, enemyDivs)) {
+                        score -= 780f;
+                    }
                 }
+                score += computeVoidstrikeTargetBiasAdjustment(engine, myDiv.side, myDiv, eDiv, enemyDivs);
                 boolean enemyIsLightSkirmisher = eDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
                         || eDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
                         || eDiv.archetype == DivisionArchetype.PHASE_DIVISION;
@@ -4545,22 +4847,37 @@ public class DivisionCommanderAI {
                 if (isLoneUnassignedStraggler && anyAbleVisibleHeavyOrLineEnemy) {
                     score -= 680f;
                 }
-                if (enemyIsLightSkirmisher) {
-                    if (anyAbleVisibleHeavyOrLineEnemy) {
-                        score -= 540f;
+                if (vsBias == PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION) {
+                    if (enemyIsLightSkirmisher) {
+                        if (eDiv.avgMaxSpeed >= 155f || eDiv.getAliveMembers().size() <= 2) {
+                            score -= 220f;
+                        }
+                    } else if (eDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                            || (eDiv.archetype != null && eDiv.archetype.isCarrierArchetype())) {
+                        score += 240f;
                     }
-                    if (eDiv.avgMaxSpeed >= 155f || eDiv.getAliveMembers().size() <= 2) {
-                        score -= 320f;
-                    }
-                } else if (eDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
-                        || eDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
-                        || eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
-                        || eDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
-                        || eDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                        || (eDiv.archetype != null && eDiv.archetype.isCarrierArchetype())) {
-                    score += 420f;
-                    if (eDiv.getAliveMembers().size() >= 2) {
-                        score += 220f;
+                } else {
+                    if (enemyIsLightSkirmisher) {
+                        if (anyAbleVisibleHeavyOrLineEnemy) {
+                            score -= 540f;
+                        }
+                        if (eDiv.avgMaxSpeed >= 155f || eDiv.getAliveMembers().size() <= 2) {
+                            score -= 320f;
+                        }
+                    } else if (eDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                            || eDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                            || (eDiv.archetype != null && eDiv.archetype.isCarrierArchetype())) {
+                        score += 420f;
+                        if (eDiv.getAliveMembers().size() >= 2) {
+                            score += 220f;
+                        }
                     }
                 }
             }

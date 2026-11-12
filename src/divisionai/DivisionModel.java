@@ -602,6 +602,9 @@ public class DivisionModel {
         public final Set<String> fighterPullbackShipIds = new HashSet<>();
 
         // Carrier & Wing Voidstrike Doctrine & Staging (Items C, D, E, D2, F, G, H)
+        public PermanentDivisionManager.VoidstrikeTargetingBias voidstrikeTargetingBias =
+                PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+        public boolean voidstrikeFocusCarriers = false;
         public PermanentDivisionManager.VoidstrikeTargetObservance voidstrikeObservance =
                 PermanentDivisionManager.VoidstrikeTargetObservance.MEDIUM;
         public PermanentDivisionManager.VoidstrikeCoordinationMode voidstrikeCoordination =

@@ -1089,10 +1089,15 @@ public class OtcBattlePlanner {
         boolean orchestratedAdvanceActive = OtcAI.isOrchestratedAdvanceActive(engine, myGroup, null);
         DivisionState sharedAlphaCarrierTarget = null;
         for (DivisionState d : pool) {
-            boolean isAlphaStrikeCarrier = d.archetype != null
-                    && d.archetype.isCarrierArchetype()
+            boolean isCarrierDiv = d.archetype != null && d.archetype.isCarrierArchetype();
+            boolean isAlphaStrikeCarrier = isCarrierDiv
                     && DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.ALPHA_STRIKE;
-            if (isAlphaStrikeCarrier && sharedAlphaCarrierTarget == null && primary != null && visibleEnemies.contains(primary)) {
+            if (isAlphaStrikeCarrier
+                    && sharedAlphaCarrierTarget == null
+                    && primary != null
+                    && visibleEnemies.contains(primary)
+                    && !DivisionCommanderAI.hasHigherPriorityVoidstrikeBiasTarget(
+                            engine, myGroup.side, d, primary, visibleEnemies)) {
                 sharedAlphaCarrierTarget = primary;
             }
             DivisionState best = null;
@@ -1182,10 +1187,15 @@ public class OtcBattlePlanner {
                 }
 
                 // Prevent heavy/medium divisions & carriers from being baited away by stray freighters or tiny light screens
-                if ((d.totalFpStrength >= 20f || d.archetype.isCarrierArchetype()) && visFp < 18f && e != primary && anyOtherUnderCap) {
+                if ((d.totalFpStrength >= 20f || isCarrierDiv) && visFp < 18f && e != primary && anyOtherUnderCap) {
                     score -= 560f;
                 } else if (d.totalFpStrength >= 32f && visFp >= 28f) {
                     score += Math.min(280f, visFp * 3.5f);
+                }
+
+                if (isCarrierDiv) {
+                    score += DivisionCommanderAI.computeVoidstrikeTargetBiasAdjustment(
+                            engine, myGroup.side, d, e, visibleEnemies);
                 }
 
                 if (myGroup.useConvergence) {
@@ -1201,14 +1211,17 @@ public class OtcBattlePlanner {
                     else if (e.isStrongpoint) score -= 90f;
                 }
 
+                boolean skipCarrierOverkill = isCarrierDiv
+                        && !DivisionCommanderAI.hasEqualOrHigherUnderCapBiasAlternative(
+                                engine, myGroup.side, d, e, visibleEnemies);
                 if (have < need) {
                     score += 280f;
-                } else if (anyOtherUnderCap) {
+                } else if (anyOtherUnderCap && !skipCarrierOverkill) {
                     // OTC Overkill Force-Distribution Cap: once an enemy contact has sufficient friendly FP assigned
                     // and other enemy divisions remain below cap, strongly redirect remaining divisions to the CoG!
                     float overRatio = have / Math.max(1f, need);
                     score -= 1450f + 650f * (overRatio - 1f);
-                } else {
+                } else if (!skipCarrierOverkill) {
                     float overAllocPenalty = (visibleEnemies.size() >= 3) ? 160f : 320f;
                     score -= overAllocPenalty * (have / need - 1f);
                 }
@@ -1218,6 +1231,9 @@ public class OtcBattlePlanner {
                 }
             }
             if (best == null) continue;
+            if (isAlphaStrikeCarrier && sharedAlphaCarrierTarget == null) {
+                sharedAlphaCarrierTarget = best;
+            }
 
             d.otcOrder.set(OtcOrderType.ENGAGE_ASSIGNED, best, null, 0f, expires, "OTC: fire distribution, engage \"" + best.displayName + "\"");
             d.otcOrder.hasStation = false;

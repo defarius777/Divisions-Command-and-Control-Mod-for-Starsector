@@ -44,7 +44,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "LOW",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationSpacing": 625,
@@ -60,7 +62,9 @@
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "CAPITALS_FIRST",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "stationSpacing": 375,
@@ -83,7 +87,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 650,
@@ -182,7 +188,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationSpacing": 600,
@@ -198,7 +206,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "CAPITALS_FIRST",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "stationSpacing": 375,
@@ -221,7 +231,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 625,
@@ -305,7 +317,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationSpacing": 600,
@@ -321,7 +335,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "stationSpacing": 375,
@@ -344,7 +360,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 625,
@@ -429,7 +447,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationSpacing": 750,
@@ -445,7 +465,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "bomberVoidstrikeFormation": "WEDGE"
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "stationSpacing": 425,
@@ -469,7 +491,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": true
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 725,
@@ -562,7 +586,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationSpacing": 675,
@@ -577,7 +603,9 @@
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
-          "voidstrikeAoaCorrection": "STRONG"
+          "voidstrikeAoaCorrection": "STRONG",
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "standoffRange": 820,
@@ -600,7 +628,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 725,
@@ -718,7 +748,9 @@
           "stationKeepingMult": 0.85,
           "bomberVoidstrikeFormation": "LINE_ABREAST",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CAPITALS_FIRST",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -734,7 +766,9 @@
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "LINE_AHEAD",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -749,7 +783,9 @@
           "stationKeepingMult": 0.88,
           "mainMission": "DECKLOAD_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       },
       "aliases": [
@@ -834,7 +870,9 @@
           "stationKeepingMult": 0.85,
           "bomberVoidstrikeFormation": "LINE_ABREAST",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CAPITALS_FIRST",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -850,7 +888,9 @@
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "LINE_AHEAD",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -865,7 +905,9 @@
           "stationKeepingMult": 0.88,
           "mainMission": "DECKLOAD_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -928,7 +970,9 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "LOW",
           "voidstrikeSquadronDepth": 2,
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationSpacing": 625,
@@ -948,7 +992,9 @@
           "voidstrikeAttackGeometry": "DIRECT_ASSAULT",
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "STRONG"
+          "voidstrikeAoaCorrection": "STRONG",
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "stationSpacing": 375,
@@ -976,7 +1022,9 @@
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "STRIKE_CRUISER": {
           "stationSpacing": 490,
@@ -1030,7 +1078,9 @@
           "voidstrikeSplitMode": "UNIFIED",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -1046,7 +1096,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -1085,7 +1137,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -1116,7 +1170,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "bomberVoidstrikeFormation": "WEDGE"
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "stationSpacing": 600,
@@ -1133,7 +1189,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -1220,7 +1278,9 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "LOW",
           "voidstrikeSquadronDepth": 2,
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "formation": "NONE",
@@ -1232,7 +1292,9 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "LOW",
           "voidstrikeSquadronDepth": 2,
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FORCE": {
           "formation": "NONE",
@@ -1265,7 +1327,9 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "LOW",
           "voidstrikeSquadronDepth": 2,
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 550,
@@ -1419,7 +1483,9 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "LOW",
           "voidstrikeSquadronDepth": 2,
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "MISSILE_CRUISER": {
           "standoffRange": 1050,
@@ -1449,7 +1515,9 @@
           "fighterFormation": "SEMICIRCLE",
           "fighterVoidstrikeFormation": "SEMICIRCLE",
           "voidstrikeSquadronDepth": 2,
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "FREE",
@@ -1464,7 +1532,9 @@
           "stationKeepingMult": 1.15,
           "formation": "NONE",
           "voidstrikeSquadronDepth": 2,
-          "voidstrikeSquadronWidth": 4
+          "voidstrikeSquadronWidth": 4,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -1522,7 +1592,9 @@
           "standoffRange": 1450,
           "stationKeepingMult": 0.92,
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "MEDIUM",
@@ -1537,7 +1609,9 @@
           "stationKeepingMult": 0.94,
           "mainMission": "ALPHA_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "MEDIUM",
@@ -1551,7 +1625,9 @@
           "standoffRange": 1250,
           "stationKeepingMult": 0.95,
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -1589,7 +1665,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationKeepingMult": 0.9,
@@ -1600,7 +1678,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FORCE": {
           "stationKeepingMult": 0.9
@@ -1617,7 +1697,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "MISSILE_BATTLESHIP": {
           "stationKeepingMult": 0.9
@@ -1689,7 +1771,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationSpacing": 675,
@@ -1704,7 +1788,9 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "standoffRange": 720,
@@ -1729,7 +1815,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": true
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 675,
@@ -1808,7 +1896,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationSpacing": 675,
@@ -1823,7 +1913,9 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "standoffRange": 720,
@@ -1848,7 +1940,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": true
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 675,
@@ -1928,7 +2022,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "stationSpacing": 675,
@@ -1943,7 +2039,9 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
           "bomberVoidstrikeFormation": "WEDGE",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "standoffRange": 720,
@@ -1968,7 +2066,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 675,
@@ -2049,7 +2149,9 @@
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "STRONG"
+          "voidstrikeAoaCorrection": "STRONG",
+          "voidstrikeTargetingBias": "CAPITALS_FIRST",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "stationSpacing": 375,
@@ -2098,7 +2200,9 @@
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -2112,7 +2216,9 @@
           "standoffRange": 1250,
           "stationKeepingMult": 0.9,
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2161,7 +2267,9 @@
           "voidstrikeAttackGeometry": "ANVIL_CROSSFIRE",
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "AREA_SATURATION",
-          "voidstrikeAoaCorrection": "STRONG"
+          "voidstrikeAoaCorrection": "STRONG",
+          "voidstrikeTargetingBias": "CAPITALS_FIRST",
+          "voidstrikeFocusCarriers": false
         },
         "FRIGATE": {
           "stationSpacing": 375,
@@ -2210,7 +2318,9 @@
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -2224,7 +2334,9 @@
           "standoffRange": 1250,
           "stationKeepingMult": 0.9,
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2272,7 +2384,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "bomberVoidstrikeFormation": "WEDGE"
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "stationSpacing": 575,
@@ -2290,7 +2404,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "MISSILE_BATTLESHIP": {
           "stationSpacing": 675,
@@ -2324,7 +2440,9 @@
           "stationKeepingMult": 0.94,
           "mainMission": "ALPHA_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2368,7 +2486,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "bomberVoidstrikeFormation": "WEDGE"
+          "bomberVoidstrikeFormation": "WEDGE",
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "stationSpacing": 600,
@@ -2385,7 +2505,9 @@
           "voidstrikeSplitMode": "SPLIT_AXES",
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "STRIKE_CRUISER": {
           "standoffRange": 780,
@@ -2406,7 +2528,9 @@
           "stationKeepingMult": 0.94,
           "mainMission": "ALPHA_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2479,7 +2603,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -2497,7 +2623,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2556,7 +2684,9 @@
           "standoffRange": 1350,
           "stationKeepingMult": 0.9,
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "MEDIUM",
@@ -2571,7 +2701,9 @@
           "stationKeepingMult": 0.92,
           "mainMission": "DECKLOAD_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "FREE",
@@ -2585,7 +2717,9 @@
           "standoffRange": 1150,
           "stationKeepingMult": 0.95,
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2640,7 +2774,9 @@
           "standoffRange": 1350,
           "stationKeepingMult": 0.9,
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "MEDIUM",
@@ -2655,7 +2791,9 @@
           "stationKeepingMult": 0.92,
           "mainMission": "DECKLOAD_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "FREE",
@@ -2669,7 +2807,9 @@
           "standoffRange": 1150,
           "stationKeepingMult": 0.95,
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2716,7 +2856,9 @@
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2859,7 +3001,9 @@
           "stationKeepingMult": 1.2,
           "mainMission": "DECKLOAD_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2906,7 +3050,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -2922,7 +3068,9 @@
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -2984,7 +3132,9 @@
           "stationKeepingMult": 0.92,
           "bomberFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -3000,7 +3150,9 @@
           "mainMission": "ALPHA_STRIKE",
           "fighterVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -3015,7 +3167,9 @@
           "stationKeepingMult": 0.95,
           "mainMission": "ALPHA_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -3066,7 +3220,9 @@
           "stationKeepingMult": 0.84,
           "bomberVoidstrikeFormation": "LINE_ABREAST",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -3081,7 +3237,9 @@
           "stationKeepingMult": 0.86,
           "mainMission": "ALPHA_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -3153,7 +3311,9 @@
           "voidstrikeGunneryMode": "PRECISION",
           "voidstrikeAoaCorrection": "STRONG",
           "standoffRange": 1400,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "PHASE": {
           "stationSpacing": 450,
@@ -3188,7 +3348,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -3203,7 +3365,9 @@
           "stationKeepingMult": 0.9,
           "mainMission": "ALPHA_STRIKE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -3275,7 +3439,9 @@
           "voidstrikeGunneryMode": "AREA_SATURATION",
           "voidstrikeAoaCorrection": "STRONG",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "FLEET_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -3292,7 +3458,9 @@
           "mainMission": "ALPHA_STRIKE",
           "formation": "PROTECTIVE_CIRCLE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -3371,7 +3539,9 @@
           "mainMission": "ALPHA_STRIKE",
           "formation": "FORWARD_SEMICIRCLE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "voidstrikeObservance": "HIGH",
@@ -3387,7 +3557,9 @@
           "mainMission": "ALPHA_STRIKE",
           "formation": "FORWARD_SEMICIRCLE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         }
       }
     },
@@ -3523,7 +3695,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "LIGHT_CARRIER": {
           "stationSpacing": 580,
@@ -3543,7 +3717,9 @@
           "bomberFormation": "WEDGE",
           "bomberVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "CRUISERS_AND_CAPITALS",
+          "voidstrikeFocusCarriers": false
         },
         "ESCORT_CARRIER": {
           "stationSpacing": 500,
@@ -3560,7 +3736,9 @@
           "fighterFormation": "WEDGE",
           "fighterVoidstrikeFormation": "WEDGE",
           "voidstrikeSquadronWidth": 4,
-          "voidstrikeSquadronDepth": 2
+          "voidstrikeSquadronDepth": 2,
+          "voidstrikeTargetingBias": "FREE_SELECTION",
+          "voidstrikeFocusCarriers": false
         }
       }
     }

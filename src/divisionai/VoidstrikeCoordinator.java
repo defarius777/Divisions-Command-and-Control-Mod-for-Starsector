@@ -2045,9 +2045,16 @@ public class VoidstrikeCoordinator {
                 others.add(em);
             }
         }
+        final PermanentDivisionManager.VoidstrikeTargetingBias splitBias = div.voidstrikeTargetingBias != null
+                ? div.voidstrikeTargetingBias
+                : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+        final boolean splitFocusCv = div.voidstrikeFocusCarriers;
         Collections.sort(others, new Comparator<ShipAPI>() {
             @Override
             public int compare(ShipAPI a, ShipAPI b) {
+                int pa = computeShipVoidstrikeBiasRank(a, splitBias, splitFocusCv);
+                int pb = computeShipVoidstrikeBiasRank(b, splitBias, splitFocusCv);
+                if (pa != pb) return Integer.compare(pb, pa);
                 int oa = a.getHullSize() != null ? a.getHullSize().ordinal() : 0;
                 int ob = b.getHullSize() != null ? b.getHullSize().ordinal() : 0;
                 if (oa != ob) return Integer.compare(ob, oa);
@@ -2207,12 +2214,31 @@ public class VoidstrikeCoordinator {
         float uX = segDx / segLen;
         float uY = segDy / segLen;
 
+        PermanentDivisionManager.VoidstrikeTargetingBias vsBias = (div != null && div.voidstrikeTargetingBias != null)
+                ? div.voidstrikeTargetingBias
+                : PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION;
+        boolean focusCarriers = (div != null && div.voidstrikeFocusCarriers);
+        int assignedBiasRank = computeShipVoidstrikeBiasRank(assignedTarget, vsBias, focusCarriers);
+
         List<ShipAPI> candidates = collectEnemyCombatShipsForOwner(carrier.getOwner());
         ShipAPI bestAlt = null;
         float bestAltScore = -Float.MAX_VALUE;
         for (ShipAPI cand : candidates) {
             if (cand == null || cand == assignedTarget || !cand.isAlive() || cand.isHulk() || cand.isFighter()) {
                 continue;
+            }
+            if (observance != VoidstrikeTargetObservance.FREE
+                    && (vsBias != PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION || focusCarriers)) {
+                int candBiasRank = computeShipVoidstrikeBiasRank(cand, vsBias, focusCarriers);
+                ShipAPI.HullSize candHs = cand.getHullSize();
+                boolean candIsHeavyAaBastion = (candHs == ShipAPI.HullSize.CAPITAL_SHIP || candHs == ShipAPI.HullSize.CRUISER)
+                        && squadronTakingFire
+                        && DivisionUiWidgets.distance(refLoc, cand.getLocation()) <= 1050f;
+                // Never divert bombers off a preferred Capital/Cruiser/Carrier onto screening Frigates/Destroyers
+                // in the approach corridor — computeAntiAaEvasionWaypoint skirts around light screens instead!
+                if (candBiasRank < assignedBiasRank && !candIsHeavyAaBastion) {
+                    continue;
+                }
             }
             float dCand = DivisionUiWidgets.distance(refLoc, cand.getLocation());
             if (dCand + 220f >= dAssigned) {
@@ -3073,15 +3099,73 @@ public class VoidstrikeCoordinator {
         }
     }
 
+    public static int computeShipVoidstrikeBiasRank(
+            ShipAPI ship,
+            PermanentDivisionManager.VoidstrikeTargetingBias bias,
+            boolean focusCarriers) {
+        if (ship == null) return 0;
+        PermanentDivisionManager.VoidstrikeTargetingBias effBias = bias != null
+                ? bias
+                : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+        ShipAPI.HullSize hs = ship.getHullSize();
+        boolean isCap = (hs == ShipAPI.HullSize.CAPITAL_SHIP);
+        boolean isCruiser = (hs == ShipAPI.HullSize.CRUISER);
+        boolean isCv = ship.getNumFighterBays() > 0 && !ship.isFighter();
+
+        int rank;
+        switch (effBias) {
+            case FREE_SELECTION:
+                rank = (focusCarriers && isCv) ? 20 : 10;
+                break;
+            case CRUISERS_AND_CAPITALS:
+                if (isCap || isCruiser) {
+                    rank = (focusCarriers && isCv) ? 40 : 30;
+                } else {
+                    rank = (focusCarriers && isCv) ? 20 : 5;
+                }
+                break;
+            case CAPITALS_FIRST:
+            default:
+                if (isCap) {
+                    rank = (focusCarriers && isCv) ? 50 : 40;
+                } else if (isCruiser) {
+                    rank = (focusCarriers && isCv) ? 35 : 20;
+                } else {
+                    rank = (focusCarriers && isCv) ? 15 : 5;
+                }
+                break;
+        }
+        return rank;
+    }
+
     public static ShipAPI resolveVoidstrikeFocusShip(DivisionState div) {
         if (div == null || div.targetEnemyDivision == null) return null;
-        if (div.targetEnemyDivision.flagship != null
-                && div.targetEnemyDivision.flagship.isAlive()
-                && !div.targetEnemyDivision.flagship.isHulk()) {
-            return div.targetEnemyDivision.flagship;
+        PermanentDivisionManager.VoidstrikeTargetingBias bias = div.voidstrikeTargetingBias != null
+                ? div.voidstrikeTargetingBias
+                : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+        boolean focusCarriers = div.voidstrikeFocusCarriers;
+        ShipAPI flag = div.targetEnemyDivision.flagship;
+        boolean flagAlive = flag != null && flag.isAlive() && !flag.isHulk() && !flag.isFighter();
+        if (bias == PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION && !focusCarriers) {
+            if (flagAlive) return flag;
         }
         List<ShipAPI> enemyAlive = div.targetEnemyDivision.getAliveMembers();
-        return (enemyAlive != null && !enemyAlive.isEmpty()) ? enemyAlive.get(0) : null;
+        if (enemyAlive == null || enemyAlive.isEmpty()) {
+            return flagAlive ? flag : null;
+        }
+        ShipAPI best = null;
+        int bestRank = -1;
+        for (ShipAPI s : enemyAlive) {
+            if (s == null || !s.isAlive() || s.isHulk() || s.isFighter()) continue;
+            int r = computeShipVoidstrikeBiasRank(s, bias, focusCarriers);
+            if (s == flag) r += 1; // Prefer flagship as tie-breaker within the same doctrinal bias tier
+            if (r > bestRank) {
+                bestRank = r;
+                best = s;
+            }
+        }
+        if (best != null) return best;
+        return flagAlive ? flag : null;
     }
 
     // =========================================================================

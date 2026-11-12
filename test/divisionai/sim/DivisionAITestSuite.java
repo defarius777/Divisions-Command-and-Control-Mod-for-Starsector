@@ -3508,6 +3508,98 @@ public class DivisionAITestSuite {
                 && lrBomber.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE);
         boolean friendlyFirePreventionOk = capFireHeldAndSkirted && crossingFrigateHeld && firesCleanlyWhenClear;
 
+        // 7. Battle 6 Regression Checks: VoidstrikeTargetingBias (FREE_SELECTION, CRUISERS_AND_CAPITALS, CAPITALS_FIRST)
+        //    + Focus on Carriers modifier across Division Selection, OTC Fire Distribution, Ship Focus & Corridor Gating!
+        eGroup.divisions.remove(enemyDivA);
+        eGroup.divisions.remove(enemyDivB);
+        DivisionState eFrigDiv = new DivisionState("e_vs_frig", 1, 11, DivisionArchetype.FRIGATE_DIVISION, "Frigate Screen", eCmdr);
+        SimShipState efScreen = arena.addShip(eFrigDiv, "ef_scr_1", "PLS Brawler", "brawler", HullSize.FRIGATE, 0f, -800f, 270f, 450f, 1, 0);
+        DivisionState eCruiserDiv = new DivisionState("e_vs_ca", 1, 12, DivisionArchetype.CRUISER_DIVISION, "Cruiser Line", eCmdr);
+        SimShipState eCa = arena.addShip(eCruiserDiv, "e_ca_1", "PLS Eagle", "eagle", HullSize.CRUISER, -900f, 1100f, 270f, 700f, 1, 0);
+        DivisionState eCvDiv = new DivisionState("e_vs_cv", 1, 13, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Wing", eCmdr);
+        SimShipState eHeron = arena.addShip(eCvDiv, "e_cv_1", "PLS Heron", "heron", HullSize.CRUISER, 900f, 1650f, 270f, 600f, 1, 3);
+        DivisionState eCapDiv = new DivisionState("e_vs_bb", 1, 14, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Line", eCmdr);
+        SimShipState eConquest = arena.addShip(eCapDiv, "e_bb_1", "PLS Conquest", "conquest", HullSize.CAPITAL_SHIP, 0f, 2100f, 270f, 900f, 1, 0);
+        // Mixed division test: Destroyer flagship + Capital member + Cruiser Carrier member
+        SimShipState eMixedDd = arena.addShip(eCapDiv, "e_bb_dd", "PLS Hammerhead", "hammerhead", HullSize.DESTROYER, 120f, 2000f, 270f, 600f, 1, 0);
+        eCapDiv.flagship = eMixedDd.proxy;
+        eGroup.divisions.add(eFrigDiv);
+        eGroup.divisions.add(eCruiserDiv);
+        eGroup.divisions.add(eCvDiv);
+        eGroup.divisions.add(eCapDiv);
+        eGroup.shipIdToDivision.put(efScreen.id, eFrigDiv);
+        eGroup.shipIdToDivision.put(eCa.id, eCruiserDiv);
+        eGroup.shipIdToDivision.put(eHeron.id, eCvDiv);
+        eGroup.shipIdToDivision.put(eConquest.id, eCapDiv);
+        eGroup.shipIdToDivision.put(eMixedDd.id, eCapDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(eFrigDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(eCruiserDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(eCvDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(eCapDiv);
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, eGroup);
+
+        c1.location.set(0f, -2000f);
+        carDiv1.centroid.set(0f, -2000f);
+        carDiv1.voidstrikeEgressActive = false;
+        carDiv1.voidstrikeStage = 0;
+        carDiv1.activeVoidstrikeSortieNumber = 0;
+        carDiv1.targetEnemyDivision = null;
+
+        // (a) FREE_SELECTION + Focus on Carriers OFF -> picks closest Frigate Screen at 1200u
+        carDiv1.voidstrikeTargetingBias = divisionai.PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION;
+        carDiv1.voidstrikeFocusCarriers = false;
+        DivisionState pickFree = divisionai.DivisionCommanderAI.findBestEnemyDivisionFor(
+                arena.engineProxy, carDiv1, pGroup, eGroup, false, null);
+
+        // (b) FREE_SELECTION + Focus on Carriers ON -> skips Frigate/Cruiser/Capital to hunt PLS Heron Carrier Wing!
+        carDiv1.voidstrikeFocusCarriers = true;
+        DivisionState pickFreeCv = divisionai.DivisionCommanderAI.findBestEnemyDivisionFor(
+                arena.engineProxy, carDiv1, pGroup, eGroup, false, null);
+
+        // (c) CRUISERS_AND_CAPITALS + Focus on Carriers OFF -> skips close Frigate Screen (-800y) to strike Cruiser/Capital!
+        carDiv1.voidstrikeTargetingBias = divisionai.PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+        carDiv1.voidstrikeFocusCarriers = false;
+        DivisionState pickCruiserCap = divisionai.DivisionCommanderAI.findBestEnemyDivisionFor(
+                arena.engineProxy, carDiv1, pGroup, eGroup, false, null);
+
+        // (d) CRUISERS_AND_CAPITALS + Focus on Carriers ON -> hunts PLS Heron Carrier Wing over non-carrier Cruiser & Capital!
+        carDiv1.voidstrikeFocusCarriers = true;
+        DivisionState pickCruiserCapCv = divisionai.DivisionCommanderAI.findBestEnemyDivisionFor(
+                arena.engineProxy, carDiv1, pGroup, eGroup, false, null);
+
+        // (e) CAPITALS_FIRST + Focus on Carriers OFF -> skips Frigate (1200u) & Cruiser (3100u) & Heron (3650u) to strike PLS Conquest (4100u)!
+        carDiv1.voidstrikeTargetingBias = divisionai.PermanentDivisionManager.VoidstrikeTargetingBias.CAPITALS_FIRST;
+        carDiv1.voidstrikeFocusCarriers = false;
+        DivisionState pickCapFirst = divisionai.DivisionCommanderAI.findBestEnemyDivisionFor(
+                arena.engineProxy, carDiv1, pGroup, eGroup, false, null);
+
+        // (f) Ship-level focus inside mixed eCapDiv (where flagship is Hammerhead Destroyer, member is Conquest Capital):
+        //     resolveVoidstrikeFocusShip picks PLS Conquest over Hammerhead flagship!
+        carDiv1.targetEnemyDivision = eCapDiv;
+        com.fs.starfarer.api.combat.ShipAPI focusShipInMixed =
+                divisionai.VoidstrikeCoordinator.resolveVoidstrikeFocusShip(carDiv1);
+
+        // (g) Flight-corridor screening frigate immunity: efScreen (Brawler Frigate at 0,-800) sits directly in the corridor
+        //     between c1 (0,-2000) and eConquest (0,+2100); under CAPITALS_FIRST + HIGH observance, bombers must NOT divert onto efScreen!
+        lrBomber.location.set(0f, -1900f);
+        com.fs.starfarer.api.combat.ShipAPI corridorCheckedTarget =
+                divisionai.VoidstrikeCoordinator.resolveSurvivableSquadronTargetShip(
+                        c1.proxy,
+                        carDiv1,
+                        lrBomber.proxy,
+                        java.util.Collections.singletonList(lrBomber.proxy),
+                        eConquest.proxy,
+                        divisionai.PermanentDivisionManager.VoidstrikeTargetObservance.HIGH,
+                        true);
+
+        boolean targetingBiasOk = (pickFree == eFrigDiv)
+                && (pickFreeCv == eCvDiv)
+                && (pickCruiserCap != eFrigDiv && (pickCruiserCap == eCruiserDiv || pickCruiserCap == eCapDiv || pickCruiserCap == eCvDiv))
+                && (pickCruiserCapCv == eCvDiv)
+                && (pickCapFirst == eCapDiv)
+                && (focusShipInMixed == eConquest.proxy)
+                && (corridorCheckedTarget == eConquest.proxy);
+
         check(regenMechExcludedFromFiniteBombersOk
                         && standoffGateScaledOk
                         && mergedTwoDivWaveOk
@@ -3518,13 +3610,15 @@ public class DivisionAITestSuite {
                         && postEgressAlphaCarrierAlignedOk
                         && doublingDoesNotBounceMainEffortOk
                         && conveyorWaveCulminatedOk
-                        && friendlyFirePreventionOk,
-                "Strike-Craft & Multi-Carrier Fixes: Regenerating/PD escort ammo excluded, 1200u bomber gate scaled to 960u (at csv attackRunRange=600), downrange target lock holds, ordnance-expended culmination fires cleanly (incl. staggered replacements), Alpha carriers stay unified & re-align post-egress, Doubling holds Main Effort, mega-Precision span adapts, and friendly-fire line-of-fire gate + sidestep protects allies",
-                String.format(Locale.ROOT, "regenExcluded=%b, gateScaled=%b (wep=%.0f, lrGate=%.0f, stdGate=%.0f), merged2Div=%b, targetLock=%b, ordExpended=%b, unifiedAlpha=%b, precSpan=[4sq=%.0f,20sq=%.0f], postEgressAlign=%b, doublingHold=%b, conveyorCulm=%b, noFriendlyFire=%b",
+                        && friendlyFirePreventionOk
+                        && targetingBiasOk,
+                "Strike-Craft & Multi-Carrier Fixes: Regenerating/PD escort ammo excluded, 1200u bomber gate scaled to 960u (at csv attackRunRange=600), downrange target lock holds, ordnance-expended culmination fires cleanly (incl. staggered replacements), Alpha carriers stay unified & re-align post-egress, Doubling holds Main Effort, mega-Precision span adapts, friendly-fire gate + sidestep protects allies, and VoidstrikeTargetingBias + Focus on Carriers works end-to-end",
+                String.format(Locale.ROOT, "regenExcluded=%b, gateScaled=%b (wep=%.0f, lrGate=%.0f, stdGate=%.0f), merged2Div=%b, targetLock=%b, ordExpended=%b, unifiedAlpha=%b, precSpan=[4sq=%.0f,20sq=%.0f], postEgressAlign=%b, doublingHold=%b, conveyorCulm=%b, noFriendlyFire=%b, vsTargetBias=%b",
                         regenMechExcludedFromFiniteBombersOk, standoffGateScaledOk, lrMaxRange, lrGateDist, stdGateDist,
                         mergedTwoDivWaveOk, downrangeTargetLockHeldOk, culminatedOrdnanceExpendedOk, noSplitSoloCarrierKillBoxOk,
                         smallPrec.voidstrikeSpanWidth, megaPrec.voidstrikeSpanWidth,
-                        postEgressAlphaCarrierAlignedOk, doublingDoesNotBounceMainEffortOk, conveyorWaveCulminatedOk, friendlyFirePreventionOk));
+                        postEgressAlphaCarrierAlignedOk, doublingDoesNotBounceMainEffortOk, conveyorWaveCulminatedOk,
+                        friendlyFirePreventionOk, targetingBiasOk));
     }
 
     private static float dist(Vector2f a, Vector2f b) {

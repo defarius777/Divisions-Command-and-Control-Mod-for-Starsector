@@ -579,6 +579,43 @@ public class PermanentDivisionManager {
     }
 
     /**
+     * Doctrinal target-class selection bias for carrier Voidstrikes.
+     */
+    public enum VoidstrikeTargetingBias {
+        FREE_SELECTION(
+                "Free Selection",
+                "Free",
+                "Engage any viable enemy division by distance and threat."),
+        CRUISERS_AND_CAPITALS(
+                "Cruisers & Capitals",
+                "Cruiser/Cap",
+                "Prioritize enemy Cruiser and Capital divisions while heavy hulls remain."),
+        CAPITALS_FIRST(
+                "Capitals First",
+                "Capitals 1st",
+                "Prioritize enemy Capitals first, then Cruisers, before light screens.");
+
+        public final String displayName;
+        public final String shortName;
+        public final String summary;
+
+        VoidstrikeTargetingBias(String displayName, String shortName, String summary) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.summary = summary;
+        }
+
+        public static VoidstrikeTargetingBias fromId(String id, VoidstrikeTargetingBias fallback) {
+            if (id == null) return fallback;
+            try {
+                return VoidstrikeTargetingBias.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
      * Item C: How closely strike craft obey the order to destroy the designated target in a Voidstrike.
      */
     public enum VoidstrikeTargetObservance {
@@ -1626,6 +1663,8 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, DivisionMissionType> mainMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, LineStation> lineStationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionFormation> formationByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, VoidstrikeTargetingBias> voidstrikeTargetingBiasByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, Boolean> voidstrikeFocusCarriersByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, VoidstrikeTargetObservance> voidstrikeObservanceByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, VoidstrikeCoordinationMode> voidstrikeCoordinationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, VoidstrikeAttackGeometry> voidstrikeAttackGeometryByType = new LinkedHashMap<>();
@@ -1697,6 +1736,8 @@ public class PermanentDivisionManager {
                 mainMissionByType.put(dt, dt.defaultMainMission);
                 lineStationByType.put(dt, dt.defaultLineStation);
                 formationByType.put(dt, dt.defaultFormation);
+                voidstrikeTargetingBiasByType.put(dt, defaultVoidstrikeTargetingBiasFor(dt));
+                voidstrikeFocusCarriersByType.put(dt, defaultVoidstrikeFocusCarriersFor(dt));
                 voidstrikeObservanceByType.put(dt, defaultVoidstrikeObservanceFor(dt));
                 voidstrikeCoordinationByType.put(dt, defaultVoidstrikeCoordinationFor(dt));
                 voidstrikeAttackGeometryByType.put(dt, defaultVoidstrikeAttackGeometryFor(dt));
@@ -1898,6 +1939,19 @@ public class PermanentDivisionManager {
             setStationKeepingMult(dt, stickiness.stationKeepingMult);
         }
 
+        public static VoidstrikeTargetingBias defaultVoidstrikeTargetingBiasFor(DoctrineDivisionType dt) {
+            if (dt == DoctrineDivisionType.FLEET_CARRIER
+                    || dt == DoctrineDivisionType.LIGHT_CARRIER
+                    || dt == DoctrineDivisionType.CARRIER_GROUP) {
+                return VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
+            }
+            return VoidstrikeTargetingBias.FREE_SELECTION;
+        }
+
+        public static boolean defaultVoidstrikeFocusCarriersFor(DoctrineDivisionType dt) {
+            return false;
+        }
+
         public static VoidstrikeTargetObservance defaultVoidstrikeObservanceFor(DoctrineDivisionType dt) {
             if (dt == DoctrineDivisionType.FLEET_CARRIER
                     || dt == DoctrineDivisionType.LIGHT_CARRIER
@@ -1989,6 +2043,28 @@ public class PermanentDivisionManager {
 
         public static int defaultVoidstrikeSquadronWidthFor(DoctrineDivisionType dt) {
             return 4;
+        }
+
+        public VoidstrikeTargetingBias getVoidstrikeTargetingBias(DoctrineDivisionType dt) {
+            if (dt == null) return VoidstrikeTargetingBias.FREE_SELECTION;
+            VoidstrikeTargetingBias v = voidstrikeTargetingBiasByType.get(dt);
+            return v != null ? v : defaultVoidstrikeTargetingBiasFor(dt);
+        }
+
+        public void setVoidstrikeTargetingBias(DoctrineDivisionType dt, VoidstrikeTargetingBias bias) {
+            if (dt == null || bias == null) return;
+            voidstrikeTargetingBiasByType.put(dt, bias);
+        }
+
+        public boolean isVoidstrikeFocusCarriers(DoctrineDivisionType dt) {
+            if (dt == null) return false;
+            Boolean v = voidstrikeFocusCarriersByType.get(dt);
+            return v != null ? v.booleanValue() : defaultVoidstrikeFocusCarriersFor(dt);
+        }
+
+        public void setVoidstrikeFocusCarriers(DoctrineDivisionType dt, boolean focusCarriers) {
+            if (dt == null) return;
+            voidstrikeFocusCarriersByType.put(dt, Boolean.valueOf(focusCarriers));
         }
 
         public VoidstrikeTargetObservance getVoidstrikeObservance(DoctrineDivisionType dt) {
@@ -2418,6 +2494,15 @@ public class PermanentDivisionManager {
                 if (fmObj instanceof String) {
                     cfg.setFormation(dt, DivisionFormation.fromId((String) fmObj, dt.defaultFormation));
                 }
+                Object vsBiasObj = map.get("vs_bias_" + dt.name());
+                Object vsCvFocusObj = map.get("vs_cv_focus_" + dt.name());
+                if (vsBiasObj instanceof String) {
+                    cfg.setVoidstrikeTargetingBias(dt, VoidstrikeTargetingBias.fromId(
+                            (String) vsBiasObj, FleetDoctrineConfig.defaultVoidstrikeTargetingBiasFor(dt)));
+                }
+                if (vsCvFocusObj instanceof Boolean) {
+                    cfg.setVoidstrikeFocusCarriers(dt, ((Boolean) vsCvFocusObj).booleanValue());
+                }
                 Object vsObsObj = map.get("vs_obs_" + dt.name());
                 Object vsCoordObj = map.get("vs_coord_" + dt.name());
                 Object vsGeomObj = map.get("vs_geom_" + dt.name());
@@ -2552,6 +2637,8 @@ public class PermanentDivisionManager {
             serialized.put("main_mission_" + dt.name(), cfg.getMainMission(dt).name());
             serialized.put("pref_space_" + dt.name(), cfg.getLineStation(dt).name());
             serialized.put("formation_" + dt.name(), cfg.getFormation(dt).name());
+            serialized.put("vs_bias_" + dt.name(), cfg.getVoidstrikeTargetingBias(dt).name());
+            serialized.put("vs_cv_focus_" + dt.name(), Boolean.valueOf(cfg.isVoidstrikeFocusCarriers(dt)));
             serialized.put("vs_obs_" + dt.name(), cfg.getVoidstrikeObservance(dt).name());
             serialized.put("vs_coord_" + dt.name(), cfg.getVoidstrikeCoordination(dt).name());
             serialized.put("vs_geom_" + dt.name(), cfg.getVoidstrikeAttackGeometry(dt).name());
@@ -2680,6 +2767,24 @@ public class PermanentDivisionManager {
         if (dt == null || stickiness == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setMovementStickiness(dt, stickiness);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeVoidstrikeTargetingBias(
+            DoctrineDivisionType dt,
+            VoidstrikeTargetingBias bias) {
+        if (dt == null || bias == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setVoidstrikeTargetingBias(dt, bias);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeVoidstrikeFocusCarriers(
+            DoctrineDivisionType dt,
+            boolean focusCarriers) {
+        if (dt == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setVoidstrikeFocusCarriers(dt, focusCarriers);
         saveFleetDoctrine(cfg);
     }
 
@@ -2952,6 +3057,8 @@ public class PermanentDivisionManager {
         public LineStation customLineStation = null;
         public DivisionFormation customFormation = null;
         public DivisionMovementStickiness customMovementStickiness = null;
+        public VoidstrikeTargetingBias customVoidstrikeTargetingBias = null;
+        public Boolean customVoidstrikeFocusCarriers = null;
         public VoidstrikeTargetObservance customVoidstrikeObservance = null;
         public VoidstrikeCoordinationMode customVoidstrikeCoordination = null;
         public VoidstrikeAttackGeometry customVoidstrikeAttackGeometry = null;
@@ -3034,6 +3141,26 @@ public class PermanentDivisionManager {
         }
         String n = trimmed.toLowerCase();
         return n + "|" + base.toLowerCase();
+    }
+
+    public static VoidstrikeTargetingBias resolveEffectiveVoidstrikeTargetingBias(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customVoidstrikeTargetingBias != null) {
+            return spec.customVoidstrikeTargetingBias;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getVoidstrikeTargetingBias(dt) : FleetDoctrineConfig.defaultVoidstrikeTargetingBiasFor(dt);
+    }
+
+    public static boolean resolveEffectiveVoidstrikeFocusCarriers(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customVoidstrikeFocusCarriers != null) {
+            return spec.customVoidstrikeFocusCarriers.booleanValue();
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.isVoidstrikeFocusCarriers(dt) : FleetDoctrineConfig.defaultVoidstrikeFocusCarriersFor(dt);
     }
 
     public static VoidstrikeTargetObservance resolveEffectiveVoidstrikeObservance(
@@ -3596,6 +3723,28 @@ public class PermanentDivisionManager {
             @Override
             public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customSetpieceAttack = setpiece;
+            }
+        });
+    }
+
+    public static void updateIndividualDivisionVoidstrikeTargetingBias(
+            String divisionId,
+            final VoidstrikeTargetingBias bias) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                spec.customVoidstrikeTargetingBias = bias;
+            }
+        });
+    }
+
+    public static void updateIndividualDivisionVoidstrikeFocusCarriers(
+            String divisionId,
+            final Boolean focusCarriers) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                spec.customVoidstrikeFocusCarriers = focusCarriers;
             }
         });
     }
@@ -5030,6 +5179,12 @@ public class PermanentDivisionManager {
         if (div.lastFormationChangeTime < -100f) {
             div.activeFormation = div.doctrinalFormation;
         }
+        div.voidstrikeTargetingBias = (optionalSpec != null)
+                ? resolveEffectiveVoidstrikeTargetingBias(optionalSpec, cfg)
+                : cfg.getVoidstrikeTargetingBias(dt);
+        div.voidstrikeFocusCarriers = (optionalSpec != null)
+                ? resolveEffectiveVoidstrikeFocusCarriers(optionalSpec, cfg)
+                : cfg.isVoidstrikeFocusCarriers(dt);
         div.voidstrikeObservance = (optionalSpec != null)
                 ? resolveEffectiveVoidstrikeObservance(optionalSpec, cfg)
                 : cfg.getVoidstrikeObservance(dt);
@@ -5839,6 +5994,14 @@ public class PermanentDivisionManager {
         Object cPrefSpace = map.get("customPreferredSpace");
         Object cForm = map.get("customFormation");
         Object cSticky = map.get("customMovementStickiness");
+        Object cVsBias = map.get("customVoidstrikeTargetingBias");
+        Object cVsCvFocus = map.get("customVoidstrikeFocusCarriers");
+        if (cVsBias instanceof String) {
+            spec.customVoidstrikeTargetingBias = VoidstrikeTargetingBias.fromId((String) cVsBias, null);
+        }
+        if (cVsCvFocus instanceof Boolean) {
+            spec.customVoidstrikeFocusCarriers = (Boolean) cVsCvFocus;
+        }
         Object cVsObs = map.get("customVoidstrikeObservance");
         Object cVsCoord = map.get("customVoidstrikeCoordination");
         Object cVsGeom = map.get("customVoidstrikeAttackGeometry");
@@ -5982,6 +6145,8 @@ public class PermanentDivisionManager {
         if (spec.customLineStation != null) map.put("customPreferredSpace", spec.customLineStation.name());
         if (spec.customFormation != null) map.put("customFormation", spec.customFormation.name());
         if (spec.customMovementStickiness != null) map.put("customMovementStickiness", spec.customMovementStickiness.name());
+        if (spec.customVoidstrikeTargetingBias != null) map.put("customVoidstrikeTargetingBias", spec.customVoidstrikeTargetingBias.name());
+        if (spec.customVoidstrikeFocusCarriers != null) map.put("customVoidstrikeFocusCarriers", spec.customVoidstrikeFocusCarriers);
         if (spec.customVoidstrikeObservance != null) map.put("customVoidstrikeObservance", spec.customVoidstrikeObservance.name());
         if (spec.customVoidstrikeCoordination != null) map.put("customVoidstrikeCoordination", spec.customVoidstrikeCoordination.name());
         if (spec.customVoidstrikeAttackGeometry != null) map.put("customVoidstrikeAttackGeometry", spec.customVoidstrikeAttackGeometry.name());
