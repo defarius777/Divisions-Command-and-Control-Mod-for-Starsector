@@ -124,6 +124,8 @@ public class VoidstrikeCoordinator {
         public float reachedTargetTime = -100f;
         public final Set<String> initialBomberWingKeys = new java.util.LinkedHashSet<>();
         public final Set<String> expendedBomberWingKeys = new java.util.LinkedHashSet<>();
+        public final Set<String> initialWaveBomberCraftIds = new java.util.LinkedHashSet<>();
+        public final Set<String> expendedWaveBomberCraftIds = new java.util.LinkedHashSet<>();
         public int peakFighterCount = 0;
         public boolean achievedCohesion = false;
         public boolean targetIsolatedAtLaunch = false;
@@ -3586,12 +3588,27 @@ public class VoidstrikeCoordinator {
                 matched.emergencyRecallTriggered = true;
             }
 
-            // Freeze initialWave bomber wing membership shortly after reaching the target so Astral Recall Device /
-            // fast-turnaround second-cycle relaunches cannot perpetually append new wings to Wave 1 and prevent culmination!
+            // Freeze initialWave bomber wing AND individual bomber craft membership shortly after reaching the target so
+            // Astral Recall Device / staggered attrition replacements (where 1 replacement bomber launches from the deck
+            // 10s after its wingmates dropped, keeping squadron-level anyStillArmed perpetually true across 11+ squadrons!)
+            // cannot prevent Wave 1 from culminating cleanly on "ordnance expended"!
             if (!matched.reachedTarget || (now - matched.reachedTargetTime) <= 4.0f) {
                 matched.initialBomberWingKeys.addAll(clusterBomberWingKeys);
+                for (WingStrikeCandidate wc : cluster) {
+                    if (wc == null || wc.activeFighters == null) continue;
+                    for (ShipAPI cf : wc.activeFighters) {
+                        if (cf == null || cf.getId() == null || !cf.isAlive() || cf.isHulk()) continue;
+                        boolean isB = wc.isBomberWing
+                                || (cf.getWing() != null && ((cf.getWing().getSpec() != null && cf.getWing().getSpec().isBomber())
+                                || cf.getWing().getRole() == com.fs.starfarer.api.loading.WingRole.BOMBER))
+                                || hasFiniteAmmoStrikeWeapons(cf);
+                        if (isB) {
+                            matched.initialWaveBomberCraftIds.add(cf.getId());
+                        }
+                    }
+                }
             }
-            if ((now - matched.createdTime) >= 2.0f && !matched.initialBomberWingKeys.isEmpty()) {
+            if ((now - matched.createdTime) >= 2.0f && (!matched.initialBomberWingKeys.isEmpty() || !matched.initialWaveBomberCraftIds.isEmpty())) {
                 if (returningWingKeys != null) {
                     for (String wk : matched.initialBomberWingKeys) {
                         if (returningWingKeys.contains(wk)) {
@@ -3599,8 +3616,9 @@ public class VoidstrikeCoordinator {
                         }
                     }
                 }
+                Set<String> stillArmedInitialCraftIds = new HashSet<>();
                 for (WingStrikeCandidate wc : cluster) {
-                    if (wc == null || wc.wingKey == null || !matched.initialBomberWingKeys.contains(wc.wingKey)) continue;
+                    if (wc == null) continue;
                     boolean anyStillArmed = false;
                     if (wc.activeFighters != null) {
                         for (ShipAPI cf : wc.activeFighters) {
@@ -3611,12 +3629,19 @@ public class VoidstrikeCoordinator {
                                     || hasFiniteAmmoStrikeWeapons(cf);
                             if (isB && hasUnexpendedStrikeOrdnance(cf, true)) {
                                 anyStillArmed = true;
-                                break;
+                                if (cf.getId() != null && matched.initialWaveBomberCraftIds.contains(cf.getId())) {
+                                    stillArmedInitialCraftIds.add(cf.getId());
+                                }
                             }
                         }
                     }
-                    if (!anyStillArmed) {
+                    if (!anyStillArmed && wc.wingKey != null && matched.initialBomberWingKeys.contains(wc.wingKey)) {
                         matched.expendedBomberWingKeys.add(wc.wingKey);
+                    }
+                }
+                for (String craftId : matched.initialWaveBomberCraftIds) {
+                    if (!stillArmedInitialCraftIds.contains(craftId)) {
+                        matched.expendedWaveBomberCraftIds.add(craftId);
                     }
                 }
             }
@@ -3736,19 +3761,18 @@ public class VoidstrikeCoordinator {
             float sortieAge = now - matched.createdTime;
             boolean hadBombersInPackage = !matched.initialBomberWingKeys.isEmpty() || matched.initialArmedBomberCount > 0;
             boolean allInitialWaveWingsDelivered = false;
-            if (!matched.initialBomberWingKeys.isEmpty()
-                    && matched.reachedTarget
-                    && (now - matched.reachedTargetTime) >= 12.0f
-                    && !matched.expendedBomberWingKeys.isEmpty()) {
-                allInitialWaveWingsDelivered = true;
-                for (String wk : matched.initialBomberWingKeys) {
-                    if (!matched.expendedBomberWingKeys.contains(wk) && clusterWingKeys.contains(wk)) {
-                        allInitialWaveWingsDelivered = false;
-                        break;
+            if (matched.reachedTarget && (now - matched.reachedTargetTime) >= 12.0f) {
+                if (!matched.initialWaveBomberCraftIds.isEmpty()
+                        && matched.expendedWaveBomberCraftIds.containsAll(matched.initialWaveBomberCraftIds)) {
+                    allInitialWaveWingsDelivered = true;
+                } else if (!matched.initialBomberWingKeys.isEmpty() && !matched.expendedBomberWingKeys.isEmpty()) {
+                    allInitialWaveWingsDelivered = true;
+                    for (String wk : matched.initialBomberWingKeys) {
+                        if (!matched.expendedBomberWingKeys.contains(wk) && clusterWingKeys.contains(wk)) {
+                            allInitialWaveWingsDelivered = false;
+                            break;
+                        }
                     }
-                }
-                if (allInitialWaveWingsDelivered && matched.expendedBomberWingKeys.isEmpty()) {
-                    allInitialWaveWingsDelivered = false;
                 }
             }
             boolean bombersDeliveredAndReturning = hadBombersInPackage

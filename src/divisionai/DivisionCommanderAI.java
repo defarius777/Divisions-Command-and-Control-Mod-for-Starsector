@@ -490,6 +490,20 @@ public class DivisionCommanderAI {
                 || !OtcAI.isDivisionVisibleToSide(engine, div.side, div.targetEnemyDivision))) {
             return true;
         }
+        if (div.archetype != null
+                && div.archetype.isCarrierArchetype()
+                && resolveActiveMission(div, now) == DivisionMissionType.ALPHA_STRIKE
+                && !div.voidstrikeEgressActive
+                && div.voidstrikeStage == 0
+                && div.activeVoidstrikeSortieNumber <= 0
+                && !VoidstrikeCoordinator.hasArmedStrikeCraftCommittedDownrange(div)
+                && myGroup != null
+                && myGroup.primaryThreatEnemyDivision != null
+                && myGroup.primaryThreatEnemyDivision != div.targetEnemyDivision
+                && myGroup.primaryThreatEnemyDivision.isCombatEffective()
+                && OtcAI.isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)) {
+            return true;
+        }
         if (div.targetFriendlyDivision != null && !div.targetFriendlyDivision.isCombatEffective()) return true;
         if (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
                 && div.targetObjective != null && div.targetObjective.getOwner() == div.side) {
@@ -1221,8 +1235,7 @@ public class DivisionCommanderAI {
                     && (div.voidstrikeStage == 1
                     || div.voidstrikeStage == 2
                     || div.activeVoidstrikeSortieNumber > 0
-                    || armedCommittedDownrange
-                    || VoidstrikeCoordinator.hasArmedStrikeCraftAirborne(div));
+                    || armedCommittedDownrange);
             if (visNow || airborneWaveActive) {
                 Vector2f prevPos = OtcAI.getVisibleCentroidForSide(engine, div.side, prevCarrierTarget);
                 float prevDist = distance(div.centroid, prevPos);
@@ -1274,7 +1287,14 @@ public class DivisionCommanderAI {
                         carrierTargetDiv = prevCarrierTarget;
                     }
                 } else if (!closerTargetIntervening) {
-                    if (prevDist <= newDist + 1650f) {
+                    // When an ALPHA_STRIKE carrier division is between sorties (!airborneWaveActive), allow it to
+                    // re-align onto the battlegroup's shared primaryThreatEnemyDivision (or another ALPHA_STRIKE
+                    // carrier division's active target) rather than staying glued to an old Kill-Box target 1,650u away
+                    // while sister carrier divisions strike the Main Effort target!
+                    boolean alignBetweenWavesToSharedAlphaTarget = activeMission == DivisionMissionType.ALPHA_STRIKE
+                            && carrierTargetDiv != null
+                            && carrierTargetDiv == myGroup.primaryThreatEnemyDivision;
+                    if (!alignBetweenWavesToSharedAlphaTarget && prevDist <= newDist + 1650f) {
                         carrierTargetDiv = prevCarrierTarget;
                     }
                 }

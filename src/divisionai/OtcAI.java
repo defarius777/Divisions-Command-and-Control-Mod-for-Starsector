@@ -906,9 +906,20 @@ public class OtcAI {
         myGroup.reserveDivision = holdReserve ? bestReserveCandidate : null;
 
         // Orchestrate: compute multi-division / fleet-wide formation geometry, then turn the battle plan into per-division taskings
+        boolean hadActiveStrikePlanBefore = (myGroup.strikePlan != null);
         if (activeDivCount > 0) {
             updateFleetWideFormationGeometry(engine, myGroup, enemyGroup);
             OtcBattlePlanner.planBattle(engine, myGroup, enemyGroup, endangeredDiv, minorEndangeredDiv, now);
+        }
+        // If an active StrikePlan was just cancelled on this tick (e.g. target dipped into Fog of War), immediately
+        // step currentPhase down from COORDINATED_STRIKE so OTC does not log a stale "strike divisions stand by" line!
+        if (hadActiveStrikePlanBefore
+                && myGroup.strikePlan == null
+                && myGroup.currentPhase == BattlePhase.COORDINATED_STRIKE) {
+            myGroup.currentPhase = (generalChase || generalChasePersists)
+                    ? BattlePhase.GENERAL_CHASE
+                    : BattlePhase.GENERAL_ENGAGEMENT;
+            myGroup.phaseEnteredTime = now;
         }
         // Issue simple fleet-wide general signals to any friendly independent ships in the battle group
         updateFleetIndependentCommand(engine, myGroup, enemyGroup, endangeredDiv, now);
@@ -3034,9 +3045,16 @@ public class OtcAI {
             // OTC Overkill Veto for Primary Threat:
             // If non-Main-Effort friendly surface divisions already commit >= eDiv.overkillCapFp against this division
             // while another visible able enemy division is NOT overkilled, Main Effort must NOT pile on!
-            // (Exclude Carrier divisions from nonMainCommittedFp so air support on the primary threat never causes
-            // the surface Main Effort to abandon the primary threat!)
+            // Exclude:
+            //  - Carrier divisions (air support on the primary threat must never push surface Main Effort off target).
+            //  - Friendly divisions executing an OTC combined-arms support order (FLANK "Doubling", Kill-Box MARSHAL/
+            //    EXECUTE_STRIKE, or FEIGN_RETREAT_TRAP) onto the incumbent primary threat — otherwise OTC ordering two
+            //    frigate divisions to "Double" Main Effort's target immediately trips overkillCapFp on the next tick
+            //    and bounces Main Effort off its own target in a 1.5s feedback loop!
             boolean isUnassignedContact = eDiv.id != null && eDiv.id.startsWith("unassigned_");
+            boolean isCurrentPrimaryForOverkill = myGroup.primaryThreatEnemyDivision != null
+                    && (eDiv == myGroup.primaryThreatEnemyDivision
+                    || (eDiv.id != null && eDiv.id.equals(myGroup.primaryThreatEnemyDivision.id)));
             float nonMainCommittedFp = 0f;
             for (DivisionState myDiv : myGroup.divisions) {
                 if (myDiv == null || !myDiv.isAbleCombatEffective() || myDiv == anchorDiv) continue;
@@ -3044,6 +3062,16 @@ public class OtcAI {
                         || myDiv.archetype == DivisionArchetype.LIGHT_CARRIER_DIVISION
                         || myDiv.archetype == DivisionArchetype.ESCORT_CARRIER_DIVISION
                         || myDiv.archetype == DivisionArchetype.CARRIER_GROUP) continue;
+                if (isCurrentPrimaryForOverkill && myDiv.otcOrder != null && myDiv.otcOrder.targetEnemy != null) {
+                    DivisionModel.OtcOrderType ot = myDiv.otcOrder.type;
+                    boolean otcSupportOnPrimary = (ot == DivisionModel.OtcOrderType.FLANK
+                            || ot == DivisionModel.OtcOrderType.MARSHAL
+                            || ot == DivisionModel.OtcOrderType.EXECUTE_STRIKE
+                            || ot == DivisionModel.OtcOrderType.FEIGN_RETREAT_TRAP)
+                            && (myDiv.otcOrder.targetEnemy == eDiv
+                            || (eDiv.id != null && eDiv.id.equals(myDiv.otcOrder.targetEnemy.id)));
+                    if (otcSupportOnPrimary) continue;
+                }
                 DivisionState tgt = (myDiv.otcOrder != null && myDiv.otcOrder.targetEnemy != null)
                         ? myDiv.otcOrder.targetEnemy
                         : myDiv.targetEnemyDivision;
@@ -3051,7 +3079,18 @@ public class OtcAI {
                     nonMainCommittedFp += myDiv.totalFpStrength;
                 }
             }
-            float overkillPrimaryPenalty = (ableVisibleEnemyCount >= 2 && nonMainCommittedFp >= eDiv.overkillCapFp)
+            boolean otherUnderCapExists = false;
+            if (ableVisibleEnemyCount >= 2 && nonMainCommittedFp >= eDiv.overkillCapFp) {
+                for (DivisionState otherE : enemyDivs) {
+                    if (otherE == null || otherE == eDiv || !otherE.isAbleCombatEffective()) continue;
+                    if (!isDivisionVisibleToSide(engine, myGroup.side, otherE)) continue;
+                    if (!otherE.isOverkilled) {
+                        otherUnderCapExists = true;
+                        break;
+                    }
+                }
+            }
+            float overkillPrimaryPenalty = (otherUnderCapExists && nonMainCommittedFp >= eDiv.overkillCapFp)
                     ? -1600f
                     : 0f;
 

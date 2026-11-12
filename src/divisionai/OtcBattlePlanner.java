@@ -1087,14 +1087,25 @@ public class OtcBattlePlanner {
         });
 
         boolean orchestratedAdvanceActive = OtcAI.isOrchestratedAdvanceActive(engine, myGroup, null);
+        DivisionState sharedAlphaCarrierTarget = null;
         for (DivisionState d : pool) {
+            boolean isAlphaStrikeCarrier = d.archetype != null
+                    && d.archetype.isCarrierArchetype()
+                    && DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.ALPHA_STRIKE;
+            if (isAlphaStrikeCarrier && sharedAlphaCarrierTarget == null && primary != null && visibleEnemies.contains(primary)) {
+                sharedAlphaCarrierTarget = primary;
+            }
             DivisionState best = null;
             float bestScore = -Float.MAX_VALUE;
             DivisionState previous = (d.otcOrder.type == OtcOrderType.ENGAGE_ASSIGNED || d.otcOrder.type == OtcOrderType.FLANK)
                     ? d.otcOrder.targetEnemy : null;
 
+            if (isAlphaStrikeCarrier && sharedAlphaCarrierTarget != null && sharedAlphaCarrierTarget.isCombatEffective()) {
+                best = sharedAlphaCarrierTarget;
+            }
+
             boolean anyOtherUnderCap = false;
-            if (visibleEnemies.size() >= 2) {
+            if (best == null && visibleEnemies.size() >= 2) {
                 for (DivisionState otherE : visibleEnemies) {
                     if (assignedFp.getOrDefault(otherE, 0f) < neededFp.getOrDefault(otherE, 10f)) {
                         anyOtherUnderCap = true;
@@ -1104,6 +1115,7 @@ public class OtcBattlePlanner {
             }
 
             for (DivisionState e : visibleEnemies) {
+                if (best != null && isAlphaStrikeCarrier && sharedAlphaCarrierTarget != null) break;
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e);
                 float need = Math.max(4f, neededFp.get(e));
                 float have = assignedFp.get(e);
@@ -1241,6 +1253,9 @@ public class OtcBattlePlanner {
             }
             tasked.add(d);
             allocationOut.put(d, best);
+            if (isAlphaStrikeCarrier && sharedAlphaCarrierTarget == null) {
+                sharedAlphaCarrierTarget = best;
+            }
             float weight = d.archetype.isCarrierArchetype() ? 0.5f : 1f;
             assignedFp.put(best, assignedFp.get(best) + d.totalFpStrength * weight);
         }
