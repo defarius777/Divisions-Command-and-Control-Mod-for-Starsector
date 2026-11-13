@@ -13,14 +13,15 @@ public class DivisionAIModPlugin extends BaseModPlugin {
         boolean uiOk = DivisionDeploymentDialogOrganizer.verifyObfuscatedHandles(cl);
         boolean combatOk = DivisionCommanderAI.verifyCombatObfuscatedHandles(cl);
         boolean audioOk = DynamicBattleMusicController.verifyAudioHandles();
-        if (!uiOk || !combatOk || !audioOk) {
+        boolean settingsOk = DivisionAISettings.verifySettingsObfuscatedHandles(cl);
+        if (!uiOk || !combatOk || !audioOk || !settingsOk) {
             Global.getLogger(DivisionAIModPlugin.class).warn(String.format(
-                    "[DivisionAI] Startup obfuscated MethodHandle check: ui=%b, combat=%b, audio=%b (graceful fallback active where false).",
-                    uiOk, combatOk, audioOk));
+                    "[DivisionAI] Startup obfuscated MethodHandle check: ui=%b, combat=%b, audio=%b, settings=%b (graceful fallback active where false).",
+                    uiOk, combatOk, audioOk, settingsOk));
         }
         DivisionAISettings.captureBaselineFleetAndBattleSettings();
         DivisionAISettings.applyFleetAndBattleSizeOverrides();
-        Global.getLogger(DivisionAIModPlugin.class).info("Divisions: Command and Control v1.1.2 loaded: Campaign Permanent Divisions, Faction Division Record Tables, Cultural Nomenclature, Core-Cluster Cohesion & Wide-Arc Battlespace Routing active.");
+        Global.getLogger(DivisionAIModPlugin.class).info("Divisions: Command and Control v1.1.2a loaded: Campaign Permanent Divisions, Faction Division Record Tables, Cultural Nomenclature, Core-Cluster Cohesion & Wide-Arc Battlespace Routing active.");
     }
 
     @Override

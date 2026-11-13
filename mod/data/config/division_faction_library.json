@@ -227,6 +227,42 @@
         "FORCE_DIVISION": "Guard Escort Flotilla"
       }
     },
+    "diktat_achilles": {
+      "organizationRating": "very_high",
+      "patrolOrganizationRating": "high",
+      "merchantOrganizationRating": "high",
+      "smugglerOrganizationRating": "low",
+      "namingStyle": "STANDARD_PREFIX",
+      "basePreset": "SINDRIAN_GUARD",
+      "defaultNumbering": "ARABIC",
+      "battleshipNumbering": "ROMAN",
+      "warFleetPrefixes": {
+        "BATTLESHIP_DIVISION": "Reformer Battle Line",
+        "MISSILE_BATTLESHIP_DIVISION": "Reformer Missile Line",
+        "FLEET_CARRIER_DIVISION": "Reformer Carrier Wing",
+        "LIGHT_CARRIER_DIVISION": "Reformer Carrier Wing",
+        "ESCORT_CARRIER_DIVISION": "Reformer Carrier Wing",
+        "CARRIER_GROUP": "Reformer Carrier Group",
+        "CRUISER_DIVISION": "Reformer Cruiser Squadron",
+        "MISSILE_CRUISER_DIVISION": "Reformer Missile Squadron",
+        "STRIKE_CRUISER_DIVISION": "Reformer Strike Squadron",
+        "DESTROYER_DIVISION": "Reformer Destroyer Flotilla",
+        "MISSILE_DESTROYER_DIVISION": "Reformer Torpedo Flotilla",
+        "FRIGATE_DIVISION": "Reformer Frigate Picket",
+        "MISSILE_FRIGATE_DIVISION": "Reformer Missile Picket",
+        "PHASE_DIVISION": "Reformer Phase Detachment",
+        "SERVICE_GROUP": "Askonia Supply Convoy",
+        "FORCE_DIVISION": "Reformer Task Group"
+      },
+      "merchantFleetPrefixes": {
+        "SERVICE_GROUP": "Askonia Fuel Convoy",
+        "BATTLESHIP_DIVISION": "Fuel Convoy Heavy Guard",
+        "FLEET_CARRIER_DIVISION": "Convoy Carrier Wing",
+        "CRUISER_DIVISION": "Fuel Convoy Cruiser Guard",
+        "DESTROYER_DIVISION": "Convoy Escort Flotilla",
+        "FRIGATE_DIVISION": "Convoy Frigate Picket"
+      }
+    },
     "luddic_church": {
       "organizationRating": "high",
       "patrolOrganizationRating": "high",

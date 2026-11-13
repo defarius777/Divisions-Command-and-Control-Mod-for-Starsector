@@ -76,6 +76,7 @@ public class DivisionAISettings {
     private static int lastAppliedMaxShipsInAIFleet = -1;
     private static int lastAppliedMaxOfficersInAIFleet = -1;
     private static int lastAppliedBaseNumOfficers = -1;
+    private static MethodHandle setBattleSizeApiHandle = null;
     private static MethodHandle setBattleSizeStaticHandle = null;
     private static MethodHandle setMaxShipsInFleetStaticHandle = null;
     private static boolean starfarerSettingsHandlesResolved = false;
@@ -643,14 +644,41 @@ public class DivisionAISettings {
     private static void resolveStarfarerSettingsHandles() {
         if (starfarerSettingsHandlesResolved) return;
         starfarerSettingsHandlesResolved = true;
+        ClassLoader cl = DivisionAISettings.class.getClassLoader();
         try {
-            ClassLoader cl = DivisionAISettings.class.getClassLoader();
-            Class<?> cls = Class.forName("com.fs.starfarer.settings.StarfarerSettings", false, cl);
-            setBattleSizeStaticHandle = MethodHandles.publicLookup().findStatic(
-                    cls, "new", MethodType.methodType(void.class, int.class));
-            MethodHandles.Lookup priv = MethodHandles.privateLookupIn(cls, MethodHandles.lookup());
-            setMaxShipsInFleetStaticHandle = priv.findStaticSetter(cls, "new.new", float.class);
+            setBattleSizeApiHandle = MethodHandles.publicLookup().findVirtual(
+                    com.fs.starfarer.api.SettingsAPI.class,
+                    "setBattleSize",
+                    MethodType.methodType(void.class, int.class));
         } catch (Throwable ignored) {
+        }
+        try {
+            Class<?> cls = Class.forName("com.fs.starfarer.settings.StarfarerSettings", false, cl);
+            String setBsMethod = ObfuscatedBytecodeBridge.resolveStarfarerSetBattleSizeMethodName(cl);
+            try {
+                setBattleSizeStaticHandle = MethodHandles.publicLookup().findStatic(
+                        cls, setBsMethod, MethodType.methodType(void.class, int.class));
+            } catch (Throwable ignoredStatic) {
+            }
+            MethodHandles.Lookup priv = MethodHandles.privateLookupIn(cls, MethodHandles.lookup());
+            String maxShipsField = ObfuscatedBytecodeBridge.resolveStarfarerMaxShipsFieldName(cl);
+            setMaxShipsInFleetStaticHandle = priv.findStaticSetter(cls, maxShipsField, float.class);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static boolean verifySettingsObfuscatedHandles(ClassLoader cl) {
+        try {
+            if (cl == null) cl = DivisionAISettings.class.getClassLoader();
+            Class<?> cls = Class.forName("com.fs.starfarer.settings.StarfarerSettings", false, cl);
+            String setBsMethod = ObfuscatedBytecodeBridge.resolveStarfarerSetBattleSizeMethodName(cl);
+            MethodHandles.publicLookup().findStatic(cls, setBsMethod, MethodType.methodType(void.class, int.class));
+            MethodHandles.Lookup priv = MethodHandles.privateLookupIn(cls, MethodHandles.lookup());
+            String maxShipsField = ObfuscatedBytecodeBridge.resolveStarfarerMaxShipsFieldName(cl);
+            priv.findStaticSetter(cls, maxShipsField, float.class);
+            return true;
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -850,7 +878,9 @@ public class DivisionAISettings {
         } catch (Throwable ignored) {
         }
         try {
-            if (setBattleSizeStaticHandle != null) {
+            if (setBattleSizeApiHandle != null) {
+                setBattleSizeApiHandle.invoke(Global.getSettings(), activeBattleSize);
+            } else if (setBattleSizeStaticHandle != null) {
                 setBattleSizeStaticHandle.invokeExact(activeBattleSize);
             }
         } catch (Throwable ignored) {

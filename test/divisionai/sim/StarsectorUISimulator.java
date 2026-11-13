@@ -28,16 +28,16 @@ import com.fs.starfarer.campaign.ui.D;
 import com.fs.starfarer.campaign.ui.S;
 import com.fs.starfarer.combat.CombatEngine;
 import com.fs.starfarer.combat.CombatState;
-import com.fs.starfarer.coreui.v;
-import com.fs.starfarer.loading.specs.g;
+import com.fs.starfarer.coreui.Oo00;
+import com.fs.starfarer.loading.specs.privatesuper;
 import com.fs.starfarer.settings.StarfarerSettings;
-import com.fs.starfarer.ui.OO0O;
+import com.fs.starfarer.ui.L;
 import com.fs.starfarer.ui.c;
+import com.fs.starfarer.ui.classnew;
 import com.fs.starfarer.ui.d;
-import com.fs.starfarer.ui.impl.o0OO;
-import com.fs.starfarer.ui.impl.oO0O;
-import com.fs.starfarer.ui.interfacenew;
-import com.fs.starfarer.ui.n;
+import com.fs.starfarer.ui.impl.E;
+import com.fs.starfarer.ui.impl.oO0OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO;
+import com.fs.starfarer.ui.z;
 import divisionai.DivisionDeploymentDialogOrganizer;
 import divisionai.DivisionEditorDialog;
 import divisionai.DivisionModel.BattleGroupState;
@@ -92,7 +92,7 @@ import java.util.Set;
  */
 public class StarsectorUISimulator {
 
-    public static class SimFdd extends oO0O {
+    public static class SimFdd extends oO0OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO {
         public List<FleetMemberAPI> selectedMembers = new ArrayList<>();
 
         public SimFdd() {
@@ -100,12 +100,12 @@ public class StarsectorUISimulator {
         }
 
         @Override
-        public OO0O setSize(float w, float h) {
+        public L setSize(float w, float h) {
             return getPosition().setSize(w, h);
         }
 
         @Override
-        public OO0O sizeToInner(float w, float h) {
+        public L sizeToInner(float w, float h) {
             if (getInnerPanel() != null) {
                 getInnerPanel().setSize(w, h);
             }
@@ -164,7 +164,7 @@ public class StarsectorUISimulator {
         }
     }
 
-    public static class SimButton extends n {
+    public static class SimButton extends classnew {
         private final String lbl;
         public SimButton(float w, float h, String lbl, Object data) {
             super((Oo) null, null);
@@ -234,7 +234,7 @@ public class StarsectorUISimulator {
         public float simDp;
         public boolean simFlagship;
         public HullSize simSize;
-        public g simHullSpec;
+        public privatesuper simHullSpec;
         public PersonAPI simCaptain;
 
         public SimFleetMember() {
@@ -247,7 +247,7 @@ public class StarsectorUISimulator {
                 float dp,
                 boolean flagship,
                 HullSize size,
-                g hullSpec,
+                privatesuper hullSpec,
                 PersonAPI captain) throws Exception {
             SimFleetMember m = allocateWithoutConstructor(SimFleetMember.class);
             m.simId = id;
@@ -286,7 +286,7 @@ public class StarsectorUISimulator {
         @Override public boolean isFrigate() { return simSize == HullSize.FRIGATE; }
         @Override public boolean isMothballed() { return false; }
         @Override public boolean canBeDeployedForCombat() { return true; }
-        @Override public g getHullSpec() { return simHullSpec; }
+        @Override public privatesuper getHullSpec() { return simHullSpec; }
         @Override public String getHullId() { return simHullSpec != null ? simHullSpec.getHullId() : "onslaught"; }
         @Override public com.fs.starfarer.rpg.Person getCaptain() {
             return (simCaptain instanceof com.fs.starfarer.rpg.Person) ? (com.fs.starfarer.rpg.Person) simCaptain : null;
@@ -405,8 +405,8 @@ public class StarsectorUISimulator {
                 });
         Global.setSettings(wrappedSettings);
 
-        // Configure VFS (com.fs.util.C) to resolve files from starsector-core and mod/
-        Class<?> vfsCls = Class.forName("com.fs.util.C");
+        // Configure VFS (com.fs.util.Object in 0.98.5a-RC5) to resolve files from starsector-core and mod/
+        Class<?> vfsCls = Class.forName("com.fs.util.Object");
         Object vfs = null;
         for (Method m : vfsCls.getDeclaredMethods()) {
             if (m.getParameterCount() == 0 && m.getReturnType() == vfsCls && Modifier.isStatic(m.getModifiers())) {
@@ -429,23 +429,11 @@ public class StarsectorUISimulator {
         Fonts.DEFAULT_SMALL = "graphics/fonts/insignia15LTaa.fnt";
 
         // Install lazy headless texture loader (reads real PNG dimensions from disk!)
-        Class<?> texCls = Class.forName("com.fs.graphics.Object");
+        Class<?> texCls = Class.forName("com.fs.graphics.C");
         Constructor<?> texCtor = texCls.getDeclaredConstructor(int.class, int.class, String.class);
         texCtor.setAccessible(true);
-        Method setImgW = null;
-        Method setImgH = null;
-        Method setTexW = null;
-        Method setTexH = null;
-        for (Method m : texCls.getDeclaredMethods()) {
-            if (m.getParameterCount() == 1 && m.getParameterTypes()[0] == int.class && m.getReturnType() == void.class) {
-                m.setAccessible(true);
-                String mn = m.getName();
-                if ("o00000".equals(mn)) setImgH = m;
-                else if ("Object".equals(mn)) setTexW = m;
-            }
-        }
 
-        Class<?> loaderCls = Class.forName("com.fs.graphics.oOoO");
+        Class<?> loaderCls = Class.forName("com.fs.graphics.null");
         for (Field f : loaderCls.getDeclaredFields()) {
             if (Map.class.isAssignableFrom(f.getType())) {
                 f.setAccessible(true);
@@ -491,13 +479,19 @@ public class StarsectorUISimulator {
                     public void o00000(String id, String path) {
                         // Headless no-op: lazyMap populates texture objects with real PNG dimensions
                     }
+
+                    @Override
+                    public void \u00d200000(String id, String path) {
+                        // Headless no-op for font page & lazy texture loads
+                    }
                 });
             }
         }
 
-        // Install lazy real .fnt bitmap font loader into com.fs.graphics.A.D
-        Class<?> fontMapCls = Class.forName("com.fs.graphics.A.D");
-        Method loadFont = fontMapCls.getDeclaredMethod("super", String.class, String.class);
+        // Install lazy real .fnt bitmap font loader into com.fs.graphics.super.O0OOOO...
+        final String fontMapClsName = "com.fs.graphics.super.O0OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO";
+        Class<?> fontMapCls = Class.forName(fontMapClsName);
+        Method loadFont = fontMapCls.getDeclaredMethod("o00000", String.class, String.class);
         loadFont.setAccessible(true);
         for (Field f : fontMapCls.getDeclaredFields()) {
             if (HashMap.class.isAssignableFrom(f.getType())) {
@@ -514,13 +508,7 @@ public class StarsectorUISimulator {
                                 loadFont.invoke(null, k, k);
                                 v = super.get(k);
                             } catch (Exception e) {
-                                try {
-                                    String fallback = "graphics/fonts/insignia15LTaa.fnt";
-                                    loadFont.invoke(null, k, fallback);
-                                    v = super.get(k);
-                                } catch (Exception ex) {
-                                    throw new RuntimeException(ex);
-                                }
+                                throw new RuntimeException("Invalid or missing .fnt font path requested by UI: '" + k + "'", e);
                             }
                         }
                         return v;
@@ -541,22 +529,27 @@ public class StarsectorUISimulator {
         return cls.cast(sc.newInstance());
     }
 
-    private static S buildRealShipGrid(oO0O fdd, float width, float height, int cols, List<FleetMember> members) throws Exception {
+    private static S buildRealShipGrid(
+            oO0OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO fdd,
+            float width,
+            float height,
+            int cols,
+            List<FleetMember> members) throws Exception {
         S grid = new S(cols, 0f, 58f, D.o.values()[0], fdd);
         grid.setSize(width, height);
         List<FleetMember> gridMembers = grid.getMembers();
-        v table = grid.getList();
+        Oo00 table = grid.getList();
 
-        Class<?> iconCls = Class.forName("com.fs.starfarer.ui.B.new");
+        Class<?> iconCls = Class.forName("com.fs.starfarer.ui.super.B");
         Object fontObj = null;
         Constructor<?> textRendererCtor = null;
         try {
-            Class<?> fontMapCls = Class.forName("com.fs.graphics.A.D");
+            Class<?> fontMapCls = Class.forName("com.fs.graphics.super.O0OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
             for (Method m : fontMapCls.getDeclaredMethods()) {
                 if (Modifier.isStatic(m.getModifiers())
                         && m.getParameterTypes().length == 1
                         && m.getParameterTypes()[0] == String.class
-                        && m.getReturnType().getName().equals("com.fs.graphics.A.F")) {
+                        && m.getReturnType().getName().equals("com.fs.graphics.super.return")) {
                     m.setAccessible(true);
                     fontObj = m.invoke(null, "graphics/fonts/victor14.fnt");
                     break;
@@ -564,7 +557,7 @@ public class StarsectorUISimulator {
             }
             for (Field f : iconCls.getDeclaredFields()) {
                 if ("float.Object".equals(f.getName())) {
-                    textRendererCtor = f.getType().getDeclaredConstructor(Class.forName("com.fs.graphics.A.F"));
+                    textRendererCtor = f.getType().getDeclaredConstructor(Class.forName("com.fs.graphics.super.return"));
                     textRendererCtor.setAccessible(true);
                     break;
                 }
@@ -690,7 +683,7 @@ public class StarsectorUISimulator {
             return;
         }
         try {
-            Class.forName("com.fs.starfarer.ui.impl.oO0O");
+            Class.forName("com.fs.starfarer.ui.impl.oO0OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
         } catch (ClassNotFoundException e) {
             res.record(true, "1:1 Starsector Obfuscated UI Simulation", "Skipped (starfarer_obf.jar not on classpath)");
             return;
@@ -781,10 +774,10 @@ public class StarsectorUISimulator {
             }
 
             // 2. Build 16 real SimFleetMembers & Campaign Sector persistent data for 1:1 UI simulation
-            g hullSpec = allocateWithoutConstructor(g.class);
-            for (Field f : g.class.getDeclaredFields()) {
+            privatesuper hullSpec = allocateWithoutConstructor(privatesuper.class);
+            for (Field f : privatesuper.class.getDeclaredFields()) {
                 f.setAccessible(true);
-                if (f.getName().equals("\u00d800000") && f.getType() == String.class) {
+                if (f.getName().equals("Object.new") && f.getType() == String.class) {
                     f.set(hullSpec, "onslaught");
                 } else if (f.getType() == HullSize.class) {
                     f.set(hullSpec, HullSize.CAPITAL_SHIP);
@@ -863,7 +856,7 @@ public class StarsectorUISimulator {
 
     @SuppressWarnings("unchecked")
     private static boolean simulateDeploymentWindow1To1(
-            g hullSpec,
+            privatesuper hullSpec,
             final PersonAPI flagshipCaptain,
             boolean expectAlphaCore,
             boolean preBattle) throws Throwable {
@@ -956,34 +949,33 @@ public class StarsectorUISimulator {
         saveSpecsM.setAccessible(true);
         saveSpecsM.invoke(null, pdata, Arrays.asList(div1, div2));
 
-        // Construct real Starsector oO0O (FleetDeploymentDialog)
-        Constructor<interfacenew> panelCtor = interfacenew.class.getDeclaredConstructor();
+        // Construct real Starsector FleetDeploymentDialog
+        Constructor<z> panelCtor = z.class.getDeclaredConstructor();
         Constructor<SimFdd> fddCtor = (Constructor<SimFdd>) ReflectionFactory.getReflectionFactory()
                 .newConstructorForSerialization(SimFdd.class, panelCtor);
         SimFdd fdd = fddCtor.newInstance();
         fdd.selectedMembers = new ArrayList<>();
-        interfacenew innerPanel = new interfacenew();
+        z innerPanel = new z();
         fdd.setSize(624f, 460f);
         innerPanel.setSize(604f, 440f);
         fdd.add(innerPanel).inTL(10f, 10f);
 
-        for (Field f : oO0O.class.getDeclaredFields()) {
+        for (Field f : oO0OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO.class.getDeclaredFields()) {
             f.setAccessible(true);
-            if (f.getName().equals("\u00f6\u00f80000")) f.setInt(fdd, 0);
-            else if (f.getName().equals("o\u00f60000")) f.setBoolean(fdd, false);
-            else if (f.getName().equals("\u00f8O0000")) f.set(fdd, fdd.selectedMembers);
+            if (f.getName().equals("interface.null$Object")) f.setInt(fdd, 0);
+            else if (f.getName().equals("while.null$Object")) f.setBoolean(fdd, false);
         }
-        for (Field f : o0OO.class.getDeclaredFields()) {
+        for (Field f : E.class.getDeclaredFields()) {
             f.setAccessible(true);
-            if (f.getType() == interfacenew.class) f.set(fdd, innerPanel);
+            if (f.getType() == z.class) f.set(fdd, innerPanel);
             else if (f.getType() == Map.class) f.set(fdd, new HashMap<>());
         }
 
         S deployedGrid = buildRealShipGrid(fdd, 592f, 174f, 10, deployedMembers);
         S reservesGrid = buildRealShipGrid(fdd, 592f, 174f, 10, reserveMembers);
-        interfacenew sep1 = new interfacenew();
+        z sep1 = new z();
         sep1.setSize(592f, 7f);
-        interfacenew sep2 = new interfacenew();
+        z sep2 = new z();
         sep2.setSize(542f, 1f);
         LabelAPI crNote = Global.getSettings().createLabel("Combat readiness note", Fonts.DEFAULT_SMALL);
         ((UIComponentAPI) crNote).getPosition().setSize(250f, 22f);
@@ -994,7 +986,7 @@ public class StarsectorUISimulator {
         innerPanel.add(sep2).belowLeft(reservesGrid, 15f);
         innerPanel.add((c) crNote).belowLeft(sep2, 6f);
 
-        interfacenew widgetPanel = new interfacenew();
+        z widgetPanel = new z();
         widgetPanel.setSize(1920f, 1080f);
         widgetPanel.add(fdd).inMid();
 
@@ -1004,10 +996,7 @@ public class StarsectorUISimulator {
             if (f.getName().equals("widgetPanel")) {
                 f.set(cs, widgetPanel);
             } else if (f.getType().getName().equals("com.fs.starfarer.combat.CombatState$o")) {
-                Class<?> enumCls = f.getType();
-                Field floatField = enumCls.getDeclaredField("float");
-                floatField.setAccessible(true);
-                f.set(cs, floatField.get(null));
+                f.set(cs, Enum.valueOf((Class) f.getType(), "DEPLOY"));
             }
         }
 
@@ -1490,7 +1479,7 @@ public class StarsectorUISimulator {
         }
 
         // 3. Audit every division row header card in reservesGrid
-        v rList = reservesGrid.getList();
+        Oo00 rList = reservesGrid.getList();
         List<c> items = rList.getItems();
         if (items.size() != 48) {
             System.out.println("FAIL items size: " + items.size()
@@ -1599,7 +1588,7 @@ public class StarsectorUISimulator {
     }
 
     @SuppressWarnings("unchecked")
-    private static boolean simulatePursuitDeploymentWindow1To1(g hullSpec, final PersonAPI flagshipCaptain) throws Throwable {
+    private static boolean simulatePursuitDeploymentWindow1To1(privatesuper hullSpec, final PersonAPI flagshipCaptain) throws Throwable {
         divisionai.DivisionOtcCommandManager.resetForNewBattle();
         final List<FleetMember> reserveMembers = new ArrayList<>();
         // Div 1: Mixed Light Cruiser Division (1 Cruiser Heron + 1 Destroyer Shrike + 3 Frigates Omen/Wolf/Wolf)
@@ -1679,13 +1668,13 @@ public class StarsectorUISimulator {
         saveSpecsM.setAccessible(true);
         saveSpecsM.invoke(null, pdata, Arrays.asList(div1, div2, div3));
 
-        Constructor<interfacenew> panelCtor = interfacenew.class.getDeclaredConstructor();
+        Constructor<z> panelCtor = z.class.getDeclaredConstructor();
         Constructor<SimFdd> fddCtor = (Constructor<SimFdd>) ReflectionFactory.getReflectionFactory()
                 .newConstructorForSerialization(SimFdd.class, panelCtor);
         SimFdd fdd = fddCtor.newInstance();
         fdd.selectedMembers = new ArrayList<>();
 
-        interfacenew innerPanel = new interfacenew();
+        z innerPanel = new z();
         fdd.setSize(624f, 460f);
         innerPanel.setSize(604f, 440f);
         fdd.add(innerPanel).inTL(10f, 10f);
@@ -1711,28 +1700,27 @@ public class StarsectorUISimulator {
         SimProgressBar simBar = allocateWithoutConstructor(SimProgressBar.class);
         SimButton dummyBtn = new SimButton(100f, 24f, "Deploy", null);
 
-        for (Field f : oO0O.class.getDeclaredFields()) {
+        for (Field f : oO0OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO.class.getDeclaredFields()) {
             f.setAccessible(true);
-            if (f.getName().equals("\u00f6\u00f80000")) f.setInt(fdd, 0);
-            else if (f.getName().equals("o\u00f60000")) f.setBoolean(fdd, false);
-            else if (f.getName().equals("\u00f8O0000")) f.set(fdd, fdd.selectedMembers);
+            if (f.getName().equals("interface.null$Object")) f.setInt(fdd, 0);
+            else if (f.getName().equals("while.null$Object")) f.setBoolean(fdd, false);
             else if (f.getType() == CombatEngine.class) f.set(fdd, simEngine);
             else if (f.getType() == com.fs.starfarer.combat.CombatFleetManager.class) f.set(fdd, simPlayerFm);
             else if (f.getType() == com.fs.starfarer.campaign.ui.N.class) f.set(fdd, simBar);
-            else if (f.getType() == n.class) f.set(fdd, dummyBtn);
+            else if (f.getType() == classnew.class) f.set(fdd, dummyBtn);
             else if (f.getType() == S.class) {
-                if ("void.null$Object".equals(f.getName())) f.set(fdd, deployedGrid);
+                if ("interface.int$Object".equals(f.getName())) f.set(fdd, deployedGrid);
                 else f.set(fdd, reservesGrid);
             }
         }
-        for (Field f : o0OO.class.getDeclaredFields()) {
+        for (Field f : E.class.getDeclaredFields()) {
             f.setAccessible(true);
-            if (f.getType() == interfacenew.class) f.set(fdd, innerPanel);
+            if (f.getType() == z.class) f.set(fdd, innerPanel);
             else if (f.getType() == Map.class) f.set(fdd, new HashMap<>());
         }
-        interfacenew sep1 = new interfacenew();
+        z sep1 = new z();
         sep1.setSize(592f, 7f);
-        interfacenew sep2 = new interfacenew();
+        z sep2 = new z();
         sep2.setSize(542f, 1f);
         LabelAPI crNote = Global.getSettings().createLabel("Combat readiness note", Fonts.DEFAULT_SMALL);
         ((UIComponentAPI) crNote).getPosition().setSize(250f, 22f);
@@ -1743,7 +1731,7 @@ public class StarsectorUISimulator {
         innerPanel.add(sep2).belowLeft(reservesGrid, 15f);
         innerPanel.add((c) crNote).belowLeft(sep2, 6f);
 
-        interfacenew widgetPanel = new interfacenew();
+        z widgetPanel = new z();
         widgetPanel.setSize(1920f, 1080f);
         widgetPanel.add(fdd).inMid();
 
@@ -1753,10 +1741,7 @@ public class StarsectorUISimulator {
             if (f.getName().equals("widgetPanel")) {
                 f.set(cs, widgetPanel);
             } else if (f.getType().getName().equals("com.fs.starfarer.combat.CombatState$o")) {
-                Class<?> enumCls = f.getType();
-                Field floatField = enumCls.getDeclaredField("float");
-                floatField.setAccessible(true);
-                f.set(cs, floatField.get(null));
+                f.set(cs, Enum.valueOf((Class) f.getType(), "DEPLOY"));
             }
         }
 
@@ -1785,7 +1770,7 @@ public class StarsectorUISimulator {
         organizer.advance(proxyEngine);
         innerPanel.advance(0.1f);
 
-        v rList = reservesGrid.getList();
+        Oo00 rList = reservesGrid.getList();
         List<c> rItems = rList.getItems();
         List<CustomPanelAPI> headerCards = new ArrayList<>();
         for (c item : rItems) {
@@ -1825,7 +1810,7 @@ public class StarsectorUISimulator {
         CustomUIPanelPlugin p1 = (CustomUIPanelPlugin) pluginField.get(headerCards.get(1));
         CustomUIPanelPlugin p2 = (CustomUIPanelPlugin) pluginField.get(headerCards.get(2));
 
-        Method iconGetStateM = Class.forName("com.fs.starfarer.ui.B.new").getDeclaredMethod("\u00d5O0000");
+        Method iconGetStateM = Class.forName("com.fs.starfarer.ui.super.B").getDeclaredMethod("\u00d5O0000");
         iconGetStateM.setAccessible(true);
 
         // 1. Div 3 (Frigates): Click [L] -> state 2; Click [R] -> state 3; Click [R] again -> state -1 (clean deselect!)
@@ -1907,7 +1892,7 @@ public class StarsectorUISimulator {
     }
 
     private static boolean simulateFleetDoctrineDialog1To1() throws Throwable {
-        interfacenew hostCoreUI = new interfacenew();
+        z hostCoreUI = new z();
         hostCoreUI.setSize(1920f, 1080f);
         FleetDoctrineDialog dialog = new FleetDoctrineDialog(hostCoreUI);
         dialog.show();
@@ -2012,7 +1997,7 @@ public class StarsectorUISimulator {
     }
 
     private static boolean simulateDivisionEditorDialog1To1() throws Throwable {
-        interfacenew hostCoreUI = new interfacenew();
+        z hostCoreUI = new z();
         hostCoreUI.setSize(1920f, 1080f);
         DivisionEditorDialog dialog = new DivisionEditorDialog(hostCoreUI);
         dialog.show();
@@ -2122,32 +2107,32 @@ public class StarsectorUISimulator {
 
     @SuppressWarnings("unchecked")
     private static boolean assertPositionTreeInvariantsAndRecompute(PositionAPI rootPos) throws Throwable {
-        if (!(rootPos instanceof OO0O)) return false;
-        Field childrenField = OO0O.class.getDeclaredField("\u00d400000");
+        if (!(rootPos instanceof L)) return false;
+        Field childrenField = L.class.getDeclaredField("\u00d400000");
         childrenField.setAccessible(true);
-        Set<OO0O> visited = Collections.newSetFromMap(new IdentityHashMap<OO0O, Boolean>());
-        return verifyOO0ONodeRecursive((OO0O) rootPos, childrenField, visited);
+        Set<L> visited = Collections.newSetFromMap(new IdentityHashMap<L, Boolean>());
+        return verifyPositionNodeRecursive((L) rootPos, childrenField, visited);
     }
 
     @SuppressWarnings("unchecked")
-    private static boolean verifyOO0ONodeRecursive(OO0O node, Field childrenField, Set<OO0O> visited) throws Throwable {
+    private static boolean verifyPositionNodeRecursive(L node, Field childrenField, Set<L> visited) throws Throwable {
         if (node == null || !visited.add(node)) return true;
         node.setSuspendRecompute(false);
         node.recompute();
-        List<OO0O> children = (List<OO0O>) childrenField.get(node);
+        List<L> children = (List<L>) childrenField.get(node);
         if (children == null || children.isEmpty()) return true;
-        Set<OO0O> siblingSet = Collections.newSetFromMap(new IdentityHashMap<OO0O, Boolean>());
-        for (OO0O ch : children) {
+        Set<L> siblingSet = Collections.newSetFromMap(new IdentityHashMap<L, Boolean>());
+        for (L ch : children) {
             if (ch != null) siblingSet.add(ch);
         }
-        for (OO0O ch : new ArrayList<OO0O>(children)) {
+        for (L ch : new ArrayList<L>(children)) {
             if (ch == null) continue;
-            OO0O base = ch.getBase();
+            L base = ch.getBase();
             if (base != null && !siblingSet.contains(base)) {
-                System.out.println("FAIL dangling OO0O sibling anchor detected: child=" + ch + " base=" + base);
+                System.out.println("FAIL dangling L sibling anchor detected: child=" + ch + " base=" + base);
                 return false;
             }
-            if (!verifyOO0ONodeRecursive(ch, childrenField, visited)) {
+            if (!verifyPositionNodeRecursive(ch, childrenField, visited)) {
                 return false;
             }
         }
@@ -2155,8 +2140,8 @@ public class StarsectorUISimulator {
     }
 
     private static com.fs.starfarer.ui.f extractAttachedTooltip(Object comp) {
-        if (comp instanceof com.fs.starfarer.ui.OOOo) {
-            return ((com.fs.starfarer.ui.OOOo) comp).getTooltip();
+        if (comp instanceof com.fs.starfarer.ui.thissuper) {
+            return ((com.fs.starfarer.ui.thissuper) comp).getTooltip();
         }
         if (comp != null) {
             for (Class<?> cl = comp.getClass(); cl != null && cl != Object.class; cl = cl.getSuperclass()) {
@@ -2214,7 +2199,7 @@ public class StarsectorUISimulator {
         return true;
     }
 
-    private static boolean simulateCampaignFleetTooltipOrganizer1To1(g hullSpec, final PersonAPI flagshipCaptain) throws Throwable {
+    private static boolean simulateCampaignFleetTooltipOrganizer1To1(privatesuper hullSpec, final PersonAPI flagshipCaptain) throws Throwable {
         final List<FleetMember> members = new ArrayList<>();
         for (int i = 0; i < 12; i++) {
             SimFleetMember m = SimFleetMember.create(
@@ -2270,7 +2255,7 @@ public class StarsectorUISimulator {
         com.fs.starfarer.ui.impl.StandardTooltipV2 tooltip1 =
                 com.fs.starfarer.ui.impl.StandardTooltipV2Expandable.createTextTooltip(420f, "Fleet Tooltip");
         tooltip1.beforeShown();
-        interfacenew contents1 = (interfacenew) tooltip1.getContents();
+        z contents1 = (z) tooltip1.getContents();
         S sGrid1 = buildRealShipGrid(null, 410f, 180f, 7, members);
         contents1.add(sGrid1).inTL(5f, 24f);
         if (!organizer.organizeTooltipForTesting(fleet, tooltip1, contents1, sGrid1)) {
@@ -2290,13 +2275,13 @@ public class StarsectorUISimulator {
         com.fs.starfarer.ui.impl.StandardTooltipV2 tooltip2 =
                 com.fs.starfarer.ui.impl.StandardTooltipV2Expandable.createTextTooltip(420f, "Fleet Tooltip With Foreign Overlay");
         tooltip2.beforeShown();
-        interfacenew contents2 = (interfacenew) tooltip2.getContents();
+        z contents2 = (z) tooltip2.getContents();
         S sGrid2 = buildRealShipGrid(null, 410f, 180f, 7, members);
         contents2.add(sGrid2).inTL(5f, 24f);
-        v vTable2 = sGrid2.getList();
+        Oo00 vTable2 = sGrid2.getList();
         c firstShipCell = vTable2.getItems().get(0);
-        interfacenew contentContainer2 = vTable2.getScroller().getContentContainer();
-        interfacenew foreignOverlay = new interfacenew(18f, 18f);
+        z contentContainer2 = vTable2.getScroller().getContentContainer();
+        z foreignOverlay = new z(18f, 18f);
         contentContainer2.add(foreignOverlay).belowLeft(firstShipCell, 2f);
         if (!organizer.organizeTooltipForTesting(fleet, tooltip2, contents2, sGrid2)) {
             System.out.println("FAIL CampaignFleetTooltipOrganizer scenario 2 (foreign sibling anchor) returned false");
@@ -2311,7 +2296,7 @@ public class StarsectorUISimulator {
         com.fs.starfarer.ui.impl.StandardTooltipV2 tooltip3 =
                 com.fs.starfarer.ui.impl.StandardTooltipV2Expandable.createTextTooltip(420f, "Fleet Tooltip With Duplicates");
         tooltip3.beforeShown();
-        interfacenew contents3 = (interfacenew) tooltip3.getContents();
+        z contents3 = (z) tooltip3.getContents();
         List<FleetMember> dupMembers = new ArrayList<>(members);
         dupMembers.add(members.get(0));
         dupMembers.add(members.get(2));
@@ -2336,9 +2321,9 @@ public class StarsectorUISimulator {
         }
         stationModeRef[0] = false;
 
-        // Deliberately corrupt a child's OO0O base anchor to point to a removed node, then run sanitizeTooltipForTesting
-        interfacenew orphanTarget = new interfacenew(10f, 10f);
-        interfacenew anchoredChild = new interfacenew(10f, 10f);
+        // Deliberately corrupt a child's L base anchor to point to a removed node, then run sanitizeTooltipForTesting
+        z orphanTarget = new z(10f, 10f);
+        z anchoredChild = new z(10f, 10f);
         contents3.add(orphanTarget).inTL(0f, 0f);
         contents3.add(anchoredChild).rightOfTop(orphanTarget, 4f);
         contents3.remove(orphanTarget);
@@ -2368,26 +2353,31 @@ public class StarsectorUISimulator {
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static boolean simulateWarroomBattleCommandSpriteSuite1To1() throws Throwable {
+        ClassLoader cl = StarsectorUISimulator.class.getClassLoader();
         Class<?> combatEngineCls = Class.forName("com.fs.starfarer.combat.CombatEngine");
         Class<?> combatStateCls = Class.forName("com.fs.starfarer.combat.CombatState");
-        Class<?> wrCls = Class.forName("com.fs.starfarer.combat.new.OoOO");
-        Class<?> mdCls = Class.forName("com.fs.starfarer.combat.new.b");
-        Class<?> shipIconCls = Class.forName("com.fs.starfarer.combat.new.A");
-        Class<?> fighterIconCls = Class.forName("com.fs.starfarer.combat.new.o0Oo");
-        Class<?> bNewCls = Class.forName("com.fs.starfarer.ui.B.new");
+        Class<?> wrCls = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                cl, "com.fs.starfarer.combat.B.A", combatStateCls.getName(), "getWarroom");
+        Class<?> mdCls = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                cl, "com.fs.starfarer.combat.B.floatsuper", wrCls.getName(), "getMapDisplay");
+        Class<?> bNewCls = divisionai.ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                cl, "com.fs.starfarer.ui.super.B", "com.fs.starfarer.campaign.ui.S", "getIconForMember");
+        Class<?> shipIconCls = divisionai.ObfuscatedBytecodeBridge.resolveWarroomShipIconClass(cl, mdCls, bNewCls);
+        Class<?> fighterIconCls = divisionai.ObfuscatedBytecodeBridge.resolveWarroomFighterIconClass(cl, mdCls, shipIconCls);
         Class<?> spriteCls = Class.forName("com.fs.graphics.Sprite");
-        Class<?> texObjCls = Class.forName("com.fs.graphics.Object");
+        Class<?> texObjCls = divisionai.ObfuscatedBytecodeBridge.resolveClassOrFieldType(
+                cl, "com.fs.graphics.C", spriteCls.getName(), "texture");
 
         Object realEngine = allocateWithoutConstructor(combatEngineCls);
         Object combatState = allocateWithoutConstructor(combatStateCls);
-        Constructor<interfacenew> panelCtor = interfacenew.class.getDeclaredConstructor();
+        Constructor<z> panelCtor = z.class.getDeclaredConstructor();
         Constructor<?> wrCtor = ReflectionFactory.getReflectionFactory()
                 .newConstructorForSerialization(wrCls, panelCtor);
         Object warroom = wrCtor.newInstance();
-        ((interfacenew) warroom).setSize(1920f, 1080f);
+        ((z) warroom).setSize(1920f, 1080f);
         Object mapDisplay = allocateWithoutConstructor(mdCls);
 
-        // Wire CombatEngine -> CombatState -> OoOO (Warroom) -> b (MapDisplay)
+        // Wire CombatEngine -> CombatState -> Warroom -> MapDisplay
         Field uiField = null;
         for (Field f : combatEngineCls.getDeclaredFields()) {
             if (com.fs.starfarer.api.combat.CombatUIAPI.class.isAssignableFrom(f.getType())) {
@@ -2416,20 +2406,32 @@ public class StarsectorUISimulator {
 
         Map<Object, Object> liveIconMap = new HashMap<>();
         Set<Object> deadIconSet = new java.util.HashSet<>();
-        Field mdMapField = mdCls.getDeclaredField("private.new");
+        String mdMapFieldName = divisionai.ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                cl, mdCls, "Ljava/util/Map;", "while.new");
+        Field mdMapField = mdCls.getDeclaredField(mdMapFieldName);
         mdMapField.setAccessible(true);
         mdMapField.set(mapDisplay, liveIconMap);
-        Field mdSetField = mdCls.getDeclaredField("\u00d2o0000");
+        String mdSetFieldName = divisionai.ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                cl, mdCls, "Ljava/util/Set;", "null.super");
+        Field mdSetField = mdCls.getDeclaredField(mdSetFieldName);
         mdSetField.setAccessible(true);
         mdSetField.set(mapDisplay, deadIconSet);
 
-        Field aBNewField = shipIconCls.getDeclaredField("O\u00d30000");
+        String aBNewFieldName = divisionai.ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                cl, shipIconCls, divisionai.ObfuscatedBytecodeBridge.toDescriptor(bNewCls), "O\u00d30000");
+        Field aBNewField = shipIconCls.getDeclaredField(aBNewFieldName);
         aBNewField.setAccessible(true);
-        Field aArrowField = shipIconCls.getDeclaredField("interface.new");
+        String aArrowFieldName = divisionai.ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                cl, shipIconCls, divisionai.ObfuscatedBytecodeBridge.toDescriptor(spriteCls), "interface.new");
+        Field aArrowField = shipIconCls.getDeclaredField(aArrowFieldName);
         aArrowField.setAccessible(true);
-        Field fighterSpriteField = fighterIconCls.getDeclaredField("float.super");
+        String fighterSpriteFieldName = divisionai.ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                cl, fighterIconCls, divisionai.ObfuscatedBytecodeBridge.toDescriptor(spriteCls), "float.super");
+        Field fighterSpriteField = fighterIconCls.getDeclaredField(fighterSpriteFieldName);
         fighterSpriteField.setAccessible(true);
-        Field bNewSpriteField = bNewCls.getDeclaredField("\u00d4\u00d50000");
+        String bNewSpriteFieldName = divisionai.ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                cl, bNewCls, divisionai.ObfuscatedBytecodeBridge.toDescriptor(spriteCls), "\u00d4\u00d50000");
+        Field bNewSpriteField = bNewCls.getDeclaredField(bNewSpriteFieldName);
         bNewSpriteField.setAccessible(true);
         Field bNewHoloField = bNewCls.getDeclaredField("\u00d8\u00f40000");
         bNewHoloField.setAccessible(true);

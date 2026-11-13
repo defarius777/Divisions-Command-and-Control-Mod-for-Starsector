@@ -4,6 +4,23 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.1.2a] — 2026-11-13 (Starsector `0.98.5a-RC5`)
+
+### Compatibility & Added
+- **Full Starsector `0.98.5a-RC5` Cross-Platform Compatibility (Windows, macOS & Linux):**
+  - Updated `mod_info.json` and `division_ai.version` to target `0.98.5a-RC5` while preserving full runtime bytecode compatibility with `0.98a-RC8`.
+  - Verified all 7 zero-reflection `ObfuscatedBytecodeBridge` + `java.lang.invoke.MethodHandles` bridges (`DivisionDeploymentDialogOrganizer`, `DivisionCommanderAI`, `DivisionTacticalMapOverlay`, `CampaignFleetTooltipOrganizer`, `DivisionFleetTabInjector`, `DynamicBattleMusicController`, and `DivisionAISettings`) inside `com.fs.starfarer.loading.scripts.ScriptClassLoader` across the Windows, macOS, and Linux `0.98.5a-RC5` builds.
+- **New `0.98.5a-RC5` Vanilla Faction Support (`diktat_achilles` — Sindrian Reformers):**
+  - Added native Fleet Doctrine (`COMMAND_BY_DIRECTION`, `GRAND_WEDGE_SPEARHEAD`, `HAMMER_AND_ANVIL`, `DOUBLING: true`), military-first division nomenclature (`Reformer Battle Line`, `Reformer Cruiser Squadron`, `Reformer Destroyer Flotilla`, `Reformer Frigate Picket`, `Reformer Carrier Wing`), and `Reformer Command` OTC title support for the Reformed Sindrian Diktat (`diktat_achilles`).
+
+### Fixed
+- **`StarfarerSettings` Fleet & Battle Size Override Resolution (`DivisionAISettings` & `ObfuscatedBytecodeBridge`):**
+  - Fixed `DivisionAISettings` fleet/battle size overrides silently failing on `0.98.5a-RC5` after `StarfarerSettings.new(int)` (`setBattleSize`) and `StarfarerSettings."new.new"` (`maxShipsInFleet` cached float field) were re-obfuscated to `\u00d200000(int)` and `\u00d3\u00d20000`. `DivisionAISettings` now binds public `SettingsAPI.setBattleSize(int)` when present and resolves the `StarfarerSettings` method/field names directly from `StarfarerSettings$1` bytecode across all platforms and versions.
+- **"Focus on Carriers" Checkbox Action Binding & `0.98.5a-RC5` Deprecation Cleanups:**
+  - Fixed `FleetDoctrineDialog` and `DivisionConfigureSubscreen` accidentally invoking the deprecated 7-argument `TooltipMakerAPI.addCheckbox(..., String font, ...)` overload instead of the 8-argument `(..., Object data, String font, ...)` overload on the **Focus on Carriers** checkbox (which passed the toggle action ID as the font path instead of `ButtonAPI.getCustomData()`), and updated `DivisionShowcaseMissions` objective creation to the non-deprecated 3-argument `MissionDefinitionAPI.addObjective(x, y, type)` API.
+
+---
+
 ## [v1.1.2] — 2026-11-13 (Starsector `0.98a-RC8`)
 
 ### Added

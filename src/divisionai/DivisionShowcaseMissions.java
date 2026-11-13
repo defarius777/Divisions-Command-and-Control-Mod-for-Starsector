@@ -290,11 +290,11 @@ public final class DivisionShowcaseMissions {
             api.addNebula(x, y, r);
         }
 
-        api.addObjective(-4200f, 0f, "nav_buoy", BattleObjectiveAPI.Importance.NORMAL);
-        api.addObjective(4200f, 0f, "nav_buoy", BattleObjectiveAPI.Importance.NORMAL);
-        api.addObjective(-2400f, 2200f, "sensor_array", BattleObjectiveAPI.Importance.NORMAL);
-        api.addObjective(2400f, -2200f, "sensor_array", BattleObjectiveAPI.Importance.NORMAL);
-        api.addObjective(0f, 0f, "comm_relay", BattleObjectiveAPI.Importance.NORMAL);
+        api.addObjective(-4200f, 0f, "nav_buoy");
+        api.addObjective(4200f, 0f, "nav_buoy");
+        api.addObjective(-2400f, 2200f, "sensor_array");
+        api.addObjective(2400f, -2200f, "sensor_array");
+        api.addObjective(0f, 0f, "comm_relay");
 
         api.addPlugin(new BaseEveryFrameCombatPlugin() {
             private boolean activated = false;

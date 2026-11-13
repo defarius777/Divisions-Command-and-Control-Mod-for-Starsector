@@ -1,8 +1,8 @@
-# Divisions: Command and Control (`division_ai` v1.1.2)
+# Divisions: Command and Control (`division_ai` v1.1.2a)
 
 [![Install with TriOS](https://trilink.wispborne.com/badges/install-badge-forthebadge.svg)](https://trilink.wispborne.com/open.html?mod=%7B%22url%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fdefarius777%2FDivisions-Command-and-Control-Mod-for-Starsector%2Fmain%2Fmod%2Fdivision_ai.version%22%2C%22id%22%3A%22division_ai%22%7D&dep=%7B%22url%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2FLazyWizard%2Flazylib%2Fmaster%2Fmod%2Flazylib.version%22%2C%22id%22%3A%22lw_lazylib%22%7D)
 
-A two-tier naval Command & Control (C2) combat overhaul, campaign Fleet Organization & Fleet Doctrine system, Tactical Map Warroom (`Tab`) visualizer, and dynamic battle music controller for **Starsector `0.98a-RC8`**.
+A two-tier naval Command & Control (C2) combat overhaul, campaign Fleet Organization & Fleet Doctrine system, Tactical Map Warroom (`Tab`) visualizer, and dynamic battle music controller for **Starsector `0.98.5a-RC5`** (backward-compatible with `0.98a-RC8`).
 
 ---
 

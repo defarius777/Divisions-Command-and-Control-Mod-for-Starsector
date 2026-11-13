@@ -736,6 +736,9 @@ public final class DivisionNomenclature {
         if ("sindrian_diktat".equals(fId) || "lions_guard".equals(fId)) {
             return "Diktat Command";
         }
+        if ("diktat_achilles".equals(fId)) {
+            return "Reformer Command";
+        }
         if ("luddic_church".equals(fId) || "knights_of_ludd".equals(fId)) {
             return "Luddic Command";
         }

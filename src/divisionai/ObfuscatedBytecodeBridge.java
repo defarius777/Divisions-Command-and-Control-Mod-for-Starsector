@@ -12,18 +12,18 @@ import java.util.concurrent.ConcurrentHashMap;
  * Cross-platform (Windows / macOS / Linux) zero-reflection bytecode constant-pool and descriptor bridge.
  *
  * Why this exists:
- * Fractal Softworks's Windows, macOS, and Linux builds of Starsector 0.98a-RC8 share identical public API classes
- * and identical unobfuscated engine entry classes ({@code CombatEngine}, {@code CombatState}, {@code CampaignEngine},
+ * Fractal Softworks's Windows, macOS, and Linux builds of Starsector (0.98.5a-RC5 and 0.98a-RC8) share identical public
+ * API classes and identical unobfuscated engine entry classes ({@code CombatEngine}, {@code CombatState}, {@code CampaignEngine},
  * {@code CampaignState}, {@code StandardTooltipV2}, {@code Ship}), as well as unobfuscated entry method names
  * ({@code getWarroom}, {@code getMapDisplay}, {@code getWidgetPanel}, {@code getScreenPanel}, {@code getCore},
  * {@code getEncounterDialog}, {@code getCurrentTab}, {@code getTooltipManager}, {@code getContents}, {@code getPosition}).
  * However, because Zelix KlassMaster obfuscates the platform builds separately, internal obfuscated class names
- * (such as {@code com.fs.starfarer.combat.new.OoOO}, {@code com.fs.starfarer.ui.interfacenew},
- * {@code com.fs.starfarer.ui.newui.L}, {@code com.fs.starfarer.campaign.OOoO}, {@code sound.H} vs {@code sound.OooO},
- * and {@code sound.O} vs {@code sound.oo0O}) differ on macOS and Linux.
+ * (such as {@code com.fs.starfarer.combat.B.A} / {@code com.fs.starfarer.combat.new.OoOO}, {@code com.fs.starfarer.ui.public} /
+ * {@code com.fs.starfarer.ui.interfacenew}, {@code sound.null} / {@code sound.H} / {@code sound.OooO},
+ * and {@code sound.public} / {@code sound.O} / {@code sound.oo0O}) differ across versions, macOS, and Linux.
  *
- * IMPORTANT: Starsector's script sandbox classloader ({@code com.fs.starfarer.loading.scripts.B}) only allows a
- * strict whitelist of {@code java.io.*} classes ({@link InputStream} is allowed; {@code DataInputStream} is NOT).
+ * IMPORTANT: Starsector's script sandbox classloader ({@code com.fs.starfarer.loading.scripts.ScriptClassLoader} / {@code B})
+ * only allows a strict whitelist of {@code java.io.*} classes ({@link InputStream} is allowed; {@code DataInputStream} is NOT).
  * This bridge reads raw {@code .class} bytes using only {@link InputStream} and parses the bytecode constant pool
  * directly in memory with zero {@code java.lang.reflect} and zero non-whitelisted {@code java.io} references.
  */
@@ -580,6 +580,215 @@ public final class ObfuscatedBytecodeBridge {
             }
         }
         return defaultName;
+    }
+
+    /**
+     * Resolves the static {@code (I)V} method on {@code com.fs.starfarer.settings.StarfarerSettings} invoked by
+     * {@code StarfarerSettings$1.setBattleSize(int)} ({@code \u00d200000} in 0.98.5a-RC5, {@code new} in 0.98a-RC8).
+     */
+    public static String resolveStarfarerSetBattleSizeMethodName(ClassLoader cl) {
+        String[] target = findFirstMethodOrFieldRefInMethodBody(
+                cl,
+                "com.fs.starfarer.settings.StarfarerSettings$1",
+                "setBattleSize",
+                "(I)V",
+                0xB8); // invokestatic
+        if (target != null
+                && "com/fs/starfarer/settings/StarfarerSettings".equals(target[0])
+                && "(I)V".equals(target[2])) {
+            return target[1];
+        }
+        ClassBytecodeInfo info = readClassInfo(cl, "com.fs.starfarer.settings.StarfarerSettings");
+        if (info != null) {
+            String[] prefs = new String[]{"\u00d200000", "new"};
+            for (String p : prefs) {
+                for (int i = 0, n = info.methods.size(); i < n; i++) {
+                    MemberEntry m = info.methods.get(i);
+                    if ((m.accessFlags & 0x0008) != 0 && p.equals(m.name) && "(I)V".equals(m.descriptor)) {
+                        return p;
+                    }
+                }
+            }
+        }
+        return "\u00d200000";
+    }
+
+    /**
+     * Resolves the cached {@code private static float} field on {@code com.fs.starfarer.settings.StarfarerSettings}
+     * read by {@code StarfarerSettings$1.getMaxShipsInFleet()} -> {@code StarfarerSettings.O\u00d20000()}
+     * ({@code \u00d3\u00d20000} in 0.98.5a-RC5, {@code "new.new"} in 0.98a-RC8).
+     */
+    public static String resolveStarfarerMaxShipsFieldName(ClassLoader cl) {
+        String[] getterRef = findFirstMethodOrFieldRefInMethodBody(
+                cl,
+                "com.fs.starfarer.settings.StarfarerSettings$1",
+                "getMaxShipsInFleet",
+                "()I",
+                0xB8); // invokestatic
+        if (getterRef != null && "com/fs/starfarer/settings/StarfarerSettings".equals(getterRef[0])) {
+            String[] fieldRef = findFirstMethodOrFieldRefInMethodBody(
+                    cl,
+                    "com.fs.starfarer.settings.StarfarerSettings",
+                    getterRef[1],
+                    getterRef[2],
+                    0xB2); // getstatic
+            if (fieldRef != null
+                    && "com/fs/starfarer/settings/StarfarerSettings".equals(fieldRef[0])
+                    && "F".equals(fieldRef[2])) {
+                return fieldRef[1];
+            }
+        }
+        ClassBytecodeInfo info = readClassInfo(cl, "com.fs.starfarer.settings.StarfarerSettings");
+        if (info != null) {
+            String[] prefs = new String[]{"\u00d3\u00d20000", "new.new"};
+            for (String p : prefs) {
+                for (int i = 0, n = info.fields.size(); i < n; i++) {
+                    MemberEntry f = info.fields.get(i);
+                    if ((f.accessFlags & 0x0008) != 0 && p.equals(f.name) && "F".equals(f.descriptor)) {
+                        return p;
+                    }
+                }
+            }
+        }
+        return "\u00d3\u00d20000";
+    }
+
+    /**
+     * Scans the raw {@code Code} attribute of {@code (methodName, methodDescriptor)} in {@code className} for the
+     * first occurrence of a 3-byte constant-pool reference instruction ({@code 0xB8 invokestatic} or {@code 0xB2 getstatic})
+     * within the first 16 bytecode bytes, returning {@code [ownerInternalName, memberName, memberDescriptor]}.
+     */
+    private static String[] findFirstMethodOrFieldRefInMethodBody(
+            ClassLoader cl,
+            String className,
+            String methodName,
+            String methodDescriptor,
+            int targetOpcode) {
+        if (className == null || methodName == null || methodDescriptor == null) return null;
+        String resourcePath = className.replace('.', '/') + ".class";
+        try (InputStream rawIn = openClassResourceStream(cl, resourcePath)) {
+            if (rawIn == null) return null;
+            byte[] b = readStreamBytes(rawIn);
+            if (b.length < 10 || readS4(b, 0) != 0xCAFEBABE) return null;
+            int pos = 8;
+            int cpCount = readU2(b, pos);
+            pos += 2;
+            String[] utf8Pool = new String[cpCount];
+            int[] classNameIndexPool = new int[cpCount];
+            int[] refClassIdxPool = new int[cpCount];
+            int[] refNatIdxPool = new int[cpCount];
+            int[] natNameIdxPool = new int[cpCount];
+            int[] natDescIdxPool = new int[cpCount];
+
+            for (int i = 1; i < cpCount; i++) {
+                int tag = readU1(b, pos);
+                pos += 1;
+                switch (tag) {
+                    case 1: {
+                        int utfLen = readU2(b, pos);
+                        pos += 2;
+                        utf8Pool[i] = decodeModifiedUtf8(b, pos, utfLen);
+                        pos += utfLen;
+                        break;
+                    }
+                    case 3:
+                    case 4:
+                        pos += 4;
+                        break;
+                    case 5:
+                    case 6:
+                        pos += 8;
+                        i++;
+                        break;
+                    case 7:
+                        classNameIndexPool[i] = readU2(b, pos);
+                        pos += 2;
+                        break;
+                    case 8:
+                    case 16:
+                    case 19:
+                    case 20:
+                        pos += 2;
+                        break;
+                    case 9:
+                    case 10:
+                    case 11:
+                        refClassIdxPool[i] = readU2(b, pos);
+                        refNatIdxPool[i] = readU2(b, pos + 2);
+                        pos += 4;
+                        break;
+                    case 12:
+                        natNameIdxPool[i] = readU2(b, pos);
+                        natDescIdxPool[i] = readU2(b, pos + 2);
+                        pos += 4;
+                        break;
+                    case 17:
+                    case 18:
+                        pos += 4;
+                        break;
+                    case 15:
+                        pos += 3;
+                        break;
+                    default:
+                        return null;
+                }
+            }
+
+            pos += 6; // access_flags, this_class, super_class
+            int interfacesCount = readU2(b, pos);
+            pos += 2 + interfacesCount * 2;
+            int fieldsCount = readU2(b, pos);
+            pos += 2;
+            for (int i = 0; i < fieldsCount; i++) {
+                int attrCount = readU2(b, pos + 6);
+                pos += 8;
+                for (int a = 0; a < attrCount; a++) {
+                    int len = readS4(b, pos + 2);
+                    pos += 6 + len;
+                }
+            }
+
+            int methodsCount = readU2(b, pos);
+            pos += 2;
+            for (int i = 0; i < methodsCount; i++) {
+                int mNameIdx = readU2(b, pos + 2);
+                int mDescIdx = readU2(b, pos + 4);
+                int attrCount = readU2(b, pos + 6);
+                pos += 8;
+                String mName = (mNameIdx > 0 && mNameIdx < cpCount) ? utf8Pool[mNameIdx] : "";
+                String mDesc = (mDescIdx > 0 && mDescIdx < cpCount) ? utf8Pool[mDescIdx] : "";
+                boolean match = methodName.equals(mName) && methodDescriptor.equals(mDesc);
+                for (int a = 0; a < attrCount; a++) {
+                    int aNameIdx = readU2(b, pos);
+                    int aLen = readS4(b, pos + 2);
+                    int aDataStart = pos + 6;
+                    if (match && aNameIdx > 0 && aNameIdx < cpCount && "Code".equals(utf8Pool[aNameIdx]) && aLen >= 12) {
+                        int codeLen = readS4(b, aDataStart + 4);
+                        int codeStart = aDataStart + 8;
+                        int scanLimit = Math.min(codeLen - 2, 16);
+                        for (int pc = 0; pc < scanLimit; pc++) {
+                            if (readU1(b, codeStart + pc) == targetOpcode) {
+                                int cpIdx = readU2(b, codeStart + pc + 1);
+                                if (cpIdx > 0 && cpIdx < cpCount && refClassIdxPool[cpIdx] > 0) {
+                                    int cIdx = refClassIdxPool[cpIdx];
+                                    int natIdx = refNatIdxPool[cpIdx];
+                                    String owner = utf8Pool[classNameIndexPool[cIdx]];
+                                    String name = utf8Pool[natNameIdxPool[natIdx]];
+                                    String desc = utf8Pool[natDescIdxPool[natIdx]];
+                                    if (owner != null && name != null && desc != null) {
+                                        return new String[]{owner, name, desc};
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    pos = aDataStart + aLen;
+                }
+                if (match) return null;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     public static String toDescriptor(Class<?> cls) {

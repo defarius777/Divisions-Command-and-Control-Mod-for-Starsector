@@ -5,8 +5,8 @@
     "modVersion": {
         "major": 1,
         "minor": 1,
-        "patch": 2
+        "patch": "2a"
     },
-    "starsectorVersion": "0.98a-RC8",
+    "starsectorVersion": "0.98.5a-RC5",
     "directDownloadURL": "https://github.com/defarius777/Divisions-Command-and-Control-Mod-for-Starsector/releases/latest/download/DivisionAI.zip"
 }

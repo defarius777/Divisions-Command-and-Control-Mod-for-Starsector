@@ -2900,7 +2900,7 @@ public class DivisionAITestSuite {
                 }
             }
         }
-        Class<?> bCls = Class.forName("com.fs.starfarer.loading.scripts.B", true, parent);
+        Class<?> bCls = resolveScriptClassLoaderClass(parent, "com.fs.starfarer.loading.scripts.ScriptClassLoader");
         ClassLoader bLoader = (ClassLoader) bCls.getConstructor(ClassLoader.class).newInstance(parent);
         java.net.URLClassLoader modLoader = new java.net.URLClassLoader(
                 new java.net.URL[]{jarFile.toURI().toURL()}, bLoader) {
@@ -2926,13 +2926,15 @@ public class DivisionAITestSuite {
         boolean deployOk = (Boolean) dddo.getMethod("verifyObfuscatedHandles", ClassLoader.class).invoke(null, modLoader);
         Class<?> dcai = Class.forName("divisionai.DivisionCommanderAI", true, modLoader);
         boolean combatOk = (Boolean) dcai.getMethod("verifyCombatObfuscatedHandles", ClassLoader.class).invoke(null, modLoader);
-        check(csInfo != null && deployOk && combatOk,
-                "Sandboxed com.fs.starfarer.loading.scripts.B + simulated macOS obfuscated bytecode fallback succeeds",
-                String.format(Locale.ROOT, "readClassInfo=%b, deployHandles=%b, combatHandles=%b",
-                        csInfo != null, deployOk, combatOk));
+        Class<?> das = Class.forName("divisionai.DivisionAISettings", true, modLoader);
+        boolean settingsOk = (Boolean) das.getMethod("verifySettingsObfuscatedHandles", ClassLoader.class).invoke(null, modLoader);
+        check(csInfo != null && deployOk && combatOk && settingsOk,
+                "Sandboxed ScriptClassLoader + simulated macOS obfuscated bytecode fallback succeeds",
+                String.format(Locale.ROOT, "readClassInfo=%b, deployHandles=%b, combatHandles=%b, settingsHandles=%b",
+                        csInfo != null, deployOk, combatOk, settingsOk));
 
-        // Verify all 6 obfuscated handle bridges against the REAL macOS and Linux Starsector 0.98a-RC8 JARs
-        // inside each platform's own ScriptStore sandbox classloader (OoOO on macOS, new on Linux).
+        // Verify all 7 obfuscated handle bridges against the REAL macOS and Linux Starsector 0.98.5a-RC5 JARs
+        // inside each platform's own ScriptClassLoader sandbox.
         String[][] platformDirs = new String[][]{
                 {"macOS", "[!] Starsector for Mac/Starsector.app/Contents/Resources/Java", "com.fs.starfarer.loading.scripts.OoOO"},
                 {"Linux", "[!] Starsector for Linux/starsector", "com.fs.starfarer.loading.scripts.new"}
@@ -2940,7 +2942,7 @@ public class DivisionAITestSuite {
         for (String[] platEntry : platformDirs) {
             String platName = platEntry[0];
             File platDir = new File(platEntry[1]);
-            String scriptClName = platEntry[2];
+            String legacyScriptClName = platEntry[2];
             if (!platDir.isDirectory()) continue;
             File[] platJars = platDir.listFiles((d, name) -> name.endsWith(".jar"));
             if (platJars == null || platJars.length == 0) continue;
@@ -2965,7 +2967,7 @@ public class DivisionAITestSuite {
                         }
                     }
                 }
-                Class<?> platBCls = Class.forName(scriptClName, true, platEngineLoader);
+                Class<?> platBCls = resolveScriptClassLoaderClass(platEngineLoader, legacyScriptClName);
                 ClassLoader platBLoader = (ClassLoader) platBCls.getConstructor(ClassLoader.class).newInstance(platEngineLoader);
                 try (java.net.URLClassLoader platModLoader = new java.net.URLClassLoader(
                         new java.net.URL[]{jarFile.toURI().toURL()}, platBLoader) {
@@ -2996,10 +2998,12 @@ public class DivisionAITestSuite {
                             .getMethod("verifyFleetTabHandles", ClassLoader.class).invoke(null, platModLoader);
                     boolean pAudio = (Boolean) Class.forName("divisionai.DynamicBattleMusicController", true, platModLoader)
                             .getMethod("verifyAudioHandlesForClassLoader", ClassLoader.class).invoke(null, platModLoader);
-                    check(pDeploy && pCombat && pWarroom && pCampaign && pFleetTab && pAudio,
-                            "Real " + platName + " Starsector 0.98a-RC8 JARs + ScriptStore sandbox resolve all 6 obfuscated MethodHandle bridges",
-                            String.format(Locale.ROOT, "deploy=%b, combat=%b, warroom=%b, campaignTooltip=%b, fleetTab=%b, audio=%b",
-                                    pDeploy, pCombat, pWarroom, pCampaign, pFleetTab, pAudio));
+                    boolean pSettings = (Boolean) Class.forName("divisionai.DivisionAISettings", true, platModLoader)
+                            .getMethod("verifySettingsObfuscatedHandles", ClassLoader.class).invoke(null, platModLoader);
+                    check(pDeploy && pCombat && pWarroom && pCampaign && pFleetTab && pAudio && pSettings,
+                            "Real " + platName + " Starsector 0.98.5a-RC5 JARs + ScriptClassLoader sandbox resolve all 7 obfuscated MethodHandle bridges",
+                            String.format(Locale.ROOT, "deploy=%b, combat=%b, warroom=%b, campaignTooltip=%b, fleetTab=%b, audio=%b, settings=%b",
+                                    pDeploy, pCombat, pWarroom, pCampaign, pFleetTab, pAudio, pSettings));
                 }
             }
         }
@@ -4312,7 +4316,7 @@ public class DivisionAITestSuite {
 
         // 2. Check all major vanilla & modded factions across war, merchant, smuggler, and scavenger roles
         String[] factionsToAudit = {
-                "hegemony", "ironshell", "tritachyon", "persean", "sindrian_diktat", "lions_guard",
+                "hegemony", "ironshell", "tritachyon", "persean", "sindrian_diktat", "lions_guard", "diktat_achilles",
                 "luddic_church", "knights_of_ludd", "luddic_path", "pirates", "independent",
                 "mercenary", "uaf", "interstellarimperium", "ii_imperial_guard",
                 "tahlan_legioinfernalis", "armaarmatura", "vic"
@@ -4349,6 +4353,8 @@ public class DivisionAITestSuite {
                 "tritachyon", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.FLEET_CARRIER_DIVISION, 1, null, 0L);
         String diktatCruiser = DivisionNomenclature.formatFactionDivisionName(
                 "sindrian_diktat", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.CRUISER_DIVISION, 1, null, 0L);
+        String reformerBattle = DivisionNomenclature.formatFactionDivisionName(
+                "diktat_achilles", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.BATTLESHIP_DIVISION, 1, null, 0L);
         String uafConvoy = DivisionNomenclature.formatFactionDivisionName(
                 "uaf", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.SERVICE_GROUP, 1, null, 0L,
                 divisionai.FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY);
@@ -4358,6 +4364,7 @@ public class DivisionAITestSuite {
                 && "Knight Battle Line I".equals(kolBattle)
                 && "Heavy Flight Group Alpha".equals(ttCarrier)
                 && "State Cruiser Squadron 1".equals(diktatCruiser)
+                && "Reformer Battle Line I".equals(reformerBattle)
                 && "Auroran Trade Convoy 1".equals(uafConvoy);
 
         boolean migrationOk = "Armada Battle Line I".equals(
@@ -4375,6 +4382,21 @@ public class DivisionAITestSuite {
                 "Scenario 13: All player presets & faction libraries enforce military-first nomenclature and migrate legacy saves cleanly",
                 String.format(Locale.ROOT, "violations=%s, cgr='%s'/'%s', kol='%s', tt='%s', diktat='%s', uaf='%s', migration=%s",
                         violations, cgrBattle, cgrCruiser, kolBattle, ttCarrier, diktatCruiser, uafConvoy, migrationOk));
+    }
+
+    private static Class<?> resolveScriptClassLoaderClass(ClassLoader loader, String fallbackName)
+            throws ClassNotFoundException {
+        for (String candidate : new String[]{
+                "com.fs.starfarer.loading.scripts.ScriptClassLoader",
+                fallbackName,
+                "com.fs.starfarer.loading.scripts.B"}) {
+            if (candidate == null) continue;
+            try {
+                return Class.forName(candidate, true, loader);
+            } catch (ClassNotFoundException ignored) {
+            }
+        }
+        throw new ClassNotFoundException("ScriptClassLoader not found on " + loader);
     }
 
     private static float dist(Vector2f a, Vector2f b) {
