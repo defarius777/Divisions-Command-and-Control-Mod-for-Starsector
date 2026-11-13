@@ -4,17 +4,11 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
-## [v1.1.2b] — 2026-11-13 (Starsector `0.98.5a-RC5` & `0.98a-RC8`)
+## [v1.1.2c] — 2026-11-13 (Starsector `0.98.5a-RC5` & `0.98a-RC8`)
 
-### Changed
+### Compatibility, Changed & Added
 - **Removed Unused `LazyLib` (`lw_lazylib`) Dependency (Zero Required Dependencies):**
   - Removed the leftover `lw_lazylib` dependency block from `mod/mod_info.json`, build/test classpaths, `README.md`, and the TriOS TriLink badge URL so **Divisions: Command and Control** runs 100% standalone out of the box on both vanilla `0.98.5a-RC5` and `0.98a-RC8` without requiring `LazyLib` (`LunaLib` remains optional for in-game Mod Settings).
-
----
-
-## [v1.1.2a] — 2026-11-13 (Starsector `0.98.5a-RC5` & `0.98a-RC8`)
-
-### Compatibility & Added
 - **Dual Starsector `0.98.5a-RC5` & `0.98a-RC8` Compatibility (Windows, macOS & Linux):**
   - Updated `mod_info.json` and `division_ai.version` to `0.98.5a-RC5` while maintaining 100% dual compatibility with `0.98a-RC8` (both Starsector's launcher and TriOS parse `0.98a-RC8` and `0.98.5a-RC5` under the same `0.98` major/minor version family, allowing normal enabling on both versions without force-enabling, and all 10,751 bytecode references + all 7 `ObfuscatedBytecodeBridge` handles resolve cleanly on both `0.98a-RC8` and `0.98.5a-RC5`).
   - Verified all 7 zero-reflection `ObfuscatedBytecodeBridge` + `java.lang.invoke.MethodHandles` bridges (`DivisionDeploymentDialogOrganizer`, `DivisionCommanderAI`, `DivisionTacticalMapOverlay`, `CampaignFleetTooltipOrganizer`, `DivisionFleetTabInjector`, `DynamicBattleMusicController`, and `DivisionAISettings`) inside `com.fs.starfarer.loading.scripts.ScriptClassLoader` across the Windows, macOS, and Linux `0.98.5a-RC5` builds.
