@@ -4,9 +4,28 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
-## [v1.1.2] — 2026-11-11
+## [v1.1.2] — 2026-11-13 (Starsector `0.98a-RC8`)
+
+### Added
+- **Decoupled Division Hull Missions vs. Strike Craft Missions (`StrikeCraftMissionType` & `CARRIER_STANDOFF`):**
+  - Separated warship hull missions (`Scouting`, `Close Action`, `Standoff Engagement`, `Carrier Standoff`, `Envelopment`, `ToT Alpha Strike`, `Screen`, `Reserve`, `Martyrdom`) from flight-deck strike craft missions (`Match Division`, `Armed Recon`, `Space Superiority`, `Combat Space Patrol`, `Cyclic Voidstrikes`, `Deckload Voidstrike`, `Alpha Voidstrike`, `Hold on Deck`) inside **Strike Craft Options** (`FleetDoctrineDialog`, `DivisionConfigureSubscreen`, `DivisionEditorDialog`).
+  - Surface divisions with Converted Hangars can now brawl or flank up front while their fighter bays independently fly `Combat Space Patrol` or merge into fleet-wide `Alpha Voidstrikes`, and battlecarriers (`Legion`, `Odyssey`) can push `Close Action` while keeping a dedicated CAP umbrella overhead. Existing carrier saves migrate automatically.
+- **Advanced Strike Craft Gunnery, Targeting Controls & 4x4 Academy Wargame Showcase Missions:**
+  - Added **Voidstrike Targeting Bias** (`Free Selection`, `Cruisers & Capitals`, `Capitals First`), **Focus on Carriers** toggle, **Attack Geometry** (`Direct`, `L-Crossfire`, `Pincer`), **Split Mode** (`Unified`, `Split Axes`, `Split Targets`), **Gunnery Mode** (`Precision`, `Area`), and **AoA Correction** (`Low`, `Strong`), plus predictive friendly-fire line-of-fire gating and friendly-hull clear-lane sidestepping.
+  - Completed a full carrier & Voidstrike doctrinal sweep across all 36 built-in/modded library factions and 4 carrier archetypes (`sd=2, sw=4` defaults), and added 16 playable **Academy Wargame Showcase Missions** (`D1-1` through `D4-4`: Hegemony, Persean League, Tri-Tachyon, and Remnant Ordo).
+- **Military-First Fleet Nomenclature Sweep & Legacy Save Migration:**
+  - Audited and refined all 8 player-selectable Fleet Nomenclature presets, 30+ vanilla and modded faction libraries (war, merchant, smuggler, and salvage roles), and showcase wargame rosters so hull classes and tactical echelons always come first (`Armada Battle Line`, `Warden Cruiser Squadron`, `Vigil Frigate Picket`, `Heavy Flight Group`, `Cruiser Mora`, `Guard Battle Line`, `Frigate Wolfpack`) and cultural/institutional symbols come second, with automatic save-load migration for unmodified pre-v1.1.2 default names.
+
+### Performance & UI
+- **Instant Fleet Doctrine Window & 6-Group Hull-Type Accordion:**
+  - Eliminated Fleet Doctrine opening lag by opening on `Command Scheme`, organizing all 16 division types into a clean 6-group hull-type accordion (`Frigates`, `Destroyers`, `Cruisers`, `Capitals`, `Carriers`, `Special & Auxiliary`), culling off-viewport rows, and wrapping UI labels in-place without button overlap.
 
 ### Fixed
+- **Pure-Command Newtonian Strike Craft Flight Physics (Zero Ship-Center Magnet Bugs):**
+  - Removed all direct `fighter.setFacing(...)` and `fighter.getVelocity().set(...)` kinematic overrides from `VoidstrikeCoordinator`, driving strike craft exclusively through vanilla `ShipCommand` thrusters (`TURN_LEFT` / `TURN_RIGHT`, `ACCELERATE`, `DECELERATE`, `STRAFE_*`), inbound-only turn-in gates, latched flank hysteresis, and clean carrier landing-bay handoffs so fighters never snap-turn, teleport velocity, or magnet onto ship centers.
+- **Campaign Battle C2 Setpieces, Convoy General Chase, Anvil Stability & Telemetry Hygiene:**
+  - Civilian `Service Group` / crippled-only encounters bypass marshaling Setpieces and immediately enter `General Chase` so warships run down fleeing freighters instead of staging backward while convoys escape sensor range.
+  - Prevented 1-division light frigate packs (`< 20 FP`) from spamming fleet-wide Setpieces (`35s` Setpiece cooldown), kept the Main Effort anvil steady on `FORM_LINE` during Hammer & Anvil / Double Envelopment / Kill-Box execution until the target visibly breaks, suppressed duplicate 24s repeat intent radio/log lines when `(intent, target)` has not changed, reclaimed uncommitted transient Voidstrike sortie numbers so numbering never skips, and flushed `BATTLE SUMMARY:` logs on early Campaign "Claim Victory" / "Pursue" / "Clean Disengage" exits.
 - **Voidstrike Split-Wing (`Pincer Envelopment` / `L-Crossfire` / `Split Axes` / `Split Targets`) Multi-Angle Lethality & Synchronization:**
   - **One-Way Latched Flanking Gates (`flankingGateClearedTargetByFighter`):** Fixed a memoryless gate-oscillation bug in `VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery` where strike craft reaching their flanking turning gate (`<= 185u`) would step inward toward the enemy, fall outside the gate radius while still turning, and flip back into `onFlankingDogleg = true` (blocking `ShipCommand.FIRE` and turning 180° back toward the gate). Once a fighter or its squadron leader clears its flanking gate or crosses the gate plane inward, gate clearance is now latched for that target until ordnance expenditure or return.
   - **Multi-Angle Time-on-Target (ToT) Jaw Pacing:** Added `maxArmedSubWingEtaSec` synchronization across all armed sub-wings in a multi-angle strike (`PINCER_ENVELOPMENT`, `ANVIL_CROSSFIRE`, `SPLIT_AXES`). Shorter/faster attack legs (such as the `0°` Anvil leg in L-Crossfire or the nearer Pincer jaw) pace their approach speed while outside enemy PD range (`> 820u` and not under fire) so all attack axes roll in and release ordnance simultaneously to split and overwhelm enemy PD.
