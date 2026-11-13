@@ -3769,6 +3769,8 @@ public class VoidstrikeCoordinator {
                         DivisionCombatLog.logVoidstrikeCulminated(hRec.side, hRec.voidstrikeNumber, reason, now);
                     }
                     releaseSortieNumber(hRec);
+                } else if (hRec.voidstrikeNumber > 0) {
+                    reclaimUncommittedSortieNumber(hRec, null, existingForSide);
                 }
                 histIt.remove();
             } else if (hRec.side == side) {
@@ -4345,7 +4347,10 @@ public class VoidstrikeCoordinator {
                         && returningWingKeys.containsAll(leftover.participatingWingKeys);
                 if (!allWingsReturned && leftover.voidstrikeNumber > 0 && (now - leftover.lastActiveTime) <= 1.25f) {
                     recentVoidstrikeHistory.add(leftover);
-                } else if (leftover.voidstrikeNumber > 0 && (allWingsReturned || leftover.reachedTarget || leftover.emergencyRecallTriggered)) {
+                } else if (leftover.voidstrikeNumber > 0
+                        && (leftover.reachedTarget
+                        || leftover.emergencyRecallTriggered
+                        || (allWingsReturned && (leftover.createdTime >= 0f && (now - leftover.createdTime) >= 4.0f)))) {
                     if (leftover.culminationReason == null) {
                         String reason;
                         if (leftover.emergencyRecallTriggered) {
@@ -4361,6 +4366,8 @@ public class VoidstrikeCoordinator {
                         DivisionCombatLog.logVoidstrikeCulminated(side, leftover.voidstrikeNumber, reason, now);
                     }
                     releaseSortieNumber(leftover);
+                } else if (leftover.voidstrikeNumber > 0) {
+                    reclaimUncommittedSortieNumber(leftover, updatedForSide, existingForSide);
                 }
             }
         }
@@ -4577,11 +4584,11 @@ public class VoidstrikeCoordinator {
      * division when one exists and is not already displayed by another live record this tick, otherwise the next
      * counter value for the side.
      */
-    static int claimSortieNumber(Set<DivisionState> clusterDivs, List<VoidstrikeRecord> liveThisTick, int sideIdx) {
+    public static int claimSortieNumber(Set<DivisionState> clusterDivs, List<VoidstrikeRecord> liveThisTick, int sideIdx) {
         return claimSortieNumber(clusterDivs, liveThisTick, null, sideIdx);
     }
 
-    static int claimSortieNumber(
+    public static int claimSortieNumber(
             Set<DivisionState> clusterDivs,
             List<VoidstrikeRecord> liveThisTick,
             List<VoidstrikeRecord> existingForSide,
@@ -4633,6 +4640,58 @@ public class VoidstrikeCoordinator {
                 if (d != null && d.activeVoidstrikeSortieNumber == rec.voidstrikeNumber) {
                     d.activeVoidstrikeSortieNumber = 0;
                 }
+            }
+        }
+    }
+
+    /**
+     * Reclaims a sortie number allocated to a transient/aborted/merged cluster that never reached its target or
+     * emitted a culmination announcement so Voidstrike numbering never skips numbers (e.g. 4 -> 6).
+     */
+    public static void reclaimUncommittedSortieNumber(
+            VoidstrikeRecord rec,
+            List<VoidstrikeRecord> liveThisTick,
+            List<VoidstrikeRecord> existingForSide) {
+        if (rec == null || rec.voidstrikeNumber <= 0) return;
+        releaseSortieNumber(rec);
+        int sideIdx = (rec.side == VOIDSTRIKE_SIDE_ALLIED) ? 2 : ((rec.side == VOIDSTRIKE_SIDE_ENEMY) ? 1 : 0);
+        int num = rec.voidstrikeNumber;
+        if (nextVoidstrikeNumberBySide[sideIdx] == num + 1) {
+            boolean stillInUse = false;
+            if (liveThisTick != null) {
+                for (VoidstrikeRecord r : liveThisTick) {
+                    if (r != null && r != rec && r.side == rec.side && r.voidstrikeNumber == num) {
+                        stillInUse = true;
+                        break;
+                    }
+                }
+            }
+            if (!stillInUse && existingForSide != null) {
+                for (VoidstrikeRecord r : existingForSide) {
+                    if (r != null && r != rec && r.side == rec.side && r.voidstrikeNumber == num && r.reachedTarget) {
+                        stillInUse = true;
+                        break;
+                    }
+                }
+            }
+            if (!stillInUse) {
+                for (VoidstrikeRecord r : activeVoidstrikes) {
+                    if (r != null && r != rec && r.side == rec.side && r.voidstrikeNumber == num) {
+                        stillInUse = true;
+                        break;
+                    }
+                }
+            }
+            if (!stillInUse) {
+                for (VoidstrikeRecord r : recentVoidstrikeHistory) {
+                    if (r != null && r != rec && r.side == rec.side && r.voidstrikeNumber == num) {
+                        stillInUse = true;
+                        break;
+                    }
+                }
+            }
+            if (!stillInUse) {
+                nextVoidstrikeNumberBySide[sideIdx] = num;
             }
         }
     }

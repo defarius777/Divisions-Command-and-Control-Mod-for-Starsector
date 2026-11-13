@@ -48,7 +48,7 @@ public class OtcBattlePlanner {
     public static final float STRIKE_WINDOW = 14f;
     public static final float CHASE_LEASH = 4200f;
 
-    private static final float STRIKE_COOLDOWN = 20f;
+    private static final float STRIKE_COOLDOWN = 35f;
     private static final float STRIKE_MAX_RANGE = 5500f;
     private static final float MARSHAL_TIME_MIN = 6f;
     private static final float MARSHAL_TIME_MAX = 20f;
@@ -384,6 +384,8 @@ public class OtcBattlePlanner {
 
         DivisionState target = myGroup.primaryThreatEnemyDivision;
         if (target == null || !target.isCombatEffective()
+                || target.archetype == DivisionArchetype.SERVICE_GROUP
+                || target.isUnableDivision
                 || !OtcAI.isDivisionVisibleToSide(engine, myGroup.side, target)) {
             return null;
         }
@@ -455,6 +457,21 @@ public class OtcBattlePlanner {
         }
         if (strikers.isEmpty() || (strikers.size() < 2 && !mainEffortCanFix)) {
             return null;
+        }
+        // Prevent 1-division Frigate-only "Setpiece" spam: a fleet-level Setpiece with only 1 striker division
+        // requires real decisive punch (a Carrier/Battlecarrier air wing, Cruiser/Capital/Destroyer strike group,
+        // >= 20 FP mass, or an explicit TOT_ALPHA_STRIKE mission). A single light Frigate pack executes its own
+        // division-level missile/flank runs without hijacking Fleet Command into repeated marshaling holds.
+        if (strikers.size() == 1) {
+            DivisionState sole = strikers.get(0);
+            boolean lightFrigatePack = sole.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || sole.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+            if (lightFrigatePack
+                    && sole.totalFpStrength < 20f
+                    && !DivisionCommanderAI.hasDivisionStrikeCraftCapability(sole)
+                    && DivisionCommanderAI.resolveActiveMission(sole, now) != DivisionMissionType.TOT_ALPHA_STRIKE) {
+                return null;
+            }
         }
 
         MultiDivisionSetpiece chosenSetpiece = docSp;
@@ -984,29 +1001,38 @@ public class OtcBattlePlanner {
         boolean isRearguardEscape = (myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
         if (!fullAssault && main != null && main.isCombatEffective() && !tasked.contains(main) && primary != null) {
             Vector2f primaryPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, primary);
-            boolean primaryFleeing = isPursuitInterception
+            boolean primaryFleeing = (isPursuitInterception
                     && (primary.isUnableDivision
                     || primary.retreatingFraction >= 0.35f
-                    || DivisionState.isDivisionEscapingInPursuit(engine, primary));
-            OtcOrderType mainOrderType = primaryFleeing ? OtcOrderType.ENGAGE_ASSIGNED : OtcOrderType.FORM_LINE;
+                    || DivisionState.isDivisionEscapingInPursuit(engine, primary)))
+                    || primary.archetype == DivisionArchetype.SERVICE_GROUP;
+            // Keep the Main Effort steady as the fixing Anvil during Hammer & Anvil, Double Envelopment, Crossing
+            // the T, and Kill-Box setpieces instead of bouncing 0.5s later between TOT_ALPHA_STRIKE and FORM_LINE.
+            // Only surge the Main Effort onto EXECUTE_STRIKE during Echeloned Wave Breach or once the struck target
+            // is visibly breaking (hull/CR < 52% or flux >= 65%).
+            boolean strikeExecuting = isStrikeExecutingOn(myGroup, primary)
+                    && myGroup.strikePlan != null
+                    && !myGroup.strikePlan.participants.isEmpty();
+            MultiDivisionSetpiece activeSp = (myGroup.strikePlan != null && myGroup.strikePlan.setpieceType != null)
+                    ? myGroup.strikePlan.setpieceType
+                    : MultiDivisionSetpiece.NONE;
+            boolean enemyBreakingUnderStrike = primary.effectiveHpRatio < 0.52f || primary.avgFluxLevel >= 0.65f;
+            boolean mainPressesHomeWithStrike = strikeExecuting
+                    && !primaryFleeing
+                    && !main.archetype.isCarrierArchetype()
+                    && main.avgFluxLevel < 0.62f
+                    && main.effectiveHpRatio >= 0.58f
+                    && (activeSp == MultiDivisionSetpiece.ECHELONED_WAVE_BREACH || enemyBreakingUnderStrike);
+            OtcOrderType mainOrderType = primaryFleeing
+                    ? OtcOrderType.ENGAGE_ASSIGNED
+                    : (mainPressesHomeWithStrike ? OtcOrderType.EXECUTE_STRIKE : OtcOrderType.FORM_LINE);
             boolean newOrder = !(main.otcOrder.type == mainOrderType && main.otcOrder.targetEnemy == primary);
             main.otcOrder.set(mainOrderType, primary, null, 0f, expires,
                     primaryFleeing
                             ? ("OTC: Main Effort, intercept and pin \"" + primary.displayName + "\"")
-                            : ("OTC: Main Effort, form the line on \"" + primary.displayName + "\""));
-            // Coordinated Strike Execution: the Main Effort does not simply hold the line against a collapsing
-            // enemy division while its own strike divisions dive in — it presses home onto the struck target
-            // so the alpha strike lands on a broken enemy instead of absorbing the enemy's main body alone!
-            boolean strikeExecuting = isStrikeExecutingOn(myGroup, primary)
-                    && myGroup.strikePlan != null
-                    && !myGroup.strikePlan.participants.isEmpty();
-            if (strikeExecuting
-                    && !main.archetype.isCarrierArchetype()
-                    && main.avgFluxLevel < 0.62f
-                    && main.effectiveHpRatio >= 0.58f) {
-                main.otcOrder.set(OtcOrderType.EXECUTE_STRIKE, primary, null, 0f, expires,
-                        "OTC: Main Effort, press home on \"" + primary.displayName + "\"");
-            }
+                            : (mainPressesHomeWithStrike
+                            ? ("OTC: Main Effort, press home on \"" + primary.displayName + "\"")
+                            : ("OTC: Main Effort, form the line on \"" + primary.displayName + "\"")));
             if (wedgeOrOblique && myGroup.authority != OtcAuthority.COMMAND_BY_NEGATION) {
                 main.otcOrder.orderedFormation = DivisionFormation.FORWARD_WEDGE;
             } else if (myGroup.authority == OtcAuthority.POSITIVE_CONTROL
@@ -1071,7 +1097,7 @@ public class OtcBattlePlanner {
             tasked.add(main);
             allocationOut.put(main, primary);
             assignedFp.put(primary, assignedFp.get(primary) + main.totalFpStrength);
-            if (newOrder) {
+            if (newOrder && mainOrderType == OtcOrderType.FORM_LINE) {
                 logOrder(engine, myGroup, "fix:" + main.id + ">" + primary.id, String.format(
                         "Main Effort \"%s\" to form the line on \"%s\" and fix it.", main.displayName, primary.displayName), now);
             }

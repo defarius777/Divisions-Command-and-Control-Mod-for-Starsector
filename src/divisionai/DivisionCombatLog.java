@@ -340,8 +340,8 @@ public class DivisionCombatLog {
         String cleanTarget = (targetLabel != null && !targetLabel.isEmpty()) ? targetLabel : "";
         String sig = div.currentIntent.name() + "|" + cleanTarget;
 
-        // Suppress duplicate announcements of the exact same intent+target
-        if (sig.equals(div.lastLoggedSignature) && (now - div.lastLogAnnouncementTime) < 24f) {
+        // Suppress duplicate back-to-back announcements of the exact same intent+target until either changes
+        if (sig.equals(div.lastLoggedSignature)) {
             return;
         }
         // Throttle rapid re-evaluations so the battle log remains crisp and readable

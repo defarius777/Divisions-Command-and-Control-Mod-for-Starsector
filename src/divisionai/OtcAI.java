@@ -813,15 +813,19 @@ public class OtcAI {
                 && myGroup.primaryThreatEnemyDivision.enemyFeignedRetreatSuspicion >= 0.60f;
         boolean isPursuitInterception = (myGroup.missionContext == MissionContextType.INTERCEPTION);
         boolean isRearguardEscape = (myGroup.missionContext == MissionContextType.REARGUARD_ACTION);
+        boolean allVisibleEnemiesNonCombatant = anyEnemyVisible
+                && areAllVisibleEnemiesServiceOrUnable(engine, myGroup.side, enemyGroup);
         boolean generalChase = isPursuitInterception
                 ? (anyEnemyVisible && !crisis)
                 : (!enemyBaitTrapSuspected
-                        && myGroup.forceRatio >= 1.35f && visibleEnemyFp >= 30f && minContactDist < 3000f);
+                        && ((allVisibleEnemiesNonCombatant && !crisis && myGroup.forceRatio >= 1.15f)
+                        || (myGroup.forceRatio >= 1.35f && visibleEnemyFp >= 30f && minContactDist < 3000f)));
         boolean generalChasePersists = isPursuitInterception
                 ? (anyEnemyVisible && !crisis)
                 : (!enemyBaitTrapSuspected
                         && current == BattlePhase.GENERAL_CHASE
-                        && myGroup.forceRatio >= 1.20f && visibleEnemyFp >= 15f && minContactDist < 3600f);
+                        && ((allVisibleEnemiesNonCombatant && !crisis)
+                        || (myGroup.forceRatio >= 1.20f && visibleEnemyFp >= 15f && minContactDist < 3600f)));
         boolean strikeRunning = myGroup.strikePlan != null && myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES);
 
         boolean fullAssault = isFullAssaultActive(engine, myGroup);
@@ -2910,6 +2914,25 @@ public class OtcAI {
                 }
             }
         }
+    }
+
+    public static boolean areAllVisibleEnemiesServiceOrUnable(
+            CombatEngineAPI engine,
+            int observerSide,
+            BattleGroupState enemyGroup) {
+        if (enemyGroup == null || enemyGroup.divisions == null || enemyGroup.divisions.isEmpty()) return false;
+        int visibleCount = 0;
+        for (DivisionState eDiv : enemyGroup.divisions) {
+            if (eDiv == null || !eDiv.isCombatEffective()) continue;
+            if (!isDivisionVisibleToSide(engine, observerSide, eDiv)) continue;
+            visibleCount++;
+            if (eDiv.archetype != DivisionArchetype.SERVICE_GROUP
+                    && !eDiv.isUnableDivision
+                    && eDiv.retreatingFraction < 0.55f) {
+                return false;
+            }
+        }
+        return visibleCount > 0;
     }
 
     public static float computeDivisionCombatThreatWeight(

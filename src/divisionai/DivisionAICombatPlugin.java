@@ -68,9 +68,36 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private boolean renderedBelowShipsLayerThisFrame = false;
     private boolean loggedBattleSummary = false;
     private final java.util.Set<String> loggedObfuscatedHookFailures = new java.util.HashSet<>();
+    private static DivisionAICombatPlugin pendingSummaryInstance = null;
+
+    /**
+     * Flushes any unlogged BATTLE SUMMARY from a real combat encounter that exited early via Starsector's
+     * campaign "Claim Victory" / "Pursue" / "Clean Disengage" transition before {@code engine.isCombatOver()}
+     * ticked inside {@code advance()}.
+     */
+    public static void flushPendingBattleSummaryIfNeeded() {
+        DivisionAICombatPlugin inst = pendingSummaryInstance;
+        if (inst == null) return;
+        pendingSummaryInstance = null;
+        if (!inst.initializedBattle || inst.loggedBattleSummary || inst.engine == null) return;
+        try {
+            if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(inst.engine)) return;
+            float elapsed = inst.engine.getTotalElapsedTime(false);
+            boolean hasAnyDivs = (inst.playerGroup != null && !inst.playerGroup.divisions.isEmpty())
+                    || (inst.enemyGroup != null && !inst.enemyGroup.divisions.isEmpty());
+            if (elapsed >= 1.0f && hasAnyDivs) {
+                inst.loggedBattleSummary = true;
+                logBattleSummary(inst.engine, inst.playerGroup, inst.enemyGroup);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
 
     @Override
     public void init(CombatEngineAPI engine) {
+        if (pendingSummaryInstance != null && pendingSummaryInstance.engine != engine) {
+            flushPendingBattleSummaryIfNeeded();
+        }
         this.engine = engine;
         this.initializedBattle = false;
         this.lastConvStateSyncShipsCount = -1;
@@ -400,6 +427,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
             tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
             initializedBattle = true;
+            pendingSummaryInstance = this;
             if (DivisionAISettings.isDebugLoggingEnabled()) {
                 LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, plays=%s",
                         playerGroup.authority.shortName, playerGroup.plays));
@@ -430,6 +458,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (engine.isCombatOver()) {
             if (!loggedBattleSummary) {
                 loggedBattleSummary = true;
+                if (pendingSummaryInstance == this) {
+                    pendingSummaryInstance = null;
+                }
                 logBattleSummary(engine, playerGroup, enemyGroup);
             }
             if (!engine.isPaused()) {

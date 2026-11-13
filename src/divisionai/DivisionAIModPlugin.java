@@ -50,6 +50,7 @@ public class DivisionAIModPlugin extends BaseModPlugin {
 
     @Override
     public void beforeGameSave() {
+        DivisionAICombatPlugin.flushPendingBattleSummaryIfNeeded();
         SectorAPI sector = Global.getSector();
         if (sector != null) {
             DivisionNomenclature.sanitizePersistentNamingData(sector);

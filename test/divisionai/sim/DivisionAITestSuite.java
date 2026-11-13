@@ -85,6 +85,7 @@ public class DivisionAITestSuite {
         testPirateHordeC2AndVoidstrikeLifecycle();
         testBattle2StrikecraftAndMultiCarrierFixes();
         testDecoupledHullAndStrikeCraftMissions();
+        testCampaignLogPolishAndC2Hygiene();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -4161,6 +4162,118 @@ public class DivisionAITestSuite {
                         ddHullBrawlsAndSquadronCapsOk, step1HullIntent, step1ScIntent, step1ScFriendly != null ? step1ScFriendly.id : "null", step1HasCft,
                         ddAndCvMergedAlphaStrikeOk, step2DdHullIntent, step2DdScIntent, step2CvIntent, mergedAlphaVs.size(), step2DivIds,
                         battlecarrierDualMissionOk, fleetCvDiv.currentIntent, fleetCvDiv.currentStrikeCraftIntent, fleetCvDiv.stationPoint.y));
+    }
+
+    private static void testCampaignLogPolishAndC2Hygiene() {
+        System.out.println("\n--- Scenario 12: Convoy General Chase, No 1-Frigate Setpiece Spam, Steady Anvil, Deduplicated Chatter & Sortie Numbering ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+        pGroup.authority = divisionai.PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION;
+
+        DivisionState mainDiv = new DivisionState("c12_main", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div 1", pCmdr);
+        DivisionState loneFrig = new DivisionState("c12_frig", 0, 1, DivisionArchetype.MISSILE_FRIGATE_DIVISION, "Frigate Div 4", pCmdr);
+        pGroup.divisions.add(mainDiv);
+        pGroup.divisions.add(loneFrig);
+
+        DivisionState enemyService = new DivisionState("c12_svc", 1, 1, DivisionArchetype.SERVICE_GROUP, "Service Group 11", eCmdr);
+        eGroup.divisions.add(enemyService);
+
+        SimArena arena = new SimArena("Scenario 12: Campaign C2 Hygiene", "Convoy chase + Setpiece mass + Anvil steady + Chatter dedup", pGroup, eGroup);
+        arena.addShip(mainDiv, "c12_mc1", "HSS Eagle", "eagle", HullSize.CRUISER, 0f, -800f, 85f, 1100f, 0, 0);
+        arena.addShip(mainDiv, "c12_mc2", "HSS Champion", "champion", HullSize.CRUISER, 220f, -820f, 75f, 1100f, 0, 0);
+        arena.addShip(loneFrig, "c12_f1", "HSS Vigilance 1", "vigilance", HullSize.FRIGATE, -320f, -600f, 135f, 800f, 4, 0);
+        arena.addShip(loneFrig, "c12_f2", "HSS Vigilance 2", "vigilance", HullSize.FRIGATE, -420f, -620f, 135f, 800f, 4, 0);
+        arena.addShip(enemyService, "c12_s1", "HSS Phaeton", "phaeton", HullSize.DESTROYER, 0f, 1100f, 80f, 400f, 0, 0);
+        arena.addShip(enemyService, "c12_s2", "HSS Colossus", "colossus", HullSize.CRUISER, 220f, 1150f, 60f, 400f, 0, 0);
+
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(mainDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(loneFrig);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyService);
+        pGroup.phaseEnteredTime = -100f;
+
+        // 1. Against civilian Service Group 11: fleet enters GENERAL_CHASE and NEVER creates a marshaling Setpiece!
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, pGroup);
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, eGroup);
+        divisionai.OtcAI.evaluateOtcStrategy(arena.engineProxy, pGroup, eGroup, 30.0f);
+        boolean convoyChaseNoSetpieceOk = (pGroup.currentPhase == divisionai.DivisionModel.BattlePhase.GENERAL_CHASE)
+                && (pGroup.strikePlan == null);
+
+        // 2. Replace enemy with an intact combat Cruiser division: lone 2-frigate Missile Frigate pack (< 20 FP)
+        //    must NOT trigger a 1-division Fleet Setpiece!
+        eGroup.divisions.clear();
+        DivisionState enemyCombat = new DivisionState("c12_ec", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Cruiser Div 1", eCmdr);
+        eGroup.divisions.add(enemyCombat);
+        arena.addShip(enemyCombat, "c12_ec1", "PLS Eagle 1", "eagle", HullSize.CRUISER, 0f, 950f, 80f, 1100f, 0, 0);
+        arena.addShip(enemyCombat, "c12_ec2", "PLS Eagle 2", "eagle", HullSize.CRUISER, 240f, 980f, 80f, 1100f, 0, 0);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyCombat);
+        pGroup.lastStrikePlanEndTime = -100f;
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, pGroup);
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, eGroup);
+        divisionai.OtcAI.evaluateOtcStrategy(arena.engineProxy, pGroup, eGroup, 75.0f);
+        boolean noLoneFrigateSetpieceSpamOk = (pGroup.strikePlan == null);
+
+        // 3. Add a Missile Destroyer division (2 divisions striking together -> true Hammer & Anvil Setpiece!):
+        //    Verify Main Effort holds steady on FORM_LINE against intact enemy, and presses home on EXECUTE_STRIKE once enemy breaks!
+        DivisionState ddStrike = new DivisionState("c12_dd", 0, 1, DivisionArchetype.MISSILE_DESTROYER_DIVISION, "Destroyer Div 1", pCmdr);
+        pGroup.divisions.add(ddStrike);
+        arena.addShip(ddStrike, "c12_dd1", "HSS Hammerhead 1", "hammerhead", HullSize.DESTROYER, -500f, -750f, 95f, 900f, 6, 0);
+        arena.addShip(ddStrike, "c12_dd2", "HSS Hammerhead 2", "hammerhead", HullSize.DESTROYER, -650f, -780f, 95f, 900f, 6, 0);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(ddStrike);
+        pGroup.lastStrikePlanEndTime = -100f;
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, pGroup);
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, eGroup);
+        divisionai.OtcAI.evaluateOtcStrategy(arena.engineProxy, pGroup, eGroup, 120.0f);
+        if (pGroup.strikePlan != null && !pGroup.strikePlan.committed) {
+            pGroup.strikePlan.committed = true;
+            pGroup.strikePlan.commitTime = 121.0f;
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 121.5f);
+        }
+        boolean anvilSteadyWhenEnemyIntactOk = (pGroup.strikePlan != null)
+                && (mainDiv.otcOrder.type == divisionai.DivisionModel.OtcOrderType.FORM_LINE);
+        enemyCombat.avgFluxLevel = 0.72f; // Enemy line breaking under high flux!
+        divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 123.0f);
+        boolean anvilSurgesWhenEnemyBreaksOk = (mainDiv.otcOrder.type == divisionai.DivisionModel.OtcOrderType.EXECUTE_STRIKE);
+
+        // 4. Verify unchanged (intent, target) does NOT re-emit duplicate log lines at +30s, while target change DOES log!
+        Boolean prevDbg = divisionai.DivisionAISettings.testDebugLoggingEnabledOverride;
+        divisionai.DivisionAISettings.testDebugLoggingEnabledOverride = Boolean.TRUE;
+        List<String> sink = new ArrayList<>();
+        divisionai.DivisionCombatLog.simLogSink = sink;
+        mainDiv.currentIntent = DivisionIntentType.FORM_LINE_AND_FIX;
+        mainDiv.lastLoggedSignature = "";
+        mainDiv.lastLogAnnouncementTime = -100f;
+        divisionai.DivisionCombatLog.logDivisionIntent(arena.engineProxy, mainDiv, "Enemy Cruiser Div 1", "OTC: hold the line", 10.0f);
+        divisionai.DivisionCombatLog.logDivisionIntent(arena.engineProxy, mainDiv, "Enemy Cruiser Div 1", "OTC: hold the line", 42.0f);
+        int countAfterDup = sink.size();
+        divisionai.DivisionCombatLog.logDivisionIntent(arena.engineProxy, mainDiv, "Enemy Cruiser Div 2", "OTC: hold the line", 48.0f);
+        int countAfterNewTarget = sink.size();
+        divisionai.DivisionCombatLog.simLogSink = null;
+        divisionai.DivisionAISettings.testDebugLoggingEnabledOverride = prevDbg;
+        boolean chatterDedupOk = (countAfterDup == 1 && countAfterNewTarget == 2);
+
+        // 5. Verify uncommitted transient VoidstrikeRecord reclaims its sortie number (no 1 -> 3 skip)!
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        int claimed1 = divisionai.VoidstrikeCoordinator.claimSortieNumber(null, null, 0);
+        divisionai.VoidstrikeCoordinator.VoidstrikeRecord transientRec =
+                new divisionai.VoidstrikeCoordinator.VoidstrikeRecord(0, claimed1, "DIV:c12_ec");
+        divisionai.VoidstrikeCoordinator.reclaimUncommittedSortieNumber(transientRec, null, null);
+        int nextAfterReclaim = divisionai.VoidstrikeCoordinator.claimSortieNumber(null, null, 0);
+        boolean sortieReclaimNoSkipOk = (claimed1 == 1 && nextAfterReclaim == 1);
+
+        check(convoyChaseNoSetpieceOk
+                        && noLoneFrigateSetpieceSpamOk
+                        && anvilSteadyWhenEnemyIntactOk
+                        && anvilSurgesWhenEnemyBreaksOk
+                        && chatterDedupOk
+                        && sortieReclaimNoSkipOk,
+                "Campaign Log Polish & C2 Hygiene: Civilian convoy General Chase, no 1-frigate Setpiece spam, steady Anvil line, deduplicated chatter, and gap-free Voidstrike numbering",
+                String.format(Locale.ROOT, "convoyChase=%b, no1FrigSpam=%b, anvilSteady=%b, anvilSurge=%b, dedup=%b (%d->%d), noSkip=%b (%d->%d)",
+                        convoyChaseNoSetpieceOk, noLoneFrigateSetpieceSpamOk,
+                        anvilSteadyWhenEnemyIntactOk, anvilSurgesWhenEnemyBreaksOk,
+                        chatterDedupOk, countAfterDup, countAfterNewTarget,
+                        sortieReclaimNoSkipOk, claimed1, nextAfterReclaim));
     }
 
     private static float dist(Vector2f a, Vector2f b) {
