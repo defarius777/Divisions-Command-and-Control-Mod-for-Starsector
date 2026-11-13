@@ -6,16 +6,10 @@
 	"version": {
 		"major": "1",
 		"minor": "1",
-		"patch": "2a"
+		"patch": "2b"
 	},
 	"description": "A Combat AI overhaul for Starsector.",
 	"gameVersion": "0.98.5a-RC5",
-	"dependencies": [
-		{
-			"id": "lw_lazylib",
-			"name": "LazyLib"
-		}
-	],
 	"jars": [ "jars/DivisionAI.jar" ],
 	"modPlugin": "divisionai.DivisionAIModPlugin"
 }

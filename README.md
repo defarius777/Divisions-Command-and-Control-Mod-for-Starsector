@@ -1,6 +1,6 @@
-# Divisions: Command and Control (`division_ai` v1.1.2a)
+# Divisions: Command and Control (`division_ai` v1.1.2b)
 
-[![Install with TriOS](https://trilink.wispborne.com/badges/install-badge-forthebadge.svg)](https://trilink.wispborne.com/open.html?mod=%7B%22url%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fdefarius777%2FDivisions-Command-and-Control-Mod-for-Starsector%2Fmain%2Fmod%2Fdivision_ai.version%22%2C%22id%22%3A%22division_ai%22%7D&dep=%7B%22url%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2FLazyWizard%2Flazylib%2Fmaster%2Fmod%2Flazylib.version%22%2C%22id%22%3A%22lw_lazylib%22%7D)
+[![Install with TriOS](https://trilink.wispborne.com/badges/install-badge-forthebadge.svg)](https://trilink.wispborne.com/open.html?mod=%7B%22url%22%3A%22https%3A%2F%2Fraw.githubusercontent.com%2Fdefarius777%2FDivisions-Command-and-Control-Mod-for-Starsector%2Fmain%2Fmod%2Fdivision_ai.version%22%2C%22id%22%3A%22division_ai%22%7D)
 
 A two-tier naval Command & Control (C2) combat overhaul, campaign Fleet Organization & Fleet Doctrine system, Tactical Map Warroom (`Tab`) visualizer, and dynamic battle music controller for **Starsector `0.98.5a-RC5`** (backward-compatible with `0.98a-RC8`).
 
@@ -37,12 +37,11 @@ In vanilla Starsector, every ship fights for itself inside a small `1500–2200`
 ---
 
 ### Step 1: How to Install (or Update)
-- **One-Click Install via TriOS (1.6.0+):** Click the **Install with TriOS** badge above — it automatically installs or updates **Divisions: Command and Control** and its **LazyLib** dependency.
+- **One-Click Install via TriOS (1.6.0+):** Click the **Install with TriOS** badge above — it automatically installs or updates **Divisions: Command and Control** (zero required dependencies).
 - **Manual Install:**
-  1. Make sure you have **LazyLib** installed and enabled. (**LunaLib** is optional if you want an in-game settings menu).
-  2. Download `DivisionAI.zip` from the [Latest Release](https://github.com/defarius777/Divisions-Command-and-Control-Mod-for-Starsector/releases/latest) page.
-  3. Extract the `DivisionAI` folder into your `Starsector/mods/` directory so that `Starsector/mods/DivisionAI/mod_info.json` exists.
-  4. Check the box next to **Divisions: Command and Control** in the Starsector launcher and launch the game.
+  1. Download `DivisionAI.zip` from the [Latest Release](https://github.com/defarius777/Divisions-Command-and-Control-Mod-for-Starsector/releases/latest) page. (**LunaLib** is optional if you want an in-game settings menu; no other mods are required.)
+  2. Extract the `DivisionAI` folder into your `Starsector/mods/` directory so that `Starsector/mods/DivisionAI/mod_info.json` exists.
+  3. Check the box next to **Divisions: Command and Control** in the Starsector launcher and launch the game.
 
 ---
 

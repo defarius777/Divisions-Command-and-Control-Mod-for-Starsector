@@ -2950,7 +2950,6 @@ public class DivisionAITestSuite {
             for (File pj : platJars) {
                 urls.add(pj.toURI().toURL());
             }
-            urls.add(new File("lib/LazyLib.jar").toURI().toURL());
             urls.add(new File("lib/LunaLib.jar").toURI().toURL());
             try (java.net.URLClassLoader platEngineLoader = new java.net.URLClassLoader(
                     urls.toArray(new java.net.URL[0]), ClassLoader.getPlatformClassLoader())) {

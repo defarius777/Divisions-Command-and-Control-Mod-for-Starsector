@@ -20,7 +20,7 @@ if [ -n "$STARSECTOR_CORE" ] && [ -d "$STARSECTOR_CORE" ]; then
     EXTRA_CP=";$STARSECTOR_CORE;$STARSECTOR_CORE/*"
     LIB_PATH_ARG="-Djava.library.path=$STARSECTOR_CORE/native/windows"
 fi
-CP="build;build/DivisionAI.jar;mod/jars/DivisionAI.jar;lib/starfarer.api.jar;lib/log4j-1.2.9.jar;lib/LazyLib.jar;lib/lwjgl.jar;lib/lwjgl_util.jar;lib/LunaLib.jar${EXTRA_CP}"
+CP="build;build/DivisionAI.jar;mod/jars/DivisionAI.jar;lib/starfarer.api.jar;lib/log4j-1.2.9.jar;lib/lwjgl.jar;lib/lwjgl_util.jar;lib/LunaLib.jar${EXTRA_CP}"
 
 mkdir -p build/test-classes
 "$JDK/javac.exe" -encoding UTF-8 --add-exports java.base/jdk.internal.reflect=ALL-UNNAMED -cp "$CP" -d build/test-classes test/divisionai/sim/*.java

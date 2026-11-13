@@ -4,6 +4,14 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.1.2b] — 2026-11-13 (Starsector `0.98.5a-RC5`)
+
+### Changed
+- **Removed Unused `LazyLib` (`lw_lazylib`) Dependency (Zero Required Dependencies):**
+  - Removed the leftover `lw_lazylib` dependency block from `mod/mod_info.json`, build/test classpaths, `README.md`, and the TriOS TriLink badge URL so **Divisions: Command and Control** runs 100% standalone out of the box on vanilla `0.98.5a-RC5` without requiring `LazyLib` (`LunaLib` remains optional for in-game Mod Settings).
+
+---
+
 ## [v1.1.2a] — 2026-11-13 (Starsector `0.98.5a-RC5`)
 
 ### Compatibility & Added
