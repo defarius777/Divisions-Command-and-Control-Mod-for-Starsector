@@ -2933,13 +2933,19 @@ public class DivisionAITestSuite {
                 String.format(Locale.ROOT, "readClassInfo=%b, deployHandles=%b, combatHandles=%b, settingsHandles=%b",
                         csInfo != null, deployOk, combatOk, settingsOk));
 
-        // Verify all 7 obfuscated handle bridges against the REAL macOS and Linux Starsector 0.98.5a-RC5 JARs
-        // inside each platform's own ScriptClassLoader sandbox.
-        String[][] platformDirs = new String[][]{
-                {"macOS", "[!] Starsector for Mac/Starsector.app/Contents/Resources/Java", "com.fs.starfarer.loading.scripts.OoOO"},
-                {"Linux", "[!] Starsector for Linux/starsector", "com.fs.starfarer.loading.scripts.new"}
-        };
-        for (String[] platEntry : platformDirs) {
+        // Verify all 7 obfuscated handle bridges against REAL cross-platform / cross-version Starsector JARs
+        // (macOS 0.98.5a-RC5, Linux 0.98.5a-RC5, and Windows 0.98a-RC8 if configured via lib/starsector_rc8_core_path.txt)
+        List<String[]> platformEntries = new ArrayList<>();
+        platformEntries.add(new String[]{"macOS 0.98.5a-RC5", "[!] Starsector for Mac/Starsector.app/Contents/Resources/Java", "com.fs.starfarer.loading.scripts.OoOO"});
+        platformEntries.add(new String[]{"Linux 0.98.5a-RC5", "[!] Starsector for Linux/starsector", "com.fs.starfarer.loading.scripts.new"});
+        File rc8Cfg = new File("lib/starsector_rc8_core_path.txt");
+        if (rc8Cfg.isFile()) {
+            String rc8Path = java.nio.file.Files.readString(rc8Cfg.toPath(), StandardCharsets.UTF_8).trim();
+            if (!rc8Path.isEmpty()) {
+                platformEntries.add(new String[]{"Windows 0.98a-RC8", rc8Path, "com.fs.starfarer.loading.scripts.B"});
+            }
+        }
+        for (String[] platEntry : platformEntries) {
             String platName = platEntry[0];
             File platDir = new File(platEntry[1]);
             String legacyScriptClName = platEntry[2];
@@ -3000,7 +3006,7 @@ public class DivisionAITestSuite {
                     boolean pSettings = (Boolean) Class.forName("divisionai.DivisionAISettings", true, platModLoader)
                             .getMethod("verifySettingsObfuscatedHandles", ClassLoader.class).invoke(null, platModLoader);
                     check(pDeploy && pCombat && pWarroom && pCampaign && pFleetTab && pAudio && pSettings,
-                            "Real " + platName + " Starsector 0.98.5a-RC5 JARs + ScriptClassLoader sandbox resolve all 7 obfuscated MethodHandle bridges",
+                            "Real " + platName + " JARs + ScriptClassLoader sandbox resolve all 7 obfuscated MethodHandle bridges",
                             String.format(Locale.ROOT, "deploy=%b, combat=%b, warroom=%b, campaignTooltip=%b, fleetTab=%b, audio=%b, settings=%b",
                                     pDeploy, pCombat, pWarroom, pCampaign, pFleetTab, pAudio, pSettings));
                 }
