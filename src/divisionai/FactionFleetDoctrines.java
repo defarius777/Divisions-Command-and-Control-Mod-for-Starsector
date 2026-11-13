@@ -1950,7 +1950,9 @@ public final class FactionFleetDoctrines {
                 rec.unitNumber = (uNum instanceof Number) ? ((Number) uNum).intValue() : 1;
                 Object uSeed = m.get("unitSeed");
                 rec.unitSeed = (uSeed instanceof Number) ? ((Number) uSeed).longValue() : 0L;
-                rec.divisionName = (String) m.get("divisionName");
+                rec.divisionName = DivisionNomenclature.migrateLegacyDivisionName(
+                        (String) m.get("divisionName"),
+                        rec.archetype);
                 rec.assignedFleetId = (String) m.get("assignedFleetId");
                 rec.heldByStoryFleet = Boolean.TRUE.equals(m.get("heldByStoryFleet"));
                 rec.active = Boolean.TRUE.equals(m.get("active"));

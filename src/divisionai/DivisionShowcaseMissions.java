@@ -761,7 +761,7 @@ public final class DivisionShowcaseMissions {
                 // 6 Cruiser+ Carrier Hulls (6x Heron) across 2 Carrier Divisions + 20 Frigates across 4 Divisions
                 list.add(new BakedDivisionTemplate(
                         "battle_1",
-                        "Battle Div. I",
+                        "Battle Phalanx I",
                         DivisionArchetype.BATTLESHIP_DIVISION,
                         DivisionFormation.LINE_AHEAD,
                         DivisionMissionType.STANDOFF_ENGAGEMENT,
@@ -775,7 +775,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "carrier_1",
-                        "Light Carrier Div. I",
+                        "Light Carrier Mora I",
                         DivisionArchetype.LIGHT_CARRIER_DIVISION,
                         DivisionFormation.LINE_ABREAST,
                         DivisionMissionType.ALPHA_STRIKE,
@@ -799,7 +799,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "carrier_2",
-                        "Light Carrier Div. II",
+                        "Light Carrier Mora II",
                         DivisionArchetype.LIGHT_CARRIER_DIVISION,
                         DivisionFormation.ECHELON_LEFT,
                         DivisionMissionType.ALPHA_STRIKE,
@@ -823,7 +823,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "cruiser_1",
-                        "Cruiser Div. I",
+                        "Cruiser Mora I",
                         DivisionArchetype.CRUISER_DIVISION,
                         DivisionFormation.FORWARD_WEDGE,
                         DivisionMissionType.STANDOFF_ENGAGEMENT,
@@ -839,7 +839,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "destroyer_1",
-                        "Destroyer Div. I",
+                        "Destroyer Lochos I",
                         DivisionArchetype.DESTROYER_DIVISION,
                         DivisionFormation.LINE_ABREAST,
                         DivisionMissionType.SCREEN,
@@ -856,7 +856,7 @@ public final class DivisionShowcaseMissions {
                 // 20 Frigates split into 4 Persean League Doctrinal Divisions (5 hulls per division)
                 list.add(new BakedDivisionTemplate(
                         "frigate_1",
-                        "Frigate Div. I",
+                        "Frigate Screen I",
                         DivisionArchetype.FRIGATE_DIVISION,
                         DivisionFormation.LINE_ABREAST,
                         DivisionMissionType.SCREEN,
@@ -876,7 +876,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "frigate_2",
-                        "Frigate Div. II",
+                        "Frigate Screen II",
                         DivisionArchetype.FRIGATE_DIVISION,
                         DivisionFormation.LINE_ABREAST,
                         DivisionMissionType.SCREEN,
@@ -896,7 +896,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "missile_frigate_1",
-                        "Missile Frigate Div. I",
+                        "Missile Frigate Screen I",
                         DivisionArchetype.MISSILE_FRIGATE_DIVISION,
                         DivisionFormation.LINE_ABREAST,
                         DivisionMissionType.STANDOFF_ENGAGEMENT,
@@ -916,7 +916,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "missile_frigate_2",
-                        "Missile Frigate Div. II",
+                        "Missile Frigate Screen II",
                         DivisionArchetype.MISSILE_FRIGATE_DIVISION,
                         DivisionFormation.ECHELON_RIGHT,
                         DivisionMissionType.STANDOFF_ENGAGEMENT,
@@ -940,7 +940,7 @@ public final class DivisionShowcaseMissions {
                 // 6 Cruiser+ Carrier Hulls (1x Astral, 1x Odyssey, 2x Heron, 2x Anubis) across 2 Carrier Divisions + 20 Frigates across 4 Divisions
                 list.add(new BakedDivisionTemplate(
                         "battle_1",
-                        "Asset Protection Div. 1",
+                        "Capital Asset Group Alpha",
                         DivisionArchetype.BATTLESHIP_DIVISION,
                         DivisionFormation.FORWARD_WEDGE,
                         DivisionMissionType.STANDOFF_ENGAGEMENT,
@@ -954,7 +954,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "carrier_1",
-                        "Fleet Carrier Div. 1",
+                        "Heavy Flight Group Alpha",
                         DivisionArchetype.FLEET_CARRIER_DIVISION,
                         DivisionFormation.LINE_ABREAST,
                         DivisionMissionType.ALPHA_STRIKE,
@@ -978,7 +978,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "carrier_2",
-                        "Light Carrier Div. 2",
+                        "Light Flight Group Beta",
                         DivisionArchetype.LIGHT_CARRIER_DIVISION,
                         DivisionFormation.ECHELON_RIGHT,
                         DivisionMissionType.ALPHA_STRIKE,
@@ -993,7 +993,7 @@ public final class DivisionShowcaseMissions {
                         new ShipSpecEntry("heron_Strike", "Market Correction", false, true,
                                 "Aris", "Thorne", "graphics/portraits/portrait_corporate05.png", "steady", 5, null, false,
                                 "dagger_wing", "dagger_wing", "longbow_wing"),
-                        new ShipSpecEntry("anubis_Standard", "Synergistic Alpha", false, false,
+                        new ShipSpecEntry("anubis_Standard", "Starlight Vector", false, false,
                                 null, null, null, null, 0, null, true,
                                 "dagger_wing", "xyphos_wing"),
                         new ShipSpecEntry("anubis_Standard", "Golden Parachute", false, false,
@@ -1002,7 +1002,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "cruiser_1",
-                        "Strike Cruiser Div. 1",
+                        "Strike Cruiser Unit Alpha",
                         DivisionArchetype.STRIKE_CRUISER_DIVISION,
                         DivisionFormation.FORWARD_WEDGE,
                         DivisionMissionType.ENVELOPMENT,
@@ -1014,7 +1014,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "destroyer_1",
-                        "Destroyer Div. 1",
+                        "Destroyer Security Unit Alpha",
                         DivisionArchetype.DESTROYER_DIVISION,
                         DivisionFormation.LINE_ABREAST,
                         DivisionMissionType.SCREEN,
@@ -1031,7 +1031,7 @@ public final class DivisionShowcaseMissions {
                 // 20 Frigates split into 4 Tri-Tachyon Doctrinal Divisions (5 hulls per division)
                 list.add(new BakedDivisionTemplate(
                         "frigate_1",
-                        "Frigate Div. 1",
+                        "Frigate Picket Unit Alpha",
                         DivisionArchetype.FRIGATE_DIVISION,
                         DivisionFormation.REVERSE_SEMICIRCLE,
                         DivisionMissionType.ARMED_RECONNAISSANCE,
@@ -1040,18 +1040,18 @@ public final class DivisionShowcaseMissions {
                         null, null, null, null, null,
                         new ShipSpecEntry("scarab_Experimental", "High Frequency", false, true,
                                 "Vesper", "Cole", "graphics/portraits/portrait_corporate08.png", "aggressive", 4, null, false),
-                        new ShipSpecEntry("tempest_Attack", "Flash Crash", false, false,
+                        new ShipSpecEntry("tempest_Attack", "Rapid Closure", false, false,
                                 null, null, null, null, 0, null, false),
-                        new ShipSpecEntry("wolf_Assault", "Short Squeeze", false, false,
+                        new ShipSpecEntry("wolf_Assault", "Swift Clause", false, false,
                                 null, null, null, null, 0, null, false),
-                        new ShipSpecEntry("wolf_Strike", "Call Option", false, false,
+                        new ShipSpecEntry("wolf_Strike", "Clear Mandate", false, false,
                                 null, null, null, null, 0, null, false),
                         new ShipSpecEntry("omen_PD", "Firewall", false, false,
                                 null, null, null, null, 0, null, false)
                 ));
                 list.add(new BakedDivisionTemplate(
                         "frigate_2",
-                        "Frigate Div. 2",
+                        "Frigate Picket Unit Beta",
                         DivisionArchetype.FRIGATE_DIVISION,
                         DivisionFormation.REVERSE_SEMICIRCLE,
                         DivisionMissionType.ARMED_RECONNAISSANCE,
@@ -1071,7 +1071,7 @@ public final class DivisionShowcaseMissions {
                 ));
                 list.add(new BakedDivisionTemplate(
                         "missile_frigate_1",
-                        "Missile Frigate Div. 1",
+                        "Missile Frigate Unit Alpha",
                         DivisionArchetype.MISSILE_FRIGATE_DIVISION,
                         DivisionFormation.REVERSE_SEMICIRCLE,
                         DivisionMissionType.STANDOFF_ENGAGEMENT,
@@ -1084,14 +1084,14 @@ public final class DivisionShowcaseMissions {
                                 null, null, null, null, 0, null, false),
                         new ShipSpecEntry("wolf_Strike", "Stop Loss", false, false,
                                 null, null, null, null, 0, null, false),
-                        new ShipSpecEntry("wolf_Strike", "Put Option", false, false,
+                        new ShipSpecEntry("wolf_Strike", "Null Clause", false, false,
                                 null, null, null, null, 0, null, false),
                         new ShipSpecEntry("brawler_tritachyon_Standard", "Liquidator", false, false,
                                 null, null, null, null, 0, null, false)
                 ));
                 list.add(new BakedDivisionTemplate(
                         "phase_frigate_1",
-                        "Phase Div. 1",
+                        "Special Phase Unit Alpha",
                         DivisionArchetype.PHASE_DIVISION,
                         DivisionFormation.LINE_ABREAST,
                         DivisionMissionType.ARMED_RECONNAISSANCE,

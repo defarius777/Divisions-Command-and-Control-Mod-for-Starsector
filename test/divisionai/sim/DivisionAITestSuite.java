@@ -86,6 +86,7 @@ public class DivisionAITestSuite {
         testBattle2StrikecraftAndMultiCarrierFixes();
         testDecoupledHullAndStrikeCraftMissions();
         testCampaignLogPolishAndC2Hygiene();
+        testMilitaryFirstNomenclatureSweep();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -497,7 +498,7 @@ public class DivisionAITestSuite {
         CommanderProfile hegCmdr = new CommanderProfile(null, "steady");
         BattleGroupState lpGroup = new BattleGroupState(1, lpCmdr);
         BattleGroupState hegGroup = new BattleGroupState(0, hegCmdr);
-        DivisionState lpDiv = new DivisionState("lp_1", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Martyr Host I", lpCmdr);
+        DivisionState lpDiv = new DivisionState("lp_1", 1, 1, DivisionArchetype.CRUISER_DIVISION, "1st Assault Cell", lpCmdr);
         lpDiv.openingMission = DivisionMissionType.MARTYRDOM;
         lpDiv.mainMission = DivisionMissionType.MARTYRDOM;
         lpDiv.standoffRange = 400f;
@@ -511,7 +512,7 @@ public class DivisionAITestSuite {
                 "Luddic Path Martyrdom division charges point-blank into Enemy Battle Div. I without backing off or hauling out to vent at 82% flux.",
                 hegGroup,
                 lpGroup);
-        SimShipState v1 = lpArena.addShip(lpDiv, "lp1", "Blessed Prometheus", "prometheus2", HullSize.CAPITAL_SHIP, 0f, 950f, 90f, 700f, 2, 0);
+        SimShipState v1 = lpArena.addShip(lpDiv, "lp1", "LPS Prometheus", "prometheus2", HullSize.CAPITAL_SHIP, 0f, 950f, 90f, 700f, 2, 0);
         SimShipState v2 = lpArena.addShip(lpDiv, "lp2", "Blessed Eradicator", "eradicator", HullSize.CRUISER, 120f, 980f, 110f, 800f, 2, 0);
         lpArena.addShip(hegDiv, "h1", "HSS Onslaught", "Onslaught", HullSize.CAPITAL_SHIP, 0f, 0f, 55f, 1300f, 0, 0);
         v1.fluxLevel = 0.82f;
@@ -4274,6 +4275,106 @@ public class DivisionAITestSuite {
                         anvilSteadyWhenEnemyIntactOk, anvilSurgesWhenEnemyBreaksOk,
                         chatterDedupOk, countAfterDup, countAfterNewTarget,
                         sortieReclaimNoSkipOk, claimed1, nextAfterReclaim));
+    }
+
+    private static void testMilitaryFirstNomenclatureSweep() {
+        System.out.println("\n--- Scenario 13: Military-First Nomenclature Sweep & Legacy Save Migration ---");
+
+        String[] bannedSubstrings = {
+                "hallowed", "brimstone", "righteous hammer", "pillar of judgment",
+                "zealot", "censer", "penitent veil", "duskborne", "reliquary",
+                "crusader", "ark carrier host", "ark convoy host", "sword flotilla",
+                "slinger flotilla", "cataphract phalanx", "ballista mora", "toxotes",
+                "krypteia", "hipparchy", "lion's wrath", "thunderbolt phalanx",
+                "boom-runner", "bottle-rocket", "loot train", "bakery", "grain & trade"
+        };
+
+        List<String> violations = new ArrayList<>();
+
+        // 1. Check all player-selectable presets across all 16 archetypes
+        for (DivisionNomenclature.PlayerNamingPreset p : DivisionNomenclature.PlayerNamingPreset.getPlayerSelectablePresets()) {
+            String summaryLower = p.summary.toLowerCase(Locale.ROOT);
+            for (String banned : bannedSubstrings) {
+                if (summaryLower.contains(banned)) {
+                    violations.add("presetSummary:" + p.name() + ":" + p.summary);
+                }
+            }
+            for (DivisionArchetype arch : DivisionArchetype.values()) {
+                String pref = DivisionNomenclature.getDefaultPrefixForPreset(p, arch);
+                String prefLower = pref.toLowerCase(Locale.ROOT);
+                for (String banned : bannedSubstrings) {
+                    if (prefLower.contains(banned)) {
+                        violations.add("preset:" + p.name() + ":" + arch.name() + "->" + pref);
+                    }
+                }
+            }
+        }
+
+        // 2. Check all major vanilla & modded factions across war, merchant, smuggler, and scavenger roles
+        String[] factionsToAudit = {
+                "hegemony", "ironshell", "tritachyon", "persean", "sindrian_diktat", "lions_guard",
+                "luddic_church", "knights_of_ludd", "luddic_path", "pirates", "independent",
+                "mercenary", "uaf", "interstellarimperium", "ii_imperial_guard",
+                "tahlan_legioinfernalis", "armaarmatura", "vic"
+        };
+        divisionai.FactionLibrary.FleetRoleCategory[] rolesToAudit = {
+                divisionai.FactionLibrary.FleetRoleCategory.WAR_FLEET,
+                divisionai.FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY,
+                divisionai.FactionLibrary.FleetRoleCategory.SMUGGLER_RAIDER,
+                divisionai.FactionLibrary.FleetRoleCategory.SCAVENGER_EXPEDITION
+        };
+        for (String fId : factionsToAudit) {
+            for (divisionai.FactionLibrary.FleetRoleCategory role : rolesToAudit) {
+                for (DivisionArchetype arch : DivisionArchetype.values()) {
+                    String formatted = DivisionNomenclature.formatFactionDivisionName(
+                            fId, NomenclatureCategory.HUMAN_NAVAL, arch, 1, null, 7919L, role);
+                    String lower = formatted.toLowerCase(Locale.ROOT);
+                    for (String banned : bannedSubstrings) {
+                        if (lower.contains(banned)) {
+                            violations.add("faction:" + fId + ":" + role.name() + ":" + arch.name() + "->" + formatted);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Verify explicit grounded Luddic, Knights, Tri-Tachyon, Diktat, and UAF outputs + save migration
+        String cgrBattle = DivisionNomenclature.formatFactionDivisionName(
+                "luddic_church", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.BATTLESHIP_DIVISION, 1, null, 0L);
+        String cgrCruiser = DivisionNomenclature.formatFactionDivisionName(
+                "luddic_church", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.CRUISER_DIVISION, 1, null, 0L);
+        String kolBattle = DivisionNomenclature.formatFactionDivisionName(
+                "knights_of_ludd", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.BATTLESHIP_DIVISION, 1, null, 0L);
+        String ttCarrier = DivisionNomenclature.formatFactionDivisionName(
+                "tritachyon", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.FLEET_CARRIER_DIVISION, 1, null, 0L);
+        String diktatCruiser = DivisionNomenclature.formatFactionDivisionName(
+                "sindrian_diktat", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.CRUISER_DIVISION, 1, null, 0L);
+        String uafConvoy = DivisionNomenclature.formatFactionDivisionName(
+                "uaf", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.SERVICE_GROUP, 1, null, 0L,
+                divisionai.FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY);
+
+        boolean factionOutputsOk = "Armada Battle Line I".equals(cgrBattle)
+                && "Warden Cruiser Squadron I".equals(cgrCruiser)
+                && "Knight Battle Line I".equals(kolBattle)
+                && "Heavy Flight Group Alpha".equals(ttCarrier)
+                && "State Cruiser Squadron 1".equals(diktatCruiser)
+                && "Auroran Trade Convoy 1".equals(uafConvoy);
+
+        boolean migrationOk = "Armada Battle Line I".equals(
+                DivisionNomenclature.migrateLegacyDivisionName("Hallowed Bastion I", DivisionArchetype.BATTLESHIP_DIVISION))
+                && "Warden Cruiser Squadron II".equals(
+                DivisionNomenclature.migrateLegacyDivisionName("Righteous Hammer II", DivisionArchetype.CRUISER_DIVISION))
+                && "Auxiliary Phase Picket I".equals(
+                DivisionNomenclature.migrateLegacyDivisionName("Penitent Veil I", DivisionArchetype.PHASE_DIVISION))
+                && "1st Missile Frigate Pack".equals(
+                DivisionNomenclature.migrateLegacyDivisionName("1st Bottle-Rocket Pack", DivisionArchetype.MISSILE_FRIGATE_DIVISION))
+                && "Task Force Chimera".equals(
+                DivisionNomenclature.migrateLegacyDivisionName("Task Force Chimera", DivisionArchetype.CRUISER_DIVISION));
+
+        check(violations.isEmpty() && factionOutputsOk && migrationOk,
+                "Scenario 13: All player presets & faction libraries enforce military-first nomenclature and migrate legacy saves cleanly",
+                String.format(Locale.ROOT, "violations=%s, cgr='%s'/'%s', kol='%s', tt='%s', diktat='%s', uaf='%s', migration=%s",
+                        violations, cgrBattle, cgrCruiser, kolBattle, ttCarrier, diktatCruiser, uafConvoy, migrationOk));
     }
 
     private static float dist(Vector2f a, Vector2f b) {

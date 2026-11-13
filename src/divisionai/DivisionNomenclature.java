@@ -113,38 +113,38 @@ public final class DivisionNomenclature {
                 true),
         TRITACHYON_CORPORATE(
                 "Tri-Tachyon Corporate",
-                "Capital Asset Group, Flight Group, Assurance Unit, Special Affairs.",
+                "Capital Asset Group, Flight Group, Cruiser Security Unit, Special Phase Unit.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.PHONETIC,
                 "Corporate Command",
                 true),
         PERSEAN_NAVARCHY(
                 "Persean League Navarchy",
-                "Battle Phalanx, Carrier Group, Cruiser Mora, Destroyer Lochos, Peltast.",
+                "Battle Phalanx, Carrier Mora, Cruiser Mora, Destroyer Lochos, Frigate Screen.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN,
                 "Navarch Command",
                 true),
         SINDRIAN_GUARD(
                 "Sindrian Diktat / Lion's Guard",
-                "Executor Line, Solar Wing, Cruiser Phalanx, Vanguard Flotilla, Picket Guard.",
+                "Guard Battle Line, State Carrier Wing, Guard Cruiser Squadron, Destroyer Flotilla.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN,
-                "Supreme Command",
+                "Diktat Command",
                 true),
         LUDDIC_ARMADA(
                 "Luddic Armada",
-                "Hallowed Bastion, Ark Host, Righteous Hammer, Sword Flotilla, Watchers.",
+                "Armada Battle Line, Carrier Wing, Warden Cruiser Squadron, Vigil Frigate Picket.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ROMAN,
-                "Knight-Command",
+                "Luddic Command",
                 true),
         PIRATE_WOLFPACK(
                 "Pirate / Free Captain",
-                "Dreadnought Pack, Flattop Pack, Raider Pack, Hunter Pack, Wolfpack.",
+                "Capital Raider Pack, Carrier Raider Group, Cruiser Pack, Frigate Wolfpack.",
                 NomenclatureCategory.HUMAN_NAVAL,
                 NumberingStyle.ORDINAL_PREFIX,
-                "Warband Command",
+                "Raider Command",
                 true),
         REMNANT_ORDO(
                 "Remnant AI Echelons",
@@ -740,7 +740,7 @@ public final class DivisionNomenclature {
             return "Luddic Command";
         }
         if ("luddic_path".equals(fId)) {
-            return "Pather Warleader";
+            return "Pather Command";
         }
         if ("pirates".equals(fId) || "pirate_privateers".equals(fId)) {
             return hasNamedCmdr ? ("Warlord " + cmdrName) : "Pirate Warlord";
@@ -883,7 +883,129 @@ public final class DivisionNomenclature {
                 }
             }
         }
-        return false;
+        return isRetiredLegacyDefaultDivisionName(currentName);
+    }
+
+    private static final String[][] RETIRED_LEGACY_PREFIX_REPLACEMENTS = {
+            // Luddic Armada / Knights of Ludd pre-sweep prefixes -> grounded military-first CGR prefixes
+            {"Hallowed Bastion", "Armada Battle Line"},
+            {"Brimstone Bastion", "Missile Battle Line"},
+            {"Ark Carrier Host", "Armada Carrier Wing"},
+            {"Ark Convoy Host", "Convoy Carrier Wing"},
+            {"Sanctuary Carrier Host", "Sanctuary Carrier Wing"},
+            {"Righteous Hammer", "Warden Cruiser Squadron"},
+            {"Pillar of Judgment", "Missile Cruiser Squadron"},
+            {"Zealot Strike Host", "Strike Cruiser Squadron"},
+            {"Sword Flotilla", "Warden Destroyer Flotilla"},
+            {"Convoy Sword Flotilla", "Parish Escort Flotilla"},
+            {"Slinger Flotilla", "Torpedo Destroyer Flotilla"},
+            {"Watchers Picket", "Vigil Frigate Picket"},
+            {"Pilgrim Watchers", "Vigil Convoy Picket"},
+            {"Shrine Watchers", "Vigil Salvage Picket"},
+            {"Censer Missile Picket", "Vigil Missile Picket"},
+            {"Penitent Veil", "Auxiliary Phase Picket"},
+            {"Duskborne Veil Escort", "Auxiliary Recon Screen"},
+            {"Crusader Convoy Guard", "Knight Cruiser Escort"},
+            {"Reliquary Escort Flotilla", "Sanctuary Escort Flotilla"},
+            {"Pilgrim Convoy", "Parish Supply Convoy"},
+            {"Faithful Force", "Vigil Task Group"},
+            // Persean Navarchy pre-sweep prefixes
+            {"Cataphract Phalanx", "Missile Battle Phalanx"},
+            {"Navarch Carrier Group", "Fleet Carrier Mora"},
+            {"Light Carrier Lochos", "Light Carrier Mora"},
+            {"Escort Carrier Lochos", "Escort Carrier Mora"},
+            {"Ballista Mora", "Missile Cruiser Mora"},
+            {"Strike Mora", "Strike Cruiser Mora"},
+            {"Javelin Lochos", "Torpedo Destroyer Lochos"},
+            {"Frigate Peltast", "Frigate Screen"},
+            {"Toxotes Missile Peltast", "Missile Frigate Screen"},
+            {"Phase Krypteia", "Phase Recon Detachment"},
+            {"Supply Hipparchy", "League Supply Convoy"},
+            {"League Force", "League Task Group"},
+            // Sindrian Guard pre-sweep prefixes
+            {"Executor Line", "Guard Battle Line"},
+            {"Lion's Wrath Line", "Guard Missile Line"},
+            {"Solar Flight Wing", "State Carrier Wing"},
+            {"Cruiser Phalanx", "Guard Cruiser Squadron"},
+            {"Thunderbolt Phalanx", "Guard Missile Squadron"},
+            {"Solar Strike Squadron", "Strike Cruiser Squadron"},
+            {"Vanguard Flotilla", "Guard Destroyer Flotilla"},
+            {"Breaker Torpedo Flotilla", "Torpedo Destroyer Flotilla"},
+            {"Picket Guard", "Guard Frigate Picket"},
+            {"Javelin Picket Guard", "Guard Missile Picket"},
+            {"Special Guard", "Special Phase Detachment"},
+            {"Askonia Supply Train", "Askonia Supply Convoy"},
+            {"Sovereign Force", "Guard Task Group"},
+            // Tri-Tachyon Corporate pre-sweep prefixes
+            {"Stand-Off Capital Group", "Missile Capital Group"},
+            {"Astral Flight Group", "Heavy Flight Group"},
+            {"Support Flight Group", "Light Flight Group"},
+            {"Tactical Flight Group", "Escort Flight Group"},
+            {"Integrated Flight Group", "Carrier Asset Group"},
+            {"Cruiser Assurance Unit", "Cruiser Security Unit"},
+            {"Fast Response Unit", "Strike Cruiser Unit"},
+            {"Torpedo Strike Unit", "Torpedo Destroyer Unit"},
+            {"Missile Picket Unit", "Missile Frigate Unit"},
+            {"Phase Special Affairs", "Special Phase Unit"},
+            {"Task Force Asset", "Security Task Group"},
+            // Pirate / Free Captain & Domain Armada pre-sweep prefixes
+            {"Dreadnought Pack", "Capital Raider Pack"},
+            {"Siegebreaker Pack", "Heavy Missile Pack"},
+            {"Flattop Pack", "Carrier Raider Group"},
+            {"Heavy Raider Pack", "Cruiser Raider Pack"},
+            {"Salvo Raider Pack", "Missile Cruiser Pack"},
+            {"Outrider Pack", "Strike Cruiser Pack"},
+            {"Hunter Pack", "Destroyer Raider Pack"},
+            {"Boom-Runner Pack", "Torpedo Destroyer Pack"},
+            {"Bottle-Rocket Pack", "Missile Frigate Pack"},
+            {"Ghost Pack", "Phase Raider Pack"},
+            {"Loot Train", "Prize Supply Convoy"},
+            {"Raider Force", "Raider Flotilla"},
+            {"Bombard Battle Line", "Missile Battle Line"},
+            {"Strike Squadron", "Strike Cruiser Squadron"},
+            // Modded faction merchant convoys
+            {"Auroran Bakery & Trade Convoy", "Auroran Trade Convoy"},
+            {"Imperial Grain & Trade Convoy", "Imperial Trade Convoy"},
+            {"Velites Convoy Picket", "Imperial Convoy Picket"},
+            {"Speculatores Screen", "Imperial Phase Screen"}
+    };
+
+    public static boolean isRetiredLegacyDefaultDivisionName(String currentName) {
+        if (currentName == null || currentName.trim().isEmpty()) return false;
+        return !currentName.equals(migrateLegacyDivisionName(currentName, null));
+    }
+
+    /**
+     * Migrates unmodified pre-release default division names (both suffix-numbered such as
+     * "Hallowed Bastion I" / "Astral Flight Group Alpha" and ordinal-prefixed such as
+     * "1st Bottle-Rocket Pack") to their military-first equivalents while leaving any
+     * custom player-chosen division name untouched.
+     */
+    public static String migrateLegacyDivisionName(String currentName, DivisionArchetype archetype) {
+        if (currentName == null || currentName.trim().isEmpty()) return currentName;
+        String trimmed = currentName.trim();
+        for (String[] pair : RETIRED_LEGACY_PREFIX_REPLACEMENTS) {
+            String oldP = pair[0];
+            String newP = pair[1];
+            if (trimmed.equals(oldP)) {
+                return newP;
+            }
+            for (NumberingStyle style : NumberingStyle.values()) {
+                if (style == NumberingStyle.NONE) continue;
+                for (int seq = 1; seq <= 99; seq++) {
+                    if (trimmed.equals(applyNumbering(oldP, seq, style))) {
+                        return applyNumbering(newP, seq, style);
+                    }
+                }
+            }
+        }
+        // Special case: ordinal-prefixed bare "Wolfpack" ("1st Wolfpack" -> "1st Frigate Wolfpack")
+        for (int seq = 1; seq <= 99; seq++) {
+            if (trimmed.equals(applyNumbering("Wolfpack", seq, NumberingStyle.ORDINAL_PREFIX))) {
+                return applyNumbering("Frigate Wolfpack", seq, NumberingStyle.ORDINAL_PREFIX);
+            }
+        }
+        return currentName;
     }
 
     /**
@@ -1062,6 +1184,9 @@ public final class DivisionNomenclature {
             noun = roleNouns.get(rIdx);
         } else if (effRole.isNonWarFleet() && attrs != null) {
             noun = attrs.resolvePrefixFor(archetype, effRole);
+        } else if (attrs != null && attrs.warUnitNouns != null && !attrs.warUnitNouns.isEmpty()) {
+            int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 13)), attrs.warUnitNouns.size());
+            noun = attrs.warUnitNouns.get(nounIdx);
         } else {
             int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 13)), PIRATE_INDIE_UNIT_NOUNS.length);
             if (!"pirates".equals(factionId) && "Gang".equals(PIRATE_INDIE_UNIT_NOUNS[nounIdx])) {
@@ -1071,6 +1196,12 @@ public final class DivisionNomenclature {
             }
             noun = PIRATE_INDIE_UNIT_NOUNS[nounIdx];
         }
+
+        boolean includeRole = !effRole.isNonWarFleet() && (Math.floorMod((int) (seed >>> 17), 100) < 70);
+        String roleWord = getShortRoleWord(archetype);
+        String qualifiedNoun = (includeRole && !noun.startsWith(roleWord) && !"Fleet".equals(noun) && !"Division".equals(noun))
+                ? (roleWord + " " + noun)
+                : ((includeRole && "Division".equals(noun)) ? (roleWord + " Div") : noun);
 
         String cmdFirst = null;
         String cmdLast = null;
@@ -1088,7 +1219,7 @@ public final class DivisionNomenclature {
             String possessive = buildCommanderPossessive(cmdFirst, cmdLast, seed);
             int numStyleRoll = Math.floorMod((int) (seed >>> 27), 100);
             if (numStyleRoll < 42) {
-                return possessive + " " + noun;
+                return possessive + " " + qualifiedNoun;
             } else if (numStyleRoll < 82) {
                 return possessive + " " + toOrdinal(num) + " " + noun;
             } else {
@@ -1099,14 +1230,14 @@ public final class DivisionNomenclature {
         int pattern = Math.floorMod((int) (seed >>> 35), 4);
         switch (pattern) {
             case 0:
-                return toRoman(num) + " " + noun;
+                return toRoman(num) + " " + qualifiedNoun;
             case 1:
-                return noun + " " + num;
+                return qualifiedNoun + " " + num;
             case 2:
-                return toOrdinal(num) + " " + noun;
+                return toOrdinal(num) + " " + qualifiedNoun;
             case 3:
             default:
-                return noun + " " + toRoman(num);
+                return qualifiedNoun + " " + toRoman(num);
         }
     }
 
@@ -1162,23 +1293,31 @@ public final class DivisionNomenclature {
             }
         }
 
-        int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 11)), PERSEAN_UNIT_NOUNS.length);
-        String noun = PERSEAN_UNIT_NOUNS[nounIdx];
+        String noun;
+        if (attrs != null && attrs.warUnitNouns != null && !attrs.warUnitNouns.isEmpty()) {
+            int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 11)), attrs.warUnitNouns.size());
+            noun = attrs.warUnitNouns.get(nounIdx);
+        } else {
+            int nounIdx = Math.floorMod((int) (seed ^ (seed >>> 11)), PERSEAN_UNIT_NOUNS.length);
+            noun = PERSEAN_UNIT_NOUNS[nounIdx];
+        }
+
+        boolean includeRole = Math.floorMod((int) (seed >>> 17), 100) < 85;
+        String roleWord = getShortRoleWord(archetype);
+        String coreNoun = (includeRole && !noun.startsWith(roleWord) && !"Fleet".equals(noun))
+                ? (roleWord + " " + noun)
+                : noun;
+        if ("Battle Division".equals(coreNoun) && Math.floorMod((int) (seed >>> 7), 2) == 0) {
+            coreNoun = "Battle Div.";
+        }
 
         int narcissismRoll = Math.floorMod((int) (seed >>> 21), 100);
         if (hasCommanderName && narcissismRoll < 15) {
             String owner = (cmdLast != null && !cmdLast.isEmpty()) ? (cmdLast + "'s") : (cmdFirst + "'s");
             if (Math.floorMod((int) (seed >>> 31), 3) == 0) {
-                return owner + " " + noun;
+                return owner + " " + coreNoun;
             }
-            return owner + " " + toOrdinal(num) + " " + noun;
-        }
-
-        boolean includeRole = Math.floorMod((int) (seed >>> 17), 100) < 55;
-        String roleWord = getShortRoleWord(archetype);
-        String coreNoun = (includeRole && !noun.startsWith(roleWord)) ? (roleWord + " " + noun) : noun;
-        if ("Battle Division".equals(coreNoun) && Math.floorMod((int) (seed >>> 7), 2) == 0) {
-            coreNoun = "Battle Div.";
+            return owner + " " + toOrdinal(num) + " " + coreNoun;
         }
 
         int numPattern = Math.floorMod((int) (seed >>> 37), 4);
@@ -1201,16 +1340,16 @@ public final class DivisionNomenclature {
             case BATTLESHIP_DIVISION:
                 return "Battle";
             case MISSILE_BATTLESHIP_DIVISION:
-                return "Bombard";
+                return "Missile Battle";
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
             case ESCORT_CARRIER_DIVISION:
             case CARRIER_GROUP:
                 return "Carrier";
             case MISSILE_CRUISER_DIVISION:
-                return "Missile";
+                return "Missile Cruiser";
             case STRIKE_CRUISER_DIVISION:
-                return "Strike";
+                return "Strike Cruiser";
             case CRUISER_DIVISION:
                 return "Cruiser";
             case DESTROYER_DIVISION:
@@ -1220,7 +1359,7 @@ public final class DivisionNomenclature {
             case FRIGATE_DIVISION:
                 return "Frigate";
             case MISSILE_FRIGATE_DIVISION:
-                return "Missile";
+                return "Missile Frigate";
             case PHASE_DIVISION:
                 return "Phase";
             case SERVICE_GROUP:
@@ -1425,7 +1564,7 @@ public final class DivisionNomenclature {
                     case BATTLESHIP_DIVISION:
                         return "Battle Line";
                     case MISSILE_BATTLESHIP_DIVISION:
-                        return "Bombard Battle Line";
+                        return "Missile Battle Line";
                     case FLEET_CARRIER_DIVISION:
                         return "Fleet Carrier Wing";
                     case LIGHT_CARRIER_DIVISION:
@@ -1439,7 +1578,7 @@ public final class DivisionNomenclature {
                     case MISSILE_CRUISER_DIVISION:
                         return "Missile Cruiser Squadron";
                     case STRIKE_CRUISER_DIVISION:
-                        return "Strike Squadron";
+                        return "Strike Cruiser Squadron";
                     case DESTROYER_DIVISION:
                         return "Destroyer Flotilla";
                     case MISSILE_DESTROYER_DIVISION:
@@ -1463,35 +1602,35 @@ public final class DivisionNomenclature {
                     case BATTLESHIP_DIVISION:
                         return "Capital Asset Group";
                     case MISSILE_BATTLESHIP_DIVISION:
-                        return "Stand-Off Capital Group";
+                        return "Missile Capital Group";
                     case FLEET_CARRIER_DIVISION:
-                        return "Astral Flight Group";
+                        return "Heavy Flight Group";
                     case LIGHT_CARRIER_DIVISION:
-                        return "Support Flight Group";
+                        return "Light Flight Group";
                     case ESCORT_CARRIER_DIVISION:
-                        return "Tactical Flight Group";
+                        return "Escort Flight Group";
                     case CARRIER_GROUP:
-                        return "Integrated Flight Group";
+                        return "Carrier Asset Group";
                     case CRUISER_DIVISION:
-                        return "Cruiser Assurance Unit";
+                        return "Cruiser Security Unit";
                     case MISSILE_CRUISER_DIVISION:
                         return "Ordnance Cruiser Unit";
                     case STRIKE_CRUISER_DIVISION:
-                        return "Fast Response Unit";
+                        return "Strike Cruiser Unit";
                     case DESTROYER_DIVISION:
                         return "Destroyer Security Unit";
                     case MISSILE_DESTROYER_DIVISION:
-                        return "Torpedo Strike Unit";
+                        return "Torpedo Destroyer Unit";
                     case FRIGATE_DIVISION:
                         return "Frigate Picket Unit";
                     case MISSILE_FRIGATE_DIVISION:
-                        return "Missile Picket Unit";
+                        return "Missile Frigate Unit";
                     case PHASE_DIVISION:
-                        return "Phase Special Affairs";
+                        return "Special Phase Unit";
                     case SERVICE_GROUP:
                         return "Logistics Asset Group";
                     case FORCE_DIVISION:
-                        return "Task Force Asset";
+                        return "Security Task Group";
                     default:
                         return archetype.shortPrefix;
                 }
@@ -1501,35 +1640,35 @@ public final class DivisionNomenclature {
                     case BATTLESHIP_DIVISION:
                         return "Battle Phalanx";
                     case MISSILE_BATTLESHIP_DIVISION:
-                        return "Cataphract Phalanx";
+                        return "Missile Battle Phalanx";
                     case FLEET_CARRIER_DIVISION:
-                        return "Navarch Carrier Group";
+                        return "Fleet Carrier Mora";
                     case LIGHT_CARRIER_DIVISION:
-                        return "Light Carrier Lochos";
+                        return "Light Carrier Mora";
                     case ESCORT_CARRIER_DIVISION:
-                        return "Escort Carrier Lochos";
+                        return "Escort Carrier Mora";
                     case CARRIER_GROUP:
-                        return "Composite Carrier Group";
+                        return "Composite Carrier Mora";
                     case CRUISER_DIVISION:
                         return "Cruiser Mora";
                     case MISSILE_CRUISER_DIVISION:
-                        return "Ballista Mora";
+                        return "Missile Cruiser Mora";
                     case STRIKE_CRUISER_DIVISION:
-                        return "Strike Mora";
+                        return "Strike Cruiser Mora";
                     case DESTROYER_DIVISION:
                         return "Destroyer Lochos";
                     case MISSILE_DESTROYER_DIVISION:
-                        return "Javelin Lochos";
+                        return "Torpedo Destroyer Lochos";
                     case FRIGATE_DIVISION:
-                        return "Frigate Peltast";
+                        return "Frigate Screen";
                     case MISSILE_FRIGATE_DIVISION:
-                        return "Toxotes Missile Peltast";
+                        return "Missile Frigate Screen";
                     case PHASE_DIVISION:
-                        return "Phase Krypteia";
+                        return "Phase Recon Detachment";
                     case SERVICE_GROUP:
-                        return "Supply Hipparchy";
+                        return "League Supply Convoy";
                     case FORCE_DIVISION:
-                        return "League Force";
+                        return "League Task Group";
                     default:
                         return archetype.shortPrefix;
                 }
@@ -1537,34 +1676,35 @@ public final class DivisionNomenclature {
             case SINDRIAN_GUARD:
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
-                        return "Executor Line";
+                        return "Guard Battle Line";
                     case MISSILE_BATTLESHIP_DIVISION:
-                        return "Lion's Wrath Line";
+                        return "Guard Missile Line";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
+                        return "State Carrier Wing";
                     case CARRIER_GROUP:
-                        return "Solar Flight Wing";
+                        return "State Carrier Group";
                     case CRUISER_DIVISION:
-                        return "Cruiser Phalanx";
+                        return "Guard Cruiser Squadron";
                     case MISSILE_CRUISER_DIVISION:
-                        return "Thunderbolt Phalanx";
+                        return "Guard Missile Squadron";
                     case STRIKE_CRUISER_DIVISION:
-                        return "Solar Strike Squadron";
+                        return "Strike Cruiser Squadron";
                     case DESTROYER_DIVISION:
-                        return "Vanguard Flotilla";
+                        return "Guard Destroyer Flotilla";
                     case MISSILE_DESTROYER_DIVISION:
-                        return "Breaker Torpedo Flotilla";
+                        return "Torpedo Destroyer Flotilla";
                     case FRIGATE_DIVISION:
-                        return "Picket Guard";
+                        return "Guard Frigate Picket";
                     case MISSILE_FRIGATE_DIVISION:
-                        return "Javelin Picket Guard";
+                        return "Guard Missile Picket";
                     case PHASE_DIVISION:
-                        return "Special Guard";
+                        return "Special Phase Detachment";
                     case SERVICE_GROUP:
-                        return "Askonia Supply Train";
+                        return "Askonia Supply Convoy";
                     case FORCE_DIVISION:
-                        return "Sovereign Force";
+                        return "Guard Task Group";
                     default:
                         return archetype.shortPrefix;
                 }
@@ -1572,34 +1712,35 @@ public final class DivisionNomenclature {
             case LUDDIC_ARMADA:
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
-                        return "Hallowed Bastion";
+                        return "Armada Battle Line";
                     case MISSILE_BATTLESHIP_DIVISION:
-                        return "Brimstone Bastion";
+                        return "Missile Battle Line";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
+                        return "Armada Carrier Wing";
                     case CARRIER_GROUP:
-                        return "Ark Carrier Host";
+                        return "Armada Carrier Group";
                     case CRUISER_DIVISION:
-                        return "Righteous Hammer";
+                        return "Warden Cruiser Squadron";
                     case MISSILE_CRUISER_DIVISION:
-                        return "Pillar of Judgment";
+                        return "Missile Cruiser Squadron";
                     case STRIKE_CRUISER_DIVISION:
-                        return "Zealot Strike Host";
+                        return "Strike Cruiser Squadron";
                     case DESTROYER_DIVISION:
-                        return "Sword Flotilla";
+                        return "Warden Destroyer Flotilla";
                     case MISSILE_DESTROYER_DIVISION:
-                        return "Slinger Flotilla";
+                        return "Torpedo Destroyer Flotilla";
                     case FRIGATE_DIVISION:
-                        return "Watchers Picket";
+                        return "Vigil Frigate Picket";
                     case MISSILE_FRIGATE_DIVISION:
-                        return "Censer Missile Picket";
+                        return "Vigil Missile Picket";
                     case PHASE_DIVISION:
-                        return "Penitent Veil";
+                        return "Auxiliary Phase Picket";
                     case SERVICE_GROUP:
-                        return "Pilgrim Convoy";
+                        return "Parish Supply Convoy";
                     case FORCE_DIVISION:
-                        return "Faithful Force";
+                        return "Vigil Task Group";
                     default:
                         return archetype.shortPrefix;
                 }
@@ -1607,34 +1748,34 @@ public final class DivisionNomenclature {
             case PIRATE_WOLFPACK:
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
-                        return "Dreadnought Pack";
+                        return "Capital Raider Pack";
                     case MISSILE_BATTLESHIP_DIVISION:
-                        return "Siegebreaker Pack";
+                        return "Heavy Missile Pack";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
                     case CARRIER_GROUP:
-                        return "Flattop Pack";
+                        return "Carrier Raider Group";
                     case CRUISER_DIVISION:
-                        return "Heavy Raider Pack";
+                        return "Cruiser Raider Pack";
                     case MISSILE_CRUISER_DIVISION:
-                        return "Salvo Raider Pack";
+                        return "Missile Cruiser Pack";
                     case STRIKE_CRUISER_DIVISION:
-                        return "Outrider Pack";
+                        return "Strike Cruiser Pack";
                     case DESTROYER_DIVISION:
-                        return "Hunter Pack";
+                        return "Destroyer Raider Pack";
                     case MISSILE_DESTROYER_DIVISION:
-                        return "Boom-Runner Pack";
+                        return "Torpedo Destroyer Pack";
                     case FRIGATE_DIVISION:
-                        return "Wolfpack";
+                        return "Frigate Wolfpack";
                     case MISSILE_FRIGATE_DIVISION:
-                        return "Bottle-Rocket Pack";
+                        return "Missile Frigate Pack";
                     case PHASE_DIVISION:
-                        return "Ghost Pack";
+                        return "Phase Raider Pack";
                     case SERVICE_GROUP:
-                        return "Loot Train";
+                        return "Prize Supply Convoy";
                     case FORCE_DIVISION:
-                        return "Raider Force";
+                        return "Raider Flotilla";
                     default:
                         return archetype.shortPrefix;
                 }

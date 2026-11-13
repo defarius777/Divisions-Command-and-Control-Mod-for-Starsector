@@ -6248,6 +6248,7 @@ public class PermanentDivisionManager {
             }
         }
         if (id == null || name == null) return null;
+        name = DivisionNomenclature.migrateLegacyDivisionName(name, arch);
 
         PermanentDivisionSpec spec = new PermanentDivisionSpec(id, name, arch);
         spec.flagshipMemberId = flagshipId;

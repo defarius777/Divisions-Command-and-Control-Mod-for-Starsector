@@ -890,7 +890,7 @@ public class UITestHarness {
                 && (playerNaming.toPlainMap().getClass().getName().startsWith("java.util."));
 
         boolean itemARuntimeOk = "Battle Div. I".equals(beforeSyncPlayerFactionName)
-                && "Executor Line I".equals(afterSyncPlayerFactionName)
+                && "Guard Battle Line I".equals(afterSyncPlayerFactionName)
                 && "Battle Div. I".equals(hegemonyFactionName)
                 && saveSafetyPlainMapOk;
 
@@ -1319,8 +1319,10 @@ public class UITestHarness {
         long perfStageTriNs = 0L;
         long perfStageClipNs = 0L;
         String worstDropInfo = "";
-        // Warm up JIT for 2 frames before measuring late-combat 18-division frame geometry time
+        // Warm up JIT for 2 frames (including overlap clipping) before measuring late-combat 18-division frame geometry time
         for (int warm = 0; warm < 2; warm++) {
+            perfPConvs.clear();
+            perfEConvs.clear();
             for (DivisionState div : allPerfDivs) {
                 List<List<ShipAPI>> droplets = perfOv.clusterDivisionMembersSticky(div, div.members);
                 for (List<ShipAPI> drop : droplets) {
@@ -1328,9 +1330,21 @@ public class UITestHarness {
                     Vector2f cent = DivisionTacticalMapOverlay.computePolygonCentroid(conv);
                     List<Vector2f> disp = perfOv.applyMetaballNeckPinchScreen(div, conv, cent, drop, div.members, perfScale, perfOffsetX, perfOffsetY);
                     DivisionTacticalMapOverlay.triangulatePolygonCCW(disp);
+                    if (div.side == 0) perfPConvs.add(conv); else perfEConvs.add(conv);
+                }
+            }
+            for (List<Vector2f> a : perfPConvs) {
+                for (List<Vector2f> b : perfEConvs) {
+                    List<Vector2f> inter = DivisionTacticalMapOverlay.clipConvexPolygon(a, b);
+                    if (inter.size() >= 3 && DivisionTacticalMapOverlay.computePolygonArea(inter) >= 380f) {
+                        for (int k = -12; k <= 12; k++) {
+                            DivisionTacticalMapOverlay.clipPolygonToDiagonalSlab(inter, k * 24f, k * 24f + 12f);
+                        }
+                    }
                 }
             }
         }
+        System.gc();
         int perfFrames = 10;
         for (int f = 0; f < perfFrames; f++) {
             perfPConvs.clear();
@@ -4214,7 +4228,7 @@ public class UITestHarness {
                 "unknown_submod_faction_xyz", DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL,
                 DivisionArchetype.SERVICE_GROUP, 1, null, 0L, FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY);
         boolean merchantNomenclatureOk = "Chartered Convoy 1".equals(hegMerchConvoyName)
-                && "Commercial Caravan 1".equals(triMerchConvoyName)
+                && "Commercial Caravan Alpha".equals(triMerchConvoyName)
                 && "Merchant Convoy 1".equals(unkMerchConvoyName)
                 && !indMerchConvoyName.toLowerCase(Locale.ROOT).contains("service group")
                 && (indMerchConvoyName.contains("Convoy") || indMerchConvoyName.contains("Flotilla")
