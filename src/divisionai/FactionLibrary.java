@@ -362,8 +362,16 @@ public final class FactionLibrary {
                 FactionAttributes th = FACTION_REGISTRY.get("threat");
                 if (th != null) return th;
             }
+            synchronized (FactionLibrary.class) {
+                FactionAttributes recheck = FACTION_REGISTRY.get(key);
+                if (recheck != null) return recheck;
+                FactionAttributes created = createFallbackAttributes(key);
+                FACTION_REGISTRY.put(key, created);
+                return created;
+            }
         }
-        return createFallbackAttributes(factionId);
+        FactionAttributes indep = FACTION_REGISTRY.get("independent");
+        return indep != null ? indep : createFallbackAttributes("independent");
     }
 
 

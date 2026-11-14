@@ -12,6 +12,7 @@ import divisionai.DivisionModel.DivisionArchetype;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -304,7 +305,7 @@ public final class DivisionNomenclature {
         }
 
         public Map<String, Object> toPlainMap() {
-            Map<String, Object> map = new LinkedHashMap<>();
+            Map<String, Object> map = new HashMap<>();
             writeFieldsToMap(map);
             return map;
         }
@@ -314,7 +315,7 @@ public final class DivisionNomenclature {
             map.put("presetId", presetId != null ? presetId : PlayerNamingPreset.NAVAL_STANDARD.name());
             map.put("numberingStyleId", numberingStyleId != null ? numberingStyleId : NumberingStyle.ARABIC.name());
             map.put("customOtcTitle", customOtcTitle != null ? customOtcTitle : "");
-            Map<String, String> prefs = new LinkedHashMap<>();
+            Map<String, String> prefs = new HashMap<>();
             if (customPrefixes != null) {
                 prefs.putAll(customPrefixes);
             }
@@ -978,37 +979,52 @@ public final class DivisionNomenclature {
         return !currentName.equals(migrateLegacyDivisionName(currentName, null));
     }
 
+    private static volatile Map<String, String> legacyDivisionNameMigrationLookup = null;
+
+    private static Map<String, String> getLegacyDivisionNameMigrationLookup() {
+        Map<String, String> map = legacyDivisionNameMigrationLookup;
+        if (map != null) return map;
+        synchronized (DivisionNomenclature.class) {
+            if (legacyDivisionNameMigrationLookup != null) {
+                return legacyDivisionNameMigrationLookup;
+            }
+            Map<String, String> built = new HashMap<>(65536);
+            NumberingStyle[] styles = NumberingStyle.values();
+            for (String[] pair : RETIRED_LEGACY_PREFIX_REPLACEMENTS) {
+                String oldP = pair[0];
+                String newP = pair[1];
+                built.putIfAbsent(oldP, newP);
+                for (NumberingStyle style : styles) {
+                    if (style == NumberingStyle.NONE) continue;
+                    for (int seq = 1; seq <= 99; seq++) {
+                        built.putIfAbsent(applyNumbering(oldP, seq, style), applyNumbering(newP, seq, style));
+                    }
+                }
+            }
+            for (int seq = 1; seq <= 99; seq++) {
+                built.putIfAbsent(
+                        applyNumbering("Wolfpack", seq, NumberingStyle.ORDINAL_PREFIX),
+                        applyNumbering("Frigate Wolfpack", seq, NumberingStyle.ORDINAL_PREFIX));
+            }
+            legacyDivisionNameMigrationLookup = built;
+            return built;
+        }
+    }
+
     /**
      * Migrates unmodified pre-release default division names (both suffix-numbered such as
      * "Hallowed Bastion I" / "Astral Flight Group Alpha" and ordinal-prefixed such as
      * "1st Bottle-Rocket Pack") to their military-first equivalents while leaving any
      * custom player-chosen division name untouched.
+     *
+     * O(1) constant-time HashMap lookup (replaces 47,520 per-call string allocations on save load).
      */
     public static String migrateLegacyDivisionName(String currentName, DivisionArchetype archetype) {
-        if (currentName == null || currentName.trim().isEmpty()) return currentName;
+        if (currentName == null || currentName.isEmpty()) return currentName;
         String trimmed = currentName.trim();
-        for (String[] pair : RETIRED_LEGACY_PREFIX_REPLACEMENTS) {
-            String oldP = pair[0];
-            String newP = pair[1];
-            if (trimmed.equals(oldP)) {
-                return newP;
-            }
-            for (NumberingStyle style : NumberingStyle.values()) {
-                if (style == NumberingStyle.NONE) continue;
-                for (int seq = 1; seq <= 99; seq++) {
-                    if (trimmed.equals(applyNumbering(oldP, seq, style))) {
-                        return applyNumbering(newP, seq, style);
-                    }
-                }
-            }
-        }
-        // Special case: ordinal-prefixed bare "Wolfpack" ("1st Wolfpack" -> "1st Frigate Wolfpack")
-        for (int seq = 1; seq <= 99; seq++) {
-            if (trimmed.equals(applyNumbering("Wolfpack", seq, NumberingStyle.ORDINAL_PREFIX))) {
-                return applyNumbering("Frigate Wolfpack", seq, NumberingStyle.ORDINAL_PREFIX);
-            }
-        }
-        return currentName;
+        if (trimmed.isEmpty()) return currentName;
+        String migrated = getLegacyDivisionNameMigrationLookup().get(trimmed);
+        return migrated != null ? migrated : currentName;
     }
 
     /**

@@ -40,7 +40,9 @@ import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.PermanentDivisionSpec;
 import org.apache.log4j.Logger;
+import org.lwjgl.util.vector.Vector2f;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -116,6 +118,7 @@ public final class FactionFleetDoctrines {
                 return;
             }
             try {
+                registerLiveFleet(fleet);
                 consolidateWholeDivisionTransfersWithNearbyFleets(fleet);
                 ensureFleetDivisionsSorted(fleet);
             } catch (Throwable t) {
@@ -137,14 +140,28 @@ public final class FactionFleetDoctrines {
     }
 
     /**
-     * Registers the transient fleet initialization listener and runs the one-time "divisions pass"
-     * across all already-instanced non-player fleets if it has not yet run on this save.
+     * Registers the transient fleet initialization listener (deduplicating prior instances) and runs
+     * the one-time "divisions pass" across all already-instanced non-player fleets if needed.
      */
     public static void onGameLoad(SectorAPI sector) {
         if (sector == null) return;
+        ensureSectorTablesAndIndexesLoaded(sector);
         sanitizeAllNpcFleetMemories(sector);
+        if (sector.getListenerManager() != null) {
+            sector.getListenerManager().removeListenerOfClass(FleetInitializationDivisionListener.class);
+        }
         sector.addTransientListener(new FleetInitializationDivisionListener());
         runInitialSectorDivisionsPassIfNeeded(sector);
+    }
+
+    /**
+     * Flushes dirty runtime faction division tables into plain JDK collections in SectorAPI.getPersistentData()
+     * and fast-verifies that no NPC fleet MemoryAPI contains non-plain objects before Starsector writes campaign.xml.
+     */
+    public static void onBeforeGameSave(SectorAPI sector) {
+        if (sector == null) return;
+        flushDirtyFactionDivisionTablesToPersistentData(sector);
+        sanitizeAllNpcFleetMemories(sector);
     }
 
     private static List<PermanentDivisionSpec> readNpcDivisionsFromMemory(MemoryAPI mem) {
@@ -167,29 +184,131 @@ public final class FactionFleetDoctrines {
     }
 
     /**
-     * Ensures no CampaignFleetAPI in the sector has raw PermanentDivisionSpec objects stored in
-     * its MemoryAPI ($divisionai_npc_divisions_v1) before game save or after game load.
+     * Fast-checks every instanced fleet's MemoryAPI without deserializing valid plain-Map entries:
+     * only rewrites $divisionai_npc_divisions_v1 if a legacy non-Map item is present, and normalizes
+     * $divisionai_npc_indep_ids_v1 to a plain java.util.ArrayList if needed.
      */
     public static void sanitizeAllNpcFleetMemories(SectorAPI sector) {
         if (sector == null) return;
-        List<LocationAPI> locations = new ArrayList<>();
         if (sector.getHyperspace() != null) {
-            locations.add(sector.getHyperspace());
+            sanitizeLocationFleetMemories(sector.getHyperspace());
         }
         if (sector.getStarSystems() != null) {
             for (StarSystemAPI sys : sector.getStarSystems()) {
-                if (sys != null) locations.add(sys);
+                if (sys != null) sanitizeLocationFleetMemories(sys);
             }
         }
-        for (LocationAPI loc : locations) {
-            if (loc.getFleets() != null) {
-                for (CampaignFleetAPI fleet : loc.getFleets()) {
-                    if (fleet != null && fleet.getMemoryWithoutUpdate() != null) {
-                        readNpcDivisionsFromMemory(fleet.getMemoryWithoutUpdate());
+    }
+
+    private static void sanitizeLocationFleetMemories(LocationAPI loc) {
+        if (loc == null || loc.getFleets() == null) return;
+        for (CampaignFleetAPI fleet : loc.getFleets()) {
+            if (fleet == null) continue;
+            MemoryAPI mem = fleet.getMemoryWithoutUpdate();
+            if (mem == null) continue;
+            Object raw = mem.get(MEM_NPC_DIVISIONS_KEY);
+            if (raw instanceof List) {
+                List<?> list = (List<?>) raw;
+                boolean needsRewrite = (raw.getClass() != ArrayList.class);
+                if (!needsRewrite) {
+                    for (int i = 0, n = list.size(); i < n; i++) {
+                        Object item = list.get(i);
+                        if (item == null || item.getClass() != HashMap.class) {
+                            needsRewrite = true;
+                            break;
+                        }
+                    }
+                }
+                if (needsRewrite) {
+                    List<PermanentDivisionSpec> specs = PermanentDivisionManager.deserializeSpecList(raw);
+                    writeNpcDivisionsToMemory(mem, specs);
+                }
+            }
+            Object rawIndep = mem.get(MEM_NPC_INDEPENDENT_IDS_KEY);
+            if (rawIndep instanceof Collection && rawIndep.getClass() != ArrayList.class) {
+                ArrayList<String> cleanIndep = new ArrayList<>();
+                for (Object o : (Collection<?>) rawIndep) {
+                    if (o instanceof String) cleanIndep.add((String) o);
+                }
+                mem.set(MEM_NPC_INDEPENDENT_IDS_KEY, cleanIndep);
+            }
+        }
+    }
+
+    /**
+     * Recursively verifies that every DivisionAI persistent key in SectorAPI.getPersistentData() and
+     * every $divisionai_* key in instanced fleet MemoryAPIs uses strictly plain JDK types
+     * (HashMap, ArrayList, String, Boolean, Integer, Long, Float, Double) with zero divisionai.* classes,
+     * guaranteeing the mod is 100% safe to remove from a save at any time.
+     *
+     * @return null if 100% save-removal safe, or a diagnostic description of the first offending object/path.
+     */
+    public static String verifySectorSaveRemovalSafety(SectorAPI sector) {
+        if (sector == null) return null;
+        Map<String, Object> pdata = sector.getPersistentData();
+        if (pdata != null) {
+            for (Map.Entry<String, Object> e : pdata.entrySet()) {
+                String k = e.getKey();
+                if (k != null && k.startsWith("divisionai_")) {
+                    String bad = findNonPlainSaveValue("persistentData[" + k + "]", e.getValue(), 0);
+                    if (bad != null) return bad;
+                }
+            }
+        }
+        List<LocationAPI> locs = new ArrayList<>();
+        if (sector.getHyperspace() != null) locs.add(sector.getHyperspace());
+        if (sector.getStarSystems() != null) {
+            for (StarSystemAPI sys : sector.getStarSystems()) {
+                if (sys != null) locs.add(sys);
+            }
+        }
+        String[] memKeys = new String[]{MEM_NPC_DIVISIONS_KEY, MEM_NPC_SIGNATURE_KEY, MEM_NPC_INDEPENDENT_IDS_KEY};
+        for (LocationAPI loc : locs) {
+            if (loc.getFleets() == null) continue;
+            for (CampaignFleetAPI fleet : loc.getFleets()) {
+                if (fleet == null || fleet.getMemoryWithoutUpdate() == null) continue;
+                MemoryAPI mem = fleet.getMemoryWithoutUpdate();
+                for (String mk : memKeys) {
+                    if (mem.contains(mk)) {
+                        String bad = findNonPlainSaveValue("fleet(" + fleet.getId() + ").mem[" + mk + "]", mem.get(mk), 0);
+                        if (bad != null) return bad;
                     }
                 }
             }
         }
+        return null;
+    }
+
+    private static String findNonPlainSaveValue(String path, Object val, int depth) {
+        if (val == null || depth > 16) return null;
+        Class<?> cls = val.getClass();
+        if (cls == String.class
+                || cls == Boolean.class
+                || cls == Integer.class
+                || cls == Long.class
+                || cls == Float.class
+                || cls == Double.class) {
+            return null;
+        }
+        if (cls == ArrayList.class) {
+            List<?> list = (List<?>) val;
+            for (int i = 0, n = list.size(); i < n; i++) {
+                String bad = findNonPlainSaveValue(path + "[" + i + "]", list.get(i), depth + 1);
+                if (bad != null) return bad;
+            }
+            return null;
+        }
+        if (cls == HashMap.class || cls == LinkedHashMap.class) {
+            Map<?, ?> map = (Map<?, ?>) val;
+            for (Map.Entry<?, ?> e : map.entrySet()) {
+                String badK = findNonPlainSaveValue(path + ".key", e.getKey(), depth + 1);
+                if (badK != null) return badK;
+                String badV = findNonPlainSaveValue(path + "[" + e.getKey() + "]", e.getValue(), depth + 1);
+                if (badV != null) return badV;
+            }
+            return null;
+        }
+        return path + " has non-plain class " + cls.getName();
     }
 
     /**
@@ -204,6 +323,8 @@ public final class FactionFleetDoctrines {
         Map<String, Object> pdata = sector.getPersistentData();
         pdata.remove(PERSISTENT_INITIAL_PASS_KEY);
         pdata.remove(PERSISTENT_FACTION_TABLES_KEY);
+        clearAllRuntimeTablesAndIndexes();
+        ensureSectorTablesAndIndexesLoaded(sector);
 
         List<CampaignFleetAPI> allNpcFleets = collectAllInstancedNpcFleets(sector);
         for (CampaignFleetAPI fleet : allNpcFleets) {
@@ -284,8 +405,7 @@ public final class FactionFleetDoctrines {
                     PermanentDivisionManager.serializeDoctrineConfig(snapshot));
         }
 
-        List<FactionDivisionRecord> playerFactionTable = getOrCreateFactionDivisionTable(Factions.PLAYER);
-        playerFactionTable.clear();
+        clearFactionDivisionTable(Factions.PLAYER);
 
         if (sector == null) {
             return 0;
@@ -303,12 +423,7 @@ public final class FactionFleetDoctrines {
             }
         }
 
-        Collections.sort(personalFleets, new Comparator<CampaignFleetAPI>() {
-            @Override
-            public int compare(CampaignFleetAPI a, CampaignFleetAPI b) {
-                return Float.compare(computeFleetPriorityScore(b), computeFleetPriorityScore(a));
-            }
-        });
+        sortFleetsByDescendingPriority(personalFleets);
 
         int reinitCount = 0;
         for (CampaignFleetAPI fleet : personalFleets) {
@@ -408,19 +523,46 @@ public final class FactionFleetDoctrines {
         executeSectorWideDivisionsPass(sector);
     }
 
+    private static final class ScoredFleetEntry implements Comparable<ScoredFleetEntry> {
+        final CampaignFleetAPI fleet;
+        final float score;
+
+        ScoredFleetEntry(CampaignFleetAPI fleet, float score) {
+            this.fleet = fleet;
+            this.score = score;
+        }
+
+        @Override
+        public int compareTo(ScoredFleetEntry other) {
+            return Float.compare(other.score, this.score);
+        }
+    }
+
+    private static void sortFleetsByDescendingPriority(List<CampaignFleetAPI> fleets) {
+        if (fleets == null || fleets.size() <= 1) return;
+        int n = fleets.size();
+        List<ScoredFleetEntry> scored = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            CampaignFleetAPI f = fleets.get(i);
+            scored.add(new ScoredFleetEntry(f, computeFleetPriorityScore(f)));
+        }
+        Collections.sort(scored);
+        for (int i = 0; i < n; i++) {
+            fleets.set(i, scored.get(i).fleet);
+        }
+    }
+
     private static int executeSectorWideDivisionsPass(SectorAPI sector) {
         if (sector == null) return 0;
+        long t0 = System.nanoTime();
+        ensureSectorTablesAndIndexesLoaded(sector);
         Map<String, Object> pdata = sector.getPersistentData();
 
         List<CampaignFleetAPI> allNpcFleets = collectAllInstancedNpcFleets(sector);
         // Sort fleets so Story Fleets / Special Fleets / Major Named Armadas get first priority
         // for permanent divisions (#1, #2, etc.) in their respective faction!
-        Collections.sort(allNpcFleets, new Comparator<CampaignFleetAPI>() {
-            @Override
-            public int compare(CampaignFleetAPI a, CampaignFleetAPI b) {
-                return Float.compare(computeFleetPriorityScore(b), computeFleetPriorityScore(a));
-            }
-        });
+        // Precompute priority once per fleet in O(F) rather than inside Comparator.compare!
+        sortFleetsByDescendingPriority(allNpcFleets);
 
         int fleetsProcessed = 0;
         int divisionsCreated = 0;
@@ -437,11 +579,15 @@ public final class FactionFleetDoctrines {
             }
         }
 
+        flushDirtyFactionDivisionTablesToPersistentData(sector);
         pdata.put(PERSISTENT_INITIAL_PASS_KEY, Boolean.TRUE);
+        double elapsedMs = (System.nanoTime() - t0) / 1_000_000.0;
         LOG.info(String.format(
                 Locale.ROOT,
-                "[DivisionAI] Completed sector-wide campaign divisions pass: sorted %d instanced NPC fleets into %d divisions (%d ships).",
+                "[DivisionAI] Completed sector-wide campaign divisions pass in %.1f ms: sorted %d/%d instanced NPC fleets into %d divisions (%d ships).",
+                elapsedMs,
                 fleetsProcessed,
+                allNpcFleets.size(),
                 divisionsCreated,
                 shipsAssigned));
         return fleetsProcessed;
@@ -450,33 +596,54 @@ public final class FactionFleetDoctrines {
     private static List<CampaignFleetAPI> collectAllInstancedNpcFleets(SectorAPI sector) {
         List<CampaignFleetAPI> out = new ArrayList<>();
         if (sector == null) return out;
-        List<LocationAPI> locations = new ArrayList<>();
-        if (sector.getHyperspace() != null) {
-            locations.add(sector.getHyperspace());
-        }
-        if (sector.getStarSystems() != null) {
-            for (StarSystemAPI sys : sector.getStarSystems()) {
-                if (sys != null) {
-                    locations.add(sys);
+        if (sector.getHyperspace() != null && sector.getHyperspace().getFleets() != null) {
+            for (CampaignFleetAPI fleet : sector.getHyperspace().getFleets()) {
+                if (fleet != null && !fleet.isPlayerFleet() && !fleet.isStationMode()) {
+                    out.add(fleet);
                 }
             }
         }
-        for (LocationAPI loc : locations) {
-            List<CampaignFleetAPI> fleets = loc.getFleets();
-            if (fleets == null) continue;
-            for (CampaignFleetAPI fleet : fleets) {
-                if (fleet == null || fleet.isPlayerFleet() || fleet.isStationMode()) {
-                    continue;
+        if (sector.getStarSystems() != null) {
+            for (StarSystemAPI sys : sector.getStarSystems()) {
+                if (sys == null || sys.getFleets() == null) continue;
+                for (CampaignFleetAPI fleet : sys.getFleets()) {
+                    if (fleet != null && !fleet.isPlayerFleet() && !fleet.isStationMode()) {
+                        out.add(fleet);
+                    }
                 }
-                out.add(fleet);
             }
         }
         return out;
     }
 
+    private static boolean startsWithIgnoreCase(String s, String prefix) {
+        if (s == null || prefix == null) return false;
+        int pLen = prefix.length();
+        return s.length() >= pLen && s.regionMatches(true, 0, prefix, 0, pLen);
+    }
+
+    private static boolean containsIgnoreCase(String s, String needle) {
+        if (s == null || needle == null) return false;
+        int nLen = needle.length();
+        if (nLen == 0) return true;
+        int max = s.length() - nLen;
+        if (max < 0) return false;
+        char firstLower = Character.toLowerCase(needle.charAt(0));
+        char firstUpper = Character.toUpperCase(needle.charAt(0));
+        for (int i = 0; i <= max; i++) {
+            char c = s.charAt(i);
+            if (c != firstLower && c != firstUpper) continue;
+            if (s.regionMatches(true, i, needle, 0, nLen)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Determines whether an NPC fleet is a Story Fleet or Special Fleet that should receive
      * first priority for prestigious low-numbered divisions (e.g., Battle Div. I) in its faction.
+     * Zero-allocation fast path: avoids String.toLowerCase() heap allocations across thousands of fleets.
      */
     public static boolean isStoryOrSpecialFleet(CampaignFleetAPI fleet) {
         if (fleet == null || fleet.isPlayerFleet()) return false;
@@ -489,25 +656,6 @@ public final class FactionFleetDoctrines {
                     || mem.getBoolean("$bossFleet")) {
                 return true;
             }
-            Collection<String> keys = mem.getKeys();
-            if (keys != null) {
-                for (String k : keys) {
-                    if (k == null) continue;
-                    String kl = k.toLowerCase(Locale.ROOT);
-                    if (kl.startsWith("$ga_")
-                            || kl.startsWith("$pk_")
-                            || kl.startsWith("$ziggurat")
-                            || kl.contains("grandarmada")
-                            || kl.contains("armada_leader")
-                            || kl.contains("story")
-                            || kl.contains("crisis")
-                            || kl.contains("inspection_fleet")
-                            || kl.contains("blockade_boss")
-                            || kl.contains("sentinel_fleet")) {
-                        return true;
-                    }
-                }
-            }
         }
         PersonAPI cmdr = fleet.getCommander();
         if (cmdr != null && !cmdr.isDefault()) {
@@ -519,11 +667,36 @@ public final class FactionFleetDoctrines {
                 return true;
             }
         }
-        String fName = fleet.getName() != null ? fleet.getName().toLowerCase(Locale.ROOT) : "";
-        if (fName.contains("armada") || fName.contains("grand") || fName.contains("first fleet")
-                || fName.contains("invasion") || fName.contains("task force")) {
-            if (fleet.getFleetPoints() >= 160) {
+        if (fleet.getFleetPoints() >= 160) {
+            String fName = fleet.getName();
+            if (fName != null && !fName.isEmpty()
+                    && (containsIgnoreCase(fName, "armada")
+                    || containsIgnoreCase(fName, "grand")
+                    || containsIgnoreCase(fName, "first fleet")
+                    || containsIgnoreCase(fName, "invasion")
+                    || containsIgnoreCase(fName, "task force"))) {
                 return true;
+            }
+        }
+        if (mem != null) {
+            Collection<String> keys = mem.getKeys();
+            if (keys != null) {
+                for (String k : keys) {
+                    if (k == null || k.length() < 4) continue;
+                    if (startsWithIgnoreCase(k, "$divisionai_") || startsWithIgnoreCase(k, "$cfai_")) continue;
+                    if (startsWithIgnoreCase(k, "$ga_")
+                            || startsWithIgnoreCase(k, "$pk_")
+                            || startsWithIgnoreCase(k, "$ziggurat")
+                            || containsIgnoreCase(k, "grandarmada")
+                            || containsIgnoreCase(k, "armada_leader")
+                            || containsIgnoreCase(k, "story")
+                            || containsIgnoreCase(k, "crisis")
+                            || containsIgnoreCase(k, "inspection_fleet")
+                            || containsIgnoreCase(k, "blockade_boss")
+                            || containsIgnoreCase(k, "sentinel_fleet")) {
+                        return true;
+                    }
+                }
             }
         }
         return false;
@@ -886,6 +1059,7 @@ public final class FactionFleetDoctrines {
         if (fleet.isStationMode()) {
             return new ArrayList<>();
         }
+        registerLiveFleet(fleet);
 
         List<FleetMemberAPI> eligible = new ArrayList<>();
         StringBuilder sigBuilder = new StringBuilder();
@@ -970,8 +1144,7 @@ public final class FactionFleetDoctrines {
      */
     public static void consolidateWholeDivisionTransfersWithNearbyFleets(CampaignFleetAPI childFleet) {
         if (childFleet == null || childFleet.isPlayerFleet() || childFleet.isStationMode()
-                || childFleet.getBattle() != null || childFleet.getFleetData() == null
-                || isStoryOrSpecialFleet(childFleet)) {
+                || childFleet.getBattle() != null || childFleet.getFleetData() == null) {
             return;
         }
         LocationAPI loc = childFleet.getContainingLocation();
@@ -979,23 +1152,59 @@ public final class FactionFleetDoctrines {
         String factionId = childFleet.getFaction() != null ? childFleet.getFaction().getId() : null;
         if (factionId == null) return;
 
-        Map<String, FleetMemberAPI> childById = new HashMap<>();
-        for (FleetMemberAPI m : childFleet.getFleetData().getMembersListCopy()) {
-            if (m != null && m.getId() != null) {
-                childById.put(m.getId(), m);
+        List<FleetMemberAPI> childMembers = childFleet.getFleetData().getMembersListCopy();
+        if (childMembers == null || childMembers.isEmpty()) return;
+
+        // O(ships) fast path: if our runtime division index is populated and zero hulls in childFleet belong
+        // to any existing NPC division record, this is a freshly generated fleet rather than a split/transfer!
+        if (!RECORD_BY_ID.isEmpty()) {
+            boolean anyKnownMember = false;
+            for (int i = 0, n = childMembers.size(); i < n; i++) {
+                FleetMemberAPI m = childMembers.get(i);
+                if (m != null && m.getId() != null && RECORD_BY_MEMBER_ID.containsKey(m.getId())) {
+                    anyKnownMember = true;
+                    break;
+                }
+            }
+            if (!anyKnownMember) {
+                return;
             }
         }
-        if (childById.isEmpty()) return;
+
+        Vector2f childLoc = childFleet.getLocation();
+        Map<String, FleetMemberAPI> childById = null;
+        boolean checkedChildStory = false;
 
         for (CampaignFleetAPI other : loc.getFleets()) {
             if (other == null || other == childFleet || other.isPlayerFleet() || other.isStationMode()) continue;
-            if (other.getBattle() != null || isStoryOrSpecialFleet(other)) continue;
-            if (other.getFaction() == null || !factionId.equals(other.getFaction().getId())) continue;
+            if (other.getBattle() != null) continue;
+            FactionAPI otherFaction = other.getFaction();
+            if (otherFaction == null || !factionId.equals(otherFaction.getId())) continue;
             if (other.getFleetData() == null) continue;
-            if (Misc.getDistance(childFleet, other) > 600f) continue;
-
+            if (childLoc != null && other.getLocation() != null) {
+                float dx = childLoc.x - other.getLocation().x;
+                float dy = childLoc.y - other.getLocation().y;
+                if (dx * dx + dy * dy > 950f * 950f) continue;
+            }
             MemoryAPI otherMem = other.getMemoryWithoutUpdate();
-            if (otherMem == null) continue;
+            if (otherMem == null || !otherMem.contains(MEM_NPC_DIVISIONS_KEY)) continue;
+            if (Misc.getDistance(childFleet, other) > 600f) continue;
+            if (isStoryOrSpecialFleet(other)) continue;
+
+            if (!checkedChildStory) {
+                checkedChildStory = true;
+                if (isStoryOrSpecialFleet(childFleet)) {
+                    return;
+                }
+                childById = new HashMap<>();
+                for (FleetMemberAPI m : childFleet.getFleetData().getMembersListCopy()) {
+                    if (m != null && m.getId() != null) {
+                        childById.put(m.getId(), m);
+                    }
+                }
+                if (childById.isEmpty()) return;
+            }
+
             List<PermanentDivisionSpec> parentDivs = readNpcDivisionsFromMemory(otherMem);
             if (parentDivs.isEmpty()) continue;
 
@@ -1070,6 +1279,18 @@ public final class FactionFleetDoctrines {
         }
     }
 
+    private static void recalculateNpcDivisionStandoffFast(
+            PermanentDivisionSpec spec,
+            Map<String, FleetMemberAPI> eligibleById) {
+        if (spec == null || eligibleById == null || spec.memberIds.isEmpty()) return;
+        List<FleetMemberAPI> resolved = new ArrayList<>(spec.memberIds.size());
+        for (int i = 0, n = spec.memberIds.size(); i < n; i++) {
+            FleetMemberAPI m = eligibleById.get(spec.memberIds.get(i));
+            if (m != null) resolved.add(m);
+        }
+        PermanentDivisionManager.recalculateDivisionStandoffRangeFromMembers(spec, resolved);
+    }
+
     private static List<PermanentDivisionSpec> updateStickyNpcFleetDivisions(
             CampaignFleetAPI fleet,
             List<PermanentDivisionSpec> existingDivs,
@@ -1086,15 +1307,10 @@ public final class FactionFleetDoctrines {
             }
         }
 
-        List<FactionDivisionRecord> factionTable = getOrCreateFactionDivisionTable(factionId);
-        Map<String, FactionDivisionRecord> recordById = new HashMap<>();
-        Map<String, FactionDivisionRecord> recordByMemberId = new HashMap<>();
-        for (FactionDivisionRecord rec : factionTable) {
-            recordById.put(rec.recordId, rec);
-            for (String mId : rec.memberIds) {
-                recordByMemberId.put(mId, rec);
-            }
-        }
+        // Ensure runtime tables & O(1) indexes are initialized for this sector
+        getOrCreateFactionDivisionTable(factionId);
+        boolean fleetIsStory = isStoryOrSpecialFleet(fleet);
+        String fleetId = fleet != null ? fleet.getId() : null;
 
         List<PermanentDivisionSpec> retained = new ArrayList<>();
         Set<String> assignedMemberIds = new HashSet<>();
@@ -1112,13 +1328,9 @@ public final class FactionFleetDoctrines {
             }
 
             if (spec.memberIds.isEmpty()) {
-                FactionDivisionRecord rec = recordById.get(spec.id);
-                if (rec != null && (fleet.getId() == null || fleet.getId().equals(rec.assignedFleetId))) {
-                    rec.active = false;
-                    rec.assignedFleetId = null;
-                    rec.heldByStoryFleet = false;
-                    rec.memberIds.clear();
-                    rec.flagshipMemberId = null;
+                FactionDivisionRecord rec = RECORD_BY_ID.get(spec.id);
+                if (rec != null && (fleetId == null || fleetId.equals(rec.assignedFleetId))) {
+                    indexDeactivateRecord(rec);
                 }
                 continue;
             }
@@ -1131,7 +1343,7 @@ public final class FactionFleetDoctrines {
                     DivisionArchetype recalcArch = classifyNpcFleetMemberArchetype(flagM, factionId, nomCat, doctrine);
                     if (recalcArch != null && !recalcArch.isMissileArchetype()) {
                         spec.archetype = recalcArch;
-                        FactionDivisionRecord oldRec = recordById.get(spec.id);
+                        FactionDivisionRecord oldRec = RECORD_BY_ID.get(spec.id);
                         int unitNum = (oldRec != null && oldRec.unitNumber > 0) ? oldRec.unitNumber : 1;
                         PersonAPI flagCmdr = flagM.getCaptain();
                         if ((flagCmdr == null || flagCmdr.isDefault()) && fleet != null && flagM.isFlagship()) {
@@ -1143,23 +1355,18 @@ public final class FactionFleetDoctrines {
                                 FactionLibrary.resolveFleetRoleCategory(fleet));
                         if (oldRec != null) {
                             oldRec.archetype = recalcArch;
-                            oldRec.bucketKey = DivisionNomenclature.resolvePrefixBucketKey(recalcArch);
                             oldRec.divisionName = spec.name;
+                            indexRebucketRecord(oldRec, DivisionNomenclature.resolvePrefixBucketKey(recalcArch));
                         }
                     }
                 }
             }
-            PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(spec, fleet);
+            recalculateNpcDivisionStandoffFast(spec, eligibleById);
             retained.add(spec);
 
-            FactionDivisionRecord rec = recordById.get(spec.id);
+            FactionDivisionRecord rec = RECORD_BY_ID.get(spec.id);
             if (rec != null) {
-                rec.active = true;
-                rec.assignedFleetId = fleet.getId();
-                rec.heldByStoryFleet = isStoryOrSpecialFleet(fleet);
-                rec.memberIds.clear();
-                rec.memberIds.addAll(spec.memberIds);
-                rec.flagshipMemberId = spec.flagshipMemberId;
+                indexActivateRecord(rec, fleetId, spec.memberIds, spec.flagshipMemberId, fleetIsStory);
             }
         }
 
@@ -1167,8 +1374,8 @@ public final class FactionFleetDoctrines {
         Map<String, List<FleetMemberAPI>> transferredByRecordId = new LinkedHashMap<>();
         for (FleetMemberAPI m : eligible) {
             if (assignedMemberIds.contains(m.getId())) continue;
-            FactionDivisionRecord prevRec = recordByMemberId.get(m.getId());
-            if (prevRec != null && !prevRec.recordId.isEmpty()) {
+            FactionDivisionRecord prevRec = RECORD_BY_MEMBER_ID.get(m.getId());
+            if (prevRec != null && prevRec.recordId != null && !prevRec.recordId.isEmpty()) {
                 List<FleetMemberAPI> bucket = transferredByRecordId.get(prevRec.recordId);
                 if (bucket == null) {
                     bucket = new ArrayList<>();
@@ -1179,7 +1386,7 @@ public final class FactionFleetDoctrines {
         }
 
         for (Map.Entry<String, List<FleetMemberAPI>> entry : transferredByRecordId.entrySet()) {
-            FactionDivisionRecord rec = recordById.get(entry.getKey());
+            FactionDivisionRecord rec = RECORD_BY_ID.get(entry.getKey());
             List<FleetMemberAPI> transferredMembers = entry.getValue();
             if (rec == null || transferredMembers.isEmpty()) continue;
 
@@ -1202,14 +1409,8 @@ public final class FactionFleetDoctrines {
                 }
             }
             refreshNpcDivisionFlagship(targetSpec, eligibleById);
-            PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(targetSpec, fleet);
-
-            rec.active = true;
-            rec.assignedFleetId = fleet.getId();
-            rec.heldByStoryFleet = isStoryOrSpecialFleet(fleet);
-            rec.memberIds.clear();
-            rec.memberIds.addAll(targetSpec.memberIds);
-            rec.flagshipMemberId = targetSpec.flagshipMemberId;
+            recalculateNpcDivisionStandoffFast(targetSpec, eligibleById);
+            indexActivateRecord(rec, fleetId, targetSpec.memberIds, targetSpec.flagshipMemberId, fleetIsStory);
         }
 
         // Prune destroyed ships from knownIndependentIds
@@ -1271,12 +1472,10 @@ public final class FactionFleetDoctrines {
                     assignedMemberIds.add(m.getId());
                     remainingNew.remove(i);
                     refreshNpcDivisionFlagship(bestUnderStrength, eligibleById);
-                    PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(bestUnderStrength, fleet);
-                    FactionDivisionRecord rec = recordById.get(bestUnderStrength.id);
+                    recalculateNpcDivisionStandoffFast(bestUnderStrength, eligibleById);
+                    FactionDivisionRecord rec = RECORD_BY_ID.get(bestUnderStrength.id);
                     if (rec != null) {
-                        rec.memberIds.clear();
-                        rec.memberIds.addAll(bestUnderStrength.memberIds);
-                        rec.flagshipMemberId = bestUnderStrength.flagshipMemberId;
+                        indexActivateRecord(rec, fleetId, bestUnderStrength.memberIds, bestUnderStrength.flagshipMemberId, fleetIsStory);
                     }
                 }
             }
@@ -1315,22 +1514,16 @@ public final class FactionFleetDoctrines {
                             senior.memberIds.add(mId);
                         }
                     }
-                    FactionDivisionRecord jRec = recordById.get(junior.id);
+                    FactionDivisionRecord jRec = RECORD_BY_ID.get(junior.id);
                     if (jRec != null) {
-                        jRec.active = false;
-                        jRec.assignedFleetId = null;
-                        jRec.heldByStoryFleet = false;
-                        jRec.memberIds.clear();
-                        jRec.flagshipMemberId = null;
+                        indexDeactivateRecord(jRec);
                     }
                     retained.remove(j);
                     refreshNpcDivisionFlagship(senior, eligibleById);
-                    PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(senior, fleet);
-                    FactionDivisionRecord sRec = recordById.get(senior.id);
+                    recalculateNpcDivisionStandoffFast(senior, eligibleById);
+                    FactionDivisionRecord sRec = RECORD_BY_ID.get(senior.id);
                     if (sRec != null) {
-                        sRec.memberIds.clear();
-                        sRec.memberIds.addAll(senior.memberIds);
-                        sRec.flagshipMemberId = senior.flagshipMemberId;
+                        indexActivateRecord(sRec, fleetId, senior.memberIds, senior.flagshipMemberId, fleetIsStory);
                     }
                 }
             }
@@ -1357,23 +1550,17 @@ public final class FactionFleetDoctrines {
                         anchor.memberIds.add(mId);
                     }
                 }
-                FactionDivisionRecord rRec = recordById.get(rem.id);
+                FactionDivisionRecord rRec = RECORD_BY_ID.get(rem.id);
                 if (rRec != null) {
-                    rRec.active = false;
-                    rRec.assignedFleetId = null;
-                    rRec.heldByStoryFleet = false;
-                    rRec.memberIds.clear();
-                    rRec.flagshipMemberId = null;
+                    indexDeactivateRecord(rRec);
                 }
                 retained.remove(rem);
             }
             refreshNpcDivisionFlagship(anchor, eligibleById);
-            PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(anchor, fleet);
-            FactionDivisionRecord aRec = recordById.get(anchor.id);
+            recalculateNpcDivisionStandoffFast(anchor, eligibleById);
+            FactionDivisionRecord aRec = RECORD_BY_ID.get(anchor.id);
             if (aRec != null) {
-                aRec.memberIds.clear();
-                aRec.memberIds.addAll(anchor.memberIds);
-                aRec.flagshipMemberId = anchor.flagshipMemberId;
+                indexActivateRecord(aRec, fleetId, anchor.memberIds, anchor.flagshipMemberId, fleetIsStory);
             }
         } else if (singletons.size() == 1) {
             PermanentDivisionSpec lone = singletons.get(0);
@@ -1391,27 +1578,21 @@ public final class FactionFleetDoctrines {
                 for (String mId : lone.memberIds) {
                     if (!host.memberIds.contains(mId)) host.memberIds.add(mId);
                 }
-                FactionDivisionRecord lRec = recordById.get(lone.id);
+                FactionDivisionRecord lRec = RECORD_BY_ID.get(lone.id);
                 if (lRec != null) {
-                    lRec.active = false;
-                    lRec.assignedFleetId = null;
-                    lRec.heldByStoryFleet = false;
-                    lRec.memberIds.clear();
-                    lRec.flagshipMemberId = null;
+                    indexDeactivateRecord(lRec);
                 }
                 retained.remove(lone);
                 refreshNpcDivisionFlagship(host, eligibleById);
-                PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(host, fleet);
-                FactionDivisionRecord hRec = recordById.get(host.id);
+                recalculateNpcDivisionStandoffFast(host, eligibleById);
+                FactionDivisionRecord hRec = RECORD_BY_ID.get(host.id);
                 if (hRec != null) {
-                    hRec.memberIds.clear();
-                    hRec.memberIds.addAll(host.memberIds);
-                    hRec.flagshipMemberId = host.flagshipMemberId;
+                    indexActivateRecord(hRec, fleetId, host.memberIds, host.flagshipMemberId, fleetIsStory);
                 }
             }
         }
 
-        saveFactionDivisionTablesToPersistentData();
+        factionTablesDirty = true;
         return retained;
     }
 
@@ -1584,7 +1765,7 @@ public final class FactionFleetDoctrines {
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.SERVICE_GROUP, auxiliaries, auxMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.FORCE_DIVISION, forceShips, cruMax, factionId, nomCat);
 
-        saveFactionDivisionTablesToPersistentData();
+        factionTablesDirty = true;
         return specs;
     }
 
@@ -1667,22 +1848,229 @@ public final class FactionFleetDoctrines {
             PermanentDivisionSpec spec = new PermanentDivisionSpec(record.recordId, record.divisionName, archetype);
             spec.memberIds.addAll(memberIdList);
             spec.flagshipMemberId = bestFlagship.getId();
-            PermanentDivisionManager.recalculateDivisionStandoffRangeFromGuns(spec, fleet);
+            PermanentDivisionManager.recalculateDivisionStandoffRangeFromMembers(spec, sub);
             out.add(spec);
         }
     }
 
     private static final Map<String, List<FactionDivisionRecord>> RUNTIME_FACTION_TABLES = new HashMap<>();
+    private static final Map<String, List<FactionDivisionRecord>> BUCKET_RECORDS_INDEX = new HashMap<>();
+    private static final Map<String, FactionDivisionRecord> RECORD_BY_ID = new HashMap<>();
+    private static final Map<String, FactionDivisionRecord> RECORD_BY_MEMBER_ID = new HashMap<>();
+    private static final Map<String, List<FactionDivisionRecord>> RECORDS_BY_FLEET_ID = new HashMap<>();
+    private static final Map<String, WeakReference<CampaignFleetAPI>> LIVE_FLEET_BY_ID = new HashMap<>();
     private static SectorAPI lastLoadedTablesSector = null;
+    private static boolean factionTablesDirty = false;
+
+    private static void clearAllRuntimeTablesAndIndexes() {
+        RUNTIME_FACTION_TABLES.clear();
+        BUCKET_RECORDS_INDEX.clear();
+        RECORD_BY_ID.clear();
+        RECORD_BY_MEMBER_ID.clear();
+        RECORDS_BY_FLEET_ID.clear();
+        LIVE_FLEET_BY_ID.clear();
+        lastLoadedTablesSector = null;
+        factionTablesDirty = false;
+    }
+
+    private static void ensureSectorTablesAndIndexesLoaded(SectorAPI sector) {
+        if (sector == null || sector == lastLoadedTablesSector) return;
+        clearAllRuntimeTablesAndIndexes();
+        lastLoadedTablesSector = sector;
+        rebuildLiveFleetIndex(sector);
+        loadFactionDivisionTablesFromPersistentData(sector);
+        reconcileAllLoadedTablesOnce(sector);
+    }
+
+    private static void rebuildLiveFleetIndex(SectorAPI sector) {
+        LIVE_FLEET_BY_ID.clear();
+        if (sector == null) return;
+        if (sector.getHyperspace() != null && sector.getHyperspace().getFleets() != null) {
+            for (CampaignFleetAPI f : sector.getHyperspace().getFleets()) {
+                registerLiveFleet(f);
+            }
+        }
+        if (sector.getStarSystems() != null) {
+            for (StarSystemAPI sys : sector.getStarSystems()) {
+                if (sys == null || sys.getFleets() == null) continue;
+                for (CampaignFleetAPI f : sys.getFleets()) {
+                    registerLiveFleet(f);
+                }
+            }
+        }
+    }
+
+    private static void registerLiveFleet(CampaignFleetAPI fleet) {
+        if (fleet == null) return;
+        String id = fleet.getId();
+        if (id == null || id.isEmpty()) return;
+        SectorAPI sector = Global.getSector();
+        if (sector != null && sector != lastLoadedTablesSector) {
+            ensureSectorTablesAndIndexesLoaded(sector);
+        }
+        LIVE_FLEET_BY_ID.put(id, new WeakReference<>(fleet));
+    }
+
+    private static String makeBucketIndexKey(String normFactionId, String bucketKey) {
+        return normFactionId + "|" + (bucketKey != null ? bucketKey : "");
+    }
+
+    private static void insertIntoSortedBucketList(List<FactionDivisionRecord> bucketList, FactionDivisionRecord rec) {
+        int n = bucketList.size();
+        if (n == 0 || bucketList.get(n - 1).unitNumber <= rec.unitNumber) {
+            bucketList.add(rec);
+            return;
+        }
+        int lo = 0;
+        int hi = n - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            int midNum = bucketList.get(mid).unitNumber;
+            if (midNum <= rec.unitNumber) {
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        bucketList.add(lo, rec);
+    }
+
+    private static void unbindRecordAssignments(FactionDivisionRecord rec) {
+        if (rec == null) return;
+        if (rec.assignedFleetId != null) {
+            List<FactionDivisionRecord> byFleet = RECORDS_BY_FLEET_ID.get(rec.assignedFleetId);
+            if (byFleet != null) {
+                byFleet.remove(rec);
+                if (byFleet.isEmpty()) {
+                    RECORDS_BY_FLEET_ID.remove(rec.assignedFleetId);
+                }
+            }
+        }
+        if (!rec.memberIds.isEmpty()) {
+            for (int i = 0, n = rec.memberIds.size(); i < n; i++) {
+                String mId = rec.memberIds.get(i);
+                if (mId != null && RECORD_BY_MEMBER_ID.get(mId) == rec) {
+                    RECORD_BY_MEMBER_ID.remove(mId);
+                }
+            }
+        }
+    }
+
+    private static void bindRecordAssignments(FactionDivisionRecord rec) {
+        if (rec == null || !rec.active) return;
+        if (rec.assignedFleetId != null && !rec.assignedFleetId.isEmpty()) {
+            List<FactionDivisionRecord> byFleet = RECORDS_BY_FLEET_ID.get(rec.assignedFleetId);
+            if (byFleet == null) {
+                byFleet = new ArrayList<>(4);
+                RECORDS_BY_FLEET_ID.put(rec.assignedFleetId, byFleet);
+            }
+            if (!byFleet.contains(rec)) {
+                byFleet.add(rec);
+            }
+        }
+        for (int i = 0, n = rec.memberIds.size(); i < n; i++) {
+            String mId = rec.memberIds.get(i);
+            if (mId != null && !mId.isEmpty()) {
+                RECORD_BY_MEMBER_ID.put(mId, rec);
+            }
+        }
+    }
+
+    private static void indexInsertRecord(FactionDivisionRecord rec) {
+        if (rec == null || rec.factionId == null || rec.recordId == null) return;
+        RECORD_BY_ID.put(rec.recordId, rec);
+        String bKey = makeBucketIndexKey(rec.factionId, rec.bucketKey);
+        List<FactionDivisionRecord> bucketList = BUCKET_RECORDS_INDEX.get(bKey);
+        if (bucketList == null) {
+            bucketList = new ArrayList<>();
+            BUCKET_RECORDS_INDEX.put(bKey, bucketList);
+        }
+        insertIntoSortedBucketList(bucketList, rec);
+        if (rec.active) {
+            bindRecordAssignments(rec);
+        }
+    }
+
+    private static void indexActivateRecord(
+            FactionDivisionRecord rec,
+            String fleetId,
+            Collection<String> newMemberIds,
+            String flagshipId,
+            boolean heldByStory) {
+        if (rec == null) return;
+        List<String> snapshotMembers = (newMemberIds == rec.memberIds)
+                ? new ArrayList<>(newMemberIds)
+                : null;
+        unbindRecordAssignments(rec);
+        rec.active = true;
+        rec.assignedFleetId = fleetId;
+        rec.heldByStoryFleet = heldByStory;
+        rec.flagshipMemberId = flagshipId;
+        rec.memberIds.clear();
+        if (snapshotMembers != null) {
+            rec.memberIds.addAll(snapshotMembers);
+        } else if (newMemberIds != null) {
+            rec.memberIds.addAll(newMemberIds);
+        }
+        bindRecordAssignments(rec);
+        factionTablesDirty = true;
+    }
+
+    private static void indexDeactivateRecord(FactionDivisionRecord rec) {
+        if (rec == null) return;
+        unbindRecordAssignments(rec);
+        rec.active = false;
+        rec.assignedFleetId = null;
+        rec.heldByStoryFleet = false;
+        rec.flagshipMemberId = null;
+        rec.memberIds.clear();
+        factionTablesDirty = true;
+    }
+
+    private static void indexRebucketRecord(FactionDivisionRecord rec, String newBucketKey) {
+        if (rec == null || newBucketKey == null || newBucketKey.equals(rec.bucketKey)) return;
+        String oldKey = makeBucketIndexKey(rec.factionId, rec.bucketKey);
+        List<FactionDivisionRecord> oldList = BUCKET_RECORDS_INDEX.get(oldKey);
+        if (oldList != null) {
+            oldList.remove(rec);
+        }
+        rec.bucketKey = newBucketKey;
+        String nextKey = makeBucketIndexKey(rec.factionId, newBucketKey);
+        List<FactionDivisionRecord> nextList = BUCKET_RECORDS_INDEX.get(nextKey);
+        if (nextList == null) {
+            nextList = new ArrayList<>();
+            BUCKET_RECORDS_INDEX.put(nextKey, nextList);
+        }
+        insertIntoSortedBucketList(nextList, rec);
+        factionTablesDirty = true;
+    }
+
+    private static void clearFactionDivisionTable(String factionId) {
+        String fId = (factionId != null && !factionId.isEmpty()) ? factionId.toLowerCase(Locale.ROOT) : "independent";
+        List<FactionDivisionRecord> table = getOrCreateFactionDivisionTable(fId);
+        for (FactionDivisionRecord rec : table) {
+            unbindRecordAssignments(rec);
+            if (rec.recordId != null) {
+                RECORD_BY_ID.remove(rec.recordId);
+            }
+        }
+        table.clear();
+        String prefix = fId + "|";
+        for (Iterator<Map.Entry<String, List<FactionDivisionRecord>>> it = BUCKET_RECORDS_INDEX.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<String, List<FactionDivisionRecord>> e = it.next();
+            if (e.getKey() != null && e.getKey().startsWith(prefix)) {
+                it.remove();
+            }
+        }
+        factionTablesDirty = true;
+    }
 
     @SuppressWarnings("unchecked")
     public static List<FactionDivisionRecord> getOrCreateFactionDivisionTable(String factionId) {
         String fId = (factionId != null && !factionId.isEmpty()) ? factionId.toLowerCase(Locale.ROOT) : "independent";
         SectorAPI sector = Global.getSector();
         if (sector != null && sector != lastLoadedTablesSector) {
-            RUNTIME_FACTION_TABLES.clear();
-            loadFactionDivisionTablesFromPersistentData(sector);
-            lastLoadedTablesSector = sector;
+            ensureSectorTablesAndIndexesLoaded(sector);
         }
         List<FactionDivisionRecord> table = RUNTIME_FACTION_TABLES.get(fId);
         if (table == null) {
@@ -1694,27 +2082,40 @@ public final class FactionFleetDoctrines {
 
     /**
      * Marks all division records assigned to a despawned/destroyed fleet as inactive (destroyed)
-     * unless their ships were transferred to another live fleet in the sector.
+     * in O(divisions_in_fleet) via RECORDS_BY_FLEET_ID without scanning sector fleets or serializing tables.
      */
     public static void deactivateFleetDivisionsOnDespawn(CampaignFleetAPI fleet) {
         if (fleet == null || fleet.isPlayerFleet()) return;
-        String factionId = fleet.getFaction() != null ? fleet.getFaction().getId() : "independent";
-        List<FactionDivisionRecord> table = getOrCreateFactionDivisionTable(factionId);
+        SectorAPI sector = Global.getSector();
+        if (sector != null && sector != lastLoadedTablesSector) {
+            ensureSectorTablesAndIndexesLoaded(sector);
+        }
         String fId = fleet.getId();
-        boolean changed = false;
-        for (FactionDivisionRecord rec : table) {
-            if (rec.active && fId != null && fId.equals(rec.assignedFleetId)) {
-                rec.active = false;
-                rec.assignedFleetId = null;
-                rec.heldByStoryFleet = false;
-                rec.memberIds.clear();
-                rec.flagshipMemberId = null;
-                changed = true;
-            }
+        if (fId == null) return;
+        LIVE_FLEET_BY_ID.remove(fId);
+        List<FactionDivisionRecord> assigned = RECORDS_BY_FLEET_ID.get(fId);
+        if (assigned == null || assigned.isEmpty()) return;
+        List<FactionDivisionRecord> copy = new ArrayList<>(assigned);
+        for (int i = 0, n = copy.size(); i < n; i++) {
+            indexDeactivateRecord(copy.get(i));
         }
-        if (changed) {
-            saveFactionDivisionTablesToPersistentData();
+    }
+
+    private static boolean isRecordAssignedFleetLive(SectorAPI sector, FactionDivisionRecord rec) {
+        if (rec == null || !rec.active) return false;
+        if (rec.assignedFleetId == null || rec.assignedFleetId.isEmpty()) {
+            indexDeactivateRecord(rec);
+            return false;
         }
+        if (sector == null) {
+            return true;
+        }
+        CampaignFleetAPI liveFleet = findLiveFleetById(sector, rec.assignedFleetId);
+        if (liveFleet == null || !liveFleet.isAlive() || liveFleet.isDespawning()) {
+            indexDeactivateRecord(rec);
+            return false;
+        }
+        return true;
     }
 
     private static FactionDivisionRecord allocateOrReactivateFactionDivisionRecord(
@@ -1733,33 +2134,26 @@ public final class FactionFleetDoctrines {
                 ? (fleetRole.id.toUpperCase(Locale.ROOT) + ":" + baseBucket)
                 : baseBucket;
         List<FactionDivisionRecord> table = getOrCreateFactionDivisionTable(fId);
-        reconcileFactionTableLiveness(fId, table);
+        SectorAPI sector = Global.getSector();
+        registerLiveFleet(fleet);
 
         boolean isStory = isStoryOrSpecialFleet(fleet);
         String fleetId = fleet != null ? fleet.getId() : null;
 
-        // Sort matching bucket records by unitNumber ascending (smaller numbers first!)
-        List<FactionDivisionRecord> bucketRecords = new ArrayList<>();
-        int maxUnitNum = 0;
-        for (FactionDivisionRecord rec : table) {
-            if (bucketKey.equals(rec.bucketKey)) {
-                bucketRecords.add(rec);
-                if (rec.unitNumber > maxUnitNum) {
-                    maxUnitNum = rec.unitNumber;
-                }
-            }
+        String bIndexKey = makeBucketIndexKey(fId, bucketKey);
+        List<FactionDivisionRecord> bucketRecords = BUCKET_RECORDS_INDEX.get(bIndexKey);
+        if (bucketRecords == null) {
+            bucketRecords = new ArrayList<>();
+            BUCKET_RECORDS_INDEX.put(bIndexKey, bucketRecords);
         }
-        Collections.sort(bucketRecords, new Comparator<FactionDivisionRecord>() {
-            @Override
-            public int compare(FactionDivisionRecord a, FactionDivisionRecord b) {
-                return Integer.compare(a.unitNumber, b.unitNumber);
-            }
-        });
+        int maxUnitNum = bucketRecords.isEmpty() ? 0 : bucketRecords.get(bucketRecords.size() - 1).unitNumber;
 
         // 1. Look for the lowest-numbered inactive (destroyed) record to reactivate!
+        //    bucketRecords is strictly sorted by unitNumber ascending; lazily verify active records in O(1).
         FactionDivisionRecord chosen = null;
-        for (FactionDivisionRecord rec : bucketRecords) {
-            if (!rec.active) {
+        for (int i = 0, n = bucketRecords.size(); i < n; i++) {
+            FactionDivisionRecord rec = bucketRecords.get(i);
+            if (!rec.active || !isRecordAssignedFleetLive(sector, rec)) {
                 chosen = rec;
                 break;
             }
@@ -1768,10 +2162,16 @@ public final class FactionFleetDoctrines {
         // 2. If this is a Story/Special fleet and all lower-numbered records are active, check if Unit #1 (or a lower number)
         // is currently held by a non-story fleet; if so, preempt it so the Story Fleet gets Unit #1 (e.g. Battle Div. I)!
         if (isStory) {
-            for (FactionDivisionRecord rec : bucketRecords) {
-                if (rec.active && !rec.heldByStoryFleet && (chosen == null || rec.unitNumber < chosen.unitNumber)) {
-                    // Bump the non-story fleet's division to the next available number
+            for (int i = 0, n = bucketRecords.size(); i < n; i++) {
+                FactionDivisionRecord rec = bucketRecords.get(i);
+                if (chosen != null && rec.unitNumber >= chosen.unitNumber) {
+                    break;
+                }
+                if (rec.active && isRecordAssignedFleetLive(sector, rec) && !rec.heldByStoryFleet) {
                     bumpPreemptedRecordToNewNumber(fId, nomCat, table, rec, maxUnitNum + 1);
+                    chosen = rec;
+                    break;
+                } else if (!rec.active) {
                     chosen = rec;
                     break;
                 }
@@ -1789,18 +2189,12 @@ public final class FactionFleetDoctrines {
                     + bucketKey.hashCode() * 1442695040888963407L
                     + nextNum * 2654435761L;
             table.add(chosen);
+            indexInsertRecord(chosen);
         }
 
         chosen.archetype = archetype;
-        chosen.active = true;
         chosen.timesActivated++;
-        chosen.assignedFleetId = fleetId;
-        chosen.heldByStoryFleet = isStory;
-        chosen.memberIds.clear();
-        if (memberIds != null) {
-            chosen.memberIds.addAll(memberIds);
-        }
-        chosen.flagshipMemberId = flagshipMemberId;
+        indexActivateRecord(chosen, fleetId, memberIds, flagshipMemberId, isStory);
         chosen.divisionName = DivisionNomenclature.formatFactionDivisionName(
                 fId,
                 nomCat,
@@ -1821,6 +2215,10 @@ public final class FactionFleetDoctrines {
             int newUnitNumber) {
 
         String oldFleetId = preempted.assignedFleetId;
+        List<String> oldMembers = new ArrayList<>(preempted.memberIds);
+        String oldFlagshipId = preempted.flagshipMemberId;
+        indexDeactivateRecord(preempted);
+
         FactionDivisionRecord replacement = new FactionDivisionRecord();
         replacement.factionId = factionId;
         replacement.bucketKey = preempted.bucketKey;
@@ -1834,8 +2232,8 @@ public final class FactionFleetDoctrines {
         replacement.timesActivated = 1;
         replacement.assignedFleetId = oldFleetId;
         replacement.heldByStoryFleet = false;
-        replacement.memberIds.addAll(preempted.memberIds);
-        replacement.flagshipMemberId = preempted.flagshipMemberId;
+        replacement.memberIds.addAll(oldMembers);
+        replacement.flagshipMemberId = oldFlagshipId;
         replacement.divisionName = DivisionNomenclature.formatFactionDivisionName(
                 factionId,
                 nomCat,
@@ -1844,6 +2242,8 @@ public final class FactionFleetDoctrines {
                 null,
                 replacement.unitSeed);
         table.add(replacement);
+        indexInsertRecord(replacement);
+        factionTablesDirty = true;
 
         // Update the bumped fleet's cached division list if that fleet is currently instanced
         SectorAPI sector = Global.getSector();
@@ -1873,133 +2273,228 @@ public final class FactionFleetDoctrines {
         }
     }
 
-    private static void reconcileFactionTableLiveness(String factionId, List<FactionDivisionRecord> table) {
-        SectorAPI sector = Global.getSector();
-        if (sector == null || table == null || table.isEmpty()) return;
-        for (FactionDivisionRecord rec : table) {
-            if (!rec.active) continue;
-            if (rec.assignedFleetId == null) {
-                rec.active = false;
-                rec.heldByStoryFleet = false;
-                continue;
-            }
-            CampaignFleetAPI liveFleet = findLiveFleetById(sector, rec.assignedFleetId);
-            if (liveFleet == null || !liveFleet.isAlive() || liveFleet.isDespawning()) {
-                rec.active = false;
-                rec.assignedFleetId = null;
-                rec.heldByStoryFleet = false;
-                rec.memberIds.clear();
-                rec.flagshipMemberId = null;
+    private static void reconcileAllLoadedTablesOnce(SectorAPI sector) {
+        if (sector == null || RUNTIME_FACTION_TABLES.isEmpty()) return;
+        for (List<FactionDivisionRecord> table : RUNTIME_FACTION_TABLES.values()) {
+            if (table == null) continue;
+            for (int i = 0, n = table.size(); i < n; i++) {
+                FactionDivisionRecord rec = table.get(i);
+                if (rec != null && rec.active) {
+                    isRecordAssignedFleetLive(sector, rec);
+                }
             }
         }
     }
 
     private static CampaignFleetAPI findLiveFleetById(SectorAPI sector, String fleetId) {
-        if (sector == null || fleetId == null) return null;
-        if (sector.getHyperspace() != null) {
-            CampaignFleetAPI f = findFleetInLocation(sector.getHyperspace(), fleetId);
-            if (f != null) return f;
+        if (sector == null || fleetId == null || fleetId.isEmpty()) return null;
+        if (sector != lastLoadedTablesSector) {
+            ensureSectorTablesAndIndexesLoaded(sector);
         }
-        if (sector.getStarSystems() != null) {
-            for (StarSystemAPI sys : sector.getStarSystems()) {
-                if (sys == null) continue;
-                CampaignFleetAPI f = findFleetInLocation(sys, fleetId);
-                if (f != null) return f;
-            }
+        WeakReference<CampaignFleetAPI> ref = LIVE_FLEET_BY_ID.get(fleetId);
+        if (ref == null) return null;
+        CampaignFleetAPI f = ref.get();
+        if (f == null || !f.isAlive() || f.isDespawning()) {
+            LIVE_FLEET_BY_ID.remove(fleetId);
+            return null;
         }
-        return null;
+        return f;
     }
 
-    private static CampaignFleetAPI findFleetInLocation(LocationAPI loc, String fleetId) {
-        if (loc == null || loc.getFleets() == null) return null;
-        for (CampaignFleetAPI f : loc.getFleets()) {
-            if (f != null && fleetId.equals(f.getId())) {
-                return f;
+    private static FactionDivisionRecord parseCompactRecordV2(String fId, String encoded) {
+        if (encoded == null || !encoded.startsWith("v2\t")) return null;
+        // Format: v2 \t recordId \t bucketKey \t archetype \t unitNum \t unitSeed \t active \t story \t timesAct \t fleetId \t flagId \t csvMembers \t divName
+        String[] parts = new String[13];
+        int start = 0;
+        for (int p = 0; p < 12; p++) {
+            int tab = encoded.indexOf('\t', start);
+            if (tab < 0) return null;
+            parts[p] = encoded.substring(start, tab);
+            start = tab + 1;
+        }
+        parts[12] = encoded.substring(start);
+
+        FactionDivisionRecord rec = new FactionDivisionRecord();
+        rec.recordId = parts[1].isEmpty() ? null : parts[1];
+        rec.factionId = fId;
+        rec.bucketKey = parts[2].isEmpty() ? null : parts[2];
+        if (rec.recordId == null || rec.bucketKey == null) return null;
+        try {
+            rec.archetype = parts[3].isEmpty()
+                    ? DivisionArchetype.CRUISER_DIVISION
+                    : DivisionArchetype.valueOf(parts[3]);
+        } catch (IllegalArgumentException ignored) {
+            rec.archetype = DivisionArchetype.CRUISER_DIVISION;
+        }
+        try {
+            rec.unitNumber = Integer.parseInt(parts[4]);
+        } catch (NumberFormatException ignored) {
+            rec.unitNumber = 1;
+        }
+        try {
+            rec.unitSeed = Long.parseLong(parts[5]);
+        } catch (NumberFormatException ignored) {
+            rec.unitSeed = 0L;
+        }
+        rec.active = "1".equals(parts[6]);
+        rec.heldByStoryFleet = "1".equals(parts[7]);
+        try {
+            rec.timesActivated = Integer.parseInt(parts[8]);
+        } catch (NumberFormatException ignored) {
+            rec.timesActivated = 1;
+        }
+        rec.assignedFleetId = parts[9].isEmpty() ? null : parts[9];
+        rec.flagshipMemberId = parts[10].isEmpty() ? null : parts[10];
+        String csv = parts[11];
+        if (!csv.isEmpty()) {
+            int mStart = 0;
+            while (mStart <= csv.length()) {
+                int comma = csv.indexOf(',', mStart);
+                String tok = (comma < 0) ? csv.substring(mStart) : csv.substring(mStart, comma);
+                if (!tok.isEmpty()) {
+                    rec.memberIds.add(tok);
+                }
+                if (comma < 0) break;
+                mStart = comma + 1;
             }
         }
-        return null;
+        rec.divisionName = DivisionNomenclature.migrateLegacyDivisionName(
+                parts[12].isEmpty() ? null : parts[12],
+                rec.archetype);
+        return rec;
+    }
+
+    private static String formatCompactRecordV2(FactionDivisionRecord rec) {
+        StringBuilder sb = new StringBuilder(128);
+        sb.append("v2\t");
+        if (rec.recordId != null) sb.append(rec.recordId);
+        sb.append('\t');
+        if (rec.bucketKey != null) sb.append(rec.bucketKey);
+        sb.append('\t');
+        sb.append(rec.archetype != null ? rec.archetype.name() : DivisionArchetype.CRUISER_DIVISION.name());
+        sb.append('\t').append(rec.unitNumber);
+        sb.append('\t').append(rec.unitSeed);
+        sb.append('\t').append(rec.active ? '1' : '0');
+        sb.append('\t').append(rec.heldByStoryFleet ? '1' : '0');
+        sb.append('\t').append(rec.timesActivated);
+        sb.append('\t');
+        if (rec.active && rec.assignedFleetId != null) sb.append(rec.assignedFleetId);
+        sb.append('\t');
+        if (rec.active && rec.flagshipMemberId != null) sb.append(rec.flagshipMemberId);
+        sb.append('\t');
+        if (rec.active && !rec.memberIds.isEmpty()) {
+            for (int i = 0, n = rec.memberIds.size(); i < n; i++) {
+                if (i > 0) sb.append(',');
+                String mId = rec.memberIds.get(i);
+                if (mId != null) sb.append(mId);
+            }
+        }
+        sb.append('\t');
+        if (rec.divisionName != null) {
+            for (int i = 0, n = rec.divisionName.length(); i < n; i++) {
+                char c = rec.divisionName.charAt(i);
+                sb.append(c < ' ' ? ' ' : c);
+            }
+        }
+        return sb.toString();
     }
 
     @SuppressWarnings("unchecked")
     private static void loadFactionDivisionTablesFromPersistentData(SectorAPI sector) {
-        if (sector == null) return;
+        if (sector == null || sector.getPersistentData() == null) return;
         Object raw = sector.getPersistentData().get(PERSISTENT_FACTION_TABLES_KEY);
         if (!(raw instanceof Map)) return;
         Map<String, Object> byFaction = (Map<String, Object>) raw;
         for (Map.Entry<String, Object> entry : byFaction.entrySet()) {
-            String fId = entry.getKey();
-            if (!(entry.getValue() instanceof List)) continue;
+            String rawFactionKey = entry.getKey();
+            if (rawFactionKey == null || !(entry.getValue() instanceof List)) continue;
+            String fId = rawFactionKey.toLowerCase(Locale.ROOT);
             List<?> rawRecords = (List<?>) entry.getValue();
-            List<FactionDivisionRecord> table = new ArrayList<>();
+            List<FactionDivisionRecord> table = new ArrayList<>(rawRecords.size());
             for (Object item : rawRecords) {
-                if (!(item instanceof Map)) continue;
-                Map<String, Object> m = (Map<String, Object>) item;
-                FactionDivisionRecord rec = new FactionDivisionRecord();
-                rec.recordId = (String) m.get("recordId");
-                rec.factionId = fId;
-                rec.bucketKey = (String) m.get("bucketKey");
-                String archStr = (String) m.get("archetype");
-                if (archStr != null) {
-                    try {
-                        rec.archetype = DivisionArchetype.valueOf(archStr);
-                    } catch (IllegalArgumentException ignored) {
-                        rec.archetype = DivisionArchetype.CRUISER_DIVISION;
-                    }
-                }
-                Object uNum = m.get("unitNumber");
-                rec.unitNumber = (uNum instanceof Number) ? ((Number) uNum).intValue() : 1;
-                Object uSeed = m.get("unitSeed");
-                rec.unitSeed = (uSeed instanceof Number) ? ((Number) uSeed).longValue() : 0L;
-                rec.divisionName = DivisionNomenclature.migrateLegacyDivisionName(
-                        (String) m.get("divisionName"),
-                        rec.archetype);
-                rec.assignedFleetId = (String) m.get("assignedFleetId");
-                rec.heldByStoryFleet = Boolean.TRUE.equals(m.get("heldByStoryFleet"));
-                rec.active = Boolean.TRUE.equals(m.get("active"));
-                Object tAct = m.get("timesActivated");
-                rec.timesActivated = (tAct instanceof Number) ? ((Number) tAct).intValue() : 1;
-                rec.flagshipMemberId = (String) m.get("flagshipMemberId");
-                Object mIds = m.get("memberIds");
-                if (mIds instanceof List) {
-                    for (Object idObj : (List<?>) mIds) {
-                        if (idObj instanceof String) {
-                            rec.memberIds.add((String) idObj);
+                FactionDivisionRecord rec = null;
+                if (item instanceof String) {
+                    rec = parseCompactRecordV2(fId, (String) item);
+                } else if (item instanceof Map) {
+                    Map<String, Object> m = (Map<String, Object>) item;
+                    rec = new FactionDivisionRecord();
+                    rec.recordId = (String) m.get("recordId");
+                    rec.factionId = fId;
+                    rec.bucketKey = (String) m.get("bucketKey");
+                    String archStr = (String) m.get("archetype");
+                    if (archStr != null) {
+                        try {
+                            rec.archetype = DivisionArchetype.valueOf(archStr);
+                        } catch (IllegalArgumentException ignored) {
+                            rec.archetype = DivisionArchetype.CRUISER_DIVISION;
                         }
                     }
+                    Object uNum = m.get("unitNumber");
+                    rec.unitNumber = (uNum instanceof Number) ? ((Number) uNum).intValue() : 1;
+                    Object uSeed = m.get("unitSeed");
+                    rec.unitSeed = (uSeed instanceof Number) ? ((Number) uSeed).longValue() : 0L;
+                    rec.divisionName = DivisionNomenclature.migrateLegacyDivisionName(
+                            (String) m.get("divisionName"),
+                            rec.archetype);
+                    rec.assignedFleetId = (String) m.get("assignedFleetId");
+                    rec.heldByStoryFleet = Boolean.TRUE.equals(m.get("heldByStoryFleet"));
+                    rec.active = Boolean.TRUE.equals(m.get("active"));
+                    Object tAct = m.get("timesActivated");
+                    rec.timesActivated = (tAct instanceof Number) ? ((Number) tAct).intValue() : 1;
+                    rec.flagshipMemberId = (String) m.get("flagshipMemberId");
+                    Object mIds = m.get("memberIds");
+                    if (mIds instanceof List) {
+                        for (Object idObj : (List<?>) mIds) {
+                            if (idObj instanceof String) {
+                                rec.memberIds.add((String) idObj);
+                            }
+                        }
+                    }
+                    if (rec.recordId == null || rec.bucketKey == null) {
+                        rec = null;
+                    }
                 }
-                if (rec.recordId != null && rec.bucketKey != null) {
+                if (rec != null) {
                     table.add(rec);
+                    indexInsertRecord(rec);
                 }
             }
             RUNTIME_FACTION_TABLES.put(fId, table);
         }
+        factionTablesDirty = false;
+    }
+
+    private static void flushDirtyFactionDivisionTablesToPersistentData(SectorAPI sector) {
+        if (!factionTablesDirty && sector != null && sector.getPersistentData() != null
+                && sector.getPersistentData().containsKey(PERSISTENT_FACTION_TABLES_KEY)) {
+            return;
+        }
+        saveFactionDivisionTablesToPersistentData(sector);
     }
 
     private static void saveFactionDivisionTablesToPersistentData() {
-        SectorAPI sector = Global.getSector();
-        if (sector == null) return;
+        saveFactionDivisionTablesToPersistentData(Global.getSector());
+    }
+
+    private static void saveFactionDivisionTablesToPersistentData(SectorAPI sector) {
+        if (sector == null || sector.getPersistentData() == null) return;
+        // Uses strictly plain JDK HashMap<String, ArrayList<String>> so XStream writes 1 compact <string> tag
+        // per division record (instead of 38 nested <map>/<entry> tags) and remains 100% safe to remove at any time.
         Map<String, Object> serializedByFaction = new HashMap<>();
         for (Map.Entry<String, List<FactionDivisionRecord>> entry : RUNTIME_FACTION_TABLES.entrySet()) {
-            List<Map<String, Object>> list = new ArrayList<>();
-            for (FactionDivisionRecord rec : entry.getValue()) {
-                Map<String, Object> m = new HashMap<>();
-                m.put("recordId", rec.recordId);
-                m.put("bucketKey", rec.bucketKey);
-                m.put("archetype", rec.archetype != null ? rec.archetype.name() : DivisionArchetype.CRUISER_DIVISION.name());
-                m.put("unitNumber", rec.unitNumber);
-                m.put("unitSeed", rec.unitSeed);
-                m.put("divisionName", rec.divisionName);
-                m.put("assignedFleetId", rec.assignedFleetId);
-                m.put("heldByStoryFleet", rec.heldByStoryFleet);
-                m.put("active", rec.active);
-                m.put("timesActivated", rec.timesActivated);
-                m.put("flagshipMemberId", rec.flagshipMemberId);
-                m.put("memberIds", new ArrayList<>(rec.memberIds));
-                list.add(m);
+            List<FactionDivisionRecord> table = entry.getValue();
+            if (table == null || table.isEmpty()) continue;
+            ArrayList<String> list = new ArrayList<>(table.size());
+            for (int i = 0, n = table.size(); i < n; i++) {
+                FactionDivisionRecord rec = table.get(i);
+                if (rec != null) {
+                    list.add(formatCompactRecordV2(rec));
+                }
             }
             serializedByFaction.put(entry.getKey(), list);
         }
         sector.getPersistentData().put(PERSISTENT_FACTION_TABLES_KEY, serializedByFaction);
+        factionTablesDirty = false;
     }
 
     /**

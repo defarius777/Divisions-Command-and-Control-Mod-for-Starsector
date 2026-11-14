@@ -3700,6 +3700,14 @@ public class PermanentDivisionManager {
     private static int computeDivisionLongestGunRange(PermanentDivisionSpec spec, CampaignFleetAPI fleet, boolean includeMissiles) {
         if (spec == null || fleet == null || spec.memberIds.isEmpty()) return 0;
         List<FleetMemberAPI> members = getMembersInDivision(spec, fleet);
+        return computeDivisionLongestGunRangeFromMembers(spec, members, includeMissiles);
+    }
+
+    private static int computeDivisionLongestGunRangeFromMembers(
+            PermanentDivisionSpec spec,
+            List<FleetMemberAPI> members,
+            boolean includeMissiles) {
+        if (spec == null || members == null || members.isEmpty()) return 0;
         float maxRange = 0f;
 
         for (FleetMemberAPI m : members) {
@@ -3760,6 +3768,16 @@ public class PermanentDivisionManager {
     public static void recalculateDivisionStandoffRangeFromGuns(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
         if (spec == null) return;
         int longest = computeDivisionLongestGunRange(spec, fleet);
+        if (longest > 0) {
+            spec.customStandoffRange = longest;
+        }
+    }
+
+    public static void recalculateDivisionStandoffRangeFromMembers(
+            PermanentDivisionSpec spec,
+            List<FleetMemberAPI> resolvedMembers) {
+        if (spec == null || resolvedMembers == null || resolvedMembers.isEmpty()) return;
+        int longest = computeDivisionLongestGunRangeFromMembers(spec, resolvedMembers, false);
         if (longest > 0) {
             spec.customStandoffRange = longest;
         }

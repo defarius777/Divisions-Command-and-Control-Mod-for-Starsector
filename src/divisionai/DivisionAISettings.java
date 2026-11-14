@@ -906,11 +906,6 @@ public class DivisionAISettings {
                 trackedReinitButton = null;
                 return;
             }
-            long nowSyncMs = System.currentTimeMillis();
-            if (nowSyncMs - lastLunaSyncPersistMs >= 100L) {
-                lastLunaSyncPersistMs = nowSyncMs;
-                syncAndPersistLunaSettings();
-            }
 
             LunaUIButton foundBtn = null;
             for (LunaUIBaseElement el : elements) {
@@ -929,6 +924,12 @@ public class DivisionAISettings {
             if (foundBtn == null) {
                 trackedReinitButton = null;
                 return;
+            }
+
+            long nowSyncMs = System.currentTimeMillis();
+            if (nowSyncMs - lastLunaSyncPersistMs >= 100L) {
+                lastLunaSyncPersistMs = nowSyncMs;
+                syncAndPersistLunaSettings();
             }
 
             foundBtn.setRegularButton(false);

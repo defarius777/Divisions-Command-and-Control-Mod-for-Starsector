@@ -204,6 +204,7 @@ public class UITestHarness {
 
         auditEnumSuccinctnessAndClarity(res);
         auditUISourceFilesAndButtonBudgets(res);
+        auditMegaModdedCampaignPerfAndSaveRemovalSafety(res);
 
         if (previewHtmlOut != null) {
             exportUIPreviewHtml(previewHtmlOut, res);
@@ -5455,5 +5456,388 @@ public class UITestHarness {
                     if (method.getReturnType() == int.class) return 0;
                     return null;
                 });
+    }
+
+    private static com.fs.starfarer.api.campaign.rules.MemoryAPI createPlainBackedMemory() {
+        final java.util.Map<String, Object> store = new java.util.HashMap<>();
+        return (com.fs.starfarer.api.campaign.rules.MemoryAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.campaign.rules.MemoryAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("set".equals(n) && a != null && a.length >= 2) {
+                        store.put((String) a[0], a[1]);
+                        return null;
+                    }
+                    if ("get".equals(n) && a != null && a.length >= 1) {
+                        return store.get(a[0]);
+                    }
+                    if ("unset".equals(n) && a != null && a.length >= 1) {
+                        store.remove(a[0]);
+                        return null;
+                    }
+                    if ("contains".equals(n) && a != null && a.length >= 1) {
+                        return store.containsKey(a[0]);
+                    }
+                    if ("getBoolean".equals(n) && a != null && a.length >= 1) {
+                        return Boolean.TRUE.equals(store.get(a[0]));
+                    }
+                    if ("getKeys".equals(n)) {
+                        return store.keySet();
+                    }
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.fleet.FleetMemberAPI createStressFleetMember(
+            final String id,
+            final ShipAPI.HullSize hullSize,
+            final boolean flagship) {
+        final com.fs.starfarer.api.combat.ShipHullSpecAPI hullSpec =
+                (com.fs.starfarer.api.combat.ShipHullSpecAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipHullSpecAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getHullSize".equals(n)) return hullSize;
+                            if ("getHullId".equals(n)) return "stress_hull_" + hullSize.name();
+                            if ("getHints".equals(n)) return java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class);
+                            if ("getBuiltInWings".equals(n)) return java.util.Collections.emptyList();
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == float.class) return 100f;
+                            if (m.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        final float fp = (hullSize == ShipAPI.HullSize.CAPITAL_SHIP) ? 24f
+                : (hullSize == ShipAPI.HullSize.CRUISER ? 14f
+                : (hullSize == ShipAPI.HullSize.DESTROYER ? 8f : 5f));
+        return (com.fs.starfarer.api.fleet.FleetMemberAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return id;
+                    if ("getHullSpec".equals(n)) return hullSpec;
+                    if ("isFlagship".equals(n)) return flagship;
+                    if ("getDeploymentPointsCost".equals(n) || "getFleetPointCost".equals(n)) return fp;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return fp;
+                    if (m.getReturnType() == int.class) return (int) fp;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.campaign.CampaignFleetAPI createStressNpcFleet(
+            final String fleetId,
+            final String fleetName,
+            final com.fs.starfarer.api.campaign.FactionAPI faction,
+            final com.fs.starfarer.api.campaign.LocationAPI loc,
+            final Vector2f coords,
+            final List<com.fs.starfarer.api.fleet.FleetMemberAPI> members,
+            final boolean storyFleet,
+            final boolean[] aliveRef) {
+        final com.fs.starfarer.api.campaign.rules.MemoryAPI mem = createPlainBackedMemory();
+        if (storyFleet) {
+            mem.set("$storyFleet", Boolean.TRUE);
+        }
+        final int totalFp = members.size() * 12;
+        final com.fs.starfarer.api.campaign.FleetDataAPI fleetData =
+                (com.fs.starfarer.api.campaign.FleetDataAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.campaign.FleetDataAPI.class},
+                        (p, m, a) -> {
+                            if ("getMembersListCopy".equals(m.getName())) return new ArrayList<>(members);
+                            if (m.getReturnType() == boolean.class) return false;
+                            if (m.getReturnType() == float.class) return 0f;
+                            if (m.getReturnType() == int.class) return 0;
+                            return null;
+                        });
+        return (com.fs.starfarer.api.campaign.CampaignFleetAPI) Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.campaign.CampaignFleetAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == (a != null && a.length > 0 ? a[0] : null);
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("getId".equals(n)) return fleetId;
+                    if ("getName".equals(n)) return fleetName;
+                    if ("getFaction".equals(n)) return faction;
+                    if ("getFleetData".equals(n)) return fleetData;
+                    if ("getMemoryWithoutUpdate".equals(n)) return mem;
+                    if ("getContainingLocation".equals(n)) return loc;
+                    if ("getLocation".equals(n)) return coords;
+                    if ("getRadius".equals(n)) return 45f;
+                    if ("getFleetPoints".equals(n)) return totalFp;
+                    if ("isAlive".equals(n)) return aliveRef[0];
+                    if ("isDespawning".equals(n)) return !aliveRef[0];
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static void auditMegaModdedCampaignPerfAndSaveRemovalSafety(UIAuditResult res) throws Exception {
+        com.fs.starfarer.api.campaign.SectorAPI prevSector = null;
+        try {
+            prevSector = com.fs.starfarer.api.Global.getSector();
+        } catch (Throwable ignored) {
+        }
+
+        try {
+            final java.util.Map<String, Object> persistentData = new java.util.HashMap<>();
+            final List<com.fs.starfarer.api.campaign.CampaignFleetAPI> hyperFleets = new ArrayList<>();
+            final com.fs.starfarer.api.campaign.LocationAPI hyperspace =
+                    (com.fs.starfarer.api.campaign.LocationAPI) Proxy.newProxyInstance(
+                            UITestHarness.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.campaign.LocationAPI.class},
+                            (p, m, a) -> {
+                                if ("getFleets".equals(m.getName())) return hyperFleets;
+                                if (m.getReturnType() == boolean.class) return false;
+                                return null;
+                            });
+
+            final int numSystems = 150;
+            final List<com.fs.starfarer.api.campaign.StarSystemAPI> starSystems = new ArrayList<>(numSystems);
+            @SuppressWarnings("unchecked")
+            final List<com.fs.starfarer.api.campaign.CampaignFleetAPI>[] sysFleetLists = new List[numSystems];
+            for (int s = 0; s < numSystems; s++) {
+                final List<com.fs.starfarer.api.campaign.CampaignFleetAPI> fl = new ArrayList<>();
+                sysFleetLists[s] = fl;
+                starSystems.add((com.fs.starfarer.api.campaign.StarSystemAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.campaign.StarSystemAPI.class},
+                        (p, m, a) -> {
+                            if ("getFleets".equals(m.getName())) return fl;
+                            if (m.getReturnType() == boolean.class) return false;
+                            return null;
+                        }));
+            }
+
+            // 60 factions (10 vanilla + 50 modded archive factions), skewed so "independent" holds ~800 fleets
+            final int numFactions = 60;
+            final com.fs.starfarer.api.campaign.FactionAPI[] factions = new com.fs.starfarer.api.campaign.FactionAPI[numFactions];
+            final String[] baseIds = new String[]{
+                    "independent", "pirates", "hegemony", "persean", "tritachyon",
+                    "sindrian_diktat", "luddic_church", "luddic_path", "remnant", "derelict"
+            };
+            for (int f = 0; f < numFactions; f++) {
+                final String fId = (f < baseIds.length) ? baseIds[f] : ("modarchive_faction_" + f);
+                factions[f] = (com.fs.starfarer.api.campaign.FactionAPI) Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.campaign.FactionAPI.class},
+                        (p, m, a) -> {
+                            if ("getId".equals(m.getName())) return fId;
+                            if (m.getReturnType() == boolean.class) return false;
+                            return null;
+                        });
+            }
+
+            final int[] transientListenersAdded = new int[]{0};
+            final int[] nonTransientListenersAdded = new int[]{0};
+            final com.fs.starfarer.api.campaign.SectorAPI megaSector =
+                    (com.fs.starfarer.api.campaign.SectorAPI) Proxy.newProxyInstance(
+                            UITestHarness.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.campaign.SectorAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("getPersistentData".equals(n)) return persistentData;
+                                if ("getHyperspace".equals(n)) return hyperspace;
+                                if ("getStarSystems".equals(n)) return starSystems;
+                                if ("addTransientListener".equals(n)) {
+                                    transientListenersAdded[0]++;
+                                    return null;
+                                }
+                                if ("addListener".equals(n) || "addScript".equals(n)) {
+                                    nonTransientListenersAdded[0]++;
+                                    return null;
+                                }
+                                if (m.getReturnType() == boolean.class) return false;
+                                return null;
+                            });
+
+            // Populate 5,000 instanced NPC fleets (~60,000 ships across Hyperspace + 150 StarSystems)
+            final int totalInitialFleets = 5000;
+            final List<boolean[]> fleetAliveRefs = new ArrayList<>(totalInitialFleets);
+            final List<com.fs.starfarer.api.campaign.CampaignFleetAPI> allInitialFleets = new ArrayList<>(totalInitialFleets);
+            // Share immutable stress hull templates by slot index to focus benchmark on FactionFleetDoctrines scaling
+            int shipSeq = 0;
+            for (int i = 0; i < totalInitialFleets; i++) {
+                int fIdx = (i % 6 == 0) ? 0 : ((i % 9 == 0) ? 1 : (i % numFactions));
+                boolean inHyper = (i % 4 == 0);
+                com.fs.starfarer.api.campaign.LocationAPI loc = inHyper ? hyperspace : starSystems.get(i % numSystems);
+                Vector2f coords = new Vector2f((i * 173) % 24000 - 12000, (i * 293) % 24000 - 12000);
+                List<com.fs.starfarer.api.fleet.FleetMemberAPI> members = new ArrayList<>(12);
+                members.add(createStressFleetMember("sm_" + (shipSeq++), ShipAPI.HullSize.CAPITAL_SHIP, true));
+                for (int c = 0; c < 3; c++) {
+                    members.add(createStressFleetMember("sm_" + (shipSeq++), ShipAPI.HullSize.CRUISER, false));
+                }
+                for (int d = 0; d < 4; d++) {
+                    members.add(createStressFleetMember("sm_" + (shipSeq++), ShipAPI.HullSize.DESTROYER, false));
+                }
+                for (int fr = 0; fr < 4; fr++) {
+                    members.add(createStressFleetMember("sm_" + (shipSeq++), ShipAPI.HullSize.FRIGATE, false));
+                }
+                boolean isStory = (i == totalInitialFleets - 1 && fIdx == 0) || (i % 250 == 0);
+                boolean[] aliveRef = new boolean[]{true};
+                com.fs.starfarer.api.campaign.CampaignFleetAPI fleet = createStressNpcFleet(
+                        "mega_fleet_" + i,
+                        isStory ? "Grand Armada " + i : "Patrol " + i,
+                        factions[fIdx],
+                        loc,
+                        coords,
+                        members,
+                        isStory,
+                        aliveRef);
+                fleetAliveRefs.add(aliveRef);
+                allInitialFleets.add(fleet);
+                if (inHyper) {
+                    hyperFleets.add(fleet);
+                } else {
+                    sysFleetLists[i % numSystems].add(fleet);
+                }
+            }
+
+            com.fs.starfarer.api.Global.setSector(megaSector);
+
+            // 1. Existing-save load benchmark: 5,000 unsorted fleets sorted synchronously in onGameLoad
+            long loadStartNs = System.nanoTime();
+            FactionFleetDoctrines.onGameLoad(megaSector);
+            double initialLoadMs = (System.nanoTime() - loadStartNs) / 1_000_000.0;
+
+            // 2. New-save / steady-state spawn & despawn wave benchmark: 1,000 spawns + 1,000 despawns in a 5,000-fleet sector
+            FactionFleetDoctrines.FleetInitializationDivisionListener listener =
+                    new FactionFleetDoctrines.FleetInitializationDivisionListener();
+            List<com.fs.starfarer.api.campaign.CampaignFleetAPI> waveFleets = new ArrayList<>(1000);
+            List<boolean[]> waveAlive = new ArrayList<>(1000);
+            for (int w = 0; w < 1000; w++) {
+                List<com.fs.starfarer.api.fleet.FleetMemberAPI> members = new ArrayList<>(9);
+                members.add(createStressFleetMember("wm_" + (shipSeq++), ShipAPI.HullSize.CRUISER, true));
+                members.add(createStressFleetMember("wm_" + (shipSeq++), ShipAPI.HullSize.CRUISER, false));
+                members.add(createStressFleetMember("wm_" + (shipSeq++), ShipAPI.HullSize.CRUISER, false));
+                for (int d = 0; d < 3; d++) {
+                    members.add(createStressFleetMember("wm_" + (shipSeq++), ShipAPI.HullSize.DESTROYER, false));
+                }
+                for (int fr = 0; fr < 3; fr++) {
+                    members.add(createStressFleetMember("wm_" + (shipSeq++), ShipAPI.HullSize.FRIGATE, false));
+                }
+                boolean[] aRef = new boolean[]{true};
+                // Half in independent (largest table ~3,000+ records) to hit worst-case faction table depth!
+                com.fs.starfarer.api.campaign.FactionAPI fac = (w % 2 == 0) ? factions[0] : factions[w % numFactions];
+                Vector2f coords = new Vector2f((w * 311) % 24000 - 12000, (w * 419) % 24000 - 12000);
+                com.fs.starfarer.api.campaign.CampaignFleetAPI wf = createStressNpcFleet(
+                        "wave_fleet_" + w,
+                        (w == 999) ? "Independent First Fleet" : ("Trade Convoy " + w),
+                        fac,
+                        hyperspace,
+                        coords,
+                        members,
+                        (w == 999),
+                        aRef);
+                waveFleets.add(wf);
+                waveAlive.add(aRef);
+            }
+
+            long waveStartNs = System.nanoTime();
+            // Despawn 500 early fleets first, then spawn 1,000 new fleets (testing low-number reactivation + story preemption), then despawn 500 wave fleets
+            for (int d = 0; d < 500; d++) {
+                com.fs.starfarer.api.campaign.CampaignFleetAPI df = allInitialFleets.get(d);
+                fleetAliveRefs.get(d)[0] = false;
+                hyperFleets.remove(df);
+                sysFleetLists[d % numSystems].remove(df);
+                listener.reportFleetDespawned(df, null, null);
+            }
+            for (int w = 0; w < 1000; w++) {
+                com.fs.starfarer.api.campaign.CampaignFleetAPI wf = waveFleets.get(w);
+                hyperFleets.add(wf);
+                listener.reportFleetSpawned(wf);
+            }
+            for (int w = 0; w < 500; w++) {
+                com.fs.starfarer.api.campaign.CampaignFleetAPI wf = waveFleets.get(w);
+                waveAlive.get(w)[0] = false;
+                hyperFleets.remove(wf);
+                listener.reportFleetDespawned(wf, null, null);
+            }
+            double spawnDespawnWaveMs = (System.nanoTime() - waveStartNs) / 1_000_000.0;
+
+            // Verify Story Fleet w=999 ("Independent First Fleet") preempted or claimed a low-numbered division (#1)!
+            List<PermanentDivisionManager.PermanentDivisionSpec> storyDivs =
+                    FactionFleetDoctrines.ensureFleetDivisionsSorted(waveFleets.get(999));
+            boolean storyPreemptionOk = !storyDivs.isEmpty() && storyDivs.get(0).id != null && storyDivs.get(0).id.endsWith("_1");
+
+            // 3. Exercise Player Nomenclature + Doctrine + beforeGameSave, then audit 100% Save-Removal Safety!
+            DivisionNomenclature.getPlayerNamingConfig().setPreset(PlayerNamingPreset.NAVAL_STANDARD);
+            PermanentDivisionManager.saveFleetDoctrine(new FleetDoctrineConfig());
+            long saveStartNs = System.nanoTime();
+            DivisionNomenclature.sanitizePersistentNamingData(megaSector);
+            FactionFleetDoctrines.onBeforeGameSave(megaSector);
+            double beforeSaveMs = (System.nanoTime() - saveStartNs) / 1_000_000.0;
+
+            String saveSafetyError = FactionFleetDoctrines.verifySectorSaveRemovalSafety(megaSector);
+
+            // 4. Reload persistentData into a brand-new SectorAPI instance to verify compact v2 round-trip deserialization!
+            final com.fs.starfarer.api.campaign.SectorAPI reloadedSector =
+                    (com.fs.starfarer.api.campaign.SectorAPI) Proxy.newProxyInstance(
+                            UITestHarness.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.campaign.SectorAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("getPersistentData".equals(n)) return persistentData;
+                                if ("getHyperspace".equals(n)) return hyperspace;
+                                if ("getStarSystems".equals(n)) return starSystems;
+                                if (m.getReturnType() == boolean.class) return false;
+                                return null;
+                            });
+            com.fs.starfarer.api.Global.setSector(reloadedSector);
+            long reloadStartNs = System.nanoTime();
+            FactionFleetDoctrines.onGameLoad(reloadedSector);
+            double warmReloadMs = (System.nanoTime() - reloadStartNs) / 1_000_000.0;
+            int loadedIndepRecords = FactionFleetDoctrines.getOrCreateFactionDivisionTable("independent").size();
+
+            // 5. Static source check: zero non-transient sector.addScript / sector.addListener calls in ModPlugin or FactionFleetDoctrines
+            String modPluginSrc = new String(Files.readAllBytes(new File("src/divisionai/DivisionAIModPlugin.java").toPath()), StandardCharsets.UTF_8);
+            String ffdSrc = new String(Files.readAllBytes(new File("src/divisionai/FactionFleetDoctrines.java").toPath()), StandardCharsets.UTF_8);
+            boolean transientHooksOnly = !modPluginSrc.contains("sector.addScript(")
+                    && !modPluginSrc.contains("sector.addListener(")
+                    && !ffdSrc.contains("sector.addScript(")
+                    && !ffdSrc.contains("sector.addListener(")
+                    && nonTransientListenersAdded[0] == 0
+                    && transientListenersAdded[0] == 1;
+
+            boolean perfBudgetOk = initialLoadMs < 2500.0
+                    && spawnDespawnWaveMs < 800.0
+                    && beforeSaveMs < 300.0
+                    && warmReloadMs < 300.0;
+
+            boolean allOk = perfBudgetOk
+                    && saveSafetyError == null
+                    && transientHooksOnly
+                    && storyPreemptionOk
+                    && loadedIndepRecords >= 1500;
+
+            res.record(
+                    allOk,
+                    "Mega-Modded Campaign Scalability (5,000 Fleets / 60 Factions) & 100% Save-Removal Safety",
+                    String.format(
+                            Locale.ROOT,
+                            "coldLoad5k=%.1fms, 1kSpawn+1kDespawn=%.1fms (%.3fms/spawn), beforeSave=%.1fms, warmReload=%.1fms, indepRecords=%d, storyUnit1=%b, transientOnly=%b, saveSafe=%s",
+                            initialLoadMs,
+                            spawnDespawnWaveMs,
+                            spawnDespawnWaveMs / 1000.0,
+                            beforeSaveMs,
+                            warmReloadMs,
+                            loadedIndepRecords,
+                            storyPreemptionOk,
+                            transientHooksOnly,
+                            saveSafetyError == null ? "OK" : saveSafetyError));
+        } finally {
+            try {
+                com.fs.starfarer.api.Global.setSector(prevSector);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 }

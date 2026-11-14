@@ -55,7 +55,7 @@ public class DivisionAIModPlugin extends BaseModPlugin {
         SectorAPI sector = Global.getSector();
         if (sector != null) {
             DivisionNomenclature.sanitizePersistentNamingData(sector);
-            FactionFleetDoctrines.sanitizeAllNpcFleetMemories(sector);
+            FactionFleetDoctrines.onBeforeGameSave(sector);
         }
     }
 }
