@@ -365,6 +365,14 @@ public class DivisionCombatLog {
                 div.archetype,
                 div.divisionNumber,
                 div.displayName);
+        if (!cleanTarget.isEmpty()
+                && cleanTarget.equals(actorName)
+                && div.targetEnemyDivision != null
+                && div.currentIntent != DivisionIntentType.TAKE_SCREENING_STATION
+                && div.currentIntent != DivisionIntentType.REINFORCE_DIVISION
+                && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT) {
+            cleanTarget = (div.side == 0 ? "Enemy " : "Player ") + cleanTarget;
+        }
 
         String fullLine;
         if (!cleanTarget.isEmpty()) {

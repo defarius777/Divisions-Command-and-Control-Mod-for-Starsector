@@ -1973,17 +1973,52 @@ public class UITestHarness {
         pBg.divisions.add(frigPack);
         boolean singleOutlierStaysInLine = !divisionai.DivisionCommanderAI.isUnderHighFluxPressure(frigPack, pBg);
 
+        // 4) Zero-flux crippled division must NOT trigger HAUL_OUT_TO_VENT ("flux 0%")
+        DivisionState zeroFluxDd = new DivisionState(
+                "zf_dd", 1, 1, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 1", cmdr);
+        zeroFluxDd.members.add(createMockFluxShip("zf_s1", HullSize.DESTROYER, 0f, 0f, 0.0f));
+        zeroFluxDd.avgFluxLevel = 0.0f;
+        zeroFluxDd.maxMemberFluxLevel = 0.0f;
+        zeroFluxDd.avgHullLevel = 0.70f;
+        zeroFluxDd.effectiveHpRatio = 0.42f;
+        zeroFluxDd.localEnemyStrength = 18f;
+        zeroFluxDd.localForceRatio = 0.09f;
+        boolean zeroFluxNoVentOk = !divisionai.DivisionCommanderAI.isUnderHighFluxPressure(zeroFluxDd, stationEnemyGroup);
+
+        // 5) Civilian SERVICE_GROUP in REARGUARD_ACTION escapes North instead of charging pursuers
+        BattleGroupState rearguardEnemy = new BattleGroupState(1, cmdr);
+        rearguardEnemy.missionContext = DivisionModel.MissionContextType.REARGUARD_ACTION;
+        rearguardEnemy.currentPhase = DivisionModel.BattlePhase.FIGHTING_RETIREMENT;
+        DivisionState convoyDiv = new DivisionState(
+                "rg_convoy", 1, 49, DivisionArchetype.SERVICE_GROUP, "Service Group 49", cmdr);
+        ShipAPI dramShip = createMockFluxShip("dram_1", HullSize.FRIGATE, 0f, 1200f, 0.05f);
+        convoyDiv.members.add(dramShip);
+        convoyDiv.flagship = dramShip;
+        convoyDiv.centroid.set(0f, 1200f);
+        convoyDiv.totalFpStrength = 3f;
+        convoyDiv.ableMemberCount = 1;
+        convoyDiv.coreMemberCount = 1;
+        rearguardEnemy.divisions.add(convoyDiv);
+        BattleGroupState pursuerPlayer = new BattleGroupState(0, cmdr);
+        pursuerPlayer.divisions.add(frigPack);
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(null, rearguardEnemy, pursuerPlayer, 10.0f);
+        boolean serviceGroupRearguardEscapesOk = convoyDiv.currentIntent == DivisionModel.DivisionIntentType.BREAK_OFF_AND_RETIRE
+                && convoyDiv.stationPoint.y > convoyDiv.centroid.y + 500f;
+
         res.record(
-                stationFormedDivisions && cachedIndepIdsOk && o1SkipFastOk && singleOutlierStaysInLine,
-                "Station Garrison Division Sync, O(1) Independent Hull Cache & Single-Outlier Flux Guard",
+                stationFormedDivisions && cachedIndepIdsOk && o1SkipFastOk
+                        && singleOutlierStaysInLine && zeroFluxNoVentOk && serviceGroupRearguardEscapesOk,
+                "Station Garrison Division Sync, O(1) Independent Hull Cache, Convoy Escape & Flux Guards",
                 String.format(
                         Locale.ROOT,
-                        "stationDivs=%d (ships=%d), indepCached=%b (avgSync=%.4fms), singleOutlierStaysInLine=%b",
+                        "stationDivs=%d (ships=%d), indepCached=%b (avgSync=%.4fms), singleOutlier=%b, zeroFluxNoVent=%b, convoyEscapes=%b",
                         stationEnemyGroup.divisions.size(),
                         stationEnemyGroup.shipIdToDivision.size(),
                         cachedIndepIdsOk,
                         avgTickMs,
-                        singleOutlierStaysInLine));
+                        singleOutlierStaysInLine,
+                        zeroFluxNoVentOk,
+                        serviceGroupRearguardEscapesOk));
     }
 
     private static com.fs.starfarer.api.campaign.rules.MemoryAPI createSimpleMemoryForStationTest() {

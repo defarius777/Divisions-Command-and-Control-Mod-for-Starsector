@@ -5171,123 +5171,6 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 boolean aConcave = computePolygonArea(hullA) > polyAreaA * 1.07f && a.triangles != null && !a.triangles.isEmpty();
                 boolean bConcave = computePolygonArea(hullB) > polyAreaB * 1.07f && b.triangles != null && !b.triangles.isEmpty();
 
-                List<List<Vector2f>> overlapCells;
-                if (!aConcave && !bConcave) {
-                    overlapCells = java.util.Collections.singletonList(hullInter);
-                } else {
-                    float ix0 = Float.MAX_VALUE, ix1 = -Float.MAX_VALUE;
-                    float iy0 = Float.MAX_VALUE, iy1 = -Float.MAX_VALUE;
-                    for (int k = 0, kn = hullInter.size(); k < kn; k++) {
-                        Vector2f iv = hullInter.get(k);
-                        if (iv.x < ix0) ix0 = iv.x;
-                        if (iv.x > ix1) ix1 = iv.x;
-                        if (iv.y < iy0) iy0 = iv.y;
-                        if (iv.y > iy1) iy1 = iv.y;
-                    }
-                    overlapCells = new ArrayList<>();
-                    float totalOverlapArea = 0f;
-                    List<Vector2f> triPolyA = new ArrayList<>(3);
-                    if (aConcave && !bConcave) {
-                        List<int[]> trisA = a.triangles;
-                        for (int ta = 0, nA = trisA.size(); ta < nA; ta++) {
-                            int[] ia = trisA.get(ta);
-                            Vector2f a0 = polyA.get(ia[0]), a1 = polyA.get(ia[1]), a2 = polyA.get(ia[2]);
-                            if (Math.max(a0.x, Math.max(a1.x, a2.x)) < ix0 || Math.min(a0.x, Math.min(a1.x, a2.x)) > ix1
-                                    || Math.max(a0.y, Math.max(a1.y, a2.y)) < iy0 || Math.min(a0.y, Math.min(a1.y, a2.y)) > iy1) {
-                                continue;
-                            }
-                            triPolyA.clear();
-                            triPolyA.add(a0);
-                            triPolyA.add(a1);
-                            triPolyA.add(a2);
-                            if (computeSignedPolygonArea(triPolyA) < 0f) {
-                                triPolyA.set(1, a2);
-                                triPolyA.set(2, a1);
-                            }
-                            List<Vector2f> cell = clipConvexPolygon(triPolyA, hullB);
-                            if (cell.size() >= 3) {
-                                float area = computePolygonArea(cell);
-                                if (area > 2.0f) {
-                                    overlapCells.add(cell);
-                                    totalOverlapArea += area;
-                                }
-                            }
-                        }
-                    } else if (!aConcave) {
-                        List<int[]> trisB = b.triangles;
-                        for (int tb = 0, nB = trisB.size(); tb < nB; tb++) {
-                            int[] ib = trisB.get(tb);
-                            Vector2f b0 = polyB.get(ib[0]), b1 = polyB.get(ib[1]), b2 = polyB.get(ib[2]);
-                            if (Math.max(b0.x, Math.max(b1.x, b2.x)) < ix0 || Math.min(b0.x, Math.min(b1.x, b2.x)) > ix1
-                                    || Math.max(b0.y, Math.max(b1.y, b2.y)) < iy0 || Math.min(b0.y, Math.min(b1.y, b2.y)) > iy1) {
-                                continue;
-                            }
-                            triPolyA.clear();
-                            triPolyA.add(b0);
-                            triPolyA.add(b1);
-                            triPolyA.add(b2);
-                            if (computeSignedPolygonArea(triPolyA) < 0f) {
-                                triPolyA.set(1, b2);
-                                triPolyA.set(2, b1);
-                            }
-                            List<Vector2f> cell = clipConvexPolygon(triPolyA, hullA);
-                            if (cell.size() >= 3) {
-                                float area = computePolygonArea(cell);
-                                if (area > 2.0f) {
-                                    overlapCells.add(cell);
-                                    totalOverlapArea += area;
-                                }
-                            }
-                        }
-                    } else {
-                        List<int[]> trisA = a.triangles;
-                        List<int[]> trisB = b.triangles;
-                        List<Vector2f> triPolyB = new ArrayList<>(3);
-                        for (int ta = 0, nA = trisA.size(); ta < nA; ta++) {
-                            int[] ia = trisA.get(ta);
-                            Vector2f a0 = polyA.get(ia[0]), a1 = polyA.get(ia[1]), a2 = polyA.get(ia[2]);
-                            float ax0 = Math.min(a0.x, Math.min(a1.x, a2.x)), ax1 = Math.max(a0.x, Math.max(a1.x, a2.x));
-                            float ay0 = Math.min(a0.y, Math.min(a1.y, a2.y)), ay1 = Math.max(a0.y, Math.max(a1.y, a2.y));
-                            if (ax1 < ix0 || ax0 > ix1 || ay1 < iy0 || ay0 > iy1) continue;
-                            triPolyA.clear();
-                            triPolyA.add(a0);
-                            triPolyA.add(a1);
-                            triPolyA.add(a2);
-                            if (computeSignedPolygonArea(triPolyA) < 0f) {
-                                triPolyA.set(1, a2);
-                                triPolyA.set(2, a1);
-                            }
-                            for (int tb = 0, nB = trisB.size(); tb < nB; tb++) {
-                                int[] ib = trisB.get(tb);
-                                Vector2f b0 = polyB.get(ib[0]), b1 = polyB.get(ib[1]), b2 = polyB.get(ib[2]);
-                                if (ax1 < Math.min(b0.x, Math.min(b1.x, b2.x)) || ax0 > Math.max(b0.x, Math.max(b1.x, b2.x))
-                                        || ay1 < Math.min(b0.y, Math.min(b1.y, b2.y)) || ay0 > Math.max(b0.y, Math.max(b1.y, b2.y))) {
-                                    continue;
-                                }
-                                triPolyB.clear();
-                                triPolyB.add(b0);
-                                triPolyB.add(b1);
-                                triPolyB.add(b2);
-                                if (computeSignedPolygonArea(triPolyB) < 0f) {
-                                    triPolyB.set(1, b2);
-                                    triPolyB.set(2, b1);
-                                }
-                                List<Vector2f> cell = clipConvexPolygon(triPolyA, triPolyB);
-                                if (cell.size() >= 3) {
-                                    float area = computePolygonArea(cell);
-                                    if (area > 2.0f) {
-                                        overlapCells.add(cell);
-                                        totalOverlapArea += area;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (overlapCells.isEmpty() || totalOverlapArea < 320f) {
-                        continue;
-                    }
-                }
-
                 float pairCohesion = Math.max(0.12f, Math.min(a.cohesionAlphaMult, b.cohesionAlphaMult));
                 boolean sameColorFamily = (a.isEnemy == b.isEnemy) && (a.isAlliedAi == b.isAlliedAi);
                 float aCr = Math.min(1f, a.cr + 0.10f);
@@ -5297,12 +5180,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float bCg = sameColorFamily ? Math.min(1f, a.cg * 0.45f + 0.15f) : b.cg;
                 float bCb = sameColorFamily ? Math.min(1f, a.cb + 0.35f) : b.cb;
 
-                for (int cIdx = 0, cLen = overlapCells.size(); cIdx < cLen; cIdx++) {
-                    List<Vector2f> cell = overlapCells.get(cIdx);
+                if (!aConcave && !bConcave) {
                     float minU = Float.MAX_VALUE;
                     float maxU = -Float.MAX_VALUE;
-                    for (int vIdx = 0, vLen = cell.size(); vIdx < vLen; vIdx++) {
-                        Vector2f v = cell.get(vIdx);
+                    for (int vIdx = 0, vLen = hullInter.size(); vIdx < vLen; vIdx++) {
+                        Vector2f v = hullInter.get(vIdx);
                         float u = (v.x + v.y) * INV_SQRT2;
                         if (u < minU) minU = u;
                         if (u > maxU) maxU = u;
@@ -5314,15 +5196,217 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         float sMid = s0 + STRIPE_WIDTH_PX;
                         float s1 = s0 + STRIPE_PERIOD_PX;
 
-                        List<Vector2f> bandA = clipPolygonToDiagonalSlab(cell, s0, sMid);
+                        List<Vector2f> bandA = clipPolygonToDiagonalSlab(hullInter, s0, sMid);
                         if (bandA.size() >= 3) {
                             outBands.add(new CachedOverlapStripeBand(bandA, aCr, aCg, aCb, 0.85f * pairCohesion, true, a, b));
                         }
-                        List<Vector2f> bandB = clipPolygonToDiagonalSlab(cell, sMid, s1);
+                        List<Vector2f> bandB = clipPolygonToDiagonalSlab(hullInter, sMid, s1);
                         if (bandB.size() >= 3) {
                             outBands.add(new CachedOverlapStripeBand(bandB, bCr, bCg, bCb, 0.72f * pairCohesion, false, a, b));
                         }
                     }
+                } else {
+                    appendConcaveDiagonalStripeQuads(
+                            polyA, polyB, hullInter,
+                            aCr, aCg, aCb, bCr, bCg, bCb,
+                            pairCohesion, a, b, outBands);
+                }
+            }
+        }
+    }
+
+    private final float[] stripeScratchVa = new float[64];
+    private final float[] stripeScratchVb = new float[64];
+    private final float[] stripeIntLo0 = new float[32];
+    private final float[] stripeIntHi0 = new float[32];
+    private final float[] stripeIntLoM = new float[32];
+    private final float[] stripeIntHiM = new float[32];
+    private final float[] stripeIntLo1 = new float[32];
+    private final float[] stripeIntHi1 = new float[32];
+
+    private int evalConcaveDiagonalOverlapIntervals(
+            List<Vector2f> polyA,
+            List<Vector2f> polyB,
+            float uQuery,
+            float[] outLo,
+            float[] outHi) {
+        int nA = collectPolygonDiagonalCrossings(polyA, uQuery, stripeScratchVa);
+        if (nA < 2) return 0;
+        int nB = collectPolygonDiagonalCrossings(polyB, uQuery, stripeScratchVb);
+        if (nB < 2) return 0;
+        int count = 0;
+        int ia = 0;
+        int ib = 0;
+        while (ia + 1 < nA && ib + 1 < nB && count < outLo.length) {
+            float aLo = stripeScratchVa[ia];
+            float aHi = stripeScratchVa[ia + 1];
+            float bLo = stripeScratchVb[ib];
+            float bHi = stripeScratchVb[ib + 1];
+            float lo = Math.max(aLo, bLo);
+            float hi = Math.min(aHi, bHi);
+            if (hi - lo > 0.75f) {
+                outLo[count] = lo;
+                outHi[count] = hi;
+                count++;
+            }
+            if (aHi < bHi) {
+                ia += 2;
+            } else {
+                ib += 2;
+            }
+        }
+        return count;
+    }
+
+    private static int collectPolygonDiagonalCrossings(List<Vector2f> poly, float uQuery, float[] outV) {
+        int n = poly.size();
+        int count = 0;
+        Vector2f prev = poly.get(n - 1);
+        float u0 = (prev.x + prev.y) * INV_SQRT2;
+        float v0 = (-prev.x + prev.y) * INV_SQRT2;
+        for (int i = 0; i < n; i++) {
+            Vector2f curr = poly.get(i);
+            float u1 = (curr.x + curr.y) * INV_SQRT2;
+            float v1 = (-curr.x + curr.y) * INV_SQRT2;
+            if ((u0 <= uQuery && u1 > uQuery) || (u1 <= uQuery && u0 > uQuery)) {
+                if (count < outV.length) {
+                    float t = (uQuery - u0) / (u1 - u0);
+                    outV[count++] = v0 + t * (v1 - v0);
+                }
+            }
+            u0 = u1;
+            v0 = v1;
+        }
+        for (int i = 1; i < count; i++) {
+            float key = outV[i];
+            int j = i - 1;
+            while (j >= 0 && outV[j] > key) {
+                outV[j + 1] = outV[j];
+                j--;
+            }
+            outV[j + 1] = key;
+        }
+        return count & ~1;
+    }
+
+    private static CachedOverlapStripeBand makeDiagonalTrapezoidBand(
+            float u0, float u1,
+            float vLo0, float vHi0,
+            float vLo1, float vHi1,
+            float cr, float cg, float cb, float alphaMult,
+            boolean isBandA,
+            RenderedDivisionPolygon a,
+            RenderedDivisionPolygon b) {
+        List<Vector2f> quad = new ArrayList<>(4);
+        quad.add(new Vector2f((u0 - vLo0) * INV_SQRT2, (u0 + vLo0) * INV_SQRT2));
+        quad.add(new Vector2f((u1 - vLo1) * INV_SQRT2, (u1 + vLo1) * INV_SQRT2));
+        quad.add(new Vector2f((u1 - vHi1) * INV_SQRT2, (u1 + vHi1) * INV_SQRT2));
+        quad.add(new Vector2f((u0 - vHi0) * INV_SQRT2, (u0 + vHi0) * INV_SQRT2));
+        return new CachedOverlapStripeBand(quad, cr, cg, cb, alphaMult, isBandA, a, b);
+    }
+
+    private void appendConcaveDiagonalStripeQuads(
+            List<Vector2f> polyA,
+            List<Vector2f> polyB,
+            List<Vector2f> hullInter,
+            float aCr, float aCg, float aCb,
+            float bCr, float bCg, float bCb,
+            float pairCohesion,
+            RenderedDivisionPolygon a,
+            RenderedDivisionPolygon b,
+            List<CachedOverlapStripeBand> outBands) {
+        float minU = Float.MAX_VALUE;
+        float maxU = -Float.MAX_VALUE;
+        for (int i = 0, n = hullInter.size(); i < n; i++) {
+            Vector2f v = hullInter.get(i);
+            float u = (v.x + v.y) * INV_SQRT2;
+            if (u < minU) minU = u;
+            if (u > maxU) maxU = u;
+        }
+        float spanU = maxU - minU;
+        if (spanU < 4.0f) return;
+
+        // Fast 8-slice Riemann area check on exact concave intersection before emitting stripe quads
+        float approxArea = 0f;
+        float stepU = spanU / 8f;
+        for (int s = 0; s < 8; s++) {
+            float uSample = minU + (s + 0.5f) * stepU;
+            int cnt = evalConcaveDiagonalOverlapIntervals(polyA, polyB, uSample, stripeIntLo0, stripeIntHi0);
+            for (int k = 0; k < cnt; k++) {
+                approxArea += (stripeIntHi0[k] - stripeIntLo0[k]) * stepU;
+            }
+        }
+        if (approxArea < 320f) return;
+
+        int firstBand = (int) Math.floor(minU / STRIPE_PERIOD_PX);
+        int lastBand = (int) Math.ceil(maxU / STRIPE_PERIOD_PX);
+        for (int k = firstBand; k <= lastBand; k++) {
+            float s0 = k * STRIPE_PERIOD_PX;
+            float sMid = s0 + STRIPE_WIDTH_PX;
+            float s1 = s0 + STRIPE_PERIOD_PX;
+            emitSingleConcaveSlabQuads(
+                    polyA, polyB, minU, maxU, s0, sMid,
+                    aCr, aCg, aCb, 0.85f * pairCohesion, true, a, b, outBands);
+            emitSingleConcaveSlabQuads(
+                    polyA, polyB, minU, maxU, sMid, s1,
+                    bCr, bCg, bCb, 0.72f * pairCohesion, false, a, b, outBands);
+        }
+    }
+
+    private void emitSingleConcaveSlabQuads(
+            List<Vector2f> polyA,
+            List<Vector2f> polyB,
+            float minU, float maxU,
+            float slabLo, float slabHi,
+            float cr, float cg, float cb, float alphaMult,
+            boolean isBandA,
+            RenderedDivisionPolygon a,
+            RenderedDivisionPolygon b,
+            List<CachedOverlapStripeBand> outBands) {
+        float ua = Math.max(slabLo, minU) + 0.35f;
+        float ub = Math.min(slabHi, maxU) - 0.35f;
+        if (ub - ua < 0.65f) return;
+        float um = 0.5f * (ua + ub);
+
+        int c0 = evalConcaveDiagonalOverlapIntervals(polyA, polyB, ua, stripeIntLo0, stripeIntHi0);
+        int cm = evalConcaveDiagonalOverlapIntervals(polyA, polyB, um, stripeIntLoM, stripeIntHiM);
+        int c1 = evalConcaveDiagonalOverlapIntervals(polyA, polyB, ub, stripeIntLo1, stripeIntHi1);
+        if (c0 == 0 && cm == 0 && c1 == 0) return;
+
+        if (c0 == 1 && cm == 1 && c1 == 1
+                && Math.abs(0.5f * (stripeIntLo0[0] + stripeIntLo1[0]) - stripeIntLoM[0]) < 2.4f
+                && Math.abs(0.5f * (stripeIntHi0[0] + stripeIntHi1[0]) - stripeIntHiM[0]) < 2.4f) {
+            outBands.add(makeDiagonalTrapezoidBand(
+                    ua, ub, stripeIntLo0[0], stripeIntHi0[0], stripeIntLo1[0], stripeIntHi1[0],
+                    cr, cg, cb, alphaMult, isBandA, a, b));
+            return;
+        }
+        pairIntervalSliceQuads(
+                ua, um, c0, stripeIntLo0, stripeIntHi0, cm, stripeIntLoM, stripeIntHiM,
+                cr, cg, cb, alphaMult, isBandA, a, b, outBands);
+        pairIntervalSliceQuads(
+                um, ub, cm, stripeIntLoM, stripeIntHiM, c1, stripeIntLo1, stripeIntHi1,
+                cr, cg, cb, alphaMult, isBandA, a, b, outBands);
+    }
+
+    private static void pairIntervalSliceQuads(
+            float u0, float u1,
+            int n0, float[] lo0, float[] hi0,
+            int n1, float[] lo1, float[] hi1,
+            float cr, float cg, float cb, float alphaMult,
+            boolean isBandA,
+            RenderedDivisionPolygon a,
+            RenderedDivisionPolygon b,
+            List<CachedOverlapStripeBand> outBands) {
+        if (u1 - u0 < 0.30f) return;
+        for (int i = 0; i < n0; i++) {
+            float aLo = lo0[i], aHi = hi0[i];
+            for (int j = 0; j < n1; j++) {
+                float bLo = lo1[j], bHi = hi1[j];
+                if (Math.min(aHi, bHi) - Math.max(aLo, bLo) > -5.5f) {
+                    outBands.add(makeDiagonalTrapezoidBand(
+                            u0, u1, aLo, aHi, bLo, bHi,
+                            cr, cg, cb, alphaMult, isBandA, a, b));
                 }
             }
         }

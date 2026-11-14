@@ -560,6 +560,9 @@ public class DivisionCommanderAI {
             return true;
         }
         if (!martyrdom && myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT
+                && (div.avgFluxLevel >= 0.32f
+                || (div.archetype == DivisionArchetype.SERVICE_GROUP
+                && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE))
                 && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT) {
             return true;
         }
@@ -654,7 +657,9 @@ public class DivisionCommanderAI {
         boolean loneFrigateOvermatched = isLoneFrigateDiv
                 && div.localEnemyStrength >= 10f
                 && div.localForceRatio < 0.65f
-                && (div.avgFluxLevel >= 0.35f || div.maxMemberFluxLevel >= 0.45f || div.avgHullLevel < 0.75f);
+                && (div.avgFluxLevel >= 0.35f
+                || div.maxMemberFluxLevel >= 0.45f
+                || (div.avgHullLevel < 0.75f && (div.avgFluxLevel >= 0.15f || div.maxMemberFluxLevel >= 0.20f)));
 
         // Protect fragile or ram-capable destroyer divisions (e.g. Hammerhead / Sunder / Rambunctious packs) from
         // fighting to the death when their Effective HP or post-ram shields are depleted against heavy resistance!
@@ -692,6 +697,7 @@ public class DivisionCommanderAI {
 
         boolean ehpDepletedUnderFire = div.localEnemyStrength >= 10f
                 && div.avgHullLevel < 0.88f
+                && (div.avgFluxLevel >= 0.18f || div.maxMemberFluxLevel >= 0.26f)
                 && ((div.effectiveHpRatio < 0.48f && (div.avgFluxLevel >= 0.52f || div.localForceRatio < 0.72f))
                 || (isFragileDestroyerDiv && div.effectiveHpRatio < 0.54f && div.localForceRatio < 0.68f && div.avgFluxLevel >= 0.55f)
                 || ((isFragileDestroyerDiv || div.ramCapableMemberCount >= 1)
@@ -905,14 +911,44 @@ public class DivisionCommanderAI {
         boolean isPursuitInterception = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
         boolean isRearguardEscape = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
 
+        // Step 4b: Non-combatant civilian SERVICE_GROUP divisions (freighters, tankers, salvage rigs):
+        // In Rearguard Escape / Fighting Retirement they sprint continuously toward the escape border while combat
+        // divisions screen them; in standard battles they hold safely in the rear reserve rather than charging enemies.
+        if (div.archetype == DivisionArchetype.SERVICE_GROUP) {
+            if (isRearguardEscape || (myGroup != null && myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT)) {
+                float halfH = (engine != null && engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.5f) : 9000f;
+                float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
+                float escY = Math.max(-halfH * 0.90f, Math.min(halfH * 0.90f, div.centroid.y + retreatDirY * 2400f));
+                div.stationPoint.set(div.centroid.x, escY);
+                commitIntent(engine, div, DivisionIntentType.BREAK_OFF_AND_RETIRE,
+                        "safe extraction corridor", "non-combatant convoy escaping", now);
+            } else {
+                div.stationPoint.set(myGroup.reserveStation);
+                commitIntent(engine, div, DivisionIntentType.HOLD_IN_RESERVE,
+                        "", "non-combatant logistics train", now);
+            }
+            return;
+        }
+
         // Step 5: Mission-driven objective seizure (Main Effort stays on its fixing task instead;
         // under Consent + Orchestrated Advance, non-scouting battleline divisions stay in their Grand Formation lanes;
-        // in Rearguard Escape, divisions focus on screening and escaping North rather than detouring for side objectives)
-        boolean stationedByOtc = taskActive && task.type == OtcOrderType.FORM_LINE && auth.allowsPositioning();
+        // in Rearguard Escape, divisions focus on screening and escaping North rather than detouring for side objectives;
+        // mid-battle General Chase / Coordinated Strike / close-range combat divisions stay focused on the enemy fleet)
+        boolean stationedByOtc = taskActive
+                && ((task.type == OtcOrderType.FORM_LINE && auth.allowsPositioning()) || auth.allowsRetasking());
+        boolean fleetCommittedToBattle = myGroup != null
+                && (myGroup.currentPhase == BattlePhase.GENERAL_CHASE
+                || myGroup.currentPhase == BattlePhase.COORDINATED_STRIKE
+                || myGroup.currentPhase == BattlePhase.REINFORCE_THE_LINE);
+        boolean engagedNearEnemy = activeMission != DivisionMissionType.SCOUTING
+                && nearestEnemyDiv != null
+                && distToVisibleEnemy <= 2800f;
         boolean holdGrandFormationAdvance = OtcAI.isOrchestratedAdvanceActive(engine, myGroup, enemyGroup)
                 && activeMission != DivisionMissionType.SCOUTING
                 && (!div.isFastFlanker || div.fleetFormationRank <= 1);
         if (!stationedByOtc
+                && !fleetCommittedToBattle
+                && !engagedNearEnemy
                 && !holdGrandFormationAdvance
                 && !isRearguardEscape
                 && !isPursuitBattle
@@ -1093,16 +1129,23 @@ public class DivisionCommanderAI {
                     && (div.archetype.isCarrierArchetype() || !otcCoverer.archetype.isCarrierArchetype())) {
                 candidateFriend = otcCoverer;
             }
-            boolean divIsHeavyLine = div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                    || div.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+            boolean divIsCapital = div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || div.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
+            boolean divIsHeavyLine = divIsCapital
                     || div.archetype == DivisionArchetype.CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION;
             boolean candTooLightForCover = divIsHeavyLine && candidateFriend != null
-                    && (candidateFriend.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    && (((candidateFriend.archetype == DivisionArchetype.FRIGATE_DIVISION
                     || candidateFriend.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
                     || candidateFriend.archetype == DivisionArchetype.PHASE_DIVISION)
-                    && candidateFriend.totalFpStrength < div.totalFpStrength * 0.85f;
+                    && candidateFriend.totalFpStrength < div.totalFpStrength * 0.85f)
+                    || candidateFriend.totalFpStrength < div.totalFpStrength * 0.60f
+                    || (divIsCapital
+                    && (candidateFriend.archetype == DivisionArchetype.DESTROYER_DIVISION
+                    || candidateFriend.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                    || candidateFriend.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION)
+                    && candidateFriend.totalFpStrength < div.totalFpStrength * 0.85f));
             if (candidateFriend != null
                     && !candTooLightForCover
                     && candidateFriend.isAbleCombatEffective()
@@ -1589,10 +1632,16 @@ public class DivisionCommanderAI {
             }
             case DECKLOAD_STRIKE: {
                 String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
+                if (carrierTargetDiv == null) {
+                    return commitIntent(engine, div, DivisionIntentType.FLY_FIGHTER_SWEEP, targetLabel, baseReason, now);
+                }
                 return commitIntent(engine, div, DivisionIntentType.LAUNCH_DECKLOAD_STRIKE, targetLabel, baseReason, now);
             }
             case ALPHA_STRIKE: {
                 String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
+                if (carrierTargetDiv == null) {
+                    return commitIntent(engine, div, DivisionIntentType.FLY_FIGHTER_SWEEP, targetLabel, baseReason, now);
+                }
                 String syncPartner = (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
                         ? (" with \"" + myGroup.mainEffortDivision.displayName + "\"")
                         : "";
@@ -2495,8 +2544,20 @@ public class DivisionCommanderAI {
                 }
                 break;
             case HOLD_IN_RESERVE:
-            case BREAK_OFF_AND_RETIRE:
                 div.stationPoint.set(myGroup.reserveStation);
+                break;
+            case BREAK_OFF_AND_RETIRE:
+                if (div.archetype == DivisionArchetype.SERVICE_GROUP
+                        && myGroup != null
+                        && (myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION
+                        || myGroup.currentPhase == BattlePhase.FIGHTING_RETIREMENT)) {
+                    float halfH = (engine != null && engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.5f) : 9000f;
+                    float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
+                    float escY = Math.max(-halfH * 0.90f, Math.min(halfH * 0.90f, div.centroid.y + retreatDirY * 2400f));
+                    div.stationPoint.set(div.centroid.x, escY);
+                } else {
+                    div.stationPoint.set(myGroup.reserveStation);
+                }
                 break;
             case CLOSE_UP:
                 if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
@@ -3037,9 +3098,9 @@ public class DivisionCommanderAI {
             BattleGroupState enemyGroup,
             float now) {
 
-        ShipAPI playerShip = engine.getPlayerShip();
+        ShipAPI playerShip = (engine != null) ? engine.getPlayerShip() : null;
 
-        CombatFleetManagerAPI fm = engine.getFleetManager(div.side);
+        CombatFleetManagerAPI fm = (engine != null) ? engine.getFleetManager(div.side) : null;
 
         List<ShipAPI> alive = div.getAliveMembers();
         if (alive.isEmpty()) return;
@@ -3571,6 +3632,7 @@ public class DivisionCommanderAI {
                 //    the extraction corridor and sprint out of danger at 100% forward speed + escape drive!
                 ShipSystemCoordinator.ShipSkillProfile sp = ShipSystemCoordinator.getSkillProfile(ship);
                 boolean actAsRearguardCover = (shipIdx == 0 && div.getAliveMembers().size() >= 2)
+                        && div.archetype != DivisionArchetype.SERVICE_GROUP
                         && !sp.isDesignedToRam
                         && ship.getFluxLevel() < 0.40f
                         && ship.getHullLevel() >= 0.78f;

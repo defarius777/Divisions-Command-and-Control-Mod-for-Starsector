@@ -67,6 +67,16 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private CombatEngineAPI preRenderHookEngine = null;
     private boolean renderedBelowShipsLayerThisFrame = false;
     private boolean loggedBattleSummary = false;
+    private boolean confirmedRealCombat = false;
+    private int c2PerfTickCount = 0;
+    private long c2PerfTotalSumNs = 0L;
+    private long c2PerfMaxMs = 0L;
+    private long c2PerfSyncSumNs = 0L;
+    private long c2PerfTelSumNs = 0L;
+    private long c2PerfViewSumNs = 0L;
+    private long c2PerfOtcSumNs = 0L;
+    private long c2PerfDivSumNs = 0L;
+    private long c2PerfVoidSumNs = 0L;
     private final java.util.Set<String> loggedObfuscatedHookFailures = new java.util.HashSet<>();
     private static DivisionAICombatPlugin pendingSummaryInstance = null;
 
@@ -83,7 +93,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         try {
             com.fs.starfarer.api.combat.CombatUIAPI ui = inst.engine.getCombatUI();
             if (ui != null && ui.getClass().getName().contains("TitleScreenState")) return;
-            if (ui == null && Global.getSettings() != null) return;
+            if (!inst.confirmedRealCombat && Global.getSettings() != null) return;
             float elapsed = inst.engine.getTotalElapsedTime(false);
             boolean hasAnyDivs = (inst.playerGroup != null && !inst.playerGroup.divisions.isEmpty())
                     || (inst.enemyGroup != null && !inst.enemyGroup.divisions.isEmpty());
@@ -102,6 +112,16 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
         this.engine = engine;
         this.initializedBattle = false;
+        this.confirmedRealCombat = false;
+        this.c2PerfTickCount = 0;
+        this.c2PerfTotalSumNs = 0L;
+        this.c2PerfMaxMs = 0L;
+        this.c2PerfSyncSumNs = 0L;
+        this.c2PerfTelSumNs = 0L;
+        this.c2PerfViewSumNs = 0L;
+        this.c2PerfOtcSumNs = 0L;
+        this.c2PerfDivSumNs = 0L;
+        this.c2PerfVoidSumNs = 0L;
         this.lastConvStateSyncShipsCount = -1;
         this.loggedPlayerOtcInit = false;
         this.loggedAlliedAiOtcInit = false;
@@ -392,6 +412,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             DynamicBattleMusicController.ensureCleanedUpOutsideCombat();
             return;
         }
+        confirmedRealCombat = true;
         if (BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine)) {
             TsfcWarroomRenderer.processInputEvents(engine, events);
         }
@@ -720,9 +741,20 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     enemyGroup,
                     now);
             markVoidNs = System.nanoTime();
-            long totalMs = (markVoidNs - tickStartNs) / 1000000L;
-            if (totalMs >= 5L) {
+            long totalNs = markVoidNs - tickStartNs;
+            long totalMs = totalNs / 1000000L;
+            c2PerfTickCount++;
+            c2PerfTotalSumNs += totalNs;
+            if (totalMs > c2PerfMaxMs) c2PerfMaxMs = totalMs;
+            c2PerfSyncSumNs += (markSyncNs - tickStartNs);
+            c2PerfTelSumNs += (markTelemetryNs - markSyncNs);
+            c2PerfViewSumNs += (markViewNs - markTelemetryNs);
+            c2PerfOtcSumNs += (markOtcNs - markViewNs);
+            c2PerfDivSumNs += (markDivNs - markOtcNs);
+            c2PerfVoidSumNs += (markVoidNs - markDivNs);
+            if (totalMs >= 18L) {
                 LOG.info(String.format(
+                        java.util.Locale.ROOT,
                         "[DivisionAI] C2 tick %d ms (now=%.2fs): sync=%.1fms telemetry=%.1fms views=%.1fms otc=%.1fms divisions=%.1fms voidstrikes=%.1fms | divs=%d/%d/%d ships=%d roses=%d",
                         totalMs, now,
                         (markSyncNs - tickStartNs) / 1e6f,
@@ -734,6 +766,28 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                         playerGroup.divisions.size(), alliedAiGroup.divisions.size(), enemyGroup.divisions.size(),
                         engine.getShips() != null ? engine.getShips().size() : 0,
                         BattlefieldFirepowerEvaluator.getRoseCount()));
+            }
+            if (c2PerfTickCount >= 60) {
+                float inv = 1.0f / (c2PerfTickCount * 1e6f);
+                LOG.info(String.format(
+                        java.util.Locale.ROOT,
+                        "[DivisionAI] C2 perf (%d ticks, now=%.1fs): avg=%.2fms max=%dms | sync=%.2fms telemetry=%.2fms views=%.2fms otc=%.2fms divisions=%.2fms voidstrikes=%.2fms | divs=%d/%d/%d ships=%d roses=%d",
+                        c2PerfTickCount, now,
+                        c2PerfTotalSumNs * inv, c2PerfMaxMs,
+                        c2PerfSyncSumNs * inv, c2PerfTelSumNs * inv, c2PerfViewSumNs * inv,
+                        c2PerfOtcSumNs * inv, c2PerfDivSumNs * inv, c2PerfVoidSumNs * inv,
+                        playerGroup.divisions.size(), alliedAiGroup.divisions.size(), enemyGroup.divisions.size(),
+                        engine.getShips() != null ? engine.getShips().size() : 0,
+                        BattlefieldFirepowerEvaluator.getRoseCount()));
+                c2PerfTickCount = 0;
+                c2PerfTotalSumNs = 0L;
+                c2PerfMaxMs = 0L;
+                c2PerfSyncSumNs = 0L;
+                c2PerfTelSumNs = 0L;
+                c2PerfViewSumNs = 0L;
+                c2PerfOtcSumNs = 0L;
+                c2PerfDivSumNs = 0L;
+                c2PerfVoidSumNs = 0L;
             }
         } else if (tsfcTimer >= TSFC_EVAL_INTERVAL) {
             tsfcTimer = 0f;
