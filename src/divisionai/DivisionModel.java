@@ -850,6 +850,8 @@ public class DivisionModel {
 
         public final List<DivisionState> divisions = new ArrayList<>();
         public final Map<String, DivisionState> shipIdToDivision = new HashMap<>();
+        public final Set<String> checkedUnassignedShipIds = new HashSet<>();
+        public boolean battleGroupDoctrineSynced = false;
 
         public final Vector2f fleetCentroid = new Vector2f();
         public final Vector2f reserveStation = new Vector2f();

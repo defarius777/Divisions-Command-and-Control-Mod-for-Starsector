@@ -131,7 +131,8 @@ public class DivisionAutoFormer {
         List<ShipCapabilityProfile> unassigned = new ArrayList<>();
         for (ShipAPI ship : playerShips) {
             if (ship == null || ship.isAlly() || !isEligibleCombatHull(ship)) continue;
-            if (!assignedIds.contains(ship.getId())) {
+            String sId = ship.getId();
+            if (!assignedIds.contains(sId) && !playerGroup.checkedUnassignedShipIds.contains(sId)) {
                 unassigned.add(new ShipCapabilityProfile(ship));
             }
         }
@@ -158,6 +159,13 @@ public class DivisionAutoFormer {
                 newlyCreated);
         if (playerGroup.divisions.isEmpty() && PermanentDivisionManager.getPermanentDivisions().isEmpty()) {
             return syncDivisionsForSide(engine, playerGroup, playerShips);
+        }
+        for (int i = 0, n = unassigned.size(); i < n; i++) {
+            ShipCapabilityProfile p = unassigned.get(i);
+            if (p != null && p.ship != null && p.ship.getId() != null
+                    && !playerGroup.shipIdToDivision.containsKey(p.ship.getId())) {
+                playerGroup.checkedUnassignedShipIds.add(p.ship.getId());
+            }
         }
 
         return newlyCreated;
@@ -195,7 +203,19 @@ public class DivisionAutoFormer {
         List<DivisionState> newlyCreated = new ArrayList<>();
         Set<String> assignedIds = new HashSet<>(battleGroup.shipIdToDivision.keySet());
 
-        if (eligibleShips != null && !eligibleShips.isEmpty()) {
+        List<ShipCapabilityProfile> unassigned = new ArrayList<>();
+        if (eligibleShips != null) {
+            for (ShipAPI ship : eligibleShips) {
+                if (ship == null || !isEligibleCombatHull(ship)) continue;
+                String sId = ship.getId();
+                if (!assignedIds.contains(sId) && !battleGroup.checkedUnassignedShipIds.contains(sId)) {
+                    unassigned.add(new ShipCapabilityProfile(ship));
+                }
+            }
+        }
+
+        if (eligibleShips != null && !eligibleShips.isEmpty() && (!battleGroup.battleGroupDoctrineSynced || !unassigned.isEmpty())) {
+            battleGroup.battleGroupDoctrineSynced = true;
             PermanentDivisionManager.MissionScenarioBundle missionBundle =
                     (battleGroup.side == 1) ? PermanentDivisionManager.resolveActiveMissionScenario() : null;
             if (missionBundle != null) {
@@ -227,14 +247,6 @@ public class DivisionAutoFormer {
                 battleGroup.orchestratedAdvance = fDoc.isOrchestratedAdvance();
                 battleGroup.plays.clear();
                 battleGroup.plays.addAll(fDoc.getEnabledPlays());
-            }
-        }
-
-        List<ShipCapabilityProfile> unassigned = new ArrayList<>();
-        for (ShipAPI ship : eligibleShips) {
-            if (ship == null || !isEligibleCombatHull(ship)) continue;
-            if (!assignedIds.contains(ship.getId())) {
-                unassigned.add(new ShipCapabilityProfile(ship));
             }
         }
 
@@ -277,9 +289,16 @@ public class DivisionAutoFormer {
             if (prof == null || prof.ship == null) continue;
             com.fs.starfarer.api.fleet.FleetMemberAPI fm = prof.ship.getFleetMember();
             com.fs.starfarer.api.campaign.CampaignFleetAPI srcFleet =
-                    (fm != null && fm.getFleetData() != null) ? fm.getFleetData().getFleet() : null;
-            if (srcFleet != null && !srcFleet.isPlayerFleet()) {
-                // Intentionally independent ship from a campaign NPC fleet — leave unassigned!
+                    FactionFleetDoctrines.resolveTrueCampaignSourceFleet(fm);
+            if (srcFleet != null
+                    && !srcFleet.isPlayerFleet()
+                    && !srcFleet.isStationMode()
+                    && fm != null
+                    && FactionFleetDoctrines.isKnownCampaignIndependentMember(srcFleet, fm.getId())) {
+                // Intentionally independent ship from a campaign NPC fleet's Organization Rating — record once so future C2 ticks skip in O(1)!
+                if (prof.ship.getId() != null) {
+                    battleGroup.checkedUnassignedShipIds.add(prof.ship.getId());
+                }
                 continue;
             }
             nonCampaignUnassigned.add(prof);

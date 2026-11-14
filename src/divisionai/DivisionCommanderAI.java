@@ -643,7 +643,7 @@ public class DivisionCommanderAI {
     }
 
     /** Requires actual flux buildup (or critical damage under heavy local overmatch / L-U crossfire cordon) so fresh divisions never retreat. */
-    static boolean isUnderHighFluxPressure(DivisionState div, BattleGroupState myGroup) {
+    public static boolean isUnderHighFluxPressure(DivisionState div, BattleGroupState myGroup) {
         boolean inCrossfireCordon = div.crossfireCordonIndex >= 0.36f && div.localEnemyStrength >= 10f;
         boolean isLoneFrigateDiv = (div.getAliveMembers().size() == 1)
                 && (div.totalFpStrength <= 10f
@@ -704,13 +704,17 @@ public class DivisionCommanderAI {
                 || div.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
                 || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION;
         float effFluxThreshold = Math.max(0.64f, div.commander.rotationFluxThreshold);
+        boolean singleOutlierInFreshWinningPack = alive.size() >= 3
+                && endangeredMemberCount <= 1
+                && div.avgFluxLevel < 0.34f
+                && div.localForceRatio >= 1.50f;
         boolean highFluxPressure = div.avgFluxLevel >= effFluxThreshold
                 || loneFrigateOvermatched
                 || multiShipExtractionNeeded
                 || (!isHeavyLineDiv && ehpDepletedUnderFire)
-                || (!isHeavyLineDiv && div.maxMemberFluxLevel >= 0.76f && div.localEnemyStrength > 10f && (div.localForceRatio < 0.75f || inCrossfireCordon))
+                || (!isHeavyLineDiv && !singleOutlierInFreshWinningPack && div.maxMemberFluxLevel >= 0.76f && div.localEnemyStrength > 10f && (div.localForceRatio < 0.75f || inCrossfireCordon))
                 || (!isHeavyLineDiv && div.avgFluxLevel >= 0.52f && div.localEnemyStrength > 12f && div.localForceRatio < 0.62f && div.commander.aggressionBias < 1.35f)
-                || (!isHeavyLineDiv && inCrossfireCordon && (div.maxMemberFluxLevel >= 0.60f || (div.avgFluxLevel >= 0.36f && div.localForceRatio < 0.72f)));
+                || (!isHeavyLineDiv && !singleOutlierInFreshWinningPack && inCrossfireCordon && (div.maxMemberFluxLevel >= 0.60f || (div.avgFluxLevel >= 0.36f && div.localForceRatio < 0.72f)));
         // Intra-Division Double-Line Rank Relief: if the division is NOT trapped in a 3-sided crossfire cordon
         // and still maintains its minimum healthy Front-Rank Engagement Zone (div.inDoubleLineRelief == true),
         // individual high-flux ships step back into the Rear-Rank Safe Zone while healthy ships keep firing in the
@@ -1089,7 +1093,18 @@ public class DivisionCommanderAI {
                     && (div.archetype.isCarrierArchetype() || !otcCoverer.archetype.isCarrierArchetype())) {
                 candidateFriend = otcCoverer;
             }
+            boolean divIsHeavyLine = div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || div.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+                    || div.archetype == DivisionArchetype.CRUISER_DIVISION
+                    || div.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
+                    || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION;
+            boolean candTooLightForCover = divIsHeavyLine && candidateFriend != null
+                    && (candidateFriend.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || candidateFriend.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                    || candidateFriend.archetype == DivisionArchetype.PHASE_DIVISION)
+                    && candidateFriend.totalFpStrength < div.totalFpStrength * 0.85f;
             if (candidateFriend != null
+                    && !candTooLightForCover
                     && candidateFriend.isAbleCombatEffective()
                     && candidateFriend.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                     && candidateFriend.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE

@@ -81,7 +81,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         pendingSummaryInstance = null;
         if (!inst.initializedBattle || inst.loggedBattleSummary || inst.engine == null) return;
         try {
-            if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(inst.engine)) return;
+            com.fs.starfarer.api.combat.CombatUIAPI ui = inst.engine.getCombatUI();
+            if (ui != null && ui.getClass().getName().contains("TitleScreenState")) return;
+            if (ui == null && Global.getSettings() != null) return;
             float elapsed = inst.engine.getTotalElapsedTime(false);
             boolean hasAnyDivs = (inst.playerGroup != null && !inst.playerGroup.divisions.isEmpty())
                     || (inst.enemyGroup != null && !inst.enemyGroup.divisions.isEmpty());

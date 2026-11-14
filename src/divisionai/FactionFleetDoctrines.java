@@ -902,12 +902,12 @@ public final class FactionFleetDoctrines {
         String currentSig = sigBuilder.toString();
         MemoryAPI mem = fleet.getMemoryWithoutUpdate();
         List<PermanentDivisionSpec> existingDivs = readNpcDivisionsFromMemory(mem);
-        if (fleet.getBattle() != null && !existingDivs.isEmpty()) {
+        if (fleet.getBattle() != null && (!existingDivs.isEmpty() || (mem != null && mem.contains(MEM_NPC_SIGNATURE_KEY)))) {
             return existingDivs;
         }
         if (mem != null) {
             Object cachedSig = mem.get(MEM_NPC_SIGNATURE_KEY);
-            if (currentSig.equals(cachedSig) && !existingDivs.isEmpty()) {
+            if (cachedSig != null && currentSig.equals(cachedSig)) {
                 return existingDivs;
             }
         }
@@ -2007,6 +2007,38 @@ public final class FactionFleetDoctrines {
      * CampaignFleetAPI's sorted divisions so that the exact divisions seen on the campaign map
      * are preserved in battle, with their faction's FleetDoctrineConfig applied.
      */
+    public static CampaignFleetAPI resolveTrueCampaignSourceFleet(FleetMemberAPI fm) {
+        if (fm == null) return null;
+        CampaignFleetAPI currFleet = (fm.getFleetData() != null) ? fm.getFleetData().getFleet() : null;
+        try {
+            SectorAPI sector = Global.getSector();
+            CampaignFleetAPI pFleet = (sector != null) ? sector.getPlayerFleet() : null;
+            com.fs.starfarer.api.campaign.BattleAPI battle = (pFleet != null) ? pFleet.getBattle() : null;
+            if (battle == null && currFleet != null) {
+                battle = currFleet.getBattle();
+            }
+            if (battle != null) {
+                CampaignFleetAPI battleSrc = battle.getSourceFleet(fm);
+                if (battleSrc != null) {
+                    return battleSrc;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return currFleet;
+    }
+
+    public static boolean isKnownCampaignIndependentMember(CampaignFleetAPI fleet, String memberId) {
+        if (fleet == null || memberId == null) return false;
+        MemoryAPI mem = fleet.getMemoryWithoutUpdate();
+        if (mem == null) return false;
+        Object rawIndep = mem.get(MEM_NPC_INDEPENDENT_IDS_KEY);
+        if (rawIndep instanceof Collection) {
+            return ((Collection<?>) rawIndep).contains(memberId);
+        }
+        return false;
+    }
+
     public static List<ShipCapabilityProfile> applyCampaignNpcDivisionsInCombat(
             BattleGroupState battleGroup,
             List<ShipCapabilityProfile> unassignedNpcHulls,
@@ -2016,29 +2048,35 @@ public final class FactionFleetDoctrines {
             return unassignedNpcHulls;
         }
 
-        // Collect all source NPC CampaignFleetAPIs represented by these hulls
+        // Collect all source NPC CampaignFleetAPIs represented by these hulls (deduplicated per fleet!)
         Map<String, PermanentDivisionSpec> memberToSpec = new HashMap<>();
         Map<String, CampaignFleetAPI> specIdToFleet = new HashMap<>();
+        Map<CampaignFleetAPI, List<PermanentDivisionSpec>> specsBySourceFleet =
+                new java.util.IdentityHashMap<CampaignFleetAPI, List<PermanentDivisionSpec>>();
 
         for (ShipCapabilityProfile prof : unassignedNpcHulls) {
             if (prof == null || prof.ship == null || prof.ship.getFleetMember() == null) continue;
             FleetMemberAPI fm = prof.ship.getFleetMember();
-            CampaignFleetAPI sourceFleet = (fm.getFleetData() != null) ? fm.getFleetData().getFleet() : null;
-            if (sourceFleet == null || sourceFleet.isPlayerFleet()) continue;
+            CampaignFleetAPI sourceFleet = resolveTrueCampaignSourceFleet(fm);
+            if (sourceFleet == null || sourceFleet.isPlayerFleet() || sourceFleet.isStationMode()) continue;
 
-            List<PermanentDivisionSpec> fleetSpecs = ensureFleetDivisionsSorted(sourceFleet);
-            String fleetPrefix = "f" + System.identityHashCode(sourceFleet) + "_";
-            for (PermanentDivisionSpec spec : fleetSpecs) {
-                String uniqueSpecId = fleetPrefix + spec.id;
-                specIdToFleet.put(uniqueSpecId, sourceFleet);
-                for (String mId : spec.memberIds) {
-                    if (!memberToSpec.containsKey(mId)) {
-                        PermanentDivisionSpec copy = new PermanentDivisionSpec(uniqueSpecId, spec.name, spec.archetype);
-                        copy.flagshipMemberId = spec.flagshipMemberId;
-                        copy.memberIds.addAll(spec.memberIds);
-                        copy.doctrine = spec.doctrine;
-                        copyCustomSpecFields(copy, spec);
-                        memberToSpec.put(mId, copy);
+            List<PermanentDivisionSpec> fleetSpecs = specsBySourceFleet.get(sourceFleet);
+            if (fleetSpecs == null) {
+                fleetSpecs = ensureFleetDivisionsSorted(sourceFleet);
+                specsBySourceFleet.put(sourceFleet, fleetSpecs);
+                String fleetPrefix = "f" + System.identityHashCode(sourceFleet) + "_";
+                for (PermanentDivisionSpec spec : fleetSpecs) {
+                    String uniqueSpecId = fleetPrefix + spec.id;
+                    specIdToFleet.put(uniqueSpecId, sourceFleet);
+                    for (String mId : spec.memberIds) {
+                        if (!memberToSpec.containsKey(mId)) {
+                            PermanentDivisionSpec copy = new PermanentDivisionSpec(uniqueSpecId, spec.name, spec.archetype);
+                            copy.flagshipMemberId = spec.flagshipMemberId;
+                            copy.memberIds.addAll(spec.memberIds);
+                            copy.doctrine = spec.doctrine;
+                            copyCustomSpecFields(copy, spec);
+                            memberToSpec.put(mId, copy);
+                        }
                     }
                 }
             }

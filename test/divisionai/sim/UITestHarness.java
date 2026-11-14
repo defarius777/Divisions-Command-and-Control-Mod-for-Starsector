@@ -1506,6 +1506,7 @@ public class UITestHarness {
 
             auditHegemonyInspector39DivisionWarroomStressAndGlGuards(res, pCmdr);
             auditTsfcGradeDivisionAndVoidstrikeEnvelopes(res, pCmdr);
+            auditStationBattleSyncAndC2Fixes(res, pCmdr);
             auditOtcReassignmentFlagshipBlackoutAndBattleSummary(res);
         }
     }
@@ -1876,15 +1877,35 @@ public class UITestHarness {
         }
         boolean strikeSquadronEnvelopeOk = allFightersContained && (scSelfIntersections == 0);
 
+        // 4. Sub-pixel analytical circularity (1-ship exact circle & unpulled SDF hemisphere snap)
+        float maxRadialErrPx = 0f;
+        float expectedR = 510f * 0.18f;
+        if (singleConv != null && singleConv.size() >= 32) {
+            for (Vector2f v : singleConv) {
+                float r = (float) Math.hypot(v.x - 500f, v.y - 500f);
+                maxRadialErrPx = Math.max(maxRadialErrPx, Math.abs(r - expectedR));
+            }
+        }
+        if (singleSdf != null && singleSdf.size() >= 32) {
+            for (Vector2f v : singleSdf) {
+                if (v.x <= 495f) { // Unpulled hemisphere opposite the +X recoil meniscus tip
+                    float r = (float) Math.hypot(v.x - 500f, v.y - 500f);
+                    maxRadialErrPx = Math.max(maxRadialErrPx, Math.abs(r - expectedR));
+                }
+            }
+        }
+        boolean circularityExactOk = maxRadialErrPx < 0.35f;
+
         res.record(
-                zoomInvariantOk && zeroSingleShipRadiusPop && lbsDeformationOk && strikeSquadronEnvelopeOk,
-                "TSFC-Grade Division & Strike Craft Envelopes (World-Space Zoom, 60 FPS LBS & Squadron Metaballs)",
+                zoomInvariantOk && zeroSingleShipRadiusPop && lbsDeformationOk && strikeSquadronEnvelopeOk && circularityExactOk,
+                "TSFC-Grade Division & Strike Craft Envelopes (World-Space Zoom, 60 FPS LBS, Sub-Pixel SDF Snap & Squadron Metaballs)",
                 String.format(
                         Locale.ROOT,
-                        "zoomRatio=%.2fx (expect 6.00x), 1shipHighZoom=[%.1f vs %.1fpx], lbs=[rebuilt=%d, right=+%.1fpx, left=%.1fpx, innerSI=%d], scSquadrons=[polys=%d, all6Contained=%b, si=%d]",
+                        "zoomRatio=%.2fx (expect 6.00x), 1shipHighZoom=[%.2f vs %.2fpx, radialErr=%.3fpx], lbs=[rebuilt=%d, right=+%.1fpx, left=%.1fpx, innerSI=%d], scSquadrons=[polys=%d, all6Contained=%b, si=%d]",
                         zoomRatio,
                         singleConvSpan,
                         singleSdfSpan,
+                        maxRadialErrPx,
                         skinRebuilt,
                         rightFlankMovePx,
                         leftFlankMovePx,
@@ -1892,6 +1913,228 @@ public class UITestHarness {
                         scPolys.size(),
                         allFightersContained,
                         scSelfIntersections));
+    }
+
+    private static void auditStationBattleSyncAndC2Fixes(
+            UIAuditResult res,
+            CommanderProfile cmdr) {
+        // 1. Station-combined garrison fleet (isStationMode() == true on combined fleet) must form enemy divisions
+        //    rather than dropping all garrison hulls into 0 divisions ("divs=9/0/0" Babylon station bug)
+        final com.fs.starfarer.api.campaign.rules.MemoryAPI stationMem = createSimpleMemoryForStationTest();
+        final com.fs.starfarer.api.campaign.CampaignFleetAPI stationCombinedFleet =
+                createMockStationOrNpcFleet(true, stationMem);
+        List<ShipAPI> stationGarrison = Arrays.asList(
+                createMockGarrisonCombatShip("heg_gar_0", HullSize.CRUISER, -400f, 1500f, "gar_fm_0", stationCombinedFleet),
+                createMockGarrisonCombatShip("heg_gar_1", HullSize.CRUISER, 0f, 1500f, "gar_fm_1", stationCombinedFleet),
+                createMockGarrisonCombatShip("heg_gar_2", HullSize.DESTROYER, 400f, 1500f, "gar_fm_2", stationCombinedFleet));
+        BattleGroupState stationEnemyGroup = new BattleGroupState(1, cmdr);
+        divisionai.DivisionAutoFormer.syncDivisionsForSide(null, stationEnemyGroup, stationGarrison);
+        boolean stationFormedDivisions = !stationEnemyGroup.divisions.isEmpty()
+                && stationEnemyGroup.shipIdToDivision.size() == 3;
+
+        // 2. Known campaign independent NPC ships must be recorded in checkedUnassignedShipIds on tick 1
+        //    so subsequent C2 ticks skip them in O(1) (~0.00ms instead of 15.5ms/tick)
+        final com.fs.starfarer.api.campaign.rules.MemoryAPI indepMem = createSimpleMemoryForStationTest();
+        indepMem.set(divisionai.FactionFleetDoctrines.MEM_NPC_SIGNATURE_KEY, "cached_sig", 0f);
+        indepMem.set(divisionai.FactionFleetDoctrines.MEM_NPC_DIVISIONS_KEY, new ArrayList<>(), 0f);
+        indepMem.set(divisionai.FactionFleetDoctrines.MEM_NPC_INDEPENDENT_IDS_KEY, Arrays.asList("indep_fm_0", "indep_fm_1"), 0f);
+        final com.fs.starfarer.api.campaign.CampaignFleetAPI indepFleet =
+                createMockStationOrNpcFleet(false, indepMem);
+        List<ShipAPI> indepShips = Arrays.asList(
+                createMockGarrisonCombatShip("indep_s_0", HullSize.FRIGATE, -300f, 2000f, "indep_fm_0", indepFleet),
+                createMockGarrisonCombatShip("indep_s_1", HullSize.FRIGATE, 300f, 2000f, "indep_fm_1", indepFleet));
+        BattleGroupState indepGroup = new BattleGroupState(1, cmdr);
+        divisionai.DivisionAutoFormer.syncDivisionsForSide(null, indepGroup, indepShips);
+        boolean cachedIndepIdsOk = indepGroup.divisions.isEmpty()
+                && indepGroup.checkedUnassignedShipIds.contains("indep_s_0")
+                && indepGroup.checkedUnassignedShipIds.contains("indep_s_1");
+        long tTick2Start = System.nanoTime();
+        for (int k = 0; k < 50; k++) {
+            divisionai.DivisionAutoFormer.syncDivisionsForSide(null, indepGroup, indepShips);
+        }
+        float avgTickMs = ((System.nanoTime() - tTick2Start) / 1e6f) / 50f;
+        boolean o1SkipFastOk = avgTickMs < 0.25f;
+
+        // 3. Single-ship flux spike in a fresh 5-frigate pack (17% avg flux, 4.0x local force ratio) must NOT
+        //    haul the entire division out of the line (Frigate Div 2 bug)
+        BattleGroupState pBg = new BattleGroupState(0, cmdr);
+        DivisionState frigPack = new DivisionState(
+                "flux_outlier_frigs", 0, 2, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 2", cmdr);
+        float[] fluxes = new float[] { 0.79f, 0.04f, 0.02f, 0.01f, 0.01f };
+        for (int i = 0; i < 5; i++) {
+            frigPack.members.add(createMockFluxShip("fp_s_" + i, HullSize.FRIGATE, i * 250f, 0f, fluxes[i]));
+        }
+        frigPack.avgFluxLevel = 0.174f;
+        frigPack.maxMemberFluxLevel = 0.79f;
+        frigPack.localEnemyStrength = 12f;
+        frigPack.localForceRatio = 4.2f;
+        frigPack.crossfireCordonIndex = 0.72f;
+        frigPack.inDoubleLineRelief = false;
+        pBg.divisions.add(frigPack);
+        boolean singleOutlierStaysInLine = !divisionai.DivisionCommanderAI.isUnderHighFluxPressure(frigPack, pBg);
+
+        res.record(
+                stationFormedDivisions && cachedIndepIdsOk && o1SkipFastOk && singleOutlierStaysInLine,
+                "Station Garrison Division Sync, O(1) Independent Hull Cache & Single-Outlier Flux Guard",
+                String.format(
+                        Locale.ROOT,
+                        "stationDivs=%d (ships=%d), indepCached=%b (avgSync=%.4fms), singleOutlierStaysInLine=%b",
+                        stationEnemyGroup.divisions.size(),
+                        stationEnemyGroup.shipIdToDivision.size(),
+                        cachedIndepIdsOk,
+                        avgTickMs,
+                        singleOutlierStaysInLine));
+    }
+
+    private static com.fs.starfarer.api.campaign.rules.MemoryAPI createSimpleMemoryForStationTest() {
+        final java.util.Map<String, Object> map = new java.util.HashMap<>();
+        return (com.fs.starfarer.api.campaign.rules.MemoryAPI) java.lang.reflect.Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[] { com.fs.starfarer.api.campaign.rules.MemoryAPI.class },
+                (proxy, method, args) -> {
+                    String name = method.getName();
+                    if ("get".equals(name) && args != null && args.length == 1) return map.get(args[0]);
+                    if ("contains".equals(name) && args != null && args.length == 1) return map.containsKey(args[0]);
+                    if ("set".equals(name) && args != null && args.length >= 2) {
+                        map.put((String) args[0], args[1]);
+                        return null;
+                    }
+                    if ("unset".equals(name) && args != null && args.length == 1) {
+                        map.remove(args[0]);
+                        return null;
+                    }
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.campaign.CampaignFleetAPI createMockStationOrNpcFleet(
+            final boolean stationMode,
+            final com.fs.starfarer.api.campaign.rules.MemoryAPI mem) {
+        final com.fs.starfarer.api.campaign.BattleAPI mockBattle =
+                (com.fs.starfarer.api.campaign.BattleAPI) java.lang.reflect.Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[] { com.fs.starfarer.api.campaign.BattleAPI.class },
+                        (p, m, a) -> {
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == float.class) return 0f;
+                            if (rt == int.class) return 0;
+                            return null;
+                        });
+        return (com.fs.starfarer.api.campaign.CampaignFleetAPI) java.lang.reflect.Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[] { com.fs.starfarer.api.campaign.CampaignFleetAPI.class },
+                (proxy, method, args) -> {
+                    String name = method.getName();
+                    if ("isStationMode".equals(name)) return stationMode;
+                    if ("isPlayerFleet".equals(name)) return false;
+                    if ("getMemoryWithoutUpdate".equals(name)) return mem;
+                    if ("getBattle".equals(name)) return mockBattle;
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static ShipAPI createMockGarrisonCombatShip(
+            final String shipId,
+            final HullSize hullSize,
+            final float x,
+            final float y,
+            final String fmId,
+            final com.fs.starfarer.api.campaign.CampaignFleetAPI fleet) {
+        final Vector2f loc = new Vector2f(x, y);
+        final Vector2f vel = new Vector2f(0f, 0f);
+        final com.fs.starfarer.api.campaign.FleetDataAPI fleetData =
+                (com.fs.starfarer.api.campaign.FleetDataAPI) java.lang.reflect.Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[] { com.fs.starfarer.api.campaign.FleetDataAPI.class },
+                        (p, m, a) -> "getFleet".equals(m.getName()) ? fleet : null);
+        final com.fs.starfarer.api.fleet.FleetMemberAPI fm =
+                (com.fs.starfarer.api.fleet.FleetMemberAPI) java.lang.reflect.Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[] { com.fs.starfarer.api.fleet.FleetMemberAPI.class },
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getId".equals(n)) return fmId;
+                            if ("getFleetData".equals(n)) return fleetData;
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == float.class) return 10f;
+                            if (rt == int.class) return 0;
+                            return null;
+                        });
+        return (ShipAPI) java.lang.reflect.Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[] { ShipAPI.class },
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return shipId;
+                    if ("getHullSize".equals(n)) return hullSize;
+                    if ("getLocation".equals(n)) return loc;
+                    if ("getVelocity".equals(n)) return vel;
+                    if ("isAlive".equals(n)) return true;
+                    if ("getOwner".equals(n)) return 1;
+                    if ("getFleetMember".equals(n)) return fm;
+                    if ("getFleetMemberId".equals(n)) return fmId;
+                    if ("getMaxSpeed".equals(n)) return 90f;
+                    if ("getCollisionRadius".equals(n)) return 120f;
+                    if ("getHitpoints".equals(n) || "getMaxHitpoints".equals(n)) return 8000f;
+                    if ("getHullLevel".equals(n)) return 1.0f;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static ShipAPI createMockFluxShip(
+            final String shipId,
+            final HullSize hullSize,
+            final float x,
+            final float y,
+            final float fluxLevel) {
+        final Vector2f loc = new Vector2f(x, y);
+        final com.fs.starfarer.api.combat.FluxTrackerAPI tracker =
+                (com.fs.starfarer.api.combat.FluxTrackerAPI) java.lang.reflect.Proxy.newProxyInstance(
+                        UITestHarness.class.getClassLoader(),
+                        new Class<?>[] { com.fs.starfarer.api.combat.FluxTrackerAPI.class },
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getFluxLevel".equals(n)) return fluxLevel;
+                            if ("getHardFlux".equals(n)) return fluxLevel * 5000f;
+                            if ("getMaxFlux".equals(n)) return 10000f;
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == float.class) return 0f;
+                            if (rt == int.class) return 0;
+                            return null;
+                        });
+        return (ShipAPI) java.lang.reflect.Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[] { ShipAPI.class },
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return shipId;
+                    if ("getHullSize".equals(n)) return hullSize;
+                    if ("getLocation".equals(n)) return loc;
+                    if ("isAlive".equals(n)) return true;
+                    if ("getFluxTracker".equals(n)) return tracker;
+                    if ("getHullLevel".equals(n)) return 1.0f;
+                    if ("getHitpoints".equals(n) || "getMaxHitpoints".equals(n)) return 4000f;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
     }
 
     private static float computeXSpanForTest(List<Vector2f> poly) {
