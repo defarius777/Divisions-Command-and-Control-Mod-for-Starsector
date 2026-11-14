@@ -1007,6 +1007,13 @@ public class UITestHarness {
                         return Boolean.FALSE;
                     }
                     if ("getOwner".equals(n)) return Integer.valueOf(0);
+                    if ("getCollisionRadius".equals(n)) return Float.valueOf(size == HullSize.FIGHTER ? 26f : 110f);
+                    if ("getHullLevel".equals(n)) return Float.valueOf(1.0f);
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return Boolean.FALSE;
+                    if (rt == float.class) return Float.valueOf(0f);
+                    if (rt == int.class) return Integer.valueOf(0);
+                    if (rt == double.class) return Double.valueOf(0.0);
                     return null;
                 });
     }
@@ -1137,9 +1144,11 @@ public class UITestHarness {
                 List<Vector2f> hull = ov.buildFluidDropletPolygonScreen(div, drop, members, scale, cx, cy);
                 Vector2f cent = DivisionTacticalMapOverlay.computePolygonCentroid(hull);
                 List<Vector2f> disp = ov.applyMetaballNeckPinchScreen(div, hull, cent, drop, members, scale, cx, cy);
+                List<Vector2f> innerRing = DivisionTacticalMapOverlay.computeSafeInwardGradientRing(disp, 16.5f);
                 List<int[]> tris = DivisionTacticalMapOverlay.triangulatePolygonCCW(disp);
 
                 totalSelfIntersections += DivisionTacticalMapOverlay.countPolygonSelfIntersections(disp);
+                totalSelfIntersections += DivisionTacticalMapOverlay.countPolygonSelfIntersections(innerRing);
 
                 float polyArea = DivisionTacticalMapOverlay.computePolygonArea(disp);
                 float triAreaSum = 0f;
@@ -1148,15 +1157,35 @@ public class UITestHarness {
                     Vector2f b = disp.get(t[1]);
                     Vector2f c = disp.get(t[2]);
                     triAreaSum += Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) * 0.5f;
-
-                    Path2D tp = new Path2D.Float();
-                    tp.moveTo(a.x, a.y);
-                    tp.lineTo(b.x, b.y);
-                    tp.lineTo(c.x, c.y);
-                    tp.closePath();
-                    g.setColor(new Color(50, 240, 110, 55));
-                    g.fill(tp);
                 }
+                // Render TSFC-style inner core + outer gradient skirt + harmonic dual-stroke rim onto QA sheet
+                Path2D outerPath = new Path2D.Float();
+                Path2D innerPath = new Path2D.Float();
+                for (int vi = 0; vi < disp.size(); vi++) {
+                    Vector2f ovPt = disp.get(vi);
+                    Vector2f ivPt = innerRing.get(vi);
+                    if (vi == 0) {
+                        outerPath.moveTo(ovPt.x, ovPt.y);
+                        innerPath.moveTo(ivPt.x, ivPt.y);
+                    } else {
+                        outerPath.lineTo(ovPt.x, ovPt.y);
+                        innerPath.lineTo(ivPt.x, ivPt.y);
+                    }
+                }
+                outerPath.closePath();
+                innerPath.closePath();
+                g.setColor(new Color(46, 235, 132, 18));
+                g.fill(outerPath);
+                g.setColor(new Color(46, 235, 132, 34));
+                g.fill(innerPath);
+                java.awt.Stroke prevStroke = g.getStroke();
+                g.setStroke(new BasicStroke(3.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.setColor(new Color(46, 235, 132, 46));
+                g.draw(outerPath);
+                g.setStroke(new BasicStroke(1.45f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.setColor(new Color(145, 250, 195, 185));
+                g.draw(outerPath);
+                g.setStroke(prevStroke);
                 if (tris.size() != disp.size() - 2 || Math.abs(triAreaSum - polyArea) > polyArea * 0.02f) {
                     badTriangulations++;
                 }
@@ -1221,8 +1250,10 @@ public class UITestHarness {
                     List<Vector2f> hull = ov.buildFluidDropletPolygonScreen(stressDiv, dDrop, dynMembers, testScale, 500f, 500f);
                     Vector2f cent = DivisionTacticalMapOverlay.computePolygonCentroid(hull);
                     List<Vector2f> disp = ov.applyMetaballNeckPinchScreen(stressDiv, hull, cent, dDrop, dynMembers, testScale, 500f, 500f);
+                    List<Vector2f> innerDisp = DivisionTacticalMapOverlay.computeSafeInwardGradientRing(disp, 14.0f);
                     List<int[]> tris = DivisionTacticalMapOverlay.triangulatePolygonCCW(disp);
                     totalSelfIntersections += DivisionTacticalMapOverlay.countPolygonSelfIntersections(disp);
+                    totalSelfIntersections += DivisionTacticalMapOverlay.countPolygonSelfIntersections(innerDisp);
                     float polyArea = DivisionTacticalMapOverlay.computePolygonArea(disp);
                     float triAreaSum = 0f;
                     for (int[] tri : tris) {
@@ -1474,6 +1505,7 @@ public class UITestHarness {
                             labelCacheAfter - labelCacheBefore));
 
             auditHegemonyInspector39DivisionWarroomStressAndGlGuards(res, pCmdr);
+            auditTsfcGradeDivisionAndVoidstrikeEnvelopes(res, pCmdr);
             auditOtcReassignmentFlagshipBlackoutAndBattleSummary(res);
         }
     }
@@ -1744,6 +1776,203 @@ public class UITestHarness {
                         batchedTrianglesOk,
                         noPushAttribInFormIcon,
                         noPushAttribInWarroomBtn));
+    }
+
+    private static void auditTsfcGradeDivisionAndVoidstrikeEnvelopes(
+            UIAuditResult res,
+            CommanderProfile cmdr) {
+        DivisionTacticalMapOverlay ov = new DivisionTacticalMapOverlay(null);
+        BattleGroupState bg = new BattleGroupState(0, cmdr);
+        DivisionState div = new DivisionState("tsfc_env_div", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Line I", cmdr);
+        div.stationSpacing = 450f;
+        ShipAPI sLeft = createMockDropletShip("env_l", HullSize.CRUISER, -520f, 0f);
+        ShipAPI sMid = createMockDropletShip("env_m", HullSize.CRUISER, 0f, 0f);
+        ShipAPI sRight = createMockDropletShip("env_r", HullSize.CRUISER, 520f, 0f);
+        div.members.add(sLeft);
+        div.members.add(sMid);
+        div.members.add(sRight);
+        div.flagship = sMid;
+        bg.divisions.add(div);
+
+        // 1. True World-Space Zoom Invariance (eliminated [12,68]px and [14,54]px clamps: 0.03x vs 0.18x = exact 6.0x span)
+        List<ShipAPI> members = Arrays.asList(sLeft, sMid, sRight);
+        List<Vector2f> polyLowZoom = ov.applyMetaballNeckPinchScreen(div, null, null, members, members, 0.03f, 500f, 500f);
+        List<Vector2f> polyHighZoom = ov.applyMetaballNeckPinchScreen(div, null, null, members, members, 0.18f, 500f, 500f);
+        float spanLow = computeXSpanForTest(polyLowZoom);
+        float spanHigh = computeXSpanForTest(polyHighZoom);
+        float zoomRatio = spanHigh / Math.max(1e-4f, spanLow);
+        boolean zoomInvariantOk = Math.abs(zoomRatio - 6.0f) < 0.18f;
+
+        // 1b. Zero 1-ship radius jump between Marching Squares SDF (active recoil meniscus) and buildFluidDropletPolygonScreen at high zoom (scale=0.18f -> ~183px diameter > old 108px/136px clamps)
+        List<ShipAPI> singleShip = java.util.Collections.singletonList(sMid);
+        ShipAPI sRecoilSibling = createMockDropletShip("env_recoil_sib", HullSize.CRUISER, 1340f, 0f);
+        List<ShipAPI> recoilAll = Arrays.asList(sMid, sRecoilSibling);
+        List<Vector2f> singleConv = ov.buildFluidDropletPolygonScreen(div, singleShip, singleShip, 0.18f, 500f, 500f);
+        List<Vector2f> singleSdf = ov.applyMetaballNeckPinchScreen(div, singleConv, null, singleShip, recoilAll, 0.18f, 500f, 500f);
+        float singleConvSpan = computeYSpanForTest(singleConv);
+        float singleSdfSpan = computeYSpanForTest(singleSdf);
+        boolean zeroSingleShipRadiusPop = singleConvSpan > 175f && Math.abs(singleConvSpan - singleSdfSpan) < 4.5f;
+
+        // 2. Smooth 60 FPS Multi-Ship Linear Blend Skinning (LBS) between Marching Squares rebuilds
+        List<DivisionTacticalMapOverlay.RenderedDivisionPolygon> livePolys = new ArrayList<>();
+        int[] budget = new int[] { 8 };
+        ov.collectDivisionPolygonsCached(bg, false, null, 10.0f, false, 0.10f, 500f, 500f, budget, livePolys);
+        float minXBefore = computeMinXForTest(livePolys.get(0).displayPolyScreen);
+        float maxXBefore = computeMaxXForTest(livePolys.get(0).displayPolyScreen);
+
+        // Move ONLY the rightmost ship +300 su (+30px at scale=0.10) 0.04s later (inside stagger window -> 0 SDF rebuilds!)
+        sRight.getLocation().x += 300f;
+        livePolys.clear();
+        int[] zeroBudget = new int[] { 0 };
+        int skinRebuilt = ov.collectDivisionPolygonsCached(bg, false, null, 10.04f, false, 0.10f, 500f, 500f, zeroBudget, livePolys);
+        float minXAfter = computeMinXForTest(livePolys.get(0).displayPolyScreen);
+        float maxXAfter = computeMaxXForTest(livePolys.get(0).displayPolyScreen);
+        float rightFlankMovePx = maxXAfter - maxXBefore;
+        float leftFlankMovePx = Math.abs(minXAfter - minXBefore);
+        int innerSelfIntersections = DivisionTacticalMapOverlay.countPolygonSelfIntersections(
+                livePolys.get(0).innerGlowPolyScreen);
+        boolean lbsDeformationOk = (skinRebuilt == 0)
+                && (rightFlankMovePx > 22.0f)
+                && (leftFlankMovePx < 3.5f)
+                && (innerSelfIntersections == 0);
+
+        // 3. Squadron-Centric Strike Craft Envelopes (wing centroid + spread radius containing all wingmates)
+        BattleGroupState carrierBg = new BattleGroupState(0, cmdr);
+        DivisionState carrierDiv1 = new DivisionState("sc_env_cv1", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Carrier Group I", cmdr);
+        DivisionState carrierDiv2 = new DivisionState("sc_env_cv2", 0, 2, DivisionArchetype.CRUISER_DIVISION, "Carrier Group II", cmdr);
+        List<ShipAPI> sq1Fighters = Arrays.asList(
+                createMockDropletShip("sq1_f0", HullSize.FIGHTER, -160f, 1800f),
+                createMockDropletShip("sq1_f1", HullSize.FIGHTER, 0f, 1920f),
+                createMockDropletShip("sq1_f2", HullSize.FIGHTER, 170f, 1810f));
+        List<ShipAPI> sq2Fighters = Arrays.asList(
+                createMockDropletShip("sq2_f0", HullSize.FIGHTER, 420f, 1830f),
+                createMockDropletShip("sq2_f1", HullSize.FIGHTER, 580f, 1910f),
+                createMockDropletShip("sq2_f2", HullSize.FIGHTER, 710f, 1800f));
+        com.fs.starfarer.api.combat.FighterWingAPI wing1 = createMockWingForEnvelopeTest(sq1Fighters);
+        com.fs.starfarer.api.combat.FighterWingAPI wing2 = createMockWingForEnvelopeTest(sq2Fighters);
+        carrierDiv1.members.add(createMockCarrierWithWings("cv_hull_1", -600f, 0f, java.util.Collections.singletonList(wing1)));
+        carrierDiv2.members.add(createMockCarrierWithWings("cv_hull_2", 600f, 0f, java.util.Collections.singletonList(wing2)));
+        carrierBg.divisions.add(carrierDiv1);
+        carrierBg.divisions.add(carrierDiv2);
+
+        List<DivisionTacticalMapOverlay.RenderedDivisionPolygon> scPolys = new ArrayList<>();
+        ov.collectStrikeCraftDivisionPolygons(carrierBg, false, null, 0.10f, 500f, 500f, scPolys);
+        boolean allFightersContained = (scPolys.size() == 1);
+        int scSelfIntersections = 0;
+        if (!scPolys.isEmpty()) {
+            List<Vector2f> scDisp = scPolys.get(0).displayPolyScreen;
+            scSelfIntersections += DivisionTacticalMapOverlay.countPolygonSelfIntersections(scDisp);
+            scSelfIntersections += DivisionTacticalMapOverlay.countPolygonSelfIntersections(scPolys.get(0).innerGlowPolyScreen);
+            for (ShipAPI fm : sq1Fighters) {
+                if (!DivisionTacticalMapOverlay.isPointInsidePolygon(scDisp, fm.getLocation().x * 0.10f + 500f, fm.getLocation().y * 0.10f + 500f)) {
+                    allFightersContained = false;
+                }
+            }
+            for (ShipAPI fm : sq2Fighters) {
+                if (!DivisionTacticalMapOverlay.isPointInsidePolygon(scDisp, fm.getLocation().x * 0.10f + 500f, fm.getLocation().y * 0.10f + 500f)) {
+                    allFightersContained = false;
+                }
+            }
+        }
+        boolean strikeSquadronEnvelopeOk = allFightersContained && (scSelfIntersections == 0);
+
+        res.record(
+                zoomInvariantOk && zeroSingleShipRadiusPop && lbsDeformationOk && strikeSquadronEnvelopeOk,
+                "TSFC-Grade Division & Strike Craft Envelopes (World-Space Zoom, 60 FPS LBS & Squadron Metaballs)",
+                String.format(
+                        Locale.ROOT,
+                        "zoomRatio=%.2fx (expect 6.00x), 1shipHighZoom=[%.1f vs %.1fpx], lbs=[rebuilt=%d, right=+%.1fpx, left=%.1fpx, innerSI=%d], scSquadrons=[polys=%d, all6Contained=%b, si=%d]",
+                        zoomRatio,
+                        singleConvSpan,
+                        singleSdfSpan,
+                        skinRebuilt,
+                        rightFlankMovePx,
+                        leftFlankMovePx,
+                        innerSelfIntersections,
+                        scPolys.size(),
+                        allFightersContained,
+                        scSelfIntersections));
+    }
+
+    private static float computeXSpanForTest(List<Vector2f> poly) {
+        return computeMaxXForTest(poly) - computeMinXForTest(poly);
+    }
+
+    private static float computeYSpanForTest(List<Vector2f> poly) {
+        if (poly == null || poly.isEmpty()) return 0f;
+        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        for (Vector2f v : poly) {
+            if (v.y < minY) minY = v.y;
+            if (v.y > maxY) maxY = v.y;
+        }
+        return maxY - minY;
+    }
+
+    private static float computeMinXForTest(List<Vector2f> poly) {
+        if (poly == null || poly.isEmpty()) return 0f;
+        float minX = Float.MAX_VALUE;
+        for (Vector2f v : poly) if (v.x < minX) minX = v.x;
+        return minX;
+    }
+
+    private static float computeMaxXForTest(List<Vector2f> poly) {
+        if (poly == null || poly.isEmpty()) return 0f;
+        float maxX = -Float.MAX_VALUE;
+        for (Vector2f v : poly) if (v.x > maxX) maxX = v.x;
+        return maxX;
+    }
+
+    private static com.fs.starfarer.api.combat.FighterWingAPI createMockWingForEnvelopeTest(final List<ShipAPI> fighters) {
+        final com.fs.starfarer.api.combat.FighterWingAPI[] wingRef = new com.fs.starfarer.api.combat.FighterWingAPI[1];
+        com.fs.starfarer.api.combat.FighterWingAPI wing = (com.fs.starfarer.api.combat.FighterWingAPI) java.lang.reflect.Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[] { com.fs.starfarer.api.combat.FighterWingAPI.class },
+                (proxy, method, args) -> {
+                    String name = method.getName();
+                    if ("getWingMembers".equals(name)) return fighters;
+                    if ("getLeader".equals(name)) return fighters.isEmpty() ? null : fighters.get(0);
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+        wingRef[0] = wing;
+        return wing;
+    }
+
+    private static ShipAPI createMockCarrierWithWings(
+            final String id,
+            float x,
+            float y,
+            final List<com.fs.starfarer.api.combat.FighterWingAPI> wings) {
+        final Vector2f loc = new Vector2f(x, y);
+        final Vector2f vel = new Vector2f(0f, 0f);
+        return (ShipAPI) java.lang.reflect.Proxy.newProxyInstance(
+                UITestHarness.class.getClassLoader(),
+                new Class<?>[] { ShipAPI.class },
+                (proxy, method, args) -> {
+                    String name = method.getName();
+                    if ("getId".equals(name)) return id;
+                    if ("getLocation".equals(name)) return loc;
+                    if ("getVelocity".equals(name)) return vel;
+                    if ("getHullSize".equals(name)) return HullSize.CRUISER;
+                    if ("isAlive".equals(name)) return true;
+                    if ("isHulk".equals(name) || "isFighter".equals(name) || "isDrone".equals(name)
+                            || "isStation".equals(name) || "isStationModule".equals(name)
+                            || "isShuttlePod".equals(name) || "isExpired".equals(name) || "isAlly".equals(name)) {
+                        return false;
+                    }
+                    if ("getAllWings".equals(name)) return wings;
+                    if ("getCollisionRadius".equals(name) || "getShieldRadiusEvenIfNoShield".equals(name)) return 140f;
+                    if ("equals".equals(name)) return proxy == args[0];
+                    if ("hashCode".equals(name)) return System.identityHashCode(proxy);
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
     }
 
     private static void auditOtcReassignmentFlagshipBlackoutAndBattleSummary(UIAuditResult res) {

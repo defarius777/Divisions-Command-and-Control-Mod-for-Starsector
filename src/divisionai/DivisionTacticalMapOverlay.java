@@ -56,7 +56,7 @@ import java.util.Set;
 public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
 
     private static final Logger LOG = Global.getLogger(DivisionTacticalMapOverlay.class);
-    private static final int HULL_SAMPLE_POINTS_PER_SHIP = 24;
+    private static final int HULL_SAMPLE_POINTS_PER_SHIP = 36;
     private static final float STRIPE_WIDTH_PX = 12.0f;
     private static final float STRIPE_PERIOD_PX = STRIPE_WIDTH_PX * 2.0f;
     private static final float INV_SQRT2 = 0.70710678f;
@@ -66,6 +66,38 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private static final Color ALLY_LABEL_COLOR = new Color(255, 235, 110, 240);
     private static final Color ENEMY_LABEL_COLOR = new Color(255, 125, 120, 225);
 
+    public static class SquadronEnvelopeUnit {
+        final com.fs.starfarer.api.combat.FighterWingAPI wing;
+        final ShipAPI fallbackShip;
+        final Vector2f worldCenter;
+        final float worldRadius;
+
+        SquadronEnvelopeUnit(
+                com.fs.starfarer.api.combat.FighterWingAPI wing,
+                ShipAPI fallbackShip,
+                Vector2f worldCenter,
+                float worldRadius) {
+            this.wing = wing;
+            this.fallbackShip = fallbackShip;
+            this.worldCenter = new Vector2f(worldCenter.x, worldCenter.y);
+            this.worldRadius = worldRadius;
+        }
+
+        Vector2f resolveLiveWorldCenter(Vector2f scratch) {
+            if (wing != null) {
+                ShipAPI lead = BattlefieldFirepowerEvaluator.resolveAliveWingLeader(wing);
+                if (lead != null) {
+                    return BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(wing, lead, scratch);
+                }
+            }
+            if (fallbackShip != null && fallbackShip.isAlive() && !fallbackShip.isHulk() && fallbackShip.getLocation() != null) {
+                scratch.set(fallbackShip.getLocation().x, fallbackShip.getLocation().y);
+                return scratch;
+            }
+            return null;
+        }
+    }
+
     public static class RenderedDivisionPolygon {
         final DivisionState div;
         final BattleGroupState battleGroup;
@@ -74,10 +106,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final boolean isPrimaryDroplet;
         final boolean isStrikeCraftPolygon;
         final List<ShipAPI> hullMembers;
-        final List<Vector2f> polyScreen;        // CCW smooth convex polygon in screen pixels (for clipping)
-        final List<Vector2f> displayPolyScreen; // Star-convex metaball/water-drop contour in screen pixels (for rendering)
+        final List<SquadronEnvelopeUnit> squadronUnits;
+        final List<Vector2f> polyScreen;        // CCW contour in screen pixels (for clipping/bounds)
+        public final List<Vector2f> displayPolyScreen; // Smooth metaball contour in screen pixels (for rendering)
+        public final List<Vector2f> innerGlowPolyScreen; // Curvature-clamped inward gradient ring in screen pixels
         final List<int[]> triangles;            // Precomputed ear-clipping vertex index triples (invariant under pan/zoom)
-        public final Vector2f centerScreen;            // Droplet entity center in screen pixels
+        public final Vector2f centerScreen;     // Droplet entity center in screen pixels
         float labelX;                           // De-conflicted label X in screen pixels
         float labelY;                           // De-conflicted label Y in screen pixels
         float lastWorldCenterX;
@@ -91,6 +125,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         final float cg;
         final float cb;
         final float cohesionAlphaMult;          // 1.0 = tight cohesion, ~0.05 = very poor cohesion
+
+        // Per-vertex 60 FPS multi-unit Linear Blend Skinning (LBS) anchors & weights
+        int skinUnitCount;
+        float[] skinLastWorldX;
+        float[] skinLastWorldY;
+        float[] skinDeltaPxX;
+        float[] skinDeltaPxY;
+        float[] skinWeights;
 
         RenderedDivisionPolygon(
                 DivisionState div,
@@ -107,7 +149,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float cb,
                 float cohesionAlphaMult) {
             this(div, battleGroup, isEnemy, isAlliedAi, isPrimaryDroplet, false,
-                    hullMembers, polyScreen, displayPolyScreen, centerScreen, cr, cg, cb, cohesionAlphaMult);
+                    hullMembers, null, polyScreen, displayPolyScreen, centerScreen, cr, cg, cb, cohesionAlphaMult, 1.0f);
         }
 
         RenderedDivisionPolygon(
@@ -125,6 +167,27 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 float cg,
                 float cb,
                 float cohesionAlphaMult) {
+            this(div, battleGroup, isEnemy, isAlliedAi, isPrimaryDroplet, isStrikeCraftPolygon,
+                    hullMembers, null, polyScreen, displayPolyScreen, centerScreen, cr, cg, cb, cohesionAlphaMult, 1.0f);
+        }
+
+        RenderedDivisionPolygon(
+                DivisionState div,
+                BattleGroupState battleGroup,
+                boolean isEnemy,
+                boolean isAlliedAi,
+                boolean isPrimaryDroplet,
+                boolean isStrikeCraftPolygon,
+                List<ShipAPI> hullMembers,
+                List<SquadronEnvelopeUnit> squadronUnits,
+                List<Vector2f> polyScreen,
+                List<Vector2f> displayPolyScreen,
+                Vector2f centerScreen,
+                float cr,
+                float cg,
+                float cb,
+                float cohesionAlphaMult,
+                float buildScale) {
             this.div = div;
             this.battleGroup = battleGroup;
             this.isEnemy = isEnemy;
@@ -132,11 +195,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             this.isPrimaryDroplet = isPrimaryDroplet;
             this.isStrikeCraftPolygon = isStrikeCraftPolygon;
             this.hullMembers = hullMembers;
+            this.squadronUnits = squadronUnits;
             this.polyScreen = polyScreen;
             this.displayPolyScreen = displayPolyScreen != null ? displayPolyScreen : polyScreen;
-            this.triangles = isStrikeCraftPolygon
-                    ? Collections.<int[]>emptyList()
-                    : triangulatePolygonCCW(this.displayPolyScreen);
+            this.triangles = triangulatePolygonCCW(this.displayPolyScreen);
+            float targetGlowPx = isStrikeCraftPolygon
+                    ? clamp(135f * Math.max(0.05f, buildScale), 7.5f, 16.0f)
+                    : clamp(220f * Math.max(0.05f, buildScale), 11.0f, 24.0f);
+            this.innerGlowPolyScreen = computeSafeInwardGradientRing(this.displayPolyScreen, targetGlowPx);
             this.centerScreen = centerScreen;
             this.labelX = centerScreen != null ? centerScreen.x : 0f;
             this.labelY = centerScreen != null ? centerScreen.y : 0f;
@@ -144,12 +210,72 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             this.cg = cg;
             this.cb = cb;
             this.cohesionAlphaMult = cohesionAlphaMult;
+            initSkinningState(buildScale);
+            recomputeBounds();
+        }
+
+        private void initSkinningState(float buildScale) {
+            float effScale = (buildScale > 1e-5f) ? buildScale : 0.08f;
+            if (squadronUnits != null && !squadronUnits.isEmpty()) {
+                int m = squadronUnits.size();
+                this.skinUnitCount = m;
+                this.skinLastWorldX = new float[m];
+                this.skinLastWorldY = new float[m];
+                float wx = 0f, wy = 0f;
+                for (int i = 0; i < m; i++) {
+                    SquadronEnvelopeUnit u = squadronUnits.get(i);
+                    this.skinLastWorldX[i] = u.worldCenter.x;
+                    this.skinLastWorldY[i] = u.worldCenter.y;
+                    wx += u.worldCenter.x;
+                    wy += u.worldCenter.y;
+                }
+                this.lastWorldCenterX = wx / m;
+                this.lastWorldCenterY = wy / m;
+                if (m >= 2 && displayPolyScreen != null && !displayPolyScreen.isEmpty()) {
+                    this.skinDeltaPxX = new float[m];
+                    this.skinDeltaPxY = new float[m];
+                    int vCount = displayPolyScreen.size();
+                    this.skinWeights = new float[vCount * m];
+                    float cxScr = centerScreen != null ? centerScreen.x : 0f;
+                    float cyScr = centerScreen != null ? centerScreen.y : 0f;
+                    for (int v = 0; v < vCount; v++) {
+                        Vector2f pv = displayPolyScreen.get(v);
+                        // Estimate vertex offset from centroid in world units for smooth inverse-distance weights
+                        float vWx = lastWorldCenterX + (pv.x - cxScr) / effScale;
+                        float vWy = lastWorldCenterY + (pv.y - cyScr) / effScale;
+                        float wSum = 0f;
+                        int base = v * m;
+                        for (int i = 0; i < m; i++) {
+                            SquadronEnvelopeUnit u = squadronUnits.get(i);
+                            float dx = vWx - u.worldCenter.x;
+                            float dy = vWy - u.worldCenter.y;
+                            float dist = (float) Math.sqrt(dx * dx + dy * dy);
+                            float surfDist = Math.max(0f, dist - u.worldRadius * 0.55f) + u.worldRadius * 0.35f + 40f;
+                            float w = 1.0f / (surfDist * surfDist);
+                            this.skinWeights[base + i] = w;
+                            wSum += w;
+                        }
+                        float invSum = (wSum > 1e-8f) ? (1.0f / wSum) : (1.0f / m);
+                        for (int i = 0; i < m; i++) {
+                            this.skinWeights[base + i] *= invSum;
+                        }
+                    }
+                }
+                return;
+            }
+
             if (hullMembers != null && !hullMembers.isEmpty()) {
+                int m = hullMembers.size();
+                this.skinUnitCount = m;
+                this.skinLastWorldX = new float[m];
+                this.skinLastWorldY = new float[m];
                 float wx = 0f, wy = 0f;
                 int cnt = 0;
-                for (int i = 0, n = hullMembers.size(); i < n; i++) {
+                for (int i = 0; i < m; i++) {
                     ShipAPI s = hullMembers.get(i);
                     if (s != null && s.getLocation() != null) {
+                        this.skinLastWorldX[i] = s.getLocation().x;
+                        this.skinLastWorldY[i] = s.getLocation().y;
                         wx += s.getLocation().x;
                         wy += s.getLocation().y;
                         cnt++;
@@ -159,8 +285,41 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     this.lastWorldCenterX = wx / cnt;
                     this.lastWorldCenterY = wy / cnt;
                 }
+                if (m >= 2 && cnt >= 2 && displayPolyScreen != null && !displayPolyScreen.isEmpty()) {
+                    this.skinDeltaPxX = new float[m];
+                    this.skinDeltaPxY = new float[m];
+                    int vCount = displayPolyScreen.size();
+                    this.skinWeights = new float[vCount * m];
+                    float cxScr = centerScreen != null ? centerScreen.x : 0f;
+                    float cyScr = centerScreen != null ? centerScreen.y : 0f;
+                    for (int v = 0; v < vCount; v++) {
+                        Vector2f pv = displayPolyScreen.get(v);
+                        float vWx = lastWorldCenterX + (pv.x - cxScr) / effScale;
+                        float vWy = lastWorldCenterY + (pv.y - cyScr) / effScale;
+                        float wSum = 0f;
+                        int base = v * m;
+                        for (int i = 0; i < m; i++) {
+                            ShipAPI s = hullMembers.get(i);
+                            if (s == null || s.getLocation() == null) {
+                                this.skinWeights[base + i] = 0f;
+                                continue;
+                            }
+                            float rW = getMemberFootprintRadiusWorld(s);
+                            float dx = vWx - this.skinLastWorldX[i];
+                            float dy = vWy - this.skinLastWorldY[i];
+                            float dist = (float) Math.sqrt(dx * dx + dy * dy);
+                            float surfDist = Math.max(0f, dist - rW * 0.55f) + rW * 0.35f + 45f;
+                            float w = 1.0f / (surfDist * surfDist);
+                            this.skinWeights[base + i] = w;
+                            wSum += w;
+                        }
+                        float invSum = (wSum > 1e-8f) ? (1.0f / wSum) : (1.0f / Math.max(1, cnt));
+                        for (int i = 0; i < m; i++) {
+                            this.skinWeights[base + i] *= invSum;
+                        }
+                    }
+                }
             }
-            recomputeBounds();
         }
 
         void recomputeBounds() {
@@ -989,6 +1148,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             lastStripeRebuildSimTime = -1000f;
         }
 
+        // Refresh Voidstrike memberships & centroids up front so Strike Craft Voidstrike envelopes and
+        // "Voidstrike #" labels stay 100% phase-locked on every Warroom frame.
+        VoidstrikeCoordinator.refreshVoidstrikesForRender(
+                engine,
+                playerGroup,
+                alliedAiGroup,
+                enemyGroup,
+                now);
+
         int geomSignature = computeBattleGroupsGeometrySignature(
                 playerGroup, alliedAiGroup, enemyGroup, playerFog, paused);
         boolean sameContext = sameEngineAndGroups
@@ -1027,28 +1195,34 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             boolean coldBuild = (!sameEngineAndGroups || cachedPolyNow < -500f || paused);
             renderedPolys.clear();
             strikeCraftPolys.clear();
-            // Spread Marching-Squares SDF contour rebuilds to at most 1 division per unpaused frame (~0.35ms max)
-            // so a 60 Hz VSync frame never stacks multiple division rebuilds onto a single frame.
-            int[] rebuildBudget = new int[] { coldBuild ? 256 : 1 };
+            // Spread Marching-Squares SDF contour rebuilds to at most 2 divisions per unpaused frame (~0.6ms max)
+            // while 60 FPS multi-ship LBS skinning keeps every ship lobe tracking live hulls continuously between rebuilds.
+            int[] rebuildBudget = new int[] { coldBuild ? 256 : 2 };
 
             if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
                         playerGroup, false, null, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
-                collectStrikeCraftDivisionPolygonsCached(
-                        playerGroup, false, null, now, paused, divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
             }
             if (alliedAiGroup != null && !alliedAiGroup.divisions.isEmpty()) {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
                         alliedAiGroup, false, null, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
-                collectStrikeCraftDivisionPolygonsCached(
-                        alliedAiGroup, false, null, now, paused, divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
             }
             if (enemyGroup != null && !enemyGroup.divisions.isEmpty()) {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
                         enemyGroup, true, playerFog, now, paused, scale, offsetX, offsetY, rebuildBudget, renderedPolys);
-                collectStrikeCraftDivisionPolygonsCached(
-                        enemyGroup, true, playerFog, now, paused, divisionsRebuiltThisFrame > 0, scale, offsetX, offsetY, strikeCraftPolys);
             }
+
+            // Collect squadron-aware & Voidstrike-unified Strike Craft envelopes per side (player, allied, enemy),
+            // including standalone/unassigned carriers when Voidstrikes are active.
+            collectStrikeCraftSidePolygonsCached(
+                    playerGroup, VoidstrikeCoordinator.VOIDSTRIKE_SIDE_PLAYER, false, false, null,
+                    now, paused, scale, offsetX, offsetY, strikeCraftPolys);
+            collectStrikeCraftSidePolygonsCached(
+                    alliedAiGroup, VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ALLIED, false, true, null,
+                    now, paused, scale, offsetX, offsetY, strikeCraftPolys);
+            collectStrikeCraftSidePolygonsCached(
+                    enemyGroup, VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ENEMY, true, false, playerFog,
+                    now, paused, scale, offsetX, offsetY, strikeCraftPolys);
 
             // Never stack overlap-stripe Sutherland-Hodgman clipping onto the same unpaused frame that just rebuilt a division SDF
             boolean rebuildStripesAndFlags = lastStripeRebuildSimTime < -500f
@@ -1161,14 +1335,8 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         }
 
-        // 5b. Update & render "Voidstrike #" labels following the live center of strike craft groups
-        // (friendly and visible enemy Voidstrikes; disappears when strike craft return)
-        VoidstrikeCoordinator.refreshVoidstrikesForRender(
-                engine,
-                playerGroup,
-                alliedAiGroup,
-                enemyGroup,
-                engine.getTotalElapsedTime(false));
+        // 5b. Render "Voidstrike #" labels following the live center of strike craft groups
+        // (refreshed at top of render() in lockstep with Strike Craft Voidstrike envelopes)
         renderVoidstrikeLabels(playerFog, scale, offsetX, offsetY, fade);
 
         long tAfterLabels = System.nanoTime();
@@ -1335,7 +1503,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             int divSig = computeSingleDivisionGeometrySignature(div, isEnemy, playerFog, false);
             int divPosSig = computeSingleDivisionGeometrySignature(div, isEnemy, playerFog, true);
             CachedDivisionGeometry entry = perDivisionGeometryCache.get(cacheKey);
-            float staggerWindow = 0.45f + (Math.abs(cacheKey.hashCode()) % 17) * 0.03f;
+            float staggerWindow = 0.24f + (Math.abs(cacheKey.hashCode()) % 17) * 0.02f;
 
             boolean sigMatches = (entry != null && entry.signature == divSig);
             float simAge = (entry != null) ? Math.abs(now - entry.builtAtSimTime) : Float.MAX_VALUE;
@@ -1459,17 +1627,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float cg;
         float cb;
         if (isEnemy) {
-            cr = 0.96f;
-            cg = 0.22f;
-            cb = 0.22f;
+            cr = 0.98f;
+            cg = 0.24f;
+            cb = 0.26f;
         } else if (isAlliedAi) {
             cr = 1.00f;
-            cg = 0.86f;
-            cb = 0.18f;
+            cg = 0.84f;
+            cb = 0.22f;
         } else {
-            cr = 0.20f;
-            cg = 0.94f;
-            cb = 0.44f;
+            cr = 0.18f;
+            cg = 0.92f;
+            cb = 0.52f;
         }
 
         // Cluster division members into sticky water-droplet sub-blobs (hysteresis merge vs split thresholds)
@@ -1523,46 +1691,41 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     isEnemy,
                     isAlliedAi,
                     isPrimary,
+                    false,
                     dropletMembers,
+                    null,
                     polyScreen,
                     displayPolyScreen,
                     centerScreen,
                     cr,
                     cg,
                     cb,
-                    cohesionAlphaMult));
+                    cohesionAlphaMult,
+                    scale));
         }
     }
 
-    private void collectStrikeCraftDivisionPolygonsCached(
+    private void collectStrikeCraftSidePolygonsCached(
             BattleGroupState battleGroup,
+            int voidstrikeSide,
             boolean isEnemy,
+            boolean isAlliedAi,
             FogOfWarAPI playerFog,
             float now,
             boolean paused,
-            boolean deferLiveRebuild,
             float scale,
             float offsetX,
             float offsetY,
             List<RenderedDivisionPolygon> outStrikeList) {
-        if (battleGroup == null || battleGroup.divisions.isEmpty()) return;
-        String groupKey = isEnemy ? "SC_E" : (battleGroup.isAlliedAi ? "SC_A" : "SC_P");
+        String groupKey = isEnemy ? "SC_E" : (isAlliedAi ? "SC_A" : "SC_P");
         CachedDivisionGeometry entry = perDivisionStrikeCraftCache.get(groupKey);
-        int groupSig = computeSingleGroupGeometrySignature(battleGroup, isEnemy, playerFog, false);
-        int groupPosSig = computeSingleGroupGeometrySignature(battleGroup, isEnemy, playerFog, true);
+        int strikeSig = computeStrikeCraftSideSignature(battleGroup, voidstrikeSide, isEnemy, playerFog, false);
+        int strikePosSig = computeStrikeCraftSideSignature(battleGroup, voidstrikeSide, isEnemy, playerFog, true);
         float simAge = (entry != null) ? Math.abs(now - entry.builtAtSimTime) : Float.MAX_VALUE;
         boolean withinTimeWindow = (entry != null) && (paused
-                ? (entry.positionSignature == groupPosSig && simAge < 0.45f)
-                : (simAge < 0.45f));
-        boolean allowDeferral = !paused
-                && entry != null
-                && entry.signature == groupSig
-                && simAge < 1.25f
-                && deferLiveRebuild
-                && !entry.droplets.isEmpty();
-        if (entry != null
-                && entry.signature == groupSig
-                && (withinTimeWindow || allowDeferral)) {
+                ? (entry.positionSignature == strikePosSig && simAge < 0.22f)
+                : (simAge < 0.16f));
+        if (entry != null && entry.signature == strikeSig && withinTimeWindow) {
             if (!entry.droplets.isEmpty()) {
                 if (Float.compare(entry.scale, scale) != 0
                         || Float.compare(entry.offsetX, offsetX) != 0
@@ -1588,9 +1751,10 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         } else {
             entry.droplets.clear();
         }
-        collectStrikeCraftDivisionPolygons(battleGroup, isEnemy, playerFog, scale, offsetX, offsetY, entry.droplets);
-        entry.signature = groupSig;
-        entry.positionSignature = groupPosSig;
+        collectStrikeCraftSidePolygons(
+                battleGroup, voidstrikeSide, isEnemy, isAlliedAi, playerFog, scale, offsetX, offsetY, entry.droplets);
+        entry.signature = strikeSig;
+        entry.positionSignature = strikePosSig;
         entry.builtAtSimTime = now;
         entry.lastTranslatedSimTime = now;
         entry.scale = scale;
@@ -1601,9 +1765,73 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
+    private int computeStrikeCraftSideSignature(
+            BattleGroupState battleGroup,
+            int voidstrikeSide,
+            boolean isEnemy,
+            FogOfWarAPI playerFog,
+            boolean includeQuantizedPositions) {
+        int h = 23 + voidstrikeSide;
+        Vector2f scratch = new Vector2f();
+        List<VoidstrikeCoordinator.VoidstrikeRecord> activeVs = VoidstrikeCoordinator.getActiveVoidstrikes();
+        if (activeVs != null) {
+            for (int i = 0, n = activeVs.size(); i < n; i++) {
+                VoidstrikeCoordinator.VoidstrikeRecord vs = activeVs.get(i);
+                if (vs == null || vs.side != voidstrikeSide || vs.activeFighters.isEmpty()) continue;
+                h = 31 * h + vs.voidstrikeNumber;
+                for (int j = 0, m = vs.activeFighters.size(); j < m; j++) {
+                    ShipAPI fm = vs.activeFighters.get(j);
+                    if (fm == null || !fm.isAlive() || fm.isHulk() || fm.isExpired()) continue;
+                    if (isEnemy && !isEnemyShipVisibleOnCommandMap(this.engine, fm, playerFog)) continue;
+                    com.fs.starfarer.api.combat.FighterWingAPI w = fm.getWing();
+                    h = 31 * h + (w != null ? System.identityHashCode(w) : System.identityHashCode(fm));
+                    if (includeQuantizedPositions && fm.getLocation() != null) {
+                        h = 31 * h + Math.round(fm.getLocation().x * 0.25f);
+                        h = 31 * h + Math.round(fm.getLocation().y * 0.25f);
+                    }
+                }
+            }
+        }
+        if (battleGroup != null && !battleGroup.divisions.isEmpty()) {
+            for (int d = 0, dn = battleGroup.divisions.size(); d < dn; d++) {
+                DivisionState div = battleGroup.divisions.get(d);
+                if (div == null) continue;
+                for (int sIdx = 0, sm = div.members.size(); sIdx < sm; sIdx++) {
+                    ShipAPI carrier = div.members.get(sIdx);
+                    if (carrier == null || !carrier.isAlive() || carrier.isHulk()) continue;
+                    List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
+                    if (wings == null || wings.isEmpty()) continue;
+                    for (int wIdx = 0, wn = wings.size(); wIdx < wn; wIdx++) {
+                        com.fs.starfarer.api.combat.FighterWingAPI wing = wings.get(wIdx);
+                        if (wing == null) continue;
+                        ShipAPI lead = BattlefieldFirepowerEvaluator.resolveAliveWingLeader(wing);
+                        if (lead == null) continue;
+                        Vector2f sqLoc = BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(wing, lead, scratch);
+                        if (carrier.getLocation() != null && DivisionUiWidgets.distance(sqLoc, carrier.getLocation()) <= 135f) {
+                            continue;
+                        }
+                        if (isEnemy && !isEnemyShipVisibleOnCommandMap(this.engine, lead, playerFog)) continue;
+                        h = 31 * h + System.identityHashCode(wing);
+                        if (includeQuantizedPositions) {
+                            h = 31 * h + Math.round(sqLoc.x * 0.25f);
+                            h = 31 * h + Math.round(sqLoc.y * 0.25f);
+                        }
+                    }
+                }
+            }
+        }
+        return h;
+    }
+
     /**
      * Feature A: Collects Strike Craft division polygons on their own dedicated layer so launched fighter/bomber
      * squadrons never conflict with warship division polygons or ship overlap stripes.
+     *
+     * Upgraded to whole-squadron geometry + Voidstrike package unification:
+     *  1. Anchors every squadron at its live wing centroid ({@code resolveSquadronLiveCentroid}) with radius scaled
+     *     by actual wing spread ({@code computeSquadronSpreadRadius}) so wingmates never spill outside their ring.
+     *  2. Groups multi-division Voidstrikes into unified tangent-capsule metaball envelopes matching {@code VoidstrikeRecord}.
+     *  3. Renders independent airborne CAP/Sweep/Recon squadrons via the same smooth metaball SDF (never bloated convex pills).
      */
     public void collectStrikeCraftDivisionPolygons(
             BattleGroupState battleGroup,
@@ -1613,130 +1841,359 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float offsetX,
             float offsetY,
             List<RenderedDivisionPolygon> outStrikeList) {
-        if (battleGroup == null || battleGroup.divisions.isEmpty()) return;
+        if (battleGroup == null) return;
+        boolean isAlliedAi = !isEnemy && battleGroup.isAlliedAi;
+        int vsSide = isEnemy
+                ? VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ENEMY
+                : (isAlliedAi ? VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ALLIED : VoidstrikeCoordinator.VOIDSTRIKE_SIDE_PLAYER);
+        collectStrikeCraftSidePolygons(
+                battleGroup, vsSide, isEnemy, isAlliedAi, playerFog, scale, offsetX, offsetY, outStrikeList);
+    }
 
-        for (DivisionState div : battleGroup.divisions) {
-            List<ShipAPI> alive = div.getAliveMembers();
-            if (alive.isEmpty()) continue;
+    private void collectStrikeCraftSidePolygons(
+            BattleGroupState battleGroup,
+            int voidstrikeSide,
+            boolean isEnemy,
+            boolean isAlliedAi,
+            FogOfWarAPI playerFog,
+            float scale,
+            float offsetX,
+            float offsetY,
+            List<RenderedDivisionPolygon> outStrikeList) {
+        float cr, cg, cb;
+        if (isEnemy) {
+            cr = 1.00f;
+            cg = 0.36f;
+            cb = 0.44f;
+        } else if (isAlliedAi) {
+            cr = 1.00f;
+            cg = 0.88f;
+            cb = 0.34f;
+        } else {
+            cr = 0.28f;
+            cg = 0.94f;
+            cb = 0.78f;
+        }
 
-            List<ShipAPI> strikeMembers = new ArrayList<>();
-            for (ShipAPI carrier : alive) {
-                if (carrier == null || !carrier.isAlive() || carrier.isHulk()) continue;
-                if (carrier.isFighter()) {
-                    if (!isEnemy || isEnemyShipVisibleOnCommandMap(carrier, playerFog)) {
-                        strikeMembers.add(carrier);
+        Set<com.fs.starfarer.api.combat.FighterWingAPI> claimedWings =
+                Collections.newSetFromMap(new java.util.IdentityHashMap<com.fs.starfarer.api.combat.FighterWingAPI, Boolean>());
+        Set<ShipAPI> claimedStandaloneFighters =
+                Collections.newSetFromMap(new java.util.IdentityHashMap<ShipAPI, Boolean>());
+        Vector2f scratchCentroid = new Vector2f();
+
+        // 1. Unified Voidstrike Air-Package Envelopes (multi-division strikes share one cohesive metaball package!)
+        List<VoidstrikeCoordinator.VoidstrikeRecord> activeVs = VoidstrikeCoordinator.getActiveVoidstrikes();
+        if (activeVs != null && !activeVs.isEmpty()) {
+            for (int vIdx = 0, vLen = activeVs.size(); vIdx < vLen; vIdx++) {
+                VoidstrikeCoordinator.VoidstrikeRecord vs = activeVs.get(vIdx);
+                if (vs == null || vs.side != voidstrikeSide || vs.activeFighters.isEmpty()) continue;
+
+                List<SquadronEnvelopeUnit> vsUnits = new ArrayList<>();
+                List<ShipAPI> repShips = new ArrayList<>();
+                for (int fIdx = 0, fLen = vs.activeFighters.size(); fIdx < fLen; fIdx++) {
+                    ShipAPI fm = vs.activeFighters.get(fIdx);
+                    if (fm == null || !fm.isAlive() || fm.isHulk() || fm.isExpired()) continue;
+                    com.fs.starfarer.api.combat.FighterWingAPI wing = fm.getWing();
+                    if (wing != null) {
+                        if (claimedWings.contains(wing)) continue;
+                        ShipAPI wLead = BattlefieldFirepowerEvaluator.resolveAliveWingLeader(wing);
+                        if (wLead == null) continue;
+                        if (isEnemy && !hasAnyVisibleFighterInWing(wing, playerFog)) continue;
+                        claimedWings.add(wing);
+                        Vector2f sqCenter = resolveVisibleSquadronCentroid(wing, wLead, isEnemy, playerFog, scratchCentroid);
+                        float sqSpread = BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(wing, sqCenter);
+                        float sqWorldR = clamp(165f + sqSpread * 1.05f, 195f, 440f);
+                        vsUnits.add(new SquadronEnvelopeUnit(wing, wLead, sqCenter, sqWorldR));
+                        repShips.add(wLead);
+                    } else {
+                        if (claimedStandaloneFighters.contains(fm)) continue;
+                        if (isEnemy && !isEnemyShipVisibleOnCommandMap(this.engine, fm, playerFog)) continue;
+                        claimedStandaloneFighters.add(fm);
+                        if (fm.getLocation() != null) {
+                            vsUnits.add(new SquadronEnvelopeUnit(null, fm, fm.getLocation(), 200f));
+                            repShips.add(fm);
+                        }
                     }
-                    continue;
                 }
-                List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
-                if (wings == null || wings.isEmpty()) continue;
-                for (com.fs.starfarer.api.combat.FighterWingAPI wing : wings) {
-                    if (wing == null) continue;
-                    ShipAPI wingRep = wing.getLeader();
-                    if ((wingRep == null || !wingRep.isAlive() || wingRep.isHulk())
-                            && wing.getWingMembers() != null && !wing.getWingMembers().isEmpty()) {
-                        for (ShipAPI fm : wing.getWingMembers()) {
-                            if (fm != null && fm.isAlive() && !fm.isHulk()) {
-                                wingRep = fm;
-                                break;
+                if (vsUnits.isEmpty()) continue;
+
+                DivisionState ownerDiv = null;
+                if (!vs.participatingDivisions.isEmpty()) {
+                    ownerDiv = vs.participatingDivisions.iterator().next();
+                } else if (battleGroup != null && !battleGroup.divisions.isEmpty()) {
+                    ownerDiv = battleGroup.divisions.get(0);
+                }
+
+                emitClusteredSquadronPolygons(
+                        ownerDiv, battleGroup, isEnemy, isAlliedAi, vsUnits, 1.38f,
+                        cr, cg, cb, 0.94f, scale, offsetX, offsetY, outStrikeList);
+            }
+        }
+
+        // 2. Non-Voidstrike Airborne Squadrons (CAP, Fighter Sweep, Armed Recon, Escort) grouped cleanly across divisions
+        if (battleGroup != null && !battleGroup.divisions.isEmpty()) {
+            List<SquadronEnvelopeUnit> capUnits = new ArrayList<>();
+            DivisionState primaryCapDiv = battleGroup.divisions.get(0);
+            for (int dIdx = 0, dLen = battleGroup.divisions.size(); dIdx < dLen; dIdx++) {
+                DivisionState div = battleGroup.divisions.get(dIdx);
+                if (div == null) continue;
+                List<ShipAPI> alive = div.getAliveMembers();
+                for (int sIdx = 0, sLen = alive.size(); sIdx < sLen; sIdx++) {
+                    ShipAPI carrier = alive.get(sIdx);
+                    if (carrier == null || !carrier.isAlive() || carrier.isHulk()) continue;
+                    if (carrier.isFighter()) {
+                        if (carrier.getWing() != null && claimedWings.contains(carrier.getWing())) continue;
+                        if (claimedStandaloneFighters.contains(carrier)) continue;
+                        if (!isEnemy || isEnemyShipVisibleOnCommandMap(this.engine, carrier, playerFog)) {
+                            claimedStandaloneFighters.add(carrier);
+                            if (carrier.getLocation() != null) {
+                                capUnits.add(new SquadronEnvelopeUnit(carrier.getWing(), carrier, carrier.getLocation(), 205f));
+                                primaryCapDiv = div;
                             }
                         }
+                        continue;
                     }
-                    if (wingRep != null && wingRep.isAlive() && !wingRep.isHulk() && !wingRep.isExpired()) {
-                        // Only draw airborne strike craft polygons once the squadron has cleared its carrier deck
-                        if (DivisionUiWidgets.distance(wingRep.getLocation(), carrier.getLocation()) <= 120f) continue;
-                        if (!isEnemy || isEnemyShipVisibleOnCommandMap(wingRep, playerFog)) {
-                            if (!strikeMembers.contains(wingRep)) {
-                                strikeMembers.add(wingRep);
-                            }
+                    List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
+                    if (wings == null || wings.isEmpty()) continue;
+                    for (int wIdx = 0, wLen = wings.size(); wIdx < wLen; wIdx++) {
+                        com.fs.starfarer.api.combat.FighterWingAPI wing = wings.get(wIdx);
+                        if (wing == null || claimedWings.contains(wing)) continue;
+                        ShipAPI wLead = BattlefieldFirepowerEvaluator.resolveAliveWingLeader(wing);
+                        if (wLead == null) continue;
+                        if (isEnemy && !hasAnyVisibleFighterInWing(wing, playerFog)) continue;
+                        Vector2f sqCenter = resolveVisibleSquadronCentroid(wing, wLead, isEnemy, playerFog, scratchCentroid);
+                        if (carrier.getLocation() != null
+                                && DivisionUiWidgets.distance(sqCenter, carrier.getLocation()) <= 135f) {
+                            continue;
                         }
+                        claimedWings.add(wing);
+                        float sqSpread = BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(wing, sqCenter);
+                        float sqWorldR = clamp(160f + sqSpread * 1.05f, 190f, 420f);
+                        capUnits.add(new SquadronEnvelopeUnit(wing, wLead, sqCenter, sqWorldR));
+                        primaryCapDiv = div;
                     }
                 }
             }
-            if (strikeMembers.isEmpty()) continue;
-
-            boolean isAlliedAi = !isEnemy && (battleGroup.isAlliedAi || strikeMembers.get(0).isAlly());
-            float cr, cg, cb;
-            if (isEnemy) {
-                cr = 0.96f;
-                cg = 0.28f;
-                cb = 0.32f;
-            } else if (isAlliedAi) {
-                cr = 1.00f;
-                cg = 0.86f;
-                cb = 0.24f;
-            } else {
-                cr = 0.26f;
-                cg = 0.94f;
-                cb = 0.56f;
-            }
-
-            List<List<ShipAPI>> strikeDroplets = clusterStrikeCraftMembers(strikeMembers);
-            for (int dIdx = 0; dIdx < strikeDroplets.size(); dIdx++) {
-                List<ShipAPI> dropletMembers = strikeDroplets.get(dIdx);
-                List<Vector2f> polyScreen = buildFluidDropletPolygonScreen(
-                        div,
-                        dropletMembers,
-                        strikeMembers,
-                        scale,
-                        offsetX,
-                        offsetY);
-                if (polyScreen.size() < 3) continue;
-                Vector2f centerScreen = computePolygonCentroid(polyScreen);
-                outStrikeList.add(new RenderedDivisionPolygon(
-                        div,
-                        battleGroup,
-                        isEnemy,
-                        isAlliedAi,
-                        dIdx == 0,
-                        true,
-                        dropletMembers,
-                        polyScreen,
-                        polyScreen,
-                        centerScreen,
-                        cr,
-                        cg,
-                        cb,
-                        0.85f));
+            if (!capUnits.isEmpty()) {
+                emitClusteredSquadronPolygons(
+                        primaryCapDiv, battleGroup, isEnemy, isAlliedAi, capUnits, 1.22f,
+                        cr, cg, cb, 0.84f, scale, offsetX, offsetY, outStrikeList);
             }
         }
     }
 
-    private static List<List<ShipAPI>> clusterStrikeCraftMembers(List<ShipAPI> strikeMembers) {
-        int n = strikeMembers.size();
-        if (n <= 1) {
-            List<List<ShipAPI>> single = new ArrayList<>(1);
-            if (n == 1) single.add(new ArrayList<>(strikeMembers));
-            return single;
+    private boolean hasAnyVisibleFighterInWing(
+            com.fs.starfarer.api.combat.FighterWingAPI wing,
+            FogOfWarAPI playerFog) {
+        if (wing == null) return false;
+        if (playerFog == null) return true;
+        List<ShipAPI> members = wing.getWingMembers();
+        if (members != null) {
+            for (int i = 0, n = members.size(); i < n; i++) {
+                ShipAPI fm = members.get(i);
+                if (fm != null && fm.isAlive() && !fm.isHulk() && isEnemyShipVisibleOnCommandMap(this.engine, fm, playerFog)) {
+                    return true;
+                }
+            }
         }
-        float mergeDist = 680f;
-        float mergeDistSq = mergeDist * mergeDist;
+        ShipAPI lead = wing.getLeader();
+        return lead != null && lead.isAlive() && !lead.isHulk() && isEnemyShipVisibleOnCommandMap(this.engine, lead, playerFog);
+    }
+
+    private Vector2f resolveVisibleSquadronCentroid(
+            com.fs.starfarer.api.combat.FighterWingAPI wing,
+            ShipAPI fallbackLeader,
+            boolean isEnemy,
+            FogOfWarAPI playerFog,
+            Vector2f out) {
+        if (!isEnemy || playerFog == null) {
+            return BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(wing, fallbackLeader, out);
+        }
+        List<ShipAPI> members = wing != null ? wing.getWingMembers() : null;
+        if (members != null && !members.isEmpty()) {
+            float sx = 0f, sy = 0f;
+            int cnt = 0;
+            for (int i = 0, n = members.size(); i < n; i++) {
+                ShipAPI fm = members.get(i);
+                if (fm != null && fm.isAlive() && !fm.isHulk() && fm.getLocation() != null
+                        && isEnemyShipVisibleOnCommandMap(this.engine, fm, playerFog)) {
+                    sx += fm.getLocation().x;
+                    sy += fm.getLocation().y;
+                    cnt++;
+                }
+            }
+            if (cnt > 0) {
+                out.set(sx / cnt, sy / cnt);
+                return out;
+            }
+        }
+        return BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(wing, fallbackLeader, out);
+    }
+
+    private void emitClusteredSquadronPolygons(
+            DivisionState ownerDiv,
+            BattleGroupState battleGroup,
+            boolean isEnemy,
+            boolean isAlliedAi,
+            List<SquadronEnvelopeUnit> units,
+            float mergeMult,
+            float cr,
+            float cg,
+            float cb,
+            float cohesionAlpha,
+            float scale,
+            float offsetX,
+            float offsetY,
+            List<RenderedDivisionPolygon> outStrikeList) {
+        int n = units.size();
         boolean[] visited = new boolean[n];
-        List<List<ShipAPI>> clusters = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             if (visited[i]) continue;
-            List<ShipAPI> cluster = new ArrayList<>();
-            cluster.add(strikeMembers.get(i));
+            List<SquadronEnvelopeUnit> cluster = new ArrayList<>();
+            cluster.add(units.get(i));
             visited[i] = true;
             int head = 0;
             while (head < cluster.size()) {
-                ShipAPI curr = cluster.get(head++);
-                float cx = curr.getLocation().x;
-                float cy = curr.getLocation().y;
+                SquadronEnvelopeUnit curr = cluster.get(head++);
                 for (int j = 0; j < n; j++) {
                     if (visited[j]) continue;
-                    ShipAPI cand = strikeMembers.get(j);
-                    float dx = cx - cand.getLocation().x;
-                    float dy = cy - cand.getLocation().y;
-                    if (dx * dx + dy * dy <= mergeDistSq) {
+                    SquadronEnvelopeUnit cand = units.get(j);
+                    float dx = curr.worldCenter.x - cand.worldCenter.x;
+                    float dy = curr.worldCenter.y - cand.worldCenter.y;
+                    float mergeDist = Math.max(580f, (curr.worldRadius + cand.worldRadius) * mergeMult);
+                    if (dx * dx + dy * dy <= mergeDist * mergeDist) {
                         visited[j] = true;
                         cluster.add(cand);
                     }
                 }
             }
-            clusters.add(cluster);
+
+            List<Vector2f> polyScreen = buildSquadronClusterMetaballPolygonScreen(cluster, scale, offsetX, offsetY);
+            if (polyScreen == null || polyScreen.size() < 3) continue;
+            Vector2f centerScreen = computePolygonCentroid(polyScreen);
+            List<ShipAPI> repMembers = new ArrayList<>(cluster.size());
+            for (int k = 0; k < cluster.size(); k++) {
+                if (cluster.get(k).fallbackShip != null) {
+                    repMembers.add(cluster.get(k).fallbackShip);
+                }
+            }
+            outStrikeList.add(new RenderedDivisionPolygon(
+                    ownerDiv,
+                    battleGroup,
+                    isEnemy,
+                    isAlliedAi,
+                    i == 0,
+                    true,
+                    repMembers,
+                    cluster,
+                    polyScreen,
+                    polyScreen,
+                    centerScreen,
+                    cr,
+                    cg,
+                    cb,
+                    cohesionAlpha,
+                    scale));
         }
-        return clusters;
+    }
+
+    private List<Vector2f> buildSquadronClusterMetaballPolygonScreen(
+            List<SquadronEnvelopeUnit> cluster,
+            float scale,
+            float offsetX,
+            float offsetY) {
+        int mCount = cluster.size();
+        if (mCount == 0) return Collections.emptyList();
+        if (mCount == 1) {
+            SquadronEnvelopeUnit u = cluster.get(0);
+            float cx = u.worldCenter.x * scale + offsetX;
+            float cy = u.worldCenter.y * scale + offsetY;
+            float rPx = Math.max(6.5f, u.worldRadius * scale);
+            int steps = 48;
+            List<Vector2f> ring = new ArrayList<>(steps);
+            for (int i = 0; i < steps; i++) {
+                double ang = (2.0 * Math.PI * i) / steps;
+                ring.add(new Vector2f(cx + (float) Math.cos(ang) * rPx, cy + (float) Math.sin(ang) * rPx));
+            }
+            return ring;
+        }
+
+        float[] sx = new float[mCount];
+        float[] sy = new float[mCount];
+        float[] sr = new float[mCount];
+        float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        for (int i = 0; i < mCount; i++) {
+            SquadronEnvelopeUnit u = cluster.get(i);
+            sx[i] = u.worldCenter.x * scale + offsetX;
+            sy[i] = u.worldCenter.y * scale + offsetY;
+            sr[i] = Math.max(6.5f, u.worldRadius * scale);
+            float pad = sr[i] * 1.45f + 16f;
+            if (sx[i] - pad < minX) minX = sx[i] - pad;
+            if (sx[i] + pad > maxX) maxX = sx[i] + pad;
+            if (sy[i] - pad < minY) minY = sy[i] - pad;
+            if (sy[i] + pad > maxY) maxY = sy[i] + pad;
+        }
+
+        float[][] kPair = new float[mCount][mCount];
+        for (int i = 0; i < mCount; i++) {
+            SquadronEnvelopeUnit ui = cluster.get(i);
+            for (int j = i + 1; j < mCount; j++) {
+                SquadronEnvelopeUnit uj = cluster.get(j);
+                float dxW = ui.worldCenter.x - uj.worldCenter.x;
+                float dyW = ui.worldCenter.y - uj.worldCenter.y;
+                float distW = (float) Math.sqrt(dxW * dxW + dyW * dyW);
+                // Gabriel shortcut filter across squadron centers
+                boolean shortcut = false;
+                float distSqIJ = distW * distW;
+                for (int k = 0; k < mCount; k++) {
+                    if (k == i || k == j) continue;
+                    SquadronEnvelopeUnit uk = cluster.get(k);
+                    float dikSq = (ui.worldCenter.x - uk.worldCenter.x) * (ui.worldCenter.x - uk.worldCenter.x)
+                            + (ui.worldCenter.y - uk.worldCenter.y) * (ui.worldCenter.y - uk.worldCenter.y);
+                    if (dikSq >= distSqIJ) continue;
+                    float djkSq = (uj.worldCenter.x - uk.worldCenter.x) * (uj.worldCenter.x - uk.worldCenter.x)
+                            + (uj.worldCenter.y - uk.worldCenter.y) * (uj.worldCenter.y - uk.worldCenter.y);
+                    if (djkSq < distSqIJ && (dikSq + djkSq) < distSqIJ * 1.15f) {
+                        shortcut = true;
+                        break;
+                    }
+                }
+                if (shortcut) continue;
+                float sumR = ui.worldRadius + uj.worldRadius;
+                float fullOpen = sumR * 0.90f;
+                float maxBridge = Math.max(620f, sumR * 1.48f);
+                if (distW <= maxBridge) {
+                    float tOpen = clamp(1.0f - Math.max(0f, distW - fullOpen) / Math.max(1f, maxBridge - fullOpen), 0.08f, 1.0f);
+                    kPair[i][j] = tOpen * (0.40f + 0.60f * tOpen);
+                    kPair[j][i] = kPair[i][j];
+                }
+            }
+        }
+
+        float maxSpan = Math.max(maxX - minX, maxY - minY);
+        float stepPx = Math.max(2.8f, maxSpan / 52f);
+        float minWaistPx = Math.max(3.2f, stepPx * 1.05f);
+        List<List<Vector2f>> loops = traceMetaballContoursMarchingSquares(
+                sx, sy, sr, mCount, mCount, kPair, minX, maxX, minY, maxY, stepPx, minWaistPx);
+        List<Vector2f> best = selectBestContainingLoop(loops, sx, sy, mCount);
+        if (best == null && !loops.isEmpty()) {
+            best = loops.get(0);
+        }
+        if (best != null && best.size() >= 6) {
+            return simplifyContourForTriangulation(best, 0.50f, 76);
+        }
+        // Fallback smooth hull around squadron circles
+        List<Vector2f> cloud = new ArrayList<>(mCount * 24);
+        for (int i = 0; i < mCount; i++) {
+            for (int a = 0; a < 24; a++) {
+                double ang = (2.0 * Math.PI * a) / 24.0;
+                cloud.add(new Vector2f(sx[i] + (float) Math.cos(ang) * sr[i], sy[i] + (float) Math.sin(ang) * sr[i]));
+            }
+        }
+        List<Vector2f> hull = computeConvexHullCCW(cloud);
+        if (hull.size() < 3) return hull;
+        return simplifyContourForTriangulation(chaikinSmoothClosed(chaikinSmoothClosed(hull)), 0.55f, 76);
     }
 
     private int computeBattleGroupsGeometrySignature(
@@ -1749,6 +2206,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         h = 31 * h + computeSingleGroupGeometrySignature(playerGroup, false, null, includeQuantizedPositions);
         h = 31 * h + computeSingleGroupGeometrySignature(alliedAiGroup, false, null, includeQuantizedPositions);
         h = 31 * h + computeSingleGroupGeometrySignature(enemyGroup, true, playerFog, includeQuantizedPositions);
+        h = 31 * h + computeStrikeCraftSideSignature(
+                playerGroup, VoidstrikeCoordinator.VOIDSTRIKE_SIDE_PLAYER, false, null, includeQuantizedPositions);
+        h = 31 * h + computeStrikeCraftSideSignature(
+                alliedAiGroup, VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ALLIED, false, null, includeQuantizedPositions);
+        h = 31 * h + computeStrikeCraftSideSignature(
+                enemyGroup, VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ENEMY, true, playerFog, includeQuantizedPositions);
         return h;
     }
 
@@ -1820,6 +2283,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     v.y = (v.y - oldOffY) * ratio + newOffY;
                 }
             }
+            if (rp.innerGlowPolyScreen != null
+                    && rp.innerGlowPolyScreen != rp.displayPolyScreen
+                    && rp.innerGlowPolyScreen != rp.polyScreen) {
+                for (Vector2f v : rp.innerGlowPolyScreen) {
+                    v.x = (v.x - oldOffX) * ratio + newOffX;
+                    v.y = (v.y - oldOffY) * ratio + newOffY;
+                }
+            }
             if (rp.clipHullScreen != null && rp.clipHullScreen != rp.polyScreen) {
                 for (Vector2f v : rp.clipHullScreen) {
                     v.x = (v.x - oldOffX) * ratio + newOffX;
@@ -1836,21 +2307,150 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
+    /**
+     * 60 FPS Continuous Linear-Blend Skinning (LBS) & Live Motion Updater:
+     *  - Single-unit envelopes translate rigidly with exact live ship/squadron centroid motion.
+     *  - Multi-ship divisions & multi-squadron Voidstrikes deform every contour & inner-gradient vertex
+     *    smoothly at 60 FPS using precomputed inverse-distance unit skinning weights (zero heap allocations),
+     *    so turning/wheeling formations never poke hulls outside frozen walls between SDF cache rebuilds!
+     */
     private static void translateCachedPolygonsByLiveShipMotion(
             List<RenderedDivisionPolygon> polys,
             float scale) {
+        Vector2f sqScratch = null;
         for (int pIdx = 0, pLen = polys.size(); pIdx < pLen; pIdx++) {
             RenderedDivisionPolygon rp = polys.get(pIdx);
-            List<ShipAPI> members = rp.hullMembers;
-            if (members == null || members.isEmpty()) continue;
+            int uCount = rp.skinUnitCount;
+            if (uCount <= 0) continue;
+
+            // 1. Multi-unit LBS per-ship / per-squadron deformation path
+            if (uCount >= 2 && rp.skinWeights != null && rp.skinLastWorldX != null && rp.skinDeltaPxX != null) {
+                float maxDeltaPx = 0f;
+                float sumWx = 0f, sumWy = 0f;
+                int validCnt = 0;
+                if (rp.squadronUnits != null && rp.squadronUnits.size() == uCount) {
+                    if (sqScratch == null) sqScratch = new Vector2f();
+                    for (int u = 0; u < uCount; u++) {
+                        SquadronEnvelopeUnit su = rp.squadronUnits.get(u);
+                        Vector2f liveLoc = su.resolveLiveWorldCenter(sqScratch);
+                        float nx = (liveLoc != null) ? liveLoc.x : rp.skinLastWorldX[u];
+                        float ny = (liveLoc != null) ? liveLoc.y : rp.skinLastWorldY[u];
+                        float uxPx = (nx - rp.skinLastWorldX[u]) * scale;
+                        float uyPx = (ny - rp.skinLastWorldY[u]) * scale;
+                        rp.skinDeltaPxX[u] = uxPx;
+                        rp.skinDeltaPxY[u] = uyPx;
+                        float dPx = Math.max(Math.abs(uxPx), Math.abs(uyPx));
+                        if (dPx > maxDeltaPx) maxDeltaPx = dPx;
+                        sumWx += nx;
+                        sumWy += ny;
+                        validCnt++;
+                    }
+                } else if (rp.hullMembers != null && rp.hullMembers.size() == uCount) {
+                    for (int u = 0; u < uCount; u++) {
+                        ShipAPI s = rp.hullMembers.get(u);
+                        float nx = (s != null && s.isAlive() && s.getLocation() != null)
+                                ? s.getLocation().x
+                                : rp.skinLastWorldX[u];
+                        float ny = (s != null && s.isAlive() && s.getLocation() != null)
+                                ? s.getLocation().y
+                                : rp.skinLastWorldY[u];
+                        float uxPx = (nx - rp.skinLastWorldX[u]) * scale;
+                        float uyPx = (ny - rp.skinLastWorldY[u]) * scale;
+                        rp.skinDeltaPxX[u] = uxPx;
+                        rp.skinDeltaPxY[u] = uyPx;
+                        float dPx = Math.max(Math.abs(uxPx), Math.abs(uyPx));
+                        if (dPx > maxDeltaPx) maxDeltaPx = dPx;
+                        if (s != null && s.isAlive() && s.getLocation() != null) {
+                            sumWx += nx;
+                            sumWy += ny;
+                            validCnt++;
+                        }
+                    }
+                }
+                if (maxDeltaPx < 0.05f || validCnt <= 0) continue;
+
+                float avgWx = sumWx / validCnt;
+                float avgWy = sumWy / validCnt;
+                float avgDxPx = (avgWx - rp.lastWorldCenterX) * scale;
+                float avgDyPx = (avgWy - rp.lastWorldCenterY) * scale;
+                rp.lastWorldCenterX = avgWx;
+                rp.lastWorldCenterY = avgWy;
+
+                int nVerts = rp.displayPolyScreen.size();
+                boolean sharedPoly = (rp.polyScreen == rp.displayPolyScreen);
+                boolean hasInner = (rp.innerGlowPolyScreen != null
+                        && rp.innerGlowPolyScreen != rp.displayPolyScreen
+                        && rp.innerGlowPolyScreen.size() == nVerts);
+                float[] weights = rp.skinWeights;
+                for (int vIdx = 0; vIdx < nVerts; vIdx++) {
+                    float vDx = 0f;
+                    float vDy = 0f;
+                    int wBase = vIdx * uCount;
+                    for (int u = 0; u < uCount; u++) {
+                        float w = weights[wBase + u];
+                        if (w <= 0f) continue;
+                        vDx += w * rp.skinDeltaPxX[u];
+                        vDy += w * rp.skinDeltaPxY[u];
+                    }
+                    Vector2f dv = rp.displayPolyScreen.get(vIdx);
+                    dv.x += vDx;
+                    dv.y += vDy;
+                    if (!sharedPoly && vIdx < rp.polyScreen.size()) {
+                        Vector2f pv = rp.polyScreen.get(vIdx);
+                        pv.x += vDx;
+                        pv.y += vDy;
+                    }
+                    if (hasInner) {
+                        Vector2f iv = rp.innerGlowPolyScreen.get(vIdx);
+                        iv.x += vDx;
+                        iv.y += vDy;
+                    }
+                }
+                if (scale > 1e-6f) {
+                    float invScale = 1.0f / scale;
+                    for (int u = 0; u < uCount; u++) {
+                        rp.skinLastWorldX[u] += rp.skinDeltaPxX[u] * invScale;
+                        rp.skinLastWorldY[u] += rp.skinDeltaPxY[u] * invScale;
+                    }
+                }
+                if (rp.clipHullScreen != null && rp.clipHullScreen != rp.polyScreen) {
+                    for (int i = 0, n = rp.clipHullScreen.size(); i < n; i++) {
+                        Vector2f v = rp.clipHullScreen.get(i);
+                        v.x += avgDxPx;
+                        v.y += avgDyPx;
+                    }
+                }
+                if (rp.centerScreen != null) {
+                    rp.centerScreen.x += avgDxPx;
+                    rp.centerScreen.y += avgDyPx;
+                }
+                rp.labelX += avgDxPx;
+                rp.labelY += avgDyPx;
+                rp.recomputeBounds();
+                continue;
+            }
+
+            // 2. Single-unit fast rigid translation path (supports both lone ships and lone squadrons)
             float wx = 0f, wy = 0f;
             int cnt = 0;
-            for (int i = 0, n = members.size(); i < n; i++) {
-                ShipAPI s = members.get(i);
-                if (s != null && s.isAlive() && s.getLocation() != null) {
-                    wx += s.getLocation().x;
-                    wy += s.getLocation().y;
-                    cnt++;
+            if (rp.squadronUnits != null && !rp.squadronUnits.isEmpty()) {
+                if (sqScratch == null) sqScratch = new Vector2f();
+                for (int i = 0, n = rp.squadronUnits.size(); i < n; i++) {
+                    Vector2f loc = rp.squadronUnits.get(i).resolveLiveWorldCenter(sqScratch);
+                    if (loc != null) {
+                        wx += loc.x;
+                        wy += loc.y;
+                        cnt++;
+                    }
+                }
+            } else if (rp.hullMembers != null && !rp.hullMembers.isEmpty()) {
+                for (int i = 0, n = rp.hullMembers.size(); i < n; i++) {
+                    ShipAPI s = rp.hullMembers.get(i);
+                    if (s != null && s.isAlive() && s.getLocation() != null) {
+                        wx += s.getLocation().x;
+                        wy += s.getLocation().y;
+                        cnt++;
+                    }
                 }
             }
             if (cnt <= 0) continue;
@@ -1869,6 +2469,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             if (rp.displayPolyScreen != rp.polyScreen) {
                 for (int i = 0, n = rp.displayPolyScreen.size(); i < n; i++) {
                     Vector2f v = rp.displayPolyScreen.get(i);
+                    v.x += dxPx;
+                    v.y += dyPx;
+                }
+            }
+            if (rp.innerGlowPolyScreen != null
+                    && rp.innerGlowPolyScreen != rp.displayPolyScreen
+                    && rp.innerGlowPolyScreen != rp.polyScreen) {
+                for (int i = 0, n = rp.innerGlowPolyScreen.size(); i < n; i++) {
+                    Vector2f v = rp.innerGlowPolyScreen.get(i);
                     v.x += dxPx;
                     v.y += dyPx;
                 }
@@ -2183,7 +2792,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float mx = m.getLocation().x * scale + offsetX;
             float my = m.getLocation().y * scale + offsetY;
             float worldR = getMemberFootprintRadiusWorld(m);
-            float rPx = clamp(worldR * scale, 14f, 54f);
+            // Pure world-space radius scaled linearly with map zoom (only tiny 5.5px floor at extreme zoom-out),
+            // matching extractMetaballDropletPolygonScreen and TsfcWarroomRenderer with zero zoom-clamp popping!
+            float rPx = Math.max(5.5f, worldR * scale);
 
             // Check if a sibling ship in another droplet of the same division is near the coalescence/split threshold
             // and extend a pointed teardrop meniscus tip toward the exact radius-weighted kissing point P_kiss.
@@ -2199,7 +2810,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     float distW = (float) Math.sqrt(dxW * dxW + dyW * dyW);
                     if (distW < 1e-3f) continue;
                     float otherWorldR = getMemberFootprintRadiusWorld(other);
-                    float otherRPx = clamp(otherWorldR * scale, 14f, 54f);
+                    float otherRPx = Math.max(5.5f, otherWorldR * scale);
                     float mergeDist = (getMemberFootprintRadiusWorld(m) + otherWorldR) * 1.18f;
                     float splitDist = mergeDist * 1.15f;
                     float attractMaxDist = splitDist * 1.12f;
@@ -2432,7 +3043,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float worldR = getMemberFootprintRadiusWorld(s);
             sx[i] = s.getLocation().x * scale + offsetX;
             sy[i] = s.getLocation().y * scale + offsetY;
-            sr[i] = clamp(worldR * scale, 12f, 68f);
+            sr[i] = Math.max(5.5f, worldR * scale);
         }
 
         // Build pairwise hourglass bridge openness matrix kPair[i][j]
@@ -2552,6 +3163,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     private static final class PrecomputedSdfPrimitives {
+        final float smoothK;
         final int brCount;
         final float[] brAx, brAy, brUx, brUy, brSa, brSb, brSKiss, brYa, brYb, brRWaist, brInvSpanA, brInvSpanB;
         final float[] brMinX, brMaxX, brMinY, brMaxY;
@@ -2567,6 +3179,13 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         PrecomputedSdfPrimitives(
                 float[] sx, float[] sy, float[] sr,
                 int mCount, int total, float[][] kPair, float minWaistPx) {
+            float sumR = 0f;
+            for (int i = 0; i < mCount; i++) {
+                sumR += sr[i];
+            }
+            float avgR = (mCount > 0) ? (sumR / mCount) : 24f;
+            this.smoothK = clamp(avgR * 0.22f, 3.0f, 10.0f);
+
             int maxBr = (mCount * (mCount - 1)) / 2;
             brAx = new float[maxBr]; brAy = new float[maxBr];
             brUx = new float[maxBr]; brUy = new float[maxBr];
@@ -2602,11 +3221,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     if (lenSq < 1e-3f) continue;
                     float len = (float) Math.sqrt(lenSq);
                     float sKiss = len * (ra / Math.max(1f, ra + rb));
-                    float sa = Math.min(ra * 0.45f, sKiss * 0.55f);
-                    float sb = len - Math.min(rb * 0.45f, (len - sKiss) * 0.55f);
+                    float sa = Math.min(ra * 0.42f, sKiss * 0.52f);
+                    float sb = len - Math.min(rb * 0.42f, (len - sKiss) * 0.52f);
                     if (sb <= sa + 1.0f) continue;
 
-                    float maxShoulderR = Math.max(ra, rb) * 1.15f + 12f;
+                    float maxShoulderR = Math.max(ra, rb) * 1.18f + 14f;
                     brAx[bIdx] = ax;
                     brAy[bIdx] = ay;
                     brUx[bIdx] = abx / len;
@@ -2614,12 +3233,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     brSa[bIdx] = sa;
                     brSb[bIdx] = sb;
                     brSKiss[bIdx] = sKiss;
-                    brYa[bIdx] = (float) Math.sqrt(Math.max(1f, ra * ra - sa * sa)) * 0.94f;
+                    // Relax tight-formation shoulder & waist up to full tangent capsule width (0.985 * minR) when
+                    // openness -> 1 so Line Abreast / Column hulls form sleek stadiums without caterpillar dents,
+                    // while still pinching smoothly down to minWaistPx as ships separate!
+                    float shoulderScale = 0.94f + 0.055f * openness;
+                    brYa[bIdx] = (float) Math.sqrt(Math.max(1f, ra * ra - sa * sa)) * shoulderScale;
                     float lb = len - sb;
-                    brYb[bIdx] = (float) Math.sqrt(Math.max(1f, rb * rb - lb * lb)) * 0.94f;
+                    brYb[bIdx] = (float) Math.sqrt(Math.max(1f, rb * rb - lb * lb)) * shoulderScale;
                     float minR = Math.min(ra, rb);
-                    float maxWaist = Math.max(minWaistPx + 1.0f, minR * 0.84f);
-                    brRWaist[bIdx] = minWaistPx + openness * (maxWaist - minWaistPx);
+                    float maxWaist = Math.max(minWaistPx + 1.0f, minR * 0.985f);
+                    float smoothOpen = openness * (0.35f + 0.65f * openness);
+                    brRWaist[bIdx] = minWaistPx + smoothOpen * (maxWaist - minWaistPx);
                     brInvSpanA[bIdx] = 1.0f / Math.max(1f, sKiss - sa);
                     brInvSpanB[bIdx] = 1.0f / Math.max(1f, sb - sKiss);
                     brMinX[bIdx] = Math.min(ax, bx) - maxShoulderR;
@@ -2643,12 +3267,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     float ux = abx / len;
                     float uy = aby / len;
                     float distToKissPx = len * (ra / Math.max(1f, ra + rb));
-                    float maxExtPx = Math.min(ra * 0.48f, Math.max(2.0f, distToKissPx - ra * 0.94f));
-                    float s0 = ra * 0.52f;
+                    float maxExtPx = Math.min(ra * 0.44f, Math.max(2.0f, distToKissPx - ra * 0.95f));
+                    float s0 = ra * 0.46f;
                     float s1 = ra + reach * maxExtPx;
                     if (s1 <= s0 + 1.0f) continue;
-                    float yShoulder = (float) Math.sqrt(Math.max(1f, ra * ra - s0 * s0)) * (0.74f + 0.20f * reach);
-                    float rTip = 2.4f + (1.0f - reach) * Math.min(4.8f, ra * 0.14f);
+                    float yShoulder = (float) Math.sqrt(Math.max(1f, ra * ra - s0 * s0)) * (0.84f + 0.14f * reach);
+                    float rTip = 2.6f + (1.0f - reach) * Math.min(5.2f, ra * 0.16f);
                     float endX = ax + ux * s1;
                     float endY = ay + uy * s1;
                     float pad = yShoulder + 8f;
@@ -2758,7 +3382,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 bestBridge = sminPoly(bestBridge, dTri - prims.triPad[t], 6.0f);
             }
         }
-        return sminPoly(bestCircle, bestBridge, 2.5f);
+        return sminPoly(bestCircle, bestBridge, prims.smoothK);
     }
 
     private static float evalRowBridgesSdf(
@@ -2926,7 +3550,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         }
 
-        return sminPoly(bestCircle, bestBridge, 2.5f);
+        return sminPoly(bestCircle, bestBridge, prims.smoothK);
     }
 
     private static float signedDistanceToTriangleCCW2D(
@@ -2989,9 +3613,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         int cols = Math.max(8, Math.min(104, (int) Math.ceil((maxX - minX) / stepPx)));
         int rows = Math.max(8, Math.min(104, (int) Math.ceil((maxY - minY) / stepPx)));
         PrecomputedSdfPrimitives prims = new PrecomputedSdfPrimitives(sx, sy, sr, mCount, total, kPair, minWaistPx);
-        // Exact triangle-inequality interior bound: if bestCircle <= -stepPx, neither this grid point nor any
-        // of its 4 cardinal neighbors can have SDF > 0, so it never touches a Marching Squares contour edge!
-        float deepInteriorCutoffPx = stepPx + 0.5f;
+        // Exact triangle-inequality interior bound accounting for sminPoly(..., smoothK) shift (<= 0.25 * smoothK):
+        // if bestCircle <= -deepInteriorCutoffPx, neither this grid point nor any cardinal neighbor can have SDF > 0!
+        float deepInteriorCutoffPx = stepPx + prims.smoothK * 0.28f + 0.6f;
         float[][] grid = new float[rows + 1][cols + 1];
         float[] rowDyAbs = new float[mCount];
         float[] rowDySq = new float[mCount];
@@ -3255,43 +3879,237 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     // Section 4: Layer Renderers (Polygons, Top-Layer Ship Sprites, Flagship Stars, Overlap Stripes, Waypoints & Labels)
     // =========================================================================
 
+    /**
+     * Computes a self-intersection-free inward gradient offset ring for arbitrary concave/pinched metaball contours.
+     * Clamps each vertex's inward normal step against opposing non-adjacent boundary segments (preventing hourglass
+     * neck or capillary-thread fold-overs), then enforces cyclic Lipschitz continuity + Laplacian smoothing.
+     */
+    public static List<Vector2f> computeSafeInwardGradientRing(List<Vector2f> poly, float targetSkirtPx) {
+        if (poly == null || poly.size() < 3) return poly;
+        int n = poly.size();
+        float signedArea = computeSignedPolygonArea(poly);
+        float sign = (signedArea >= 0f) ? 1.0f : -1.0f;
+
+        float[] edgeLen = new float[n];
+        float[] nx = new float[n];
+        float[] ny = new float[n];
+        for (int i = 0; i < n; i++) {
+            Vector2f a = poly.get(i);
+            Vector2f b = poly.get((i + 1) % n);
+            float ex = b.x - a.x;
+            float ey = b.y - a.y;
+            float len = (float) Math.sqrt(ex * ex + ey * ey);
+            if (len < 1e-5f) len = 1e-5f;
+            edgeLen[i] = len;
+            nx[i] = (-sign * ey) / len;
+            ny[i] = (sign * ex) / len;
+        }
+
+        float[] rx = new float[n];
+        float[] ry = new float[n];
+        float[] maxS = new float[n];
+        for (int i = 0; i < n; i++) {
+            int prev = (i + n - 1) % n;
+            float bx = nx[prev] + nx[i];
+            float by = ny[prev] + ny[i];
+            float bl = (float) Math.sqrt(bx * bx + by * by);
+            if (bl < 1e-4f) {
+                rx[i] = nx[i];
+                ry[i] = ny[i];
+            } else {
+                rx[i] = bx / bl;
+                ry[i] = by / bl;
+            }
+            Vector2f pPrev = poly.get(prev);
+            Vector2f pCurr = poly.get(i);
+            Vector2f pNext = poly.get((i + 1) % n);
+            float e1x = pCurr.x - pPrev.x;
+            float e1y = pCurr.y - pPrev.y;
+            float e2x = pNext.x - pCurr.x;
+            float e2y = pNext.y - pCurr.y;
+            float cross = (e1x * e2y - e1y * e2x) * sign;
+            float minAdjEdge = Math.min(edgeLen[prev], edgeLen[i]);
+            float sLim = targetSkirtPx;
+            if (cross < 0f) {
+                sLim = Math.min(sLim, 0.75f * minAdjEdge);
+            } else if (cross > 0f) {
+                // Clamp against convex focal-point caustic (evolute) on sharp recoil meniscus tips
+                float sinTurn = clamp(cross / Math.max(1e-5f, edgeLen[prev] * edgeLen[i]), 0f, 1f);
+                if (sinTurn > 0.18f) {
+                    float focalRadius = (0.48f * minAdjEdge) / sinTurn;
+                    sLim = Math.min(sLim, focalRadius);
+                }
+            }
+            maxS[i] = sLim;
+        }
+
+        // Clamp inward ray distance against every non-incident boundary segment so narrow necks & tips never cross the medial axis
+        for (int i = 0; i < n; i++) {
+            Vector2f p = poly.get(i);
+            float rxi = rx[i];
+            float ryi = ry[i];
+            int prevEdge = (i + n - 1) % n;
+            for (int j = 0; j < n; j++) {
+                if (j == i || j == prevEdge) continue;
+                Vector2f a = poly.get(j);
+                Vector2f b = poly.get((j + 1) % n);
+                float abx = b.x - a.x;
+                float aby = b.y - a.y;
+                float abSq = abx * abx + aby * aby;
+                float t = (abSq > 1e-6f) ? clamp(((p.x - a.x) * abx + (p.y - a.y) * aby) / abSq, 0f, 1f) : 0f;
+                float vx = (a.x + t * abx) - p.x;
+                float vy = (a.y + t * aby) - p.y;
+                float d = (float) Math.sqrt(vx * vx + vy * vy);
+                if (d < 1e-4f) continue;
+                float proj = vx * rxi + vy * ryi;
+                if (proj > 0.12f * d) {
+                    float clearLim = 0.38f * d;
+                    if (clearLim < maxS[i]) {
+                        maxS[i] = clearLim;
+                    }
+                }
+            }
+        }
+
+        float[] s = new float[n];
+        System.arraycopy(maxS, 0, s, 0, n);
+        for (int pass = 0; pass < 4; pass++) {
+            for (int i = 0; i < n; i++) {
+                int nxt = (i + 1) % n;
+                float lim = s[i] + 0.38f * edgeLen[i];
+                if (s[nxt] > lim) s[nxt] = lim;
+            }
+            for (int i = n - 1; i >= 0; i--) {
+                int nxt = (i + 1) % n;
+                float lim = s[nxt] + 0.38f * edgeLen[i];
+                if (s[i] > lim) s[i] = lim;
+            }
+        }
+        float[] sm = new float[n];
+        for (int i = 0; i < n; i++) {
+            int prev = (i + n - 1) % n;
+            int nxt = (i + 1) % n;
+            float avg = 0.20f * s[prev] + 0.60f * s[i] + 0.20f * s[nxt];
+            sm[i] = clamp(Math.min(avg, maxS[i]), 0.35f, targetSkirtPx);
+        }
+
+        List<Vector2f> inner = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            Vector2f p = poly.get(i);
+            inner.add(new Vector2f(p.x + rx[i] * sm[i], p.y + ry[i] * sm[i]));
+        }
+        return inner;
+    }
+
     private void renderAllDivisionPolygonsBatched(
             List<RenderedDivisionPolygon> renderedPolys,
             float basePolyAlpha) {
         if (renderedPolys == null || renderedPolys.isEmpty()) return;
+
+        // Pass 1: Single batched GL_TRIANGLES draw for translucent inner plateau + smooth inward gradient skirt
         GL11.glBegin(GL11.GL_TRIANGLES);
         for (int pIdx = 0, pLen = renderedPolys.size(); pIdx < pLen; pIdx++) {
             RenderedDivisionPolygon rp = renderedPolys.get(pIdx);
-            List<Vector2f> poly = rp.displayPolyScreen;
-            int n = (poly != null) ? poly.size() : 0;
+            List<Vector2f> outer = rp.displayPolyScreen;
+            int n = (outer != null) ? outer.size() : 0;
             if (n < 3) continue;
-            float effectiveAlpha = basePolyAlpha * rp.cohesionAlphaMult;
-            float centerAlpha = Math.min(0.18f, effectiveAlpha * 0.72f);
-            float edgeAlpha = Math.min(0.13f, effectiveAlpha * 0.50f);
-            float triAlpha = (centerAlpha + edgeAlpha) * 0.5f;
-            GL11.glColor4f(rp.cr, rp.cg, rp.cb, triAlpha);
+            List<Vector2f> inner = (rp.innerGlowPolyScreen != null && rp.innerGlowPolyScreen.size() == n)
+                    ? rp.innerGlowPolyScreen
+                    : outer;
 
+            float effectiveAlpha = basePolyAlpha * rp.cohesionAlphaMult;
+            // Whisper-soft TSFC-grade interior luminescence + outer feathering toward the crisp perimeter wire
+            float coreAlpha = Math.min(0.115f, effectiveAlpha * 0.44f);
+            float skirtOuterAlpha = Math.min(0.028f, effectiveAlpha * 0.11f);
+
+            // 1a. Inner plateau fill (triangulated once, zero Venn-diagram multi-lobe overlap hotspots)
+            GL11.glColor4f(rp.cr, rp.cg, rp.cb, coreAlpha);
             List<int[]> triangles = rp.triangles;
             if (triangles != null && !triangles.isEmpty()) {
                 for (int t = 0, tLen = triangles.size(); t < tLen; t++) {
                     int[] tri = triangles.get(t);
-                    Vector2f v0 = poly.get(tri[0]);
-                    Vector2f v1 = poly.get(tri[1]);
-                    Vector2f v2 = poly.get(tri[2]);
+                    Vector2f v0 = inner.get(tri[0]);
+                    Vector2f v1 = inner.get(tri[1]);
+                    Vector2f v2 = inner.get(tri[2]);
                     GL11.glVertex2f(v0.x, v0.y);
                     GL11.glVertex2f(v1.x, v1.y);
                     GL11.glVertex2f(v2.x, v2.y);
                 }
             } else {
-                Vector2f v0 = poly.get(0);
+                Vector2f v0 = inner.get(0);
                 for (int i = 1; i < n - 1; i++) {
-                    Vector2f v1 = poly.get(i);
-                    Vector2f v2 = poly.get(i + 1);
+                    Vector2f v1 = inner.get(i);
+                    Vector2f v2 = inner.get(i + 1);
                     GL11.glVertex2f(v0.x, v0.y);
                     GL11.glVertex2f(v1.x, v1.y);
                     GL11.glVertex2f(v2.x, v2.y);
                 }
             }
+
+            // 1b. Smooth outer-to-inner gradient skirt (2 triangles per contour edge in the same GL_TRIANGLES batch)
+            if (inner != outer) {
+                for (int i = 0; i < n; i++) {
+                    int nxt = (i + 1) % n;
+                    Vector2f o0 = outer.get(i);
+                    Vector2f o1 = outer.get(nxt);
+                    Vector2f i0 = inner.get(i);
+                    Vector2f i1 = inner.get(nxt);
+
+                    GL11.glColor4f(rp.cr, rp.cg, rp.cb, skirtOuterAlpha);
+                    GL11.glVertex2f(o0.x, o0.y);
+                    GL11.glVertex2f(o1.x, o1.y);
+                    GL11.glColor4f(rp.cr, rp.cg, rp.cb, coreAlpha);
+                    GL11.glVertex2f(i1.x, i1.y);
+
+                    GL11.glColor4f(rp.cr, rp.cg, rp.cb, skirtOuterAlpha);
+                    GL11.glVertex2f(o0.x, o0.y);
+                    GL11.glColor4f(rp.cr, rp.cg, rp.cb, coreAlpha);
+                    GL11.glVertex2f(i1.x, i1.y);
+                    GL11.glVertex2f(i0.x, i0.y);
+                }
+            }
+        }
+        GL11.glEnd();
+
+        // Pass 2: Crisp anti-aliased TSFC-harmonic dual-stroke perimeter rim (soft outer halo + bright tactical wire)
+        for (int pIdx = 0, pLen = renderedPolys.size(); pIdx < pLen; pIdx++) {
+            RenderedDivisionPolygon rp = renderedPolys.get(pIdx);
+            List<Vector2f> outer = rp.displayPolyScreen;
+            int n = (outer != null) ? outer.size() : 0;
+            if (n < 3) continue;
+            renderDivisionHarmonicRim(rp, outer, basePolyAlpha);
+        }
+        GL11.glLineWidth(1.0f);
+    }
+
+    private static void renderDivisionHarmonicRim(
+            RenderedDivisionPolygon rp,
+            List<Vector2f> outer,
+            float basePolyAlpha) {
+        int n = outer.size();
+        float effectiveAlpha = basePolyAlpha * rp.cohesionAlphaMult;
+        float haloAlpha = Math.min(0.18f, effectiveAlpha * 0.68f);
+        float wireAlpha = Math.min(0.64f, Math.max(0.22f, effectiveAlpha * 2.15f));
+        // Subtle 24% specular tint toward crisp tactical white-cyan/gold/coral so rims read cleanly over TSFC roses
+        float wr = Math.min(1f, rp.cr * 0.76f + 0.24f);
+        float wg = Math.min(1f, rp.cg * 0.76f + 0.24f);
+        float wb = Math.min(1f, rp.cb * 0.76f + 0.24f);
+
+        GL11.glLineWidth(3.1f);
+        GL11.glColor4f(rp.cr, rp.cg, rp.cb, haloAlpha);
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        for (int i = 0; i < n; i++) {
+            Vector2f v = outer.get(i);
+            GL11.glVertex2f(v.x, v.y);
+        }
+        GL11.glEnd();
+
+        GL11.glLineWidth(1.40f);
+        GL11.glColor4f(wr, wg, wb, wireAlpha);
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        for (int i = 0; i < n; i++) {
+            Vector2f v = outer.get(i);
+            GL11.glVertex2f(v.x, v.y);
         }
         GL11.glEnd();
     }
@@ -3299,79 +4117,151 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private void renderSingleDivisionPolygon(
             RenderedDivisionPolygon rp,
             float basePolyAlpha) {
+        List<Vector2f> outer = rp.displayPolyScreen;
+        int n = (outer != null) ? outer.size() : 0;
+        if (n < 3) return;
+        List<Vector2f> inner = (rp.innerGlowPolyScreen != null && rp.innerGlowPolyScreen.size() == n)
+                ? rp.innerGlowPolyScreen
+                : outer;
 
-        List<Vector2f> poly = rp.displayPolyScreen;
-        if (poly.size() < 3) return;
-
-        // Mild shading so ship sprites and map grid remain clear underneath and on top
         float effectiveAlpha = basePolyAlpha * rp.cohesionAlphaMult;
-        float centerAlpha = Math.min(0.18f, effectiveAlpha * 0.72f);
-        float edgeAlpha = Math.min(0.13f, effectiveAlpha * 0.50f);
+        float coreAlpha = Math.min(0.115f, effectiveAlpha * 0.44f);
+        float skirtOuterAlpha = Math.min(0.028f, effectiveAlpha * 0.11f);
 
-        // Use precomputed ear-clipping triangulation (computed once when the polygon contour is built)
+        GL11.glBegin(GL11.GL_TRIANGLES);
+        GL11.glColor4f(rp.cr, rp.cg, rp.cb, coreAlpha);
         List<int[]> triangles = rp.triangles;
         if (triangles != null && !triangles.isEmpty()) {
-            GL11.glBegin(GL11.GL_TRIANGLES);
-            GL11.glColor4f(rp.cr, rp.cg, rp.cb, (centerAlpha + edgeAlpha) * 0.5f);
             for (int[] tri : triangles) {
-                Vector2f v0 = poly.get(tri[0]);
-                Vector2f v1 = poly.get(tri[1]);
-                Vector2f v2 = poly.get(tri[2]);
+                Vector2f v0 = inner.get(tri[0]);
+                Vector2f v1 = inner.get(tri[1]);
+                Vector2f v2 = inner.get(tri[2]);
                 GL11.glVertex2f(v0.x, v0.y);
                 GL11.glVertex2f(v1.x, v1.y);
                 GL11.glVertex2f(v2.x, v2.y);
             }
-            GL11.glEnd();
         } else {
-            GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-            GL11.glColor4f(rp.cr, rp.cg, rp.cb, centerAlpha);
-            GL11.glVertex2f(rp.centerScreen.x, rp.centerScreen.y);
-            GL11.glColor4f(rp.cr, rp.cg, rp.cb, edgeAlpha);
-            for (int i = 0; i < poly.size(); i++) {
-                Vector2f v = poly.get(i);
-                GL11.glVertex2f(v.x, v.y);
+            Vector2f v0 = inner.get(0);
+            for (int i = 1; i < n - 1; i++) {
+                Vector2f v1 = inner.get(i);
+                Vector2f v2 = inner.get(i + 1);
+                GL11.glVertex2f(v0.x, v0.y);
+                GL11.glVertex2f(v1.x, v1.y);
+                GL11.glVertex2f(v2.x, v2.y);
             }
-            Vector2f first = poly.get(0);
-            GL11.glVertex2f(first.x, first.y);
-            GL11.glEnd();
         }
+        if (inner != outer) {
+            for (int i = 0; i < n; i++) {
+                int nxt = (i + 1) % n;
+                Vector2f o0 = outer.get(i);
+                Vector2f o1 = outer.get(nxt);
+                Vector2f i0 = inner.get(i);
+                Vector2f i1 = inner.get(nxt);
+
+                GL11.glColor4f(rp.cr, rp.cg, rp.cb, skirtOuterAlpha);
+                GL11.glVertex2f(o0.x, o0.y);
+                GL11.glVertex2f(o1.x, o1.y);
+                GL11.glColor4f(rp.cr, rp.cg, rp.cb, coreAlpha);
+                GL11.glVertex2f(i1.x, i1.y);
+
+                GL11.glColor4f(rp.cr, rp.cg, rp.cb, skirtOuterAlpha);
+                GL11.glVertex2f(o0.x, o0.y);
+                GL11.glColor4f(rp.cr, rp.cg, rp.cb, coreAlpha);
+                GL11.glVertex2f(i1.x, i1.y);
+                GL11.glVertex2f(i0.x, i0.y);
+            }
+        }
+        GL11.glEnd();
+
+        renderDivisionHarmonicRim(rp, outer, basePolyAlpha);
+        GL11.glLineWidth(1.0f);
     }
 
     /**
-     * Feature A: Renders Strike Craft division polygons on their own dedicated layer above warship division
-     * polygons, with dashed borders mimicking the Point Defense (PD) projection in the Firepower overlay.
+     * Feature A: Renders Strike Craft & Voidstrike air-package polygons on their own dedicated layer above warship
+     * division polygons, using inward gradient shading (concave-safe ear-clipped core + soft edge skirt) and
+     * uniform arc-length-parameterized dashed borders.
      */
     private void renderStrikeCraftDivisionPolygons(
             List<RenderedDivisionPolygon> strikePolys,
             float basePolyAlpha,
             float fade) {
-        for (RenderedDivisionPolygon rp : strikePolys) {
-            List<Vector2f> poly = rp.displayPolyScreen;
-            if (poly == null || poly.size() < 3) continue;
+        if (strikePolys == null || strikePolys.isEmpty()) return;
+
+        GL11.glBegin(GL11.GL_TRIANGLES);
+        for (int pIdx = 0, pLen = strikePolys.size(); pIdx < pLen; pIdx++) {
+            RenderedDivisionPolygon rp = strikePolys.get(pIdx);
+            List<Vector2f> outer = rp.displayPolyScreen;
+            int n = (outer != null) ? outer.size() : 0;
+            if (n < 3) continue;
+            List<Vector2f> inner = (rp.innerGlowPolyScreen != null && rp.innerGlowPolyScreen.size() == n)
+                    ? rp.innerGlowPolyScreen
+                    : outer;
 
             float effectiveAlpha = basePolyAlpha * rp.cohesionAlphaMult;
-            float centerAlpha = Math.min(0.11f, effectiveAlpha * 0.46f);
-            float edgeAlpha = Math.min(0.07f, effectiveAlpha * 0.28f);
+            float coreAlpha = Math.min(0.082f, effectiveAlpha * 0.34f);
+            float skirtOuterAlpha = Math.min(0.016f, effectiveAlpha * 0.07f);
 
-            GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-            GL11.glColor4f(rp.cr, rp.cg, rp.cb, centerAlpha);
-            GL11.glVertex2f(rp.centerScreen.x, rp.centerScreen.y);
-            GL11.glColor4f(rp.cr, rp.cg, rp.cb, edgeAlpha);
-            for (int i = 0; i < poly.size(); i++) {
-                Vector2f v = poly.get(i);
-                GL11.glVertex2f(v.x, v.y);
+            GL11.glColor4f(rp.cr, rp.cg, rp.cb, coreAlpha);
+            List<int[]> triangles = rp.triangles;
+            if (triangles != null && !triangles.isEmpty()) {
+                for (int t = 0, tLen = triangles.size(); t < tLen; t++) {
+                    int[] tri = triangles.get(t);
+                    Vector2f v0 = inner.get(tri[0]);
+                    Vector2f v1 = inner.get(tri[1]);
+                    Vector2f v2 = inner.get(tri[2]);
+                    GL11.glVertex2f(v0.x, v0.y);
+                    GL11.glVertex2f(v1.x, v1.y);
+                    GL11.glVertex2f(v2.x, v2.y);
+                }
+            } else {
+                Vector2f v0 = inner.get(0);
+                for (int i = 1; i < n - 1; i++) {
+                    Vector2f v1 = inner.get(i);
+                    Vector2f v2 = inner.get(i + 1);
+                    GL11.glVertex2f(v0.x, v0.y);
+                    GL11.glVertex2f(v1.x, v1.y);
+                    GL11.glVertex2f(v2.x, v2.y);
+                }
             }
-            Vector2f first = poly.get(0);
-            GL11.glVertex2f(first.x, first.y);
-            GL11.glEnd();
 
+            if (inner != outer) {
+                for (int i = 0; i < n; i++) {
+                    int nxt = (i + 1) % n;
+                    Vector2f o0 = outer.get(i);
+                    Vector2f o1 = outer.get(nxt);
+                    Vector2f i0 = inner.get(i);
+                    Vector2f i1 = inner.get(nxt);
+
+                    GL11.glColor4f(rp.cr, rp.cg, rp.cb, skirtOuterAlpha);
+                    GL11.glVertex2f(o0.x, o0.y);
+                    GL11.glVertex2f(o1.x, o1.y);
+                    GL11.glColor4f(rp.cr, rp.cg, rp.cb, coreAlpha);
+                    GL11.glVertex2f(i1.x, i1.y);
+
+                    GL11.glColor4f(rp.cr, rp.cg, rp.cb, skirtOuterAlpha);
+                    GL11.glVertex2f(o0.x, o0.y);
+                    GL11.glColor4f(rp.cr, rp.cg, rp.cb, coreAlpha);
+                    GL11.glVertex2f(i1.x, i1.y);
+                    GL11.glVertex2f(i0.x, i0.y);
+                }
+            }
+        }
+        GL11.glEnd();
+
+        for (int pIdx = 0, pLen = strikePolys.size(); pIdx < pLen; pIdx++) {
+            RenderedDivisionPolygon rp = strikePolys.get(pIdx);
+            List<Vector2f> poly = rp.displayPolyScreen;
+            if (poly == null || poly.size() < 3) continue;
             renderStrikeCraftDashedBorder(rp, poly, fade);
         }
+        GL11.glLineWidth(1.0f);
     }
 
     /**
-     * Draws a crisp dashed border around a Strike Craft division polygon, mimicking the Point Defense (PD)
-     * dashed inner ring projection in the Firepower overlay (GL_LINES alternating even/odd contour segments).
+     * Draws a uniform arc-length-parameterized anti-aliased dashed border around a Strike Craft / Voidstrike polygon.
+     * Accumulating perimeter distance continuously across vertices guarantees identical dash & gap lengths on both
+     * tight curved caps and straight flanks (eliminating vertex-count dash bunching).
      */
     public static void renderStrikeCraftDashedBorder(
             RenderedDivisionPolygon rp,
@@ -3379,40 +4269,79 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float fade) {
         int n = (poly != null) ? poly.size() : 0;
         if (n < 3) return;
-        // Blend side color slightly toward the Firepower PD violet-gold highlight (0.92, 0.78, 1.00)
-        float br = Math.min(1f, rp.cr * 0.72f + 0.92f * 0.28f);
-        float bg = Math.min(1f, rp.cg * 0.72f + 0.78f * 0.28f);
-        float bb = Math.min(1f, rp.cb * 0.72f + 1.00f * 0.28f);
-        float borderAlpha = Math.min(0.68f, Math.max(0.36f, 0.48f * fade));
 
-        GL11.glLineWidth(1.35f);
+        // Measure total closed-loop perimeter so dash pitch snaps cleanly into an integer number of periods (seam-free!)
+        float totalPerim = 0f;
+        for (int i = 0; i < n; i++) {
+            Vector2f p0 = poly.get(i);
+            Vector2f p1 = poly.get((i + 1) % n);
+            float dx = p1.x - p0.x;
+            float dy = p1.y - p0.y;
+            totalPerim += (float) Math.sqrt(dx * dx + dy * dy);
+        }
+        if (totalPerim < 6f) return;
+
+        int periodCount = Math.max(6, Math.round(totalPerim / 13.5f));
+        float period = totalPerim / periodCount;
+        float dashLen = period * 0.60f;
+
+        // Blend side color slightly toward the Firepower PD luminous highlight (0.94, 0.86, 1.00)
+        float br = Math.min(1f, rp.cr * 0.72f + 0.94f * 0.28f);
+        float bg = Math.min(1f, rp.cg * 0.72f + 0.86f * 0.28f);
+        float bb = Math.min(1f, rp.cb * 0.72f + 1.00f * 0.28f);
+        float borderAlpha = Math.min(0.72f, Math.max(0.34f, 0.54f * fade));
+        float haloAlpha = borderAlpha * 0.28f;
+
+        // Soft outer dash glow underpass
+        GL11.glLineWidth(2.8f);
+        GL11.glColor4f(rp.cr, rp.cg, rp.cb, haloAlpha);
+        emitArcLengthDashedLoopVertices(poly, n, period, dashLen);
+
+        // Crisp tactical core dash pass
+        GL11.glLineWidth(1.40f);
         GL11.glColor4f(br, bg, bb, borderAlpha);
+        emitArcLengthDashedLoopVertices(poly, n, period, dashLen);
+    }
+
+    private static void emitArcLengthDashedLoopVertices(
+            List<Vector2f> poly,
+            int n,
+            float period,
+            float dashLen) {
         GL11.glBegin(GL11.GL_LINES);
+        float cumS = 0f;
         for (int i = 0; i < n; i++) {
             Vector2f p0 = poly.get(i);
             Vector2f p1 = poly.get((i + 1) % n);
             float dx = p1.x - p0.x;
             float dy = p1.y - p0.y;
             float segLen = (float) Math.sqrt(dx * dx + dy * dy);
-            if (segLen <= 12f) {
-                if ((i & 1) == 0) {
-                    GL11.glVertex2f(p0.x, p0.y);
-                    GL11.glVertex2f(p1.x, p1.y);
-                }
-            } else {
-                // Subdivide longer convex edges into uniform PD-style dashes (~7px dash, ~5px gap)
-                float pitch = 12.0f;
-                int dashes = Math.max(1, Math.min(24, (int) (segLen / pitch)));
-                float step = segLen / dashes;
-                float ux = dx / segLen;
-                float uy = dy / segLen;
-                for (int d = 0; d < dashes; d++) {
-                    float s0 = d * step;
-                    float s1 = s0 + step * 0.58f;
-                    GL11.glVertex2f(p0.x + ux * s0, p0.y + uy * s0);
-                    GL11.glVertex2f(p0.x + ux * s1, p0.y + uy * s1);
+            if (segLen < 1e-4f) continue;
+            float ux = dx / segLen;
+            float uy = dy / segLen;
+
+            float localPos = 0f;
+            while (localPos < segLen - 1e-4f) {
+                float sGlobal = cumS + localPos;
+                float phase = sGlobal - (float) Math.floor(sGlobal / period) * period;
+                if (phase < dashLen - 1e-4f) {
+                    float remDash = dashLen - phase;
+                    float segStep = Math.min(remDash, segLen - localPos);
+                    if (segStep > 0.15f) {
+                        float xA = p0.x + ux * localPos;
+                        float yA = p0.y + uy * localPos;
+                        float xB = p0.x + ux * (localPos + segStep);
+                        float yB = p0.y + uy * (localPos + segStep);
+                        GL11.glVertex2f(xA, yA);
+                        GL11.glVertex2f(xB, yB);
+                    }
+                    localPos += segStep;
+                } else {
+                    float remGap = period - phase;
+                    localPos += Math.max(1e-3f, Math.min(remGap, segLen - localPos));
                 }
             }
+            cumS += segLen;
         }
         GL11.glEnd();
     }
