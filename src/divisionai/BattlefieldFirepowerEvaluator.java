@@ -1276,7 +1276,11 @@ public class BattlefieldFirepowerEvaluator {
                     }
                     int maxFighters = Math.max(1, wSpec.getNumFighters());
                     float wingLiveRatio = clampVal((float) aliveFighters / maxFighters, 0.20f, 1.0f) * readiness;
-                    float wingRange = clampVal(wing.getRange() > 0f ? wing.getRange() * 0.72f : 1850f, 1100f, 2400f);
+                    boolean wingTetheredZero = VoidstrikeCoordinator.isWingTetheredZeroRange(ship, wing);
+                    float effWingEngage = VoidstrikeCoordinator.resolveEffectiveWingEngagementRange(ship, wing);
+                    float wingRange = wingTetheredZero
+                            ? Math.max(420f, ship.getCollisionRadius() + 300f)
+                            : clampVal(effWingEngage * 0.72f, 1100f, 2400f);
 
                     float wingAlpha = (isBomberOrAssault ? 360f : 140f) * wingLiveRatio;
                     float wingShort = (isBomberOrAssault ? 220f : 135f) * wingLiveRatio;
@@ -2630,7 +2634,7 @@ public class BattlefieldFirepowerEvaluator {
             List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
             if (wings != null && !wings.isEmpty()) {
                 for (com.fs.starfarer.api.combat.FighterWingAPI wing : wings) {
-                    if (wing == null) continue;
+                    if (wing == null || VoidstrikeCoordinator.isSupportEscortOnlyWing(s, wing)) continue;
                     totalFighterWings++;
                     float fSpd = 235f;
                     if (wing.getWingMembers() != null && !wing.getWingMembers().isEmpty()) {
@@ -2640,14 +2644,14 @@ public class BattlefieldFirepowerEvaluator {
                         }
                     }
                     wingSpeedAccum += fSpd;
-                    float wr = wing.getRange() > 0f ? wing.getRange() : 2200f;
+                    float wr = VoidstrikeCoordinator.resolveEffectiveWingEngagementRange(s, wing);
                     wingRangeAccum += clampVal(wr, 1200f, 3400f);
                     // Strike craft project fast sortie Time speed for their carrier division
                     float wingTimeWeight = 5.5f;
                     weightedSpeedSum += (fSpd * 0.72f) * wingTimeWeight;
                     weightSum += wingTimeWeight;
                 }
-            } else if (s.getNumFighterBays() > 0) {
+            } else if (s.getNumFighterBays() > 0 && !VoidstrikeCoordinator.isCarrierFighterRangeZeroedByHullmod(s)) {
                 int bays = s.getNumFighterBays();
                 totalFighterWings += bays;
                 wingSpeedAccum += 235f * bays;

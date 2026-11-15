@@ -68,6 +68,8 @@ public class DivisionCommanderAI {
             BattleGroupState enemyGroup,
             float now) {
 
+        VoidstrikeCoordinator.bindCombatEngine(engine, myGroup, enemyGroup);
+
         if (myGroup.side == 0) {
             syncPlayerObjectiveAssignmentsForGroup(engine, myGroup);
         }
@@ -3194,18 +3196,16 @@ public class DivisionCommanderAI {
         for (int shipIdx = 0; shipIdx < alive.size(); shipIdx++) {
             ShipAPI ship = alive.get(shipIdx);
 
-            // Release strike craft we held back for staging once the division is no longer staging
-            if (div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE && div.fighterPullbackShipIds.remove(ship.getId())) {
-                if (!OtcAI.isPlayerManuallyPiloting(engine, ship)) {
-                    ship.setPullBackFighters(false);
-                }
-            }
-
             if (OtcAI.isPlayerManuallyPiloting(engine, ship)) {
+                div.fighterPullbackShipIds.remove(ship.getId());
                 continue;
             }
             CombatTaskManagerAPI tm = (fm != null) ? fm.getTaskManager(ship.isAlly()) : null;
             if (hasExplicitCommandOrder(ship, div, myGroup, tm)) {
+                if (div.fighterPullbackShipIds.remove(ship.getId())
+                        && !VoidstrikeCoordinator.analyzeCarrierBayComposition(ship).isAllTetheredZeroRange()) {
+                    ship.setForceCarrierPullBackTime(0f);
+                }
                 continue;
             }
 
@@ -5330,6 +5330,38 @@ public class DivisionCommanderAI {
             ShipAPI targetEnemyShip,
             DivisionState div) {
         if (ship == null || targetEnemyShip == null || !targetEnemyShip.isAlive() || targetEnemyShip.isHulk()) return;
+        VoidstrikeCoordinator.CarrierBayComposition bayComp = VoidstrikeCoordinator.analyzeCarrierBayComposition(ship);
+        if (bayComp.totalWings > 0 && !bayComp.hasOffensiveCapableWings()) {
+            flags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
+            ship.setForceCarrierTarget(null);
+            return;
+        }
+        CombatEngineAPI activeEng = VoidstrikeCoordinator.lastVoidstrikeUpdateEngine;
+        if (activeEng == null) {
+            try {
+                activeEng = com.fs.starfarer.api.Global.getCombatEngine();
+            } catch (Throwable ignored) {
+            }
+        }
+        int side = (div != null) ? div.side : (ship.getOwner() == 0 ? 0 : 1);
+        if (!OtcAI.isShipVisibleToSide(activeEng, side, targetEnemyShip)) {
+            return;
+        }
+        if (div != null && div.currentStrikeCraftIntent == null) {
+            DivisionIntentType scIntent = div.getEffectiveStrikeCraftIntent();
+            boolean explicitLongRangeStrike = scIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
+                    || scIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                    || scIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
+                    || scIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
+                    || scIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
+                    || scIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
+                    || scIntent == DivisionIntentType.TOT_ALPHA_STRIKE
+                    || scIntent == DivisionIntentType.PRESS_HOME;
+            if (!VoidstrikeCoordinator.isCarrierInCombatContactForFighterLaunch(
+                    ship, ship, targetEnemyShip, div, null, bayComp.maxOffensiveWingRange, explicitLongRangeStrike, false)) {
+                return;
+            }
+        }
         boolean holdingForCoord = div != null
                 && div.voidstrikeCoordination == VoidstrikeCoordinationMode.COORDINATED
                 && (div.voidstrikeStage == 0 || div.voidstrikeStage == 1);
@@ -5372,6 +5404,12 @@ public class DivisionCommanderAI {
             DivisionState div) {
         if (ship == null || flags == null || div == null || div.currentStrikeCraftIntent == null) return;
         if (ship.getNumFighterBays() <= 0 && (ship.getAllWings() == null || ship.getAllWings().isEmpty())) return;
+        VoidstrikeCoordinator.CarrierBayComposition bayComp = VoidstrikeCoordinator.analyzeCarrierBayComposition(ship);
+        if (bayComp.totalWings > 0 && !bayComp.hasOffensiveCapableWings()) {
+            flags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
+            ship.setForceCarrierTarget(null);
+            return;
+        }
         DivisionIntentType scIntent = div.currentStrikeCraftIntent;
         if (scIntent == DivisionIntentType.HOLD_IN_RESERVE) {
             flags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);

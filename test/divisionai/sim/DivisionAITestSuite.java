@@ -87,6 +87,7 @@ public class DivisionAITestSuite {
         testDecoupledHullAndStrikeCraftMissions();
         testCampaignLogPolishAndC2Hygiene();
         testMilitaryFirstNomenclatureSweep();
+        testCarrierZeroFluxSupportAndDefensiveTargetingArray();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -2811,6 +2812,310 @@ public class DivisionAITestSuite {
                 && minDistToCarrierCenter >= 45f
                 && singleSquadronCapOffCenter;
     }
+    /**
+     * Scenario 14: Verifies Carrier & Battlecarrier Zero-Flux Speed Boost preservation (zero 1-second Engage/Regroup
+     * oscillation against vanilla E.class), Fog-of-War unspotted target suppression, Defensive Targeting Array
+     * (`defensive_targeting_array`) + 0-range Support LPCs (`xyphos_wing`), ranged 2,000u `WingRole.SUPPORT` allied
+     * escorting (`armaa_musha_wing`), and the 3-state `COMBAT_SPACE_PATROL` Regroup/Engage doctrine.
+     */
+    private static void testCarrierZeroFluxSupportAndDefensiveTargetingArray() {
+        System.out.println("\n--- Scenario 14: Carrier Zero-Flux Boost, Support LPCs (0u vs 2000u), Defensive Targeting Array & CAP ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+
+        BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+        DivisionState battleLine = new DivisionState("zf_bat", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. I", pCmdr);
+        battleLine.openingMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        battleLine.mainMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+
+        DivisionState fleetCvDiv = new DivisionState("zf_fcv", 0, 2, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div. I", pCmdr);
+        fleetCvDiv.openingMission = DivisionMissionType.CARRIER_STANDOFF;
+        fleetCvDiv.mainMission = DivisionMissionType.CARRIER_STANDOFF;
+        fleetCvDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.CYCLIC_STRIKES;
+        fleetCvDiv.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.CYCLIC_STRIKES;
+
+        DivisionState capCvDiv = new DivisionState("zf_cap", 0, 3, DivisionArchetype.ESCORT_CARRIER_DIVISION, "Escort Carrier Div. II", pCmdr);
+        capCvDiv.openingMission = DivisionMissionType.CARRIER_STANDOFF;
+        capCvDiv.mainMission = DivisionMissionType.CARRIER_STANDOFF;
+        capCvDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+        capCvDiv.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+
+        DivisionState cruiserDiv = new DivisionState("zf_cru", 0, 4, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div. I", pCmdr);
+        cruiserDiv.openingMission = DivisionMissionType.CLOSE_ACTION;
+        cruiserDiv.mainMission = DivisionMissionType.CLOSE_ACTION;
+
+        pGroup.divisions.add(battleLine);
+        pGroup.divisions.add(fleetCvDiv);
+        pGroup.divisions.add(capCvDiv);
+        pGroup.divisions.add(cruiserDiv);
+        pGroup.mainEffortDivision = battleLine;
+
+        DivisionState enemyDiv = new DivisionState("zf_enem", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Battle Line", eCmdr);
+        eGroup.divisions.add(enemyDiv);
+        pGroup.primaryThreatEnemyDivision = enemyDiv;
+
+        SimArena arena = new SimArena(
+                "Scenario 14: Carrier Zero-Flux Boost, Support LPCs & DTA",
+                "Zero Engage/Regroup oscillation out of contact, DTA/0-range permanent Regroup, 2000u Support escort & 3-state CAP",
+                pGroup,
+                eGroup);
+        arena.enableFogOfWar();
+        arena.baseShipSightRadius = 3000f;
+
+        // Friendly ships starting at Y = -2000.. -2600; enemy starts hidden in Fog of War at Y = +4500 (6500u away > 3000u sight!)
+        SimShipState alliedBb = arena.addShip(battleLine, "zf_bb", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, -2000f, 50f, 1200f, 0, 0);
+        SimShipState dtaBattlecarrier = arena.addShip(battleLine, "zf_dta_legion", "HSS Legion (DTA)", "legion", HullSize.CAPITAL_SHIP, 280f, -2050f, 50f, 1100f, 0, 4);
+        dtaBattlecarrier.hullMods.add("defensive_targeting_array");
+
+        SimShipState astralCv = arena.addShip(fleetCvDiv, "zf_astral", "TTS Astral", "astral", HullSize.CAPITAL_SHIP, -350f, -2600f, 45f, 1000f, 0, 6);
+        SimShipState moraCap = arena.addShip(capCvDiv, "zf_mora", "HSS Mora (CAP)", "mora", HullSize.CRUISER, 0f, -2400f, 50f, 900f, 0, 3);
+
+        SimShipState matchBattlecarrier = arena.addShip(cruiserDiv, "zf_heron_bc", "HSS Heron", "heron", HullSize.CRUISER, -250f, -2100f, 80f, 1000f, 0, 3);
+        SimShipState xyphosCruiser = arena.addShip(cruiserDiv, "zf_eagle_xyp", "HSS Eagle (Xyphos)", "eagle", HullSize.CRUISER, 0f, -2100f, 75f, 1100f, 0, 1);
+        SimShipState rangedSupCruiser = arena.addShip(cruiserDiv, "zf_falcon_sup", "HSS Falcon (2000u Sup)", "falcon", HullSize.CRUISER, 250f, -2100f, 95f, 1000f, 0, 1);
+
+        SimShipState enemyBb = arena.addShip(enemyDiv, "zf_enemy_bb", "PLS Conquest", "conquest", HullSize.CAPITAL_SHIP, 0f, 4500f, 65f, 1400f, 0, 0);
+
+        for (DivisionState d : pGroup.divisions) {
+            for (com.fs.starfarer.api.combat.ShipAPI m : d.members) pGroup.shipIdToDivision.put(m.getId(), d);
+        }
+        eGroup.shipIdToDivision.put(enemyBb.id, enemyDiv);
+
+        // Helper to attach realistic spec-backed FighterWingAPI proxies
+        java.util.function.BiConsumer<SimShipState, Object[]> attachSpecWing = (carrierState, cfg) -> {
+            final String wingId = (String) cfg[0];
+            final com.fs.starfarer.api.loading.WingRole role = (com.fs.starfarer.api.loading.WingRole) cfg[1];
+            final float specRange = (Float) cfg[2];
+            final boolean stayFrontTag = (Boolean) cfg[3];
+
+            SimShipState craft = arena.addShip(cruiserDiv, carrierState.id + "_f1", wingId, wingId, HullSize.FIGHTER,
+                    carrierState.location.x, carrierState.location.y + 40f, 220f, 600f,
+                    role == com.fs.starfarer.api.loading.WingRole.BOMBER ? 2 : 0, 0);
+            cruiserDiv.members.remove(craft.proxy);
+            cruiserDiv.profiles.removeIf(p -> p.ship == craft.proxy);
+            arena.ships.remove(craft); // Fighter craft are tracked via wings, not as hull ship sight sources
+            if (stayFrontTag) {
+                craft.tags.add("stay_in_front_of_ship");
+            }
+            final List<com.fs.starfarer.api.combat.ShipAPI> members = java.util.Collections.singletonList(craft.proxy);
+            final com.fs.starfarer.api.loading.FighterWingSpecAPI specProxy =
+                    (com.fs.starfarer.api.loading.FighterWingSpecAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.loading.FighterWingSpecAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.loading.FighterWingSpecAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("getId".equals(n)) return wingId;
+                                if ("getRole".equals(n)) return role;
+                                if ("isBomber".equals(n)) return role == com.fs.starfarer.api.loading.WingRole.BOMBER;
+                                if ("isSupport".equals(n)) return role == com.fs.starfarer.api.loading.WingRole.SUPPORT;
+                                if ("isInterceptor".equals(n)) return role == com.fs.starfarer.api.loading.WingRole.INTERCEPTOR;
+                                if ("isRegularFighter".equals(n)) return role == com.fs.starfarer.api.loading.WingRole.FIGHTER;
+                                if ("getRange".equals(n)) return specRange;
+                                if ("getNumFighters".equals(n)) return 2;
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+            final float liveWingRange = carrierState.hullMods.contains("defensive_targeting_array") ? 0f : specRange;
+            com.fs.starfarer.api.combat.FighterWingAPI wingProxy =
+                    (com.fs.starfarer.api.combat.FighterWingAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.FighterWingAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("equals".equals(n)) return p == a[0];
+                                if ("hashCode".equals(n)) return System.identityHashCode(p);
+                                if ("getSpec".equals(n)) return specProxy;
+                                if ("getRole".equals(n)) return role;
+                                if ("getRange".equals(n)) return liveWingRange;
+                                if ("getSourceShip".equals(n)) return carrierState.proxy;
+                                if ("getWingMembers".equals(n)) return members;
+                                if ("getLeader".equals(n)) return craft.proxy;
+                                if ("isReturning".equals(n)) return carrierState.pullBackFighters;
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+            craft.wing = wingProxy;
+            carrierState.wings.add(wingProxy);
+            // Vanilla Starsector spawns all ships in Regroup (pullBackFighters == true) by default
+            carrierState.pullBackFighters = true;
+            carrierState.pullBackToggleCount = 0;
+        };
+
+        attachSpecWing.accept(dtaBattlecarrier, new Object[]{"cobra_wing", com.fs.starfarer.api.loading.WingRole.BOMBER, 4000f, Boolean.TRUE});
+        attachSpecWing.accept(astralCv, new Object[]{"dagger_wing", com.fs.starfarer.api.loading.WingRole.BOMBER, 4000f, Boolean.FALSE});
+        attachSpecWing.accept(moraCap, new Object[]{"broadsword_wing", com.fs.starfarer.api.loading.WingRole.FIGHTER, 4000f, Boolean.FALSE});
+        attachSpecWing.accept(matchBattlecarrier, new Object[]{"gladius_wing", com.fs.starfarer.api.loading.WingRole.FIGHTER, 4000f, Boolean.FALSE});
+        attachSpecWing.accept(xyphosCruiser, new Object[]{"xyphos_wing", com.fs.starfarer.api.loading.WingRole.SUPPORT, 0f, Boolean.FALSE});
+        attachSpecWing.accept(rangedSupCruiser, new Object[]{"armaa_musha_wing", com.fs.starfarer.api.loading.WingRole.SUPPORT, 2000f, Boolean.FALSE});
+
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        for (DivisionState d : pGroup.divisions) {
+            d.profiles.clear();
+            for (com.fs.starfarer.api.combat.ShipAPI m : d.members) d.profiles.add(new divisionai.ShipCapabilityProfile(m));
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(d);
+        }
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyDiv);
+
+        List<SimShipState> allSixCarriers = java.util.Arrays.asList(
+                dtaBattlecarrier, astralCv, moraCap, matchBattlecarrier, xyphosCruiser, rangedSupCruiser);
+
+        // Helper reproducing vanilla E.class (lines 174-343) + Ship.advance soft-flux Zero-Flux suppression (lines 579-600)
+        java.util.function.Consumer<Float> stepVanillaCarrierAiAndZeroFlux = (dt) -> {
+            for (SimShipState c : allSixCarriers) {
+                c.forceCarrierTargetTime = Math.max(0f, c.forceCarrierTargetTime - dt);
+                c.forceCarrierPullBackTime = Math.max(0f, c.forceCarrierPullBackTime - dt);
+                if (c.forceCarrierTargetTime <= 0f) c.forceCarrierTarget = null;
+
+                // Vanilla E.class (every ~0.6s):
+                boolean allZeroOrEscort = true;
+                for (com.fs.starfarer.api.combat.FighterWingAPI w : c.wings) {
+                    allZeroOrEscort &= (w.getRange() <= 0f);
+                }
+                if (!allZeroOrEscort) {
+                    if (c.forceCarrierPullBackTime > 0f && c.forceCarrierTargetTime <= 0f) {
+                        if (!c.pullBackFighters) c.proxy.setPullBackFighters(true);
+                    } else if (c.forceCarrierTargetTime > 0f && c.forceCarrierTarget != null && c.forceCarrierTarget.isAlive()) {
+                        c.aiFlags.setFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CARRIER_FIGHTER_TARGET, 3.0f, c.forceCarrierTarget);
+                        if (c.pullBackFighters) c.proxy.setPullBackFighters(false);
+                    } else if (!c.pullBackFighters
+                            && !c.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CARRIER_FIGHTER_TARGET)) {
+                        // Vanilla E.class:342 — flips back to Regroup whenever !pullBackFighters && !hasFlag(CARRIER_FIGHTER_TARGET)!
+                        c.proxy.setPullBackFighters(true);
+                    }
+                }
+                // Vanilla Ship.advance:579 — !pullBackFighters injects soft flux above 1% to disable Zero-Flux Speed Boost!
+                if (!c.pullBackFighters && !c.wings.isEmpty()) {
+                    c.fluxLevel = Math.max(c.fluxLevel, 0.02f);
+                } else if (c.fluxLevel <= 0.025f) {
+                    c.fluxLevel = 0f;
+                }
+            }
+        };
+
+        // PHASE 1: 20 seconds out of contact (enemy hidden in Fog of War at 6500u) — 0 toggles, 100% Zero-Flux Boost!
+        alliedBb.fluxLevel = 0f;
+        for (SimShipState c : allSixCarriers) {
+            c.fluxLevel = 0f;
+        }
+        boolean allKeptZeroFluxOutOfContact = true;
+        for (int step = 0; step < 40; step++) {
+            float now = step * 0.5f;
+            arena.elapsedTime = now;
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, pGroup);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eGroup);
+            if (step % 2 == 0) {
+                divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, now);
+                divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(arena.engineProxy, pGroup, eGroup, now);
+            }
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, now);
+            stepVanillaCarrierAiAndZeroFlux.accept(0.5f);
+            for (SimShipState c : allSixCarriers) {
+                if (!c.pullBackFighters || c.fluxLevel > 0.005f) {
+                    allKeptZeroFluxOutOfContact = false;
+                }
+            }
+        }
+        int totalOutOfContactToggles = 0;
+        StringBuilder p1Detail = new StringBuilder();
+        for (SimShipState c : allSixCarriers) {
+            totalOutOfContactToggles += c.pullBackToggleCount;
+            if (c.pullBackToggleCount > 0 || !c.pullBackFighters || c.fluxLevel > 0.005f) {
+                p1Detail.append(c.id).append("(tog=").append(c.pullBackToggleCount)
+                        .append(",pb=").append(c.pullBackFighters)
+                        .append(",flx=").append(c.fluxLevel).append(") ");
+            }
+        }
+        check(allKeptZeroFluxOutOfContact && totalOutOfContactToggles == 0,
+                "All 6 LPC ships (Fleet CV, Battlecarrier, CAP CV, 0u Support, 2000u Support & DTA Bomber) hold Regroup with 0 toggles & full Zero-Flux Boost when no enemy is visible",
+                "allKeptZeroFlux=" + allKeptZeroFluxOutOfContact + ", totalToggles=" + totalOutOfContactToggles + " " + p1Detail);
+
+        // PHASE 2: Enemy Conquest enters visible combat range at (0, -900) — 1100u ahead of Allied Onslaught (0, -2000)!
+        enemyBb.location.set(0f, -900f);
+        alliedBb.fluxLevel = 0.22f;
+        capCvDiv.targetFriendlyDivision = battleLine; // Mora CAP anchored on Battle Div. I (escortAnchor = alliedBb != moraCap)
+        for (int step = 0; step < 10; step++) {
+            float now = 25f + step * 0.5f;
+            arena.elapsedTime = now;
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, pGroup);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eGroup);
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, now);
+            divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(arena.engineProxy, pGroup, eGroup, now);
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, now);
+            divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pGroup, null, eGroup, now);
+            stepVanillaCarrierAiAndZeroFlux.accept(0.5f);
+        }
+
+        divisionai.ShipCapabilityProfile dtaProf = new divisionai.ShipCapabilityProfile(dtaBattlecarrier.proxy);
+        divisionai.ShipCapabilityProfile xyphosProf = new divisionai.ShipCapabilityProfile(xyphosCruiser.proxy);
+        boolean dtaAndZeroRangeStayRegroupedInCombat = dtaBattlecarrier.pullBackFighters
+                && xyphosCruiser.pullBackFighters
+                && !dtaProf.isCarrier
+                && !xyphosProf.isCarrier
+                && divisionai.VoidstrikeCoordinator.resolveEffectiveWingEngagementRange(dtaBattlecarrier.proxy, dtaBattlecarrier.wings.get(0)) == 0f
+                && divisionai.VoidstrikeCoordinator.resolveEffectiveWingEngagementRange(xyphosCruiser.proxy, xyphosCruiser.wings.get(0)) == 0f;
+        boolean offensiveCarriersEngageSteadily = !astralCv.pullBackFighters
+                && !matchBattlecarrier.pullBackFighters
+                && astralCv.pullBackToggleCount == 1
+                && matchBattlecarrier.pullBackToggleCount == 1;
+        boolean rangedSupportCoversThreatenedAlly = !rangedSupCruiser.pullBackFighters
+                && rangedSupCruiser.forceCarrierTarget != null
+                && rangedSupCruiser.forceCarrierTarget.getOwner() == 0
+                && rangedSupCruiser.forceCarrierTarget != rangedSupCruiser.proxy;
+        String coveredAllyName = rangedSupCruiser.forceCarrierTarget != null
+                ? rangedSupCruiser.forceCarrierTarget.getName()
+                : "none";
+        DivisionState capProtectedDiv = capCvDiv.getEffectiveStrikeCraftTargetFriendlyDivision();
+        boolean capOverAlliedDivEngagesAnchor = !moraCap.pullBackFighters
+                && moraCap.forceCarrierTarget != null
+                && moraCap.forceCarrierTarget.getOwner() == 0
+                && moraCap.forceCarrierTarget != moraCap.proxy
+                && (capProtectedDiv == null || moraCap.forceCarrierTarget == capProtectedDiv.flagship);
+
+        // PHASE 3: Self-CAP (escortAnchor == moraCap) outside 1250u intercept bubble holds Regroup, then engages when bogey enters <= 1100u!
+        capCvDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+        capCvDiv.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
+        capCvDiv.currentStrikeCraftIntent = DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
+        capCvDiv.strikeCraftTargetFriendlyDivision = capCvDiv;
+        capCvDiv.targetFriendlyDivision = capCvDiv;
+        moraCap.fluxLevel = 0f;
+        enemyBb.location.set(0f, -600f); // 1800u from moraCap at (0, -2400) -> visible in combat zone, but outside 1100u/1250u CAP intercept bubble!
+        divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, 35f);
+        boolean selfCapHoldsRegroupUntilBogeyEnters = moraCap.pullBackFighters;
+
+        enemyBb.location.set(0f, -1450f); // 950u from moraCap -> inside 1100u CAP intercept bubble!
+        divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, 36f);
+        boolean selfCapScramblesOnCloseBogey = !moraCap.pullBackFighters && moraCap.forceCarrierTarget == enemyBb.proxy;
+
+        // Also verify 2000u Support cruiser returns to Regroup when threatened ally is > 2200u out of its 2000u support reach
+        rangedSupCruiser.location.set(3200f, -4500f);
+        rangedSupCruiser.fluxLevel = 0f;
+        divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pGroup, null, eGroup, 37f);
+        boolean rangedSupportRegroupsWhenAllyOutOfReach = rangedSupCruiser.pullBackFighters;
+
+        check(dtaAndZeroRangeStayRegroupedInCombat && offensiveCarriersEngageSteadily,
+                "Defensive Targeting Array bombers & 0-range Xyphos stay permanently Regrouped in combat while offensive carriers engage cleanly without oscillation",
+                "dtaRegroup=" + dtaBattlecarrier.pullBackFighters + ", xypRegroup=" + xyphosCruiser.pullBackFighters
+                        + ", dtaIsCarrier=" + dtaProf.isCarrier + ", astralToggles=" + astralCv.pullBackToggleCount
+                        + ", heronToggles=" + matchBattlecarrier.pullBackToggleCount);
+        check(rangedSupportCoversThreatenedAlly && rangedSupportRegroupsWhenAllyOutOfReach,
+                "Ranged 2,000u Support LPCs escort threatened friendly hulls within range and regroup for Zero-Flux Boost when out of reach",
+                "coveredAlly=" + coveredAllyName
+                        + ", regroupedOutOfReach=" + rangedSupportRegroupsWhenAllyOutOfReach);
+        check(capOverAlliedDivEngagesAnchor && selfCapHoldsRegroupUntilBogeyEnters && selfCapScramblesOnCloseBogey,
+                "Combat Space Patrol projects umbrella over allied division in combat, holds Regroup on self-CAP outside intercept bubble, and scrambles on close bogey",
+                "alliedCapEngaged=" + capOverAlliedDivEngagesAnchor
+                        + ", selfCapRegroup=" + selfCapHoldsRegroupUntilBogeyEnters
+                        + ", selfCapScramble=" + selfCapScramblesOnCloseBogey);
+    }
+
     private static void testUIHarnessAndUXSuccinctness() throws Exception {
         System.out.println("\n--- Scenario 7: UI/UX Testing Harness (Deployment Window 14x7 & Succinctness Audit) ---");
         File uiPreviewOut = new File("build/ui_preview.html");

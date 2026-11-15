@@ -226,6 +226,12 @@ public class SimArena {
         public final List<com.fs.starfarer.api.combat.FighterWingAPI> wings = new ArrayList<>();
         public com.fs.starfarer.api.combat.FighterWingAPI wing = null;
         public boolean pullBackFighters = false;
+        public int pullBackToggleCount = 0;
+        public ShipAPI forceCarrierTarget = null;
+        public float forceCarrierTargetTime = 0f;
+        public float forceCarrierPullBackTime = 0f;
+        public final java.util.Set<String> hullMods = new java.util.LinkedHashSet<>();
+        public final java.util.Set<String> tags = new java.util.LinkedHashSet<>();
         public ShipAPI proxy;
 
         public SimShipState(
@@ -675,9 +681,53 @@ public class SimArena {
                         if ("isPullBackFighters".equals(n)) return pullBackFighters;
                         if ("setPullBackFighters".equals(n)) {
                             if (a != null && a.length > 0 && a[0] instanceof Boolean) {
-                                pullBackFighters = (Boolean) a[0];
+                                boolean next = (Boolean) a[0];
+                                if (next != pullBackFighters) {
+                                    pullBackToggleCount++;
+                                    pullBackFighters = next;
+                                }
                             }
                             return null;
+                        }
+                        if ("getForceCarrierTarget".equals(n)) return forceCarrierTarget;
+                        if ("setForceCarrierTarget".equals(n)) {
+                            forceCarrierTarget = (a != null && a.length > 0 && a[0] instanceof ShipAPI) ? (ShipAPI) a[0] : null;
+                            return null;
+                        }
+                        if ("getForceCarrierTargetTime".equals(n)) return forceCarrierTargetTime;
+                        if ("setForceCarrierTargetTime".equals(n)) {
+                            if (a != null && a.length > 0 && a[0] instanceof Number) {
+                                forceCarrierTargetTime = ((Number) a[0]).floatValue();
+                            }
+                            return null;
+                        }
+                        if ("getForceCarrierPullBackTime".equals(n)) return forceCarrierPullBackTime;
+                        if ("setForceCarrierPullBackTime".equals(n)) {
+                            if (a != null && a.length > 0 && a[0] instanceof Number) {
+                                forceCarrierPullBackTime = ((Number) a[0]).floatValue();
+                            }
+                            return null;
+                        }
+                        if ("hasTag".equals(n)) {
+                            return a != null && a.length > 0 && a[0] instanceof String && tags.contains(a[0]);
+                        }
+                        if ("getTags".equals(n)) return tags;
+                        if ("getVariant".equals(n) && !hullMods.isEmpty()) {
+                            return Proxy.newProxyInstance(
+                                    com.fs.starfarer.api.combat.ShipVariantAPI.class.getClassLoader(),
+                                    new Class<?>[]{com.fs.starfarer.api.combat.ShipVariantAPI.class},
+                                    (vp, vm, va) -> {
+                                        String vn = vm.getName();
+                                        if ("hasHullMod".equals(vn)) {
+                                            return va != null && va.length > 0 && va[0] instanceof String && hullMods.contains(va[0]);
+                                        }
+                                        if ("getHullMods".equals(vn)) return hullMods;
+                                        Class<?> vrt = vm.getReturnType();
+                                        if (vrt == boolean.class) return false;
+                                        if (vrt == int.class) return 0;
+                                        if (vrt == float.class) return 0f;
+                                        return null;
+                                    });
                         }
                         if ("getAngularVelocity".equals(n)) return angularVelocity;
                         if ("getFluxLevel".equals(n)) return fluxLevel;

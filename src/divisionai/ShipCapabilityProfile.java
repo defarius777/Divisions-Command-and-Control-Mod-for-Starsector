@@ -84,8 +84,11 @@ public class ShipCapabilityProfile {
                 || hints.contains(ShipTypeHints.TRANSPORT);
 
         int bays = ship.getNumFighterBays();
+        boolean dtaZeroed = VoidstrikeCoordinator.isCarrierFighterRangeZeroedByHullmod(ship);
         int bombers = 0;
         int interceptors = 0;
+        int tetheredEscortWings = 0;
+        int rangedSupportWings = 0;
         float wingRangeSum = 0f;
         float wingSpeedSum = 0f;
         int validWingCount = 0;
@@ -94,12 +97,24 @@ public class ShipCapabilityProfile {
             for (FighterWingAPI wing : wings) {
                 if (wing == null || wing.getSpec() == null) continue;
                 FighterWingSpecAPI wSpec = wing.getSpec();
+                boolean tetheredZero = dtaZeroed || VoidstrikeCoordinator.isWingTetheredZeroRange(ship, wing);
+                boolean supportOnly = tetheredZero || VoidstrikeCoordinator.isSupportEscortOnlyWing(ship, wing);
+                if (tetheredZero) {
+                    tetheredEscortWings++;
+                    interceptors++;
+                    continue;
+                }
+                if (supportOnly) {
+                    rangedSupportWings++;
+                    interceptors++;
+                    continue;
+                }
                 if (wSpec.isBomber() || wSpec.isAssault()) {
                     bombers++;
                 } else {
                     interceptors++;
                 }
-                float wr = wing.getRange() > 0f ? wing.getRange() : 2200f;
+                float wr = VoidstrikeCoordinator.resolveEffectiveWingEngagementRange(ship, wing);
                 wingRangeSum += Math.max(1200f, Math.min(3400f, wr));
                 float fSpd = 235f;
                 if (wing.getWingMembers() != null && !wing.getWingMembers().isEmpty()) {
@@ -114,7 +129,12 @@ public class ShipCapabilityProfile {
         }
         this.bomberWings = bombers;
         this.interceptorSupportWings = interceptors;
-        this.isCarrier = bays > 0 || hints.contains(ShipTypeHints.CARRIER);
+        boolean hasNonTetheredAirCapability = (wings == null || wings.isEmpty())
+                ? (bays > 0 && !dtaZeroed)
+                : (validWingCount > 0 || rangedSupportWings > 0);
+        this.isCarrier = hasNonTetheredAirCapability
+                || (hints.contains(ShipTypeHints.CARRIER) && !dtaZeroed
+                && (wings == null || wings.isEmpty() || validWingCount > 0 || rangedSupportWings > 0));
 
         float opSum = 0f;
         float strikeSum = 0f;
@@ -134,8 +154,8 @@ public class ShipCapabilityProfile {
                 longSum += wingOpWeight;
             }
             strikeSum += bombers * 7.5f;
-            pdSum += interceptors * 5.5f;
-        } else if (bays > 0) {
+            pdSum += (interceptors - tetheredEscortWings - rangedSupportWings) * 5.5f;
+        } else if (bays > 0 && !dtaZeroed && tetheredEscortWings == 0 && rangedSupportWings == 0) {
             for (int i = 0; i < bays; i++) {
                 float wingOpWeight = 6.0f;
                 opSum += wingOpWeight;
@@ -144,6 +164,13 @@ public class ShipCapabilityProfile {
                 strikeSum += 4.5f;
                 pdSum += 3.0f;
             }
+        }
+        if (rangedSupportWings > 0) {
+            pdSum += rangedSupportWings * 6.0f;
+        }
+        if (tetheredEscortWings > 0) {
+            pdSum += tetheredEscortWings * 4.5f;
+            closeSum += tetheredEscortWings * 3.5f;
         }
 
         float purePdSum = 0f;

@@ -3748,13 +3748,19 @@ public class PermanentDivisionManager {
             }
 
             // Also check carrier fighter/bomber engagement range if this is a Carrier division fitted with offensive wings
-            if (spec.archetype != null && spec.archetype.isCarrierArchetype() && variant.getFittedWings() != null) {
+            // (skipping Defensive Targeting Array / 0-range tethered wings and Support escort wings)
+            if (spec.archetype != null
+                    && spec.archetype.isCarrierArchetype()
+                    && !variant.hasHullMod(VoidstrikeCoordinator.DEFENSIVE_TARGETING_ARRAY_HULLMOD_ID)
+                    && variant.getFittedWings() != null) {
                 for (String wingId : variant.getFittedWings()) {
                     if (wingId == null) continue;
                     FighterWingSpecAPI wingSpec = Global.getSettings().getFighterWingSpec(wingId);
-                    if (wingSpec != null && wingSpec.getRange() > maxRange) {
+                    if (wingSpec == null || wingSpec.isSupport() || wingSpec.hasTag("auto_escort")) continue;
+                    float effWingRange = m.getStats().getFighterWingRange().computeEffective(wingSpec.getRange());
+                    if (effWingRange > maxRange) {
                         // Cap carrier wing standoff contribution to MAX_STANDOFF_RANGE_UNITS (2400u)
-                        maxRange = Math.min(MAX_STANDOFF_RANGE_UNITS, Math.max(maxRange, Math.min(1800f, wingSpec.getRange())));
+                        maxRange = Math.min(MAX_STANDOFF_RANGE_UNITS, Math.max(maxRange, Math.min(1800f, effWingRange)));
                     }
                 }
             }

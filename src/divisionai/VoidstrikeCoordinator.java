@@ -166,9 +166,33 @@ public class VoidstrikeCoordinator {
         }
     }
 
+    public static void bindCombatEngine(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup) {
+        if (engine != null) {
+            lastVoidstrikeUpdateEngine = engine;
+        }
+        if (myGroup != null) {
+            if (myGroup.side == 0) {
+                lastVoidstrikePlayerGroup = myGroup;
+            } else if (myGroup.side == 1) {
+                lastVoidstrikeEnemyGroup = myGroup;
+            }
+        }
+        if (enemyGroup != null) {
+            if (enemyGroup.side == 1) {
+                lastVoidstrikeEnemyGroup = enemyGroup;
+            } else if (enemyGroup.side == 0) {
+                lastVoidstrikePlayerGroup = enemyGroup;
+            }
+        }
+    }
+
     public static void resetForNewBattle() {
         activeVoidstrikes.clear();
         recentVoidstrikeHistory.clear();
+        cachedAliveFighters.clear();
         flankingGateClearedTargetByFighter.clear();
         latchedFlankSignByTarget.clear();
         nextVoidstrikeNumberBySide[0] = 1;
@@ -227,9 +251,10 @@ public class VoidstrikeCoordinator {
         int wingsCommittedDownrange = 0;
         for (ShipAPI m : div.getAliveMembers()) {
             if (m.getAllWings() != null && !m.getAllWings().isEmpty()) {
-                hasWings = true;
                 for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
-                    if (w != null && w.getWingMembers() != null && !w.getWingMembers().isEmpty()) {
+                    if (w == null || isSupportEscortOnlyWing(m, w)) continue;
+                    hasWings = true;
+                    if (w.getWingMembers() != null && !w.getWingMembers().isEmpty()) {
                         airborneWings++;
                         ShipAPI leader = w.getLeader();
                         if (leader != null && leader.isAlive() && !w.isReturning(leader)) {
@@ -241,7 +266,14 @@ public class VoidstrikeCoordinator {
                 }
             }
         }
-        if (!hasWings || focusEnemyShip == null || !focusEnemyShip.isAlive() || focusEnemyShip.isHulk()) {
+        CombatEngineAPI stagingEngine = (lastVoidstrikeUpdateEngine != null)
+                ? lastVoidstrikeUpdateEngine
+                : Global.getCombatEngine();
+        boolean focusVisible = focusEnemyShip != null
+                && focusEnemyShip.isAlive()
+                && !focusEnemyShip.isHulk()
+                && (wingsCommittedDownrange > 0 || OtcAI.isShipVisibleToSide(stagingEngine, div.side, focusEnemyShip));
+        if (!hasWings || !focusVisible) {
             div.voidstrikeStage = 0;
             div.voidstrikeLastTargetKey = null;
             return;
@@ -628,6 +660,412 @@ public class VoidstrikeCoordinator {
                 fwdY * localFwd + rightY * localRight);
     }
 
+    public static final String DEFENSIVE_TARGETING_ARRAY_HULLMOD_ID = "defensive_targeting_array";
+    public static final String STAY_IN_FRONT_FIGHTER_TAG = "stay_in_front_of_ship";
+
+    public static class CarrierBayComposition {
+        public int totalWings;
+        public int tetheredZeroRangeWings;
+        public int rangedSupportEscortWings;
+        public int offensiveCapableWings;
+        public float maxOffensiveWingRange;
+        public float maxSupportEscortWingRange;
+
+        public boolean isAllTetheredZeroRange() {
+            return totalWings > 0 && offensiveCapableWings == 0 && rangedSupportEscortWings == 0;
+        }
+
+        public boolean isPureSupportOrTethered() {
+            return totalWings > 0 && offensiveCapableWings == 0;
+        }
+
+        public boolean hasOffensiveCapableWings() {
+            return offensiveCapableWings > 0;
+        }
+    }
+
+    /**
+     * Returns true if {@code carrier} has a hullmod (such as vanilla {@code defensive_targeting_array} or a modded
+     * fighter-tethering hullmod) that zeroes {@code FighterWingRange} or chains all spawned strike craft to the hull.
+     */
+    public static boolean isCarrierFighterRangeZeroedByHullmod(ShipAPI carrier) {
+        if (carrier == null) return false;
+        try {
+            if (carrier.getVariant() != null) {
+                if (carrier.getVariant().hasHullMod(DEFENSIVE_TARGETING_ARRAY_HULLMOD_ID)) {
+                    return true;
+                }
+                if (carrier.getVariant().getHullMods() != null
+                        && carrier.getVariant().getHullMods().contains(DEFENSIVE_TARGETING_ARRAY_HULLMOD_ID)) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (carrier.getMutableStats() != null && carrier.getMutableStats().getFighterWingRange() != null) {
+                com.fs.starfarer.api.combat.StatBonus sb = carrier.getMutableStats().getFighterWingRange();
+                if (!sb.isUnmodified() && sb.computeEffective(1000f) <= 1f) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
+        if (wings != null && !wings.isEmpty()) {
+            int aliveChecked = 0;
+            int taggedCount = 0;
+            for (com.fs.starfarer.api.combat.FighterWingAPI w : wings) {
+                if (w == null || w.getWingMembers() == null) continue;
+                for (ShipAPI f : w.getWingMembers()) {
+                    if (f == null || !f.isAlive() || f.isHulk()) continue;
+                    aliveChecked++;
+                    if (f.hasTag(STAY_IN_FRONT_FIGHTER_TAG)) {
+                        taggedCount++;
+                    }
+                }
+            }
+            if (aliveChecked > 0 && taggedCount == aliveChecked) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if {@code wing} on {@code carrier} is chained to 0 engagement range (e.g. {@code Xyphos},
+     * {@code Sarissa}, {@code Mining Pod}, modded 0-range drone/gun pods, {@code isAlwaysEscort()}, or any LPC
+     * mounted on a ship with {@code Defensive Targeting Array}).
+     */
+    public static boolean isWingTetheredZeroRange(ShipAPI carrier, com.fs.starfarer.api.combat.FighterWingAPI wing) {
+        if (wing == null) return false;
+        if (carrier != null && isCarrierFighterRangeZeroedByHullmod(carrier)) {
+            return true;
+        }
+        com.fs.starfarer.api.loading.FighterWingSpecAPI spec = wing.getSpec();
+        if (spec != null && (spec.hasTag("auto_escort") || spec.hasTag("always_escort"))) {
+            return true;
+        }
+        boolean hasRealLoadedSpec = spec != null
+                && (spec.getId() != null
+                || spec.isSupport()
+                || wing.getRole() == com.fs.starfarer.api.loading.WingRole.SUPPORT
+                || (spec.getTags() != null && !spec.getTags().isEmpty()));
+        if (hasRealLoadedSpec && wing.getRange() <= 0f && spec.getRange() <= 0f) {
+            return true;
+        }
+        List<ShipAPI> members = wing.getWingMembers();
+        if (members != null && !members.isEmpty()) {
+            int aliveCount = 0;
+            int stayFrontCount = 0;
+            for (ShipAPI f : members) {
+                if (f == null || !f.isAlive() || f.isHulk()) continue;
+                aliveCount++;
+                if (f.hasTag(STAY_IN_FRONT_FIGHTER_TAG)) {
+                    stayFrontCount++;
+                }
+            }
+            if (aliveCount > 0 && stayFrontCount == aliveCount) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if {@code wing} is a close-tethered 0-range wing OR a {@link com.fs.starfarer.api.loading.WingRole#SUPPORT}
+     * wing (which in vanilla {@code FighterAI:474} never flies offensive attack runs against enemy hulls, and instead
+     * escorts either a friendly {@code CARRIER_FIGHTER_TARGET} within {@code wing.getRange()} or its parent carrier).
+     */
+    public static boolean isSupportEscortOnlyWing(ShipAPI carrier, com.fs.starfarer.api.combat.FighterWingAPI wing) {
+        if (wing == null) return false;
+        if (isWingTetheredZeroRange(carrier, wing)) {
+            return true;
+        }
+        return wing.getRole() == com.fs.starfarer.api.loading.WingRole.SUPPORT
+                || (wing.getSpec() != null && wing.getSpec().isSupport());
+    }
+
+    /**
+     * Resolves the effective engagement range of {@code wing} on {@code carrier}. Returns {@code 0f} for 0-range
+     * tethered wings / {@code Defensive Targeting Array}, the live or computed effective range for real wings, and
+     * {@code 2200f} only for unconfigured headless test mock wings.
+     */
+    public static float resolveEffectiveWingEngagementRange(ShipAPI carrier, com.fs.starfarer.api.combat.FighterWingAPI wing) {
+        if (wing == null) return 0f;
+        if (isWingTetheredZeroRange(carrier, wing)) {
+            return 0f;
+        }
+        if (wing.getRange() > 0f) {
+            return wing.getRange();
+        }
+        if (wing.getSpec() != null && wing.getSpec().getRange() > 0f) {
+            float base = wing.getSpec().getRange();
+            try {
+                if (carrier != null && carrier.getMutableStats() != null && carrier.getMutableStats().getFighterWingRange() != null) {
+                    float eff = carrier.getMutableStats().getFighterWingRange().computeEffective(base);
+                    if (eff > 0f) return eff;
+                }
+            } catch (Throwable ignored) {
+            }
+            return base;
+        }
+        return 2200f;
+    }
+
+    public static CarrierBayComposition analyzeCarrierBayComposition(ShipAPI carrier) {
+        CarrierBayComposition comp = new CarrierBayComposition();
+        if (carrier == null) return comp;
+        List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
+        if (wings == null || wings.isEmpty()) return comp;
+        for (com.fs.starfarer.api.combat.FighterWingAPI w : wings) {
+            if (w == null) continue;
+            comp.totalWings++;
+            if (isWingTetheredZeroRange(carrier, w)) {
+                comp.tetheredZeroRangeWings++;
+            } else if (isSupportEscortOnlyWing(carrier, w)) {
+                comp.rangedSupportEscortWings++;
+                float effR = resolveEffectiveWingEngagementRange(carrier, w);
+                if (effR > comp.maxSupportEscortWingRange) {
+                    comp.maxSupportEscortWingRange = effR;
+                }
+            } else {
+                comp.offensiveCapableWings++;
+                float effR = resolveEffectiveWingEngagementRange(carrier, w);
+                if (effR > comp.maxOffensiveWingRange) {
+                    comp.maxOffensiveWingRange = effR;
+                }
+            }
+        }
+        return comp;
+    }
+
+    /**
+     * Locks {@code carrier} cleanly into vanilla Regroup ({@code pullBackFighters == true}) via public
+     * {@code setForceCarrierPullBackTime}, preventing vanilla {@code E.class} from fighting DivisionAI and allowing
+     * the carrier/battlecarrier to receive its full +50 su/s Zero-Flux Engine Speed Boost.
+     */
+    public static void applyCarrierRegroupHold(ShipAPI carrier, DivisionState div) {
+        if (carrier == null) return;
+        carrier.setForceCarrierTarget(null);
+        carrier.setForceCarrierTargetTime(0f);
+        carrier.setForceCarrierPullBackTime(1.6f);
+        if (!carrier.isPullBackFighters()) {
+            carrier.setPullBackFighters(true);
+        }
+        if (div != null && carrier.getId() != null) {
+            div.fighterPullbackShipIds.add(carrier.getId());
+        }
+        ShipwideAIFlags cFlags = carrier.getAIFlags();
+        if (cFlags != null) {
+            cFlags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
+        }
+    }
+
+    /**
+     * Switches {@code carrier} cleanly into Engage ({@code pullBackFighters == false}) with {@code carrierTarget}
+     * registered via {@code setForceCarrierTarget} so vanilla {@code E.class} (lines 188-193) holds Engage mode
+     * without 1-second Engage/Regroup oscillation.
+     */
+    public static void applyCarrierEngageTarget(
+            ShipAPI carrier,
+            ShipAPI carrierTarget,
+            DivisionState div,
+            boolean alsoSetAiFlag) {
+        if (carrier == null) return;
+        carrier.setForceCarrierPullBackTime(0f);
+        if (carrierTarget != null && carrierTarget.isAlive() && !carrierTarget.isHulk()) {
+            carrier.setForceCarrierTarget(carrierTarget);
+            carrier.setForceCarrierTargetTime(1.6f);
+        }
+        if (carrier.isPullBackFighters()) {
+            carrier.setPullBackFighters(false);
+        }
+        if (div != null && carrier.getId() != null) {
+            div.fighterPullbackShipIds.remove(carrier.getId());
+        }
+        ShipwideAIFlags cFlags = carrier.getAIFlags();
+        if (cFlags != null && alsoSetAiFlag && carrierTarget != null && carrierTarget.isAlive() && !carrierTarget.isHulk()) {
+            cFlags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 1.2f, carrierTarget);
+        }
+    }
+
+    /**
+     * Finds the highest-priority threatened friendly non-fighter hull ({@code ally != carrier}) within
+     * {@code maxEscortRange} for ranged {@link com.fs.starfarer.api.loading.WingRole#SUPPORT} escort wings (~1000-2500u).
+     * Returns {@code null} when out of contact or when only {@code carrier} itself needs cover (so {@code carrier}
+     * stays in Regroup and keeps its Zero-Flux Speed Boost).
+     */
+    public static ShipAPI findThreatenedFriendlySupportEscortTarget(
+            ShipAPI carrier,
+            DivisionState div,
+            BattleGroupState myGroup,
+            ShipAPI preferredAnchor,
+            float maxEscortRange) {
+        if (carrier == null || carrier.getLocation() == null || maxEscortRange <= 0f) return null;
+        CombatEngineAPI engine = (lastVoidstrikeUpdateEngine != null)
+                ? lastVoidstrikeUpdateEngine
+                : Global.getCombatEngine();
+        int side = (div != null) ? div.side : (carrier.getOwner() == 0 ? 0 : 1);
+        List<ShipAPI> visibleEnemies = new ArrayList<>();
+        for (ShipAPI es : collectEnemyCombatShipsForOwner(carrier.getOwner())) {
+            if (es != null && es.isAlive() && !es.isHulk() && es.getLocation() != null
+                    && OtcAI.isShipVisibleToSide(engine, side, es)) {
+                visibleEnemies.add(es);
+            }
+        }
+        List<ShipAPI> visibleEnemyFighters = new ArrayList<>();
+        for (ShipAPI ef : cachedAliveFighters) {
+            if (ef != null && ef.isAlive() && !ef.isHulk() && ef.getOwner() != carrier.getOwner()
+                    && ef.getLocation() != null && OtcAI.isShipVisibleToSide(engine, side, ef)) {
+                visibleEnemyFighters.add(ef);
+            }
+        }
+        if (visibleEnemies.isEmpty() && visibleEnemyFighters.isEmpty()) {
+            return null;
+        }
+
+        List<ShipAPI> allies = collectFriendlyCombatShipsForOwner(carrier.getOwner());
+        DivisionState scFriendDiv = (div != null) ? div.getEffectiveStrikeCraftTargetFriendlyDivision() : null;
+        ShipAPI bestAlly = null;
+        float bestScore = -Float.MAX_VALUE;
+
+        for (ShipAPI ally : allies) {
+            if (ally == null || ally == carrier || !ally.isAlive() || ally.isHulk()
+                    || ally.isFighter() || ally.getLocation() == null) {
+                continue;
+            }
+            float reachLimit = maxEscortRange
+                    + Math.max(30f, carrier.getCollisionRadius())
+                    + Math.max(30f, ally.getCollisionRadius());
+            float dFromCarrier = DivisionUiWidgets.distance(carrier.getLocation(), ally.getLocation());
+            if (dFromCarrier > reachLimit) continue;
+
+            float minEnemyShipDist = Float.MAX_VALUE;
+            for (ShipAPI es : visibleEnemies) {
+                float d = DivisionUiWidgets.distance(ally.getLocation(), es.getLocation());
+                if (d < minEnemyShipDist) minEnemyShipDist = d;
+            }
+            float minEnemyFighterDist = Float.MAX_VALUE;
+            for (ShipAPI ef : visibleEnemyFighters) {
+                float d = DivisionUiWidgets.distance(ally.getLocation(), ef.getLocation());
+                if (d < minEnemyFighterDist) minEnemyFighterDist = d;
+            }
+            boolean isHelpTarget = (div != null && ally == div.shipNeedingHelp && div.localEnemyStrength > 0f);
+            boolean allyThreatened = minEnemyShipDist <= 1550f
+                    || minEnemyFighterDist <= 1350f
+                    || (ally.getFluxLevel() >= 0.06f && minEnemyShipDist <= 2400f)
+                    || isHelpTarget;
+            if (!allyThreatened) continue;
+
+            float score = 0f;
+            if (ally == preferredAnchor) score += 650f;
+            if (scFriendDiv != null && scFriendDiv.members != null && scFriendDiv.members.contains(ally)) score += 450f;
+            if (isHelpTarget) score += 500f;
+            if (div != null && div.members != null && div.members.contains(ally)) score += 280f;
+            score += ally.getFluxLevel() * 320f;
+            if (ally.getHullSize() != null) {
+                score += ally.getHullSize().ordinal() * 75f;
+            }
+            float closestThreat = Math.min(minEnemyShipDist, minEnemyFighterDist);
+            if (closestThreat < Float.MAX_VALUE) {
+                score += Math.max(0f, 1800f - closestThreat) * 0.35f;
+            }
+            score -= dFromCarrier * 0.12f;
+            if (score > bestScore) {
+                bestScore = score;
+                bestAlly = ally;
+            }
+        }
+        return bestAlly;
+    }
+
+    /**
+     * Returns true when {@code carrier} (or its CAP {@code referenceAnchor}) has a visible enemy target or threat
+     * within its mission launch envelope. When false, the carrier stays in Regroup ({@code pullBackFighters == true})
+     * so it receives its +50 su/s Zero-Flux Speed Boost without 1-second Engage/Regroup oscillation.
+     */
+    public static boolean isCarrierInCombatContactForFighterLaunch(
+            ShipAPI carrier,
+            ShipAPI referenceAnchor,
+            ShipAPI focusEnemyShip,
+            DivisionState div,
+            BattleGroupState myGroup,
+            float maxWingRange,
+            boolean isExplicitLongRangeStrike,
+            boolean isCapMission) {
+        if (carrier == null || carrier.getLocation() == null) return false;
+        CombatEngineAPI engine = (lastVoidstrikeUpdateEngine != null)
+                ? lastVoidstrikeUpdateEngine
+                : Global.getCombatEngine();
+        int side = (div != null) ? div.side : (carrier.getOwner() == 0 ? 0 : 1);
+        ShipAPI anchor = (referenceAnchor != null && referenceAnchor.getLocation() != null) ? referenceAnchor : carrier;
+        float effWingRange = maxWingRange > 0f ? maxWingRange : 2200f;
+
+        if (div != null && div.localEnemyStrength > 0f) {
+            return true;
+        }
+        DivisionState scFriendDiv = (div != null && isCapMission)
+                ? div.getEffectiveStrikeCraftTargetFriendlyDivision()
+                : null;
+        if (scFriendDiv != null && scFriendDiv.localEnemyStrength > 0f) {
+            return true;
+        }
+        float carrierHardFlux = carrier.getFluxTracker() != null ? carrier.getFluxTracker().getHardFlux() : 0f;
+        float anchorHardFlux = anchor.getFluxTracker() != null ? anchor.getFluxTracker().getHardFlux() : 0f;
+        if (carrierHardFlux > 1f || anchorHardFlux > 1f) {
+            return true;
+        }
+
+        if (focusEnemyShip != null && focusEnemyShip.isAlive() && !focusEnemyShip.isHulk()
+                && focusEnemyShip.getLocation() != null
+                && OtcAI.isShipVisibleToSide(engine, side, focusEnemyShip)) {
+            float dCarrier = DivisionUiWidgets.distance(carrier.getLocation(), focusEnemyShip.getLocation());
+            float dAnchor = DivisionUiWidgets.distance(anchor.getLocation(), focusEnemyShip.getLocation());
+            float minDist = Math.min(dCarrier, dAnchor);
+            if (isCapMission) {
+                float capPreContactDist = Math.max(2400f, Math.min(4200f, effWingRange + 600f));
+                if (minDist <= capPreContactDist) {
+                    return true;
+                }
+            } else if (isExplicitLongRangeStrike) {
+                return true;
+            } else {
+                float launchDist = Math.max(
+                        1850f,
+                        effWingRange + carrier.getCollisionRadius() + focusEnemyShip.getCollisionRadius() + 250f);
+                if (minDist <= launchDist) {
+                    return true;
+                }
+            }
+        }
+
+        float fighterAlertDist = isCapMission ? Math.max(1650f, Math.min(2800f, effWingRange + 300f)) : 1650f;
+        for (ShipAPI ef : cachedAliveFighters) {
+            if (ef == null || !ef.isAlive() || ef.isHulk() || ef.getOwner() == carrier.getOwner() || ef.getLocation() == null) {
+                continue;
+            }
+            if (!OtcAI.isShipVisibleToSide(engine, side, ef)) continue;
+            if (DivisionUiWidgets.distance(carrier.getLocation(), ef.getLocation()) <= fighterAlertDist
+                    || DivisionUiWidgets.distance(anchor.getLocation(), ef.getLocation()) <= fighterAlertDist) {
+                return true;
+            }
+        }
+
+        float shipAlertDist = isCapMission
+                ? Math.max(2400f, Math.min(4200f, effWingRange + 600f))
+                : Math.max(1850f, effWingRange + 250f);
+        for (ShipAPI es : collectEnemyCombatShipsForOwner(carrier.getOwner())) {
+            if (es == null || !es.isAlive() || es.isHulk() || es.getLocation() == null) continue;
+            if (!OtcAI.isShipVisibleToSide(engine, side, es)) continue;
+            if (DivisionUiWidgets.distance(carrier.getLocation(), es.getLocation()) <= shipAlertDist
+                    || DivisionUiWidgets.distance(anchor.getLocation(), es.getLocation()) <= shipAlertDist) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Integrates a ship's Strike Craft (FighterWingAPI squadrons) into the division's formation and Voidstrike doctrine:
      *  - Item C (VoidstrikeTargetObservance): FREE, MEDIUM, HIGH target observance on the designated strike target.
@@ -647,6 +1085,21 @@ public class VoidstrikeCoordinator {
         List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
         if (wings == null || wings.isEmpty()) return;
 
+        CarrierBayComposition bayComp = analyzeCarrierBayComposition(carrier);
+
+        // 1. Pure 0-Range / Defensive Targeting Array Hulls:
+        //    In vanilla Starsector, any ship with launchBays in Engage mode (!isPullBackFighters()) has soft flux
+        //    injected every frame to suppress its +50 su/s Zero-Flux Speed Boost, and FighterAI.isTooFar rejects
+        //    any escort target != carrier when wing.getRange() <= 0f anyway. Keep pullBackFighters = true permanently!
+        if (bayComp.isAllTetheredZeroRange()) {
+            for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
+                DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(wings.get(wIdx));
+            }
+            updateCarrierMaxRangeStrikeStat(carrier, null, div, false, true);
+            applyCarrierRegroupHold(carrier, div);
+            return;
+        }
+
         // Emergency-Only Pullback Doctrine:
         //  - Carrier / division leader / OTC may pull back an active Voidstrike ONLY in genuine emergencies
         //    (carrier critically overloaded/damaged under close enemy fire, carrier division being overrun in CQB,
@@ -659,13 +1112,124 @@ public class VoidstrikeCoordinator {
 
         DivisionIntentType scIntent = div.getEffectiveStrikeCraftIntent();
         DivisionState scFriendlyDiv = div.getEffectiveStrikeCraftTargetFriendlyDivision();
+        boolean isCapMission = scIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
+
+        // 2. Pure Ranged Support LPC Hulls (WingRole.SUPPORT with range > 0, e.g. ~1000-2500u escort wings):
+        //    Vanilla FighterAI (lines 469-477) never sends Support wings on offensive strikes against enemy hulls;
+        //    they escort a friendly CARRIER_FIGHTER_TARGET within wing.getRange() when !isPullBackFighters(), and
+        //    otherwise escort their parent carrier. Only switch to Engage when covering a threatened allied ship
+        //    (ally != carrier) within range; otherwise hold Regroup so the carrier keeps its Zero-Flux Speed Boost!
+        if (bayComp.isPureSupportOrTethered()) {
+            for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
+                DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(wings.get(wIdx));
+            }
+            updateCarrierMaxRangeStrikeStat(carrier, null, div, false, true);
+            if (emergencyPullback
+                    || scIntent == DivisionIntentType.HOLD_IN_RESERVE
+                    || scIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) {
+                applyCarrierRegroupHold(carrier, div);
+                return;
+            }
+            ShipAPI preferredSupportAnchor = (isCapMission
+                    && scFriendlyDiv != null
+                    && scFriendlyDiv.flagship != null
+                    && scFriendlyDiv.flagship.isAlive()
+                    && !scFriendlyDiv.flagship.isHulk())
+                    ? scFriendlyDiv.flagship
+                    : ((div.shipNeedingHelp != null && div.shipNeedingHelp.isAlive() && !div.shipNeedingHelp.isHulk())
+                    ? div.shipNeedingHelp
+                    : div.flagship);
+            ShipAPI allyToCover = findThreatenedFriendlySupportEscortTarget(
+                    carrier,
+                    div,
+                    myGroup,
+                    preferredSupportAnchor,
+                    bayComp.maxSupportEscortWingRange);
+            if (allyToCover != null && allyToCover != carrier) {
+                applyCarrierEngageTarget(carrier, allyToCover, div, true);
+            } else {
+                applyCarrierRegroupHold(carrier, div);
+            }
+            return;
+        }
+
+        // Filter out Fog-of-War unspotted targets unless armed strike craft are already committed downrange
+        CombatEngineAPI activeEngineForVis = (lastVoidstrikeUpdateEngine != null)
+                ? lastVoidstrikeUpdateEngine
+                : Global.getCombatEngine();
+        if (focusEnemyShip != null
+                && (!focusEnemyShip.isAlive()
+                || focusEnemyShip.isHulk()
+                || (!armedCommittedDownrange && !OtcAI.isShipVisibleToSide(activeEngineForVis, div.side, focusEnemyShip)))) {
+            focusEnemyShip = null;
+        }
+
+        ShipAPI escortAnchor;
+        if (isCapMission) {
+            if (scFriendlyDiv != null
+                    && scFriendlyDiv != div
+                    && scFriendlyDiv.flagship != null
+                    && scFriendlyDiv.flagship.isAlive()
+                    && !scFriendlyDiv.flagship.isHulk()) {
+                escortAnchor = scFriendlyDiv.flagship;
+            } else if (div.shipNeedingHelp != null
+                    && div.shipNeedingHelp != carrier
+                    && div.shipNeedingHelp.isAlive()
+                    && !div.shipNeedingHelp.isHulk()) {
+                escortAnchor = div.shipNeedingHelp;
+            } else {
+                escortAnchor = carrier;
+            }
+        } else {
+            escortAnchor = (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk())
+                    ? div.flagship
+                    : carrier;
+        }
+
+        ShipAPI capInterceptTarget = isCapMission
+                ? findCapInterceptTarget(escortAnchor, carrier, focusEnemyShip)
+                : null;
+
+        boolean isExplicitLongRangeStrike = scIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
+                || scIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                || scIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
+                || scIntent == DivisionIntentType.FLY_CYCLIC_STRIKES
+                || scIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
+                || scIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
+                || scIntent == DivisionIntentType.TOT_ALPHA_STRIKE
+                || scIntent == DivisionIntentType.PRESS_HOME
+                || (myGroup != null && myGroup.strikePlan != null && myGroup.strikePlan.participants.contains(div));
+
+        boolean inCombatContact = isCarrierInCombatContactForFighterLaunch(
+                carrier,
+                escortAnchor,
+                focusEnemyShip,
+                div,
+                myGroup,
+                bayComp.maxOffensiveWingRange,
+                isExplicitLongRangeStrike,
+                isCapMission);
+
         boolean holdFightersInFormation = emergencyPullback
                 || (!armedCommittedDownrange && (div.voidstrikeEgressActive
                 || scIntent == DivisionIntentType.HOLD_IN_RESERVE
+                || scIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
+                || (!isCapMission && !inCombatContact)
                 || (scIntent == DivisionIntentType.CLOSE_UP && focusEnemyShip == null)
                 || (scIntent == DivisionIntentType.HAUL_OUT_TO_VENT && div.localEnemyStrength < 10f && focusEnemyShip == null)));
 
-        boolean isCapMission = scIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
+        // Combat Space Patrol Regroup/Engage Doctrine:
+        //  1. Out of contact (!inCombatContact): keep pullBackFighters = true so CAP carriers keep +50 su/s Zero-Flux Boost.
+        //  2. In combat zone, CAP anchored on ANOTHER friendly hull (escortAnchor != carrier): switch pullBackFighters = false
+        //     with ForceCarrierTarget = escortAnchor so FighterAI line 469 unlocks EscortTargetManeuverV3 over that ally.
+        //  3. In combat zone, CAP anchored on ITSELF (escortAnchor == carrier): stay pullBackFighters = true while patrolling
+        //     empty sky above itself (fighters still orbit defensively via I.class:163 while preserving Zero-Flux Boost),
+        //     and switch pullBackFighters = false as soon as capInterceptTarget enters the intercept bubble.
+        boolean holdCapInRegroupForBoost = isCapMission
+                && !armedCommittedDownrange
+                && capInterceptTarget == null
+                && (!inCombatContact || escortAnchor == carrier);
+
         boolean coordinatedStagingActive = !holdFightersInFormation
                 && !isCapMission
                 && div.voidstrikeStage != 2
@@ -675,34 +1239,27 @@ public class VoidstrikeCoordinator {
                 || (div.voidstrikeCoordination == VoidstrikeCoordinationMode.COORDINATED
                 && (div.voidstrikeStage == 0 || div.voidstrikeStage == 1)));
 
-        if (holdFightersInFormation) {
+        ShipAPI engageTarget = isCapMission
+                ? (capInterceptTarget != null ? capInterceptTarget : escortAnchor)
+                : (coordinatedStagingActive ? carrier : focusEnemyShip);
+
+        if (holdFightersInFormation
+                || holdCapInRegroupForBoost
+                || engageTarget == null
+                || !engageTarget.isAlive()
+                || engageTarget.isHulk()) {
             for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
                 DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(wings.get(wIdx));
             }
-            if (!carrier.isPullBackFighters()) {
-                carrier.setPullBackFighters(true);
-                div.fighterPullbackShipIds.add(carrier.getId());
-            }
+            applyCarrierRegroupHold(carrier, div);
         } else {
-            if (carrier.isPullBackFighters()) {
-                carrier.setPullBackFighters(false);
+            boolean alsoSetAiFlag = !isCapMission && !coordinatedStagingActive;
+            if (isCapMission && capInterceptTarget != null) {
+                alsoSetAiFlag = true;
             }
-            div.fighterPullbackShipIds.remove(carrier.getId());
+            applyCarrierEngageTarget(carrier, engageTarget, div, alsoSetAiFlag);
         }
 
-        ShipAPI escortAnchor = (isCapMission
-                && scFriendlyDiv != null
-                && scFriendlyDiv.flagship != null
-                && scFriendlyDiv.flagship.isAlive()
-                && !scFriendlyDiv.flagship.isHulk())
-                ? scFriendlyDiv.flagship
-                : ((div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk())
-                ? div.flagship
-                : carrier);
-
-        ShipAPI capInterceptTarget = isCapMission
-                ? findCapInterceptTarget(escortAnchor, carrier, focusEnemyShip)
-                : null;
         boolean holdCapPatrolOverFriendly = isCapMission && !holdFightersInFormation && capInterceptTarget == null;
 
         boolean inVoidstrike = !holdFightersInFormation
@@ -962,6 +1519,10 @@ public class VoidstrikeCoordinator {
         for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
             com.fs.starfarer.api.combat.FighterWingAPI wing = wings.get(wIdx);
             if (wing == null) continue;
+            if (isSupportEscortOnlyWing(carrier, wing)) {
+                DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(wing);
+                continue;
+            }
             List<ShipAPI> wingMembers = wing.getWingMembers();
             if (wingMembers == null || wingMembers.isEmpty()) continue;
             ShipAPI wingLeader = DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(wing);
@@ -1081,7 +1642,9 @@ public class VoidstrikeCoordinator {
                                 escortAnchor.getLocation().x + capArcOffsetX + squadronSlotOffset.x,
                                 escortAnchor.getLocation().y + capArcOffsetY + squadronSlotOffset.y);
                         fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, patrolSlot);
-                        if (isWingLeader && DivisionUiWidgets.distance(fighter.getLocation(), patrolSlot) > 135f) {
+                        if (!carrier.isPullBackFighters()
+                                && isWingLeader
+                                && DivisionUiWidgets.distance(fighter.getLocation(), patrolSlot) > 135f) {
                             steerFighterTowardPoint60Hz(fighter, patrolSlot, false);
                         }
                     } else {
@@ -1491,6 +2054,10 @@ public class VoidstrikeCoordinator {
             ShipAPI focusEnemyShip) {
         if (escortAnchor == null || carrier == null) return null;
         int myOwner = carrier.getOwner();
+        int observerSide = myOwner == 0 ? 0 : 1;
+        CombatEngineAPI activeEngine = (lastVoidstrikeUpdateEngine != null)
+                ? lastVoidstrikeUpdateEngine
+                : Global.getCombatEngine();
         float capRadiusAroundProtected = 1250f;
         float capRadiusAroundCarrier = 1100f;
 
@@ -1499,6 +2066,7 @@ public class VoidstrikeCoordinator {
         float bestFighterScore = -1f;
         for (ShipAPI f : cachedAliveFighters) {
             if (f == null || !f.isAlive() || f.isHulk() || f.getOwner() == myOwner) continue;
+            if (!OtcAI.isShipVisibleToSide(activeEngine, observerSide, f)) continue;
             float dProt = DivisionUiWidgets.distance(f.getLocation(), escortAnchor.getLocation());
             float dCar = DivisionUiWidgets.distance(f.getLocation(), carrier.getLocation());
             if (dProt > capRadiusAroundProtected && dCar > capRadiusAroundCarrier) continue;
@@ -1515,15 +2083,31 @@ public class VoidstrikeCoordinator {
             return bestFighterThreat;
         }
 
-        // 2. Otherwise intercept focusEnemyShip only when it enters the CAP defense perimeter
-        if (focusEnemyShip != null && focusEnemyShip.isAlive() && !focusEnemyShip.isHulk()) {
+        // 2. Otherwise intercept focusEnemyShip or any visible enemy combat hull inside the CAP defense perimeter
+        if (focusEnemyShip != null && focusEnemyShip.isAlive() && !focusEnemyShip.isHulk()
+                && OtcAI.isShipVisibleToSide(activeEngine, observerSide, focusEnemyShip)) {
             float dProt = DivisionUiWidgets.distance(focusEnemyShip.getLocation(), escortAnchor.getLocation());
             float dCar = DivisionUiWidgets.distance(focusEnemyShip.getLocation(), carrier.getLocation());
             if (dProt <= capRadiusAroundProtected || dCar <= capRadiusAroundCarrier) {
                 return focusEnemyShip;
             }
         }
-        return null;
+        ShipAPI bestCloseShip = null;
+        float bestCloseDist = Float.MAX_VALUE;
+        for (ShipAPI es : collectEnemyCombatShipsForOwner(myOwner)) {
+            if (es == null || !es.isAlive() || es.isHulk() || es.isFighter() || es.getLocation() == null) continue;
+            if (!OtcAI.isShipVisibleToSide(activeEngine, observerSide, es)) continue;
+            float dProt = DivisionUiWidgets.distance(es.getLocation(), escortAnchor.getLocation());
+            float dCar = DivisionUiWidgets.distance(es.getLocation(), carrier.getLocation());
+            if (dProt <= capRadiusAroundProtected || dCar <= capRadiusAroundCarrier) {
+                float dMin = Math.min(dProt, dCar);
+                if (dMin < bestCloseDist) {
+                    bestCloseDist = dMin;
+                    bestCloseShip = es;
+                }
+            }
+        }
+        return bestCloseShip;
     }
 
     private static boolean isStandoffGunshipOrCorvette(com.fs.starfarer.api.combat.FighterWingAPI wing, ShipAPI fighter) {
@@ -1728,7 +2312,12 @@ public class VoidstrikeCoordinator {
         if (carrier == null || carrier.getMutableStats() == null || carrier.getMutableStats().getFighterWingRange() == null) {
             return;
         }
-        if (!activeVoidstrike || emergencyPullback || focusEnemyShip == null || !focusEnemyShip.isAlive()) {
+        if (!activeVoidstrike
+                || emergencyPullback
+                || focusEnemyShip == null
+                || !focusEnemyShip.isAlive()
+                || isCarrierFighterRangeZeroedByHullmod(carrier)
+                || !analyzeCarrierBayComposition(carrier).hasOffensiveCapableWings()) {
             carrier.getMutableStats().getFighterWingRange().unmodify(VOIDSTRIKE_MAX_RANGE_STAT_ID);
             return;
         }
@@ -1798,7 +2387,7 @@ public class VoidstrikeCoordinator {
         for (ShipAPI m : div.getAliveMembers()) {
             if (m == null || m.getAllWings() == null) continue;
             for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
-                if (w == null || w.getWingMembers() == null) continue;
+                if (w == null || w.getWingMembers() == null || isSupportEscortOnlyWing(m, w)) continue;
                 boolean isBomber = (w.getSpec() != null && w.getSpec().isBomber())
                         || w.getRole() == com.fs.starfarer.api.loading.WingRole.BOMBER;
                 for (ShipAPI f : w.getWingMembers()) {
@@ -1821,7 +2410,7 @@ public class VoidstrikeCoordinator {
         for (ShipAPI m : div.getAliveMembers()) {
             if (m == null || m.getAllWings() == null) continue;
             for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
-                if (w == null || w.getWingMembers() == null) continue;
+                if (w == null || w.getWingMembers() == null || isSupportEscortOnlyWing(m, w)) continue;
                 boolean isBomber = (w.getSpec() != null && w.getSpec().isBomber())
                         || w.getRole() == com.fs.starfarer.api.loading.WingRole.BOMBER;
                 for (ShipAPI f : w.getWingMembers()) {
@@ -1894,6 +2483,7 @@ public class VoidstrikeCoordinator {
             if (carrier == null || carrier.getAllWings() == null) continue;
             for (com.fs.starfarer.api.combat.FighterWingAPI w : carrier.getAllWings()) {
                 if (w == null || w.getWingMembers() == null || w.getWingMembers().isEmpty()) continue;
+                if (isSupportEscortOnlyWing(carrier, w)) continue;
                 if (!isStrikeSortieOrdered(div, w)) continue;
                 boolean isBomber = (w.getSpec() != null && w.getSpec().isBomber())
                         || w.getRole() == com.fs.starfarer.api.loading.WingRole.BOMBER;
@@ -3148,17 +3738,7 @@ public class VoidstrikeCoordinator {
         if (group == null || group.divisions == null || group.isPassiveOpposingView) return;
         for (DivisionState div : group.divisions) {
             if (div == null) continue;
-            DivisionIntentType scIntent = div.getEffectiveStrikeCraftIntent();
-            boolean isCap = scIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
-            DivisionState scTargetDiv = div.getEffectiveStrikeCraftTargetEnemyDivision();
-            if (!div.voidstrikeEgressActive && !isCap && (scTargetDiv == null || !scTargetDiv.isCombatEffective())) {
-                continue;
-            }
             ShipAPI focusEnemyShip = resolveVoidstrikeFocusShip(div);
-            if (!div.voidstrikeEgressActive && !isCap && (focusEnemyShip == null || !focusEnemyShip.isAlive() || focusEnemyShip.isHulk())) {
-                continue;
-            }
-
             List<ShipAPI> alive = div.getAliveMembers();
             if (alive == null || alive.isEmpty()) continue;
             for (int i = 0; i < alive.size(); i++) {
@@ -3211,12 +3791,17 @@ public class VoidstrikeCoordinator {
     public static ShipAPI resolveVoidstrikeFocusShip(DivisionState div) {
         DivisionState scTargetDiv = div != null ? div.getEffectiveStrikeCraftTargetEnemyDivision() : null;
         if (scTargetDiv == null) return null;
+        CombatEngineAPI activeEngine = (lastVoidstrikeUpdateEngine != null)
+                ? lastVoidstrikeUpdateEngine
+                : Global.getCombatEngine();
+        boolean committedDownrange = hasArmedStrikeCraftCommittedDownrange(div);
         PermanentDivisionManager.VoidstrikeTargetingBias bias = div.voidstrikeTargetingBias != null
                 ? div.voidstrikeTargetingBias
                 : PermanentDivisionManager.VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
         boolean focusCarriers = div.voidstrikeFocusCarriers;
         ShipAPI flag = scTargetDiv.flagship;
-        boolean flagAlive = flag != null && flag.isAlive() && !flag.isHulk() && !flag.isFighter();
+        boolean flagAlive = flag != null && flag.isAlive() && !flag.isHulk() && !flag.isFighter()
+                && (committedDownrange || OtcAI.isShipVisibleToSide(activeEngine, div.side, flag));
         if (bias == PermanentDivisionManager.VoidstrikeTargetingBias.FREE_SELECTION && !focusCarriers) {
             if (flagAlive) return flag;
         }
@@ -3228,6 +3813,7 @@ public class VoidstrikeCoordinator {
         int bestRank = -1;
         for (ShipAPI s : enemyAlive) {
             if (s == null || !s.isAlive() || s.isHulk() || s.isFighter()) continue;
+            if (!committedDownrange && !OtcAI.isShipVisibleToSide(activeEngine, div.side, s)) continue;
             int r = computeShipVoidstrikeBiasRank(s, bias, focusCarriers);
             if (s == flag) r += 1; // Prefer flagship as tie-breaker within the same doctrinal bias tier
             if (r > bestRank) {
@@ -3504,6 +4090,10 @@ public class VoidstrikeCoordinator {
             if (wing == null) continue;
             String wingKey = carrier.getId() + "#wing_" + wIdx;
             if (!visitedWingKeys.add(wingKey)) continue;
+            if (isSupportEscortOnlyWing(carrier, wing)) {
+                returningWingKeys.add(wingKey);
+                continue;
+            }
 
             List<ShipAPI> members = wing.getWingMembers();
             if (members == null || members.isEmpty()) continue;
