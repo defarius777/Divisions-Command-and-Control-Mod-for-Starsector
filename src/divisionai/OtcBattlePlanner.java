@@ -778,7 +778,9 @@ public class OtcBattlePlanner {
             if (d == crisis || tasked.contains(d)) continue;
             if (d.archetype.isCarrierArchetype() || d.archetype == DivisionArchetype.SERVICE_GROUP) continue;
             if (linePlay && d == myGroup.mainEffortDivision) continue;
-            if (d.avgFluxLevel >= 0.55f) continue;
+            if (d.currentIntent != null && d.currentIntent.isWithdrawalOrBreakout()) continue;
+            float maxReliefFlux = (d == myGroup.reinforcingDivision) ? 0.52f : 0.44f;
+            if (d.avgFluxLevel >= maxReliefFlux) continue;
             boolean selfEngaged = d.localEnemyStrength >= 12f && d.localForceRatio < 1.0f;
             if (selfEngaged) continue;
             float dist = DivisionUiWidgets.distance(d.centroid, crisis.centroid);
@@ -881,7 +883,13 @@ public class OtcBattlePlanner {
             if (chasers >= maxChasers) break;
             if (tasked.contains(d) || d == myGroup.mainEffortDivision) continue;
             if ((!d.isFastFlanker && d.pursuitSpawnZone == 0) || d.archetype.isCarrierArchetype()) continue;
-            if (d.avgFluxLevel >= (isPursuitInterception ? 0.62f : 0.50f)) continue;
+            if (d.avgFluxLevel >= (isPursuitInterception ? 0.62f : 0.48f)) continue;
+            // Never order an overmatched, encircled, or breaking-out division into General Chase!
+            if (!isPursuitInterception) {
+                if (d.currentIntent != null && d.currentIntent.isWithdrawalOrBreakout()) continue;
+                if (d.localEnemyStrength > 6f && d.localForceRatio < 0.82f) continue;
+                if (d.crossfireCordonIndex >= 0.42f || d.hasShipNeedingHelp) continue;
+            }
 
             DivisionState nearest = null;
             float nearestDist = Float.MAX_VALUE;
@@ -894,6 +902,13 @@ public class OtcBattlePlanner {
                     continue;
                 }
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e);
+                if (!isPursuitInterception) {
+                    // Do not chase into an active North/South-Center Enemy Reinforcement Gate or into TSF overmatch!
+                    float gateDanger = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, ePos);
+                    if (gateDanger >= 0.32f) continue;
+                    float tsfRatio = BattlefieldFirepowerEvaluator.evaluateTsfEngagementRatio(engine, d, e, myGroup);
+                    if (tsfRatio < 0.72f && e.avgFluxLevel < 0.65f && !e.isUnableDivision) continue;
+                }
                 float dist = DivisionUiWidgets.distance(d.centroid, ePos);
                 if (d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e) {
                     dist -= 1000f;
@@ -1418,6 +1433,17 @@ public class OtcBattlePlanner {
                 }
             }
             if (target == null || !target.isCombatEffective()) continue;
+            // Do not wrap flankers around an enemy division parked directly inside its own active North/South-Center
+            // reinforcement gate, or light forces will be caught in the jaws of incoming 600 su/s enemy waves!
+            Vector2f candTargetPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, target);
+            if (BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, candTargetPos) >= 0.45f) {
+                continue;
+            }
+            // Also skip wide FLANK doubling when this division is TSF-overmatched against an unfixed target!
+            if (target.engagementLevel < 0.25f
+                    && BattlefieldFirepowerEvaluator.evaluateTsfEngagementRatio(engine, d, target, myGroup) < 0.68f) {
+                continue;
+            }
             // Avoid wide-arc FLANK ("Doubling") orders against fast enemy Frigate/Phase skirmisher packs that are
             // themselves flanking (which causes two frigate divisions to circle each other in a wide-arc carousel);
             // let distributeFire's ENGAGE_ASSIGNED order stand so our fast divisions close directly into gun range!
@@ -1491,8 +1517,14 @@ public class OtcBattlePlanner {
                     engine, tPos, perpX, perpY, 200f);
             float starboardClearance = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
                     engine, tPos, -perpX, -perpY, 200f);
-            boolean portPinchedByWall = portClearance < 1050f && starboardClearance > portClearance + 450f;
-            boolean starboardPinchedByWall = starboardClearance < 1050f && portClearance > starboardClearance + 450f;
+            Vector2f portFlankSample = new Vector2f(tPos.x + perpX * 1350f, tPos.y + perpY * 1350f);
+            Vector2f stbdFlankSample = new Vector2f(tPos.x - perpX * 1350f, tPos.y - perpY * 1350f);
+            float portGateDanger = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, portFlankSample);
+            float stbdGateDanger = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, stbdFlankSample);
+            boolean portPinchedByWall = (portClearance < 1050f && starboardClearance > portClearance + 450f)
+                    || (portGateDanger >= 0.28f && portGateDanger > stbdGateDanger + 0.16f);
+            boolean starboardPinchedByWall = (starboardClearance < 1050f && portClearance > starboardClearance + 450f)
+                    || (stbdGateDanger >= 0.28f && stbdGateDanger > portGateDanger + 0.16f);
 
             for (DivisionState d : flankers) {
                 float previous = (d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target) ? d.otcOrder.flankSide : 0f;

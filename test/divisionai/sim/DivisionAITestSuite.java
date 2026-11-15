@@ -89,6 +89,7 @@ public class DivisionAITestSuite {
         testMilitaryFirstNomenclatureSweep();
         testCarrierZeroFluxSupportAndDefensiveTargetingArray();
         testSafetyOverridesCapitalDeathBlastObjectivePolicyAndTemplates();
+        testTsfOvermatchReinforcementCorridorAndRunTheGauntlet();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -3376,6 +3377,216 @@ public class DivisionAITestSuite {
                 String.format(Locale.ROOT, "bbScreenDist=%.0fu, cruScreenDist=%.0fu, primaryTarget=%s",
                         bbDistFromCarrier, cruDistFromCarrier,
                         cvPGroup.primaryThreatEnemyDivision != null ? cvPGroup.primaryThreatEnemyDivision.displayName : "none"));
+    }
+
+    /**
+     * Scenario 16: Generic TSF Overmatch, Enemy North-Center Reinforcement Corridor, & "Run the Gauntlet" Breakout:
+     *  (A) Template Rename: LIGHT_FORCES_TORPEDO displays "Light Forces and Strike Warfare" ("Light & Strike Warfare")
+     *      and DecisiveArm.TORPEDO_STRIKES displays "Torpedo & Strike Runs".
+     *  (B) Generic TSF Overmatch & TSF localForceRatio: 2 Hammerhead Destroyers facing an unfixed, superior-TSF
+     *      heavy warship group refuse a nose-to-nose fair brawl (switching to standoff strike / Trade Space for Time),
+     *      then press in once friendly divisions converge and spike enemy flux!
+     *  (C) Enemy North-Center Reinforcement Corridor: When heavy enemy reserves remain undeployed in getReservesCopy(),
+     *      enemyReinforcementHazard > 0 blocks premature GENERAL_CHASE against a small vanguard and steers flank
+     *      stations clear of the northern spawn gate (0, +halfH).
+     *  (D) "Run the Gauntlet" Breakout: An encircled / spawn-gate-trapped 2-ship Destroyer division in the north
+     *      sector overrides pursuit, commits RUN_THE_GAUNTLET toward the southern friendly anchor, clears MANEUVER_TARGET
+     *      on both ships (zero slow reverse backing), sets RUN_QUICKLY + MOVEMENT_DEST southward, and escapes toward
+     *      friendly lines!
+     */
+    private static void testTsfOvermatchReinforcementCorridorAndRunTheGauntlet() {
+        System.out.println("\n--- Scenario 16: Generic TSF Overmatch, Reinforcement Corridor & Run the Gauntlet ---");
+
+        // (A) Verify template & sub-option naming
+        boolean renameVerified = "Light Forces and Strike Warfare".equals(
+                divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO.displayName)
+                && "Light & Strike Warfare".equals(
+                divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO.shortName)
+                && "Torpedo & Strike Runs".equals(
+                divisionai.PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES.displayName);
+        check(renameVerified,
+                "OperationalTemplate.LIGHT_FORCES_TORPEDO renamed to 'Light Forces and Strike Warfare' ('Torpedo & Strike Runs')",
+                divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO.displayName
+                        + " / " + divisionai.PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES.displayName);
+
+        // (B) Generic TSF Overmatch (solo 2x Destroyer vs unfixed superior-TSF Heavy Cruiser Strongpoint, then convergence)
+        CommanderProfile aggrCmdr = new CommanderProfile(null, "aggressive");
+        CommanderProfile stdCmdr = new CommanderProfile(null, "steady");
+        BattleGroupState tsfPGroup = new BattleGroupState(0, aggrCmdr);
+        tsfPGroup.operationalAnchor = divisionai.PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA;
+        tsfPGroup.decisiveArm = divisionai.PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES;
+        tsfPGroup.engagementDiscipline = divisionai.PermanentDivisionManager.EngagementDiscipline.SKIRMISH_WITHDRAW;
+        BattleGroupState tsfEGroup = new BattleGroupState(1, stdCmdr);
+
+        DivisionState soloDd = new DivisionState("p_dd1", 0, 1, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 1", aggrCmdr);
+        soloDd.openingMission = DivisionMissionType.CLOSE_ACTION;
+        soloDd.mainMission = DivisionMissionType.CLOSE_ACTION;
+        DivisionState rearRes = new DivisionState("p_res", 0, 2, DivisionArchetype.DESTROYER_DIVISION, "Reserve Div 2", stdCmdr);
+        rearRes.openingMission = DivisionMissionType.RESERVE;
+        rearRes.mainMission = DivisionMissionType.RESERVE;
+        DivisionState heavyCru = new DivisionState("e_cru", 1, 1, DivisionArchetype.CRUISER_DIVISION, "I Heavy Cruiser Line", stdCmdr);
+        tsfPGroup.divisions.add(soloDd);
+        tsfPGroup.divisions.add(rearRes);
+        tsfEGroup.divisions.add(heavyCru);
+
+        SimArena tsfArena = new SimArena("TSF Overmatch", "Generic TSF engagement ratio & standoff response", tsfPGroup, tsfEGroup);
+        SimShipState hh1 = tsfArena.addShip(soloDd, "hh1", "ISS Vanguard", "hammerhead", HullSize.DESTROYER, -120f, -900f, 95f, 700f, 0, 0);
+        SimShipState hh2 = tsfArena.addShip(soloDd, "hh2", "ISS Hammer", "hammerhead", HullSize.DESTROYER, 120f, -900f, 95f, 700f, 0, 0);
+        SimShipState resShip = tsfArena.addShip(rearRes, "rs1", "ISS Sunder", "sunder", HullSize.DESTROYER, 0f, -4500f, 90f, 900f, 0, 0);
+        SimShipState er1 = tsfArena.addShip(heavyCru, "er1", "HSS Wrath", "eradicator", HullSize.CRUISER, -140f, 350f, 80f, 1150f, 4, 0);
+        SimShipState er2 = tsfArena.addShip(heavyCru, "er2", "HSS Judgement", "eradicator", HullSize.CRUISER, 140f, 350f, 80f, 1150f, 4, 0);
+
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(soloDd);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(rearRes);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(heavyCru);
+
+        divisionai.OtcAI.updateTelemetry(tsfArena.engineProxy, tsfPGroup);
+        divisionai.OtcAI.updateTelemetry(tsfArena.engineProxy, tsfEGroup);
+        divisionai.BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(tsfArena.engineProxy, tsfPGroup, tsfEGroup);
+        divisionai.OtcAI.evaluateOtcStrategy(tsfArena.engineProxy, tsfPGroup, tsfEGroup, 15f);
+        divisionai.OtcBattlePlanner.planBattle(tsfArena.engineProxy, tsfPGroup, tsfEGroup, null, null, 15f);
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(tsfArena.engineProxy, tsfPGroup, tsfEGroup, 15f);
+
+        float soloTsfRatio = soloDd.targetTsfRatio;
+        boolean refusedFairBrawlWhenOvermatched = soloTsfRatio < 0.76f
+                && soloDd.currentIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME;
+
+        // Now spike enemy flux (>= 0.65) -> TSF gate opens!
+        er1.fluxLevel = 0.72f;
+        er2.fluxLevel = 0.68f;
+        divisionai.OtcAI.updateTelemetry(tsfArena.engineProxy, tsfPGroup);
+        divisionai.OtcAI.updateTelemetry(tsfArena.engineProxy, tsfEGroup);
+        divisionai.BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(tsfArena.engineProxy, tsfPGroup, tsfEGroup);
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(tsfArena.engineProxy, tsfPGroup, tsfEGroup, 22f);
+        boolean engagedOnceEnemyFluxSpiked = soloDd.currentIntent != DivisionIntentType.TRADE_SPACE_FOR_TIME;
+
+        check(refusedFairBrawlWhenOvermatched && engagedOnceEnemyFluxSpiked,
+                "Generic TSF Overmatch blocks solo fair-fight brawls against superior-TSF formations and unlocks once enemy flux spikes",
+                String.format(Locale.ROOT, "soloTsfRatio=%.2f, overmatchedIntent=%s, postSpikeIntent=%s",
+                        soloTsfRatio, refusedFairBrawlWhenOvermatched ? "TRADE_SPACE_FOR_TIME" : soloDd.currentIntent, soloDd.currentIntent));
+
+        // (C) North-Center Enemy Reinforcement Corridor & Premature GENERAL_CHASE Prevention
+        BattleGroupState gatePGroup = new BattleGroupState(0, stdCmdr);
+        gatePGroup.decisiveArm = divisionai.PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES;
+        BattleGroupState gateEGroup = new BattleGroupState(1, stdCmdr);
+
+        DivisionState pCru = new DivisionState("g_pcru", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", stdCmdr);
+        DivisionState pFlank = new DivisionState("g_pflk", 0, 2, DivisionArchetype.DESTROYER_DIVISION, "Flank Div 1", aggrCmdr);
+        pFlank.openingMission = DivisionMissionType.ENVELOPMENT;
+        pFlank.mainMission = DivisionMissionType.ENVELOPMENT;
+        gatePGroup.divisions.add(pCru);
+        gatePGroup.divisions.add(pFlank);
+
+        DivisionState eVan = new DivisionState("g_evan", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Pather Vanguard", aggrCmdr);
+        gateEGroup.divisions.add(eVan);
+
+        SimArena gateArena = new SimArena("Reinforcement Gate", "North-center enemy spawn corridor awareness", gatePGroup, gateEGroup);
+        for (int i = 0; i < 3; i++) {
+            gateArena.addShip(pCru, "gc" + i, "ISS Eagle " + i, "eagle", HullSize.CRUISER, -250f + i * 250f, 3800f, 85f, 1000f, 2, 0);
+        }
+        for (int i = 0; i < 2; i++) {
+            gateArena.addShip(pFlank, "gd" + i, "ISS Shrike " + i, "shrike", HullSize.DESTROYER, -900f + i * 180f, 5200f, 120f, 800f, 2, 0);
+        }
+        for (int i = 0; i < 2; i++) {
+            gateArena.addShip(eVan, "ev" + i, "LP Vanguard " + i, "eradicator", HullSize.CRUISER, -120f + i * 240f, 6200f, 85f, 950f, 2, 0);
+        }
+        // Populate 6 heavy ships (96 FP) in enemy reserves!
+        for (int r = 0; r < 6; r++) {
+            gateArena.addReserveMember(1, 16);
+        }
+
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(pCru);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(pFlank);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(eVan);
+
+        divisionai.OtcAI.updateTelemetry(gateArena.engineProxy, gatePGroup);
+        divisionai.OtcAI.updateTelemetry(gateArena.engineProxy, gateEGroup);
+        divisionai.OtcAI.evaluateOtcStrategy(gateArena.engineProxy, gatePGroup, gateEGroup, 32f);
+
+        Vector2f flankOut = new Vector2f();
+        eVan.centroid.set(-400f, 7400f);
+        divisionai.DivisionFormationNavigator.computeFlankStation(gateArena.engineProxy, pFlank, eVan, flankOut, gatePGroup);
+        float flankStationGateDanger = divisionai.BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(gatePGroup, flankOut);
+
+        boolean corridorDetectedAndChaseBlocked = gatePGroup.enemyUndeployedReserveCount == 6
+                && gatePGroup.enemyReinforcementHazard >= 0.50f
+                && gatePGroup.currentPhase != divisionai.DivisionModel.BattlePhase.GENERAL_CHASE
+                && flankStationGateDanger < 0.28f;
+
+        check(corridorDetectedAndChaseBlocked,
+                "Enemy North-Center Reinforcement Corridor sensor blocks premature GENERAL_CHASE and steers flank stations out of the spawn mouth",
+                String.format(Locale.ROOT, "reserves=%d (%.0f FP), hazard=%.2f, phase=%s, flankStationGateDanger=%.2f",
+                        gatePGroup.enemyUndeployedReserveCount, gatePGroup.enemyUndeployedReserveFp,
+                        gatePGroup.enemyReinforcementHazard, gatePGroup.currentPhase, flankStationGateDanger));
+
+        // (D) "Run the Gauntlet" Breakout (reconstructing Destroyer Div 1 trapped in the northern sector at t=60s)
+        BattleGroupState gPGroup = new BattleGroupState(0, aggrCmdr);
+        gPGroup.currentPhase = divisionai.DivisionModel.BattlePhase.GENERAL_CHASE;
+        BattleGroupState gEGroup = new BattleGroupState(1, aggrCmdr);
+
+        DivisionState trappedDd = new DivisionState("t_dd1", 0, 1, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 1", aggrCmdr);
+        DivisionState southAnchor = new DivisionState("t_anc", 0, 2, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 3", stdCmdr);
+        gPGroup.divisions.add(trappedDd);
+        gPGroup.divisions.add(southAnchor);
+
+        DivisionState ePack1 = new DivisionState("e_pk1", 1, 1, DivisionArchetype.CRUISER_DIVISION, "II Cruiser Picket", aggrCmdr);
+        DivisionState ePack2 = new DivisionState("e_pk2", 1, 2, DivisionArchetype.DESTROYER_DIVISION, "I Martyr Cell", aggrCmdr);
+        gEGroup.divisions.add(ePack1);
+        gEGroup.divisions.add(ePack2);
+
+        SimArena gauntArena = new SimArena("Run the Gauntlet", "Encircled Destroyer Div 1 punching south to friendly lines", gPGroup, gEGroup);
+        for (int r = 0; r < 4; r++) {
+            gauntArena.addReserveMember(1, 14);
+        }
+        SimShipState td1 = gauntArena.addShip(trappedDd, "td1", "ISS Joyner", "hammerhead", HullSize.DESTROYER, -110f, 7600f, 105f, 750f, 0, 0);
+        SimShipState td2 = gauntArena.addShip(trappedDd, "td2", "ISS Escort", "hammerhead", HullSize.DESTROYER, 110f, 7600f, 105f, 750f, 0, 0);
+        td1.fluxLevel = 0.54f;
+        td2.fluxLevel = 0.42f; // Note: 1 ship < 66% flux previously triggered the 2-ship inDoubleLineRelief trap!
+        for (int i = 0; i < 4; i++) {
+            gauntArena.addShip(southAnchor, "sa" + i, "ISS Anchor " + i, "sunder", HullSize.DESTROYER, -300f + i * 200f, 3200f, 95f, 950f, 2, 0);
+        }
+        gauntArena.addShip(ePack1, "ep1", "LP Pranker 1", "eradicator", HullSize.CRUISER, -650f, 7300f, 90f, 900f, 2, 0);
+        gauntArena.addShip(ePack1, "ep2", "LP Pranker 2", "eradicator", HullSize.CRUISER, -520f, 7800f, 90f, 900f, 2, 0);
+        gauntArena.addShip(ePack2, "ep3", "LP Manticore 1", "manticore", HullSize.DESTROYER, 620f, 6950f, 85f, 900f, 2, 0);
+        gauntArena.addShip(ePack2, "ep4", "LP Manticore 2", "manticore", HullSize.DESTROYER, 740f, 7250f, 85f, 900f, 2, 0);
+
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(trappedDd);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(southAnchor);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(ePack1);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(ePack2);
+
+        // Even if trappedDd was previously ordered into GENERAL_CHASE, OTC & DivisionCommanderAI must override into RUN_THE_GAUNTLET!
+        trappedDd.otcOrder.set(divisionai.DivisionModel.OtcOrderType.GENERAL_CHASE, ePack1, null, 0f, 90f, "stale chase");
+        float startY = 7600f;
+        boolean triggeredGauntlet = false;
+        boolean bothShipsSprintForward = false;
+        for (int step = 0; step < 30; step++) {
+            float tNow = 60f + step * 0.25f;
+            gauntArena.elapsedTime = tNow;
+            divisionai.OtcAI.updateTelemetry(gauntArena.engineProxy, gPGroup);
+            divisionai.OtcAI.updateTelemetry(gauntArena.engineProxy, gEGroup);
+            divisionai.BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(gauntArena.engineProxy, gPGroup, gEGroup);
+            divisionai.OtcBattlePlanner.planBattle(gauntArena.engineProxy, gPGroup, gEGroup, null, null, tNow);
+            divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(gauntArena.engineProxy, gPGroup, gEGroup, tNow);
+            if (trappedDd.currentIntent == DivisionIntentType.RUN_THE_GAUNTLET) {
+                triggeredGauntlet = true;
+                if (!td1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MANEUVER_TARGET)
+                        && !td2.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MANEUVER_TARGET)
+                        && td1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.RUN_QUICKLY)
+                        && td2.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.RUN_QUICKLY)) {
+                    bothShipsSprintForward = true;
+                }
+            }
+            gauntArena.stepPhysics(0.25f);
+        }
+        float endY = trappedDd.centroid.y;
+        boolean movedSouthTowardFriendlyLines = endY < startY - 320f && trappedDd.stationPoint.y < startY - 600f;
+
+        check(triggeredGauntlet && bothShipsSprintForward && movedSouthTowardFriendlyLines,
+                "'Run the Gauntlet' breaks out encircled/spawn-gate-trapped divisions southward at full forward burn toward friendly lines",
+                String.format(Locale.ROOT, "gauntlet=%s, bothSprintForward=%s, startY=%.0f -> endY=%.0f (goalY=%.0f, rally=%s)",
+                        triggeredGauntlet, bothShipsSprintForward, startY, endY, trappedDd.stationPoint.y,
+                        trappedDd.targetFriendlyDivision != null ? trappedDd.targetFriendlyDivision.displayName : "none"));
     }
 
     private static void testUIHarnessAndUXSuccinctness() throws Exception {

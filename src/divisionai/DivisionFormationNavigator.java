@@ -1347,7 +1347,7 @@ public class DivisionFormationNavigator {
         outStation.set(protectedDiv.centroid.x + lateralOffset, protectedDiv.centroid.y + forwardY);
     }
 
-    static void computeFlankStation(
+    public static void computeFlankStation(
             CombatEngineAPI engine,
             DivisionState flankerDiv,
             DivisionState enemyDiv,
@@ -1400,6 +1400,20 @@ public class DivisionFormationNavigator {
                 outStation.set(
                         visEnemyPos.x + perpX * flankRadius * lateralMult * assignedSide + fwdX * flankRadius * depthMult,
                         visEnemyPos.y + perpY * flankRadius * lateralMult * assignedSide + fwdY * flankRadius * depthMult);
+                // If this flank station lands inside the enemy's active North/South-Center Reinforcement Gate, pull its
+                // depth back onto the friendly-side beam (or flip flank side if the opposite flank is clear of the gate)!
+                if (myGroup != null && BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, outStation) >= 0.25f) {
+                    Vector2f oppSample = new Vector2f(
+                            visEnemyPos.x - perpX * flankRadius * lateralMult * assignedSide - fwdX * flankRadius * 0.20f,
+                            visEnemyPos.y - perpY * flankRadius * lateralMult * assignedSide - fwdY * flankRadius * 0.20f);
+                    if (BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, oppSample) < 0.16f) {
+                        outStation.set(oppSample);
+                    } else {
+                        outStation.set(
+                                visEnemyPos.x + perpX * flankRadius * lateralMult * assignedSide - fwdX * flankRadius * 0.35f,
+                                visEnemyPos.y + perpY * flankRadius * lateralMult * assignedSide - fwdY * flankRadius * 0.35f);
+                    }
+                }
                 if (!enemyIsLightOrFlanking) {
                     if (flankerDiv.useConvergence) {
                         BattlefieldFirepowerEvaluator.optimizeConvergenceStation(
@@ -1434,7 +1448,12 @@ public class DivisionFormationNavigator {
                 engine, visEnemyPos, perpX * sideSign, perpY * sideSign, 200f);
         float negClearance = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
                 engine, visEnemyPos, -perpX * sideSign, -perpY * sideSign, 200f);
-        if (posClearance < 950f && negClearance > posClearance + 400f) {
+        Vector2f posSample = new Vector2f(visEnemyPos.x + perpX * flankRadius * sideSign, visEnemyPos.y + perpY * flankRadius * sideSign);
+        Vector2f negSample = new Vector2f(visEnemyPos.x - perpX * flankRadius * sideSign, visEnemyPos.y - perpY * flankRadius * sideSign);
+        float posGate = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, posSample);
+        float negGate = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, negSample);
+        if ((posClearance < 950f && negClearance > posClearance + 400f)
+                || (posGate >= 0.25f && posGate > negGate + 0.14f)) {
             sideSign = -sideSign;
         }
         outStation.set(
@@ -1470,7 +1489,7 @@ public class DivisionFormationNavigator {
         if (enemyGroup == null || enemyGroup.divisions.isEmpty()) return;
 
         DivisionIntentType intent = div.currentIntent;
-        if (intent == DivisionIntentType.CLOSE_UP) {
+        if (intent == DivisionIntentType.CLOSE_UP || intent == DivisionIntentType.RUN_THE_GAUNTLET) {
             return;
         }
         // When marching onto a player-ordered or uncaptured control point, drive directly onto the
@@ -1522,6 +1541,7 @@ public class DivisionFormationNavigator {
                 ignoreDirectTarget,
                 flankTarget,
                 preferredSide,
+                myGroup,
                 enemyGroup,
                 chosenSide);
         div.routeSkirtSide = chosenSide[0];
@@ -1529,9 +1549,24 @@ public class DivisionFormationNavigator {
         div.hasRouteWaypoint = DivisionCommanderAI.distance(div.routeWaypoint, div.stationPoint) > 220f;
     }
 
+    static Vector2f computeOutOfContactRoutePoint(
+            CombatEngineAPI engine,
+            int side,
+            Vector2f startPos,
+            Vector2f goalPos,
+            DivisionState ignoreDirectAttackTarget,
+            DivisionState flankTargetDiv,
+            float preferredSideHint,
+            BattleGroupState enemyGroup,
+            float[] outChosenSide) {
+        return computeOutOfContactRoutePoint(
+                engine, side, startPos, goalPos, ignoreDirectAttackTarget, flankTargetDiv,
+                preferredSideHint, null, enemyGroup, outChosenSide);
+    }
+
     /**
      * Computes an out-of-contact wide-arc waypoint from startPos (A) to goalPos (B) that skirts around
-     * any intervening visible enemy division threat zones.
+     * any intervening visible enemy division threat zones and active enemy reinforcement spawn gates.
      *
      * If the straight chord A -> B slices through an enemy threat circle (or enemy battle line cluster),
      * returns a tangent/arc waypoint W at ~52 degrees ahead along the outer perimeter of the obstacle
@@ -1545,6 +1580,7 @@ public class DivisionFormationNavigator {
             DivisionState ignoreDirectAttackTarget,
             DivisionState flankTargetDiv,
             float preferredSideHint,
+            BattleGroupState myGroup,
             BattleGroupState enemyGroup,
             float[] outChosenSide) {
 
@@ -1687,6 +1723,17 @@ public class DivisionFormationNavigator {
             score -= fpEval.effectiveDanger * 0.42f + fpEval.cordonIndex * 380f;
             if (blockingDiv != null) {
                 score += BattlefieldFirepowerEvaluator.evaluateBlindSpotAdvantage(engine, side, blockingDiv, candApex) * 0.85f;
+            }
+            // 2c. Strongly avoid detouring across the enemy's active North/South-Center Reinforcement Gate!
+            if (myGroup != null && myGroup.enemyReinforcementHazard > 0.12f) {
+                float gateHazard = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, candApex);
+                score -= gateHazard * 1550f;
+            }
+            // 2d. When withdrawing or screening (no offensive attack/flank target), prefer swinging on the friendly-fleet
+            // side of the obstacle rather than behind the enemy's northern rear!
+            if (myGroup != null && myGroup.totalFriendlyStrength > 0f
+                    && ignoreDirectAttackTarget == null && flankTargetDiv == null) {
+                score -= DivisionCommanderAI.distance(candApex, myGroup.fleetCentroid) * 0.28f;
             }
 
             // 3. Shorter tangent geometry from startPos around obsCenter

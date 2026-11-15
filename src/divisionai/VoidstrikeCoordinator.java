@@ -1214,6 +1214,7 @@ public class VoidstrikeCoordinator {
                 || (!armedCommittedDownrange && (div.voidstrikeEgressActive
                 || scIntent == DivisionIntentType.HOLD_IN_RESERVE
                 || scIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
+                || scIntent == DivisionIntentType.RUN_THE_GAUNTLET
                 || (!isCapMission && !inCombatContact)
                 || (scIntent == DivisionIntentType.CLOSE_UP && focusEnemyShip == null)
                 || (scIntent == DivisionIntentType.HAUL_OUT_TO_VENT && div.localEnemyStrength < 10f && focusEnemyShip == null)));

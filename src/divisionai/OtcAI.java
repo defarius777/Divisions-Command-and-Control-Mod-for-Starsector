@@ -134,9 +134,20 @@ public class OtcAI {
         float fleetWeightedY = 0f;
         float totalFriendlyFp = 0f;
 
+        float preSeedFriendlyFp = 0f;
+        for (DivisionState d : battleGroup.divisions) {
+            if (d != null && !d.getAliveMembers().isEmpty()) {
+                preSeedFriendlyFp += d.totalFpStrength;
+            }
+        }
+        if (preSeedFriendlyFp > 1f && battleGroup.totalFriendlyStrength < 1f) {
+            battleGroup.totalFriendlyStrength = preSeedFriendlyFp;
+        }
+        BattlefieldFirepowerEvaluator.updateEnemyReinforcementCorridor(engine, battleGroup);
+
         for (DivisionState div : battleGroup.divisions) {
             if (!battleGroup.isPassiveOpposingView || (div.id != null && div.id.startsWith("unassigned_"))) {
-                updateSingleDivisionTelemetry(engine, div);
+                updateSingleDivisionTelemetry(engine, battleGroup, div);
             }
             if (!div.isUnableDivision && !div.getAliveMembers().isEmpty()) {
                 fleetWeightedX += div.centroid.x * div.totalFpStrength;
@@ -156,7 +167,8 @@ public class OtcAI {
             sumFleetInRangeFp += div.inRangeFirepowerScore;
             if (div.currentIntent != DivisionModel.DivisionIntentType.HOLD_IN_RESERVE
                     && div.currentIntent != DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT
-                    && div.currentIntent != DivisionModel.DivisionIntentType.BREAK_OFF_AND_RETIRE) {
+                    && div.currentIntent != DivisionModel.DivisionIntentType.BREAK_OFF_AND_RETIRE
+                    && div.currentIntent != DivisionModel.DivisionIntentType.RUN_THE_GAUNTLET) {
                 frontlineWeightedX += div.centroid.x * div.totalFpStrength;
                 frontlineWeightedY += div.centroid.y * div.totalFpStrength;
                 frontlineFp += div.totalFpStrength;
@@ -173,7 +185,10 @@ public class OtcAI {
         updateReserveAndEngagementCorridors(engine, battleGroup, frontlineWeightedX, frontlineWeightedY, frontlineFp);
     }
 
-    private static void updateSingleDivisionTelemetry(CombatEngineAPI engine, DivisionState div) {
+    private static void updateSingleDivisionTelemetry(
+            CombatEngineAPI engine,
+            BattleGroupState battleGroup,
+            DivisionState div) {
         List<ShipAPI> alive = div.getAliveMembers();
         div.detachedStragglerIds.clear();
         if (alive.isEmpty()) {
@@ -304,12 +319,12 @@ public class OtcAI {
                 : div.rawAllMemberSpreadRadius;
         div.stationKeepingRatio = div.spreadRadius / Math.max(300f, div.stationKeepingRadius);
 
-        evaluateLocalForceRatioViaGrid(engine, div);
         BattlefieldFirepowerEvaluator.updateDivisionFirepowerTelemetry(engine, div);
         BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(div);
         ShipSystemCoordinator.updateDivisionSkillTelemetry(div);
-        if (div.crossfireCordonIndex >= 0.32f && div.localEnemyStrength > 1f) {
-            float cordonMult = 1.0f + (div.crossfireCordonIndex - 0.20f) * 0.55f;
+        evaluateLocalForceRatioViaGrid(engine, div, battleGroup);
+        if (div.crossfireCordonIndex >= 0.30f && div.localEnemyStrength > 1f) {
+            float cordonMult = 1.0f + (div.crossfireCordonIndex - 0.18f) * 0.62f;
             div.localEnemyStrength *= cordonMult;
             div.localForceRatio = div.localFriendlyStrength / Math.max(1f, div.localEnemyStrength);
         }
@@ -580,23 +595,39 @@ public class OtcAI {
         }
     }
 
-    private static void evaluateLocalForceRatioViaGrid(CombatEngineAPI engine, DivisionState div) {
+    private static void evaluateLocalForceRatioViaGrid(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup) {
+        float selfCombatStrength = 0f;
+        for (ShipAPI m : div.getAliveMembers()) {
+            selfCombatStrength += BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(m);
+        }
+        div.tsfCombatPower = selfCombatStrength;
+        div.inEnemyReinforcementHazard = myGroup != null
+                && BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, div.centroid) >= 0.22f;
+
         CollisionGridAPI grid = (engine != null) ? engine.getAiGridShips() : null;
         if (grid == null && engine != null) {
             grid = engine.getShipGrid();
         }
         if (grid == null) {
-            div.localFriendlyStrength = div.totalFpStrength;
+            div.localFriendlyStrength = Math.max(selfCombatStrength, div.totalFpStrength * 0.5f);
             div.localEnemyStrength = 0f;
             div.localForceRatio = 2.0f;
             return;
         }
 
-        float friendlyFp = 0f;
-        float enemyFp = 0f;
-        float radiusSq = (LOCAL_EVAL_DIAMETER * 0.5f) * (LOCAL_EVAL_DIAMETER * 0.5f);
+        // 2,300u TSF local evaluation horizon (matching LOCAL_EVAL_DIAMETER * 0.5f) with symmetric distance-taper
+        // beyond 1,150u so close-quarters threats dominate while station bastions & mid-range support remain visible!
+        float evalRadius = LOCAL_EVAL_DIAMETER * 0.5f;
+        float evalDiam = LOCAL_EVAL_DIAMETER;
+        float radiusSq = evalRadius * evalRadius;
 
-        Iterator<Object> iter = grid.getCheckIterator(div.centroid, LOCAL_EVAL_DIAMETER, LOCAL_EVAL_DIAMETER);
+        float friendlyTsf = 0f;
+        float enemyTsf = 0f;
+
+        Iterator<Object> iter = grid.getCheckIterator(div.centroid, evalDiam, evalDiam);
         while (iter != null && iter.hasNext()) {
             Object obj = iter.next();
             if (!(obj instanceof ShipAPI)) continue;
@@ -607,26 +638,50 @@ public class OtcAI {
 
             float dx = s.getLocation().x - div.centroid.x;
             float dy = s.getLocation().y - div.centroid.y;
-            if ((dx * dx + dy * dy) > radiusSq) continue;
+            float dSq = dx * dx + dy * dy;
+            if (dSq > radiusSq) continue;
+            float dist = (float) Math.sqrt(dSq);
 
-            // Items A & B: Weight local combat effectiveness by live weapon firepower (discounting reloading,
-            // disabled, and out-of-ammo mounts, with phase ships exempt) AND Effective HP (Shield + Armor + Hull HP).
-            float effectiveStrength = BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(s);
+            float shipTsf = BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(s);
+            float distWeight = (dist <= 1150f)
+                    ? 1.0f
+                    : Math.max(0.38f, 1.0f - (dist - 1150f) / 1850f);
             if (s.getOwner() == div.side) {
-                friendlyFp += effectiveStrength;
+                boolean ownMember = div.members.contains(s);
+                friendlyTsf += shipTsf * (ownMember ? 1.0f : distWeight);
             } else if (isShipVisibleToSide(engine, div.side, s)) {
-                enemyFp += effectiveStrength;
+                BattlefieldFirepowerEvaluator.ShipFirepowerRose rose = BattlefieldFirepowerEvaluator.getShipRose(s);
+                float bearingWeight = distWeight;
+                if (rose != null && rose.maxGeneralRange > 100f && dist <= 1350f) {
+                    float worldBearToUs = (float) Math.toDegrees(Math.atan2(-dy, -dx));
+                    float relAng = ((worldBearToUs - s.getFacing()) % 360f + 360f) % 360f;
+                    float sectorReach = BattlefieldFirepowerEvaluator.ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relAng);
+                    if (sectorReach > div.avgEngageRange + 160f && s.getFluxLevel() < 0.60f) {
+                        bearingWeight = distWeight * 1.15f;
+                    }
+                }
+                enemyTsf += shipTsf * bearingWeight;
             }
         }
 
-        float selfCombatStrength = 0f;
-        for (ShipAPI m : div.getAliveMembers()) {
-            selfCombatStrength += BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(m);
+        // If this division is inside the enemy's active North/South-Center Reinforcement Corridor while enemy contacts
+        // are already present, factor in the imminent 600 su/s reinforcement threat!
+        if (myGroup != null && enemyTsf > 2f && myGroup.enemyReinforcementHazard > 0.12f) {
+            float gateHazard = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, div.centroid);
+            if (gateHazard > 0.08f) {
+                enemyTsf += gateHazard * Math.max(10f, selfCombatStrength * 0.45f);
+            }
         }
+
+        // Factor in Time-freedom compression when pinned under heavy incoming fire
+        if (enemyTsf > 4f && div.engagementLevel >= 0.35f && div.incomingInRangeFirepower > div.inRangeFirepowerScore * 1.25f) {
+            enemyTsf *= (1.0f + (div.engagementLevel - 0.25f) * 0.35f);
+        }
+
         float minSelfFloor = selfCombatStrength * 0.5f;
-        div.localFriendlyStrength = Math.max(friendlyFp, minSelfFloor);
-        div.localEnemyStrength = enemyFp;
-        div.localForceRatio = (enemyFp <= 1f) ? 3.0f : (div.localFriendlyStrength / enemyFp);
+        div.localFriendlyStrength = Math.max(friendlyTsf, minSelfFloor);
+        div.localEnemyStrength = enemyTsf;
+        div.localForceRatio = (enemyTsf <= 1f) ? 3.0f : (div.localFriendlyStrength / enemyTsf);
     }
 
     public static boolean isShipVisibleToSide(CombatEngineAPI engine, int observerSide, ShipAPI ship) {
@@ -710,6 +765,7 @@ public class OtcAI {
         if (!BattlefieldFirepowerEvaluator.isGroupTimeSpaceUpToDateForTick(myGroup, now)) {
             BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(engine, myGroup, enemyGroup);
         }
+        BattlefieldFirepowerEvaluator.updateEnemyReinforcementCorridor(engine, myGroup);
         BattlefieldFirepowerEvaluator.updateEnemyFeignedRetreatSuspicion(engine, myGroup, enemyGroup);
         updateEnemyOverkillAndCenterOfGravity(engine, myGroup, enemyGroup);
 
@@ -718,12 +774,12 @@ public class OtcAI {
             visibleEnemyFp += getVisibleFpForSide(engine, myGroup.side, eDiv);
         }
         myGroup.totalEnemyStrength = visibleEnemyFp;
-        // Under Fog of War, do not assume a single spotted 8 FP scout represents the entire enemy fleet!
-        // Use the larger of visibleEnemyFp or 75% of friendly strength (capped by actual deployed enemy strength)
-        // when estimating battle-wide force ratio so spotting 1 scout doesn't report a 27x advantage.
+        // Under Fog of War and multi-wave Armada battles, account for undeployed enemy reserves waiting at the
+        // north/south-center reinforcement gate so defeating a small vanguard does not prematurely trigger GENERAL_CHASE!
+        float reserveHorizonFp = myGroup.enemyUndeployedReserveFp * 0.45f;
         float estimatedEnemyFleetFp = Math.max(
-                visibleEnemyFp,
-                Math.min(enemyGroup.totalFriendlyStrength, myGroup.totalFriendlyStrength * 0.85f));
+                visibleEnemyFp + reserveHorizonFp,
+                Math.min(enemyGroup.totalFriendlyStrength + reserveHorizonFp, myGroup.totalFriendlyStrength * 0.85f));
         myGroup.forceRatio = (estimatedEnemyFleetFp <= 1f)
                 ? 1.25f
                 : (myGroup.totalFriendlyStrength / estimatedEnemyFleetFp);
@@ -818,18 +874,23 @@ public class OtcAI {
         boolean carrierStrikeArm = myGroup.decisiveArm == PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE
                 && findPrimaryCarrierAnchorDivision(myGroup) != null;
         boolean torpedoStrikeArm = myGroup.decisiveArm == PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES;
-        float chaseForceRatioReq = carrierStrikeArm ? 1.52f : 1.35f;
+        float reserveCautionAdd = myGroup.enemyReinforcementHazard * 0.28f + (torpedoStrikeArm ? 0.12f : 0f);
+        float chaseForceRatioReq = (carrierStrikeArm ? 1.52f : 1.35f) + reserveCautionAdd;
+        boolean hasEndangeredLightOrHeavy = crisis || minorEndangeredDiv != null;
         boolean generalChase = isPursuitInterception
                 ? (anyEnemyVisible && !crisis)
                 : (!enemyBaitTrapSuspected
-                        && ((allVisibleEnemiesNonCombatant && !crisis && myGroup.forceRatio >= 1.15f)
+                        && !hasEndangeredLightOrHeavy
+                        && ((allVisibleEnemiesNonCombatant && myGroup.enemyReinforcementHazard < 0.25f && myGroup.forceRatio >= 1.15f)
                         || (myGroup.forceRatio >= chaseForceRatioReq && visibleEnemyFp >= 30f && minContactDist < 3000f)));
         boolean generalChasePersists = isPursuitInterception
                 ? (anyEnemyVisible && !crisis)
                 : (!enemyBaitTrapSuspected
+                        && !crisis
                         && current == BattlePhase.GENERAL_CHASE
-                        && ((allVisibleEnemiesNonCombatant && !crisis)
-                        || (myGroup.forceRatio >= (carrierStrikeArm ? 1.34f : 1.20f) && visibleEnemyFp >= 15f && minContactDist < 3600f)));
+                        && ((allVisibleEnemiesNonCombatant && myGroup.enemyReinforcementHazard < 0.30f)
+                        || (myGroup.forceRatio >= ((carrierStrikeArm ? 1.34f : 1.20f) + reserveCautionAdd * 0.75f)
+                        && visibleEnemyFp >= 15f && minContactDist < 3600f)));
         boolean strikeRunning = myGroup.strikePlan != null && myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES);
 
         boolean fullAssault = isFullAssaultActive(engine, myGroup);

@@ -1745,16 +1745,16 @@ public class PermanentDivisionManager {
                 DecisiveArm.SURFACE_GUNFIRE,
                 EngagementDiscipline.LINE_COHESION),
         LIGHT_FORCES_TORPEDO(
-                "Light Forces & Torpedoes",
-                "Light & Torpedoes",
-                "Flotillas contest the map and converge with torpedo salvos.",
+                "Light Forces and Strike Warfare",
+                "Light & Strike Warfare",
+                "Flotillas contest the map and converge with torpedo and strike runs.",
                 OperationalAnchor.OPEN_FLOTILLA,
                 ObjectiveCapturePolicy.ACTIVE_CONTEST,
                 DecisiveArm.TORPEDO_STRIKES,
                 EngagementDiscipline.SKIRMISH_WITHDRAW),
         CARRIER_CENTRIC(
+                "Carrier-Centric Operations",
                 "Carrier-Centric Ops",
-                "Carrier-Centric",
                 "Surface warships screen the carrier group while air wings strike.",
                 OperationalAnchor.CARRIER_SCREEN,
                 ObjectiveCapturePolicy.FLEET_AXIS_ONLY,
@@ -1862,8 +1862,8 @@ public class PermanentDivisionManager {
                 "Surface Gunfire",
                 "Engage and break the enemy main body in gun range."),
         TORPEDO_STRIKES(
-                "Torpedo Strikes",
-                "Target isolated or high-flux hulls with coordinated torpedo salvos."),
+                "Torpedo & Strike Runs",
+                "Target isolated or high-flux hulls with coordinated strike salvos."),
         CARRIER_STRIKE(
                 "Carrier Strike",
                 "Hold standoff and trade space while air wings attrit heavy hulls.");

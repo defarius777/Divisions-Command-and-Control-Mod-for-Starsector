@@ -5504,7 +5504,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float vecAlpha = Math.min(0.88f, lineAlpha * 1.15f);
         if (targetIsEnemy) {
             GL11.glColor4f(1.00f, 0.62f, 0.24f, vecAlpha);
-        } else if (intent == DivisionIntentType.HAUL_OUT_TO_VENT || intent == DivisionIntentType.BREAK_OFF_AND_RETIRE) {
+        } else if (intent == DivisionIntentType.HAUL_OUT_TO_VENT
+                || intent == DivisionIntentType.BREAK_OFF_AND_RETIRE
+                || intent == DivisionIntentType.RUN_THE_GAUNTLET) {
             GL11.glColor4f(0.50f, 0.88f, 1.00f, vecAlpha);
         } else if (intent == DivisionIntentType.TAKE_SCREENING_STATION || intent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL) {
             GL11.glColor4f(0.40f, 0.98f, 0.88f, vecAlpha);
@@ -6338,6 +6340,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 break;
             case HAUL_OUT_TO_VENT:
                 intentShort = "VENTING";
+                break;
+            case RUN_THE_GAUNTLET:
+                intentShort = "BREAKOUT";
                 break;
             case CLOSE_UP:
                 intentShort = "CLOSE UP";

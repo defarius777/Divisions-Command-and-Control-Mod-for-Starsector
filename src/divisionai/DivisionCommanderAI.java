@@ -81,7 +81,6 @@ public class DivisionCommanderAI {
                     ? findTaskManagerObjectiveForDivision(engine, div, myGroup, div.targetObjective)
                     : null;
             boolean playerObjectiveUrgent = (assignedPlayerObj != null
-                    && div.avgFluxLevel < 0.84f
                     && (!div.underDirectObjectiveOrder
                     || div.currentIntent != DivisionIntentType.TAKE_AND_HOLD
                     || div.targetObjective != assignedPlayerObj))
@@ -749,12 +748,14 @@ public class DivisionCommanderAI {
                 || (!isHeavyLineDiv && !singleOutlierInFreshWinningPack && div.maxMemberFluxLevel >= 0.76f && div.localEnemyStrength > 10f && (div.localForceRatio < 0.75f || inCrossfireCordon))
                 || (!isHeavyLineDiv && div.avgFluxLevel >= 0.52f && div.localEnemyStrength > 12f && div.localForceRatio < 0.62f && div.commander.aggressionBias < 1.35f)
                 || (!isHeavyLineDiv && !singleOutlierInFreshWinningPack && inCrossfireCordon && (div.maxMemberFluxLevel >= 0.60f || (div.avgFluxLevel >= 0.36f && div.localForceRatio < 0.72f)));
-        // Intra-Division Double-Line Rank Relief: if the division is NOT trapped in a 3-sided crossfire cordon
-        // and still maintains its minimum healthy Front-Rank Engagement Zone (div.inDoubleLineRelief == true),
-        // individual high-flux ships step back into the Rear-Rank Safe Zone while healthy ships keep firing in the
-        // Front Rank — unless multiple ships or post-ram destroyers need full division extraction!
+        // Intra-Division Double-Line Rank Relief: ONLY applies to divisions of >= 3 able combat ships that are NOT
+        // locally TSF-overmatched (< 0.68x), NOT inside an active enemy reinforcement gate, and NOT in a crossfire cordon!
+        // A 2-ship destroyer division overmatched 0.50x must never suppress withdrawal because 1 ship is momentarily < 66% flux.
         if (highFluxPressure
                 && div.inDoubleLineRelief
+                && div.ableMemberCount >= 3
+                && div.localForceRatio >= 0.68f
+                && !div.inEnemyReinforcementHazard
                 && !inCrossfireCordon
                 && !loneFrigateOvermatched
                 && !multiShipExtractionNeeded
@@ -871,9 +872,8 @@ public class DivisionCommanderAI {
                 || div.archetype.isCarrierArchetype());
 
         // Step 1: Explicit Command Window objective order (Player holds absolute C2 authority at all times!
-        // Never reject a player-ordered Control Point capture because of localEnemyStrength or OTC tasking;
-        // only yield if the division is critically fluxed out >= 84%).
-        if (commandAssignedObj != null && !div.archetype.isCarrierArchetype() && div.avgFluxLevel < 0.84f) {
+        // Never reject or drop a player-ordered Control Point capture because of localEnemyStrength, flux, or OTC tasking).
+        if (commandAssignedObj != null && !div.archetype.isCarrierArchetype()) {
             div.targetObjective = commandAssignedObj;
             div.stationPoint.set(commandAssignedObj.getLocation());
             div.otcOrder.clear();
@@ -1094,6 +1094,79 @@ public class DivisionCommanderAI {
             DivisionState nearestEnemyDiv,
             DivisionState heavyFriendlyToScreen,
             float now) {
+
+        // 0. Embattled Encirclement / Spawn-Gate Trap Breakout ("Run the Gauntlet"):
+        // When a non-carrier, non-capital-anchor division is cut off, caught inside an L/U crossfire pocket, or trapped
+        // inside an active North/South-Center Enemy Reinforcement Gate under heavy local TSF overmatch, slow reverse
+        // backing (HAUL_OUT_TO_VENT) or wide 1,800u out-of-contact detours are fatal. Instead, punch bow-first at full
+        // forward burn + mobility ship systems straight through the lowest-lethality TSF seam toward friendly Space!
+        boolean isHeavyBattleAnchor = (div == myGroup.mainEffortDivision && div.totalFpStrength >= 45f)
+                || div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                || div.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
+        if (!div.archetype.isCarrierArchetype()
+                && div.archetype != DivisionArchetype.SERVICE_GROUP
+                && !isHeavyBattleAnchor
+                && !OtcAI.isFullAssaultActive(engine, myGroup)) {
+            boolean isolatedFromFleet = false;
+            boolean enemyBlockingRetreat = false;
+            float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
+            if (myGroup != null && nearestEnemyDiv != null) {
+                Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, nearestEnemyDiv);
+                // Check if an enemy sits on the retreat side (between this division and its friendly retreat border)
+                if ((ePos.y - div.centroid.y) * retreatDirY > 180f && distance(div.centroid, ePos) < 1650f) {
+                    enemyBlockingRetreat = true;
+                }
+                if (myGroup.divisions.size() >= 2) {
+                    float nearestAllyDist = Float.MAX_VALUE;
+                    for (int i = 0, n = myGroup.divisions.size(); i < n; i++) {
+                        DivisionState ally = myGroup.divisions.get(i);
+                        if (ally == null || ally == div || !ally.isAbleCombatEffective()) continue;
+                        float dAlly = distance(div.centroid, ally.centroid);
+                        if (dAlly < nearestAllyDist) nearestAllyDist = dAlly;
+                    }
+                    float dEnemy = distance(div.centroid, ePos);
+                    float dFleetToEnemy = distance(myGroup.fleetCentroid, ePos);
+                    float dFleetToUs = distance(myGroup.fleetCentroid, div.centroid);
+                    boolean enemyInterposed = dFleetToUs > 1650f && dFleetToEnemy + 220f < dFleetToUs;
+                    isolatedFromFleet = (nearestAllyDist > 1850f && dEnemy + 350f < nearestAllyDist) || enemyInterposed;
+                }
+            }
+
+            // Note: When a division has an unobstructed retreat lane right back to adjacent friendly support and is NOT
+            // inside the enemy's northern reinforcement gate, standard HAUL_OUT_TO_VENT handles line rotation cleanly.
+            // RUN_THE_GAUNTLET is specifically for cut-off/isolated divisions, blocked retreat lanes, or spawn-gate traps!
+            boolean continuingGauntlet = prevIntent == DivisionIntentType.RUN_THE_GAUNTLET
+                    && (now - div.gauntletStartTime) < 9.5f
+                    && div.localEnemyStrength >= 8f
+                    && (div.localForceRatio < 0.90f || div.crossfireCordonIndex >= 0.28f || div.inEnemyReinforcementHazard);
+            boolean encircledOvermatch = div.localEnemyStrength >= 14f
+                    && div.localForceRatio < 0.60f
+                    && (isolatedFromFleet || enemyBlockingRetreat)
+                    && (div.avgFluxLevel >= 0.30f || div.effectiveHpRatio < 0.75f || div.hasShipNeedingHelp);
+            boolean trappedInSpawnGate = div.inEnemyReinforcementHazard
+                    && div.localEnemyStrength >= 12f
+                    && div.localForceRatio < 0.78f
+                    && (div.avgFluxLevel >= 0.24f || isolatedFromFleet || enemyBlockingRetreat || div.crossfireCordonIndex >= 0.28f);
+
+            if (continuingGauntlet || encircledOvermatch || trappedInSpawnGate) {
+                if (prevIntent != DivisionIntentType.RUN_THE_GAUNTLET) {
+                    div.gauntletStartTime = now;
+                }
+                DivisionState rallyFriend = BattlefieldFirepowerEvaluator.computeGauntletBreakoutWaypoint(
+                        engine, div, myGroup, div.stationPoint);
+                div.targetFriendlyDivision = rallyFriend;
+                div.coveringFriendDivision = rallyFriend;
+                div.targetEnemyDivision = nearestEnemyDiv;
+                if (rallyFriend != null) {
+                    rallyFriend.isCoveringFriend = true;
+                }
+                String rallyLabel = rallyFriend != null ? rallyFriend.displayName : "friendly lines";
+                String reason = div.inEnemyReinforcementHazard
+                        ? String.format("clearing enemy reinforcement corridor (local TSF %.2fx)", div.localForceRatio)
+                        : String.format("encircled, local TSF %.2fx", div.localForceRatio);
+                return commitIntent(engine, div, DivisionIntentType.RUN_THE_GAUNTLET, rallyLabel, reason, now);
+            }
+        }
 
         // 1. Torpedo strike window finished / torpedoes expended / flux built up:
         // Item E: If flux is not critical (< 0.72) and nearestEnemyDiv is visible, Trade Space for Time
@@ -1818,6 +1891,12 @@ public class DivisionCommanderAI {
                 return commitIntent(engine, div, DivisionIntentType.PRESS_HOME,
                         nearestEnemyDiv.displayName, missionPhaseTag + "Synchronized Ram Charge", now);
             }
+            // Generic TSF Overmatch Check (independent of hardcoded hull sizes):
+            // If this division (plus any converging friendly divisions) is TSF-overmatched against an unfixed,
+            // healthy target, do NOT wade nose-first into its superior Space/Firepower envelope!
+            if (shouldStandOffDueToTsfOvermatch(engine, div, nearestEnemyDiv, myGroup, now)) {
+                return applyTsfOvermatchResponse(engine, div, nearestEnemyDiv, myGroup, prevIntent, strikeCooldownElapsed, missionPhaseTag, now);
+            }
             boolean isLightOrDestroyer = div.archetype == DivisionArchetype.DESTROYER_DIVISION
                     || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
                     || div.archetype == DivisionArchetype.FRIGATE_DIVISION
@@ -2046,8 +2125,12 @@ public class DivisionCommanderAI {
             }
         }
 
-        // 13. Press local overmatch vs standard line advance (strictly respecting Fog of War)
+        // 13. Press local overmatch vs standard line advance (strictly respecting Fog of War & Generic TSF Overmatch)
         if (nearestEnemyDiv != null) {
+            if (shouldStandOffDueToTsfOvermatch(engine, div, nearestEnemyDiv, myGroup, now)) {
+                applyTsfOvermatchResponse(engine, div, nearestEnemyDiv, myGroup, prevIntent, strikeCooldownElapsed, "", now);
+                return;
+            }
             div.targetEnemyDivision = nearestEnemyDiv;
             DivisionFormationNavigator.computeStandoffStation(engine, div, nearestEnemyDiv, div.stationPoint);
 
@@ -2265,11 +2348,24 @@ public class DivisionCommanderAI {
                 return commitIntent(engine, div, DivisionIntentType.HOLD_IN_RESERVE, "", reason, now);
             }
             case GENERAL_CHASE: {
+                boolean isPursuitInterception = myGroup != null
+                        && myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION;
                 if (!targetValid
                         || div.avgFluxLevel >= 0.58f
                         || div.maxMemberFluxLevel >= 0.78f
                         || (!binding && div.avgFluxLevel >= 0.50f)) {
                     return false;
+                }
+                if (!isPursuitInterception && !OtcAI.isFullAssaultActive(engine, myGroup)) {
+                    if (div.localEnemyStrength > 6f && div.localForceRatio < 0.78f) return false;
+                    if (div.inEnemyReinforcementHazard || div.crossfireCordonIndex >= 0.40f) return false;
+                    Vector2f tPos = OtcAI.getVisibleCentroidForSide(engine, div.side, target);
+                    if (BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, tPos) >= 0.35f) {
+                        return false;
+                    }
+                    if (shouldStandOffDueToTsfOvermatch(engine, div, target, myGroup, now)) {
+                        return false;
+                    }
                 }
                 div.currentIntent = DivisionIntentType.GIVE_GENERAL_CHASE;
                 div.targetEnemyDivision = target;
@@ -2293,6 +2389,11 @@ public class DivisionCommanderAI {
                     div.stationPoint.set(OtcAI.getVisibleCentroidForSide(engine, div.side, target));
                     reason = "OTC: execute, press home on \"" + target.displayName + "\"";
                     break;
+                }
+                if ((myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.SKIRMISH_WITHDRAW
+                        || div.totalFpStrength < 28f)
+                        && shouldStandOffDueToTsfOvermatch(engine, div, target, myGroup, now)) {
+                    return applyTsfOvermatchResponse(engine, div, target, myGroup, prevIntent, (now - div.lastBreakOffTimestamp) >= 12f, "OTC: ", now);
                 }
                 // Only Central Planning overrides the Main Effort's own mission style with a fixing posture
                 if (auth != OtcAuthority.POSITIVE_CONTROL) {
@@ -2320,6 +2421,13 @@ public class DivisionCommanderAI {
             case FLANK: {
                 if (auth != OtcAuthority.POSITIVE_CONTROL) return false;
                 if (!targetValid || div.avgFluxLevel >= 0.58f || (now - div.lastBreakOffTimestamp) < 12f) return false;
+                Vector2f flankEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, target);
+                if (BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, flankEnemyPos) >= 0.45f) {
+                    return false;
+                }
+                if (shouldStandOffDueToTsfOvermatch(engine, div, target, myGroup, now)) {
+                    return applyTsfOvermatchResponse(engine, div, target, myGroup, prevIntent, (now - div.lastBreakOffTimestamp) >= 12f, "OTC: ", now);
+                }
                 boolean wasFlanking = prevIntent == DivisionIntentType.WORK_FLANK;
                 div.currentIntent = DivisionIntentType.WORK_FLANK;
                 div.targetEnemyDivision = target;
@@ -2332,6 +2440,9 @@ public class DivisionCommanderAI {
             case ENGAGE_ASSIGNED: {
                 if (auth != OtcAuthority.POSITIVE_CONTROL) return false;
                 if (!targetValid || div.archetype.isCarrierArchetype() || activeMission == DivisionMissionType.SCREEN) return false;
+                if (shouldStandOffDueToTsfOvermatch(engine, div, target, myGroup, now)) {
+                    return applyTsfOvermatchResponse(engine, div, target, myGroup, prevIntent, (now - div.lastBreakOffTimestamp) >= 12f, "OTC: ", now);
+                }
                 Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, target);
                 float dist = distance(div.centroid, visEnemyPos);
                 div.targetEnemyDivision = target;
@@ -2398,6 +2509,114 @@ public class DivisionCommanderAI {
     /** Mission-Type Tactics: a division joins a timed strike only if it is in shape to. */
     static boolean acceptsStrikeRequest(DivisionState div) {
         return div.avgFluxLevel < 0.60f && (div.localEnemyStrength < 20f || div.localForceRatio >= 0.90f);
+    }
+
+    /**
+     * Generic Time-Space-Firepower (TSF) Overmatch Gate (hull-agnostic):
+     * Evaluates {@code div} (plus converging/fixing friendly divisions) against {@code target} across T, S, and F.
+     * Returns true when {@code target} is unfixed, healthy, and decisively outmatches {@code div}'s TSF combat power
+     * so {@code div} shadows/harasses from outside the enemy's primary gun ring rather than trading bow-to-bow.
+     */
+    static boolean shouldStandOffDueToTsfOvermatch(
+            CombatEngineAPI engine,
+            DivisionState div,
+            DivisionState target,
+            BattleGroupState myGroup,
+            float now) {
+        if (div == null || target == null || !target.isCombatEffective()) return false;
+        if (div.archetype.isCarrierArchetype() || div.archetype == DivisionArchetype.SERVICE_GROUP) return false;
+        if (isMartyrdomActive(div, myGroup, now) || OtcAI.isFullAssaultActive(engine, myGroup)) return false;
+        if (myGroup != null && OtcBattlePlanner.isStrikeExecutingOn(myGroup, target)) return false;
+        // Main Effort battle-line anchor (cruisers/capitals holding the fleet center) stands and fixes unless under
+        // Explicit Skirmish & Withdraw posture!
+        boolean skirmishPosture = myGroup != null
+                && myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.SKIRMISH_WITHDRAW;
+        boolean linePosture = myGroup != null
+                && myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.LINE_COHESION;
+        if (!skirmishPosture
+                && myGroup != null
+                && div == myGroup.mainEffortDivision
+                && div.totalFpStrength >= 36f) {
+            return false;
+        }
+        // Wounded, high-flux, or unable prey can be pressed even by lighter forces!
+        if (target.avgFluxLevel >= 0.58f || target.avgHullLevel < 0.48f || target.isUnableDivision) {
+            div.targetTsfRatio = 1.35f;
+            return false;
+        }
+        float tsfRatio = BattlefieldFirepowerEvaluator.evaluateTsfEngagementRatio(engine, div, target, myGroup);
+        div.targetTsfRatio = tsfRatio;
+        float overmatchThreshold = skirmishPosture ? 0.76f : (linePosture ? 0.64f : 0.70f);
+        // Require clearly inferior TSF AND target not yet heavily pinned in combat by allied anvils
+        return tsfRatio < overmatchThreshold && target.engagementLevel < 0.38f;
+    }
+
+    /**
+     * Executes standoff shadowing, missile harassment, or Trade Space for Time when TSF-overmatched by {@code target}
+     * until friendly divisions or carrier Voidstrikes converge and tip the TSF balance!
+     */
+    static boolean applyTsfOvermatchResponse(
+            CombatEngineAPI engine,
+            DivisionState div,
+            DivisionState target,
+            BattleGroupState myGroup,
+            DivisionIntentType prevIntent,
+            boolean strikeCooldownElapsed,
+            String prefixTag,
+            float now) {
+        Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, target);
+        float dist = distance(div.centroid, ePos);
+        div.targetEnemyDivision = target;
+
+        // 1. If strike missiles/torpedoes are ready and within strike horizon, harass from standoff rather than brawling!
+        if (div.hasMissileStrikeCapability
+                && div.usableStrikeAmmoCount > 0
+                && strikeCooldownElapsed
+                && div.avgFluxLevel < 0.52f
+                && dist <= 4200f) {
+            div.stationPoint.set(ePos);
+            if (prevIntent != DivisionIntentType.HARASSING_MISSILE_ATTACK) {
+                div.strikeCommittedTimestamp = now;
+            }
+            String reason = String.format("%sTSF ratio %.2fx, standoff strike", prefixTag, div.targetTsfRatio);
+            return commitIntent(engine, div, DivisionIntentType.HARASSING_MISSILE_ATTACK, target.displayName, reason, now);
+        }
+
+        // 2. If already inside the superior target's Space-dominated heavy gun envelope, Trade Space for Time to open range!
+        float safeShadowFloor = Math.max(
+                Math.max(1080f, div.standoffRange),
+                Math.max(target.spaceDominatedRadius, target.avgEngageRange) + 220f);
+        if (dist < safeShadowFloor - 80f) {
+            BattlefieldFirepowerEvaluator.computeTradeSpaceForTimeOffset(
+                    engine, div, target, myGroup, div.spaceOffsetVector);
+            div.stationPoint.set(
+                    div.centroid.x + div.spaceOffsetVector.x,
+                    div.centroid.y + div.spaceOffsetVector.y);
+            if (prevIntent != DivisionIntentType.TRADE_SPACE_FOR_TIME) {
+                div.tradeSpaceStartTime = now;
+            }
+            String reason = String.format("%sTSF overmatch (%.2fx), opening range", prefixTag, div.targetTsfRatio);
+            return commitIntent(engine, div, DivisionIntentType.TRADE_SPACE_FOR_TIME, target.displayName, reason, now);
+        }
+
+        // 3. Otherwise shadow just outside the enemy's gun envelope, ready to pounce as soon as allies fix/flux it!
+        float dx = div.centroid.x - ePos.x;
+        float dy = div.centroid.y - ePos.y;
+        float len = (float) Math.sqrt(dx * dx + dy * dy);
+        if (len < 1f) {
+            dx = 0f;
+            dy = OtcAI.getBattleGroupRetreatDirY(myGroup);
+            len = 1f;
+        }
+        div.stationPoint.set(
+                ePos.x + (dx / len) * safeShadowFloor,
+                ePos.y + (dy / len) * safeShadowFloor);
+        // Pull shadow station out of any active northern enemy reinforcement gate
+        if (myGroup != null && BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, div.stationPoint) >= 0.25f) {
+            div.stationPoint.y += OtcAI.getBattleGroupRetreatDirY(myGroup) * 650f;
+        }
+        String reason = String.format("%sTSF overmatch (%.2fx), shadowing at %.0fu", prefixTag, div.targetTsfRatio, safeShadowFloor);
+        return commitIntent(engine, div, DivisionIntentType.TRADE_SPACE_FOR_TIME, target.displayName, reason, now);
     }
 
     /**
@@ -3257,6 +3476,7 @@ public class DivisionCommanderAI {
                     && div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
                     && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                     && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
+                    && div.currentIntent != DivisionIntentType.RUN_THE_GAUNTLET
                     && ship.getFluxLevel() < 0.74f
                     && ship.getHullLevel() > 0.38f
                     && ((ship.getSystem() != null && (ship.getSystem().isActive() || ship.getSystem().isChargeup()))
@@ -3356,12 +3576,13 @@ public class DivisionCommanderAI {
                     && div.targetObjective != null
                     && div.targetObjective.getOwner() != div.side;
             float crisisFluxThreshold = uncapturedDirectObjMarch
-                    ? 0.80f
+                    ? 1.01f
                     : ((div.incomingInRangeFirepower > 35f || div.localEnemyStrength >= 14f) ? 0.74f : 0.80f);
             boolean shipInPersonalCrisis = !martyrdom
                     && div.localEnemyStrength >= 8f
                     && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                     && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
+                    && div.currentIntent != DivisionIntentType.RUN_THE_GAUNTLET
                     && ((!uncapturedDirectObjMarch && (loneOrOutnumberedFrigateInDanger
                     || destroyerInEhpDanger
                     || postRamCooldownDanger))
@@ -3427,7 +3648,8 @@ public class DivisionCommanderAI {
 
             // Bounded pursuit & cohesion leash: prevent lone ships from chasing bait 3000u away
             if (shipStraggling && div.currentIntent != DivisionIntentType.HARASSING_MISSILE_ATTACK
-                    && div.currentIntent != DivisionIntentType.TOT_MISSILE_STRIKE) {
+                    && div.currentIntent != DivisionIntentType.TOT_MISSILE_STRIKE
+                    && div.currentIntent != DivisionIntentType.RUN_THE_GAUNTLET) {
                 float[] chosenSide = new float[]{div.routeSkirtSide};
                 Vector2f safeSlotPos = DivisionFormationNavigator.computeOutOfContactRoutePoint(
                         engine,
@@ -3604,6 +3826,7 @@ public class DivisionCommanderAI {
         if (shipActivelyRammingOrCharging
                 && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
                 && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
+                && div.currentIntent != DivisionIntentType.RUN_THE_GAUNTLET
                 && ship.getFluxLevel() < 0.78f
                 && ship.getHullLevel() > 0.35f) {
             flags.unsetFlag(AIFlags.BACK_OFF);
@@ -3677,6 +3900,26 @@ public class DivisionCommanderAI {
             case PRESS_HOME:
                 applyPressHomeFlags(engine, ship, shipIdx, flags, slotPos, focusEnemyShip, div, myGroup, structuredFormation, dressTol, now);
                 break;
+
+            case RUN_THE_GAUNTLET: {
+                // High-Speed Forward Breakout ("Run the Gauntlet"):
+                // Every ship turns its bow directly toward the lowest-lethality TSF seam back to friendly Space at
+                // 100% forward speed + mobility ship systems. Unset BACK_OFF and set DO_NOT_BACK_OFF + DO_NOT_PURSUE
+                // so vanilla AI never recoils northward into the map edge when enemies sit along the flanks of the seam!
+                flags.unsetFlag(AIFlags.MANEUVER_TARGET);
+                flags.unsetFlag(AIFlags.BACK_OFF);
+                flags.unsetFlag(AIFlags.HARASS_MOVE_IN);
+                flags.unsetFlag(AIFlags.PURSUING);
+                flags.setFlag(AIFlags.DO_NOT_BACK_OFF, FLAG_TTL * 1.5f);
+                flags.setFlag(AIFlags.RUN_QUICKLY, FLAG_TTL * 1.5f);
+                flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL * 1.5f);
+                Vector2f gauntletGoal = (slotPos != null && distance(ship.getLocation(), slotPos) > 180f)
+                        ? slotPos
+                        : div.stationPoint;
+                flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL * 1.5f, gauntletGoal);
+                flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL * 1.5f, gauntletGoal);
+                break;
+            }
 
             case BREAK_OFF_AND_RETIRE:
             case HAUL_OUT_TO_VENT: {
@@ -3864,6 +4107,14 @@ public class DivisionCommanderAI {
         TacticalZoneType shipZone = (shipId != null) ? div.shipZoneTypeByShipId.get(shipId) : null;
         ShipRankState rankState = (shipId != null) ? div.shipRankStateByShipId.get(shipId) : null;
         boolean fullAssault = OtcAI.isFullAssaultActive(engine, myGroup);
+        if (div.currentIntent != null && div.currentIntent.isWithdrawalOrBreakout()) {
+            // Never strip CAMP_LOCATION or force nose-in MANEUVER_TARGET reverse-backing when a division is actively
+            // withdrawing (HAUL_OUT_TO_VENT / BREAK_OFF_AND_RETIRE) or punching out (RUN_THE_GAUNTLET)!
+            if (shipZone == TacticalZoneType.SAFE_ZONE) {
+                flags.unsetFlag(AIFlags.DO_NOT_VENT);
+            }
+            return false;
+        }
         if (shipZone == TacticalZoneType.SAFE_ZONE) {
             flags.unsetFlag(AIFlags.DO_NOT_VENT);
         } else if ((shipZone == TacticalZoneType.ENGAGEMENT_ZONE || shipZone == TacticalZoneType.KILL_ZONE)
@@ -5941,7 +6192,7 @@ public class DivisionCommanderAI {
         for (int i = 0; i < myGroup.divisions.size(); i++) {
             DivisionState d = myGroup.divisions.get(i);
             if (d == null) continue;
-            if (!d.isCombatEffective() || d.archetype.isCarrierArchetype() || d.avgFluxLevel >= 0.84f) {
+            if (!d.isCombatEffective() || d.archetype.isCarrierArchetype()) {
                 if (d.underDirectObjectiveOrder) {
                     d.underDirectObjectiveOrder = false;
                 }
@@ -5977,7 +6228,6 @@ public class DivisionCommanderAI {
             if (d == null || !d.isCombatEffective()) continue;
             if (d.archetype.isCarrierArchetype()) continue;
             if (d.side != 0 || (d.flagship != null && d.flagship.isAlly())) continue;
-            if (d.avgFluxLevel >= 0.84f) continue;
             availDivs.add(d);
         }
         if (availDivs.isEmpty()) return java.util.Collections.emptyMap();

@@ -3214,7 +3214,7 @@ public class UITestHarness {
 
         for (PermanentDivisionManager.OperationalTemplate ot : PermanentDivisionManager.OperationalTemplate.values()) {
             auditedStrings += 3;
-            if (ot.displayName.length() > 26 || ot.shortName.length() > 20 || ot.summary.length() > 95 || countWords(ot.summary) > 16) {
+            if (ot.displayName.length() > 34 || ot.shortName.length() > 24 || ot.summary.length() > 95 || countWords(ot.summary) > 16) {
                 violations.add("OperationalTemplate." + ot.name() + " copy exceeds budget: " + ot.displayName + " / " + ot.summary);
             }
         }

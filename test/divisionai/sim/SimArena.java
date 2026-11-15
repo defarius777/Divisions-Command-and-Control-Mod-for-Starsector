@@ -819,6 +819,26 @@ public class SimArena {
     public final List<SimShipState> ships = new ArrayList<>();
     public final List<BattleObjectiveAPI> objectives = new ArrayList<>();
     public final List<CombatFleetManagerAPI.AssignmentInfo> playerAssignments = new ArrayList<>();
+    public final List<com.fs.starfarer.api.fleet.FleetMemberAPI> reservesSide0 = new ArrayList<>();
+    public final List<com.fs.starfarer.api.fleet.FleetMemberAPI> reservesSide1 = new ArrayList<>();
+
+    public void addReserveMember(int side, final int fpCost) {
+        com.fs.starfarer.api.fleet.FleetMemberAPI member = (com.fs.starfarer.api.fleet.FleetMemberAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.fleet.FleetMemberAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getFleetPointCost".equals(n)) return fpCost;
+                    if ("isFighterWing".equals(n) || "isCivilian".equals(n)) return Boolean.FALSE;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        if (side == 1) reservesSide1.add(member);
+        else reservesSide0.add(member);
+    }
     public final List<String> combatLogs = new ArrayList<>();
     public BattleGroupState playerGroup;
     public BattleGroupState enemyGroup;
@@ -967,6 +987,7 @@ public class SimArena {
                 new Class<?>[]{CombatFleetManagerAPI.class},
                 (p, m, a) -> {
                     if ("getTaskManager".equals(m.getName())) return tmProxy0;
+                    if ("getReservesCopy".equals(m.getName())) return reservesSide0;
                     Class<?> rt = m.getReturnType();
                     if (rt == boolean.class) return false;
                     if (rt == int.class) return 0;
@@ -978,6 +999,7 @@ public class SimArena {
                 new Class<?>[]{CombatFleetManagerAPI.class},
                 (p, m, a) -> {
                     if ("getTaskManager".equals(m.getName())) return tmProxy1;
+                    if ("getReservesCopy".equals(m.getName())) return reservesSide1;
                     Class<?> rt = m.getReturnType();
                     if (rt == boolean.class) return false;
                     if (rt == int.class) return 0;
@@ -1101,7 +1123,7 @@ public class SimArena {
      *   chords through an enemy battle line, proving that wide-arc waypoints clear the obstacle)
      * - Simulates weapon flux buildup and passive dissipation.
      */
-    private void stepPhysics(float dt) {
+    public void stepPhysics(float dt) {
         for (SimShipState s : ships) {
             if (!s.alive) continue;
             if (s.systemCooldownRemaining > 0f) {

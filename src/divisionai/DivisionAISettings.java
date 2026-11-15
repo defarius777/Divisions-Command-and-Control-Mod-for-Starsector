@@ -445,6 +445,7 @@ public class DivisionAISettings {
             case REINFORCE_DIVISION:
             case HAUL_OUT_TO_VENT:
             case BREAK_OFF_AND_RETIRE:
+            case RUN_THE_GAUNTLET:
             case FEIGNED_RETREAT:
                 return true;
             default:
@@ -520,6 +521,7 @@ public class DivisionAISettings {
             case REINFORCE_DIVISION:
             case HAUL_OUT_TO_VENT:
             case BREAK_OFF_AND_RETIRE:
+            case RUN_THE_GAUNTLET:
             case TOT_MISSILE_STRIKE:
             case TOT_ALPHA_STRIKE:
             case HARASSING_MISSILE_ATTACK:

@@ -2217,7 +2217,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             String act = "SET_OP_TEMPLATE:" + tpl.name();
             ButtonAPI bTpl = registerButton(
                     tplUi.addButton(
-                            tpl.displayName,
+                            tpl.shortName,
                             act,
                             isActive ? activeValueColor : baseColor,
                             darkColor,

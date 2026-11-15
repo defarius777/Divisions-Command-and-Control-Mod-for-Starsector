@@ -1066,6 +1066,7 @@ public final class ShipSystemCoordinator {
                         && ship.getHullLevel() > 0.38f;
                 boolean isShipExtracting = div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                         || div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
+                        || div.currentIntent == DivisionIntentType.RUN_THE_GAUNTLET
                         || (!directObjectiveMarch && !activeOrChargingRam && (hasRunQuickly
                         || (hasBackOff && (ship.getFluxLevel() >= 0.45f || ship.getHullLevel() < 0.72f || div.localForceRatio < 0.82f))));
 

@@ -370,7 +370,8 @@ public class DivisionCombatLog {
                 && div.targetEnemyDivision != null
                 && div.currentIntent != DivisionIntentType.TAKE_SCREENING_STATION
                 && div.currentIntent != DivisionIntentType.REINFORCE_DIVISION
-                && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT) {
+                && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
+                && div.currentIntent != DivisionIntentType.RUN_THE_GAUNTLET) {
             cleanTarget = (div.side == 0 ? "Enemy " : "Player ") + cleanTarget;
         }
 
@@ -492,7 +493,8 @@ public class DivisionCombatLog {
         }
         if (actor.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION
                 || actor.currentIntent == DivisionIntentType.REINFORCE_DIVISION
-                || actor.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT) {
+                || actor.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
+                || actor.currentIntent == DivisionIntentType.RUN_THE_GAUNTLET) {
             return (actor.side == 0) ? safePositiveHighlightColor() : safeNegativeHighlightColor();
         }
         if (actor.currentIntent == DivisionIntentType.TAKE_AND_HOLD) {

@@ -137,6 +137,7 @@ public class DivisionModel {
         WORK_FLANK("work around the flank of", "flanking", "Flank ->"),
         BREAK_OFF_AND_RETIRE("break off and retire from", "retiring from", "Retire <-"),
         HAUL_OUT_TO_VENT("haul out of the line to vent behind", "venting behind", "Venting"),
+        RUN_THE_GAUNTLET("run the gauntlet toward", "breaking out toward", "Breakout ->"),
         HOLD_IN_RESERVE("hold in reserve, awaiting orders", "holding in reserve", "Reserve"),
         TAKE_AND_HOLD("take and hold", "seizing", "Capture ->"),
         FLY_ARMED_RECONNAISSANCE("fly armed reconnaissance toward", "flying armed recon toward", "Recon ->"),
@@ -159,6 +160,12 @@ public class DivisionModel {
             this.verbPhrase = verbPhrase;
             this.mediumPhrase = mediumPhrase;
             this.minimalPhrase = minimalPhrase;
+        }
+
+        public boolean isWithdrawalOrBreakout() {
+            return this == HAUL_OUT_TO_VENT
+                    || this == BREAK_OFF_AND_RETIRE
+                    || this == RUN_THE_GAUNTLET;
         }
     }
 
@@ -495,7 +502,11 @@ public class DivisionModel {
         public float effectiveHpRatio = 1.0f;
         public float localFriendlyStrength;
         public float localEnemyStrength;
-        public float localForceRatio; // localFriendlyStrength / max(1, localEnemyStrength)
+        public float localForceRatio; // TSF-synthesized local combat power ratio (Time x Space x Firepower)
+        public float tsfCombatPower;  // Division's own Lanchester TSF combat power
+        public float targetTsfRatio = 1.5f; // Pairwise TSF engagement ratio against current/candidate target division
+        public boolean inEnemyReinforcementHazard = false;
+        public float gauntletStartTime = -100f;
         public float incomingAlphaThreat;
         public float incomingShortDotThreat;
         public float incomingSustainedDotThreat;
@@ -860,6 +871,13 @@ public class DivisionModel {
         public float totalFriendlyStrength;
         public float totalEnemyStrength;
         public float forceRatio = 1.0f;
+        // Enemy North/South-Center Reinforcement Corridor Awareness (populated from enemy CombatFleetManager reserves)
+        public int enemyUndeployedReserveCount = 0;
+        public float enemyUndeployedReserveFp = 0f;
+        public float enemyReinforcementHazard = 0f; // 0.0 when enemy reserves exhausted, up to 1.0 while heavy waves remain
+        public final Vector2f enemySpawnGateCenter = new Vector2f(0f, 0f);
+        public float enemySpawnCorridorHalfWidth = 2250f;
+        public float enemySpawnCorridorDepth = 3100f;
 
         // Explicit Fleet-Wide Engagement / Violent Contact Telemetry (mass-weighted across all divisions)
         public float engagedFpMass = 0f;

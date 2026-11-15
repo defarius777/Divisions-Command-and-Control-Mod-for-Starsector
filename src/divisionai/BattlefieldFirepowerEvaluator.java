@@ -1630,24 +1630,328 @@ public class BattlefieldFirepowerEvaluator {
         updateDivisionFirepowerUptimeTelemetry(engine, div);
     }
 
+    public static ShipFirepowerRose getShipRose(ShipAPI ship) {
+        return (ship != null && ship.getId() != null) ? rosesByShipId.get(ship.getId()) : null;
+    }
+
     /**
-     * Computes a ship's current live combat power (in FP-equivalent units) combining:
-     *  - Live ready weapon firepower (from its ShipFirepowerRose / weapon mounts, discounting disabled, empty,
-     *    and reloading weapons; phased ships are exempt from reload/cooldown suppression so their latent threat counts)
-     *  - Live Effective HP (Shield HP + Armor HP + Hull HP)
+     * Computes a ship's current Lanchester TSF (Time x Space x Firepower) combat power in FP-equivalent units:
+     *  - Firepower (F): Live ready weapon sustained + alpha + strike-craft ordnance (discounting disabled, empty,
+     *    reloading, or flux-saturated mounts; phase ships preserve latent threat).
+     *  - Space (S): Live Effective HP (Shield HP + remaining flux headroom + Armor HP + Hull HP) scaled by actual
+     *    weapon reach authority so longer-ranged ships reflect their Space envelope advantage.
+     *  - Time (T): Mobility / maneuver initiative factor (discounted when overloaded, venting, or flamed out).
+     *  - Synthesized multiplicatively via Lanchester's Square Law: sqrt(F * S) * T.
      */
     public static float computeEffectiveShipCombatPower(ShipAPI ship) {
         if (ship == null || !ship.isAlive() || ship.isHulk()) return 0f;
         float baseFp = ShipCapabilityProfile.resolveShipFpStrength(ship);
-        float readiness = Math.max(0.35f, ship.getHullLevel() * (1.15f - 0.5f * ship.getFluxLevel()));
-        float ehpStrength = computeShipEffectiveHp(ship) / 1600f;
+        float readiness = Math.max(0.30f, ship.getHullLevel() * (1.15f - 0.55f * ship.getFluxLevel()));
+        float ehpStrength = computeShipEffectiveHp(ship) / 1550f;
         float liveFp = computeShipLiveFirepowerScore(ship, false);
         float maxFp = Math.max(5f, computeShipLiveFirepowerScore(ship, true));
-        // Item A: When all weapons are ready (or ship is phased), weaponReadinessMod = 1.0 (matching baseline FP calibration);
-        // when weapons are reloading, disabled, or out of ammo, weaponReadinessMod scales the firepower score down toward 0.12.
         float weaponReadinessMod = clampVal(liveFp / maxFp, 0.12f, 1.0f);
-        float firepowerTerm = baseFp * readiness * weaponReadinessMod;
-        return 0.42f * firepowerTerm + 0.58f * ehpStrength;
+
+        // On real Starsector ships (with populated weapon mounts), blend actual weapon lethality (liveFp / 13.5f)
+        // with hull-class baseline; on lightweight headless SimArena mocks (<= 1 dummy weapon), preserve baseline FP scale.
+        List<WeaponAPI> wList = ship.getAllWeapons();
+        boolean hasDetailedWeapons = wList != null && wList.size() >= 3;
+        float measuredFirepowerFp = liveFp / 13.5f;
+        float baselineFirepowerFp = baseFp * readiness * weaponReadinessMod;
+        float firepowerTerm = hasDetailedWeapons
+                ? (measuredFirepowerFp * 0.65f + baselineFirepowerFp * 0.35f)
+                : Math.max(baselineFirepowerFp, measuredFirepowerFp * 0.50f);
+
+        // Space reach factor from cached ShipFirepowerRose max sector range
+        ShipFirepowerRose rose = getShipRose(ship);
+        float maxReach = (rose != null && rose.maxGeneralRange > 100f) ? rose.maxGeneralRange : 850f;
+        float spaceReachFactor = clampVal(0.84f + maxReach / 3600f, 0.84f, 1.24f);
+        float spaceTerm = Math.max(0.35f, ehpStrength * spaceReachFactor);
+
+        // Time mobility / initiative factor
+        FluxTrackerAPI ft = ship.getFluxTracker();
+        boolean overloadedOrVenting = ft != null && ft.isOverloadedOrVenting();
+        boolean enginesFlamedOut = ship.getEngineController() != null && ship.getEngineController().isFlamedOut();
+        float rawSpd = Math.max(20f, ship.getMaxSpeed());
+        float timeMult = (overloadedOrVenting || enginesFlamedOut)
+                ? 0.58f
+                : clampVal(0.86f + rawSpd / 560f, 0.80f, 1.18f);
+
+        return (float) Math.sqrt(Math.max(0.25f, firepowerTerm) * spaceTerm) * timeMult;
+    }
+
+    /**
+     * Evaluates the generic Time-Space-Firepower (TSF) engagement ratio for {@code myDiv} engaging {@code enemyDiv}
+     * without restricting to hardcoded hull sizes:
+     *  - Firepower (F): Committed friendly TSF firepower (including sibling divisions already actively engaging or
+     *    converging on {@code enemyDiv}) vs {@code enemyDiv}'s directional firepower along {@code myDiv}'s bearing
+     *    (accounting for stern/flank blind spots and attention splitting when {@code enemyDiv} is already fixed).
+     *  - Space (S): Endurance & weapon-envelope reach differential ({@code enemyReach - myReach}).
+     *  - Time (T): One-sided approach transit exposure time across any range deficit + maneuver Time-freedom ratio.
+     *
+     * Values < 0.74 indicate {@code myDiv} is TSF-overmatched in a direct frontal duel unless friendly divisions or
+     * strike craft converge or spike the target's flux first.
+     */
+    public static float evaluateTsfEngagementRatio(
+            CombatEngineAPI engine,
+            DivisionState myDiv,
+            DivisionState enemyDiv,
+            DivisionModel.BattleGroupState myGroup) {
+        if (myDiv == null || enemyDiv == null || !enemyDiv.isCombatEffective()) return 2.0f;
+        if (!OtcAI.isDivisionVisibleToSide(engine, myDiv.side, enemyDiv)) return 1.5f;
+
+        Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myDiv.side, enemyDiv);
+        float myTsf = Math.max(1.5f, myDiv.tsfCombatPower > 0.5f ? myDiv.tsfCombatPower : myDiv.totalFpStrength);
+
+        // Include sibling friendly divisions already fixing or converging onto this same enemy division
+        float siblingCommittedTsf = 0f;
+        int fixingSiblings = 0;
+        if (myGroup != null) {
+            for (int i = 0, n = myGroup.divisions.size(); i < n; i++) {
+                DivisionState sib = myGroup.divisions.get(i);
+                if (sib == null || sib == myDiv || !sib.isAbleCombatEffective()) continue;
+                if (sib.currentIntent != null && sib.currentIntent.isWithdrawalOrBreakout()) continue;
+                float dSib = distance(sib.centroid, ePos);
+                boolean targetingSame = (sib.targetEnemyDivision == enemyDiv)
+                        || (sib.otcOrder != null && sib.otcOrder.targetEnemy == enemyDiv);
+                float sibEngageReach = Math.max(1250f, sib.spaceDominatedRadius + 350f);
+                if (dSib <= sibEngageReach || (targetingSame && dSib <= 2100f)) {
+                    float w = (dSib <= sibEngageReach) ? 0.90f : 0.55f;
+                    float sibPower = sib.tsfCombatPower > 0.5f ? sib.tsfCombatPower : sib.totalFpStrength;
+                    siblingCommittedTsf += sibPower * w;
+                    if (dSib <= sibEngageReach) fixingSiblings++;
+                }
+            }
+        }
+
+        // Visible enemy TSF combat power
+        float enemyVisTsf = 0f;
+        float maxEnemyReachTowardUs = 0f;
+        float enemyBearingFirepower = 0f;
+        float enemyPeakFirepower = 0f;
+        List<ShipAPI> eMembers = enemyDiv.members;
+        for (int i = 0, n = eMembers.size(); i < n; i++) {
+            ShipAPI es = eMembers.get(i);
+            if (es == null || !es.isAlive() || es.isHulk() || DivisionState.isShipUnable(es)) continue;
+            if (!OtcAI.isShipVisibleToSide(engine, myDiv.side, es)) continue;
+            enemyVisTsf += computeEffectiveShipCombatPower(es);
+            ShipFirepowerRose rose = getShipRose(es);
+            if (rose != null) {
+                float dx = myDiv.centroid.x - es.getLocation().x;
+                float dy = myDiv.centroid.y - es.getLocation().y;
+                float worldBear = (float) Math.toDegrees(Math.atan2(dy, dx));
+                float relAng = normalizeAngle360(worldBear - es.getFacing());
+                float reachOnBearing = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relAng);
+                if (reachOnBearing > maxEnemyReachTowardUs) {
+                    maxEnemyReachTowardUs = reachOnBearing;
+                }
+                float bearFp = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relAng)
+                        + ShipFirepowerRose.sampleArrayAtRelAngle(rose.alpha, relAng) * 0.35f;
+                float bowFp = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, 0f)
+                        + ShipFirepowerRose.sampleArrayAtRelAngle(rose.alpha, 0f) * 0.35f;
+                enemyBearingFirepower += bearFp;
+                enemyPeakFirepower += Math.max(bearFp, bowFp);
+            }
+        }
+        if (enemyVisTsf <= 0.5f) return 2.5f;
+
+        // Bearing / Attention factor: if enemyDiv is already fixed by another division and we are approaching its
+        // weaker flank/stern octant, discount its effective bearing lethality; if unfixed, it can slew its bow onto us!
+        float bearingFraction = (enemyPeakFirepower > 5f)
+                ? clampVal(enemyBearingFirepower / enemyPeakFirepower, 0.38f, 1.08f)
+                : 1.0f;
+        boolean enemyPinnedElsewhere = fixingSiblings >= 1 || enemyDiv.engagementLevel >= 0.32f;
+        float effectiveBearingMod = enemyPinnedElsewhere
+                ? (0.52f + 0.48f * bearingFraction)
+                : Math.max(0.88f, bearingFraction);
+
+        // Space & Time approach transit tax when enemy out-ranges our division and is not flux-saturated
+        float enemyReach = Math.max(maxEnemyReachTowardUs, Math.max(enemyDiv.spaceDominatedRadius, enemyDiv.avgEngageRange));
+        float myReach = Math.max(myDiv.spaceDominatedRadius, myDiv.avgEngageRange);
+        float transitFactor = 1.0f;
+        if (!myDiv.archetype.isCarrierArchetype()
+                && enemyReach > myReach + 110f
+                && enemyDiv.avgFluxLevel < 0.58f) {
+            float rangeDeficit = enemyReach - myReach;
+            float netClosingSpd = Math.max(35f, myDiv.weightedTimeSpeed - enemyDiv.weightedTimeSpeed * 0.30f);
+            float exposureSec = rangeDeficit / netClosingSpd;
+            transitFactor = 1.0f / (1.0f + Math.min(0.75f, exposureSec * 0.085f));
+        }
+
+        // Time maneuver freedom differential (pinned/overfluxed targets lose Time initiative)
+        float myTime = Math.max(220f, myDiv.effectiveTimeRadius > 50f ? myDiv.effectiveTimeRadius : myDiv.avgMaxSpeed * 6f);
+        float enTime = Math.max(220f, enemyDiv.effectiveTimeRadius > 50f ? enemyDiv.effectiveTimeRadius : enemyDiv.avgMaxSpeed * 6f);
+        float timeAdv = clampVal(myTime / enTime, 0.74f, 1.30f);
+
+        // Reinforcement Corridor penalty: engaging an enemy division sitting inside its own active northern spawn chute
+        // carries a steep TSF hazard because fresh 600 su/s enemy hulls can enter behind/beside it at any moment!
+        float spawnGatePenalty = 1.0f;
+        if (myGroup != null && myGroup.enemyReinforcementHazard > 0.12f) {
+            float gateDanger = computeEnemySpawnCorridorDanger(myGroup, ePos);
+            spawnGatePenalty = 1.0f / (1.0f + gateDanger * 0.55f);
+        }
+
+        float rawRatio = (myTsf + siblingCommittedTsf) / Math.max(1.0f, enemyVisTsf * effectiveBearingMod);
+        return rawRatio * transitFactor * timeAdv * spawnGatePenalty;
+    }
+
+    /**
+     * Updates awareness of the enemy's North/South-Center Reinforcement Corridor from {@code getReservesCopy()}.
+     * In standard (non-pursuit) battles, enemy reinforcements burn in at 600 su/s along {@code x in [-2250, +2250]}
+     * from the enemy map edge. Once enemy reserves are exhausted, {@code enemyReinforcementHazard} drops to 0.
+     */
+    public static void updateEnemyReinforcementCorridor(
+            CombatEngineAPI engine,
+            DivisionModel.BattleGroupState myGroup) {
+        if (myGroup == null) return;
+        if (engine == null || OtcAI.isPursuitBattle(engine, myGroup)) {
+            myGroup.enemyUndeployedReserveCount = 0;
+            myGroup.enemyUndeployedReserveFp = 0f;
+            myGroup.enemyReinforcementHazard = 0f;
+            return;
+        }
+        float halfH = (engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.5f) : 9000f;
+        float halfW = (engine.getMapWidth() > 2000f) ? (engine.getMapWidth() * 0.5f) : 9000f;
+        float enemyEdgeY = (myGroup.side == 0) ? (halfH - 550f) : (-halfH + 550f);
+        myGroup.enemySpawnGateCenter.set(0f, enemyEdgeY);
+        myGroup.enemySpawnCorridorHalfWidth = Math.min(2350f, halfW * 0.34f);
+        myGroup.enemySpawnCorridorDepth = Math.min(3200f, halfH * 0.38f);
+
+        int enemyOwner = 1 - myGroup.side;
+        com.fs.starfarer.api.combat.CombatFleetManagerAPI enemyFm = engine.getFleetManager(enemyOwner);
+        int resCount = 0;
+        float resFp = 0f;
+        if (enemyFm != null && enemyFm.getReservesCopy() != null) {
+            for (com.fs.starfarer.api.fleet.FleetMemberAPI rm : enemyFm.getReservesCopy()) {
+                if (rm == null || rm.isFighterWing() || rm.isCivilian()) continue;
+                resCount++;
+                resFp += Math.max(4f, rm.getFleetPointCost());
+            }
+        }
+        myGroup.enemyUndeployedReserveCount = resCount;
+        myGroup.enemyUndeployedReserveFp = resFp;
+        if (resCount <= 0 || resFp <= 1f) {
+            myGroup.enemyReinforcementHazard = 0f;
+        } else {
+            float refFriendly = Math.max(24f, myGroup.totalFriendlyStrength);
+            myGroup.enemyReinforcementHazard = clampVal(resFp / (refFriendly * 0.85f), 0.18f, 1.0f);
+        }
+    }
+
+    /**
+     * Returns [0..1] reinforcement-chute hazard at world point {@code pt} (0 outside the north-center spawn gate or
+     * when enemy reserves are empty; up to {@code enemyReinforcementHazard} at the north-center entry mouth).
+     */
+    public static float computeEnemySpawnCorridorDanger(
+            DivisionModel.BattleGroupState myGroup,
+            Vector2f pt) {
+        if (myGroup == null || pt == null || myGroup.enemyReinforcementHazard <= 0.02f) return 0f;
+        float dx = Math.abs(pt.x - myGroup.enemySpawnGateCenter.x);
+        float halfW = Math.max(800f, myGroup.enemySpawnCorridorHalfWidth);
+        if (dx >= halfW) return 0f;
+
+        // Depth measured inward from enemy edge toward map center
+        float inwardDist = (myGroup.side == 0)
+                ? (myGroup.enemySpawnGateCenter.y + 550f - pt.y)
+                : (pt.y - (myGroup.enemySpawnGateCenter.y - 550f));
+        float maxDepth = Math.max(1200f, myGroup.enemySpawnCorridorDepth);
+        if (inwardDist < -400f || inwardDist >= maxDepth) return 0f;
+
+        float latFactor = 1.0f - (dx / halfW);
+        float depthFactor = (inwardDist <= 900f)
+                ? 1.0f
+                : Math.max(0f, 1.0f - ((inwardDist - 900f) / Math.max(400f, maxDepth - 900f)));
+        return myGroup.enemyReinforcementHazard * latFactor * depthFactor;
+    }
+
+    /**
+     * Computes a "Run the Gauntlet" breakout waypoint for an encircled, cut-off, or spawn-gate-trapped division:
+     * locates the best friendly reception anchor (or fleet safe corridor) and samples 9 forward rays (-64..+64 deg)
+     * across the TSF firepower + reinforcement-corridor field to punch straight through the lowest-lethality seam
+     * back to friendly Space.
+     */
+    public static DivisionState computeGauntletBreakoutWaypoint(
+            CombatEngineAPI engine,
+            DivisionState div,
+            DivisionModel.BattleGroupState myGroup,
+            Vector2f outWaypoint) {
+        float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
+        DivisionState bestRallyFriend = null;
+        float bestFriendScore = -Float.MAX_VALUE;
+        if (myGroup != null) {
+            for (int i = 0, n = myGroup.divisions.size(); i < n; i++) {
+                DivisionState cand = myGroup.divisions.get(i);
+                if (cand == null || cand == div || !cand.isAbleCombatEffective()) continue;
+                if (cand.currentIntent == DivisionModel.DivisionIntentType.RUN_THE_GAUNTLET) continue;
+                float d = distance(div.centroid, cand.centroid);
+                if (d < 250f) continue;
+                float gateDanger = computeEnemySpawnCorridorDanger(myGroup, cand.centroid);
+                float score = (cand.tsfCombatPower > 0.5f ? cand.tsfCombatPower : cand.totalFpStrength) * 9f
+                        - d * 0.14f
+                        - cand.avgFluxLevel * 320f
+                        - cand.crossfireCordonIndex * 380f
+                        - gateDanger * 500f;
+                if (score > bestFriendScore) {
+                    bestFriendScore = score;
+                    bestRallyFriend = cand;
+                }
+            }
+        }
+
+        Vector2f goalAnchor;
+        if (bestRallyFriend != null) {
+            goalAnchor = new Vector2f(
+                    bestRallyFriend.centroid.x,
+                    bestRallyFriend.centroid.y + retreatDirY * 520f);
+        } else if (myGroup != null && (myGroup.fleetSafeCorridorCenter.x != 0f || myGroup.fleetSafeCorridorCenter.y != 0f)) {
+            goalAnchor = myGroup.fleetSafeCorridorCenter;
+        } else {
+            goalAnchor = new Vector2f(div.centroid.x * 0.65f, div.centroid.y + retreatDirY * 1800f);
+        }
+
+        float gx = goalAnchor.x - div.centroid.x;
+        float gy = goalAnchor.y - div.centroid.y;
+        float gLen = (float) Math.sqrt(gx * gx + gy * gy);
+        float baseAngDeg = (gLen > 40f)
+                ? (float) Math.toDegrees(Math.atan2(gy, gx))
+                : (retreatDirY < 0f ? -90f : 90f);
+
+        float avgShieldArc = computeDivisionAvgShieldArc(div);
+        float bestRayCost = Float.MAX_VALUE;
+        float bestDx = (float) Math.cos(Math.toRadians(baseAngDeg));
+        float bestDy = (float) Math.sin(Math.toRadians(baseAngDeg));
+
+        for (int step = -4; step <= 4; step++) {
+            float angDeg = baseAngDeg + step * 16f;
+            float rad = (float) Math.toRadians(angDeg);
+            float rdx = (float) Math.cos(rad);
+            float rdy = (float) Math.sin(rad);
+
+            Vector2f midPt = new Vector2f(div.centroid.x + rdx * 780f, div.centroid.y + rdy * 780f);
+            Vector2f farPt = new Vector2f(div.centroid.x + rdx * 1500f, div.centroid.y + rdy * 1500f);
+
+            // Reject rays that slam into a map wall
+            float wallClear = computeDirectionalBoundaryClearance(engine, div.centroid, rdx, rdy, 180f);
+            if (wallClear < 950f) continue;
+
+            PointFirepowerEval midEval = evaluatePoint(engine, div.side, midPt, avgShieldArc);
+            PointFirepowerEval farEval = evaluatePoint(engine, div.side, farPt, avgShieldArc);
+            float spawnCost = (computeEnemySpawnCorridorDanger(myGroup, midPt)
+                    + computeEnemySpawnCorridorDanger(myGroup, farPt)) * 420f;
+            float devPenalty = Math.abs(step) * 42f;
+            float friendlyRelief = (midEval.friendlySustainedDot + farEval.friendlySustainedDot) * 0.35f;
+            float cost = midEval.effectiveDanger * 0.65f + farEval.effectiveDanger * 0.45f
+                    + spawnCost + devPenalty - friendlyRelief;
+            if (cost < bestRayCost) {
+                bestRayCost = cost;
+                bestDx = rdx;
+                bestDy = rdy;
+            }
+        }
+
+        float stepDist = (gLen > 400f) ? Math.min(1650f, Math.max(1150f, gLen)) : 1450f;
+        outWaypoint.set(div.centroid.x + bestDx * stepDist, div.centroid.y + bestDy * stepDist);
+        return bestRallyFriend;
     }
 
     /**
