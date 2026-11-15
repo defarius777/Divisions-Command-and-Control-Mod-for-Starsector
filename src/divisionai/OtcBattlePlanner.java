@@ -997,6 +997,11 @@ public class OtcBattlePlanner {
                 || myGroup.activeFleetWideFormation == FleetWideFormation.REFUSED_FLANK_LEFT)
                 && active.size() >= 3;
         DivisionState main = myGroup.mainEffortDivision;
+        DivisionState carrierAnchor = OtcAI.findPrimaryCarrierAnchorDivision(myGroup);
+        boolean openFlotillaAnchor = myGroup.operationalAnchor == PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA;
+        boolean carrierScreenAnchor = (myGroup.operationalAnchor == PermanentDivisionManager.OperationalAnchor.CARRIER_SCREEN
+                || myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
+                && carrierAnchor != null;
         boolean isPursuitInterception = (myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
         boolean isRearguardEscape = (myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
         if (!fullAssault && main != null && main.isCombatEffective() && !tasked.contains(main) && primary != null) {
@@ -1006,6 +1011,9 @@ public class OtcBattlePlanner {
                     || primary.retreatingFraction >= 0.35f
                     || DivisionState.isDivisionEscapingInPursuit(engine, primary)))
                     || primary.archetype == DivisionArchetype.SERVICE_GROUP;
+            boolean mainIsHeavyBattleship = main.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || main.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
+            boolean flotillaSkirmishNoStaticLine = openFlotillaAnchor && !mainIsHeavyBattleship;
             // Keep the Main Effort steady as the fixing Anvil during Hammer & Anvil, Double Envelopment, Crossing
             // the T, and Kill-Box setpieces instead of bouncing 0.5s later between TOT_ALPHA_STRIKE and FORM_LINE.
             // Only surge the Main Effort onto EXECUTE_STRIKE during Echeloned Wave Breach or once the struck target
@@ -1023,23 +1031,26 @@ public class OtcBattlePlanner {
                     && main.avgFluxLevel < 0.62f
                     && main.effectiveHpRatio >= 0.58f
                     && (activeSp == MultiDivisionSetpiece.ECHELONED_WAVE_BREACH || enemyBreakingUnderStrike);
-            OtcOrderType mainOrderType = primaryFleeing
+            OtcOrderType mainOrderType = (primaryFleeing || flotillaSkirmishNoStaticLine)
                     ? OtcOrderType.ENGAGE_ASSIGNED
                     : (mainPressesHomeWithStrike ? OtcOrderType.EXECUTE_STRIKE : OtcOrderType.FORM_LINE);
             boolean newOrder = !(main.otcOrder.type == mainOrderType && main.otcOrder.targetEnemy == primary);
             main.otcOrder.set(mainOrderType, primary, null, 0f, expires,
                     primaryFleeing
                             ? ("OTC: Main Effort, intercept and pin \"" + primary.displayName + "\"")
+                            : (flotillaSkirmishNoStaticLine
+                            ? ("OTC: Flotilla lead, skirmish \"" + primary.displayName + "\"")
                             : (mainPressesHomeWithStrike
                             ? ("OTC: Main Effort, press home on \"" + primary.displayName + "\"")
-                            : ("OTC: Main Effort, form the line on \"" + primary.displayName + "\"")));
+                            : ("OTC: Main Effort, form the line on \"" + primary.displayName + "\""))));
             if (wedgeOrOblique && myGroup.authority != OtcAuthority.COMMAND_BY_NEGATION) {
                 main.otcOrder.orderedFormation = DivisionFormation.FORWARD_WEDGE;
             } else if (myGroup.authority == OtcAuthority.POSITIVE_CONTROL
+                    && !flotillaSkirmishNoStaticLine
                     && (main.doctrinalFormation == null || main.doctrinalFormation == DivisionFormation.NONE)) {
                 main.otcOrder.orderedFormation = DivisionFormation.LINE_ABREAST;
             }
-            if (myGroup.authority.allowsPositioning() && !primaryFleeing) {
+            if (myGroup.authority.allowsPositioning() && !primaryFleeing && !flotillaSkirmishNoStaticLine) {
                 float dx = myGroup.fleetCentroid.x - primaryPos.x;
                 float dy = myGroup.fleetCentroid.y - primaryPos.y;
                 float len = (float) Math.sqrt(dx * dx + dy * dy);
@@ -1088,6 +1099,28 @@ public class OtcBattlePlanner {
                         || myGroup.activeFleetWideFormation == FleetWideFormation.FLEET_PROTECTIVE_BASTION) {
                     float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
                     stY += retreatDirY * (isRearguardEscape ? 320f : 140f);
+                }
+                if (carrierScreenAnchor
+                        && main != carrierAnchor
+                        && !isPursuitInterception
+                        && !isRearguardEscape
+                        && myGroup.currentPhase != BattlePhase.GENERAL_CHASE
+                        && carrierAnchor.centroid != null) {
+                    float maxScreenLead = (myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
+                            ? 1150f
+                            : 1450f;
+                    float cdx = stX - carrierAnchor.centroid.x;
+                    float cdy = stY - carrierAnchor.centroid.y;
+                    float cDist = (float) Math.sqrt(cdx * cdx + cdy * cdy);
+                    if (cDist > maxScreenLead) {
+                        float tx = primaryPos.x - carrierAnchor.centroid.x;
+                        float ty = primaryPos.y - carrierAnchor.centroid.y;
+                        float tLen = (float) Math.sqrt(tx * tx + ty * ty);
+                        if (tLen > 1f) {
+                            stX = carrierAnchor.centroid.x + (tx / tLen) * maxScreenLead;
+                            stY = carrierAnchor.centroid.y + (ty / tLen) * maxScreenLead;
+                        }
+                    }
                 }
                 main.otcOrder.hasStation = true;
                 main.otcOrder.station.set(stX, stY);
@@ -1266,6 +1299,31 @@ public class OtcBattlePlanner {
 
             d.otcOrder.set(OtcOrderType.ENGAGE_ASSIGNED, best, null, 0f, expires, "OTC: fire distribution, engage \"" + best.displayName + "\"");
             d.otcOrder.hasStation = false;
+            if (carrierScreenAnchor
+                    && myGroup.authority.allowsPositioning()
+                    && !d.archetype.isCarrierArchetype()
+                    && d.archetype != DivisionArchetype.SERVICE_GROUP
+                    && !isPursuitInterception
+                    && !isRearguardEscape
+                    && myGroup.currentPhase != BattlePhase.GENERAL_CHASE
+                    && carrierAnchor.centroid != null) {
+                Vector2f bPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, best);
+                float maxScreenLead = (myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
+                        ? 1150f
+                        : 1450f;
+                float tx = bPos.x - carrierAnchor.centroid.x;
+                float ty = bPos.y - carrierAnchor.centroid.y;
+                float tLen = (float) Math.sqrt(tx * tx + ty * ty);
+                if (tLen > maxScreenLead + 350f) {
+                    float latSign = (d.fleetFormationWingSide != 0) ? d.fleetFormationWingSide : ((d.divisionNumber % 2 == 0) ? 1f : -1f);
+                    float perpX = -(ty / tLen);
+                    float perpY = (tx / tLen);
+                    d.otcOrder.hasStation = true;
+                    d.otcOrder.station.set(
+                            carrierAnchor.centroid.x + (tx / tLen) * maxScreenLead + perpX * latSign * 380f,
+                            carrierAnchor.centroid.y + (ty / tLen) * maxScreenLead + perpY * latSign * 380f);
+                }
+            }
             if ((wedgeOrOblique || orchestratedAdvanceActive)
                     && myGroup.authority.allowsPositioning()
                     && d.hasFleetFormationOffset

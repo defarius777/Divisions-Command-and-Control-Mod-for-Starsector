@@ -1730,6 +1730,190 @@ public class PermanentDivisionManager {
         }
     }
 
+    /**
+     * High-level naval operational presets on the Command Scheme tab. Selecting a template populates the four
+     * editable operational options below it ({@link OperationalAnchor}, {@link ObjectiveCapturePolicy},
+     * {@link DecisiveArm}, and {@link EngagementDiscipline}), which the player may adjust individually at any time.
+     */
+    public enum OperationalTemplate {
+        LINEAR_WARFARE(
+                "Linear Warfare",
+                "Linear Warfare",
+                "Gunline fixes the enemy center while light forces work the flanks.",
+                OperationalAnchor.BATTLE_LINE,
+                ObjectiveCapturePolicy.LIGHT_FORCES_ONLY,
+                DecisiveArm.SURFACE_GUNFIRE,
+                EngagementDiscipline.LINE_COHESION),
+        LIGHT_FORCES_TORPEDO(
+                "Light Forces & Torpedoes",
+                "Light & Torpedoes",
+                "Flotillas contest the map and converge with torpedo salvos.",
+                OperationalAnchor.OPEN_FLOTILLA,
+                ObjectiveCapturePolicy.ACTIVE_CONTEST,
+                DecisiveArm.TORPEDO_STRIKES,
+                EngagementDiscipline.SKIRMISH_WITHDRAW),
+        CARRIER_CENTRIC(
+                "Carrier-Centric Ops",
+                "Carrier-Centric",
+                "Surface warships screen the carrier group while air wings strike.",
+                OperationalAnchor.CARRIER_SCREEN,
+                ObjectiveCapturePolicy.FLEET_AXIS_ONLY,
+                DecisiveArm.CARRIER_STRIKE,
+                EngagementDiscipline.CLOSE_SCREEN);
+
+        public final String displayName;
+        public final String shortName;
+        public final String summary;
+        public final OperationalAnchor defaultAnchor;
+        public final ObjectiveCapturePolicy defaultObjectivePolicy;
+        public final DecisiveArm defaultDecisiveArm;
+        public final EngagementDiscipline defaultDiscipline;
+
+        OperationalTemplate(
+                String displayName,
+                String shortName,
+                String summary,
+                OperationalAnchor defaultAnchor,
+                ObjectiveCapturePolicy defaultObjectivePolicy,
+                DecisiveArm defaultDecisiveArm,
+                EngagementDiscipline defaultDiscipline) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.summary = summary;
+            this.defaultAnchor = defaultAnchor;
+            this.defaultObjectivePolicy = defaultObjectivePolicy;
+            this.defaultDecisiveArm = defaultDecisiveArm;
+            this.defaultDiscipline = defaultDiscipline;
+        }
+
+        public static OperationalTemplate fromId(String id, OperationalTemplate fallback) {
+            if (id == null) return fallback;
+            for (OperationalTemplate v : values()) {
+                if (v.name().equalsIgnoreCase(id)) return v;
+            }
+            return fallback;
+        }
+    }
+
+    /** What forms the battle group's center of gravity under OTC orchestration. */
+    public enum OperationalAnchor {
+        BATTLE_LINE(
+                "Battle Line",
+                "Heavy gunline forms the line of battle and fixes the enemy center."),
+        OPEN_FLOTILLA(
+                "Open Flotilla",
+                "No static gunline; divisions maneuver in dispersed flotillas."),
+        CARRIER_SCREEN(
+                "Carrier Screen",
+                "Surface warships form a protective screen around the carrier group.");
+
+        public final String displayName;
+        public final String summary;
+
+        OperationalAnchor(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+
+        public static OperationalAnchor fromId(String id, OperationalAnchor fallback) {
+            if (id == null) return fallback;
+            for (OperationalAnchor v : values()) {
+                if (v.name().equalsIgnoreCase(id)) return v;
+            }
+            return fallback;
+        }
+    }
+
+    /** Which divisions may autonomously detach to seize uncaptured battlefield objectives. */
+    public enum ObjectiveCapturePolicy {
+        LIGHT_FORCES_ONLY(
+                "Light Forces Only",
+                "Frigates and destroyers take flank points; heavy hulls stay in line."),
+        ACTIVE_CONTEST(
+                "Active Contest",
+                "Light forces, destroyers, and fast cruisers contest points map-wide."),
+        FLEET_AXIS_ONLY(
+                "Fleet Axis Only",
+                "Divisions only capture nearby points along the fleet advance axis."),
+        DIRECT_ORDERS_ONLY(
+                "Direct Orders Only",
+                "No autonomous point capture; divisions only cap on player order.");
+
+        public final String displayName;
+        public final String summary;
+
+        ObjectiveCapturePolicy(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+
+        public static ObjectiveCapturePolicy fromId(String id, ObjectiveCapturePolicy fallback) {
+            if (id == null) return fallback;
+            for (ObjectiveCapturePolicy v : values()) {
+                if (v.name().equalsIgnoreCase(id)) return v;
+            }
+            return fallback;
+        }
+    }
+
+    /** Primary striking arm that governs OTC target priority and engagement tempo. */
+    public enum DecisiveArm {
+        SURFACE_GUNFIRE(
+                "Surface Gunfire",
+                "Engage and break the enemy main body in gun range."),
+        TORPEDO_STRIKES(
+                "Torpedo Strikes",
+                "Target isolated or high-flux hulls with coordinated torpedo salvos."),
+        CARRIER_STRIKE(
+                "Carrier Strike",
+                "Hold standoff and trade space while air wings attrit heavy hulls.");
+
+        public final String displayName;
+        public final String summary;
+
+        DecisiveArm(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+
+        public static DecisiveArm fromId(String id, DecisiveArm fallback) {
+            if (id == null) return fallback;
+            for (DecisiveArm v : values()) {
+                if (v.name().equalsIgnoreCase(id)) return v;
+            }
+            return fallback;
+        }
+    }
+
+    /** Surface division advance leash and flux/ordnance withdrawal discipline. */
+    public enum EngagementDiscipline {
+        LINE_COHESION(
+                "Line Cohesion",
+                "Standard mutual-support interval and standard flux rotation."),
+        SKIRMISH_WITHDRAW(
+                "Skirmish & Withdraw",
+                "Wide maneuver freedom and earlier post-salvo or high-flux withdrawal."),
+        CLOSE_SCREEN(
+                "Close Screen",
+                "Tight screen leash ahead of carriers; warships do not chase bait.");
+
+        public final String displayName;
+        public final String summary;
+
+        EngagementDiscipline(String displayName, String summary) {
+            this.displayName = displayName;
+            this.summary = summary;
+        }
+
+        public static EngagementDiscipline fromId(String id, EngagementDiscipline fallback) {
+            if (id == null) return fallback;
+            for (EngagementDiscipline v : values()) {
+                if (v.name().equalsIgnoreCase(id)) return v;
+            }
+            return fallback;
+        }
+    }
+
     /** Builds an old-name -> new-name lookup from alternating pairs, for loading pre-rename saves. */
     private static Map<String, String> legacyNames(String... oldNewPairs) {
         Map<String, String> map = new HashMap<>();
@@ -1815,6 +1999,10 @@ public class PermanentDivisionManager {
         private OtcAuthority otcAuthority = OtcAuthority.COMMAND_BY_DIRECTION;
         private FleetWideFormation fleetWideFormation = FleetWideFormation.DOCTRINAL_AUTO;
         private MultiDivisionSetpiece multiDivisionSetpiece = MultiDivisionSetpiece.AUTO_DOCTRINAL;
+        private OperationalAnchor operationalAnchor = OperationalAnchor.BATTLE_LINE;
+        private ObjectiveCapturePolicy objectiveCapturePolicy = ObjectiveCapturePolicy.LIGHT_FORCES_ONLY;
+        private DecisiveArm decisiveArm = DecisiveArm.SURFACE_GUNFIRE;
+        private EngagementDiscipline engagementDiscipline = EngagementDiscipline.LINE_COHESION;
         private boolean deployInFleetFormation = true;
         private boolean orchestratedAdvance = true;
         private int openingDurationSeconds = 45;
@@ -1939,6 +2127,74 @@ public class PermanentDivisionManager {
             if (setpiece != null) {
                 this.multiDivisionSetpiece = setpiece;
             }
+        }
+
+        public OperationalAnchor getOperationalAnchor() {
+            return operationalAnchor != null ? operationalAnchor : OperationalAnchor.BATTLE_LINE;
+        }
+
+        public void setOperationalAnchor(OperationalAnchor anchor) {
+            if (anchor != null) {
+                this.operationalAnchor = anchor;
+            }
+        }
+
+        public ObjectiveCapturePolicy getObjectiveCapturePolicy() {
+            return objectiveCapturePolicy != null ? objectiveCapturePolicy : ObjectiveCapturePolicy.LIGHT_FORCES_ONLY;
+        }
+
+        public void setObjectiveCapturePolicy(ObjectiveCapturePolicy policy) {
+            if (policy != null) {
+                this.objectiveCapturePolicy = policy;
+            }
+        }
+
+        public DecisiveArm getDecisiveArm() {
+            return decisiveArm != null ? decisiveArm : DecisiveArm.SURFACE_GUNFIRE;
+        }
+
+        public void setDecisiveArm(DecisiveArm arm) {
+            if (arm != null) {
+                this.decisiveArm = arm;
+            }
+        }
+
+        public EngagementDiscipline getEngagementDiscipline() {
+            return engagementDiscipline != null ? engagementDiscipline : EngagementDiscipline.LINE_COHESION;
+        }
+
+        public void setEngagementDiscipline(EngagementDiscipline discipline) {
+            if (discipline != null) {
+                this.engagementDiscipline = discipline;
+            }
+        }
+
+        public void applyOperationalTemplate(OperationalTemplate template) {
+            if (template == null) return;
+            this.operationalAnchor = template.defaultAnchor;
+            this.objectiveCapturePolicy = template.defaultObjectivePolicy;
+            this.decisiveArm = template.defaultDecisiveArm;
+            this.engagementDiscipline = template.defaultDiscipline;
+        }
+
+        /**
+         * Returns the {@link OperationalTemplate} whose 4 defaults exactly match the current operational options,
+         * or {@code null} when the player has customized individual sub-options away from all three presets.
+         */
+        public OperationalTemplate resolveMatchingOperationalTemplate() {
+            OperationalAnchor a = getOperationalAnchor();
+            ObjectiveCapturePolicy o = getObjectiveCapturePolicy();
+            DecisiveArm d = getDecisiveArm();
+            EngagementDiscipline e = getEngagementDiscipline();
+            for (OperationalTemplate t : OperationalTemplate.values()) {
+                if (t.defaultAnchor == a
+                        && t.defaultObjectivePolicy == o
+                        && t.defaultDecisiveArm == d
+                        && t.defaultDiscipline == e) {
+                    return t;
+                }
+            }
+            return null;
         }
 
         public boolean isDeployInFleetFormation() {
@@ -2613,6 +2869,29 @@ public class PermanentDivisionManager {
             if (mdSpObj instanceof String) {
                 cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.fromId((String) mdSpObj, MultiDivisionSetpiece.AUTO_DOCTRINAL));
             }
+            Object opTplObj = map.get("bg_op_template");
+            if (opTplObj instanceof String) {
+                OperationalTemplate tpl = OperationalTemplate.fromId((String) opTplObj, null);
+                if (tpl != null) {
+                    cfg.applyOperationalTemplate(tpl);
+                }
+            }
+            Object opAncObj = map.get("bg_op_anchor");
+            if (opAncObj instanceof String) {
+                cfg.setOperationalAnchor(OperationalAnchor.fromId((String) opAncObj, cfg.getOperationalAnchor()));
+            }
+            Object objPolObj = map.get("bg_obj_policy");
+            if (objPolObj instanceof String) {
+                cfg.setObjectiveCapturePolicy(ObjectiveCapturePolicy.fromId((String) objPolObj, cfg.getObjectiveCapturePolicy()));
+            }
+            Object decArmObj = map.get("bg_decisive_arm");
+            if (decArmObj instanceof String) {
+                cfg.setDecisiveArm(DecisiveArm.fromId((String) decArmObj, cfg.getDecisiveArm()));
+            }
+            Object engDiscObj = map.get("bg_eng_discipline");
+            if (engDiscObj instanceof String) {
+                cfg.setEngagementDiscipline(EngagementDiscipline.fromId((String) engDiscObj, cfg.getEngagementDiscipline()));
+            }
             Object depFmObj = map.get("bg_deploy_in_formation");
             if (depFmObj instanceof Boolean) {
                 cfg.setDeployInFleetFormation((Boolean) depFmObj);
@@ -2794,6 +3073,10 @@ public class PermanentDivisionManager {
         serialized.put("bg_authority", cfg.getOtcAuthority().name());
         serialized.put("bg_fleet_formation", cfg.getFleetWideFormation().name());
         serialized.put("bg_multi_setpiece", cfg.getMultiDivisionSetpiece().name());
+        serialized.put("bg_op_anchor", cfg.getOperationalAnchor().name());
+        serialized.put("bg_obj_policy", cfg.getObjectiveCapturePolicy().name());
+        serialized.put("bg_decisive_arm", cfg.getDecisiveArm().name());
+        serialized.put("bg_eng_discipline", cfg.getEngagementDiscipline().name());
         serialized.put("bg_deploy_in_formation", cfg.isDeployInFleetFormation());
         serialized.put("bg_orchestrated_advance", cfg.isOrchestratedAdvance());
         for (OtcPlay play : OtcPlay.values()) {
@@ -3149,6 +3432,41 @@ public class PermanentDivisionManager {
         if (setpiece == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setMultiDivisionSetpiece(setpiece);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateOperationalTemplate(OperationalTemplate template) {
+        if (template == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.applyOperationalTemplate(template);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateOperationalAnchor(OperationalAnchor anchor) {
+        if (anchor == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setOperationalAnchor(anchor);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateObjectiveCapturePolicy(ObjectiveCapturePolicy policy) {
+        if (policy == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setObjectiveCapturePolicy(policy);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDecisiveArm(DecisiveArm arm) {
+        if (arm == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setDecisiveArm(arm);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateEngagementDiscipline(EngagementDiscipline discipline) {
+        if (discipline == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setEngagementDiscipline(discipline);
         saveFleetDoctrine(cfg);
     }
 
@@ -3729,8 +4047,8 @@ public class PermanentDivisionManager {
                 if (baseRange <= 0f) continue;
 
                 float effectiveRange = baseRange;
+                WeaponType wt = wSpec.getType();
                 if (m.getStats() != null) {
-                    WeaponType wt = wSpec.getType();
                     if (wt == WeaponType.BALLISTIC) {
                         effectiveRange = m.getStats().getBallisticWeaponRangeBonus().computeEffective(baseRange);
                     } else if (wt == WeaponType.ENERGY) {
@@ -3742,6 +4060,7 @@ public class PermanentDivisionManager {
                         effectiveRange = m.getStats().getBeamWeaponRangeBonus().computeEffective(effectiveRange);
                     }
                 }
+                effectiveRange = applyShipWeaponRangeThreshold(m.getStats(), variant, wt, effectiveRange);
                 if (effectiveRange > maxRange) {
                     maxRange = effectiveRange;
                 }
@@ -3769,6 +4088,42 @@ public class PermanentDivisionManager {
         if (maxRange <= 0f) return 0;
         int rounded = Math.round(maxRange / 25f) * 25;
         return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(MAX_STANDOFF_RANGE_UNITS, rounded));
+    }
+
+    /**
+     * Applies Starsector's exact {@code getThresholdAdjustedRange} weapon-range clamping
+     * ({@code SafetyOverrides}: 450u threshold + 0.25x past threshold, {@code HighScatterAmplifier}, etc.)
+     * to non-missile weapons in campaign standoff auto-calculation and headless ship profiling.
+     */
+    public static float applyShipWeaponRangeThreshold(
+            com.fs.starfarer.api.combat.MutableShipStatsAPI stats,
+            ShipVariantAPI variant,
+            WeaponType weaponType,
+            float rawOrBonusedRange) {
+        if (rawOrBonusedRange <= 0f || weaponType == WeaponType.MISSILE) {
+            return rawOrBonusedRange;
+        }
+        float threshold = 0f;
+        float multPast = 1f;
+        boolean statResolved = false;
+        if (stats != null) {
+            try {
+                if (stats.getWeaponRangeThreshold() != null && stats.getWeaponRangeMultPastThreshold() != null) {
+                    threshold = stats.getWeaponRangeThreshold().getModifiedValue();
+                    multPast = stats.getWeaponRangeMultPastThreshold().getModifiedValue();
+                    statResolved = (threshold > 0f && multPast < 0.999f);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (!statResolved && variant != null && variant.hasHullMod("safetyoverrides")) {
+            threshold = 450f;
+            multPast = 0.25f;
+        }
+        if (threshold > 0f && multPast < 0.999f && rawOrBonusedRange > threshold) {
+            return threshold + (rawOrBonusedRange - threshold) * Math.max(0f, multPast);
+        }
+        return rawOrBonusedRange;
     }
 
     public static void recalculateDivisionStandoffRangeFromGuns(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {

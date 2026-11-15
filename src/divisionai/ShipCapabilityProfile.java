@@ -46,6 +46,7 @@ public class ShipCapabilityProfile {
     public final boolean isDedicatedCarrier;
     public final boolean isPhase;
     public final boolean isCivilian;
+    public final boolean hasSafetyOverrides;
 
     public final float totalWeaponOP;
     public final float strikeMissileWeight;
@@ -60,6 +61,26 @@ public class ShipCapabilityProfile {
     public final boolean isPdScreenCapable;
     public final boolean isLongRangeStandoff;
     public final TacticalTag primaryTag;
+
+    public static boolean isShipSafetyOverridesActive(ShipAPI ship) {
+        if (ship == null) return false;
+        if (ship.getVariant() != null && ship.getVariant().hasHullMod("safetyoverrides")) {
+            return true;
+        }
+        try {
+            if (ship.getMutableStats() != null
+                    && ship.getMutableStats().getVentRateMult() != null
+                    && ship.getMutableStats().getVentRateMult().getModifiedValue() <= 0.01f
+                    && ship.getMutableStats().getWeaponRangeThreshold() != null
+                    && ship.getMutableStats().getWeaponRangeThreshold().getModifiedValue() > 0f
+                    && ship.getMutableStats().getWeaponRangeMultPastThreshold() != null
+                    && ship.getMutableStats().getWeaponRangeMultPastThreshold().getModifiedValue() < 0.5f) {
+                return true;
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
 
     public ShipCapabilityProfile(ShipAPI ship) {
         this.ship = ship;
@@ -82,6 +103,7 @@ public class ShipCapabilityProfile {
                 || hints.contains(ShipTypeHints.TANKER)
                 || hints.contains(ShipTypeHints.LINER)
                 || hints.contains(ShipTypeHints.TRANSPORT);
+        this.hasSafetyOverrides = isShipSafetyOverridesActive(ship);
 
         int bays = ship.getNumFighterBays();
         boolean dtaZeroed = VoidstrikeCoordinator.isCarrierFighterRangeZeroedByHullmod(ship);
@@ -197,7 +219,8 @@ public class ShipCapabilityProfile {
                 opSum += weight;
                 weaponOnlyOpSum += weight;
 
-                float range = w.getRange();
+                float range = PermanentDivisionManager.applyShipWeaponRangeThreshold(
+                        ship.getMutableStats(), ship.getVariant(), type, w.getRange());
                 weightedRangeSum += range * weight;
 
                 boolean isStrike = w.hasAIHint(AIHints.STRIKE);

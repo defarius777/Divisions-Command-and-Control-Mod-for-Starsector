@@ -815,17 +815,21 @@ public class OtcAI {
         boolean isRearguardEscape = (myGroup.missionContext == MissionContextType.REARGUARD_ACTION);
         boolean allVisibleEnemiesNonCombatant = anyEnemyVisible
                 && areAllVisibleEnemiesServiceOrUnable(engine, myGroup.side, enemyGroup);
+        boolean carrierStrikeArm = myGroup.decisiveArm == PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE
+                && findPrimaryCarrierAnchorDivision(myGroup) != null;
+        boolean torpedoStrikeArm = myGroup.decisiveArm == PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES;
+        float chaseForceRatioReq = carrierStrikeArm ? 1.52f : 1.35f;
         boolean generalChase = isPursuitInterception
                 ? (anyEnemyVisible && !crisis)
                 : (!enemyBaitTrapSuspected
                         && ((allVisibleEnemiesNonCombatant && !crisis && myGroup.forceRatio >= 1.15f)
-                        || (myGroup.forceRatio >= 1.35f && visibleEnemyFp >= 30f && minContactDist < 3000f)));
+                        || (myGroup.forceRatio >= chaseForceRatioReq && visibleEnemyFp >= 30f && minContactDist < 3000f)));
         boolean generalChasePersists = isPursuitInterception
                 ? (anyEnemyVisible && !crisis)
                 : (!enemyBaitTrapSuspected
                         && current == BattlePhase.GENERAL_CHASE
                         && ((allVisibleEnemiesNonCombatant && !crisis)
-                        || (myGroup.forceRatio >= 1.20f && visibleEnemyFp >= 15f && minContactDist < 3600f)));
+                        || (myGroup.forceRatio >= (carrierStrikeArm ? 1.34f : 1.20f) && visibleEnemyFp >= 15f && minContactDist < 3600f)));
         boolean strikeRunning = myGroup.strikePlan != null && myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES);
 
         boolean fullAssault = isFullAssaultActive(engine, myGroup);
@@ -848,7 +852,7 @@ public class OtcAI {
             nextPhase = BattlePhase.APPROACH;
         } else if (generalChase || generalChasePersists) {
             nextPhase = BattlePhase.GENERAL_CHASE;
-        } else if (strikeRunning || (hasMissileOrStrikeDivisionReady(myGroup) && minContactDist < 3400f)) {
+        } else if (strikeRunning || (hasMissileOrStrikeDivisionReady(myGroup) && minContactDist < (torpedoStrikeArm ? 4100f : 3400f))) {
             nextPhase = BattlePhase.COORDINATED_STRIKE;
         } else {
             nextPhase = BattlePhase.GENERAL_ENGAGEMENT;
@@ -3058,9 +3062,12 @@ public class OtcAI {
             float edgePinchBonus = BattlefieldFirepowerEvaluator.computeEdgeProximityPinch(engine, visCentroid, eDiv.freeTimeRadius)
                     * 220f * threatWeight;
 
-            // Enemy Center of Gravity Alignment: Main Effort fixes the Enemy Center of Gravity, never a stray flank pack!
+            // Enemy Center of Gravity Alignment: under Linear/Surface-Gunfire doctrine, Main Effort fixes the Enemy
+            // Center of Gravity; under Torpedo Strikes doctrine, flotillas hunt isolated or high-flux detachments in detail.
             float cogBonus = 0f;
-            if (myGroup.hasEnemyCenterOfGravity && ableVisibleEnemyCount >= 2) {
+            if (myGroup.hasEnemyCenterOfGravity
+                    && ableVisibleEnemyCount >= 2
+                    && myGroup.decisiveArm != PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES) {
                 float distToCog = DivisionUiWidgets.distance(visCentroid, myGroup.enemyCenterOfGravity);
                 cogBonus = Math.max(-460f, 260f - distToCog * 0.18f);
             }
@@ -3176,6 +3183,36 @@ public class OtcAI {
                     ? (isUnassignedContact ? 195f : 280f)
                     : 0f;
 
+            float decisiveArmBonus = 0f;
+            if (myGroup.decisiveArm == PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES) {
+                float nearestEnemyPeerDist = Float.MAX_VALUE;
+                if (ableVisibleEnemyCount >= 2) {
+                    for (DivisionState peerE : enemyDivs) {
+                        if (peerE == null || peerE == eDiv || !peerE.isAbleCombatEffective()) continue;
+                        if (!isDivisionVisibleToSide(engine, myGroup.side, peerE)) continue;
+                        float pd = DivisionUiWidgets.distance(visCentroid, getVisibleCentroidForSide(engine, myGroup.side, peerE));
+                        if (pd < nearestEnemyPeerDist) nearestEnemyPeerDist = pd;
+                    }
+                }
+                boolean isolatedDetachment = (ableVisibleEnemyCount >= 2 && nearestEnemyPeerDist >= 1350f)
+                        || (myGroup.hasEnemyCenterOfGravity
+                        && ableVisibleEnemyCount >= 3
+                        && DivisionUiWidgets.distance(visCentroid, myGroup.enemyCenterOfGravity) >= 1350f);
+                if (isolatedDetachment || eDiv.stationKeepingRatio > 1.35f || eDiv.isWeakPoint) {
+                    decisiveArmBonus += 340f * threatWeight;
+                } else if (ableVisibleEnemyCount >= 2 && eDiv.avgFluxLevel < 0.25f) {
+                    decisiveArmBonus -= 220f;
+                }
+                decisiveArmBonus += eDiv.avgFluxLevel * 440f;
+            } else if (myGroup.decisiveArm == PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE) {
+                int hullMask = DivisionCommanderAI.inspectVisibleEnemyDivisionHullMask(engine, myGroup.side, eDiv);
+                if ((hullMask & 4) != 0) {
+                    decisiveArmBonus += 260f;
+                } else if ((hullMask & 1) != 0) {
+                    decisiveArmBonus += 210f;
+                }
+            }
+
             float score;
             if (myGroup.useConvergence) {
                 // Convergence OTC decision-making (AI / Threat / Abyssal or Alpha Core flagship):
@@ -3191,7 +3228,7 @@ public class OtcAI {
                 float collapseBonus = (visFp >= 20f)
                         ? (eDiv.avgFluxLevel * 360f + (1.0f - eDiv.avgHullLevel) * 320f)
                         : 0f;
-                score = visFp * 9.5f + avgConv * 0.55f + collapseBonus + auxPenalty + unablePenalty
+                score = visFp * 9.5f + avgConv * 0.55f + collapseBonus + decisiveArmBonus + auxPenalty + unablePenalty
                         + edgePinchBonus + cogBonus + overkillPrimaryPenalty + unassignedStragglerPenalty + pursuitContextBonus
                         + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
                         + feignPenalty + incumbentBonus - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
@@ -3214,7 +3251,7 @@ public class OtcAI {
                 float collapseBonus = (visFp >= 18f)
                         ? (eDiv.avgFluxLevel * 360f + (1.0f - eDiv.avgHullLevel) * 320f)
                         : 0f;
-                score = visFp * 9.5f + avgConv * 0.65f + isolationBonus + spaceSeamBonus + pinnedBonus + collapseBonus + edgePinchBonus
+                score = visFp * 9.5f + avgConv * 0.65f + isolationBonus + spaceSeamBonus + pinnedBonus + collapseBonus + decisiveArmBonus + edgePinchBonus
                         + cogBonus + overkillPrimaryPenalty + unassignedStragglerPenalty + pursuitContextBonus
                         + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty
                         + feignPenalty + incumbentBonus + auxPenalty + unablePenalty
@@ -3223,6 +3260,27 @@ public class OtcAI {
             if (score > bestScore) {
                 bestScore = score;
                 best = eDiv;
+            }
+        }
+        return best;
+    }
+
+    public static DivisionState findPrimaryCarrierAnchorDivision(BattleGroupState group) {
+        if (group == null || group.divisions == null) return null;
+        DivisionState best = null;
+        float bestScore = -1f;
+        for (int i = 0; i < group.divisions.size(); i++) {
+            DivisionState d = group.divisions.get(i);
+            if (d == null || !d.isAbleCombatEffective() || d.archetype == null || !d.archetype.isCarrierArchetype()) {
+                continue;
+            }
+            float s = d.totalFpStrength;
+            if (d.archetype == DivisionArchetype.FLEET_CARRIER_DIVISION || d.archetype == DivisionArchetype.CARRIER_GROUP) {
+                s *= 1.35f;
+            }
+            if (s > bestScore) {
+                bestScore = s;
+                best = d;
             }
         }
         return best;

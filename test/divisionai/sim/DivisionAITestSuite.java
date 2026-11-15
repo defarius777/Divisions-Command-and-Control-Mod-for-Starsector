@@ -88,6 +88,7 @@ public class DivisionAITestSuite {
         testCampaignLogPolishAndC2Hygiene();
         testMilitaryFirstNomenclatureSweep();
         testCarrierZeroFluxSupportAndDefensiveTargetingArray();
+        testSafetyOverridesCapitalDeathBlastObjectivePolicyAndTemplates();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -3114,6 +3115,267 @@ public class DivisionAITestSuite {
                 "alliedCapEngaged=" + capOverAlliedDivEngagesAnchor
                         + ", selfCapRegroup=" + selfCapHoldsRegroupUntilBogeyEnters
                         + ", selfCapScramble=" + selfCapScramblesOnCloseBogey);
+    }
+
+    /**
+     * Scenario 15: Verifies Safety Overrides weapon-range threshold clamping (450u + 0.25x past threshold),
+     * edge-to-edge close standoff & dying-capital reactor death-blast stand-clear, Cruiser/Battleship objective
+     * discipline when 0 Frigates are deployed, and the 3 Operational Templates + 4 editable options.
+     */
+    private static void testSafetyOverridesCapitalDeathBlastObjectivePolicyAndTemplates() {
+        System.out.println("\n--- Scenario 15: Safety Overrides, Capital Death-Blast Clearance, Objective Discipline & Operational Templates ---");
+
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+
+        // 1. Safety Overrides weapon-range threshold clamping (non-missile guns clamped at 450 + 0.25*(R-450); missiles untouched)
+        BattleGroupState soPGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState soEGroup = new BattleGroupState(1, eCmdr);
+        DivisionState soDdDiv = new DivisionState("so_dd_div", 0, 1, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div. I", pCmdr);
+        soDdDiv.standoffRange = 300f; // Manual minimum standoff (300u)
+        soDdDiv.openingMission = DivisionMissionType.CLOSE_ACTION;
+        soDdDiv.mainMission = DivisionMissionType.CLOSE_ACTION;
+        DivisionState enemyCapDiv = new DivisionState("so_ecap_div", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Battle Div. I", eCmdr);
+        soPGroup.divisions.add(soDdDiv);
+        soPGroup.mainEffortDivision = soDdDiv;
+        soEGroup.divisions.add(enemyCapDiv);
+        soPGroup.primaryThreatEnemyDivision = enemyCapDiv;
+
+        SimArena soArena = new SimArena("Scenario 15A: Safety Overrides & Death-Blast", "SO clamping and reactor blast stand-clear", soPGroup, soEGroup);
+        SimShipState soHammerhead = soArena.addShip(
+                soDdDiv, "so_dd", "HSS Hammerhead SO", "hammerhead", HullSize.DESTROYER,
+                0f, -1550f, 95f, 1000f, 0, 0);
+        soHammerhead.hullMods.add("safetyoverrides");
+        SimShipState enemyOnslaught = soArena.addShip(
+                enemyCapDiv, "en_ons", "HSS Tyrant", "onslaught", HullSize.CAPITAL_SHIP,
+                0f, -1100f, 50f, 1000f, 0, 0);
+        soPGroup.shipIdToDivision.put(soHammerhead.id, soDdDiv);
+        soEGroup.shipIdToDivision.put(enemyOnslaught.id, enemyCapDiv);
+
+        float clampedGun1000 = divisionai.PermanentDivisionManager.applyShipWeaponRangeThreshold(
+                null, soHammerhead.proxy.getVariant(), com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC, 1000f);
+        float unclampedMissile1200 = divisionai.PermanentDivisionManager.applyShipWeaponRangeThreshold(
+                null, soHammerhead.proxy.getVariant(), com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE, 1200f);
+        divisionai.ShipCapabilityProfile soProf = new divisionai.ShipCapabilityProfile(soHammerhead.proxy);
+        soDdDiv.profiles.clear();
+        soDdDiv.profiles.add(soProf);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(soDdDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyCapDiv);
+
+        boolean soRangeClampedOk = Math.abs(clampedGun1000 - 587.5f) < 1.0f
+                && Math.abs(unclampedMissile1200 - 1200f) < 1.0f
+                && soProf.hasSafetyOverrides
+                && soProf.avgWeaponRange < 620f;
+
+        // 2. Manual 300u standoff vs 1-ship Enemy Capital: edge-to-edge hull clearance + <22% hull death-blast stand-clear
+        divisionai.OtcAI.updateTelemetry(soArena.engineProxy, soPGroup);
+        divisionai.OtcAI.updateTelemetry(soArena.engineProxy, soEGroup);
+
+        Vector2f intactStation = new Vector2f();
+        divisionai.DivisionFormationNavigator.computeStandoffStation(soArena.engineProxy, soDdDiv, enemyCapDiv, intactStation);
+        float intactCenterDist = (float) Math.hypot(intactStation.x - enemyOnslaught.location.x, intactStation.y - enemyOnslaught.location.y);
+        float minHullTouchDist = divisionai.DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(enemyOnslaught.proxy)
+                + divisionai.DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(soHammerhead.proxy);
+        boolean neverFacehugsIntactCapital = intactCenterDist >= minHullTouchDist + 200f;
+
+        // Now drop Enemy Onslaught to 15% hull at 520u away (reactor critical -> death-blast hazard!)
+        enemyOnslaught.hullLevel = 0.15f;
+        soHammerhead.location.set(0f, -1620f); // 520u center-to-center from enemyOnslaught at (0, -1100)
+        soHammerhead.fluxLevel = 0.10f;
+        divisionai.OtcAI.updateTelemetry(soArena.engineProxy, soPGroup);
+        divisionai.OtcAI.updateTelemetry(soArena.engineProxy, soEGroup);
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(soArena.engineProxy, soPGroup, soEGroup, 10f);
+
+        boolean backedClearOfDeathBlast = soHammerhead.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.BACK_OFF)
+                && soHammerhead.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.RUN_QUICKLY)
+                && !soHammerhead.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_BACK_OFF);
+        Vector2f blastStation = new Vector2f();
+        divisionai.DivisionFormationNavigator.computeStandoffStation(soArena.engineProxy, soDdDiv, enemyCapDiv, blastStation);
+        float blastCenterDist = (float) Math.hypot(blastStation.x - enemyOnslaught.location.x, blastStation.y - enemyOnslaught.location.y);
+
+        check(soRangeClampedOk && neverFacehugsIntactCapital && backedClearOfDeathBlast && blastCenterDist >= minHullTouchDist + 450f,
+                "Safety Overrides clamps gun standoff to 450u+0.25x, prevents manual 300u facehugging, and backs clear of dying capital death-blasts",
+                String.format(Locale.ROOT, "soGun=%.1fu, soMis=%.0fu, intactDist=%.0fu (touch=%.0fu), blastBackOff=%s, blastDist=%.0fu",
+                        clampedGun1000, unclampedMissile1200, intactCenterDist, minHullTouchDist, backedClearOfDeathBlast, blastCenterDist));
+
+        // 3. Zero-Frigate fleet (Line Cruiser + Missile Battleship) ignores distant flank points at x = +/-4200u
+        BattleGroupState objPGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState objEGroup = new BattleGroupState(1, eCmdr);
+        DivisionState lineCruDiv = new DivisionState("lc_div", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div. I", pCmdr);
+        lineCruDiv.openingMission = DivisionMissionType.CLOSE_ACTION;
+        lineCruDiv.mainMission = DivisionMissionType.CLOSE_ACTION;
+        DivisionState misBbDiv = new DivisionState("mbb_div", 0, 2, DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, "Missile Battle Div. I", pCmdr);
+        misBbDiv.openingMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        misBbDiv.mainMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        DivisionState hiddenEnemy = new DivisionState("he_div", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Main Body", eCmdr);
+        objPGroup.divisions.add(lineCruDiv);
+        objPGroup.divisions.add(misBbDiv);
+        objEGroup.divisions.add(hiddenEnemy);
+
+        SimArena objArena = new SimArena("Scenario 15B: Objective Capture Discipline", "Zero-Frigate heavy divisions stay on battle axis", objPGroup, objEGroup);
+        objArena.enableFogOfWar();
+        objArena.baseShipSightRadius = 2500f;
+        objArena.objectives.add(createMockObjective("Nav Buoy West", "nav_buoy", new Vector2f(-4200f, 0f), 100));
+        objArena.objectives.add(createMockObjective("Comm Relay East", "comm_relay", new Vector2f(4200f, 0f), 100));
+        SimShipState lc1 = objArena.addShip(lineCruDiv, "lc_1", "HSS Eagle", "eagle", HullSize.CRUISER, -250f, -2400f, 65f, 1000f, 0, 0);
+        SimShipState mbb1 = objArena.addShip(misBbDiv, "mbb_1", "HSS Conquest", "conquest", HullSize.CAPITAL_SHIP, 250f, -2500f, 55f, 1200f, 4, 0);
+        SimShipState he1 = objArena.addShip(hiddenEnemy, "he_1", "HSS Sovereign", "onslaught", HullSize.CAPITAL_SHIP, 0f, 4200f, 50f, 1000f, 0, 0);
+        objPGroup.shipIdToDivision.put(lc1.id, lineCruDiv);
+        objPGroup.shipIdToDivision.put(mbb1.id, misBbDiv);
+        objEGroup.shipIdToDivision.put(he1.id, hiddenEnemy);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(lineCruDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(misBbDiv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(hiddenEnemy);
+
+        objPGroup.orchestratedAdvance = false;
+        objPGroup.objectiveCapturePolicy = divisionai.PermanentDivisionManager.ObjectiveCapturePolicy.LIGHT_FORCES_ONLY;
+        divisionai.OtcAI.updateTelemetry(objArena.engineProxy, objPGroup);
+        divisionai.OtcAI.updateTelemetry(objArena.engineProxy, objEGroup);
+        divisionai.OtcBattlePlanner.planBattle(objArena.engineProxy, objPGroup, objEGroup, null, null, 5f);
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(objArena.engineProxy, objPGroup, objEGroup, 5f);
+
+        boolean heavyLineIgnoresFlankPoints = lineCruDiv.currentIntent != DivisionIntentType.TAKE_AND_HOLD
+                && misBbDiv.currentIntent != DivisionIntentType.TAKE_AND_HOLD;
+
+        // Under DIRECT_ORDERS_ONLY even a Frigate division ignores autonomous point capture unless player orders it
+        DivisionState scoutFrig = new DivisionState("ff_div", 0, 3, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div. I", pCmdr);
+        scoutFrig.openingMission = DivisionMissionType.SCOUTING;
+        scoutFrig.mainMission = DivisionMissionType.ENVELOPMENT;
+        objPGroup.divisions.add(scoutFrig);
+        SimShipState ff1 = objArena.addShip(scoutFrig, "ff_1", "HSS Lasher", "lasher", HullSize.FRIGATE, -1200f, -2200f, 130f, 700f, 2, 0);
+        objPGroup.shipIdToDivision.put(ff1.id, scoutFrig);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(scoutFrig);
+
+        objPGroup.objectiveCapturePolicy = divisionai.PermanentDivisionManager.ObjectiveCapturePolicy.DIRECT_ORDERS_ONLY;
+        divisionai.OtcAI.updateTelemetry(objArena.engineProxy, objPGroup);
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(objArena.engineProxy, objPGroup, objEGroup, 12f);
+        boolean directOrdersOnlyRespected = scoutFrig.currentIntent != DivisionIntentType.TAKE_AND_HOLD;
+
+        objPGroup.objectiveCapturePolicy = divisionai.PermanentDivisionManager.ObjectiveCapturePolicy.LIGHT_FORCES_ONLY;
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(objArena.engineProxy, objPGroup, objEGroup, 20f);
+        boolean lightForcesStillCapWhenAllowed = scoutFrig.currentIntent == DivisionIntentType.TAKE_AND_HOLD
+                && lineCruDiv.currentIntent != DivisionIntentType.TAKE_AND_HOLD
+                && misBbDiv.currentIntent != DivisionIntentType.TAKE_AND_HOLD;
+
+        check(heavyLineIgnoresFlankPoints && directOrdersOnlyRespected && lightForcesStillCapWhenAllowed,
+                "Cruiser & Missile-Battleship divisions never wander off to cap distant flank points when 0 Frigates deploy, and Direct Orders Only suppresses autonomous capping",
+                "cruIntent=" + lineCruDiv.currentIntent + ", misBbIntent=" + misBbDiv.currentIntent
+                        + ", directOnlyHeld=" + directOrdersOnlyRespected + ", frigCappedUnderLightOnly=" + lightForcesStillCapWhenAllowed);
+
+        // 4A. Light Forces & Torpedoes template: Open Flotilla avoids FORM_LINE anvil and prioritizes isolated fluxed target
+        BattleGroupState torpPGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState torpEGroup = new BattleGroupState(1, eCmdr);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig lightDoc = new divisionai.PermanentDivisionManager.FleetDoctrineConfig();
+        lightDoc.applyOperationalTemplate(divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO);
+        torpPGroup.operationalAnchor = lightDoc.getOperationalAnchor();
+        torpPGroup.objectiveCapturePolicy = lightDoc.getObjectiveCapturePolicy();
+        torpPGroup.decisiveArm = lightDoc.getDecisiveArm();
+        torpPGroup.engagementDiscipline = lightDoc.getEngagementDiscipline();
+
+        DivisionState torpDd1 = new DivisionState("td_1_div", 0, 1, DivisionArchetype.MISSILE_DESTROYER_DIVISION, "Torpedo Flotilla 1", pCmdr);
+        DivisionState torpFf2 = new DivisionState("tf_2_div", 0, 2, DivisionArchetype.FRIGATE_DIVISION, "Light Flotilla 2", pCmdr);
+        torpPGroup.divisions.add(torpDd1);
+        torpPGroup.divisions.add(torpFf2);
+
+        DivisionState enemyStrongpoint = new DivisionState("ec_1_div", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Center 1", eCmdr);
+        DivisionState enemyStrongpoint2 = new DivisionState("ec_2_div", 1, 2, DivisionArchetype.CRUISER_DIVISION, "Enemy Center 2", eCmdr);
+        DivisionState enemyIsolated = new DivisionState("ec_iso_div", 1, 3, DivisionArchetype.CRUISER_DIVISION, "Isolated Enemy Flank", eCmdr);
+        torpEGroup.divisions.add(enemyStrongpoint);
+        torpEGroup.divisions.add(enemyStrongpoint2);
+        torpEGroup.divisions.add(enemyIsolated);
+
+        SimArena torpArena = new SimArena("Scenario 15C: Light Forces & Torpedo Template", "Open Flotilla and Torpedo Strikes", torpPGroup, torpEGroup);
+        SimShipState td1 = torpArena.addShip(torpDd1, "td_1", "HSS Hammerhead", "hammerhead", HullSize.DESTROYER, -400f, -1600f, 95f, 800f, 6, 0);
+        SimShipState tf2 = torpArena.addShip(torpFf2, "tf_2", "HSS Wolf", "wolf", HullSize.FRIGATE, 400f, -1600f, 145f, 700f, 4, 0);
+        SimShipState enCru = torpArena.addShip(enemyStrongpoint, "ec_1", "HSS Dominator", "dominator", HullSize.CRUISER, -220f, 400f, 50f, 950f, 0, 0);
+        enCru.fluxLevel = 0.05f;
+        SimShipState enCru2 = torpArena.addShip(enemyStrongpoint2, "ec_2", "HSS Enforcer", "enforcer", HullSize.DESTROYER, 180f, 450f, 60f, 850f, 0, 0);
+        enCru2.fluxLevel = 0.05f;
+        SimShipState enIso = torpArena.addShip(enemyIsolated, "ec_iso", "HSS Eagle", "eagle", HullSize.CRUISER, 2200f, 350f, 65f, 950f, 0, 0);
+        enIso.fluxLevel = 0.72f;
+        torpPGroup.shipIdToDivision.put(td1.id, torpDd1);
+        torpPGroup.shipIdToDivision.put(tf2.id, torpFf2);
+        torpEGroup.shipIdToDivision.put(enCru.id, enemyStrongpoint);
+        torpEGroup.shipIdToDivision.put(enCru2.id, enemyStrongpoint2);
+        torpEGroup.shipIdToDivision.put(enIso.id, enemyIsolated);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(torpDd1);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(torpFf2);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyStrongpoint);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyStrongpoint2);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enemyIsolated);
+
+        divisionai.OtcAI.updateTelemetry(torpArena.engineProxy, torpPGroup);
+        divisionai.OtcAI.updateTelemetry(torpArena.engineProxy, torpEGroup);
+        divisionai.OtcAI.evaluateOtcStrategy(torpArena.engineProxy, torpPGroup, torpEGroup, 10f);
+        divisionai.OtcBattlePlanner.planBattle(torpArena.engineProxy, torpPGroup, torpEGroup, null, null, 10f);
+
+        boolean openFlotillaSkipsFormLine = torpDd1.otcOrder.type != divisionai.DivisionModel.OtcOrderType.FORM_LINE
+                && !torpDd1.otcOrder.hasStation;
+        boolean torpedoArmPicksIsolatedFluxed = torpPGroup.primaryThreatEnemyDivision == enemyIsolated;
+
+        check(openFlotillaSkipsFormLine && torpedoArmPicksIsolatedFluxed,
+                "Light Forces & Torpedoes template suppresses static FORM_LINE anvil on destroyer flotillas and focuses isolated high-flux targets",
+                "mainOrder=" + torpDd1.otcOrder.type + ", hasFixedStation=" + torpDd1.otcOrder.hasStation
+                        + ", primaryTarget=" + (torpPGroup.primaryThreatEnemyDivision != null ? torpPGroup.primaryThreatEnemyDivision.displayName : "none"));
+
+        // 4B. Carrier-Centric Ops template: surface warships tether as Close Screen ahead of Carrier Group and OTC focuses enemy Carrier
+        BattleGroupState cvPGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState cvEGroup = new BattleGroupState(1, eCmdr);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig cvDoc = new divisionai.PermanentDivisionManager.FleetDoctrineConfig();
+        cvDoc.applyOperationalTemplate(divisionai.PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC);
+        cvPGroup.operationalAnchor = cvDoc.getOperationalAnchor();
+        cvPGroup.objectiveCapturePolicy = cvDoc.getObjectiveCapturePolicy();
+        cvPGroup.decisiveArm = cvDoc.getDecisiveArm();
+        cvPGroup.engagementDiscipline = cvDoc.getEngagementDiscipline();
+
+        DivisionState myFleetCv = new DivisionState("cv_1_div", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "Fleet Carrier Div. I", pCmdr);
+        DivisionState myScreenBb = new DivisionState("bb_scr_div", 0, 2, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. I", pCmdr);
+        DivisionState myScreenCru = new DivisionState("cr_scr_div", 0, 3, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div. I", pCmdr);
+        cvPGroup.divisions.add(myFleetCv);
+        cvPGroup.divisions.add(myScreenBb);
+        cvPGroup.divisions.add(myScreenCru);
+
+        DivisionState farEnemyCru = new DivisionState("ec_van_div", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Vanguard", eCmdr);
+        DivisionState farEnemyCv = new DivisionState("ec_cv_div", 1, 2, DivisionArchetype.FLEET_CARRIER_DIVISION, "Enemy Carrier Wing", eCmdr);
+        cvEGroup.divisions.add(farEnemyCru);
+        cvEGroup.divisions.add(farEnemyCv);
+
+        SimArena cvArena = new SimArena("Scenario 15D: Carrier-Centric Ops Template", "Carrier Screen and Close Screen tether", cvPGroup, cvEGroup);
+        SimShipState cv1 = cvArena.addShip(myFleetCv, "cv_1", "TTS Astral", "astral", HullSize.CAPITAL_SHIP, 0f, -2600f, 45f, 1800f, 0, 6);
+        SimShipState bbScr = cvArena.addShip(myScreenBb, "bb_scr", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, -200f, -2100f, 50f, 1000f, 0, 0);
+        SimShipState crScr = cvArena.addShip(myScreenCru, "cr_scr", "HSS Eagle", "eagle", HullSize.CRUISER, 250f, -2050f, 65f, 1000f, 0, 0);
+        SimShipState ecVan = cvArena.addShip(farEnemyCru, "ec_van", "HSS Eagle", "eagle", HullSize.CRUISER, -300f, 1200f, 65f, 1000f, 0, 0);
+        SimShipState ecCv = cvArena.addShip(farEnemyCv, "ec_cv", "HSS Mora", "mora", HullSize.CRUISER, 300f, 1250f, 50f, 1800f, 0, 3);
+        cvPGroup.shipIdToDivision.put(cv1.id, myFleetCv);
+        cvPGroup.shipIdToDivision.put(bbScr.id, myScreenBb);
+        cvPGroup.shipIdToDivision.put(crScr.id, myScreenCru);
+        cvEGroup.shipIdToDivision.put(ecVan.id, farEnemyCru);
+        cvEGroup.shipIdToDivision.put(ecCv.id, farEnemyCv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(myFleetCv);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(myScreenBb);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(myScreenCru);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(farEnemyCru);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(farEnemyCv);
+
+        divisionai.OtcAI.updateTelemetry(cvArena.engineProxy, cvPGroup);
+        divisionai.OtcAI.updateTelemetry(cvArena.engineProxy, cvEGroup);
+        divisionai.OtcAI.evaluateOtcStrategy(cvArena.engineProxy, cvPGroup, cvEGroup, 10f);
+        divisionai.OtcBattlePlanner.planBattle(cvArena.engineProxy, cvPGroup, cvEGroup, null, null, 10f);
+
+        float bbDistFromCarrier = myScreenBb.otcOrder.hasStation
+                ? (float) Math.hypot(myScreenBb.otcOrder.station.x - myFleetCv.centroid.x, myScreenBb.otcOrder.station.y - myFleetCv.centroid.y)
+                : 9999f;
+        float cruDistFromCarrier = myScreenCru.otcOrder.hasStation
+                ? (float) Math.hypot(myScreenCru.otcOrder.station.x - myFleetCv.centroid.x, myScreenCru.otcOrder.station.y - myFleetCv.centroid.y)
+                : 9999f;
+        boolean surfaceTetheredToCarrierScreen = bbDistFromCarrier <= 1250f && cruDistFromCarrier <= 1350f;
+        boolean carrierArmFocusesEnemyCarrier = cvPGroup.primaryThreatEnemyDivision == farEnemyCv;
+
+        check(surfaceTetheredToCarrierScreen && carrierArmFocusesEnemyCarrier,
+                "Carrier-Centric Ops template tethers Battleships & Cruisers in a Close Screen ahead of the Carrier Group and prioritizes enemy Carriers",
+                String.format(Locale.ROOT, "bbScreenDist=%.0fu, cruScreenDist=%.0fu, primaryTarget=%s",
+                        bbDistFromCarrier, cruDistFromCarrier,
+                        cvPGroup.primaryThreatEnemyDivision != null ? cvPGroup.primaryThreatEnemyDivision.displayName : "none"));
     }
 
     private static void testUIHarnessAndUXSuccinctness() throws Exception {

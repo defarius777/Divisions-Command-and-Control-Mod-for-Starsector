@@ -36,6 +36,11 @@ import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
 import divisionai.PermanentDivisionManager.FleetDoctrineConfig;
 import divisionai.PermanentDivisionManager.FleetWideFormation;
 import divisionai.PermanentDivisionManager.MultiDivisionSetpiece;
+import divisionai.PermanentDivisionManager.OperationalTemplate;
+import divisionai.PermanentDivisionManager.OperationalAnchor;
+import divisionai.PermanentDivisionManager.ObjectiveCapturePolicy;
+import divisionai.PermanentDivisionManager.DecisiveArm;
+import divisionai.PermanentDivisionManager.EngagementDiscipline;
 import divisionai.PermanentDivisionManager.OtcAuthority;
 import divisionai.PermanentDivisionManager.OtcPlay;
 import divisionai.PermanentDivisionManager.LineStation;
@@ -580,6 +585,16 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         positive,
                         gray);
             }
+
+            addOperationalDoctrineSection(
+                    body,
+                    bodyWidth - 16f,
+                    doctrine,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive,
+                    gray);
         }
 
         if (activeTab == ActiveTab.ALL_DOCTRINE || activeTab == ActiveTab.DIVISION_MODIFIERS) {
@@ -2167,6 +2182,232 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         }
     }
 
+    private void addOperationalDoctrineSection(
+            TooltipMakerAPI body,
+            float rowWidth,
+            FleetDoctrineConfig doctrine,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeValueColor,
+            Color gray) {
+
+        body.addSectionHeading(
+                "Operational Focus and Engagement Rules",
+                highlight,
+                darkColor,
+                Alignment.LMID,
+                8f);
+
+        OperationalTemplate matchedTpl = doctrine.resolveMatchingOperationalTemplate();
+        CustomPanelAPI tplPanel = Global.getSettings().createCustom(rowWidth, 32f, subPanelPlugin);
+        TooltipMakerAPI tplUi = tplPanel.createUIElement(rowWidth, 32f, false);
+        String tplHdr = matchedTpl != null ? "Operational Template:" : "Operational Template (Custom):";
+        LabelAPI tplLbl = tplUi.addPara(tplHdr, 0f, matchedTpl != null ? baseColor : highlight);
+        float tplLblBot = DivisionUiWidgets.wrapLabelInPlace(tplLbl, CONTROL_COL_X - 14f, 6f, 6f);
+        DivisionUiWidgets.attachRowLabelTooltip(
+                tplUi,
+                (UIComponentAPI) tplLbl,
+                "Populates the four operational options below with standard defaults. Any option below can be edited freely.");
+
+        float btnX = CONTROL_COL_X;
+        float btnW = 192f;
+        for (OperationalTemplate tpl : OperationalTemplate.values()) {
+            boolean isActive = (tpl == matchedTpl);
+            String act = "SET_OP_TEMPLATE:" + tpl.name();
+            ButtonAPI bTpl = registerButton(
+                    tplUi.addButton(
+                            tpl.displayName,
+                            act,
+                            isActive ? activeValueColor : baseColor,
+                            darkColor,
+                            Alignment.MID,
+                            CutStyle.TL_BR,
+                            btnW,
+                            24f,
+                            0f),
+                    act);
+            if (isActive) {
+                bTpl.highlight();
+            }
+            bTpl.getPosition().inTL(btnX, 3f);
+            DivisionUiWidgets.addTooltip(
+                    tplUi,
+                    bTpl,
+                    "Template: " + tpl.displayName,
+                    tpl.summary);
+            btnX += btnW + 8f;
+        }
+
+        String tplStatus = matchedTpl != null
+                ? matchedTpl.summary
+                : "Custom settings active; select a template to reset all four rows.";
+        LabelAPI tplSumLbl = tplUi.addPara(tplStatus, 0f, matchedTpl != null ? gray : highlight);
+        float tplSumBot = DivisionUiWidgets.wrapLabelInPlace(
+                tplSumLbl, Math.max(180f, rowWidth - btnX - 8f), btnX + 4f, 6f);
+
+        DivisionUiWidgets.resizeRowToFit(tplPanel, tplUi, rowWidth, Math.max(32f, Math.max(tplLblBot, tplSumBot) + 4f));
+        tplPanel.addUIElement(tplUi).inTL(0f, 0f);
+        body.addCustom(tplPanel, 4f);
+
+        // 1. Battle Group Anchor
+        OperationalAnchor curAnchor = doctrine.getOperationalAnchor();
+        OperationalAnchor[] anchors = OperationalAnchor.values();
+        String[] anchorNames = new String[anchors.length];
+        String[] anchorSums = new String[anchors.length];
+        String[] anchorActs = new String[anchors.length];
+        int anchorIdx = 0;
+        for (int i = 0; i < anchors.length; i++) {
+            anchorNames[i] = anchors[i].displayName;
+            anchorSums[i] = anchors[i].summary;
+            anchorActs[i] = "SET_OP_ANCHOR:" + anchors[i].name();
+            if (anchors[i] == curAnchor) anchorIdx = i;
+        }
+        addGenericOperationalDropdownRow(
+                body, rowWidth, "OP_ANCHOR_DD", "Battle Group Anchor:",
+                anchorNames, anchorSums, anchorActs, anchorIdx,
+                baseColor, darkColor, activeValueColor, gray);
+
+        // 2. Objective Capture Policy
+        ObjectiveCapturePolicy curPol = doctrine.getObjectiveCapturePolicy();
+        ObjectiveCapturePolicy[] pols = ObjectiveCapturePolicy.values();
+        String[] polNames = new String[pols.length];
+        String[] polSums = new String[pols.length];
+        String[] polActs = new String[pols.length];
+        int polIdx = 0;
+        for (int i = 0; i < pols.length; i++) {
+            polNames[i] = pols[i].displayName;
+            polSums[i] = pols[i].summary;
+            polActs[i] = "SET_OBJ_POLICY:" + pols[i].name();
+            if (pols[i] == curPol) polIdx = i;
+        }
+        addGenericOperationalDropdownRow(
+                body, rowWidth, "OP_OBJ_POLICY_DD", "Objective Capture:",
+                polNames, polSums, polActs, polIdx,
+                baseColor, darkColor, activeValueColor, gray);
+
+        // 3. Primary Striking Arm
+        DecisiveArm curArm = doctrine.getDecisiveArm();
+        DecisiveArm[] arms = DecisiveArm.values();
+        String[] armNames = new String[arms.length];
+        String[] armSums = new String[arms.length];
+        String[] armActs = new String[arms.length];
+        int armIdx = 0;
+        for (int i = 0; i < arms.length; i++) {
+            armNames[i] = arms[i].displayName;
+            armSums[i] = arms[i].summary;
+            armActs[i] = "SET_DECISIVE_ARM:" + arms[i].name();
+            if (arms[i] == curArm) armIdx = i;
+        }
+        addGenericOperationalDropdownRow(
+                body, rowWidth, "OP_DECISIVE_ARM_DD", "Primary Striking Arm:",
+                armNames, armSums, armActs, armIdx,
+                baseColor, darkColor, activeValueColor, gray);
+
+        // 4. Engagement Discipline
+        EngagementDiscipline curDisc = doctrine.getEngagementDiscipline();
+        EngagementDiscipline[] discs = EngagementDiscipline.values();
+        String[] discNames = new String[discs.length];
+        String[] discSums = new String[discs.length];
+        String[] discActs = new String[discs.length];
+        int discIdx = 0;
+        for (int i = 0; i < discs.length; i++) {
+            discNames[i] = discs[i].displayName;
+            discSums[i] = discs[i].summary;
+            discActs[i] = "SET_ENG_DISCIPLINE:" + discs[i].name();
+            if (discs[i] == curDisc) discIdx = i;
+        }
+        addGenericOperationalDropdownRow(
+                body, rowWidth, "OP_ENG_DISCIPLINE_DD", "Engagement Discipline:",
+                discNames, discSums, discActs, discIdx,
+                baseColor, darkColor, activeValueColor, gray);
+    }
+
+    private void addGenericOperationalDropdownRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String ddKey,
+            String rowTitle,
+            String[] optionNames,
+            String[] optionSummaries,
+            String[] optionActions,
+            int selectedIdx,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        boolean expanded = ddKey.equals(expandedDropdownKey);
+        String curName = optionNames[selectedIdx];
+        String curSum = optionSummaries[selectedIdx];
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 30f, subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 30f, false);
+        LabelAPI rowLbl = rowUi.addPara(rowTitle, 0f, baseColor);
+        float lblBot = DivisionUiWidgets.wrapLabelInPlace(rowLbl, CONTROL_COL_X - 14f, 6f, 6f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (UIComponentAPI) rowLbl, rowTitle);
+
+        String toggleAct = "TOGGLE_DD:" + ddKey;
+        String btnText = (expanded ? "[^] " : "[v] ") + curName;
+        ButtonAPI bToggle = registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        activeValueColor,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        236f,
+                        24f,
+                        0f),
+                toggleAct);
+        if (expanded) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 3f);
+        DivisionUiWidgets.addTooltip(rowUi, bToggle, rowTitle + " " + curName, curSum);
+
+        LabelAPI curSumLbl = rowUi.addPara(curSum, 0f, expanded ? activeValueColor : gray);
+        float curSumBot = DivisionUiWidgets.wrapLabelInPlace(
+                curSumLbl, rowWidth - (CONTROL_COL_X + 252f) - 8f, CONTROL_COL_X + 252f, 6f);
+
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(30f, Math.max(lblBot, curSumBot) + 4f));
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        body.addCustom(rowPanel, 3f);
+
+        if (expanded) {
+            for (int i = 0; i < optionNames.length; i++) {
+                boolean isCurrent = (i == selectedIdx);
+                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 28f, subPanelPlugin);
+                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 28f, false);
+                String selAct = optionActions[i];
+                ButtonAPI bOpt = registerButton(
+                        optUi.addButton(
+                                (isCurrent ? "* " : "   ") + optionNames[i],
+                                selAct,
+                                isCurrent ? activeValueColor : baseColor,
+                                darkColor,
+                                Alignment.LMID,
+                                CutStyle.ALL,
+                                224f,
+                                22f,
+                                0f),
+                        selAct);
+                if (isCurrent) {
+                    bOpt.highlight();
+                }
+                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 3f);
+
+                LabelAPI optSumLbl = optUi.addPara(optionSummaries[i], 0f, isCurrent ? activeValueColor : gray);
+                float optSumBot = DivisionUiWidgets.wrapLabelInPlace(
+                        optSumLbl, rowWidth - (CONTROL_COL_X + 252f) - 8f, CONTROL_COL_X + 252f, 5f);
+
+                DivisionUiWidgets.resizeRowToFit(optPanel, optUi, rowWidth, Math.max(28f, optSumBot + 4f));
+                optPanel.addUIElement(optUi).inTL(0f, 0f);
+                body.addCustom(optPanel, 2f);
+            }
+        }
+    }
+
 
     private void addPlayToggleRow(
             TooltipMakerAPI body,
@@ -2929,6 +3170,51 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             MultiDivisionSetpiece msp = MultiDivisionSetpiece.fromId(cmd.substring("SET_MULTI_SETPIECE:".length()), null);
             if (msp != null) {
                 PermanentDivisionManager.updateMultiDivisionSetpiece(msp);
+            }
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_OP_TEMPLATE:")) {
+            OperationalTemplate tpl = OperationalTemplate.fromId(cmd.substring("SET_OP_TEMPLATE:".length()), null);
+            if (tpl != null) {
+                PermanentDivisionManager.updateOperationalTemplate(tpl);
+            }
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_OP_ANCHOR:")) {
+            OperationalAnchor anc = OperationalAnchor.fromId(cmd.substring("SET_OP_ANCHOR:".length()), null);
+            if (anc != null) {
+                PermanentDivisionManager.updateOperationalAnchor(anc);
+            }
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_OBJ_POLICY:")) {
+            ObjectiveCapturePolicy pol = ObjectiveCapturePolicy.fromId(cmd.substring("SET_OBJ_POLICY:".length()), null);
+            if (pol != null) {
+                PermanentDivisionManager.updateObjectiveCapturePolicy(pol);
+            }
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_DECISIVE_ARM:")) {
+            DecisiveArm arm = DecisiveArm.fromId(cmd.substring("SET_DECISIVE_ARM:".length()), null);
+            if (arm != null) {
+                PermanentDivisionManager.updateDecisiveArm(arm);
+            }
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("SET_ENG_DISCIPLINE:")) {
+            EngagementDiscipline disc = EngagementDiscipline.fromId(cmd.substring("SET_ENG_DISCIPLINE:".length()), null);
+            if (disc != null) {
+                PermanentDivisionManager.updateEngagementDiscipline(disc);
             }
             expandedDropdownKey = null;
             rebuildContent();

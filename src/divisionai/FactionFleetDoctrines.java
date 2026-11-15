@@ -830,6 +830,30 @@ public final class FactionFleetDoctrines {
         if (mdsStr != null && !mdsStr.isEmpty()) {
             cfg.setMultiDivisionSetpiece(MultiDivisionSetpiece.fromId(mdsStr, cfg.getMultiDivisionSetpiece()));
         }
+        String opTplStr = JsonReflectBridge.optString(entryJson, "operationalTemplate", null);
+        if (opTplStr != null && !opTplStr.isEmpty()) {
+            PermanentDivisionManager.OperationalTemplate tpl =
+                    PermanentDivisionManager.OperationalTemplate.fromId(opTplStr, null);
+            if (tpl != null) {
+                cfg.applyOperationalTemplate(tpl);
+            }
+        }
+        String opAncStr = JsonReflectBridge.optString(entryJson, "operationalAnchor", null);
+        if (opAncStr != null && !opAncStr.isEmpty()) {
+            cfg.setOperationalAnchor(PermanentDivisionManager.OperationalAnchor.fromId(opAncStr, cfg.getOperationalAnchor()));
+        }
+        String objPolStr = JsonReflectBridge.optString(entryJson, "objectiveCapturePolicy", null);
+        if (objPolStr != null && !objPolStr.isEmpty()) {
+            cfg.setObjectiveCapturePolicy(PermanentDivisionManager.ObjectiveCapturePolicy.fromId(objPolStr, cfg.getObjectiveCapturePolicy()));
+        }
+        String decArmStr = JsonReflectBridge.optString(entryJson, "decisiveArm", null);
+        if (decArmStr != null && !decArmStr.isEmpty()) {
+            cfg.setDecisiveArm(PermanentDivisionManager.DecisiveArm.fromId(decArmStr, cfg.getDecisiveArm()));
+        }
+        String engDiscStr = JsonReflectBridge.optString(entryJson, "engagementDiscipline", null);
+        if (engDiscStr != null && !engDiscStr.isEmpty()) {
+            cfg.setEngagementDiscipline(PermanentDivisionManager.EngagementDiscipline.fromId(engDiscStr, cfg.getEngagementDiscipline()));
+        }
 
         Object playsJson = JsonReflectBridge.optJSONObject(entryJson, "plays");
         if (playsJson != null) {
@@ -994,6 +1018,11 @@ public final class FactionFleetDoctrines {
             int phaseWeight = fd.getPhaseShips();
             int shipQuality = fd.getShipQuality();
             int shipSize = fd.getShipSize();
+            if (cvWeight >= 4 && shipSize <= 3) {
+                cfg.applyOperationalTemplate(PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC);
+            } else if (shipSize <= 2 && cvWeight <= 2) {
+                cfg.applyOperationalTemplate(PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO);
+            }
             boolean disorderlyRaider = !fd.isStrictComposition() && shipQuality <= 2 && aggr >= 4;
             if (disorderlyRaider) {
                 for (DoctrineDivisionType cdt : new DoctrineDivisionType[]{

@@ -226,6 +226,10 @@ public class DivisionAutoFormer {
                     battleGroup.authority = fDoc.getOtcAuthority();
                     battleGroup.fleetWideFormation = fDoc.getFleetWideFormation();
                     battleGroup.multiDivisionSetpieceDoctrine = fDoc.getMultiDivisionSetpiece();
+                    battleGroup.operationalAnchor = fDoc.getOperationalAnchor();
+                    battleGroup.objectiveCapturePolicy = fDoc.getObjectiveCapturePolicy();
+                    battleGroup.decisiveArm = fDoc.getDecisiveArm();
+                    battleGroup.engagementDiscipline = fDoc.getEngagementDiscipline();
                     battleGroup.deployInFleetFormation = fDoc.isDeployInFleetFormation();
                     battleGroup.orchestratedAdvance = fDoc.isOrchestratedAdvance();
                     battleGroup.plays.clear();
@@ -243,6 +247,10 @@ public class DivisionAutoFormer {
                 battleGroup.authority = fDoc.getOtcAuthority();
                 battleGroup.fleetWideFormation = fDoc.getFleetWideFormation();
                 battleGroup.multiDivisionSetpieceDoctrine = fDoc.getMultiDivisionSetpiece();
+                battleGroup.operationalAnchor = fDoc.getOperationalAnchor();
+                battleGroup.objectiveCapturePolicy = fDoc.getObjectiveCapturePolicy();
+                battleGroup.decisiveArm = fDoc.getDecisiveArm();
+                battleGroup.engagementDiscipline = fDoc.getEngagementDiscipline();
                 battleGroup.deployInFleetFormation = fDoc.isDeployInFleetFormation();
                 battleGroup.orchestratedAdvance = fDoc.isOrchestratedAdvance();
                 battleGroup.plays.clear();

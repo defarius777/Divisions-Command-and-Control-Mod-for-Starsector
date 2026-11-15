@@ -439,6 +439,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             playerGroup.authority = doctrine.getOtcAuthority();
             playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
             playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
+            playerGroup.operationalAnchor = doctrine.getOperationalAnchor();
+            playerGroup.objectiveCapturePolicy = doctrine.getObjectiveCapturePolicy();
+            playerGroup.decisiveArm = doctrine.getDecisiveArm();
+            playerGroup.engagementDiscipline = doctrine.getEngagementDiscipline();
             playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
             playerGroup.orchestratedAdvance = doctrine.isOrchestratedAdvance();
             playerGroup.plays.clear();
@@ -1072,6 +1076,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 playerGroup.authority = doctrine.getOtcAuthority();
                 playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
                 playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
+                playerGroup.operationalAnchor = doctrine.getOperationalAnchor();
+                playerGroup.objectiveCapturePolicy = doctrine.getObjectiveCapturePolicy();
+                playerGroup.decisiveArm = doctrine.getDecisiveArm();
+                playerGroup.engagementDiscipline = doctrine.getEngagementDiscipline();
                 playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
                 playerGroup.orchestratedAdvance = doctrine.isOrchestratedAdvance();
             }

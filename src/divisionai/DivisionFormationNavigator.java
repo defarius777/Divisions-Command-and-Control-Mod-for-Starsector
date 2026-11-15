@@ -1105,7 +1105,17 @@ public class DivisionFormationNavigator {
         return score;
     }
 
-    static void computeStandoffStation(
+    public static float resolveEffectiveHullCollisionRadius(ShipAPI s) {
+        if (s == null) return 65f;
+        float floor = 55f;
+        ShipAPI.HullSize hs = s.getHullSize();
+        if (hs == ShipAPI.HullSize.CAPITAL_SHIP) floor = 210f;
+        else if (hs == ShipAPI.HullSize.CRUISER) floor = 130f;
+        else if (hs == ShipAPI.HullSize.DESTROYER) floor = 85f;
+        return Math.max(floor, s.getCollisionRadius());
+    }
+
+    public static void computeStandoffStation(
             CombatEngineAPI engine,
             DivisionState div,
             DivisionState enemyDiv,
@@ -1158,8 +1168,61 @@ public class DivisionFormationNavigator {
             standoff = standoff * 1.12f;
         }
         // Account for the forward hull projection of a multi-ship enemy division's front rank (or a multi-module
-        // station's outer ring) ahead of visEnemyPos so standoff is measured from the front modules/rank!
+        // station's outer ring) ahead of visEnemyPos, AND enforce a strict edge-to-edge minimum center-to-center
+        // clearance against EVERY enemy division (including 1-ship Capitals!) so low manual/SO standoff values
+        // never place stationPoint inside an enemy Capital's collision radius or reactor death-blast!
         List<ShipAPI> eMembers = enemyDiv.getAliveMembers();
+        boolean rammingDivisionActive = div.rammingMode != null
+                && div.rammingMode != PermanentDivisionManager.DivisionRammingMode.OFF
+                && div.ramCapableMemberCount > 0;
+        if (!rammingDivisionActive && !eMembers.isEmpty()) {
+            float ux = (len > 1f) ? (dx / len) : 0f;
+            float uy = (len > 1f) ? (dy / len) : (div.side == 0 ? -1f : 1f);
+            float ownLeadRadius = (div.flagship != null) ? resolveEffectiveHullCollisionRadius(div.flagship) : 95f;
+            float fwdRankOffset = (div.activeFormation == DivisionFormation.FORWARD_WEDGE && div.getAliveMembers().size() >= 2)
+                    ? Math.min(220f, div.stationSpacing * 0.45f)
+                    : 0f;
+            boolean hasSoOrLightHull = isLightOrDdDiv;
+            if (!hasSoOrLightHull && div.profiles != null) {
+                for (ShipCapabilityProfile p : div.profiles) {
+                    if (p != null && p.hasSafetyOverrides) {
+                        hasSoOrLightHull = true;
+                        break;
+                    }
+                }
+            }
+            float maxLeadHullClearance = 0f;
+            for (int i = 0; i < eMembers.size(); i++) {
+                ShipAPI es = eMembers.get(i);
+                if (es == null || !OtcAI.isShipVisibleToSide(engine, div.side, es) || es.getLocation() == null) continue;
+                if (enemyDiv.detachedStragglerIds != null && enemyDiv.detachedStragglerIds.contains(es.getId())) continue;
+                float rx = es.getLocation().x - visEnemyPos.x;
+                float ry = es.getLocation().y - visEnemyPos.y;
+                if (rx * rx + ry * ry > 900f * 900f) continue;
+                float proj = Math.max(0f, rx * ux + ry * uy);
+                float eRad = resolveEffectiveHullCollisionRadius(es);
+                ShipAPI.HullSize esHs = es.getHullSize();
+                boolean esCap = es.isCapital() || esHs == ShipAPI.HullSize.CAPITAL_SHIP;
+                boolean esCru = es.isCruiser() || esHs == ShipAPI.HullSize.CRUISER;
+                boolean dyingExplosionHazard = (esCap || esCru)
+                        && (es.isHulk()
+                        || es.getHullLevel() <= 0.22f
+                        || (es.getHullLevel() <= 0.32f
+                        && es.getFluxTracker() != null
+                        && es.getFluxTracker().isOverloadedOrVenting()
+                        && es.getFluxLevel() >= 0.72f));
+                float gapFloor = (dyingExplosionHazard && hasSoOrLightHull)
+                        ? (esCap ? 480f : 310f)
+                        : 220f;
+                float reqFromVisCenter = proj + eRad + ownLeadRadius + fwdRankOffset + gapFloor;
+                if (reqFromVisCenter > maxLeadHullClearance) {
+                    maxLeadHullClearance = reqFromVisCenter;
+                }
+            }
+            if (maxLeadHullClearance > standoff) {
+                standoff = maxLeadHullClearance;
+            }
+        }
         if (!targetCorneredOrAuxiliary && len > 1f && (eMembers.size() >= 4 || enemyIsStation)) {
             float ux = dx / len;
             float uy = dy / len;

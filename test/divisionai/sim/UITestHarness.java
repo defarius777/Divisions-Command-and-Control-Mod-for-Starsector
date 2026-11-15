@@ -3212,6 +3212,64 @@ public class UITestHarness {
             }
         }
 
+        for (PermanentDivisionManager.OperationalTemplate ot : PermanentDivisionManager.OperationalTemplate.values()) {
+            auditedStrings += 3;
+            if (ot.displayName.length() > 26 || ot.shortName.length() > 20 || ot.summary.length() > 95 || countWords(ot.summary) > 16) {
+                violations.add("OperationalTemplate." + ot.name() + " copy exceeds budget: " + ot.displayName + " / " + ot.summary);
+            }
+        }
+        for (PermanentDivisionManager.OperationalAnchor oa : PermanentDivisionManager.OperationalAnchor.values()) {
+            auditedStrings += 2;
+            if (oa.displayName.length() > 24 || oa.summary.length() > 95 || countWords(oa.summary) > 16) {
+                violations.add("OperationalAnchor." + oa.name() + " copy exceeds budget: " + oa.displayName + " / " + oa.summary);
+            }
+        }
+        for (PermanentDivisionManager.ObjectiveCapturePolicy op : PermanentDivisionManager.ObjectiveCapturePolicy.values()) {
+            auditedStrings += 2;
+            if (op.displayName.length() > 24 || op.summary.length() > 95 || countWords(op.summary) > 16) {
+                violations.add("ObjectiveCapturePolicy." + op.name() + " copy exceeds budget: " + op.displayName + " / " + op.summary);
+            }
+        }
+        for (PermanentDivisionManager.DecisiveArm da : PermanentDivisionManager.DecisiveArm.values()) {
+            auditedStrings += 2;
+            if (da.displayName.length() > 24 || da.summary.length() > 95 || countWords(da.summary) > 16) {
+                violations.add("DecisiveArm." + da.name() + " copy exceeds budget: " + da.displayName + " / " + da.summary);
+            }
+        }
+        for (PermanentDivisionManager.EngagementDiscipline ed : PermanentDivisionManager.EngagementDiscipline.values()) {
+            auditedStrings += 2;
+            if (ed.displayName.length() > 24 || ed.summary.length() > 95 || countWords(ed.summary) > 16) {
+                violations.add("EngagementDiscipline." + ed.name() + " copy exceeds budget: " + ed.displayName + " / " + ed.summary);
+            }
+        }
+
+        PermanentDivisionManager.FleetDoctrineConfig tplCfg = new PermanentDivisionManager.FleetDoctrineConfig();
+        boolean defaultIsLinear = tplCfg.resolveMatchingOperationalTemplate() == PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+        tplCfg.applyOperationalTemplate(PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO);
+        boolean lightMatches = tplCfg.resolveMatchingOperationalTemplate() == PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO
+                && tplCfg.getOperationalAnchor() == PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA
+                && tplCfg.getObjectiveCapturePolicy() == PermanentDivisionManager.ObjectiveCapturePolicy.ACTIVE_CONTEST
+                && tplCfg.getDecisiveArm() == PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES
+                && tplCfg.getEngagementDiscipline() == PermanentDivisionManager.EngagementDiscipline.SKIRMISH_WITHDRAW;
+        tplCfg.applyOperationalTemplate(PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC);
+        boolean carrierMatches = tplCfg.resolveMatchingOperationalTemplate() == PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC
+                && tplCfg.getOperationalAnchor() == PermanentDivisionManager.OperationalAnchor.CARRIER_SCREEN
+                && tplCfg.getObjectiveCapturePolicy() == PermanentDivisionManager.ObjectiveCapturePolicy.FLEET_AXIS_ONLY
+                && tplCfg.getDecisiveArm() == PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE
+                && tplCfg.getEngagementDiscipline() == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN;
+        tplCfg.setObjectiveCapturePolicy(PermanentDivisionManager.ObjectiveCapturePolicy.DIRECT_ORDERS_ONLY);
+        boolean customDetected = tplCfg.resolveMatchingOperationalTemplate() == null;
+        PermanentDivisionManager.FleetDoctrineConfig roundTrip =
+                PermanentDivisionManager.deserializeDoctrineConfig(PermanentDivisionManager.serializeDoctrineConfig(tplCfg));
+        boolean roundTripOk = roundTrip.resolveMatchingOperationalTemplate() == null
+                && roundTrip.getOperationalAnchor() == PermanentDivisionManager.OperationalAnchor.CARRIER_SCREEN
+                && roundTrip.getObjectiveCapturePolicy() == PermanentDivisionManager.ObjectiveCapturePolicy.DIRECT_ORDERS_ONLY
+                && roundTrip.getDecisiveArm() == PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE
+                && roundTrip.getEngagementDiscipline() == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN;
+        if (!(defaultIsLinear && lightMatches && carrierMatches && customDetected && roundTripOk)) {
+            violations.add("OperationalTemplate preset/custom/roundTrip failed");
+        }
+
         res.record(
                 violations.isEmpty(),
                 "All UI enum titles, dropdown labels, and summaries pass succinctness & word-salad caps",

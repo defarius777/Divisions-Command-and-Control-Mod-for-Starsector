@@ -949,6 +949,14 @@ public class DivisionModel {
                 PermanentDivisionManager.MultiDivisionSetpiece.AUTO_DOCTRINAL;
         public PermanentDivisionManager.MultiDivisionSetpiece activeMultiDivisionSetpiece =
                 PermanentDivisionManager.MultiDivisionSetpiece.NONE;
+        public PermanentDivisionManager.OperationalAnchor operationalAnchor =
+                PermanentDivisionManager.OperationalAnchor.BATTLE_LINE;
+        public PermanentDivisionManager.ObjectiveCapturePolicy objectiveCapturePolicy =
+                PermanentDivisionManager.ObjectiveCapturePolicy.LIGHT_FORCES_ONLY;
+        public PermanentDivisionManager.DecisiveArm decisiveArm =
+                PermanentDivisionManager.DecisiveArm.SURFACE_GUNFIRE;
+        public PermanentDivisionManager.EngagementDiscipline engagementDiscipline =
+                PermanentDivisionManager.EngagementDiscipline.LINE_COHESION;
         public boolean deployInFleetFormation = true;
         public boolean orchestratedAdvance = true;
         public boolean orchestratedAdvanceContactMade = false;

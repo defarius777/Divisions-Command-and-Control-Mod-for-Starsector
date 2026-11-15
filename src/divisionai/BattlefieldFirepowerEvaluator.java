@@ -1883,7 +1883,9 @@ public class BattlefieldFirepowerEvaluator {
         for (WeaponAPI w : s.getAllWeapons()) {
             if (w == null || w.getType() == WeaponType.MISSILE) continue;
             if (w.hasAIHint(AIHints.PD) && w.getSize() == WeaponSize.SMALL) continue;
-            if (w.getRange() > best) best = w.getRange();
+            float effRange = PermanentDivisionManager.applyShipWeaponRangeThreshold(
+                    s.getMutableStats(), s.getVariant(), w.getType(), w.getRange());
+            if (effRange > best) best = effRange;
         }
         weaponMaxDirectRangeCache.put(s, best);
         return best;
