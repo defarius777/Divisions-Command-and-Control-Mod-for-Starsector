@@ -304,6 +304,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         activeButtons.clear();
         activeCheckboxes.clear();
         otcPennantBoxes.clear();
+        opTemplateBoxes.clear();
         prefixTextFields.clear();
         customOtcTitleField = null;
         dialogTooltipHost = null;
@@ -1772,6 +1773,109 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
 
     private final List<DivisionUiWidgets.OtcPennantBox> otcPennantBoxes = new ArrayList<>();
+    private final List<DivisionUiWidgets.OperationalTemplateBox> opTemplateBoxes = new ArrayList<>();
+
+    public static void renderOperationalTemplateBox(
+            OperationalTemplate template,
+            float boxX,
+            float boxY,
+            float boxW,
+            float boxH,
+            boolean isSelected,
+            boolean isHovered,
+            float alphaMult) {
+        if (template == null || alphaMult <= 0.01f) return;
+        float bx = Math.round(boxX);
+        float by = Math.round(boxY);
+        float bw = Math.round(boxW);
+        float bh = Math.round(boxH);
+
+        // 1. Warroom TSFC-style dark/illuminated square cavity
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        if (isSelected) {
+            GL11.glColor4f(0.06f, 0.18f, 0.25f, 0.96f * alphaMult); // #0F2E40 active cavity
+        } else if (isHovered) {
+            GL11.glColor4f(0.05f, 0.11f, 0.16f, 0.92f * alphaMult);
+        } else {
+            GL11.glColor4f(0.04f, 0.055f, 0.067f, 0.90f * alphaMult); // #0A0E11 standard cavity
+        }
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glVertex2f(bx, by);
+        GL11.glVertex2f(bx + bw, by);
+        GL11.glVertex2f(bx + bw, by + bh);
+        GL11.glVertex2f(bx, by + bh);
+        GL11.glEnd();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+
+        // 2. Render pure-white template silhouette tinted in Warroom Cyan (#AADEFF standard / #E1FCFF active)
+        try {
+            SpriteAPI sprite = loadFormationSpriteSafe(template.getSettingsIconKey(), template.getSpritePath());
+            if (sprite != null) {
+                float prevW = sprite.getWidth();
+                float prevH = sprite.getHeight();
+                float prevCx = sprite.getCenterX();
+                float prevCy = sprite.getCenterY();
+                Color prevColor = sprite.getColor();
+                float prevAlpha = sprite.getAlphaMult();
+                float drawSize = (float) Math.round(Math.max(16f, Math.min(bw, bh) - 18f));
+                float snapX = (float) Math.round(bx + (bw - drawSize) * 0.5f);
+                float snapY = (float) Math.round(by + (bh - drawSize) * 0.5f);
+                sprite.setSize(drawSize, drawSize);
+                sprite.setCenter(drawSize * 0.5f, drawSize * 0.5f);
+                sprite.setColor(isSelected ? new Color(225, 252, 255) : new Color(170, 222, 255));
+                sprite.setAlphaMult((isSelected ? 1.0f : (isHovered ? 0.96f : 0.88f)) * alphaMult);
+                sprite.render(snapX, snapY);
+                sprite.setSize(prevW, prevH);
+                sprite.setCenter(prevCx, prevCy);
+                if (prevColor != null) {
+                    sprite.setColor(prevColor);
+                }
+                sprite.setAlphaMult(prevAlpha);
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // 3. Draw Warroom Cyan double border when active, or steel-teal Warroom frame when unselected
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        if (isSelected) {
+            GL11.glLineWidth(2.2f);
+            GL11.glColor4f(0.42f, 0.90f, 1.0f, 0.96f * alphaMult); // #6BE6FF active frame
+            GL11.glBegin(GL11.GL_LINE_LOOP);
+            GL11.glVertex2f(bx, by);
+            GL11.glVertex2f(bx + bw, by);
+            GL11.glVertex2f(bx + bw, by + bh);
+            GL11.glVertex2f(bx, by + bh);
+            GL11.glEnd();
+
+            if (bw > 10f && bh > 10f) {
+                GL11.glLineWidth(1.0f);
+                GL11.glColor4f(0.45f, 0.95f, 1.0f, 0.58f * alphaMult); // #73F2FF inner hairline
+                GL11.glBegin(GL11.GL_LINE_LOOP);
+                GL11.glVertex2f(bx + 3f, by + 3f);
+                GL11.glVertex2f(bx + bw - 3f, by + 3f);
+                GL11.glVertex2f(bx + bw - 3f, by + bh - 3f);
+                GL11.glVertex2f(bx + 3f, by + bh - 3f);
+                GL11.glEnd();
+            }
+        } else {
+            GL11.glLineWidth(isHovered ? 1.8f : 1.4f);
+            GL11.glColor4f(0.21f, 0.45f, 0.56f, (isHovered ? 0.92f : 0.72f) * alphaMult); // #36738E steel-teal frame
+            GL11.glBegin(GL11.GL_LINE_LOOP);
+            GL11.glVertex2f(bx, by);
+            GL11.glVertex2f(bx + bw, by);
+            GL11.glVertex2f(bx + bw, by + bh);
+            GL11.glVertex2f(bx, by + bh);
+            GL11.glEnd();
+        }
+        GL11.glLineWidth(1.0f);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
 
     public static void renderOtcAuthorityPennantBox(
             OtcAuthority authority,
@@ -2199,21 +2303,53 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 Alignment.LMID,
                 8f);
 
-        OperationalTemplate matchedTpl = doctrine.resolveMatchingOperationalTemplate();
-        CustomPanelAPI tplPanel = Global.getSettings().createCustom(rowWidth, 32f, subPanelPlugin);
-        TooltipMakerAPI tplUi = tplPanel.createUIElement(rowWidth, 32f, false);
-        String tplHdr = matchedTpl != null ? "Operational Template:" : "Operational Template (Custom):";
-        LabelAPI tplLbl = tplUi.addPara(tplHdr, 0f, matchedTpl != null ? baseColor : highlight);
-        float tplLblBot = DivisionUiWidgets.wrapLabelInPlace(tplLbl, CONTROL_COL_X - 14f, 6f, 6f);
-        DivisionUiWidgets.attachRowLabelTooltip(
-                tplUi,
-                (UIComponentAPI) tplLbl,
-                "Populates the four operational options below with standard defaults. Any option below can be edited freely.");
+        final OperationalTemplate matchedTpl = doctrine.resolveMatchingOperationalTemplate();
+        final OperationalTemplate[] allTpls = OperationalTemplate.values();
+        final float cardSize = 124f;
+        final float colW = 224f;
+        final float colGap = 36f;
+        final float totalColsW = allTpls.length * colW + (allTpls.length - 1) * colGap;
+        final float colStartX = Math.max(12f, Math.round((rowWidth - totalColsW) * 0.5f));
+        final float topPad = 8f;
+        final float tplPanelH = 194f;
+        final CustomPanelAPI[] tplBannerRef = new CustomPanelAPI[1];
 
-        float btnX = CONTROL_COL_X;
+        BaseCustomUIPanelPlugin tplBannerPlugin = new BaseCustomUIPanelPlugin() {
+            @Override
+            public void buttonPressed(Object buttonId) {
+                FleetDoctrineDialog.this.buttonPressed(buttonId);
+            }
+
+            @Override
+            public void renderBelow(float alphaMult) {
+                if (!DivisionUiWidgets.isPanelVisibleOnScreen(tplBannerRef[0])) return;
+                PositionAPI p = tplBannerRef[0].getPosition();
+                float px = p.getX();
+                float py = p.getY();
+                float ph = p.getHeight();
+                float cardBottomY = py + ph - topPad - cardSize;
+                for (int i = 0; i < allTpls.length; i++) {
+                    OperationalTemplate tpl = allTpls[i];
+                    float colMidX = colStartX + i * (colW + colGap) + colW * 0.5f;
+                    float cardX = px + Math.round(colMidX - cardSize * 0.5f);
+                    renderOperationalTemplateBox(tpl, cardX, cardBottomY, cardSize, cardSize, tpl == matchedTpl, false, alphaMult);
+                }
+            }
+        };
+
+        CustomPanelAPI tplPanel = Global.getSettings().createCustom(rowWidth, tplPanelH, tplBannerPlugin);
+        tplBannerRef[0] = tplPanel;
+        TooltipMakerAPI tplUi = tplPanel.createUIElement(rowWidth, tplPanelH, false);
+
         float btnW = 192f;
-        for (OperationalTemplate tpl : OperationalTemplate.values()) {
+        for (int i = 0; i < allTpls.length; i++) {
+            OperationalTemplate tpl = allTpls[i];
             boolean isActive = (tpl == matchedTpl);
+            float colMidX = colStartX + i * (colW + colGap) + colW * 0.5f;
+            float relCardX = Math.round(colMidX - cardSize * 0.5f);
+            float relCardY = tplPanelH - topPad - cardSize;
+            opTemplateBoxes.add(new DivisionUiWidgets.OperationalTemplateBox(tpl, tplPanel, relCardX, relCardY, cardSize, cardSize));
+
             String act = "SET_OP_TEMPLATE:" + tpl.name();
             ButtonAPI bTpl = registerButton(
                     tplUi.addButton(
@@ -2230,23 +2366,23 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             if (isActive) {
                 bTpl.highlight();
             }
-            bTpl.getPosition().inTL(btnX, 3f);
+            bTpl.getPosition().inTL(Math.round(colMidX - btnW * 0.5f), topPad + cardSize + 6f);
             DivisionUiWidgets.addTooltip(
                     tplUi,
                     bTpl,
-                    "Template: " + tpl.displayName,
-                    tpl.summary);
-            btnX += btnW + 8f;
+                    "Operational Template: " + tpl.displayName,
+                    tpl.summary + " Populates the four operational options below, which can be adjusted individually.");
         }
 
         String tplStatus = matchedTpl != null
                 ? matchedTpl.summary
-                : "Custom settings active; select a template to reset all four rows.";
-        LabelAPI tplSumLbl = tplUi.addPara(tplStatus, 0f, matchedTpl != null ? gray : highlight);
-        float tplSumBot = DivisionUiWidgets.wrapLabelInPlace(
-                tplSumLbl, Math.max(180f, rowWidth - btnX - 8f), btnX + 4f, 6f);
+                : "Custom settings active - select an operational template above to reset all four rows.";
+        LabelAPI tplSumLbl = Global.getSettings().createLabel(tplStatus, Fonts.GROUP_NUM_FONT);
+        tplSumLbl.setColor(matchedTpl != null ? new Color(195, 220, 240, 245) : highlight);
+        tplSumLbl.setAlignment(Alignment.MID);
+        tplPanel.addComponent((UIComponentAPI) tplSumLbl).setSize(rowWidth - 24f, 18f).inTL(12f, topPad + cardSize + 36f);
 
-        DivisionUiWidgets.resizeRowToFit(tplPanel, tplUi, rowWidth, Math.max(32f, Math.max(tplLblBot, tplSumBot) + 4f));
+        tplUi.setHeightSoFar(tplPanelH);
         tplPanel.addUIElement(tplUi).inTL(0f, 0f);
         body.addCustom(tplPanel, 4f);
 
@@ -3717,6 +3853,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         } catch (Throwable ignored) {
                         }
                         handleAction("SET_OTC_AUTH:" + box.authority.name());
+                        return;
+                    }
+                }
+                for (DivisionUiWidgets.OperationalTemplateBox tplBox : opTemplateBoxes) {
+                    if (tplBox != null && tplBox.contains(ex, ey) && DivisionUiWidgets.isPanelVisibleOnScreen(tplBox.hostPanel)) {
+                        event.consume();
+                        try {
+                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
+                        } catch (Throwable ignored) {
+                        }
+                        handleAction("SET_OP_TEMPLATE:" + tplBox.template.name());
                         return;
                     }
                 }

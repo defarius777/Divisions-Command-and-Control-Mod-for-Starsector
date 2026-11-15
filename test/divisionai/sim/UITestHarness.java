@@ -3269,6 +3269,27 @@ public class UITestHarness {
         if (!(defaultIsLinear && lightMatches && carrierMatches && customDetected && roundTripOk)) {
             violations.add("OperationalTemplate preset/custom/roundTrip failed");
         }
+        try {
+            String settingsJson = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("mod/data/config/settings.json")), java.nio.charset.StandardCharsets.UTF_8);
+            for (PermanentDivisionManager.OperationalTemplate ot : PermanentDivisionManager.OperationalTemplate.values()) {
+                java.io.File iconFile = new java.io.File("mod/" + ot.getSpritePath());
+                java.io.File svgFile = new java.io.File("mod/" + ot.getSpritePath().replace(".png", ".svg"));
+                if (!iconFile.isFile() || iconFile.length() < 200 || !svgFile.isFile()) {
+                    violations.add("Missing OperationalTemplate icon/svg: " + ot.getSpritePath());
+                } else {
+                    javax.imageio.ImageIO.setUseCache(false);
+                    java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(iconFile);
+                    if (img == null || img.getWidth() != 128 || img.getHeight() != 128) {
+                        violations.add("Invalid OperationalTemplate PNG dimensions for " + ot.name());
+                    }
+                }
+                if (!settingsJson.contains("\"" + ot.getSettingsIconKey() + "\"") || !settingsJson.contains(ot.getSpritePath())) {
+                    violations.add("settings.json missing OperationalTemplate sprite registration: " + ot.getSettingsIconKey());
+                }
+            }
+        } catch (Exception ex) {
+            violations.add("OperationalTemplate icon check threw: " + ex.getMessage());
+        }
 
         res.record(
                 violations.isEmpty(),

@@ -92,6 +92,38 @@ public final class DivisionUiWidgets {
         }
     }
 
+    public static final class OperationalTemplateBox {
+        public final PermanentDivisionManager.OperationalTemplate template;
+        public final CustomPanelAPI hostPanel;
+        public final float relX;
+        public final float relY;
+        public final float width;
+        public final float height;
+
+        public OperationalTemplateBox(
+                PermanentDivisionManager.OperationalTemplate template,
+                CustomPanelAPI hostPanel,
+                float relX,
+                float relY,
+                float width,
+                float height) {
+            this.template = template;
+            this.hostPanel = hostPanel;
+            this.relX = relX;
+            this.relY = relY;
+            this.width = width;
+            this.height = height;
+        }
+
+        public boolean contains(float screenX, float screenY) {
+            if (hostPanel == null || hostPanel.getPosition() == null) return false;
+            PositionAPI p = hostPanel.getPosition();
+            float bx = p.getX() + relX;
+            float by = p.getY() + relY;
+            return screenX >= bx && screenX <= (bx + width) && screenY >= by && screenY <= (by + height);
+        }
+    }
+
     public static float distance(Vector2f a, Vector2f b) {
         float dx = a.x - b.x;
         float dy = a.y - b.y;

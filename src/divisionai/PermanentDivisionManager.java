@@ -1740,6 +1740,8 @@ public class PermanentDivisionManager {
                 "Linear Warfare",
                 "Linear Warfare",
                 "Gunline fixes the enemy center while light forces work the flanks.",
+                "icon_template_linear_warfare",
+                "graphics/icons/operational_templates/icon_template_linear_warfare.png",
                 OperationalAnchor.BATTLE_LINE,
                 ObjectiveCapturePolicy.LIGHT_FORCES_ONLY,
                 DecisiveArm.SURFACE_GUNFIRE,
@@ -1748,6 +1750,8 @@ public class PermanentDivisionManager {
                 "Light Forces and Strike Warfare",
                 "Light & Strike Warfare",
                 "Flotillas contest the map and converge with torpedo and strike runs.",
+                "icon_template_light_strike_warfare",
+                "graphics/icons/operational_templates/icon_template_light_strike_warfare.png",
                 OperationalAnchor.OPEN_FLOTILLA,
                 ObjectiveCapturePolicy.ACTIVE_CONTEST,
                 DecisiveArm.TORPEDO_STRIKES,
@@ -1756,6 +1760,8 @@ public class PermanentDivisionManager {
                 "Carrier-Centric Operations",
                 "Carrier-Centric Ops",
                 "Surface warships screen the carrier group while air wings strike.",
+                "icon_template_carrier_centric",
+                "graphics/icons/operational_templates/icon_template_carrier_centric.png",
                 OperationalAnchor.CARRIER_SCREEN,
                 ObjectiveCapturePolicy.FLEET_AXIS_ONLY,
                 DecisiveArm.CARRIER_STRIKE,
@@ -1764,6 +1770,8 @@ public class PermanentDivisionManager {
         public final String displayName;
         public final String shortName;
         public final String summary;
+        public final String settingsIconKey;
+        public final String spritePath;
         public final OperationalAnchor defaultAnchor;
         public final ObjectiveCapturePolicy defaultObjectivePolicy;
         public final DecisiveArm defaultDecisiveArm;
@@ -1773,6 +1781,8 @@ public class PermanentDivisionManager {
                 String displayName,
                 String shortName,
                 String summary,
+                String settingsIconKey,
+                String spritePath,
                 OperationalAnchor defaultAnchor,
                 ObjectiveCapturePolicy defaultObjectivePolicy,
                 DecisiveArm defaultDecisiveArm,
@@ -1780,10 +1790,20 @@ public class PermanentDivisionManager {
             this.displayName = displayName;
             this.shortName = shortName;
             this.summary = summary;
+            this.settingsIconKey = settingsIconKey;
+            this.spritePath = spritePath;
             this.defaultAnchor = defaultAnchor;
             this.defaultObjectivePolicy = defaultObjectivePolicy;
             this.defaultDecisiveArm = defaultDecisiveArm;
             this.defaultDiscipline = defaultDiscipline;
+        }
+
+        public String getSettingsIconKey() {
+            return settingsIconKey;
+        }
+
+        public String getSpritePath() {
+            return spritePath;
         }
 
         public static OperationalTemplate fromId(String id, OperationalTemplate fallback) {
