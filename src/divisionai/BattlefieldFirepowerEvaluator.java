@@ -247,6 +247,8 @@ public class BattlefieldFirepowerEvaluator {
         public float antiShieldShare = 0.5f;
         public float antiArmorShare = 0.5f;
         public float magazineReloadingRatio = 0.0f;
+        public float directFireFraction = 1.0f; // [0..1] direct-fire non-missile share (subject to friendly-hull occlusion)
+        public float cachedFullArmorIntegrity = -1f; // [0.08..1.0] O(1) cached full-grid armor integrity for Space EHP
         public float cachedCombatPower = -1f;
         public float cachedPowerFlux = -1f;
         public float cachedPowerHull = -1f;
@@ -392,6 +394,133 @@ public class BattlefieldFirepowerEvaluator {
 
         // 8 compass octants of incoming Short DoT around P (for visualizing converging L/U crossfire vectors)
         public final float[] octantThreat = new float[8];
+    }
+
+    private static final int MAX_HULL_OCCLUSION_DISKS = 64;
+    private static final float[] SCRATCH_OCC_CX = new float[MAX_HULL_OCCLUSION_DISKS];
+    private static final float[] SCRATCH_OCC_CY = new float[MAX_HULL_OCCLUSION_DISKS];
+    private static final float[] SCRATCH_OCC_RAD = new float[MAX_HULL_OCCLUSION_DISKS];
+    private static final int[] SCRATCH_OCC_SIDE = new int[MAX_HULL_OCCLUSION_DISKS];
+
+    private static float computeHorizonRangeFactor(float dist, float reach, float buffer) {
+        if (reach <= 50f || dist > reach + buffer) return 0f;
+        if (dist <= reach * 0.85f) return 1.0f;
+        float u = (dist - reach * 0.85f) / Math.max(110f, reach * 0.15f + buffer);
+        u = Math.max(0f, Math.min(1f, u));
+        return 0.5f * (1.0f + (float) Math.cos(u * Math.PI));
+    }
+
+    private static int populateHullOcclusionDisks(float[] outCx, float[] outCy, float[] outRad, int[] outSide) {
+        int count = 0;
+        BattleGroupState[] groups = new BattleGroupState[]{
+                activePlayerGroupRef, activeAlliedGroupRef, activeEnemyGroupRef
+        };
+        for (int g = 0; g < groups.length; g++) {
+            BattleGroupState grp = groups[g];
+            if (grp == null || grp.divisions == null) continue;
+            List<DivisionState> divs = grp.divisions;
+            for (int i = 0, n = divs.size(); i < n && count < MAX_HULL_OCCLUSION_DISKS; i++) {
+                DivisionState d = divs.get(i);
+                if (d == null || !d.isCombatEffective() || d.isUnableDivision) continue;
+                int coreShips = Math.max(1, d.coreMemberCount > 0 ? d.coreMemberCount : d.members.size());
+                if (coreShips <= 1 && d.totalFpStrength < 14f) continue;
+                outCx[count] = d.centroid.x;
+                outCy[count] = d.centroid.y;
+                outRad[count] = clampVal(d.spreadRadius * 0.46f + 65f, 85f, 320f);
+                outSide[count] = d.side;
+                count++;
+            }
+        }
+        return count;
+    }
+
+    static float computeFullGridArmorIntegrityUncached(ShipAPI ship) {
+        if (ship == null) return 1.0f;
+        float hullLevel = clampVal(ship.getHullLevel(), 0f, 1f);
+        com.fs.starfarer.api.combat.ArmorGridAPI grid = ship.getArmorGrid();
+        if (grid != null && grid.getGrid() != null && grid.getMaxArmorInCell() > 0f) {
+            float[][] cells = grid.getGrid();
+            float maxCell = grid.getMaxArmorInCell();
+            float sum = 0f;
+            int count = 0;
+            for (int x = 0; x < cells.length; x++) {
+                float[] col = cells[x];
+                if (col == null) continue;
+                for (int y = 0; y < col.length; y++) {
+                    sum += clampVal(col[y] / maxCell, 0f, 1f);
+                    count++;
+                }
+            }
+            return count > 0 ? clampVal(sum / count, 0.08f, 1.0f) : Math.max(0.15f, hullLevel);
+        }
+        return Math.max(0.15f, hullLevel);
+    }
+
+    static float resolveShipTurnAgility(ShipAPI s) {
+        if (s == null) return 0.55f;
+        HullSize hs = s.getHullSize() != null ? s.getHullSize() : HullSize.DESTROYER;
+        float defaultTurnRate;
+        float hullLateralInertia;
+        switch (hs) {
+            case CAPITAL_SHIP:
+                defaultTurnRate = 12f;
+                hullLateralInertia = 0.24f;
+                break;
+            case CRUISER:
+                defaultTurnRate = 22f;
+                hullLateralInertia = 0.46f;
+                break;
+            case DESTROYER:
+                defaultTurnRate = 38f;
+                hullLateralInertia = 0.72f;
+                break;
+            case FRIGATE:
+            case FIGHTER:
+            default:
+                defaultTurnRate = 65f;
+                hullLateralInertia = 1.00f;
+                break;
+        }
+        float turnRate = s.getMaxTurnRate();
+        if (turnRate <= 1f) {
+            turnRate = defaultTurnRate;
+        }
+        float turnComponent = clampVal(turnRate / 55f, 0.18f, 1.0f);
+        float agil = clampVal(0.65f * turnComponent + 0.35f * hullLateralInertia, 0.18f, 1.0f);
+        com.fs.starfarer.api.combat.ShipSystemAPI sys = s.getSystem();
+        if (sys != null && sys.getId() != null && !sys.isOutOfAmmo()) {
+            String sysId = sys.getId().toLowerCase(java.util.Locale.ROOT);
+            if (sysId.contains("maneuveringjets") || sysId.contains("plasmajets")
+                    || sysId.contains("phaseskimmer") || sysId.contains("phaseteleporter")) {
+                agil = Math.min(1.0f, agil + 0.24f);
+            }
+        }
+        if (isPhaseShip(s)) {
+            agil = Math.max(agil, 0.85f);
+        }
+        return agil;
+    }
+
+    static float resolveShipMobilityBurstRatio(ShipAPI s) {
+        if (s == null) return 0f;
+        float burst = 0f;
+        FluxTrackerAPI ft = s.getFluxTracker();
+        if (ft != null && ft.isEngineBoostActive()) {
+            burst += 0.06f;
+        }
+        com.fs.starfarer.api.combat.ShipSystemAPI sys = s.getSystem();
+        if (sys != null && sys.getId() != null && !sys.isOutOfAmmo()) {
+            String sysId = sys.getId().toLowerCase(java.util.Locale.ROOT);
+            float readyScale = sys.isActive() ? 1.0f : (sys.getCooldownRemaining() <= 1.5f ? 0.82f : 0.35f);
+            if (sysId.contains("burndrive") || sysId.contains("plasmaburn") || sysId.contains("microburn")
+                    || sysId.contains("inferniuminjector")) {
+                burst += 0.18f * readyScale;
+            } else if (sysId.contains("plasmajets") || sysId.contains("maneuveringjets")
+                    || sysId.contains("phaseskimmer") || sysId.contains("phaseteleporter")) {
+                burst += 0.14f * readyScale;
+            }
+        }
+        return clampVal(burst, 0f, 0.26f);
     }
 
     public static void resetForNewBattle() {
@@ -1058,6 +1187,7 @@ public class BattlefieldFirepowerEvaluator {
         rose.cachedBowArmorIntegrity = rose.cachedShieldlessArmorTank
                 ? computeShipArmorIntegrityRatioUncached(ship)
                 : clampVal(ship.getHullLevel(), 0f, 1f);
+        rose.cachedFullArmorIntegrity = computeFullGridArmorIntegrityUncached(ship);
         rose.shipFlagsInitialized = true;
         rose.cachedPowerFlux = ship.getFluxLevel();
         rose.cachedPowerHull = ship.getHullLevel();
@@ -1093,6 +1223,12 @@ public class BattlefieldFirepowerEvaluator {
         float armorTypedSum = 0f;
         float magTotalWeight = 0f;
         float magDepletedWeight = 0f;
+        float directGenSum = 0f;
+        float arcingGenSum = 0f;
+        if (isSquadronCraft) {
+            // Airborne strike craft fly above hull collision planes and are never occluded by warship hulls
+            arcingGenSum += 100f;
+        }
         for (WeaponAPI w : weapons) {
             if (!isUsableCombatWeapon(w)) continue;
             if (w.isPermanentlyDisabled()) continue;
@@ -1163,20 +1299,47 @@ public class BattlefieldFirepowerEvaluator {
             }
 
             DamageType dmgType = w.getDamageType();
+            boolean isBeam = w.isBeam();
+            boolean isMissile = w.getType() == WeaponAPI.WeaponType.MISSILE;
             float typeMult = 1.0f;
             if (dmgType == DamageType.FRAGMENTATION && !isStrike) {
                 typeMult = (fireClass == FireClassification.HYBRID) ? 0.82f : 0.45f;
             } else if (dmgType == DamageType.KINETIC || dmgType == DamageType.HIGH_EXPLOSIVE) {
                 typeMult = 1.12f;
             }
+            // Non-beam projectiles generate hard flux on enemy shields (locking shields against dissipation),
+            // whereas continuous low-burst beams deal soft flux unless they carry high burst/EMP (e.g. Tachyon Lance).
+            float fluxHardnessMult = 1.0f;
+            if (!isBeam) {
+                fluxHardnessMult = (dmgType == DamageType.KINETIC) ? 1.09f : 1.05f;
+            } else if (!isStrike && burstDmg < dps * 1.35f) {
+                fluxHardnessMult = 0.92f;
+            }
 
-            float wAlpha = burstDmg * typeMult * (isStrike ? 1.65f : 1.0f) * mountStatusMult;
-            float wShortDot = (dps * 0.75f + (burstDmg / 4.5f) * 0.25f) * typeMult * (isStrike ? 1.25f : 1.0f) * mountStatusMult;
+            float empDps = 0f;
+            float empBurst = 0f;
+            if (derived != null) {
+                empDps = Math.max(0f, derived.getEmpPerSecond());
+                empBurst = Math.max(0f, derived.getEmpPerShot());
+            } else if (w.getDamage() != null && w.getDamage().getFluxComponent() > 0f) {
+                empBurst = w.getDamage().getFluxComponent();
+                empDps = empBurst / Math.max(1.0f, w.getCooldown() > 0f ? w.getCooldown() : 2.0f);
+            }
+
+            float wAlpha = (burstDmg * typeMult * (isStrike ? 1.65f : 1.0f) * fluxHardnessMult + empBurst * 0.22f) * mountStatusMult;
+            float wShortDot = ((dps * 0.75f + (burstDmg / 4.5f) * 0.25f) * typeMult * (isStrike ? 1.25f : 1.0f) * fluxHardnessMult
+                    + empDps * 0.28f) * mountStatusMult;
             if (genFrac > 0.20f) {
                 float sMult = (dmgType != null) ? Math.max(0.15f, dmgType.getShieldMult()) : 1.0f;
                 float aMult = (dmgType != null) ? Math.max(0.15f, dmgType.getArmorMult()) : 1.0f;
-                shieldTypedSum += wShortDot * genFrac * sMult;
-                armorTypedSum += wShortDot * genFrac * aMult;
+                if (!isBeam) sMult *= 1.08f;
+                shieldTypedSum += (wShortDot + empDps * 0.15f) * genFrac * sMult;
+                armorTypedSum += (wShortDot + empDps * 0.22f) * genFrac * aMult;
+                if (isMissile) {
+                    arcingGenSum += wShortDot * genFrac;
+                } else {
+                    directGenSum += wShortDot * genFrac;
+                }
                 if (isNonMissileRegenMag) {
                     magTotalWeight += sizeW;
                     if (magDepleted) {
@@ -1268,6 +1431,10 @@ public class BattlefieldFirepowerEvaluator {
             rose.magazineReloadingRatio = (magTotalWeight > 0.1f)
                     ? clampVal(magDepletedWeight / magTotalWeight, 0f, 1f)
                     : 0f;
+            float totalModeSum = directGenSum + arcingGenSum;
+            rose.directFireFraction = isSquadronCraft
+                    ? 0f
+                    : ((totalModeSum > 1f) ? clampVal(directGenSum / totalModeSum, 0f, 1f) : 1f);
         }
     }
 
@@ -1517,6 +1684,14 @@ public class BattlefieldFirepowerEvaluator {
         float dirSumY = 0f;
         float totalDirWeight = 0f;
 
+        // Precollect active division solid hull-core occlusion disks so direct-fire non-missile guns stacked
+        // directly behind a friendly division's hull mass are realistically attenuated (missiles & strike craft arc over!).
+        float[] occCx = SCRATCH_OCC_CX;
+        float[] occCy = SCRATCH_OCC_CY;
+        float[] occRad = SCRATCH_OCC_RAD;
+        int[] occSide = SCRATCH_OCC_SIDE;
+        int occCount = populateHullOcclusionDisks(occCx, occCy, occRad, occSide);
+
         for (ShipFirepowerRose rose : rosesByShipId.values()) {
             ShipAPI s = rose.ship;
             if (s == null) continue;
@@ -1529,7 +1704,8 @@ public class BattlefieldFirepowerEvaluator {
             }
             if (!s.isAlive() || s.isHulk() || s.isExpired()) continue;
 
-            boolean isFriendly = (s.getOwner() == observerSide);
+            int unitSide = s.getOwner();
+            boolean isFriendly = (unitSide == observerSide);
             if (!isFriendly && !OtcAI.isShipVisibleToSide(engine, observerSide, s)) {
                 continue;
             }
@@ -1549,31 +1725,62 @@ public class BattlefieldFirepowerEvaluator {
                     : rose.smoothedFacingDeg;
             float relAngle = normalizeAngle360(worldAngleShipToPoint - rose.smoothedFacingDeg);
 
-            float sectorReach = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relAngle);
-            float pdReach = ShipFirepowerRose.sampleArrayAtRelAngle(rose.pdRange, relAngle);
+            float sectorReach = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.generalRange, relAngle);
+            float alphaReach = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.alphaRange, relAngle);
+            float shortReach = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.shortRange, relAngle);
+            float sustReach = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.sustainedRange, relAngle);
+            if (alphaReach <= 50f) alphaReach = sectorReach;
+            if (shortReach <= 50f) shortReach = sectorReach;
+            if (sustReach <= 50f) sustReach = sectorReach;
+            float pdReach = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.pdRange, relAngle);
 
-            // Smooth range envelope with a 240u tactical approach buffer outside max weapon range
-            float rangeFactor = 0f;
-            if (sectorReach > 50f && dist <= sectorReach + 240f) {
-                if (dist <= sectorReach * 0.85f) {
-                    rangeFactor = 1.0f;
-                } else {
-                    float u = (dist - sectorReach * 0.85f) / Math.max(120f, sectorReach * 0.15f + 240f);
-                    u = Math.max(0f, Math.min(1f, u));
-                    rangeFactor = 0.5f * (1.0f + (float) Math.cos(u * Math.PI));
+            // Range-band stratified envelopes (F1): short-range torpedoes/HMGs peak inside alphaRange/shortRange
+            // instead of leaking out to the ship's longest standoff weapon (generalRange)!
+            float alphaFactor = computeHorizonRangeFactor(dist, alphaReach, 220f);
+            float shortFactor = computeHorizonRangeFactor(dist, shortReach, 240f);
+            float sustFactor = computeHorizonRangeFactor(dist, sustReach, 240f);
+
+            // Friendly-hull line-of-fire occlusion (F3): only direct-fire non-missile guns on warships are attenuated
+            // when a same-side division's solid hull core sits squarely between the shooter and target point!
+            float losMult = 1.0f;
+            if ((alphaFactor > 0f || shortFactor > 0f || sustFactor > 0f)
+                    && !s.isFighter()
+                    && rose.directFireFraction > 0.08f
+                    && dist > 380f
+                    && occCount > 0) {
+                float invDist = 1.0f / dist;
+                float rux = dx * invDist;
+                float ruy = dy * invDist;
+                float maxBlock = 0f;
+                for (int oi = 0; oi < occCount; oi++) {
+                    if (occSide[oi] != unitSide) continue;
+                    float bx = occCx[oi] - sLoc.x;
+                    float by = occCy[oi] - sLoc.y;
+                    float proj = bx * rux + by * ruy;
+                    float bRad = occRad[oi];
+                    // Skip the shooter's own local division neighborhood (proj <= bRad + 95f) and blockers past target
+                    if (proj <= bRad + 95f || proj >= dist - 95f) continue;
+                    float perp = Math.abs(bx * ruy - by * rux);
+                    if (perp < bRad) {
+                        float block = 1.0f - (perp / bRad);
+                        if (block > maxBlock) maxBlock = block;
+                    }
+                }
+                if (maxBlock > 0.02f) {
+                    losMult = 1.0f - 0.44f * rose.directFireFraction * maxBlock;
                 }
             }
 
             if (isFriendly) {
-                if (rangeFactor > 0f) {
-                    eval.friendlyShortDot += ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relAngle) * rangeFactor;
-                    eval.friendlySustainedDot += ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedDot, relAngle) * rangeFactor;
+                if (shortFactor > 0f || sustFactor > 0f) {
+                    eval.friendlyShortDot += ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relAngle) * shortFactor * losMult;
+                    eval.friendlySustainedDot += ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedDot, relAngle) * sustFactor * losMult;
                 }
             } else {
-                if (rangeFactor > 0f) {
-                    float a = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alpha, relAngle) * rangeFactor;
-                    float sh = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relAngle) * rangeFactor;
-                    float su = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedDot, relAngle) * rangeFactor;
+                if (alphaFactor > 0f || shortFactor > 0f || sustFactor > 0f) {
+                    float a = ShipFirepowerRose.sampleArrayAtRelAngle(rose.alpha, relAngle) * alphaFactor * losMult;
+                    float sh = ShipFirepowerRose.sampleArrayAtRelAngle(rose.shortDot, relAngle) * shortFactor * losMult;
+                    float su = ShipFirepowerRose.sampleArrayAtRelAngle(rose.sustainedDot, relAngle) * sustFactor * losMult;
 
                     eval.incomingAlpha += a;
                     eval.incomingShortDot += sh;
@@ -2038,9 +2245,17 @@ public class BattlefieldFirepowerEvaluator {
             transitFactor = 1.0f / (1.0f + Math.min(0.75f, exposureSec * 0.085f));
         }
 
-        // Time maneuver freedom differential (pinned/overfluxed targets lose Time initiative)
-        float myTime = Math.max(220f, myDiv.effectiveTimeRadius > 50f ? myDiv.effectiveTimeRadius : myDiv.avgMaxSpeed * 6f);
-        float enTime = Math.max(220f, enemyDiv.effectiveTimeRadius > 50f ? enemyDiv.effectiveTimeRadius : enemyDiv.avgMaxSpeed * 6f);
+        // Directional Time maneuver freedom differential along the engagement chord (T2)
+        float bearToEnemy = (float) Math.toDegrees(Math.atan2(ePos.y - myDiv.centroid.y, ePos.x - myDiv.centroid.x));
+        float bearToUs = normalizeAngle360(bearToEnemy + 180f);
+        float myDirTime = getDirectionalTimeRadius(myDiv, bearToEnemy);
+        float enDirTime = getDirectionalTimeRadius(enemyDiv, bearToUs);
+        float myTime = Math.max(220f, myDirTime > 50f
+                ? myDirTime
+                : (myDiv.effectiveTimeRadius > 50f ? myDiv.effectiveTimeRadius : myDiv.avgMaxSpeed * 6f));
+        float enTime = Math.max(220f, enDirTime > 50f
+                ? enDirTime
+                : (enemyDiv.effectiveTimeRadius > 50f ? enemyDiv.effectiveTimeRadius : enemyDiv.avgMaxSpeed * 6f));
         float timeAdv = clampVal(myTime / enTime, 0.74f, 1.30f);
 
         // Reinforcement Corridor penalty: engaging an enemy division sitting inside its own active northern spawn chute
@@ -3143,22 +3358,15 @@ public class BattlefieldFirepowerEvaluator {
                 : defaultArmor);
         float armorIntegrity = 1.0f;
         if (!maxOnly) {
-            if (grid != null && grid.getGrid() != null && grid.getMaxArmorInCell() > 0f) {
-                float[][] cells = grid.getGrid();
-                float maxCell = grid.getMaxArmorInCell();
-                float sum = 0f;
-                int count = 0;
-                for (int x = 0; x < cells.length; x++) {
-                    float[] col = cells[x];
-                    if (col == null) continue;
-                    for (int y = 0; y < col.length; y++) {
-                        sum += clampVal(col[y] / maxCell, 0f, 1f);
-                        count++;
-                    }
-                }
-                armorIntegrity = count > 0 ? clampVal(sum / count, 0.08f, 1.0f) : Math.max(0.15f, hullLevel);
+            ShipFirepowerRose cachedRose = (ship.getId() != null) ? rosesByShipId.get(ship.getId()) : null;
+            if (cachedRose != null && cachedRose.cachedFullArmorIntegrity > 0f
+                    && Math.abs(hullLevel - cachedRose.cachedPowerHull) < 0.04f) {
+                armorIntegrity = cachedRose.cachedFullArmorIntegrity;
             } else {
-                armorIntegrity = Math.max(0.15f, hullLevel);
+                armorIntegrity = computeFullGridArmorIntegrityUncached(ship);
+                if (cachedRose != null) {
+                    cachedRose.cachedFullArmorIntegrity = armorIntegrity;
+                }
             }
         }
         float maxArmorEhp = armorRating * 7.5f * (1.0f + armorRating / 550f);
@@ -3232,6 +3440,8 @@ public class BattlefieldFirepowerEvaluator {
         }
 
         float weightedSpeedSum = 0f;
+        float weightedAgilitySum = 0f;
+        float weightedBurstSum = 0f;
         float weightSum = 0f;
         float minCoreSpeed = Float.MAX_VALUE;
         int totalFighterWings = 0;
@@ -3249,10 +3459,19 @@ public class BattlefieldFirepowerEvaluator {
             }
             float w = ShipCapabilityProfile.resolveShipFpStrength(s) * (s == div.flagship ? 1.35f : 1.0f);
             boolean isStationElement = s.isStation() || s.isStationModule() || s.getParentStation() != null;
+            boolean flamedOut = !isStationElement
+                    && s.getEngineController() != null
+                    && s.getEngineController().isFlamedOut();
+            float rawMaxSpd = Math.max(25f, s.getMaxSpeed());
+            if (flamedOut) {
+                rawMaxSpd = Math.max(18f, rawMaxSpd * 0.30f);
+            }
             float spd = isStationElement
                     ? Math.max(48f, Math.min(115f, Math.max(850f, div.avgEngageRange) * 0.055f))
-                    : Math.max(25f, s.getMaxSpeed());
+                    : rawMaxSpd;
             weightedSpeedSum += spd * w;
+            weightedAgilitySum += (isStationElement ? 1.0f : (flamedOut ? 0.18f : resolveShipTurnAgility(s))) * w;
+            weightedBurstSum += (isStationElement || flamedOut ? 0f : resolveShipMobilityBurstRatio(s)) * w;
             weightSum += w;
             if (spd < minCoreSpeed) {
                 minCoreSpeed = spd;
@@ -3295,10 +3514,17 @@ public class BattlefieldFirepowerEvaluator {
             ShipAPI first = alive.get(0);
             float spd = Math.max(25f, first.getMaxSpeed());
             weightedSpeedSum = spd;
+            weightedAgilitySum = resolveShipTurnAgility(first);
+            weightedBurstSum = resolveShipMobilityBurstRatio(first);
             weightSum = 1f;
             minCoreSpeed = spd;
         }
         float fpWeightedSpeed = weightedSpeedSum / weightSum;
+        div.turnAgilityRatio = clampVal(
+                totalFighterWings > 0 ? Math.max(0.62f, weightedAgilitySum / weightSum) : (weightedAgilitySum / weightSum),
+                0.18f,
+                1.0f);
+        div.forwardMobilityBurstRatio = clampVal(weightedBurstSum / weightSum, 0f, 0.26f);
         if (minCoreSpeed == Float.MAX_VALUE) minCoreSpeed = fpWeightedSpeed;
         if (totalFighterWings > 0) {
             // Strike craft lift the division's operational Time floor so carrier divisions project Time via their wings
@@ -3984,16 +4210,42 @@ public class BattlefieldFirepowerEvaluator {
             //     and Firepower, bolstered along friendly seams, and pinched against the combat map edges!
             computeDirectionalSpaceEnvelope(engine, div, myGroup, enemyGroup, refStrength);
 
-            // 5. Strongpoint vs Weak Point classification (orbital stations are anchored fortress strongpoints)
+            // 5. Strongpoint vs Weak Point classification (S1):
+            //    Orbital stations are anchored fortress strongpoints.
+            //    A healthy, unengaged fast flanker detachment (totalFpStrength <= 32f) screening an open flank is NOT
+            //    a Weak Point unless enemies are actually pressing its Space/Firepower envelope, pinching it against
+            //    a map edge, or fast enough within Time reach to run it down!
             boolean isStationBastion = (div.flagship != null && div.flagship.isStation());
             div.isStrongpoint = isStationBastion
                     ? (div.avgFluxLevel < 0.78f)
                     : ((friendlySupport >= Math.max(24f, div.totalFpStrength * 0.58f)) && div.avgFluxLevel < 0.62f);
+            boolean catchableOrPressuredLightDetachment = false;
+            if (div.totalFpStrength <= 32f) {
+                if (enemySpaceOverlap > 4.5f
+                        || div.incomingShortDotThreat > 45f
+                        || div.edgeProximityPinch >= 0.35f) {
+                    catchableOrPressuredLightDetachment = true;
+                } else if (!enemyEffectiveDivs.isEmpty()) {
+                    for (int ei = 0, en = enemyEffectiveDivs.size(); ei < en; ei++) {
+                        DivisionState eDiv = enemyEffectiveDivs.get(ei);
+                        if (eDiv == null || !eDiv.isAbleCombatEffective()) continue;
+                        if (!OtcAI.isDivisionVisibleToSide(engine, div.side, eDiv)) continue;
+                        Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, div.side, eDiv);
+                        float d = distance(div.centroid, ePos);
+                        if (d <= Math.max(1850f, eDiv.freeTimeRadius * 1.15f)
+                                && eDiv.weightedTimeSpeed >= div.weightedTimeSpeed * 0.88f
+                                && eDiv.totalFpStrength >= div.totalFpStrength * 0.90f) {
+                            catchableOrPressuredLightDetachment = true;
+                            break;
+                        }
+                    }
+                }
+            }
             div.isWeakPoint = !isStationBastion
                     && (friendlySupport < 12f)
                     && (div.avgFluxLevel >= 0.38f
                     || div.crossfireCordonIndex >= 0.28f
-                    || div.totalFpStrength <= 32f
+                    || catchableOrPressuredLightDetachment
                     || enemySpaceOverlap > div.spaceDominanceWeight * 0.90f);
 
             // 6. Update Convergence focal point & score
@@ -4719,6 +4971,18 @@ public class BattlefieldFirepowerEvaluator {
         float velAnisotropyStrength = (velMag > 8f)
                 ? (clampVal(velMag / Math.max(45f, div.weightedTimeSpeed), 0f, 1.0f) * 0.10f)
                 : 0f;
+        float tFwdX = div.formationHeadingInitialized ? div.formationHeadingX : 0f;
+        float tFwdY = div.formationHeadingInitialized ? div.formationHeadingY : (div.side == 0 ? 1f : -1f);
+        float tFwdLen = (float) Math.sqrt(tFwdX * tFwdX + tFwdY * tFwdY);
+        if (tFwdLen > 1e-4f) {
+            tFwdX /= tFwdLen;
+            tFwdY /= tFwdLen;
+        } else {
+            tFwdX = 0f;
+            tFwdY = (div.side == 0) ? 1f : -1f;
+        }
+        float nonAgility = clampVal(1.0f - div.turnAgilityRatio, 0f, 0.82f);
+        float fwdBurst = div.forwardMobilityBurstRatio;
 
         for (int s = 0; s < nDirs; s++) {
             int prev = (s + nDirs - 1) % nDirs;
@@ -4740,8 +5004,18 @@ public class BattlefieldFirepowerEvaluator {
                 float proj = tMemberRelX[mIdx] * ux + tMemberRelY[mIdx] * uy;
                 if (proj > maxMemberProj) maxMemberProj = proj;
             }
+            // Turn-rate & reverse-thrust kinematics + mobility-system forward burst (T1):
+            // Agile frigates/omni-jet hulls project nearly circular Time; low-turn-rate capitals incur beam slew
+            // and reverse-thrust drag off-bow while gaining forward burst reach when mobility systems are ready!
+            float cosHullFwd = ux * tFwdX + uy * tFwdY;
+            float beamSlewDrag = nonAgility * 0.12f * (1.0f - cosHullFwd * cosHullFwd);
+            float sternReverseDrag = nonAgility * 0.10f * Math.max(0f, -cosHullFwd);
+            float sectorBurstBoost = (cosHullFwd > 0f)
+                    ? (fwdBurst * (cosHullFwd * cosHullFwd) * (1.0f - div.directionalEngagement[s] * 0.70f))
+                    : 0f;
+            float kineFactor = clampVal(1.0f + sectorBurstBoost - beamSlewDrag - sternReverseDrag, 0.78f, 1.24f);
             float velFactor = 1.0f + velAnisotropyStrength * (ux * velUx + uy * velUy);
-            float sectorFreeR = freeR * velFactor + clampVal(maxMemberProj * 0.45f, 0f, 360f);
+            float sectorFreeR = freeR * velFactor * kineFactor + clampVal(maxMemberProj * 0.45f, 0f, 360f);
             float unpinchedR = sectorFreeR * (1.0f - clampVal(div.directionalEngagement[s], 0.0f, 0.90f));
             float edgeDist = computeDirectionalBoundaryClearance(
                     engine, div.centroid, ux, uy, 80f);
@@ -4800,6 +5074,11 @@ public class BattlefieldFirepowerEvaluator {
         float[] mRelY = new float[aliveCap];
         ShipFirepowerRose[] mRoses = new ShipFirepowerRose[aliveCap];
         float[] mFpWeights = new float[aliveCap];
+        // Directional shield defense arrays (S2): 0 = mock/neutral, 1 = FRONT shield, 2 = OMNI/PHASE, 3 = unshielded armor
+        int[] mDefMode = new int[aliveCap];
+        float[] mShieldFacingDeg = new float[aliveCap];
+        float[] mShieldHalfArc = new float[aliveCap];
+        float[] mDefWeight = new float[aliveCap];
         int mCount = 0;
         for (int mIdx = 0; mIdx < aliveCap; mIdx++) {
             ShipAPI m = alive.get(mIdx);
@@ -4808,10 +5087,27 @@ public class BattlefieldFirepowerEvaluator {
                 mRelX[mCount] = m.getLocation().x - div.centroid.x;
                 mRelY[mCount] = m.getLocation().y - div.centroid.y;
             }
+            float mW = ShipCapabilityProfile.resolveShipFpStrength(m);
+            mDefWeight[mCount] = mW;
+            ShieldAPI sh = m.getShield();
+            boolean ovl = m.getFluxTracker() != null && m.getFluxTracker().isOverloadedOrVenting();
+            if (sh != null && sh.getType() == ShieldAPI.ShieldType.FRONT && sh.getArc() > 0f && !ovl) {
+                mDefMode[mCount] = 1;
+                mShieldFacingDeg[mCount] = normalizeAngle360(sh.getFacing() != 0f ? sh.getFacing() : m.getFacing());
+                mShieldHalfArc[mCount] = Math.min(180f, sh.getArc() * 0.5f);
+            } else if ((sh != null && (sh.getType() == ShieldAPI.ShieldType.OMNI || sh.getType() == ShieldAPI.ShieldType.PHASE))
+                    || m.getPhaseCloak() != null) {
+                mDefMode[mCount] = ovl ? 3 : 2;
+            } else if (sh != null && sh.getType() == ShieldAPI.ShieldType.NONE) {
+                mDefMode[mCount] = 3;
+                mShieldFacingDeg[mCount] = normalizeAngle360(m.getFacing());
+            } else {
+                mDefMode[mCount] = 0; // Headless mock ship without explicit ShieldAPI -> neutral 1.0
+            }
             ShipFirepowerRose rose = rosesByShipId.get(m.getId());
             if (rose != null && rose.maxGeneralRange > 50f) {
                 mRoses[mCount] = rose;
-                mFpWeights[mCount] = ShipCapabilityProfile.resolveShipFpStrength(m);
+                mFpWeights[mCount] = mW;
             }
             mCount++;
         }
@@ -4942,27 +5238,52 @@ public class BattlefieldFirepowerEvaluator {
                     break;
             }
 
-            // 1b. Member hull projection & directional weapon-rose reach along sector angleDeg
+            // 1b. Member hull projection, directional shield defense & weapon-rose reach along sector angleDeg
             float maxMemberProj = 0f;
             float roseReachSum = 0f;
             float roseAbsRangeSum = 0f;
             float roseWeightSum = 0f;
+            float defFactorSum = 0f;
+            float defWeightSum = 0f;
             for (int mIdx = 0; mIdx < mCount; mIdx++) {
                 float proj = mRelX[mIdx] * ux + mRelY[mIdx] * uy;
                 if (proj > maxMemberProj) {
                     maxMemberProj = proj;
                 }
+                int defMode = mDefMode[mIdx];
+                float dw = mDefWeight[mIdx];
+                float shipDefMod = 1.0f;
+                if (defMode == 1) {
+                    float angOffShield = Math.abs(shortestAngleDiffDeg(angleDeg, mShieldFacingDeg[mIdx]));
+                    float halfArc = mShieldHalfArc[mIdx];
+                    if (angOffShield <= halfArc) {
+                        shipDefMod = 1.05f;
+                    } else if (angOffShield <= halfArc + 35f) {
+                        float t = (angOffShield - halfArc) / 35f;
+                        shipDefMod = 1.05f - 0.14f * t;
+                    } else {
+                        shipDefMod = 0.90f; // Exposed unshielded rear/quarter arc of a FRONT-shielded hull
+                    }
+                } else if (defMode == 2) {
+                    shipDefMod = 1.02f; // Omni-shield / phase 360-deg coverage
+                } else if (defMode == 3) {
+                    float angOffBow = Math.abs(shortestAngleDiffDeg(angleDeg, mShieldFacingDeg[mIdx]));
+                    shipDefMod = (angOffBow <= 75f) ? 1.02f : 0.94f;
+                }
+                defFactorSum += shipDefMod * dw;
+                defWeightSum += dw;
                 ShipFirepowerRose rose = mRoses[mIdx];
                 if (rose != null) {
                     float w = mFpWeights[mIdx];
                     float relAngle = normalizeAngle360(angleDeg - rose.smoothedFacingDeg);
-                    float secRange = ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relAngle);
+                    float secRange = ShipFirepowerRose.sampleRangeArrayAtRelAngle(rose.generalRange, relAngle);
                     float ratio = clampVal(secRange / Math.max(250f, rose.maxGeneralRange), 0.55f, 1.15f);
                     roseReachSum += ratio * w;
                     roseAbsRangeSum += Math.max(250f, secRange) * w;
                     roseWeightSum += w;
                 }
             }
+            float sectorDefenseFactor = (defWeightSum > 0f) ? (defFactorSum / defWeightSum) : 1.0f;
             float memberReachBoost = clampVal(maxMemberProj / Math.max(350f, baseInner), 0f, 0.22f);
             float memberSpanOffset = (aliveCap > 1 && div.spreadRadius > 1f)
                     ? clampVal(Math.min(maxMemberProj * 0.55f, div.spreadRadius * 0.85f), 0f, 480f)
@@ -4977,7 +5298,10 @@ public class BattlefieldFirepowerEvaluator {
                 div.directionalFirepowerRadii[s] = div.directionalFirepowerRadii[s] * 0.55f
                         + (sectorFirepowerRange + memberSpanOffset * 0.5f) * 0.45f;
             }
-            float sectorAnisotropy = clampVal(formShape * (0.78f + 0.22f * weaponArcFactor) + memberReachBoost * 0.5f, 0.72f, 1.26f);
+            float sectorAnisotropy = clampVal(
+                    formShape * sectorDefenseFactor * (0.78f + 0.22f * weaponArcFactor) + memberReachBoost * 0.5f,
+                    0.70f,
+                    1.28f);
 
             // 2. Directional Pinching by Opposing Enemy Space & Enemy Firepower (and bolstering by Friendly Space)
             float enemyPinch = 0f;
@@ -5295,19 +5619,21 @@ public class BattlefieldFirepowerEvaluator {
         float friendlySpace = 0f;
         float enemySpace = 0f;
         if (myGroup != null) {
-            for (DivisionState d : myGroup.divisions) {
-                if (d == null || !d.isCombatEffective()) continue;
+            List<DivisionState> friendlyUnits = collectPeerDivisionsAndStations(engine, myGroup, true);
+            for (int di = 0, dn = friendlyUnits.size(); di < dn; di++) {
+                DivisionState d = friendlyUnits.get(di);
+                if (d == null || !d.isAbleCombatEffective()) continue;
                 float dist = distance(point, d.centroid);
                 float bearing = (float) Math.toDegrees(Math.atan2(point.y - d.centroid.y, point.x - d.centroid.x));
-                float inR = getDirectionalSpaceInnerRadius(d, bearing);
-                float domR = getDirectionalSpaceDominatedRadius(d, bearing);
-                float potR = getDirectionalSpacePotentialRadius(d, bearing);
+                float inR = Math.max(220f, getDirectionalSpaceInnerRadius(d, bearing));
+                float domR = Math.max(inR + 120f, getDirectionalSpaceDominatedRadius(d, bearing));
+                float potR = Math.max(domR + 120f, getDirectionalSpacePotentialRadius(d, bearing));
                 if (dist < potR) {
                     float w = (dist <= inR) ? 1.0f
                             : (dist <= domR
                             ? (0.55f + 0.45f * (1f - (dist - inR) / Math.max(100f, domR - inR)))
                             : (0.55f * (1f - (dist - domR) / Math.max(100f, potR - domR))));
-                    friendlySpace += d.spaceDominanceWeight * Math.max(0f, w);
+                    friendlySpace += Math.max(2f, d.spaceDominanceWeight) * Math.max(0f, w);
                 }
                 // Airborne Strike Craft squadrons project permeable sortie Space at their squadron location.
                 // Per Task F: Because warships can physically move right through strike craft (no ship-to-ship
@@ -5330,16 +5656,18 @@ public class BattlefieldFirepowerEvaluator {
             }
         }
         if (enemyGroup != null) {
-            for (DivisionState e : getDivisionsAndStationBastionsForRendering(engine, enemyGroup)) {
+            List<DivisionState> enemyUnits = collectPeerDivisionsAndStations(engine, enemyGroup, observerSide == 1);
+            for (int ei = 0, en = enemyUnits.size(); ei < en; ei++) {
+                DivisionState e = enemyUnits.get(ei);
                 if (e == null || !e.isCombatEffective()) continue;
                 if (!OtcAI.isDivisionVisibleToSide(engine, observerSide, e)) continue;
                 Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, observerSide, e);
                 float dist = distance(point, ePos);
                 float bearing = (float) Math.toDegrees(Math.atan2(point.y - ePos.y, point.x - ePos.x));
-                float potR = Math.max(950f, getDirectionalSpacePotentialRadius(e, bearing));
-                float domR = Math.max(680f, getDirectionalSpaceDominatedRadius(e, bearing));
-                float inR = Math.max(380f, getDirectionalSpaceInnerRadius(e, bearing));
-                float domW = Math.max(4f, e.spaceDominanceWeight);
+                float inR = Math.max(220f, getDirectionalSpaceInnerRadius(e, bearing));
+                float domR = Math.max(inR + 120f, getDirectionalSpaceDominatedRadius(e, bearing));
+                float potR = Math.max(domR + 120f, getDirectionalSpacePotentialRadius(e, bearing));
+                float domW = Math.max(2f, e.spaceDominanceWeight);
                 if (dist < potR) {
                     float w = (dist <= inR) ? 1.0f
                             : (dist <= domR
@@ -5569,37 +5897,52 @@ public class BattlefieldFirepowerEvaluator {
         }
         float blindSpot = evaluateBlindSpotAdvantage(engine, myDiv.side, enemyDiv, myDiv.centroid);
 
-        // 4. Multi-Division Phase-Locked Orthogonal Convergence (reward ~90 deg L/U pincer angles & focus fire)
+        // 4. Multi-Division Phase-Locked Orthogonal Convergence & Time-of-Arrival (delta-tau) Sync (C2, C3):
+        //    Reward true 55-125 deg L-shaped / U-shaped crossfire bearings AND simultaneous arrival timing!
         float pincerSynergy = 1.0f;
         if (myGroup != null) {
             if (enemyDiv == myGroup.primaryThreatEnemyDivision) {
                 pincerSynergy += 0.28f;
             }
+            float myEffSpd = Math.max(45f, myDiv.weightedTimeSpeed * Math.max(0.25f, myDiv.timeFreedomFactor));
+            float myEngageReach = myDiv.avgEngageRange * 0.85f + (myDiv.hasCarrierCapability ? 550f : 0f);
+            float myTau = Math.max(0f, dist - myEngageReach) / myEffSpd;
             float myBearing = (float) Math.toDegrees(Math.atan2(myDiv.centroid.y - ePos.y, myDiv.centroid.x - ePos.x));
             for (DivisionState peer : myGroup.divisions) {
                 if (peer == null || peer == myDiv || !peer.isAbleCombatEffective()) continue;
                 if (peer.targetEnemyDivision == enemyDiv || peer == myGroup.mainEffortDivision) {
+                    float peerDist = distance(peer.centroid, ePos);
+                    float peerEffSpd = Math.max(45f, peer.weightedTimeSpeed * Math.max(0.25f, peer.timeFreedomFactor));
+                    float peerReach = peer.avgEngageRange * 0.85f + (peer.hasCarrierCapability ? 550f : 0f);
+                    float peerTau = Math.max(0f, peerDist - peerReach) / peerEffSpd;
+                    float tauSkew = Math.abs(myTau - peerTau);
+                    float arrivalSync = clampVal(1.22f - tauSkew * 0.065f, 0.55f, 1.22f);
+
                     float peerBearing = (float) Math.toDegrees(Math.atan2(peer.centroid.y - ePos.y, peer.centroid.x - ePos.x));
                     float angDiff = Math.abs(shortestAngleDiffDeg(myBearing, peerBearing));
-                    if (angDiff >= 22f && angDiff <= 68f) {
-                        pincerSynergy += 0.38f;
-                    } else if (angDiff < 22f) {
-                        pincerSynergy += 0.24f;
+                    float angleBonus;
+                    if (angDiff >= 55f && angDiff <= 125f) {
+                        angleBonus = 0.44f; // True orthogonal L-cordon / U-cordon crossfire
+                    } else if (angDiff >= 24f && angDiff < 55f) {
+                        angleBonus = 0.28f; // Oblique converging wing
+                    } else if (angDiff > 125f) {
+                        angleBonus = 0.24f; // Opposing hammer-and-anvil pincer
                     } else {
-                        pincerSynergy += 0.10f;
+                        angleBonus = 0.08f; // Narrow lane-stacked bearing
                     }
+                    pincerSynergy += angleBonus * arrivalSync;
                 }
             }
         }
 
-        // Multiplicative phase-space product with bounded FP base so Weak Points & high-flux targets are prioritized.
-        // Proximity Gate: a rearward enemy division 3,200u away that happens to be flux-locked is NOT a closer,
-        // more dangerous target than the enemy main body already in gun range of our line!
-        float proximityGate = 0.55f + timeCoincidence * 0.85f;
+        // Multiplicative phase-space product with bounded FP base so Weak Points & high-flux targets are prioritized (C1).
+        // Monotonic Reachability Gate: targets inside our directional Time + weapon/sortie horizon score up to 2.7x higher
+        // than unreachable rearward divisions 3,200u away!
+        float reachabilityGate = 0.38f + timeCoincidence * 0.68f;
         float visFp = OtcAI.getVisibleFpForSide(engine, myDiv.side, enemyDiv);
         float baseValue = Math.min(440f, 165f + visFp * 4.2f) + blindSpot * 0.95f;
         return baseValue * enemyPinnedBonus * seamVulnerability * fluxCollapseMult
-                * Math.min(1.85f, pincerSynergy) * unableTargetMult / proximityGate;
+                * Math.min(2.05f, pincerSynergy) * unableTargetMult * reachabilityGate;
     }
 
     /**
@@ -5662,7 +6005,7 @@ public class BattlefieldFirepowerEvaluator {
                     : 0f;
             float netSpace = evaluateNetSpaceControlAtPoint(engine, myDiv.side, cand, myGroup, enemyGroup);
 
-            // Reward orthogonal crossfire bearing relative to sibling divisions targeting targetEnemyDiv
+            // Reward orthogonal crossfire bearing (50-118 deg L/U-cordon) relative to sibling divisions targeting targetEnemyDiv (C2)
             float crossfireSynergy = 0f;
             if (myGroup != null && targetEnemyDiv != null) {
                 for (DivisionState peer : myGroup.divisions) {
@@ -5671,12 +6014,18 @@ public class BattlefieldFirepowerEvaluator {
                         float peerAng = (float) Math.toDegrees(
                                 Math.atan2(peer.centroid.y - arcCenter.y, peer.centroid.x - arcCenter.x));
                         float sep = Math.abs(shortestAngleDiffDeg(angleDeg, peerAng));
-                        if (sep >= 24f && sep <= 58f) {
-                            crossfireSynergy += 220f;
-                        } else if (sep < 16f) {
-                            crossfireSynergy -= 120f; // avoid stacking into the exact same firing lane
-                        } else if (sep > 72f) {
-                            crossfireSynergy -= (sep - 72f) * 4.5f; // avoid isolating divisions beyond mutual support range
+                        if (sep >= 50f && sep <= 118f) {
+                            // Peak right around 85-95 deg orthogonal crossfire
+                            float orthoPeak = 1.0f - Math.min(1.0f, Math.abs(sep - 88f) / 40f) * 0.18f;
+                            crossfireSynergy += 255f * orthoPeak;
+                        } else if (sep >= 24f && sep < 50f) {
+                            crossfireSynergy += 155f;
+                        } else if (sep < 18f) {
+                            crossfireSynergy -= 140f; // avoid stacking into the exact same firing lane / friendly hull occlusion
+                        } else if (sep > 132f && myDiv.localForceRatio < 1.05f) {
+                            crossfireSynergy -= (sep - 132f) * 3.5f; // avoid unsupported rear isolation when locally outgunned
+                        } else {
+                            crossfireSynergy += 95f;
                         }
                     }
                 }

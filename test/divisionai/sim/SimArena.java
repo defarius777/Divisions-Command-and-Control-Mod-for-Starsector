@@ -689,7 +689,12 @@ public class SimArena {
                             return null;
                         }
                         if ("getMaxTurnRate".equals(n)) {
-                            return hullSize == HullSize.FIGHTER ? 135f : 45f;
+                            if (hullSize == HullSize.FIGHTER) return 135f;
+                            if (hullSize == HullSize.FRIGATE) return 65f;
+                            if (hullSize == HullSize.DESTROYER) return 38f;
+                            if (hullSize == HullSize.CRUISER) return 23f;
+                            if (hullSize == HullSize.CAPITAL_SHIP) return 13f;
+                            return 45f;
                         }
                         if ("getTurnAcceleration".equals(n)) {
                             return hullSize == HullSize.FIGHTER ? 380f : 90f;

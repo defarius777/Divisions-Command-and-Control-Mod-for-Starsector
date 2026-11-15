@@ -5580,6 +5580,152 @@ public class DivisionAITestSuite {
                     String.format(Locale.ROOT, "cacheOk=%b, pFresh=%.1f -> pOverload=%.1f, firstAt22=%b, heldAt25=%b, chaseSuppressedAt90=%b",
                             cachePopulated, pBefore, pAfterOverload, firstDoublingRecorded, dedupHeldAt25, chaseSuppressed));
         }
+
+        // Sub-scenario 17F: TSFC Domain Physics & Convergence Bugfixes (T1-T2, S1-S3, F1-F3, C1-C3)
+        {
+            BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+            pGroup.useConvergence = true;
+            BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+            DivisionState capAnvil = new DivisionState("p_cap", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+            capAnvil.useConvergence = true;
+            DivisionState orthoWing = new DivisionState("p_orth", 0, 2, DivisionArchetype.CRUISER_DIVISION, "Cruiser Wing 1", pCmdr);
+            orthoWing.useConvergence = true;
+            DivisionState openFlankWolf = new DivisionState("p_wolf", 0, 3, DivisionArchetype.FRIGATE_DIVISION, "Wolf Flank Screen", pCmdr);
+            pGroup.divisions.add(capAnvil);
+            pGroup.divisions.add(orthoWing);
+            pGroup.divisions.add(openFlankWolf);
+
+            DivisionState eNear = new DivisionState("e_near", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Near Line", eCmdr);
+            DivisionState eFar = new DivisionState("e_far", 1, 2, DivisionArchetype.CRUISER_DIVISION, "Enemy Far Rear", eCmdr);
+            eGroup.divisions.add(eNear);
+            eGroup.divisions.add(eFar);
+
+            SimArena arena = new SimArena("17F. TSFC Domain Physics & Convergence", "T/S/F/C Domain Upgrades", pGroup, eGroup);
+            // 1. Capital ship with Burn Drive & 110-deg FRONT shield facing North (90 deg)
+            SimShipState cap1 = arena.addShip(capAnvil, "c1", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, -90f, 0f, 55f, 1050f, 0, 0);
+            SimShipState cap2 = arena.addShip(capAnvil, "c2", "HSS Dominator", "dominator", HullSize.CRUISER, 90f, 0f, 60f, 1050f, 0, 0);
+            cap1.systemId = "burndrive";
+            cap1.shieldTypeOverride = com.fs.starfarer.api.combat.ShieldAPI.ShieldType.FRONT;
+            cap1.shieldArc = 110f;
+            cap1.facing = 90f;
+            cap2.shieldTypeOverride = com.fs.starfarer.api.combat.ShieldAPI.ShieldType.FRONT;
+            cap2.shieldArc = 110f;
+            cap2.facing = 90f;
+            // Mixed-range armament on cap1: 1x 1150u HVD + 2x 480u Reaper torpedoes (high alpha)
+            cap1.weapons.clear();
+            cap1.weaponMounts.clear();
+            SimArena.SimWeaponMount hvd = new SimArena.SimWeaponMount(
+                    "hvd", com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.MEDIUM,
+                    com.fs.starfarer.api.combat.DamageType.KINETIC,
+                    1150f, 180f, 0f, 300f, 150f, 180f, 2.0f, false, 0, false, false, false);
+            SimArena.SimWeaponMount reaper = new SimArena.SimWeaponMount(
+                    "reaper", com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.MEDIUM,
+                    com.fs.starfarer.api.combat.DamageType.HIGH_EXPLOSIVE,
+                    480f, 90f, 0f, 4000f, 400f, 0f, 5.0f, true, 4, false, true, false);
+            cap1.weaponMounts.add(hvd);
+            cap1.weaponMounts.add(reaper);
+            cap1.weapons.add(hvd.proxy);
+            cap1.weapons.add(reaper.proxy);
+
+            // 2. Orthogonal sibling Cruiser Wing at (1050, 1050) (90 deg East of eNear at (0, 1050), capAnvil is South at (0, 0))
+            arena.addShip(orthoWing, "ow1", "TTS Eagle", "eagle", HullSize.CRUISER, 1000f, 1050f, 80f, 1050f, 0, 0);
+            arena.addShip(orthoWing, "ow2", "TTS Falcon", "falcon", HullSize.CRUISER, 1100f, 1050f, 95f, 1000f, 0, 0);
+
+            // 3. Open-flank Wolf frigate vanguard far West (-3400, 0), 0% flux, fast (165 su/s)
+            SimShipState wf1 = arena.addShip(openFlankWolf, "wf1", "TTS Wolf 1", "wolf", HullSize.FRIGATE, -3450f, 0f, 165f, 700f, 0, 0);
+            SimShipState wf2 = arena.addShip(openFlankWolf, "wf2", "TTS Wolf 2", "wolf", HullSize.FRIGATE, -3350f, 0f, 165f, 700f, 0, 0);
+            wf1.fluxLevel = 0.0f;
+            wf2.fluxLevel = 0.0f;
+
+            // 4. Two identical enemy cruiser divisions: eNear at (0, 1050) and eFar at (0, 3700)
+            arena.addShip(eNear, "en1", "HSS Enforcer 1", "enforcer", HullSize.CRUISER, -60f, 1050f, 65f, 1000f, 0, 0);
+            arena.addShip(eNear, "en2", "HSS Enforcer 2", "enforcer", HullSize.CRUISER, 60f, 1050f, 65f, 1000f, 0, 0);
+            arena.addShip(eFar, "ef1", "HSS Enforcer 3", "enforcer", HullSize.CRUISER, -60f, 3700f, 65f, 1000f, 0, 0);
+            arena.addShip(eFar, "ef2", "HSS Enforcer 4", "enforcer", HullSize.CRUISER, 60f, 3700f, 65f, 1000f, 0, 0);
+
+            BattlefieldFirepowerEvaluator.resetForNewBattle();
+            BattlefieldFirepowerEvaluator.setActiveBattleGroups(pGroup, null, eGroup);
+            arena.runSimulation(0.2f);
+            capAnvil.formationHeadingInitialized = true;
+            capAnvil.formationHeadingX = 0f;
+            capAnvil.formationHeadingY = 1f;
+            capAnvil.activeFormation = divisionai.PermanentDivisionManager.DivisionFormation.CIRCLE;
+            BattlefieldFirepowerEvaluator.updateBattlefieldRoses(arena.engineProxy, 1.0f);
+            BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(capAnvil);
+            BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(orthoWing);
+            BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(openFlankWolf);
+            BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(eNear);
+            BattlefieldFirepowerEvaluator.updateDivisionBaseTimeSpace(eFar);
+            BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(arena.engineProxy, pGroup, eGroup);
+            BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(arena.engineProxy, eGroup, pGroup);
+
+            // T1: Agile Wolf division has much higher turnAgilityRatio than Capital division, and Burn Drive gives forward burst
+            boolean timeKinematicsOk = openFlankWolf.turnAgilityRatio > capAnvil.turnAgilityRatio + 0.35f
+                    && capAnvil.forwardMobilityBurstRatio > 0.04f;
+
+            // S1 & S2: Healthy fast open-flank Wolf screen is NOT falsely marked isWeakPoint, and FRONT shield gives stronger bow Space than stern
+            boolean flankNotFalseWeakPoint = !openFlankWolf.isWeakPoint;
+            // Evaluate capAnvil directional Space without enemy pinch (clear eGroup temporarily) to isolate FRONT shield bow vs stern
+            BattleGroupState emptyEnemy = new BattleGroupState(1, eCmdr);
+            BattlefieldFirepowerEvaluator.computeDirectionalSpaceEnvelope(arena.engineProxy, capAnvil, pGroup, emptyEnemy, 40f);
+            float bowSpaceIn = BattlefieldFirepowerEvaluator.getDirectionalSpaceInnerRadius(capAnvil, 90f);
+            float sternSpaceIn = BattlefieldFirepowerEvaluator.getDirectionalSpaceInnerRadius(capAnvil, 270f);
+            boolean frontShieldAnisotropyOk = bowSpaceIn > sternSpaceIn * 1.12f;
+
+            // F1: Range-band stratification — 480u Reaper alpha on cap1 (-90, 0) hits at y=420 (dist ~518u) and drops to 0 at y=980 (dist ~984u, where only 1150u HVD reaches!)
+            PointFirepowerEval closeAlphaEval = BattlefieldFirepowerEvaluator.evaluatePoint(
+                    arena.engineProxy, 1, new Vector2f(-90f, 420f), 180f);
+            PointFirepowerEval farPokeEval = BattlefieldFirepowerEvaluator.evaluatePoint(
+                    arena.engineProxy, 1, new Vector2f(-90f, 980f), 180f);
+            boolean rangeStratifiedOk = farPokeEval.incomingShortDot > 10f
+                    && closeAlphaEval.incomingAlpha > farPokeEval.incomingAlpha * 3.0f;
+
+            // F3: Friendly-hull direct-fire occlusion — place a pure direct-fire shooter South of capAnvil (0, 0) firing North at (0, 520) vs unoccluded lane
+            DivisionState rearGunDiv = new DivisionState("p_rear", 0, 4, DivisionArchetype.CRUISER_DIVISION, "Rear Gun Div", pCmdr);
+            pGroup.divisions.add(rearGunDiv);
+            SimShipState rg = arena.addShip(rearGunDiv, "rg1", "HSS Dominator Rear", "dominator", HullSize.CRUISER, 0f, -450f, 60f, 1100f, 0, 0);
+            rg.facing = 90f;
+            rearGunDiv.centroid.set(0f, -450f);
+            rearGunDiv.spreadRadius = 90f;
+            rearGunDiv.coreMemberCount = 1;
+            cap1.weapons.clear();
+            cap2.weapons.clear();
+            BattlefieldFirepowerEvaluator.resetForNewBattle();
+            BattlefieldFirepowerEvaluator.setActiveBattleGroups(pGroup, null, eGroup);
+            BattlefieldFirepowerEvaluator.updateBattlefieldRoses(arena.engineProxy, 2.0f);
+            PointFirepowerEval occludedShot = BattlefieldFirepowerEvaluator.evaluatePoint(
+                    arena.engineProxy, 0, new Vector2f(0f, 450f), 180f);
+            capAnvil.centroid.set(2500f, 0f); // move blocker out of the line of fire
+            PointFirepowerEval clearShot = BattlefieldFirepowerEvaluator.evaluatePoint(
+                    arena.engineProxy, 0, new Vector2f(0f, 450f), 180f);
+            capAnvil.centroid.set(0f, 0f);
+            pGroup.divisions.remove(rearGunDiv);
+            boolean friendlyOcclusionOk = clearShot.friendlyShortDot > occludedShot.friendlyShortDot * 1.18f;
+
+            // C1 & C2: Near reachable enemy scores much higher Convergence than distant 3,700u enemy (fixing inverted / proximityGate),
+            // and 90-deg orthogonal sibling convergence beats narrow <18-deg lane stacking!
+            orthoWing.targetEnemyDivision = eNear;
+            capAnvil.targetEnemyDivision = eNear;
+            float convNearOrtho = BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(arena.engineProxy, capAnvil, eNear, pGroup);
+            float convFar = BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(arena.engineProxy, capAnvil, eFar, pGroup);
+            orthoWing.centroid.set(60f, 20f); // stack right on top of capAnvil's South bearing (< 5 deg separation)
+            float convStacked = BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(arena.engineProxy, capAnvil, eNear, pGroup);
+            boolean convergenceFixedOk = convNearOrtho > convFar * 1.65f && convNearOrtho > convStacked * 1.12f;
+
+            check(timeKinematicsOk && flankNotFalseWeakPoint && frontShieldAnisotropyOk
+                            && rangeStratifiedOk && friendlyOcclusionOk && convergenceFixedOk,
+                    "TSFC Domain Physics & Convergence Bugfixes: turn/burst Time, shield/seam Space, range-band & occluded Firepower, and reachable 90-deg Convergence",
+                    String.format(Locale.ROOT,
+                            "timeKine=%b (wolfAgil=%.2f > capAgil=%.2f, burst=%.2f), noFalseWeak=%b, shdBow=%.0f>stern=%.0f, alphaClose=%.0f>>far=%.0f, occ=%.0f<clear=%.0f, convNear=%.0f>far=%.0f & ortho>stack=%.0f",
+                            timeKinematicsOk, openFlankWolf.turnAgilityRatio, capAnvil.turnAgilityRatio, capAnvil.forwardMobilityBurstRatio,
+                            flankNotFalseWeakPoint, bowSpaceIn, sternSpaceIn,
+                            closeAlphaEval.incomingAlpha, farPokeEval.incomingAlpha,
+                            occludedShot.friendlyShortDot, clearShot.friendlyShortDot,
+                            convNearOrtho, convFar, convStacked));
+        }
     }
 
     private static int countMatchingLogs(List<String> logs, String needle) {

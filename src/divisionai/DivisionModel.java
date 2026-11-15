@@ -540,6 +540,8 @@ public class DivisionModel {
         // Time Layer (Mobility horizon & Directional Engagement Level / Fixing)
         public static final int TIME_DIRECTIONS = 24;
         public float weightedTimeSpeed;       // Weighted division speed (FP-weighted + slowest core hull anchor)
+        public float turnAgilityRatio = 0.55f;// [0.18..1.0] weighted hull turn-rate & omni-maneuvering agility
+        public float forwardMobilityBurstRatio = 0.0f; // [0.0..0.28] ready mobility ship-system / Zero-Flux forward burst
         public float freeTimeRadius;          // Unencumbered reach over tactical time horizon
         public float engagementLevel;         // 0.0 = free to maneuver, up to 0.85 = pinned by enemy Space/Firepower
         public float timeFreedomFactor = 1.0f;// 1.0 - engagementLevel

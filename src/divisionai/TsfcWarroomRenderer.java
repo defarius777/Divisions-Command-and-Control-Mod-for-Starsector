@@ -859,10 +859,11 @@ public class TsfcWarroomRenderer {
 
             float cx = offsetX + cWorld.x * scale;
             float cy = offsetY + cWorld.y * scale;
-            // Convergence radius synthesizes Time, Space, and Firepower into a unified phase envelope
-            float convWorldRad = 0.38f * interpEffTimeR
-                    + 0.38f * interpDomR
-                    + 0.24f * Math.max(500f, div.avgEngageRange);
+            // Convergence radius synthesizes Time, Space, and Firepower via weighted geometric coincidence
+            float baseFirepowerR = Math.max(420f, div.avgEngageRange);
+            float safeT = Math.max(180f, interpEffTimeR);
+            float safeS = Math.max(240f, interpDomR);
+            float convWorldRad = (float) (Math.pow(safeT, 0.36) * Math.pow(safeS, 0.38) * Math.pow(baseFirepowerR, 0.26));
             float radPx = Math.max(24f, convWorldRad * scale);
             float convSlide = BattlefieldFirepowerEvaluator.computeDivisionTimeSlidingOpacityScale(div, interpFreeTimeR);
             float visAlpha = (isEnemy && playerFog != null)
@@ -1144,7 +1145,16 @@ public class TsfcWarroomRenderer {
         if (div == null || scale <= 1e-5f) return;
         lastSpaceScratchDiv = null;
         boolean hasKf = div.tsfcKeyframesInitialized && kfBlend < 0.999f;
-        float fallbackWeaponRange = Math.max(500f, div.avgEngageRange);
+        float fallbackWeaponRange = Math.max(420f, div.avgEngageRange);
+        float peakDirFp = fallbackWeaponRange;
+        if (div.directionalSpaceInitialized) {
+            for (int k = 0; k < DivisionState.TIME_DIRECTIONS; k++) {
+                float fk = hasKf
+                        ? (div.prevDirectionalFirepowerRadii[k] + (div.directionalFirepowerRadii[k] - div.prevDirectionalFirepowerRadii[k]) * kfBlend)
+                        : div.directionalFirepowerRadii[k];
+                if (fk > peakDirFp) peakDirFp = fk;
+            }
+        }
         float minCardinalRadPx = Float.MAX_VALUE;
         for (int i = 0; i < 48; i++) {
             int s0 = i >> 1;
@@ -1182,7 +1192,13 @@ public class TsfcWarroomRenderer {
             if (!div.directionalTimeInitialized) tR = Math.max(200f, div.effectiveTimeRadius);
             if (!div.directionalSpaceInitialized) sR = Math.max(300f, div.spaceDominatedRadius);
             if (!div.directionalSpaceInitialized || fR <= 100f) fR = fallbackWeaponRange;
-            float worldR = 0.38f * tR + 0.38f * sR + 0.24f * fR;
+            // Multiplicative T x S x F geometric coincidence: sectors with collapsed Time or blind weapon arcs
+            // pinch inward rather than retaining a large arithmetic sum!
+            float clampedT = Math.max(150f, tR);
+            float clampedS = Math.max(200f, sR);
+            float clampedF = Math.max(180f, fR);
+            float fpAlignment = Math.max(0.76f, Math.min(1.06f, 0.72f + 0.34f * (clampedF / Math.max(350f, peakDirFp))));
+            float worldR = (float) (Math.pow(clampedT, 0.36) * Math.pow(clampedS, 0.38) * Math.pow(clampedF, 0.26)) * fpAlignment;
             float cos = UNIT_COS_48[i];
             float sin = UNIT_SIN_48[i];
             if (cWorld != null) {

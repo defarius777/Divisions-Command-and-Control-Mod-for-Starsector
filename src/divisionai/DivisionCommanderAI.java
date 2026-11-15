@@ -5756,8 +5756,13 @@ public class DivisionCommanderAI {
                     float orgC2Scale = Math.max(0f, Math.min(1f, (myGroup.organizationRatio - 0.93f) / 0.07f));
                     score += 320f * orgC2Scale;
                 }
-                if (dist <= myDiv.effectiveTimeRadius + myDiv.avgEngageRange) {
-                    score += 130f * myDiv.timeFreedomFactor;
+                float bearingToEnemy = (float) Math.toDegrees(Math.atan2(
+                        visCentroid.y - myDiv.centroid.y,
+                        visCentroid.x - myDiv.centroid.x));
+                float dirTimeReach = BattlefieldFirepowerEvaluator.getDirectionalTimeRadius(myDiv, bearingToEnemy);
+                float dirFreedom = Math.max(0.15f, Math.min(1.05f, dirTimeReach / Math.max(250f, myDiv.freeTimeRadius)));
+                if (dist <= dirTimeReach + myDiv.avgEngageRange) {
+                    score += 130f * dirFreedom;
                 }
                 if (eDiv.isWeakPoint) {
                     score += 165f;

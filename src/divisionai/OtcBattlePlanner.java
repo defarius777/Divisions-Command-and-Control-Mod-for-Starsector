@@ -898,8 +898,14 @@ public class OtcBattlePlanner {
                     || DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.RESERVE;
             // The reserve is kept for real crises, not for a lone frigate in trouble
             if (isReserve && !majorCrisis) continue;
-            // Time freedom bonus: prefer divisions whose effectiveTimeRadius can reach the crisis without being pinned
-            float timeReachBonus = (dist <= d.effectiveTimeRadius ? 260f : 0f) + d.timeFreedomFactor * 180f;
+            // Directional Time freedom bonus: prefer divisions whose open directional Time reach toward the crisis
+            // can cross the intervening space even if engaged on another bearing!
+            float crisisBearing = (float) Math.toDegrees(Math.atan2(
+                    crisis.centroid.y - d.centroid.y,
+                    crisis.centroid.x - d.centroid.x));
+            float dirTimeReach = BattlefieldFirepowerEvaluator.getDirectionalTimeRadius(d, crisisBearing);
+            float dirFreedom = Math.max(0.15f, Math.min(1.05f, dirTimeReach / Math.max(250f, d.freeTimeRadius)));
+            float timeReachBonus = (dist <= dirTimeReach ? 260f : 0f) + dirFreedom * 180f;
             // Overkill relief bonus: strongly prefer detaching divisions currently piled onto an overkilled flank target
             float overkillDetachBonus = (d.otcOrder.targetEnemy != null && d.otcOrder.targetEnemy.isOverkilled) ? 420f : 0f;
             float score = -dist * 0.15f - d.avgFluxLevel * 400f + timeReachBonus + overkillDetachBonus;
@@ -1372,9 +1378,14 @@ public class OtcBattlePlanner {
                     // Non-linear synthesis of Time reachability, Space seam isolation, and orthogonal Firepower
                     score += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, e, myGroup) * 0.48f;
                 } else {
-                    // Human OTC: weights Time reachability and Space Weak Points vs Strongpoints
-                    if (dist <= d.effectiveTimeRadius + d.avgEngageRange) {
-                        score += 140f * d.timeFreedomFactor;
+                    // Human OTC: weights directional Time reachability and Space Weak Points vs Strongpoints
+                    float enemyBearing = (float) Math.toDegrees(Math.atan2(
+                            ePos.y - d.centroid.y,
+                            ePos.x - d.centroid.x));
+                    float dirTimeReach = BattlefieldFirepowerEvaluator.getDirectionalTimeRadius(d, enemyBearing);
+                    float dirFreedom = Math.max(0.15f, Math.min(1.05f, dirTimeReach / Math.max(250f, d.freeTimeRadius)));
+                    if (dist <= dirTimeReach + d.avgEngageRange) {
+                        score += 140f * dirFreedom;
                     }
                     if (e.isWeakPoint) score += 180f;
                     else if (e.isStrongpoint) score -= 90f;
