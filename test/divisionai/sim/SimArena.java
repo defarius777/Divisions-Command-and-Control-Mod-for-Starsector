@@ -67,6 +67,7 @@ public class SimArena {
         public final boolean usesAmmo;
         public int maxAmmo;
         public int ammo;
+        public float ammoPerSecond = 0f;
         public final boolean isPd;
         public final boolean isStrike;
         public final boolean isHybridFlak;
@@ -163,6 +164,8 @@ public class SimArena {
                         if ("usesAmmo".equals(n)) return usesAmmo;
                         if ("getAmmo".equals(n)) return usesAmmo ? ammo : Integer.MAX_VALUE;
                         if ("getMaxAmmo".equals(n)) return usesAmmo ? maxAmmo : Integer.MAX_VALUE;
+                        if ("getAmmoPerSecond".equals(n)) return ammoPerSecond;
+                        if ("isDisabled".equals(n)) return disabled;
                         if ("isFiring".equals(n)) return cooldownRemaining > Math.max(0.15f, cooldownDuration * 0.65f);
                         Class<?> rt = m.getReturnType();
                         if (rt == boolean.class) return false;
@@ -193,6 +196,11 @@ public class SimArena {
         public float shieldArc = 210f;
         public float shieldFluxPerDam = 0.85f;
         public boolean detailedCombatModel = false;
+        public ShieldType shieldTypeOverride = null;
+        public boolean losesCR = false;
+        public float currentCR = 0.70f;
+        public float peakTimeRemaining = 180f;
+        public boolean engineFlamedOut = false;
         public boolean isPhaseShip = false;
         public boolean phased = false;
         public boolean isStation = false;
@@ -520,9 +528,12 @@ public class SimArena {
                     new Class<?>[]{ShieldAPI.class},
                     (sp, sm, sa) -> {
                         String sn = sm.getName();
-                        if ("getType".equals(sn)) return isPhaseShip ? ShieldType.PHASE : ShieldType.OMNI;
-                        if ("isOn".equals(sn)) return !isPhaseShip && overloadTimer <= 0f;
-                        if ("isOff".equals(sn)) return isPhaseShip || overloadTimer > 0f;
+                        if ("getType".equals(sn)) {
+                            if (shieldTypeOverride != null) return shieldTypeOverride;
+                            return isPhaseShip ? ShieldType.PHASE : ShieldType.OMNI;
+                        }
+                        if ("isOn".equals(sn)) return shieldTypeOverride != ShieldType.NONE && !isPhaseShip && overloadTimer <= 0f;
+                        if ("isOff".equals(sn)) return shieldTypeOverride == ShieldType.NONE || isPhaseShip || overloadTimer > 0f;
                         if ("getArc".equals(sn) || "getActiveArc".equals(sn)) return shieldArc;
                         if ("getFacing".equals(sn)) return facing;
                         if ("getFluxPerPointOfDamage".equals(sn)) return shieldFluxPerDam;
@@ -601,7 +612,24 @@ public class SimArena {
                         if ("isAlive".equals(n)) return alive;
                         if ("isHulk".equals(n)) return !alive;
                         if ("isPhased".equals(n)) return detailedCombatModel && phased;
-                        if ("getShield".equals(n)) return detailedCombatModel ? shieldProxy : null;
+                        if ("getShield".equals(n)) return (detailedCombatModel || shieldTypeOverride != null) ? shieldProxy : null;
+                        if ("losesCRDuringCombat".equals(n)) return losesCR;
+                        if ("getCurrentCR".equals(n) || "getCRAtDeployment".equals(n)) return currentCR;
+                        if ("getPeakTimeRemaining".equals(n)) return peakTimeRemaining;
+                        if ("getEngineController".equals(n) && engineFlamedOut) {
+                            return Proxy.newProxyInstance(
+                                    com.fs.starfarer.api.combat.ShipEngineControllerAPI.class.getClassLoader(),
+                                    new Class<?>[]{com.fs.starfarer.api.combat.ShipEngineControllerAPI.class},
+                                    (ep, em, ea) -> {
+                                        if ("isFlamedOut".equals(em.getName())) return true;
+                                        if ("computeDisabledFraction".equals(em.getName())) return 1.0f;
+                                        Class<?> ert = em.getReturnType();
+                                        if (ert == boolean.class) return false;
+                                        if (ert == int.class) return 0;
+                                        if (ert == float.class) return 0f;
+                                        return null;
+                                    });
+                        }
                         if ("getPhaseCloak".equals(n)) return detailedCombatModel ? phaseProxy : null;
                         if ("getSystem".equals(n)) return systemId != null ? sysProxy : null;
                         if ("useSystem".equals(n)) {

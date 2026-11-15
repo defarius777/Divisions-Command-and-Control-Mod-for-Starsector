@@ -711,15 +711,17 @@ public final class ShipSystemCoordinator {
                 || div.currentIntent == DivisionIntentType.TOT_ALPHA_STRIKE
                 || div.currentIntent == DivisionIntentType.GIVE_GENERAL_CHASE
                 || div.currentIntent == DivisionIntentType.REINFORCE_DIVISION;
-        boolean postureForbidsOffensiveCharge = !otcStrikeOrder && !explicitLanceRamOrder
+        boolean withdrawalOrCorridorHazard = div.currentIntent.isWithdrawalOrBreakout()
+                || div.inEnemyReinforcementHazard
+                || div.localForceRatio < 0.45f;
+        boolean postureForbidsOffensiveCharge = withdrawalOrCorridorHazard
+                || (!otcStrikeOrder && !explicitLanceRamOrder
                 && (activeMission == DivisionMissionType.SCOUTING
                 || activeMission == DivisionMissionType.STANDOFF_ENGAGEMENT
                 || (activeMission == DivisionMissionType.SCREEN && !activelyAttackingIntent)
                 || activeMission == DivisionMissionType.RESERVE
-                || div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
-                || div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
                 || div.currentIntent == DivisionIntentType.HOLD_IN_RESERVE
-                || div.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION);
+                || div.currentIntent == DivisionIntentType.TAKE_SCREENING_STATION));
 
         if (postureForbidsOffensiveCharge || focusEnemyShip == null || !focusEnemyShip.isAlive() || focusEnemyShip.isHulk()) {
             div.synchronizedSkillManeuverActive = false;
@@ -807,22 +809,34 @@ public final class ShipSystemCoordinator {
 
         float stageElapsed = Math.max(0f, now - div.synchronizedSkillStageStartTime);
         if (div.synchronizedSkillStage == 1) {
-            // Stage 1: Marshal into formation & align bows toward each rammer's assigned target before igniting Stage 2 together
-            float reqAngle = wantRamCharge ? 15f : (underFire ? 22f : 26f);
-            float reqSkRatio = underFire ? 0.98f : 1.15f;
+            // Dynamic Stage-1 Abort Guard: cancel synchronized charge staging immediately if the division enters breakout,
+            // reinforcement-corridor hazard, or severe local TSF collapse!
+            if (div.currentIntent.isWithdrawalOrBreakout()
+                    || div.inEnemyReinforcementHazard
+                    || div.localForceRatio < 0.45f) {
+                div.lastSynchronizedSkillEndTime = now;
+                div.synchronizedSkillManeuverActive = false;
+                div.synchronizedSkillStage = 0;
+                div.activeSkillManeuverLabel = "";
+                return;
+            }
+            // Stage 1: Marshal into formation & align bows toward target before igniting Stage 2 together
+            float reqAngle = wantRamCharge ? 18f : (underFire ? 24f : 28f);
+            float reqSkRatio = underFire ? 1.05f : 1.18f;
             int alignedCount = wantRamCharge
                     ? countRammersAlignedToAssignedTargets(engine, div, alive, focusEnemyShip, myGroup, enemyGroup, reqAngle)
                     : countMembersAlignedToPoint(alive, focusEnemyShip.getLocation(), reqAngle);
             int reqAlignedCount = wantRamCharge
-                    ? Math.max(1, (int) Math.ceil(alive.size() * 0.85f))
+                    ? Math.max(1, (int) Math.ceil(alive.size() * 0.66f))
                     : Math.max(1, (alive.size() * 2 + 1) / 3);
             boolean wellDressed = div.stationKeepingRatio <= reqSkRatio;
             boolean bowsAligned = alignedCount >= reqAlignedCount;
-            boolean inIgniteRange = !wantRamCharge || distToTarget <= (underFire ? 1520f : 1680f);
+            boolean inIgniteRange = !wantRamCharge || distToTarget <= (underFire ? 1560f : 1720f);
             if (inIgniteRange && ((wellDressed && bowsAligned)
-                    || (bowsAligned && distToTarget <= 1350f)
-                    || (!wantRamCharge && stageElapsed >= (underFire ? 1.8f : 1.4f) && distToTarget <= 1420f)
-                    || (wantRamCharge && stageElapsed >= 2.8f && alignedCount >= Math.max(1, (alive.size() * 2) / 3)))) {
+                    || (bowsAligned && (distToTarget <= 1420f || stageElapsed >= 0.30f))
+                    || (!wantRamCharge && stageElapsed >= (underFire ? 1.35f : 1.15f) && distToTarget <= 1550f)
+                    || (wantRamCharge && stageElapsed >= 1.65f && alignedCount >= Math.max(1, (int) Math.ceil(alive.size() * 0.50f)))
+                    || stageElapsed >= 1.85f)) {
                 div.synchronizedSkillStage = 2;
                 div.synchronizedSkillStageStartTime = now;
                 div.activeSkillManeuverLabel = wantRamCharge ? "Sync Ram Charge" : "Sync Burn Approach";
@@ -1410,6 +1424,23 @@ public final class ShipSystemCoordinator {
 
                     // 3. Under-Fire / Scouting / Standoff / Stage-1 Marshaling Discipline Gate for Non-Ramming Linear Skills:
                     if (!stage2SyncCharge) {
+                        if (stage1Marshaling && effTarget != null && !isShipExtracting) {
+                            // Rolling forward alignment lead (280u toward target) so non-ramming Burn Drive / Plasma Jets
+                            // hulls turn onto charge heading under active helm authority instead of stalling stationary!
+                            float tdx = effTarget.getLocation().x - ship.getLocation().x;
+                            float tdy = effTarget.getLocation().y - ship.getLocation().y;
+                            float tlen = (float) Math.sqrt(tdx * tdx + tdy * tdy);
+                            if (tlen > 1f) {
+                                Vector2f alignLead = new Vector2f(
+                                        ship.getLocation().x + (tdx / tlen) * 280f,
+                                        ship.getLocation().y + (tdy / tlen) * 280f);
+                                if (flags != null) {
+                                    flags.setFlag(AIFlags.CAMP_LOCATION, 0.25f, alignLead);
+                                    flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, alignLead);
+                                }
+                                steerShipHelmOntoRamTarget(ship, alignLead, false);
+                            }
+                        }
                         boolean blockSoloBurst = scoutingOrStandoffPosture
                                 || stage1Marshaling
                                 || hasDoNotPursue

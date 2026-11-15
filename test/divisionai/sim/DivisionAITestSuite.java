@@ -90,6 +90,7 @@ public class DivisionAITestSuite {
         testCarrierZeroFluxSupportAndDefensiveTargetingArray();
         testSafetyOverridesCapitalDeathBlastObjectivePolicyAndTemplates();
         testTsfOvermatchReinforcementCorridorAndRunTheGauntlet();
+        testConstituentShipSensorsAndTacticalMechanics();
         testUIHarnessAndUXSuccinctness();
         testZeroReflectionInCompiledJar();
 
@@ -5256,6 +5257,266 @@ public class DivisionAITestSuite {
             }
         }
         throw new ClassNotFoundException("ScriptClassLoader not found on " + loader);
+    }
+
+    private static void testConstituentShipSensorsAndTacticalMechanics() {
+        System.out.println("\n--- Scenario 17: Constituent-Ship Capability Sensors & Intra-/Inter-Division Tactical AI ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+
+        // 17A: Damage-Type Matchup Scoring (Kinetic vs HE) & Regenerating Ballistic/Energy Magazine Windows
+        {
+            BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+            BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+            DivisionState kinDiv = new DivisionState("p_kin", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Kinetic Cruiser Div", pCmdr);
+            DivisionState heDiv = new DivisionState("p_he", 0, 2, DivisionArchetype.CRUISER_DIVISION, "Assault HE Div", pCmdr);
+            pGroup.divisions.add(kinDiv);
+            pGroup.divisions.add(heDiv);
+
+            DivisionState eShielded = new DivisionState("e_shd", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Shielded Cruiser Line", eCmdr);
+            DivisionState eBrick = new DivisionState("e_brk", 1, 2, DivisionArchetype.CRUISER_DIVISION, "Armor Brick Line", eCmdr);
+            eGroup.divisions.add(eShielded);
+            eGroup.divisions.add(eBrick);
+
+            SimArena arena = new SimArena("17A. Damage Matchup & Magazines", "Kinetic vs HE & Needler Reload", pGroup, eGroup);
+            SimShipState kShip = arena.addShip(kinDiv, "k1", "HSS Eagle", "eagle", HullSize.CRUISER, 0f, 0f, 80f, 1000f, 0, 0);
+            kShip.detailedCombatModel = true;
+            kShip.weapons.clear();
+            kShip.weaponMounts.clear();
+            SimArena.SimWeaponMount needler = new SimArena.SimWeaponMount(
+                    "storm_needler",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.LARGE,
+                    com.fs.starfarer.api.combat.DamageType.KINETIC,
+                    900f, 210f, 0f, 900f, 450f, 380f, 1.5f, true, 30, false, false, false);
+            needler.ammoPerSecond = 3.0f;
+            kShip.addWeaponMount(needler);
+
+            SimShipState hShip = arena.addShip(heDiv, "h1", "HSS Dominator", "dominator", HullSize.CRUISER, 0f, 0f, 65f, 1000f, 0, 0);
+            hShip.detailedCombatModel = true;
+            hShip.weapons.clear();
+            hShip.weaponMounts.clear();
+            SimArena.SimWeaponMount hellbore = new SimArena.SimWeaponMount(
+                    "hellbore",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.LARGE,
+                    com.fs.starfarer.api.combat.DamageType.HIGH_EXPLOSIVE,
+                    950f, 180f, 0f, 1000f, 350f, 300f, 2.5f, false, 0, false, false, false);
+            hShip.addWeaponMount(hellbore);
+
+            SimShipState es1 = arena.addShip(eShielded, "es1", "TTS Fury", "fury", HullSize.CRUISER, -500f, 1300f, 85f, 1000f, 0, 0);
+            es1.detailedCombatModel = true;
+            es1.shieldTypeOverride = com.fs.starfarer.api.combat.ShieldAPI.ShieldType.OMNI;
+            es1.fluxLevel = 0.12f;
+
+            SimShipState eb1 = arena.addShip(eBrick, "eb1", "LP Enforcer", "enforcer", HullSize.CRUISER, 500f, 1300f, 65f, 900f, 0, 0);
+            eb1.detailedCombatModel = true;
+            eb1.shieldTypeOverride = com.fs.starfarer.api.combat.ShieldAPI.ShieldType.NONE;
+            eb1.fluxLevel = 0.25f;
+
+            arena.runSimulation(0.3f);
+            float kinVsShieldMod = BattlefieldFirepowerEvaluator.computeDamageTypeMatchupMultiplier(arena.engineProxy, kinDiv, eShielded);
+            float kinVsBrickMod = BattlefieldFirepowerEvaluator.computeDamageTypeMatchupMultiplier(arena.engineProxy, kinDiv, eBrick);
+            float heVsShieldMod = BattlefieldFirepowerEvaluator.computeDamageTypeMatchupMultiplier(arena.engineProxy, heDiv, eShielded);
+            float heVsBrickMod = BattlefieldFirepowerEvaluator.computeDamageTypeMatchupMultiplier(arena.engineProxy, heDiv, eBrick);
+            float loadedMagRatio = kinDiv.magazineReloadingRatio;
+
+            // Empty regenerating magazine -> verify magazineReloadingRatio spikes and clears once reloaded
+            needler.ammo = 0;
+            BattlefieldFirepowerEvaluator.resetForNewBattle();
+            arena.runSimulation(0.55f);
+            float emptyMagRatio = kinDiv.magazineReloadingRatio;
+
+            check(kinDiv.antiShieldFirepowerRatio > 0.60f
+                            && heDiv.antiArmorFirepowerRatio > 0.60f
+                            && kinVsShieldMod > kinVsBrickMod
+                            && heVsBrickMod > heVsShieldMod
+                            && loadedMagRatio < 0.05f
+                            && emptyMagRatio >= 0.85f,
+                    "Damage-Type Matchup (Kinetic vs HE) & Regenerating Magazine sensor modulate TSF and reload state",
+                    String.format(Locale.ROOT, "kinAS=%.2f (vsShd=%.2f > vsBrk=%.2f), heAA=%.2f (vsBrk=%.2f > vsShd=%.2f), magLoaded=%.2f -> magEmpty=%.2f",
+                            kinDiv.antiShieldFirepowerRatio, kinVsShieldMod, kinVsBrickMod,
+                            heDiv.antiArmorFirepowerRatio, heVsBrickMod, heVsShieldMod,
+                            loadedMagRatio, emptyMagRatio));
+        }
+
+        // 17B: Defense-Type Differentiation, CR/PPT Exhaustion Rank Rotation, Lateral Lane Separation & Per-Ship Standoff Offset
+        {
+            BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+            BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+            DivisionState mixDiv = new DivisionState("p_mix", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Mixed Line Div", pCmdr);
+            mixDiv.doctrinalFormation = divisionai.PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+            pGroup.divisions.add(mixDiv);
+            DivisionState eLine = new DivisionState("e_line", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Line", eCmdr);
+            eGroup.divisions.add(eLine);
+
+            SimArena arena = new SimArena("17B. Defense, PPT Relief & Mixed Range", "Armor Brick + PPT Relief + Lane Offset", pGroup, eGroup);
+            // Ship 1: Shieldless armor brick with short-range guns (650u) at 64% flux -> stays FRONT_ENGAGEMENT & steps forward!
+            SimShipState brickBrawler = arena.addShip(mixDiv, "m_brick", "HSS Vanguard Brick", "dominator", HullSize.CRUISER, -160f, 0f, 65f, 650f, 0, 0);
+            brickBrawler.detailedCombatModel = true;
+            brickBrawler.shieldTypeOverride = com.fs.starfarer.api.combat.ShieldAPI.ShieldType.NONE;
+            brickBrawler.fluxLevel = 0.64f;
+            brickBrawler.hullLevel = 0.92f;
+
+            // Ship 2: Healthy long-range support cruiser (1450u) at low flux -> stays FRONT_ENGAGEMENT & holds slightly further back!
+            SimShipState longSupport = arena.addShip(mixDiv, "m_long", "HSS Eagle Support", "eagle", HullSize.CRUISER, 160f, 0f, 80f, 1450f, 0, 0);
+            longSupport.detailedCombatModel = true;
+            longSupport.fluxLevel = 0.15f;
+
+            // Ship 3: PPT-exhausted / low-CR cruiser -> enters RELIEF_SAFE and peels into a laterally separated lane!
+            SimShipState pptExhausted = arena.addShip(mixDiv, "m_ppt", "HSS Worn Cruiser", "eagle", HullSize.CRUISER, 20f, -40f, 80f, 1050f, 0, 0);
+            pptExhausted.detailedCombatModel = true;
+            pptExhausted.losesCR = true;
+            pptExhausted.currentCR = 0.32f;
+            pptExhausted.peakTimeRemaining = 4.0f;
+            pptExhausted.fluxLevel = 0.36f;
+
+            arena.addShip(eLine, "el1", "TTS Apogee", "apogee", HullSize.CRUISER, -120f, 1150f, 75f, 1100f, 0, 0);
+            arena.addShip(eLine, "el2", "TTS Eagle", "eagle", HullSize.CRUISER, 120f, 1150f, 80f, 1100f, 0, 0);
+
+            arena.runSimulation(0.4f);
+
+            divisionai.DivisionModel.ShipRankState brickState = mixDiv.shipRankStateByShipId.get(brickBrawler.id);
+            divisionai.DivisionModel.ShipRankState pptState = mixDiv.shipRankStateByShipId.get(pptExhausted.id);
+            List<com.fs.starfarer.api.combat.ShipAPI> alive = mixDiv.getAliveMembers();
+            Vector2f brickSlot = DivisionFormationNavigator.computeShipFormationSlot(
+                    arena.engineProxy, brickBrawler.proxy, myIdxOf(alive, brickBrawler.proxy), alive, mixDiv, pGroup);
+            Vector2f longSlot = DivisionFormationNavigator.computeShipFormationSlot(
+                    arena.engineProxy, longSupport.proxy, myIdxOf(alive, longSupport.proxy), alive, mixDiv, pGroup);
+            Vector2f reliefSlot = DivisionFormationNavigator.computeShipFormationSlot(
+                    arena.engineProxy, pptExhausted.proxy, myIdxOf(alive, pptExhausted.proxy), alive, mixDiv, pGroup);
+            float reliefLatOffset = Math.abs(reliefSlot.x - mixDiv.centroid.x);
+
+            check(brickState == divisionai.DivisionModel.ShipRankState.FRONT_ENGAGEMENT
+                            && pptState == divisionai.DivisionModel.ShipRankState.RELIEF_SAFE
+                            && reliefLatOffset >= 160f
+                            && brickSlot.y > longSlot.y + 80f,
+                    "Armor-brick retention, PPT/CR rank relief, lateral relief-lane separation & mixed-range per-ship standoff",
+                    String.format(Locale.ROOT, "brickRank=%s (at 64%% flux), pptRank=%s (CR=32%%, PPT=4s), reliefLatOffset=%.0fu, brickSlotY=%.0f > longSlotY=%.0f",
+                            brickState, pptState, reliefLatOffset, brickSlot.y, longSlot.y));
+        }
+
+        // 17C: True LOS Inter-Division Line-Passing Cover & Resilient Setpiece Anvil Handoff / Graceful Downgrade
+        {
+            BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+            pGroup.authority = OtcAuthority.COMMAND_BY_DIRECTION;
+            BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+            DivisionState retiringDiv = new DivisionState("p_ret", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div 1", pCmdr);
+            DivisionState coverDiv = new DivisionState("p_cov", 0, 2, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+            pGroup.divisions.add(retiringDiv);
+            pGroup.divisions.add(coverDiv);
+
+            DivisionState pursuerWest = new DivisionState("e_west", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Pursuer West", eCmdr);
+            DivisionState mainEast = new DivisionState("e_east", 1, 2, DivisionArchetype.BATTLESHIP_DIVISION, "Main Enemy East", eCmdr);
+            eGroup.divisions.add(pursuerWest);
+            eGroup.divisions.add(mainEast);
+
+            SimArena arena = new SimArena("17C. LOS Cover & Setpiece Handoff", "True LOS Cover + Setpiece Resilience", pGroup, eGroup);
+            SimShipState r1 = arena.addShip(retiringDiv, "r1", "HSS Eagle", "eagle", HullSize.CRUISER, -950f, -150f, 80f, 1050f, 0, 0);
+            r1.fluxLevel = 0.88f;
+            arena.addShip(coverDiv, "c1", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, -150f, -200f, 55f, 1150f, 0, 0);
+            arena.addShip(pursuerWest, "pw1", "TTS Eagle", "eagle", HullSize.CRUISER, -950f, 1250f, 80f, 1050f, 0, 0);
+            arena.addShip(mainEast, "me1", "TTS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 900f, 1600f, 55f, 1150f, 0, 0);
+
+            arena.runSimulation(0.2f);
+            retiringDiv.currentIntent = DivisionIntentType.HAUL_OUT_TO_VENT;
+            retiringDiv.underCoverByFriend = true;
+            retiringDiv.coveringFriendDivision = coverDiv;
+            retiringDiv.targetEnemyDivision = pursuerWest;
+            coverDiv.isCoveringFriend = true;
+            coverDiv.currentIntent = DivisionIntentType.FORM_LINE_AND_FIX;
+            coverDiv.targetEnemyDivision = mainEast;
+            DivisionCommanderAI.refreshStationPoint(arena.engineProxy, coverDiv, pGroup, eGroup, 0.4f);
+            // Cover division's stationPoint must shift strongly westward onto the [-950,-150 -> -950,1250] LOS ray!
+            boolean losInterposedWest = coverDiv.stationPoint.x < -380f;
+
+            // Setpiece Anvil Handoff & Graceful Downgrade check:
+            DivisionState strikeA = new DivisionState("p_sa", 0, 3, DivisionArchetype.STRIKE_CRUISER_DIVISION, "Strike Cruiser Div 1", pCmdr);
+            DivisionState strikeB = new DivisionState("p_sb", 0, 4, DivisionArchetype.CRUISER_DIVISION, "Fixing Cruiser Div", pCmdr);
+            pGroup.divisions.add(strikeA);
+            pGroup.divisions.add(strikeB);
+            arena.addShip(strikeA, "sa1", "HSS Aurora", "aurora", HullSize.CRUISER, -400f, 150f, 95f, 900f, 4, 0);
+            arena.addShip(strikeB, "sb1", "HSS Dominator", "dominator", HullSize.CRUISER, -600f, 100f, 65f, 1000f, 0, 0);
+            arena.runSimulation(0.2f);
+
+            divisionai.DivisionModel.StrikePlan sp = new divisionai.DivisionModel.StrikePlan();
+            sp.target = pursuerWest;
+            sp.setpieceType = divisionai.PermanentDivisionManager.MultiDivisionSetpiece.HAMMER_AND_ANVIL;
+            sp.createdTime = 1.0f;
+            sp.strikeTime = 4.0f;
+            sp.committed = true;
+            sp.commitTime = 1.0f;
+            sp.lastTargetVisibleTime = 1.0f;
+            sp.participants.add(strikeA);
+            sp.participants.add(strikeB);
+            pGroup.strikePlan = sp;
+
+            // Make strikeB withdraw while coverDiv ("Battle Div 1") is within 1,650u of pursuerWest -> coverDiv takes over as Anvil!
+            strikeB.currentIntent = DivisionIntentType.HAUL_OUT_TO_VENT;
+            coverDiv.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 2.0f);
+            boolean anvilHandedOff = pGroup.strikePlan != null && pGroup.strikePlan.participants.contains(coverDiv);
+
+            // Now make coverDiv also withdraw so NO replacement Anvil exists -> strikeA gracefully downgrades to FLANK/TACTICAL_RETREAT!
+            coverDiv.currentIntent = DivisionIntentType.HAUL_OUT_TO_VENT;
+            retiringDiv.currentIntent = DivisionIntentType.HAUL_OUT_TO_VENT;
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 2.5f);
+            boolean gracefulDowngrade = pGroup.strikePlan == null
+                    && (strikeA.otcOrder.type == divisionai.DivisionModel.OtcOrderType.FLANK
+                    || strikeA.otcOrder.type == divisionai.DivisionModel.OtcOrderType.TACTICAL_RETREAT);
+
+            check(losInterposedWest && anvilHandedOff && gracefulDowngrade,
+                    "True LOS line-passing interposition, dynamic Setpiece Anvil handoff & graceful Hammer downgrade",
+                    String.format(Locale.ROOT, "coverStationX=%.0f (< -380), anvilHandedOff=%b, gracefulDowngrade=%b (order=%s)",
+                            coverDiv.stationPoint.x, anvilHandedOff, gracefulDowngrade, strikeA.otcOrder.type));
+        }
+
+        // 17D: Synchronized Lance Stage-1 Dynamic Abort Guard & Rolling Forward Alignment Lead
+        {
+            BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+            BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+            DivisionState lanceDiv = new DivisionState("p_lance", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Burn Lance Div", pCmdr);
+            lanceDiv.shipSkillCoordination = divisionai.PermanentDivisionManager.ShipSkillCoordinationMode.SYNCHRONIZED;
+            lanceDiv.rammingMode = divisionai.PermanentDivisionManager.DivisionRammingMode.SYNCHRONIZED_LANCE;
+            pGroup.divisions.add(lanceDiv);
+
+            DivisionState eTgt = new DivisionState("e_tgt", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Target", eCmdr);
+            eGroup.divisions.add(eTgt);
+
+            SimArena arena = new SimArena("17D. Stage-1 Sync Charge Abort & Lead", "Stage-1 Abort Guard + Rolling Lead", pGroup, eGroup);
+            SimShipState l1 = arena.addShip(lanceDiv, "l1", "HSS Dominator", "dominator", HullSize.CRUISER, -160f, 0f, 65f, 950f, 0, 0);
+            SimShipState l2 = arena.addShip(lanceDiv, "l2", "HSS Dominator 2", "dominator", HullSize.CRUISER, 160f, 0f, 65f, 950f, 0, 0);
+            l1.systemId = "JYD_ramdrive";
+            l1.systemName = "Ram Drive";
+            l1.facing = 0f; // misaligned (east vs north target) -> enters Stage 1!
+            l2.systemId = "JYD_ramdrive";
+            l2.systemName = "Ram Drive";
+            l2.facing = 180f;
+            SimShipState et1 = arena.addShip(eTgt, "et1", "TTS Eagle", "eagle", HullSize.CRUISER, 0f, 1300f, 80f, 1050f, 0, 0);
+
+            arena.runSimulation(0.05f);
+            boolean enteredStage1 = lanceDiv.synchronizedSkillStage == 1;
+            // Now surround lanceDiv with overwhelming enemy TSF (< 0.45x localForceRatio -> RUN_THE_GAUNTLET / breakout)
+            // -> Stage 1 must abort immediately even with SYNCHRONIZED_LANCE enabled!
+            arena.addShip(eTgt, "et2", "TTS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, -350f, 800f, 55f, 1150f, 0, 0);
+            arena.addShip(eTgt, "et3", "TTS Onslaught 2", "onslaught", HullSize.CAPITAL_SHIP, 350f, 800f, 55f, 1150f, 0, 0);
+            arena.addShip(eTgt, "et4", "TTS Onslaught 3", "onslaught", HullSize.CAPITAL_SHIP, 0f, -850f, 55f, 1150f, 0, 0);
+            arena.runSimulation(0.6f);
+            boolean abortedCleanly = !lanceDiv.synchronizedSkillManeuverActive && lanceDiv.synchronizedSkillStage == 0;
+
+            check(enteredStage1 && abortedCleanly,
+                    "Synchronized Lance Stage-1 enters on misaligned pack and aborts immediately on corridor/breakout hazard",
+                    String.format(Locale.ROOT, "enteredStage1=%b, abortedOnHazard=%b (stage=%d)",
+                            enteredStage1, abortedCleanly, lanceDiv.synchronizedSkillStage));
+        }
+    }
+
+    private static int myIdxOf(List<com.fs.starfarer.api.combat.ShipAPI> list, com.fs.starfarer.api.combat.ShipAPI target) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == target) return i;
+        }
+        return 0;
     }
 
     private static float dist(Vector2f a, Vector2f b) {

@@ -257,6 +257,14 @@ public class OtcBattlePlanner {
             }
             boolean hasCarrierParticipant = false;
             boolean hasSurfaceParticipant = false;
+            int surfaceCountBeforePrune = 0;
+            for (int i = 0, n = plan.participants.size(); i < n; i++) {
+                DivisionState pre = plan.participants.get(i);
+                if (pre != null && !((pre.archetype != null && pre.archetype.isCarrierArchetype()) || pre.hasCarrierCapability)) {
+                    surfaceCountBeforePrune++;
+                }
+            }
+            boolean lostSurfaceParticipant = false;
             float maxCarrierPackageWindow = 36f;
             boolean anyCarrierVoidstrikeAirborne = false;
             for (Iterator<DivisionState> it = plan.participants.iterator(); it.hasNext(); ) {
@@ -266,11 +274,13 @@ public class OtcBattlePlanner {
                     plan.carrierSortieCommitted = true;
                 }
                 if (!p.isAbleCombatEffective()
-                        || p.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
-                        || (plan.committed && p.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE)
+                        || p.currentIntent.isWithdrawalOrBreakout()
                         || (plan.committed && isCarrierPart && p.voidstrikeEgressActive)) {
                     if (p.otcOrder.type == OtcOrderType.MARSHAL || p.otcOrder.type == OtcOrderType.EXECUTE_STRIKE) {
                         p.otcOrder.clear();
+                    }
+                    if (!isCarrierPart) {
+                        lostSurfaceParticipant = true;
                     }
                     it.remove();
                 } else if (isCarrierPart) {
@@ -288,6 +298,47 @@ public class OtcBattlePlanner {
                     }
                 } else {
                     hasSurfaceParticipant = true;
+                }
+            }
+            // Dynamic Setpiece Anvil Handoff: if a fixing/surface division withdrew or broke out mid-setpiece while
+            // other strike divisions are already marshaling or executing on a live target, hand off the Anvil role to
+            // a healthy nearby battle-line/cruiser division within 1,650u before letting the coordinated strike collapse!
+            if (lostSurfaceParticipant
+                    && plan.target != null
+                    && plan.target.isAbleCombatEffective()
+                    && !plan.participants.isEmpty()) {
+                DivisionState replacementAnvil = findReplacementStrikeAnvil(engine, myGroup, active, plan, tasked);
+                if (replacementAnvil != null) {
+                    plan.participants.add(replacementAnvil);
+                    plan.participantSetpieces.put(replacementAnvil.id, DivisionSetpieceAttack.WALL_SALVO_PASS);
+                    plan.participantFormations.put(replacementAnvil.id, DivisionFormation.LINE_ABREAST);
+                    Vector2f tPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, plan.target);
+                    if (tPos != null && replacementAnvil.centroid != null) {
+                        float rdx = replacementAnvil.centroid.x - tPos.x;
+                        float rdy = replacementAnvil.centroid.y - tPos.y;
+                        float rlen = (float) Math.sqrt(rdx * rdx + rdy * rdy);
+                        float hold = Math.max(850f, Math.min(1250f, replacementAnvil.standoffRange));
+                        if (rlen > 1f) {
+                            plan.marshalOffsets.put(replacementAnvil.id, new Vector2f((rdx / rlen) * hold, (rdy / rlen) * hold));
+                        }
+                    }
+                    hasSurfaceParticipant = true;
+                } else if (surfaceCountBeforePrune >= 2 && plan.participants.size() == 1 && hasSurfaceParticipant) {
+                    // Graceful Setpiece Downgrade: if a multi-division surface setpiece loses its fixing partner with no
+                    // replacement Anvil available, convert the lone surviving hammer cleanly into FLANK/SKIRMISH rather
+                    // than stranding it on a solo head-on charge or nulling its order!
+                    DivisionState loneHammer = plan.participants.get(0);
+                    OtcOrderType fallbackOrder = (loneHammer.localForceRatio < 0.72f)
+                            ? OtcOrderType.TACTICAL_RETREAT
+                            : OtcOrderType.FLANK;
+                    loneHammer.otcOrder.set(fallbackOrder, plan.target, null, 0f, expires,
+                            "OTC: setpiece partner withdrew, transition to " + fallbackOrder.name().toLowerCase() + " on \"" + plan.target.displayName + "\"");
+                    loneHammer.otcOrder.orderedSetpieceAttack = DivisionSetpieceAttack.NONE;
+                    tasked.add(loneHammer);
+                    myGroup.strikePlan = null;
+                    myGroup.lastStrikePlanEndTime = now;
+                    myGroup.activeMultiDivisionSetpiece = MultiDivisionSetpiece.NONE;
+                    return;
                 }
             }
             float visGrace = hasCarrierParticipant ? 20.0f : 6.5f;
@@ -374,6 +425,47 @@ public class OtcBattlePlanner {
             }
             tasked.add(p);
         }
+    }
+
+    private static DivisionState findReplacementStrikeAnvil(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            List<DivisionState> active,
+            StrikePlan plan,
+            Set<DivisionState> tasked) {
+        if (myGroup == null || active == null || plan == null || plan.target == null) return null;
+        Vector2f tPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, plan.target);
+        if (tPos == null) tPos = plan.target.centroid;
+        if (tPos == null) return null;
+
+        DivisionState best = null;
+        float bestScore = -Float.MAX_VALUE;
+        for (int i = 0, n = active.size(); i < n; i++) {
+            DivisionState cand = active.get(i);
+            if (cand == null || !cand.isAbleCombatEffective() || tasked.contains(cand)) continue;
+            if (plan.participants.contains(cand)) continue;
+            if (cand.currentIntent.isWithdrawalOrBreakout() || cand.underDirectObjectiveOrder) continue;
+            if (cand.archetype == null
+                    || cand.archetype.isCarrierArchetype()
+                    || cand.archetype == DivisionArchetype.SERVICE_GROUP
+                    || cand.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || cand.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                    || cand.archetype == DivisionArchetype.PHASE_DIVISION) {
+                continue;
+            }
+            if (cand.avgFluxLevel >= 0.68f || cand.effectiveHpRatio < 0.45f) continue;
+            float dist = DivisionUiWidgets.distance(cand.centroid, tPos);
+            if (dist > 1750f) continue;
+
+            float score = -dist + (1f - cand.avgFluxLevel) * 420f + cand.effectiveHpRatio * 280f;
+            if (cand.archetype == DivisionArchetype.BATTLESHIP_DIVISION) score += 450f;
+            else if (cand.archetype == DivisionArchetype.CRUISER_DIVISION) score += 300f;
+            if (score > bestScore) {
+                bestScore = score;
+                best = cand;
+            }
+        }
+        return best;
     }
 
     private static StrikePlan tryCreateStrikePlan(

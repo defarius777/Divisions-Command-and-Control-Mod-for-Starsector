@@ -507,6 +507,9 @@ public class DivisionModel {
         public float targetTsfRatio = 1.5f; // Pairwise TSF engagement ratio against current/candidate target division
         public boolean inEnemyReinforcementHazard = false;
         public float gauntletStartTime = -100f;
+        public float antiShieldFirepowerRatio = 0.5f; // [0..1] kinetic/anti-shield share of ready firepower
+        public float antiArmorFirepowerRatio = 0.5f;  // [0..1] HE/anti-armor share of ready firepower
+        public float magazineReloadingRatio = 0.0f;   // [0..1] fraction of non-missile burst magazines currently depleted/reloading
         public float incomingAlphaThreat;
         public float incomingShortDotThreat;
         public float incomingSustainedDotThreat;

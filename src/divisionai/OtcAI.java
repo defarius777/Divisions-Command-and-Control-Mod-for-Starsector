@@ -595,15 +595,36 @@ public class OtcAI {
         }
     }
 
-    private static void evaluateLocalForceRatioViaGrid(
+        private static void evaluateLocalForceRatioViaGrid(
             CombatEngineAPI engine,
             DivisionState div,
             BattleGroupState myGroup) {
         float selfCombatStrength = 0f;
+        float antiShieldWeighted = 0f;
+        float antiArmorWeighted = 0f;
+        float magReloadWeighted = 0f;
+        float roseWeightSum = 0f;
         for (ShipAPI m : div.getAliveMembers()) {
-            selfCombatStrength += BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(m);
+            float mPower = BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(m);
+            selfCombatStrength += mPower;
+            BattlefieldFirepowerEvaluator.ShipFirepowerRose mRose = BattlefieldFirepowerEvaluator.getShipRose(m);
+            if (mRose != null && mPower > 0f) {
+                antiShieldWeighted += mRose.antiShieldShare * mPower;
+                antiArmorWeighted += mRose.antiArmorShare * mPower;
+                magReloadWeighted += mRose.magazineReloadingRatio * mPower;
+                roseWeightSum += mPower;
+            }
         }
         div.tsfCombatPower = selfCombatStrength;
+        if (roseWeightSum > 0.1f) {
+            div.antiShieldFirepowerRatio = antiShieldWeighted / roseWeightSum;
+            div.antiArmorFirepowerRatio = antiArmorWeighted / roseWeightSum;
+            div.magazineReloadingRatio = magReloadWeighted / roseWeightSum;
+        } else {
+            div.antiShieldFirepowerRatio = 0.5f;
+            div.antiArmorFirepowerRatio = 0.5f;
+            div.magazineReloadingRatio = 0.0f;
+        }
         div.inEnemyReinforcementHazard = myGroup != null
                 && BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, div.centroid) >= 0.22f;
 

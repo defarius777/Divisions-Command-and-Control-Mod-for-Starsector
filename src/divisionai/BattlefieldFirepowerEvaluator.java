@@ -244,6 +244,9 @@ public class BattlefieldFirepowerEvaluator {
         public float maxPdRange = 400f;
         public float maxHybridRange = 400f;
         public float liveReadinessMult = 1f;
+        public float antiShieldShare = 0.5f;
+        public float antiArmorShare = 0.5f;
+        public float magazineReloadingRatio = 0.0f;
         // Absolute potential-damage weight [0.35 .. 1.35] so heavy capital/cruiser firepower envelopes
         // render with visibly greater weight, reach prominence, and lethality contours than light plinkers
         public float potentialDamageWeight = 0.65f;
@@ -1001,7 +1004,7 @@ public class BattlefieldFirepowerEvaluator {
         float sectorReadiness = Math.max(0.55f, readiness);
 
         accumulateShipDirectWeaponSectors(
-                ship, weapons, isPhaseShip, sectorReadiness, shipFluxSustainability,
+                rose, ship, weapons, isPhaseShip, sectorReadiness, shipFluxSustainability,
                 SCRATCH_RAW_ALPHA, SCRATCH_RAW_SHORT, SCRATCH_RAW_SUST, SCRATCH_RAW_PD, SCRATCH_RAW_HYBRID,
                 SCRATCH_RAW_GEN_RANGE, SCRATCH_RAW_SUST_RANGE_SUM, SCRATCH_RAW_SHORT_RANGE_SUM, SCRATCH_RAW_ALPHA_RANGE_SUM,
                 SCRATCH_RAW_PD_RANGE, SCRATCH_RAW_HYBRID_RANGE);
@@ -1040,6 +1043,7 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     private static void accumulateShipDirectWeaponSectors(
+            ShipFirepowerRose rose,
             ShipAPI ship,
             List<WeaponAPI> weapons,
             boolean isPhaseShip,
@@ -1062,6 +1066,10 @@ public class BattlefieldFirepowerEvaluator {
         float fighterHeadingDelta = isSquadronCraft
                 ? shortestAngleDiffDeg(resolveSquadronMeanFacingDeg(ship.getWing(), ship), ship.getFacing())
                 : 0f;
+        float shieldTypedSum = 0f;
+        float armorTypedSum = 0f;
+        float magTotalWeight = 0f;
+        float magDepletedWeight = 0f;
         for (WeaponAPI w : weapons) {
             if (!isUsableCombatWeapon(w)) continue;
             if (w.isPermanentlyDisabled()) continue;
@@ -1069,12 +1077,21 @@ public class BattlefieldFirepowerEvaluator {
             if (w.isDisabled()) {
                 mountStatusMult = 0.42f;
             }
+            boolean isNonMissileRegenMag = w.usesAmmo()
+                    && w.getType() != WeaponAPI.WeaponType.MISSILE
+                    && w.getAmmoPerSecond() > 0f
+                    && w.getMaxAmmo() >= 2;
+            boolean magDepleted = false;
             if (w.usesAmmo() && w.getAmmo() <= 0) {
                 if (w.getAmmoPerSecond() > 0f) {
                     mountStatusMult *= 0.35f;
+                    magDepleted = true;
                 } else {
                     mountStatusMult *= 0.25f;
                 }
+            } else if (isNonMissileRegenMag && w.getAmmo() <= Math.max(1, (int) (w.getMaxAmmo() * 0.15f))) {
+                mountStatusMult *= 0.52f;
+                magDepleted = true;
             }
 
             float range = w.getRange();
@@ -1132,6 +1149,18 @@ public class BattlefieldFirepowerEvaluator {
 
             float wAlpha = burstDmg * typeMult * (isStrike ? 1.65f : 1.0f) * mountStatusMult;
             float wShortDot = (dps * 0.75f + (burstDmg / 4.5f) * 0.25f) * typeMult * (isStrike ? 1.25f : 1.0f) * mountStatusMult;
+            if (genFrac > 0.20f) {
+                float sMult = (dmgType != null) ? Math.max(0.15f, dmgType.getShieldMult()) : 1.0f;
+                float aMult = (dmgType != null) ? Math.max(0.15f, dmgType.getArmorMult()) : 1.0f;
+                shieldTypedSum += wShortDot * genFrac * sMult;
+                armorTypedSum += wShortDot * genFrac * aMult;
+                if (isNonMissileRegenMag) {
+                    magTotalWeight += sizeW;
+                    if (magDepleted) {
+                        magDepletedWeight += sizeW;
+                    }
+                }
+            }
             float cdRem = w.getCooldownRemaining();
             if (cdRem > 0.20f && !isPhaseShip) {
                 float alphaReloadMult = clampVal(1.0f - (cdRem - 0.20f) / 4.8f, 0.42f, 1.0f);
@@ -1204,6 +1233,19 @@ public class BattlefieldFirepowerEvaluator {
                 }
             }
         }
+        if (rose != null) {
+            float typedTotal = shieldTypedSum + armorTypedSum;
+            if (typedTotal > 1f) {
+                rose.antiShieldShare = clampVal(shieldTypedSum / typedTotal, 0.15f, 0.85f);
+                rose.antiArmorShare = clampVal(armorTypedSum / typedTotal, 0.15f, 0.85f);
+            } else {
+                rose.antiShieldShare = 0.5f;
+                rose.antiArmorShare = 0.5f;
+            }
+            rose.magazineReloadingRatio = (magTotalWeight > 0.1f)
+                    ? clampVal(magDepletedWeight / magTotalWeight, 0f, 1f)
+                    : 0f;
+        }
     }
 
     private static void accumulateShipFighterWingSectors(
@@ -1231,7 +1273,7 @@ public class BattlefieldFirepowerEvaluator {
                 if (wmWeapons != null && !wmWeapons.isEmpty()) {
                     extraAliveWithWeapons++;
                     accumulateShipDirectWeaponSectors(
-                            wm, wmWeapons, wm.isPhased(), readiness * 0.88f, 0.85f,
+                            null, wm, wmWeapons, wm.isPhased(), readiness * 0.88f, 0.85f,
                             rawAlpha, rawShort, rawSustained, rawPd, SCRATCH_RAW_HYBRID,
                             rawGenRange, rawSustRangeWeightedSum, rawShortRangeWeightedSum, rawAlphaRangeWeightedSum,
                             rawPdRange, SCRATCH_RAW_HYBRID_RANGE);
@@ -1676,8 +1718,140 @@ public class BattlefieldFirepowerEvaluator {
         float timeMult = (overloadedOrVenting || enginesFlamedOut)
                 ? 0.58f
                 : clampVal(0.86f + rawSpd / 560f, 0.80f, 1.18f);
+        float crippledMod = isShipCrippledOrPeakExhausted(ship) ? 0.72f : 1.0f;
 
-        return (float) Math.sqrt(Math.max(0.25f, firepowerTerm) * spaceTerm) * timeMult;
+        return (float) Math.sqrt(Math.max(0.25f, firepowerTerm) * spaceTerm) * timeMult * crippledMod;
+    }
+
+    public static boolean isPhaseShip(ShipAPI ship) {
+        if (ship == null) return false;
+        return ship.isPhased()
+                || ship.getPhaseCloak() != null
+                || (ship.getShield() != null && ship.getShield().getType() == ShieldAPI.ShieldType.PHASE)
+                || (ship.getHullSpec() != null && ship.getHullSpec().getHints() != null
+                && ship.getHullSpec().getHints().contains(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.PHASE));
+    }
+
+    public static boolean isShieldlessArmorTank(ShipAPI ship) {
+        if (ship == null || isPhaseShip(ship)) return false;
+        ShieldAPI sh = ship.getShield();
+        if (sh != null) {
+            return sh.getType() == ShieldAPI.ShieldType.NONE;
+        }
+        if (ship.getHullSpec() != null && ship.getHullSpec().getShieldType() != null) {
+            return ship.getHullSpec().getShieldType() == ShieldAPI.ShieldType.NONE;
+        }
+        return ship.getVariant() != null && ship.getVariant().hasHullMod("shield_shunt");
+    }
+
+    public static boolean hasNarrowFrontShield(ShipAPI ship) {
+        if (ship == null) return false;
+        ShieldAPI sh = ship.getShield();
+        return sh != null
+                && sh.getType() == ShieldAPI.ShieldType.FRONT
+                && sh.getArc() > 0f
+                && sh.getArc() <= 135f;
+    }
+
+    public static float computeShipArmorIntegrityRatio(ShipAPI ship) {
+        if (ship == null) return 1.0f;
+        try {
+            com.fs.starfarer.api.combat.ArmorGridAPI grid = ship.getArmorGrid();
+            if (grid != null && grid.getMaxArmorInCell() > 1f) {
+                float bowArmor = ship.getAverageArmorInSlice(ship.getFacing(), 120f);
+                if (bowArmor > 0f) {
+                    return clampVal(bowArmor / grid.getMaxArmorInCell(), 0f, 1f);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return clampVal(ship.getHullLevel(), 0f, 1f);
+    }
+
+    public static boolean isShipCrippledOrPeakExhausted(ShipAPI ship) {
+        if (ship == null || !ship.isAlive() || ship.isHulk()) return false;
+        try {
+            if (ship.losesCRDuringCombat()) {
+                float cr = ship.getCurrentCR();
+                float ppt = ship.getPeakTimeRemaining();
+                if ((cr > 0f && cr <= 0.24f) || (ppt <= 14f && cr > 0f && cr <= 0.45f)) {
+                    return true;
+                }
+            }
+            if (ship.getEngineController() != null) {
+                if (ship.getEngineController().isFlamedOut()
+                        || ship.getEngineController().computeDisabledFraction() >= 0.45f) {
+                    return true;
+                }
+            }
+            List<WeaponAPI> weapons = ship.getAllWeapons();
+            if (weapons != null && weapons.size() >= 2) {
+                int majorMounts = 0;
+                int disabledMajor = 0;
+                for (int i = 0, n = weapons.size(); i < n; i++) {
+                    WeaponAPI w = weapons.get(i);
+                    if (w == null || w.isDecorative() || w.isPermanentlyDisabled()) continue;
+                    if (w.getSize() == WeaponAPI.WeaponSize.MEDIUM || w.getSize() == WeaponAPI.WeaponSize.LARGE) {
+                        majorMounts++;
+                        if (w.isDisabled()) disabledMajor++;
+                    }
+                }
+                if (majorMounts >= 2 && disabledMajor * 2 >= majorMounts) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Evaluates how well {@code attackerDiv}'s damage-type profile (anti-shield kinetic vs anti-armor HE)
+     * matches {@code targetDiv}'s live defense state (fresh shields vs shieldless/high-flux/armor-exposed).
+     */
+    public static float computeDamageTypeMatchupMultiplier(
+            CombatEngineAPI engine,
+            DivisionState attackerDiv,
+            DivisionState targetDiv) {
+        if (attackerDiv == null || targetDiv == null) return 1.0f;
+        float antiShield = attackerDiv.antiShieldFirepowerRatio;
+        float antiArmor = attackerDiv.antiArmorFirepowerRatio;
+        if (Math.abs(antiShield - 0.5f) < 0.05f && Math.abs(antiArmor - 0.5f) < 0.05f) {
+            return 1.0f;
+        }
+        float shieldedActiveFp = 0f;
+        float armorExposedFp = 0f;
+        float totalFp = 0f;
+        for (int i = 0, n = targetDiv.members.size(); i < n; i++) {
+            ShipAPI es = targetDiv.members.get(i);
+            if (es == null || !es.isAlive() || es.isHulk() || DivisionState.isShipUnable(es)) continue;
+            if (engine != null && !OtcAI.isShipVisibleToSide(engine, attackerDiv.side, es)) continue;
+            float w = Math.max(2f, ShipCapabilityProfile.resolveShipFpStrength(es));
+            totalFp += w;
+            boolean ovl = es.getFluxTracker() != null && es.getFluxTracker().isOverloadedOrVenting();
+            if (isShieldlessArmorTank(es) || ovl || es.getFluxLevel() >= 0.68f) {
+                armorExposedFp += w;
+            } else if (!isPhaseShip(es) && !isShieldlessArmorTank(es) && es.getFluxLevel() < 0.58f) {
+                shieldedActiveFp += w;
+            }
+        }
+        if (totalFp <= 1f) return 1.0f;
+        float shieldedShare = shieldedActiveFp / totalFp;
+        float armorShare = armorExposedFp / totalFp;
+
+        float mod = 1.0f;
+        if (shieldedShare >= 0.55f) {
+            // Kinetic-rich divisions crack fresh shields; pure-HE divisions without strike missiles bounce off low-flux shields
+            mod += (antiShield - 0.50f) * 0.42f * shieldedShare;
+            if (antiShield <= 0.35f && !attackerDiv.hasMissileStrikeCapability) {
+                mod -= 0.06f * shieldedShare;
+            }
+        }
+        if (armorShare >= 0.45f) {
+            // HE/anti-armor divisions shred shieldless bricks and high-flux/overloaded targets
+            mod += (antiArmor - 0.50f) * 0.48f * armorShare;
+        }
+        return clampVal(mod, 0.84f, 1.18f);
     }
 
     /**
@@ -1791,7 +1965,8 @@ public class BattlefieldFirepowerEvaluator {
             spawnGatePenalty = 1.0f / (1.0f + gateDanger * 0.55f);
         }
 
-        float rawRatio = (myTsf + siblingCommittedTsf) / Math.max(1.0f, enemyVisTsf * effectiveBearingMod);
+        float matchupMod = computeDamageTypeMatchupMultiplier(engine, myDiv, enemyDiv);
+        float rawRatio = (myTsf * matchupMod + siblingCommittedTsf) / Math.max(1.0f, enemyVisTsf * effectiveBearingMod);
         return rawRatio * transitFactor * timeAdv * spawnGatePenalty;
     }
 
@@ -2099,14 +2274,31 @@ public class BattlefieldFirepowerEvaluator {
 
         float sumLive = 0f;
         float sumMax = 0f;
+        float antiShieldSum = 0f;
+        float antiArmorSum = 0f;
+        float magReloadSum = 0f;
+        float roseWeightSum = 0f;
         for (int i = 0; i < alive.size(); i++) {
             ShipAPI m = alive.get(i);
+            float mMax = Math.max(1f, computeShipLiveFirepowerScore(m, true));
             sumLive += computeShipLiveFirepowerScore(m, false);
-            sumMax += computeShipLiveFirepowerScore(m, true);
+            sumMax += mMax;
+            ShipFirepowerRose mRose = rosesByShipId.get(m.getId());
+            if (mRose != null) {
+                antiShieldSum += mRose.antiShieldShare * mMax;
+                antiArmorSum += mRose.antiArmorShare * mMax;
+                magReloadSum += mRose.magazineReloadingRatio * mMax;
+                roseWeightSum += mMax;
+            }
         }
         div.liveFirepowerScore = sumLive;
         div.maxFirepowerScore = Math.max(sumLive, sumMax);
         div.weaponReadinessRatio = clampVal(sumLive / Math.max(1f, div.maxFirepowerScore), 0.08f, 1.0f);
+        if (roseWeightSum > 0.1f) {
+            div.antiShieldFirepowerRatio = antiShieldSum / roseWeightSum;
+            div.antiArmorFirepowerRatio = antiArmorSum / roseWeightSum;
+            div.magazineReloadingRatio = magReloadSum / roseWeightSum;
+        }
 
         if (engine == null) return;
         com.fs.starfarer.api.combat.CollisionGridAPI grid = engine.getAiGridShips();
@@ -2261,19 +2453,37 @@ public class BattlefieldFirepowerEvaluator {
             float hardFrac = (m.getFluxTracker() != null && m.getFluxTracker().getMaxFlux() > 1f)
                     ? (m.getFluxTracker().getHardFlux() / m.getFluxTracker().getMaxFlux())
                     : (flux * 0.55f);
+            boolean shieldlessTank = isShieldlessArmorTank(m);
+            boolean phaseHull = isPhaseShip(m);
+            boolean narrowShieldInCordon = hasNarrowFrontShield(m) && div.crossfireCordonIndex >= 0.36f;
+            float armorIntegrity = shieldlessTank ? computeShipArmorIntegrityRatio(m) : 1.0f;
+            boolean crippledOrExhausted = isShipCrippledOrPeakExhausted(m);
+            ShipFirepowerRose mRose = getShipRose(m);
+            boolean magReloading = mRose != null && mRose.magazineReloadingRatio >= 0.70f && flux >= 0.35f;
+
+            float shipEnterFlux = enterReliefFlux
+                    + (shieldlessTank && m.getHullLevel() >= 0.62f && armorIntegrity >= 0.52f ? 0.12f : 0f)
+                    - (narrowShieldInCordon ? 0.08f : 0f);
+            float effectiveStressFlux = phaseHull ? Math.max(flux, hardFrac * 1.25f) : flux;
 
             ShipRankState prevState = div.shipRankStateByShipId.get(id);
             ShipRankState nextState;
             if (prevState == ShipRankState.RELIEF_SAFE) {
-                if (ovlOrVent || flux >= exitReliefFlux) {
-                    nextState = ShipRankState.RELIEF_SAFE;
-                } else {
-                    nextState = ShipRankState.FRONT_ENGAGEMENT;
-                }
+                boolean stillRecovering = ovlOrVent
+                        || effectiveStressFlux >= exitReliefFlux
+                        || magReloading
+                        || (crippledOrExhausted && flux >= 0.18f);
+                nextState = stillRecovering ? ShipRankState.RELIEF_SAFE : ShipRankState.FRONT_ENGAGEMENT;
             } else {
+                boolean shieldlessArmorDepleted = shieldlessTank
+                        && (m.getHullLevel() < 0.56f || armorIntegrity < 0.38f)
+                        && div.localEnemyStrength >= 8f;
                 boolean needsRelief = ovlOrVent
-                        || flux >= enterReliefFlux
-                        || hardFrac >= enterReliefHardFlux
+                        || crippledOrExhausted
+                        || shieldlessArmorDepleted
+                        || magReloading
+                        || effectiveStressFlux >= shipEnterFlux
+                        || (!shieldlessTank && hardFrac >= enterReliefHardFlux)
                         || (m.getHullLevel() < 0.50f && flux >= 0.42f);
                 nextState = needsRelief ? ShipRankState.RELIEF_SAFE : ShipRankState.FRONT_ENGAGEMENT;
             }

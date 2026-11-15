@@ -41,7 +41,7 @@ import java.util.List;
  */
 public class DivisionFormationNavigator {
 
-    static Vector2f computeShipFormationSlot(
+    public static Vector2f computeShipFormationSlot(
             CombatEngineAPI engine,
             ShipAPI ship,
             int shipIdx,
@@ -376,9 +376,16 @@ public class DivisionFormationNavigator {
             }
             for (int rIdx = 0; rIdx < reliefCount; rIdx++) {
                 int slotK = frontCount + rIdx;
-                float rLat = (reliefCount == 1)
-                        ? 0f
-                        : ((rIdx - (reliefCount - 1) * 0.5f) * (effectiveSlotSpacing * 0.82f));
+                // Offset single/even relief slots laterally into the interval gap so withdrawing Rank-1 hulls peel past
+                // advancing Rank-2 bows instead of backing dead astern into a squadmate!
+                float rLat;
+                if (reliefCount == 1) {
+                    float side = DivisionCommanderAI.computeReliefLaneSide(ship, div, latX, latY);
+                    rLat = side * Math.max(185f, effectiveSlotSpacing * 0.54f);
+                } else {
+                    float baseLat = (rIdx - (reliefCount - 1) * 0.5f) * (effectiveSlotSpacing * 0.86f);
+                    rLat = baseLat + ((frontCount % 2 == 1) ? (effectiveSlotSpacing * 0.42f) : 0f);
+                }
                 float rDepth = -reliefDepth;
                 slotLx[slotK] = rLat;
                 slotLy[slotK] = rDepth;
@@ -510,6 +517,38 @@ public class DivisionFormationNavigator {
                 float slotY = worldSlots[assignedSlotIdx].y;
                 boolean outOfCombatMarch = !OtcAI.isPursuitBattle(engine, myGroup)
                         && isDivisionInOutOfCombatMarch(engine, div);
+
+                // Mixed-loadout constituent standoff offset: in active gunnery contact (non-carrier, non-march, non-breakout),
+                // let shorter-range brawlers/shieldless armor bricks step modestly forward and longer-range fire-support or
+                // depleted-magazine hulls step modestly back within [-210u, +210u] along the formation's forward axis.
+                if (!outOfCombatMarch
+                        && !closingUp
+                        && !shipInSafeReliefRank
+                        && ship != null
+                        && n >= 2
+                        && !div.archetype.isCarrierArchetype()
+                        && !div.currentIntent.isWithdrawalOrBreakout()
+                        && div.currentIntent != DivisionIntentType.TAKE_AND_HOLD
+                        && div.targetEnemyDivision != null
+                        && div.targetEnemyDivision.centroid != null
+                        && DivisionCommanderAI.distance(div.centroid, div.targetEnemyDivision.centroid) <= div.avgEngageRange + 950f) {
+                    BattlefieldFirepowerEvaluator.ShipFirepowerRose sRose = BattlefieldFirepowerEvaluator.getShipRose(ship);
+                    float personalRange = (sRose != null && sRose.maxGeneralRange > 150f)
+                            ? sRose.maxGeneralRange
+                            : new ShipCapabilityProfile(ship).avgWeaponRange;
+                    if (personalRange > 150f && div.avgEngageRange > 150f) {
+                        float rangeDelta = div.avgEngageRange - personalRange;
+                        float personalLongOffset = Math.max(-210f, Math.min(210f, rangeDelta * 0.42f));
+                        if (BattlefieldFirepowerEvaluator.isShieldlessArmorTank(ship) && ship.getHullLevel() >= 0.65f) {
+                            personalLongOffset = Math.min(220f, personalLongOffset + 70f);
+                        }
+                        if (sRose != null && sRose.magazineReloadingRatio >= 0.65f) {
+                            personalLongOffset -= 135f;
+                        }
+                        slotX += fwdX * personalLongOffset;
+                        slotY += fwdY * personalLongOffset;
+                    }
+                }
 
                 // Item A & Mixed-Division Sustainable Speed Pacing: Longitudinal & Lateral Formation Dressing while Marching!
                 // Out of combat, mixed divisions (e.g. Battle Division 1 with ships of different top speeds) must move at
