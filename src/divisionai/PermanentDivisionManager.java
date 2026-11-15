@@ -1736,16 +1736,6 @@ public class PermanentDivisionManager {
      * {@link DecisiveArm}, and {@link EngagementDiscipline}), which the player may adjust individually at any time.
      */
     public enum OperationalTemplate {
-        LINEAR_WARFARE(
-                "Linear Warfare",
-                "Linear Warfare",
-                "Gunline fixes the enemy center while light forces work the flanks.",
-                "icon_template_linear_warfare",
-                "graphics/icons/operational_templates/icon_template_linear_warfare.png",
-                OperationalAnchor.BATTLE_LINE,
-                ObjectiveCapturePolicy.LIGHT_FORCES_ONLY,
-                DecisiveArm.SURFACE_GUNFIRE,
-                EngagementDiscipline.LINE_COHESION),
         LIGHT_FORCES_TORPEDO(
                 "Light Forces and Strike Warfare",
                 "Light & Strike Warfare",
@@ -1756,6 +1746,16 @@ public class PermanentDivisionManager {
                 ObjectiveCapturePolicy.ACTIVE_CONTEST,
                 DecisiveArm.TORPEDO_STRIKES,
                 EngagementDiscipline.SKIRMISH_WITHDRAW),
+        LINEAR_WARFARE(
+                "Linear Warfare",
+                "Linear Warfare",
+                "Gunline fixes the enemy center while light forces work the flanks.",
+                "icon_template_linear_warfare",
+                "graphics/icons/operational_templates/icon_template_linear_warfare.png",
+                OperationalAnchor.BATTLE_LINE,
+                ObjectiveCapturePolicy.LIGHT_FORCES_ONLY,
+                DecisiveArm.SURFACE_GUNFIRE,
+                EngagementDiscipline.LINE_COHESION),
         CARRIER_CENTRIC(
                 "Carrier-Centric Operations",
                 "Carrier-Centric Ops",

@@ -3270,8 +3270,15 @@ public class UITestHarness {
             violations.add("OperationalTemplate preset/custom/roundTrip failed");
         }
         try {
+            PermanentDivisionManager.OperationalTemplate[] tplOrder = PermanentDivisionManager.OperationalTemplate.values();
+            if (tplOrder.length != 3
+                    || tplOrder[0] != PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO
+                    || tplOrder[1] != PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE
+                    || tplOrder[2] != PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC) {
+                violations.add("OperationalTemplate button order must be LSW, LW, CVOp");
+            }
             String settingsJson = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("mod/data/config/settings.json")), java.nio.charset.StandardCharsets.UTF_8);
-            for (PermanentDivisionManager.OperationalTemplate ot : PermanentDivisionManager.OperationalTemplate.values()) {
+            for (PermanentDivisionManager.OperationalTemplate ot : tplOrder) {
                 java.io.File iconFile = new java.io.File("mod/" + ot.getSpritePath());
                 java.io.File svgFile = new java.io.File("mod/" + ot.getSpritePath().replace(".png", ".svg"));
                 if (!iconFile.isFile() || iconFile.length() < 200 || !svgFile.isFile()) {
@@ -3279,7 +3286,7 @@ public class UITestHarness {
                 } else {
                     javax.imageio.ImageIO.setUseCache(false);
                     java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(iconFile);
-                    if (img == null || img.getWidth() != 128 || img.getHeight() != 128) {
+                    if (img == null || img.getWidth() != 256 || img.getHeight() != 256) {
                         violations.add("Invalid OperationalTemplate PNG dimensions for " + ot.name());
                     }
                 }
