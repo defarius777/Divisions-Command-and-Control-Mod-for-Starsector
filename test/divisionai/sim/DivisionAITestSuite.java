@@ -5510,6 +5510,85 @@ public class DivisionAITestSuite {
                     String.format(Locale.ROOT, "enteredStage1=%b, abortedOnHazard=%b (stage=%d)",
                             enteredStage1, abortedCleanly, lanceDiv.synchronizedSkillStage));
         }
+
+        // 17E: O(1) Hot-Path Sensor Caches (with Live Flux-Spike Invalidation) & 'Doubling:' Radio Deduplication
+        {
+            BattleGroupState pGroup = new BattleGroupState(0, pCmdr);
+            pGroup.authority = OtcAuthority.COMMAND_BY_DIRECTION;
+            BattleGroupState eGroup = new BattleGroupState(1, eCmdr);
+
+            DivisionState mainAnvil = new DivisionState("p_anv", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+            DivisionState flk1 = new DivisionState("p_f1", 0, 2, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 1", pCmdr);
+            DivisionState flk2 = new DivisionState("p_f2", 0, 3, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 2", pCmdr);
+            flk1.mainMission = DivisionMissionType.ENVELOPMENT;
+            flk2.mainMission = DivisionMissionType.ENVELOPMENT;
+            pGroup.divisions.add(mainAnvil);
+            pGroup.divisions.add(flk1);
+            pGroup.divisions.add(flk2);
+
+            DivisionState eMain = new DivisionState("e_mn", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Battle Div", eCmdr);
+            eGroup.divisions.add(eMain);
+
+            SimArena arena = new SimArena("17E. O(1) Caches & Doubling Dedup", "Hot-Path Cache + Doubling Radio Cooldown", pGroup, eGroup);
+            arena.addShip(mainAnvil, "ma1", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, -200f, 55f, 1150f, 0, 0);
+            arena.addShip(flk1, "fk1", "HSS Centurion", "centurion", HullSize.FRIGATE, -700f, 0f, 125f, 700f, 0, 0);
+            arena.addShip(flk2, "fk2", "HSS Centurion 2", "centurion", HullSize.FRIGATE, 700f, 0f, 125f, 700f, 0, 0);
+            SimShipState em1 = arena.addShip(eMain, "em1", "TTS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, 1250f, 55f, 1150f, 0, 0);
+            em1.detailedCombatModel = true;
+
+            arena.combatLogs.clear();
+            divisionai.DivisionCombatLog.simLogSink = arena.combatLogs;
+            arena.runSimulation(0.6f);
+
+            ShipFirepowerRose emRose = BattlefieldFirepowerEvaluator.getShipRose(em1.proxy);
+            boolean cachePopulated = emRose != null && emRose.shipFlagsInitialized && emRose.cachedCombatPower > 0f && eMain.defenseProfileReady;
+            float pBefore = BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(em1.proxy);
+            // Mid-tick overload/flux spike must invalidate cachedCombatPower immediately!
+            em1.fluxLevel = 0.92f;
+            em1.overloadTimer = 3.0f;
+            float pAfterOverload = BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(em1.proxy);
+
+            // Simulate repeated flank re-tasking ticks at t=22s and t=25s (< 28s/45s Doubling cooldowns)
+            pGroup.authority = OtcAuthority.COMMAND_BY_DIRECTION;
+            pGroup.multiDivisionSetpieceDoctrine = divisionai.PermanentDivisionManager.MultiDivisionSetpiece.NONE; // test assignEnvelopment directly
+            pGroup.currentPhase = divisionai.DivisionModel.BattlePhase.GENERAL_ENGAGEMENT;
+            eMain.engagementLevel = 0.55f; // target is fixed by mainAnvil
+            pGroup.orderLogTimes.clear();
+            flk1.otcOrder.clear();
+            flk2.otcOrder.clear();
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 22.0f);
+            Float cdAfter22 = pGroup.orderLogTimes.get("doubling_div_cd:p_f1");
+            boolean firstDoublingRecorded = cdAfter22 != null && Math.abs(cdAfter22 - 22.0f) < 0.01f;
+
+            flk1.otcOrder.clear();
+            flk2.otcOrder.clear();
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 25.0f);
+            Float cdAfter25 = pGroup.orderLogTimes.get("doubling_div_cd:p_f1");
+            boolean dedupHeldAt25 = cdAfter25 != null && Math.abs(cdAfter25 - 22.0f) < 0.01f;
+
+            // Also verify GENERAL_CHASE suppresses Doubling callouts completely even after 68s (> 45s cooldown)
+            pGroup.currentPhase = divisionai.DivisionModel.BattlePhase.GENERAL_CHASE;
+            flk1.otcOrder.clear();
+            flk2.otcOrder.clear();
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pGroup, eGroup, null, null, 90.0f);
+            Float cdAfterChase90 = pGroup.orderLogTimes.get("doubling_div_cd:p_f1");
+            boolean chaseSuppressed = cdAfterChase90 != null && Math.abs(cdAfterChase90 - 22.0f) < 0.01f;
+            divisionai.DivisionCombatLog.simLogSink = null;
+
+            check(cachePopulated && pAfterOverload < pBefore * 0.72f && firstDoublingRecorded && dedupHeldAt25 && chaseSuppressed,
+                    "O(1) ship/division caches populate cleanly, invalidate on mid-tick overload, and deduplicate Doubling radio spam",
+                    String.format(Locale.ROOT, "cacheOk=%b, pFresh=%.1f -> pOverload=%.1f, firstAt22=%b, heldAt25=%b, chaseSuppressedAt90=%b",
+                            cachePopulated, pBefore, pAfterOverload, firstDoublingRecorded, dedupHeldAt25, chaseSuppressed));
+        }
+    }
+
+    private static int countMatchingLogs(List<String> logs, String needle) {
+        int c = 0;
+        if (logs == null) return 0;
+        for (int i = 0; i < logs.size(); i++) {
+            if (logs.get(i) != null && logs.get(i).contains(needle)) c++;
+        }
+        return c;
     }
 
     private static int myIdxOf(List<com.fs.starfarer.api.combat.ShipAPI> list, com.fs.starfarer.api.combat.ShipAPI target) {

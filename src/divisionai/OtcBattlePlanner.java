@@ -1663,10 +1663,20 @@ public class OtcBattlePlanner {
                 }
                 d.otcOrder.hasStation = false;
                 tasked.add(d);
-                if (newOrder && flankers.size() >= 2) {
-                    logOrder(engine, myGroup, "flank:" + d.id, String.format(
-                            "Doubling: \"%s\" takes the %s flank of \"%s\".",
-                            d.displayName, side > 0f ? "port" : "starboard", target.displayName), now);
+                if (newOrder && flankers.size() >= 2 && myGroup.currentPhase != BattlePhase.GENERAL_CHASE) {
+                    String sideKey = side > 0f ? "P" : "S";
+                    String exactKey = "doubling:" + d.id + ">" + target.id + ":" + sideKey;
+                    String divCooldownKey = "doubling_div_cd:" + d.id;
+                    Float lastExact = myGroup.orderLogTimes.get(exactKey);
+                    Float lastDiv = myGroup.orderLogTimes.get(divCooldownKey);
+                    if ((lastExact == null || (now - lastExact) >= 45.0f)
+                            && (lastDiv == null || (now - lastDiv) >= 28.0f)) {
+                        myGroup.orderLogTimes.put(exactKey, now);
+                        myGroup.orderLogTimes.put(divCooldownKey, now);
+                        logOrder(engine, myGroup, "flank:" + d.id, String.format(
+                                "Doubling: \"%s\" takes the %s flank of \"%s\".",
+                                d.displayName, side > 0f ? "port" : "starboard", target.displayName), now);
+                    }
                 }
             }
         }
@@ -2065,8 +2075,7 @@ public class OtcBattlePlanner {
         for (DivisionState d : myGroup.divisions) {
             d.isCoveringFriend = false;
             d.underCoverByFriend = false;
-            if (d.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
-                    && d.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE) {
+            if (!d.currentIntent.isWithdrawalOrBreakout()) {
                 d.coveringFriendDivision = null;
                 d.linePassActive = false;
             }
@@ -2078,18 +2087,36 @@ public class OtcBattlePlanner {
                     || (venting.avgFluxLevel >= 0.62f && venting.incomingInRangeFirepower > 35f);
             if (!needsCover) continue;
 
+            Vector2f threatPos = (venting.targetEnemyDivision != null && venting.targetEnemyDivision.centroid != null)
+                    ? venting.targetEnemyDivision.centroid
+                    : null;
+            Vector2f idealScreenPt = venting.centroid;
+            if (threatPos != null && venting.centroid != null) {
+                float tx = threatPos.x - venting.centroid.x;
+                float ty = threatPos.y - venting.centroid.y;
+                float tlen = (float) Math.sqrt(tx * tx + ty * ty);
+                if (tlen > 1f) {
+                    float step = Math.min(420f, tlen * 0.42f);
+                    idealScreenPt = new Vector2f(
+                            venting.centroid.x + (tx / tlen) * step,
+                            venting.centroid.y + (ty / tlen) * step);
+                }
+            }
+
             DivisionState bestCover = null;
             float bestScore = -Float.MAX_VALUE;
             for (DivisionState cand : active) {
                 if (cand == venting || tasked.contains(cand)) continue;
                 if (cand.archetype.isCarrierArchetype() || cand.archetype == DivisionArchetype.SERVICE_GROUP) continue;
-                if (cand.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
-                        || cand.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) continue;
+                if (cand.currentIntent.isWithdrawalOrBreakout()) continue;
                 if (cand.avgFluxLevel >= 0.52f) continue;
                 float dist = DivisionUiWidgets.distance(cand.centroid, venting.centroid);
-                if (dist > 1150f) continue;
-                float score = -dist * 0.45f + cand.totalFpStrength * 5f - cand.avgFluxLevel * 300f;
-                if (cand.coveringFriendDivision == venting) score += 320f;
+                if (dist > 1450f) continue;
+                float screenDist = (idealScreenPt != null)
+                        ? DivisionUiWidgets.distance(cand.centroid, idealScreenPt)
+                        : dist;
+                float score = -screenDist * 0.55f + cand.totalFpStrength * 5f - cand.avgFluxLevel * 300f;
+                if (venting.coveringFriendDivision == cand) score += 320f;
                 if (score > bestScore) {
                     bestScore = score;
                     bestCover = cand;

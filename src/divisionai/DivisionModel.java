@@ -510,6 +510,10 @@ public class DivisionModel {
         public float antiShieldFirepowerRatio = 0.5f; // [0..1] kinetic/anti-shield share of ready firepower
         public float antiArmorFirepowerRatio = 0.5f;  // [0..1] HE/anti-armor share of ready firepower
         public float magazineReloadingRatio = 0.0f;   // [0..1] fraction of non-missile burst magazines currently depleted/reloading
+        public float shieldedActiveDefenseShare = 0.5f; // [0..1] cached share of ready shielded low-flux FP for O(1) matchup checks
+        public float armorExposedDefenseShare = 0.2f;   // [0..1] cached share of shieldless/high-flux/overloaded FP
+        public float cachedDefenseAvgFlux = -1f;
+        public boolean defenseProfileReady = false;
         public float incomingAlphaThreat;
         public float incomingShortDotThreat;
         public float incomingSustainedDotThreat;

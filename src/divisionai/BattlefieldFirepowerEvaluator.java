@@ -247,6 +247,15 @@ public class BattlefieldFirepowerEvaluator {
         public float antiShieldShare = 0.5f;
         public float antiArmorShare = 0.5f;
         public float magazineReloadingRatio = 0.0f;
+        public float cachedCombatPower = -1f;
+        public float cachedPowerFlux = -1f;
+        public float cachedPowerHull = -1f;
+        public boolean cachedPowerOvl = false;
+        public float cachedBowArmorIntegrity = 1.0f;
+        public boolean cachedCrippledOrExhausted = false;
+        public boolean cachedPhaseShip = false;
+        public boolean cachedShieldlessArmorTank = false;
+        public boolean shipFlagsInitialized = false;
         // Absolute potential-damage weight [0.35 .. 1.35] so heavy capital/cruiser firepower envelopes
         // render with visibly greater weight, reach prominence, and lethality contours than light plinkers
         public float potentialDamageWeight = 0.65f;
@@ -1040,6 +1049,20 @@ public class BattlefieldFirepowerEvaluator {
             System.arraycopy(rose.alphaRange, 0, rose.prevAlphaRange, 0, NUM_SECTORS);
             System.arraycopy(rose.pdRange, 0, rose.prevPdRange, 0, NUM_SECTORS);
         }
+
+        // Refresh O(1) per-ship capability & readiness caches once per rose evaluation so spatial-grid TSF queries
+        // (~1,300 calls/tick in 150-ship battles) never re-walk weapon lists, engine lists, or ArmorGrid cells!
+        rose.cachedPhaseShip = isPhaseShipUncached(ship);
+        rose.cachedShieldlessArmorTank = !rose.cachedPhaseShip && isShieldlessArmorTankUncached(ship);
+        rose.cachedCrippledOrExhausted = computeShipCrippledOrPeakExhaustedUncached(ship, weapons);
+        rose.cachedBowArmorIntegrity = rose.cachedShieldlessArmorTank
+                ? computeShipArmorIntegrityRatioUncached(ship)
+                : clampVal(ship.getHullLevel(), 0f, 1f);
+        rose.shipFlagsInitialized = true;
+        rose.cachedPowerFlux = ship.getFluxLevel();
+        rose.cachedPowerHull = ship.getHullLevel();
+        rose.cachedPowerOvl = overloadedOrVenting;
+        rose.cachedCombatPower = computeEffectiveShipCombatPowerUncached(ship, rose, weapons);
     }
 
     private static void accumulateShipDirectWeaponSectors(
@@ -1687,6 +1710,30 @@ public class BattlefieldFirepowerEvaluator {
      */
     public static float computeEffectiveShipCombatPower(ShipAPI ship) {
         if (ship == null || !ship.isAlive() || ship.isHulk()) return 0f;
+        ShipFirepowerRose rose = getShipRose(ship);
+        if (rose != null && rose.shipFlagsInitialized && rose.cachedCombatPower >= 0f) {
+            float curFlux = ship.getFluxLevel();
+            float curHull = ship.getHullLevel();
+            boolean curOvl = ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting();
+            if (curOvl == rose.cachedPowerOvl
+                    && Math.abs(curFlux - rose.cachedPowerFlux) < 0.03f
+                    && Math.abs(curHull - rose.cachedPowerHull) < 0.03f) {
+                return rose.cachedCombatPower;
+            }
+            float updated = computeEffectiveShipCombatPowerUncached(ship, rose, ship.getAllWeapons());
+            rose.cachedCombatPower = updated;
+            rose.cachedPowerFlux = curFlux;
+            rose.cachedPowerHull = curHull;
+            rose.cachedPowerOvl = curOvl;
+            return updated;
+        }
+        return computeEffectiveShipCombatPowerUncached(ship, rose, ship.getAllWeapons());
+    }
+
+    private static float computeEffectiveShipCombatPowerUncached(
+            ShipAPI ship,
+            ShipFirepowerRose rose,
+            List<WeaponAPI> wList) {
         float baseFp = ShipCapabilityProfile.resolveShipFpStrength(ship);
         float readiness = Math.max(0.30f, ship.getHullLevel() * (1.15f - 0.55f * ship.getFluxLevel()));
         float ehpStrength = computeShipEffectiveHp(ship) / 1550f;
@@ -1696,7 +1743,6 @@ public class BattlefieldFirepowerEvaluator {
 
         // On real Starsector ships (with populated weapon mounts), blend actual weapon lethality (liveFp / 13.5f)
         // with hull-class baseline; on lightweight headless SimArena mocks (<= 1 dummy weapon), preserve baseline FP scale.
-        List<WeaponAPI> wList = ship.getAllWeapons();
         boolean hasDetailedWeapons = wList != null && wList.size() >= 3;
         float measuredFirepowerFp = liveFp / 13.5f;
         float baselineFirepowerFp = baseFp * readiness * weaponReadinessMod;
@@ -1705,7 +1751,6 @@ public class BattlefieldFirepowerEvaluator {
                 : Math.max(baselineFirepowerFp, measuredFirepowerFp * 0.50f);
 
         // Space reach factor from cached ShipFirepowerRose max sector range
-        ShipFirepowerRose rose = getShipRose(ship);
         float maxReach = (rose != null && rose.maxGeneralRange > 100f) ? rose.maxGeneralRange : 850f;
         float spaceReachFactor = clampVal(0.84f + maxReach / 3600f, 0.84f, 1.24f);
         float spaceTerm = Math.max(0.35f, ehpStrength * spaceReachFactor);
@@ -1718,13 +1763,24 @@ public class BattlefieldFirepowerEvaluator {
         float timeMult = (overloadedOrVenting || enginesFlamedOut)
                 ? 0.58f
                 : clampVal(0.86f + rawSpd / 560f, 0.80f, 1.18f);
-        float crippledMod = isShipCrippledOrPeakExhausted(ship) ? 0.72f : 1.0f;
+        boolean crippled = (rose != null && rose.shipFlagsInitialized)
+                ? rose.cachedCrippledOrExhausted
+                : computeShipCrippledOrPeakExhaustedUncached(ship, wList);
+        float crippledMod = crippled ? 0.72f : 1.0f;
 
         return (float) Math.sqrt(Math.max(0.25f, firepowerTerm) * spaceTerm) * timeMult * crippledMod;
     }
 
     public static boolean isPhaseShip(ShipAPI ship) {
         if (ship == null) return false;
+        ShipFirepowerRose rose = rosesByShipId.get(ship.getId());
+        if (rose != null && rose.shipFlagsInitialized) {
+            return rose.cachedPhaseShip;
+        }
+        return isPhaseShipUncached(ship);
+    }
+
+    private static boolean isPhaseShipUncached(ShipAPI ship) {
         return ship.isPhased()
                 || ship.getPhaseCloak() != null
                 || (ship.getShield() != null && ship.getShield().getType() == ShieldAPI.ShieldType.PHASE)
@@ -1733,7 +1789,15 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     public static boolean isShieldlessArmorTank(ShipAPI ship) {
-        if (ship == null || isPhaseShip(ship)) return false;
+        if (ship == null) return false;
+        ShipFirepowerRose rose = rosesByShipId.get(ship.getId());
+        if (rose != null && rose.shipFlagsInitialized) {
+            return rose.cachedShieldlessArmorTank;
+        }
+        return !isPhaseShipUncached(ship) && isShieldlessArmorTankUncached(ship);
+    }
+
+    private static boolean isShieldlessArmorTankUncached(ShipAPI ship) {
         ShieldAPI sh = ship.getShield();
         if (sh != null) {
             return sh.getType() == ShieldAPI.ShieldType.NONE;
@@ -1755,6 +1819,14 @@ public class BattlefieldFirepowerEvaluator {
 
     public static float computeShipArmorIntegrityRatio(ShipAPI ship) {
         if (ship == null) return 1.0f;
+        ShipFirepowerRose rose = rosesByShipId.get(ship.getId());
+        if (rose != null && rose.shipFlagsInitialized) {
+            return rose.cachedBowArmorIntegrity;
+        }
+        return computeShipArmorIntegrityRatioUncached(ship);
+    }
+
+    private static float computeShipArmorIntegrityRatioUncached(ShipAPI ship) {
         try {
             com.fs.starfarer.api.combat.ArmorGridAPI grid = ship.getArmorGrid();
             if (grid != null && grid.getMaxArmorInCell() > 1f) {
@@ -1770,6 +1842,15 @@ public class BattlefieldFirepowerEvaluator {
 
     public static boolean isShipCrippledOrPeakExhausted(ShipAPI ship) {
         if (ship == null || !ship.isAlive() || ship.isHulk()) return false;
+        ShipFirepowerRose rose = rosesByShipId.get(ship.getId());
+        if (rose != null && rose.shipFlagsInitialized) {
+            return rose.cachedCrippledOrExhausted;
+        }
+        return computeShipCrippledOrPeakExhaustedUncached(ship, ship.getAllWeapons());
+    }
+
+    private static boolean computeShipCrippledOrPeakExhaustedUncached(ShipAPI ship, List<WeaponAPI> weapons) {
+        if (ship == null || !ship.isAlive() || ship.isHulk()) return false;
         try {
             if (ship.losesCRDuringCombat()) {
                 float cr = ship.getCurrentCR();
@@ -1784,7 +1865,6 @@ public class BattlefieldFirepowerEvaluator {
                     return true;
                 }
             }
-            List<WeaponAPI> weapons = ship.getAllWeapons();
             if (weapons != null && weapons.size() >= 2) {
                 int majorMounts = 0;
                 int disabledMajor = 0;
@@ -1808,6 +1888,7 @@ public class BattlefieldFirepowerEvaluator {
     /**
      * Evaluates how well {@code attackerDiv}'s damage-type profile (anti-shield kinetic vs anti-armor HE)
      * matches {@code targetDiv}'s live defense state (fresh shields vs shieldless/high-flux/armor-exposed).
+     * Uses precomputed per-division defense shares in O(1) when telemetry is active.
      */
     public static float computeDamageTypeMatchupMultiplier(
             CombatEngineAPI engine,
@@ -1819,36 +1900,41 @@ public class BattlefieldFirepowerEvaluator {
         if (Math.abs(antiShield - 0.5f) < 0.05f && Math.abs(antiArmor - 0.5f) < 0.05f) {
             return 1.0f;
         }
-        float shieldedActiveFp = 0f;
-        float armorExposedFp = 0f;
-        float totalFp = 0f;
-        for (int i = 0, n = targetDiv.members.size(); i < n; i++) {
-            ShipAPI es = targetDiv.members.get(i);
-            if (es == null || !es.isAlive() || es.isHulk() || DivisionState.isShipUnable(es)) continue;
-            if (engine != null && !OtcAI.isShipVisibleToSide(engine, attackerDiv.side, es)) continue;
-            float w = Math.max(2f, ShipCapabilityProfile.resolveShipFpStrength(es));
-            totalFp += w;
-            boolean ovl = es.getFluxTracker() != null && es.getFluxTracker().isOverloadedOrVenting();
-            if (isShieldlessArmorTank(es) || ovl || es.getFluxLevel() >= 0.68f) {
-                armorExposedFp += w;
-            } else if (!isPhaseShip(es) && !isShieldlessArmorTank(es) && es.getFluxLevel() < 0.58f) {
-                shieldedActiveFp += w;
+        float shieldedShare;
+        float armorShare;
+        if (targetDiv.defenseProfileReady && Math.abs(targetDiv.avgFluxLevel - targetDiv.cachedDefenseAvgFlux) < 0.05f) {
+            shieldedShare = targetDiv.shieldedActiveDefenseShare;
+            armorShare = targetDiv.armorExposedDefenseShare;
+        } else {
+            float shieldedActiveFp = 0f;
+            float armorExposedFp = 0f;
+            float totalFp = 0f;
+            for (int i = 0, n = targetDiv.members.size(); i < n; i++) {
+                ShipAPI es = targetDiv.members.get(i);
+                if (es == null || !es.isAlive() || es.isHulk() || DivisionState.isShipUnable(es)) continue;
+                if (engine != null && !OtcAI.isShipVisibleToSide(engine, attackerDiv.side, es)) continue;
+                float w = Math.max(2f, ShipCapabilityProfile.resolveShipFpStrength(es));
+                totalFp += w;
+                boolean ovl = es.getFluxTracker() != null && es.getFluxTracker().isOverloadedOrVenting();
+                if (isShieldlessArmorTank(es) || ovl || es.getFluxLevel() >= 0.68f) {
+                    armorExposedFp += w;
+                } else if (!isPhaseShip(es) && !isShieldlessArmorTank(es) && es.getFluxLevel() < 0.58f) {
+                    shieldedActiveFp += w;
+                }
             }
+            if (totalFp <= 1f) return 1.0f;
+            shieldedShare = shieldedActiveFp / totalFp;
+            armorShare = armorExposedFp / totalFp;
         }
-        if (totalFp <= 1f) return 1.0f;
-        float shieldedShare = shieldedActiveFp / totalFp;
-        float armorShare = armorExposedFp / totalFp;
 
         float mod = 1.0f;
         if (shieldedShare >= 0.55f) {
-            // Kinetic-rich divisions crack fresh shields; pure-HE divisions without strike missiles bounce off low-flux shields
             mod += (antiShield - 0.50f) * 0.42f * shieldedShare;
             if (antiShield <= 0.35f && !attackerDiv.hasMissileStrikeCapability) {
                 mod -= 0.06f * shieldedShare;
             }
         }
         if (armorShare >= 0.45f) {
-            // HE/anti-armor divisions shred shieldless bricks and high-flux/overloaded targets
             mod += (antiArmor - 0.50f) * 0.48f * armorShare;
         }
         return clampVal(mod, 0.84f, 1.18f);
@@ -2278,6 +2364,9 @@ public class BattlefieldFirepowerEvaluator {
         float antiArmorSum = 0f;
         float magReloadSum = 0f;
         float roseWeightSum = 0f;
+        float shieldedFpSum = 0f;
+        float armorExpFpSum = 0f;
+        float defWeightSum = 0f;
         for (int i = 0; i < alive.size(); i++) {
             ShipAPI m = alive.get(i);
             float mMax = Math.max(1f, computeShipLiveFirepowerScore(m, true));
@@ -2290,6 +2379,17 @@ public class BattlefieldFirepowerEvaluator {
                 magReloadSum += mRose.magazineReloadingRatio * mMax;
                 roseWeightSum += mMax;
             }
+            if (!DivisionState.isShipUnable(m)) {
+                float w = Math.max(2f, ShipCapabilityProfile.resolveShipFpStrength(m));
+                defWeightSum += w;
+                boolean ovl = m.getFluxTracker() != null && m.getFluxTracker().isOverloadedOrVenting();
+                boolean shdLess = isShieldlessArmorTank(m);
+                if (shdLess || ovl || m.getFluxLevel() >= 0.68f) {
+                    armorExpFpSum += w;
+                } else if (!isPhaseShip(m) && m.getFluxLevel() < 0.58f) {
+                    shieldedFpSum += w;
+                }
+            }
         }
         div.liveFirepowerScore = sumLive;
         div.maxFirepowerScore = Math.max(sumLive, sumMax);
@@ -2298,6 +2398,14 @@ public class BattlefieldFirepowerEvaluator {
             div.antiShieldFirepowerRatio = antiShieldSum / roseWeightSum;
             div.antiArmorFirepowerRatio = antiArmorSum / roseWeightSum;
             div.magazineReloadingRatio = magReloadSum / roseWeightSum;
+        }
+        if (defWeightSum > 0.5f) {
+            div.shieldedActiveDefenseShare = shieldedFpSum / defWeightSum;
+            div.armorExposedDefenseShare = armorExpFpSum / defWeightSum;
+            div.cachedDefenseAvgFlux = div.avgFluxLevel;
+            div.defenseProfileReady = true;
+        } else {
+            div.defenseProfileReady = false;
         }
 
         if (engine == null) return;

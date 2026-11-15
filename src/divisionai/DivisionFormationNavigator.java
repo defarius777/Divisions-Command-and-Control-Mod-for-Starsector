@@ -535,7 +535,7 @@ public class DivisionFormationNavigator {
                     BattlefieldFirepowerEvaluator.ShipFirepowerRose sRose = BattlefieldFirepowerEvaluator.getShipRose(ship);
                     float personalRange = (sRose != null && sRose.maxGeneralRange > 150f)
                             ? sRose.maxGeneralRange
-                            : new ShipCapabilityProfile(ship).avgWeaponRange;
+                            : div.avgEngageRange;
                     if (personalRange > 150f && div.avgEngageRange > 150f) {
                         float rangeDelta = div.avgEngageRange - personalRange;
                         float personalLongOffset = Math.max(-210f, Math.min(210f, rangeDelta * 0.42f));
