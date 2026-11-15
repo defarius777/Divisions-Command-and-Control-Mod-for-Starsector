@@ -3240,8 +3240,12 @@ public class OtcAI {
             boolean isCurrentPrimary = myGroup.primaryThreatEnemyDivision != null
                     && (eDiv == myGroup.primaryThreatEnemyDivision
                     || (eDiv.id != null && eDiv.id.equals(myGroup.primaryThreatEnemyDivision.id)));
-            float incumbentBonus = (isCurrentPrimary && overkillPrimaryPenalty == 0f && unablePenalty == 0f && feignPenalty == 0f)
-                    ? (isUnassignedContact ? 195f : 280f)
+            boolean inGeneralChasePhase = myGroup.currentPhase == BattlePhase.GENERAL_CHASE;
+            float incumbentBonus = (isCurrentPrimary
+                    && overkillPrimaryPenalty == 0f
+                    && (unablePenalty == 0f || (inGeneralChasePhase && !anyAbleVisibleEnemy))
+                    && feignPenalty == 0f)
+                    ? (inGeneralChasePhase ? (isUnassignedContact ? 340f : 520f) : (isUnassignedContact ? 195f : 280f))
                     : 0f;
 
             float decisiveArmBonus = 0f;

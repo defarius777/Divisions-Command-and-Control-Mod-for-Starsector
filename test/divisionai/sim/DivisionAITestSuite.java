@@ -3545,7 +3545,7 @@ public class DivisionAITestSuite {
         for (int i = 0; i < 4; i++) {
             gauntArena.addShip(southAnchor, "sa" + i, "ISS Anchor " + i, "sunder", HullSize.DESTROYER, -300f + i * 200f, 3200f, 95f, 950f, 2, 0);
         }
-        gauntArena.addShip(ePack1, "ep1", "LP Pranker 1", "eradicator", HullSize.CRUISER, -650f, 7300f, 90f, 900f, 2, 0);
+        SimShipState ep1 = gauntArena.addShip(ePack1, "ep1", "LP Pranker 1", "eradicator", HullSize.CRUISER, -650f, 7300f, 90f, 900f, 2, 0);
         gauntArena.addShip(ePack1, "ep2", "LP Pranker 2", "eradicator", HullSize.CRUISER, -520f, 7800f, 90f, 900f, 2, 0);
         gauntArena.addShip(ePack2, "ep3", "LP Manticore 1", "manticore", HullSize.DESTROYER, 620f, 6950f, 85f, 900f, 2, 0);
         gauntArena.addShip(ePack2, "ep4", "LP Manticore 2", "manticore", HullSize.DESTROYER, 740f, 7250f, 85f, 900f, 2, 0);
@@ -3587,6 +3587,82 @@ public class DivisionAITestSuite {
                 String.format(Locale.ROOT, "gauntlet=%s, bothSprintForward=%s, startY=%.0f -> endY=%.0f (goalY=%.0f, rally=%s)",
                         triggeredGauntlet, bothShipsSprintForward, startY, endY, trappedDd.stationPoint.y,
                         trappedDd.targetFriendlyDivision != null ? trappedDd.targetFriendlyDivision.displayName : "none"));
+
+        // (E) Hegemony Two-Stage Battle Refinements:
+        // 1. Gauntlet rally-anchor hysteresis holds incumbent friendly anchor against a marginally higher-scoring peer
+        DivisionState altAnchor = new DivisionState("p_alt_anchor", 0, 4, DivisionArchetype.CRUISER_DIVISION, "Carrier Screen Div 4", gPGroup.otc);
+        gPGroup.divisions.add(altAnchor);
+        gauntArena.addShip(altAnchor, "aa1", "HSS Eagle", "eagle", HullSize.CRUISER, -260f, 5400f, 90f, 1100f, 0, 0);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(altAnchor);
+        divisionai.OtcAI.updateTelemetry(gauntArena.engineProxy, gPGroup);
+        trappedDd.currentIntent = DivisionIntentType.RUN_THE_GAUNTLET;
+        trappedDd.targetFriendlyDivision = southAnchor;
+        Vector2f stickyWp = new Vector2f();
+        DivisionState chosenAnchor = divisionai.BattlefieldFirepowerEvaluator.computeGauntletBreakoutWaypoint(
+                gauntArena.engineProxy, trappedDd, gPGroup, stickyWp);
+        boolean gauntletAnchorSticky = (chosenAnchor == southAnchor);
+
+        // 2. 5-ship division at 28% avg flux with 1 ship at 79% flux (and 0.68x localForceRatio) keeps the pack in action
+        BattleGroupState packGroup = new BattleGroupState(0, gPGroup.otc);
+        DivisionState fivePack = new DivisionState("p_5dd", 0, 1, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 1", gPGroup.otc);
+        packGroup.divisions.add(fivePack);
+        SimArena packArena = new SimArena("16E. 5-Ship Single Outlier", "1 hot ship in 5-ship fresh pack", packGroup, new BattleGroupState(1, gEGroup.otc));
+        SimShipState h1 = packArena.addShip(fivePack, "hp1", "DD 1", "hammerhead", HullSize.DESTROYER, 0f, 0f, 95f, 900f, 0, 0);
+        SimShipState h2 = packArena.addShip(fivePack, "hp2", "DD 2", "hammerhead", HullSize.DESTROYER, 120f, 0f, 95f, 900f, 0, 0);
+        SimShipState h3 = packArena.addShip(fivePack, "hp3", "DD 3", "hammerhead", HullSize.DESTROYER, -120f, 0f, 95f, 900f, 0, 0);
+        SimShipState h4 = packArena.addShip(fivePack, "hp4", "DD 4", "hammerhead", HullSize.DESTROYER, 240f, 0f, 95f, 900f, 0, 0);
+        SimShipState h5 = packArena.addShip(fivePack, "hp5", "DD 5", "hammerhead", HullSize.DESTROYER, -240f, 0f, 95f, 900f, 0, 0);
+        h1.fluxLevel = 0.79f;
+        h2.fluxLevel = 0.16f;
+        h3.fluxLevel = 0.15f;
+        h4.fluxLevel = 0.15f;
+        h5.fluxLevel = 0.15f;
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(fivePack);
+        divisionai.OtcAI.updateTelemetry(packArena.engineProxy, packGroup);
+        fivePack.localEnemyStrength = 18f;
+        fivePack.localForceRatio = 0.68f;
+        fivePack.effectiveHpRatio = 0.86f;
+        fivePack.inEnemyReinforcementHazard = false;
+        boolean fiveShipSingleOutlierStays = !divisionai.DivisionCommanderAI.isUnderHighFluxPressure(fivePack, packGroup);
+
+        // 3. General Chase OTC phase signal deduplicates forceRatio ticks (1.55x -> 1.79x) within 18s
+        List<String> chaseSink = new java.util.ArrayList<>();
+        divisionai.DivisionCombatLog.simLogSink = chaseSink;
+        divisionai.DivisionAISettings.testDebugLoggingEnabledOverride = Boolean.TRUE;
+        BattleGroupState chaseGrp = new BattleGroupState(0, gPGroup.otc);
+        chaseGrp.previousPhase = divisionai.DivisionModel.BattlePhase.GENERAL_ENGAGEMENT;
+        chaseGrp.currentPhase = divisionai.DivisionModel.BattlePhase.GENERAL_CHASE;
+        divisionai.DivisionCombatLog.logOtcSignal(packArena.engineProxy, chaseGrp,
+                "General chase: press the advantage (1.55x) on \"Line Cruiser Div 4\".", 40.0f);
+        chaseGrp.previousPhase = divisionai.DivisionModel.BattlePhase.GENERAL_CHASE;
+        divisionai.DivisionCombatLog.logOtcSignal(packArena.engineProxy, chaseGrp,
+                "General chase: press the advantage (1.79x) on \"Line Cruiser Div 4\".", 52.0f);
+        divisionai.DivisionCombatLog.logOtcSignal(packArena.engineProxy, chaseGrp,
+                "General chase: press the advantage (2.38x) on \"Phase Div 2\".", 54.0f);
+        boolean chaseSignalDeduped = (chaseSink.size() == 1);
+
+        // 4. Cached DP snapshot preserves survDP/lostDP across post-combat fleet-manager teardown
+        chaseSink.clear();
+        divisionai.DivisionAICombatPlugin summaryPlugin = new divisionai.DivisionAICombatPlugin();
+        summaryPlugin.updateCachedBattleSummaryDp(gauntArena.engineProxy);
+        ep1.hullLevel = 0f;
+        ep1.alive = false;
+        summaryPlugin.updateCachedBattleSummaryDp(gauntArena.engineProxy);
+        gauntArena.ships.clear(); // Simulate Starsector post-combat teardown before flush
+        summaryPlugin.logBattleSummaryWithCache(
+                gauntArena.engineProxy, gPGroup, gEGroup,
+                summaryPlugin.getCachedSummaryDp());
+        divisionai.DivisionAISettings.testDebugLoggingEnabledOverride = null;
+        divisionai.DivisionCombatLog.simLogSink = null;
+        boolean summaryCachedDpOk = !chaseSink.isEmpty()
+                && chaseSink.get(0).contains("survDP=80, lostDP=0, retDP=0")
+                && chaseSink.get(0).contains("survDP=40, lostDP=20, retDP=0");
+
+        check(gauntletAnchorSticky && fiveShipSingleOutlierStays && chaseSignalDeduped && summaryCachedDpOk,
+                "Gauntlet rally hysteresis, 4+ ship single-outlier retention, General Chase radio dedup & cached DP summary verified",
+                String.format(Locale.ROOT, "anchorSticky=%s, 5shipOutlierStays=%s, chaseDedup=%s, cachedDpOk=%s (%s)",
+                        gauntletAnchorSticky, fiveShipSingleOutlierStays, chaseSignalDeduped, summaryCachedDpOk,
+                        chaseSink.isEmpty() ? "empty" : chaseSink.get(0)));
     }
 
     private static void testUIHarnessAndUXSuccinctness() throws Exception {

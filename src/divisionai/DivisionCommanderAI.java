@@ -736,10 +736,17 @@ public class DivisionCommanderAI {
                 && div.localEnemyStrength >= 10f
                 && div.avgFluxLevel >= 0.42f
                 && ((div.hasMissileStrikeCapability && div.usableStrikeAmmoCount <= 0) || div.localForceRatio < 0.85f);
-        boolean singleOutlierInFreshWinningPack = alive.size() >= 3
+        boolean singleOutlierInFreshWinningPack = (alive.size() >= 3
                 && endangeredMemberCount <= 1
                 && div.avgFluxLevel < 0.34f
-                && div.localForceRatio >= 1.50f;
+                && div.localForceRatio >= 1.50f)
+                || (div.ableMemberCount >= 4
+                && endangeredMemberCount <= 1
+                && postRamExposedCount == 0
+                && div.avgFluxLevel < 0.38f
+                && div.effectiveHpRatio >= 0.65f
+                && div.localForceRatio >= 0.55f
+                && !div.inEnemyReinforcementHazard);
         boolean highFluxPressure = div.avgFluxLevel >= effFluxThreshold
                 || skirmishSalvoSpentUnderFire
                 || loneFrigateOvermatched
@@ -1136,9 +1143,11 @@ public class DivisionCommanderAI {
             // inside the enemy's northern reinforcement gate, standard HAUL_OUT_TO_VENT handles line rotation cleanly.
             // RUN_THE_GAUNTLET is specifically for cut-off/isolated divisions, blocked retreat lanes, or spawn-gate traps!
             boolean continuingGauntlet = prevIntent == DivisionIntentType.RUN_THE_GAUNTLET
-                    && (now - div.gauntletStartTime) < 9.5f
+                    && (now - div.gauntletStartTime) < 14.0f
                     && div.localEnemyStrength >= 8f
-                    && (div.localForceRatio < 0.90f || div.crossfireCordonIndex >= 0.28f || div.inEnemyReinforcementHazard);
+                    && ((now - div.gauntletStartTime) < 9.5f
+                    ? (div.localForceRatio < 0.90f || div.crossfireCordonIndex >= 0.28f || div.inEnemyReinforcementHazard)
+                    : (div.localForceRatio < 0.78f && (isolatedFromFleet || enemyBlockingRetreat || div.crossfireCordonIndex >= 0.28f || div.inEnemyReinforcementHazard)));
             boolean encircledOvermatch = div.localEnemyStrength >= 14f
                     && div.localForceRatio < 0.60f
                     && (isolatedFromFleet || enemyBlockingRetreat)

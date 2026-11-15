@@ -78,6 +78,12 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private long c2PerfDivSumNs = 0L;
     private long c2PerfVoidSumNs = 0L;
     private final java.util.Set<String> loggedObfuscatedHookFailures = new java.util.HashSet<>();
+    // Live DP snapshot [pSurv, pLost, pRet, eSurv, eLost, eRet] preserved across Starsector's post-combat teardown
+    private final float[] cachedSummaryDp = new float[6];
+    private final java.util.Map<String, Float> seenShipDpById = new java.util.HashMap<>();
+    private final java.util.Map<String, Integer> seenShipSideById = new java.util.HashMap<>();
+    // 0 = surviving, 1 = destroyed/disabled, 2 = retreated
+    private final java.util.Map<String, Integer> seenShipStateById = new java.util.HashMap<>();
     private static DivisionAICombatPlugin pendingSummaryInstance = null;
 
     /**
@@ -99,7 +105,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                     || (inst.enemyGroup != null && !inst.enemyGroup.divisions.isEmpty());
             if (elapsed >= 1.0f && hasAnyDivs) {
                 inst.loggedBattleSummary = true;
-                logBattleSummary(inst.engine, inst.playerGroup, inst.enemyGroup);
+                logBattleSummaryWithCache(inst.engine, inst.playerGroup, inst.enemyGroup, inst.cachedSummaryDp);
             }
         } catch (Throwable ignored) {
         }
@@ -111,6 +117,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             flushPendingBattleSummaryIfNeeded();
         }
         this.engine = engine;
+        java.util.Arrays.fill(this.cachedSummaryDp, 0f);
+        this.seenShipDpById.clear();
+        this.seenShipSideById.clear();
+        this.seenShipStateById.clear();
         this.initializedBattle = false;
         this.confirmedRealCombat = false;
         this.c2PerfTickCount = 0;
@@ -140,7 +150,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.musicController = new DynamicBattleMusicController();
         BattlefieldFirepowerEvaluator.resetForNewBattle();
         DivisionOtcCommandManager.resetForNewBattle();
-        if (engine != null) {
+        if (engine != null && engine.getCustomData() != null) {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
         }
         this.preRenderHookAttached = false;
@@ -484,11 +494,12 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         if (engine.isCombatOver()) {
             if (!loggedBattleSummary) {
+                updateCachedBattleSummaryDp(engine);
                 loggedBattleSummary = true;
                 if (pendingSummaryInstance == this) {
                     pendingSummaryInstance = null;
                 }
-                logBattleSummary(engine, playerGroup, enemyGroup);
+                logBattleSummaryWithCache(engine, playerGroup, enemyGroup, cachedSummaryDp);
             }
             if (!engine.isPaused()) {
                 float overNow = engine.getTotalElapsedTime(false);
@@ -793,6 +804,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 c2PerfDivSumNs = 0L;
                 c2PerfVoidSumNs = 0L;
             }
+            updateCachedBattleSummaryDp(engine);
         } else if (tsfcTimer >= TSFC_EVAL_INTERVAL) {
             tsfcTimer = 0f;
             BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(
@@ -1469,10 +1481,132 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     /**
      * Logs a structured one-line end-of-battle summary to starsector.log when combat concludes.
      */
+    public void updateCachedBattleSummaryDp(CombatEngineAPI engine) {
+        if (engine == null) return;
+        try {
+            List<ShipAPI> ships = engine.getShips();
+            java.util.Set<String> presentShipIds = new java.util.HashSet<>();
+            if (ships != null) {
+                for (int i = 0, n = ships.size(); i < n; i++) {
+                    ShipAPI s = ships.get(i);
+                    if (s == null || s.isFighter() || s.isDrone() || s.isStationModule()) continue;
+                    int owner = s.getOwner();
+                    if (owner != 0 && owner != 1) continue;
+                    String sid = s.getId();
+                    if (sid == null) continue;
+                    presentShipIds.add(sid);
+                    float dp = resolveShipDeploymentPoints(s);
+                    if (dp > 0f) {
+                        seenShipDpById.put(sid, dp);
+                    }
+                    seenShipSideById.put(sid, owner);
+                    if (s.isRetreating() || s.isDirectRetreat()) {
+                        seenShipStateById.put(sid, 2);
+                    } else if (!s.isAlive() || s.isHulk()) {
+                        seenShipStateById.put(sid, 1);
+                    } else {
+                        Integer prev = seenShipStateById.get(sid);
+                        if (prev == null || prev == 0) {
+                            seenShipStateById.put(sid, 0);
+                        }
+                    }
+                }
+                if (!ships.isEmpty()) {
+                    for (String sid : seenShipDpById.keySet()) {
+                        if (!presentShipIds.contains(sid)) {
+                            Integer prev = seenShipStateById.get(sid);
+                            if (prev == null || prev == 0) {
+                                seenShipStateById.put(sid, 1);
+                            }
+                        }
+                    }
+                }
+            }
+            float pDep = sumFleetMemberDp(engine, 0, "deployed");
+            float pDes = sumFleetMemberDp(engine, 0, "destroyed");
+            float pRet = sumFleetMemberDp(engine, 0, "retreated");
+            float eDep = sumFleetMemberDp(engine, 1, "deployed");
+            float eDes = sumFleetMemberDp(engine, 1, "destroyed");
+            float eRet = sumFleetMemberDp(engine, 1, "retreated");
+
+            float[] shipTallies = new float[6];
+            for (java.util.Map.Entry<String, Float> entry : seenShipDpById.entrySet()) {
+                String sid = entry.getKey();
+                float dp = entry.getValue() != null ? entry.getValue() : 0f;
+                Integer sideObj = seenShipSideById.get(sid);
+                Integer stObj = seenShipStateById.get(sid);
+                if (sideObj == null || stObj == null || dp <= 0f) continue;
+                int base = (sideObj == 0) ? 0 : 3;
+                shipTallies[base + stObj] += dp;
+            }
+
+            if ((pDep + pDes + pRet) > 0f) {
+                cachedSummaryDp[0] = pDep;
+                cachedSummaryDp[1] = pDes;
+                cachedSummaryDp[2] = pRet;
+            } else if ((shipTallies[0] + shipTallies[1] + shipTallies[2]) > 0f) {
+                cachedSummaryDp[0] = shipTallies[0];
+                cachedSummaryDp[1] = shipTallies[1];
+                cachedSummaryDp[2] = shipTallies[2];
+            }
+            if ((eDep + eDes + eRet) > 0f) {
+                cachedSummaryDp[3] = eDep;
+                cachedSummaryDp[4] = eDes;
+                cachedSummaryDp[5] = eRet;
+            } else if ((shipTallies[3] + shipTallies[4] + shipTallies[5]) > 0f) {
+                cachedSummaryDp[3] = shipTallies[3];
+                cachedSummaryDp[4] = shipTallies[4];
+                cachedSummaryDp[5] = shipTallies[5];
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public float[] getCachedSummaryDp() {
+        return cachedSummaryDp;
+    }
+
+    private static float resolveShipDeploymentPoints(ShipAPI s) {
+        if (s == null) return 0f;
+        try {
+            if (s.getFleetMember() != null) {
+                float dp = resolveFleetMemberDp(s.getFleetMember());
+                if (dp > 0f) return dp;
+            }
+            if (s.getHullSpec() != null && s.getHullSpec().getSuppliesToRecover() > 0f) {
+                return s.getHullSpec().getSuppliesToRecover();
+            }
+        } catch (Throwable ignored) {
+        }
+        ShipAPI.HullSize hs = s.getHullSize();
+        if (hs == ShipAPI.HullSize.CAPITAL_SHIP || s.isCapital()) return 40f;
+        if (hs == ShipAPI.HullSize.CRUISER || s.isCruiser()) return 20f;
+        if (hs == ShipAPI.HullSize.DESTROYER || s.isDestroyer()) return 10f;
+        return 5f;
+    }
+
+    private static float resolveFleetMemberDp(com.fs.starfarer.api.fleet.FleetMemberAPI m) {
+        if (m == null || m.isFighterWing()) return 0f;
+        float dp = m.getDeploymentPointsCost();
+        if (dp > 0f) return dp;
+        if (m.getHullSpec() != null && m.getHullSpec().getSuppliesToRecover() > 0f) {
+            return m.getHullSpec().getSuppliesToRecover();
+        }
+        return (float) m.getFleetPointCost();
+    }
+
     public static void logBattleSummary(
             CombatEngineAPI engine,
             BattleGroupState playerGroup,
             BattleGroupState enemyGroup) {
+        logBattleSummaryWithCache(engine, playerGroup, enemyGroup, null);
+    }
+
+    public static void logBattleSummaryWithCache(
+            CombatEngineAPI engine,
+            BattleGroupState playerGroup,
+            BattleGroupState enemyGroup,
+            float[] cachedDp) {
         if (engine == null) return;
         try {
             float duration = engine.getTotalElapsedTime(false);
@@ -1487,6 +1621,19 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             float eDeployedDp = sumFleetMemberDp(engine, 1, "deployed");
             float eDestroyedDp = sumFleetMemberDp(engine, 1, "destroyed");
             float eRetreatedDp = sumFleetMemberDp(engine, 1, "retreated");
+
+            if (cachedDp != null && cachedDp.length >= 6) {
+                if ((pDeployedDp + pDestroyedDp + pRetreatedDp) <= 0f) {
+                    pDeployedDp = cachedDp[0];
+                    pDestroyedDp = cachedDp[1];
+                    pRetreatedDp = cachedDp[2];
+                }
+                if ((eDeployedDp + eDestroyedDp + eRetreatedDp) <= 0f) {
+                    eDeployedDp = cachedDp[3];
+                    eDestroyedDp = cachedDp[4];
+                    eRetreatedDp = cachedDp[5];
+                }
+            }
 
             String outcome = (winSide == 0)
                     ? "PLAYER_VICTORY"
@@ -1541,7 +1688,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             float sum = 0f;
             for (com.fs.starfarer.api.fleet.FleetMemberAPI m : list) {
                 if (m != null && !m.isFighterWing()) {
-                    sum += m.getDeploymentPointsCost();
+                    sum += resolveFleetMemberDp(m);
                 }
             }
             return sum;

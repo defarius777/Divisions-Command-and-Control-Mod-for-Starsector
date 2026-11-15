@@ -1886,7 +1886,13 @@ public class BattlefieldFirepowerEvaluator {
                 float d = distance(div.centroid, cand.centroid);
                 if (d < 250f) continue;
                 float gateDanger = computeEnemySpawnCorridorDanger(myGroup, cand.centroid);
+                float incumbentBonus = (div.currentIntent == DivisionModel.DivisionIntentType.RUN_THE_GAUNTLET
+                        && cand == div.targetFriendlyDivision
+                        && gateDanger < 0.35f)
+                        ? 240f
+                        : 0f;
                 float score = (cand.tsfCombatPower > 0.5f ? cand.tsfCombatPower : cand.totalFpStrength) * 9f
+                        + incumbentBonus
                         - d * 0.14f
                         - cand.avgFluxLevel * 320f
                         - cand.crossfireCordonIndex * 380f

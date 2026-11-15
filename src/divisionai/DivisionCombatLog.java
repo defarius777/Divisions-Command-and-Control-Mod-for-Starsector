@@ -191,11 +191,16 @@ public class DivisionCombatLog {
             float now) {
         if (battleGroup == null || directiveSummary == null) return;
 
-        String sig = battleGroup.currentPhase.name() + "|" + directiveSummary;
+        String normSummary = directiveSummary.replaceAll("\\([0-9]+\\.[0-9]+x\\)", "(X)");
+        String sig = battleGroup.currentPhase.name() + "|" + normSummary;
         if (sig.equals(battleGroup.lastOtcSignalSignature) && (now - battleGroup.lastOtcSignalLogTime) < 25f) {
             return;
         }
-        if ((now - battleGroup.lastOtcSignalLogTime) < MIN_OTC_LOG_INTERVAL && battleGroup.previousPhase == battleGroup.currentPhase) {
+        float minInterval = (battleGroup.previousPhase == DivisionModel.BattlePhase.GENERAL_CHASE
+                && battleGroup.currentPhase == DivisionModel.BattlePhase.GENERAL_CHASE)
+                ? Math.max(MIN_OTC_LOG_INTERVAL, 18f)
+                : MIN_OTC_LOG_INTERVAL;
+        if ((now - battleGroup.lastOtcSignalLogTime) < minInterval && battleGroup.previousPhase == battleGroup.currentPhase) {
             return;
         }
 

@@ -911,7 +911,7 @@ public class OtcBattlePlanner {
                 }
                 float dist = DivisionUiWidgets.distance(d.centroid, ePos);
                 if (d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e) {
-                    dist -= 1000f;
+                    dist -= 1800f;
                 }
                 if (isPursuitInterception && d.pursuitSpawnZone != 0 && Math.signum(ePos.x) == d.pursuitSpawnZone) {
                     dist -= 800f;
@@ -2090,6 +2090,16 @@ public class OtcBattlePlanner {
     private static void logOrder(CombatEngineAPI engine, BattleGroupState battleGroup, String key, String text, float now) {
         Float last = battleGroup.orderLogTimes.get(key);
         if (last != null && (now - last) < ORDER_LOG_INTERVAL) return;
+        if (battleGroup.currentPhase == BattlePhase.GENERAL_CHASE
+                && (key.startsWith("pursue:") || key.startsWith("flank:"))) {
+            int gtIdx = key.indexOf('>');
+            String divScope = key.startsWith("pursue:") && gtIdx > 7
+                    ? "chase_div_cd:" + key.substring(7, gtIdx)
+                    : "chase_div_cd:" + key;
+            Float lastDiv = battleGroup.orderLogTimes.get(divScope);
+            if (lastDiv != null && (now - lastDiv) < 15.0f) return;
+            battleGroup.orderLogTimes.put(divScope, now);
+        }
         battleGroup.orderLogTimes.put(key, now);
         DivisionCombatLog.logOtcOrder(engine, battleGroup, text);
     }
