@@ -5755,6 +5755,7 @@ public class PermanentDivisionManager {
                 }
                 DivisionAutoFormer.recomputeDivisionCapabilities(existingCombatDiv);
                 applyDoctrineModifiersToCombatDivision(existingCombatDiv, spec, doctrineCfg);
+                applyBattleFormationOverrideIfPresent(battleGroup, existingCombatDiv, spec.id, doctrineCfg);
                 DivisionCombatLog.logReinforcementJoined(existingCombatDiv, prof.ship);
             } else {
                 specById.put(groupKey, spec);
@@ -5790,11 +5791,34 @@ public class PermanentDivisionManager {
                 combatDiv.consentedWingSide = zone;
             }
             applyDoctrineModifiersToCombatDivision(combatDiv, effectiveSpec, doctrineCfg);
+            applyBattleFormationOverrideIfPresent(battleGroup, combatDiv, spec.id, doctrineCfg);
             battleGroup.divisions.add(combatDiv);
             newlyCreatedOut.add(combatDiv);
         }
 
         return leftoverUnassigned;
+    }
+
+    public static void applyBattleFormationOverrideIfPresent(
+            BattleGroupState battleGroup,
+            DivisionState combatDiv,
+            String baseSpecId,
+            FleetDoctrineConfig doctrineCfg) {
+        if (battleGroup == null || combatDiv == null || !battleGroup.battleDivisionFormationsHarmonized) {
+            return;
+        }
+        DivisionFormation overrideFm = (baseSpecId != null)
+                ? battleGroup.battleDivisionFormationOverrides.get(baseSpecId)
+                : null;
+        if (overrideFm != null) {
+            combatDiv.doctrinalFormation = overrideFm;
+        } else if (doctrineCfg != null) {
+            DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(combatDiv.archetype);
+            combatDiv.doctrinalFormation = doctrineCfg.getFormation(dt);
+        }
+        if (combatDiv.lastFormationChangeTime < -100f) {
+            combatDiv.activeFormation = combatDiv.doctrinalFormation;
+        }
     }
 
     public static void applyDoctrineModifiersToCombatDivision(DivisionState div, PermanentDivisionSpec spec) {

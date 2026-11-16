@@ -3309,6 +3309,7 @@ public class UITestHarness {
                 "src/divisionai/DivisionDeploymentDialogOrganizer.java",
                 "src/divisionai/FleetCommandPanel.java",
                 "src/divisionai/OtcSelectionModalDialog.java",
+                "src/divisionai/FightingStyleModalDialog.java",
                 "src/divisionai/DivisionEditorDialog.java",
                 "src/divisionai/DivisionConfigureSubscreen.java",
                 "src/divisionai/FleetDoctrineDialog.java",

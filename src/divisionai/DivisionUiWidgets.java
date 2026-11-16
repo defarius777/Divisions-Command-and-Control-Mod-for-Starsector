@@ -1046,9 +1046,32 @@ public final class DivisionUiWidgets {
                 };
             case "CLOSE":
             case "OTC_WINDOW_CLOSE":
+            case "FIGHTING_STYLE_CLOSE":
                 return new String[]{
                         "Close Window",
-                        "Closes this window and saves any pending text field changes."
+                        "Closes this window and returns to the Deployment Screen."
+                };
+            case "FIGHTING_STYLE_PREV":
+            case "FIGHTING_STYLE_NEXT":
+                return new String[]{
+                        "Cycle Battle Fighting Style",
+                        "Cycles your fleet's operational fighting style (Light & Strike Warfare, Linear Warfare, Carrier-Centric Ops, or Custom) for this battle only without altering your saved Campaign Fleet Doctrine."
+                };
+            case "FIGHTING_STYLE_CUSTOMIZE":
+                return new String[]{
+                        "Customize Battle Fighting Style",
+                        "Opens the Battle Fighting Style panel to switch operational presets or fine-tune Anchor, Objective Capture, Primary Striking Arm, Engagement Discipline, Setpieces, and Tactical Plays for this battle only."
+                };
+            case "FIGHTING_STYLE_RESET_CAMPAIGN":
+                return new String[]{
+                        "Restore Campaign Doctrine",
+                        "Resets all temporary battle fighting-style, command-style, and formation overrides back to your saved Campaign Fleet Doctrine."
+                };
+            case "BATTLE_SETPIECE_PREV":
+            case "BATTLE_SETPIECE_NEXT":
+                return new String[]{
+                        "Cycle Multi-Division Setpiece",
+                        "Cycles which coordinated multi-division setpiece maneuver your Officer in Tactical Command may execute during this battle."
                 };
             case "CONFIRM_YES":
                 return new String[]{

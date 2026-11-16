@@ -63,14 +63,16 @@ public final class FleetCommandPanel {
                         : portraitH
         };
         final float portraitX = 12f;
-        final float leftSectionW = Math.round(width * 0.46f);
+        final float leftSectionW = Math.round(width * 0.385f);
         final float rightSectionX = leftSectionW + 8f;
-        final float rightSectionW = Math.max(280f, width - rightSectionX - 6f);
-        final float cmdColW = Math.round((rightSectionW - 6f) * 0.48f);
+        final float rightSectionW = Math.max(360f, width - rightSectionX - 6f);
+        final float cmdColW = Math.round((rightSectionW - 12f) * 0.315f);
+        final float styleColW = Math.round((rightSectionW - 12f) * 0.330f);
         final float cmdColX = rightSectionX;
-        final float formColX = rightSectionX + cmdColW + 6f;
-        final float formColW = Math.max(140f, rightSectionW - cmdColW - 6f);
-        final float rightStatusMaxW = Math.max(180f, rightSectionW - 204f);
+        final float styleColX = cmdColX + cmdColW + 6f;
+        final float formColX = styleColX + styleColW + 6f;
+        final float formColW = Math.max(184f, rightSectionW - cmdColW - styleColW - 12f);
+        final float rightStatusMaxW = Math.max(180f, rightSectionW - 236f);
         final float titleTopY = topBarH + 10f;
         final float[] masterBasePos = new float[]{portraitX + portraitWRef[0] + 12f, titleTopY};
         final PositionAPI[] masterPosRef = new PositionAPI[1];
@@ -90,6 +92,9 @@ public final class FleetCommandPanel {
         final ButtonAPI[] entryButtonRef = new ButtonAPI[1];
         final ButtonAPI[] authPrevButtonRef = new ButtonAPI[1];
         final ButtonAPI[] authNextButtonRef = new ButtonAPI[1];
+        final ButtonAPI[] stylePrevButtonRef = new ButtonAPI[1];
+        final ButtonAPI[] styleNextButtonRef = new ButtonAPI[1];
+        final ButtonAPI[] styleCustomizeButtonRef = new ButtonAPI[1];
         final ButtonAPI[] changeOtcButtonRef = new ButtonAPI[1];
         final float[] liveEngagementLevel = new float[]{0f};
         final float[] liveCommitmentRatio = new float[]{0f};
@@ -126,6 +131,13 @@ public final class FleetCommandPanel {
         final LabelAPI cmdStyleNameLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
         cmdStyleNameLabel.setColor(new Color(255, 232, 130, 255));
         cmdStyleNameLabel.setAlignment(Alignment.MID);
+        final LabelAPI fightingStyleHeaderLabel = Global.getSettings().createLabel(
+                preBattle ? "FIGHTING STYLE" : "", Fonts.ORBITRON_12);
+        fightingStyleHeaderLabel.setColor(new Color(125, 235, 255, 255));
+        fightingStyleHeaderLabel.setAlignment(Alignment.MID);
+        final LabelAPI fightingStyleNameLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
+        fightingStyleNameLabel.setColor(new Color(190, 245, 255, 255));
+        fightingStyleNameLabel.setAlignment(Alignment.MID);
         final LabelAPI selectorHeaderLabel = Global.getSettings().createLabel(
                 preBattle ? "FLEET FORMATION" : "FLEET STATUS", Fonts.ORBITRON_12);
         selectorHeaderLabel.setColor(new Color(255, 215, 80, 255));
@@ -156,6 +168,8 @@ public final class FleetCommandPanel {
         DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(profileLine2Label);
         DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(cmdStyleHeaderLabel);
         DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(cmdStyleNameLabel);
+        DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(fightingStyleHeaderLabel);
+        DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(fightingStyleNameLabel);
         DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(selectorHeaderLabel);
         DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(formationNameLabel);
         DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(engagementLabel);
@@ -230,6 +244,12 @@ public final class FleetCommandPanel {
 
                 boolean otcDeployedOrSelected = organizer.isOtcMemberSelectedOrDeployed(engine, fdd, fm, deployedMembers);
                 PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+                if (playerGroup != null) {
+                    playerGroup.ensureCampaignDoctrineInherited();
+                }
+                PermanentDivisionManager.OtcAuthority effAuth = (playerGroup != null && playerGroup.authority != null)
+                        ? playerGroup.authority
+                        : doc.getOtcAuthority();
                 float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
                 boolean disabledByAlpha = DivisionOtcCommandManager.isPlayerOtcLockedByAlphaCoreInBattle(
                         engine, fm, playerGroup, preBattle);
@@ -245,7 +265,7 @@ public final class FleetCommandPanel {
                         + "|" + commanderName
                         + "|" + flagshipName
                         + "|" + hullClassName
-                        + "|" + doc.getOtcAuthority().name()
+                        + "|" + effAuth.name()
                         + "|" + disabledByAlpha
                         + "|" + disabledByDisruption
                         + "|" + disruptRemSec;
@@ -284,14 +304,14 @@ public final class FleetCommandPanel {
                     float masterW = CampaignFleetTooltipOrganizer.measureLineWidth(masterWord, cogMasterLabel);
                     boolean wrapMasterLine = (preW + masterW + 6f > maxWrapW);
                     float masterX = wrapMasterLine ? textLeftX : (textLeftX + preW);
-                    float masterY = wrapMasterLine ? (effTitleTopY + 14f) : effTitleTopY;
+                    float masterY = wrapMasterLine ? (effTitleTopY + 16f) : effTitleTopY;
                     float remAfterPre = wrapMasterLine ? safeLabelBoxW : Math.max(60f, safeLabelBoxW - preW);
                     if (masterGhostPosRef[0] != null) masterGhostPosRef[0].setSize(remAfterPre, 14f).inTL(masterX, masterY);
                     if (masterPosRef[0] != null) masterPosRef[0].setSize(remAfterPre, 14f).inTL(masterX, masterY);
                     cogMasterGhostLabel.setText(masterWord);
                     cogMasterLabel.setText(masterWord);
 
-                    float shipBaseTopY = wrapMasterLine ? (effTitleTopY + 30f) : (effTitleTopY + 16f);
+                    float shipBaseTopY = wrapMasterLine ? (effTitleTopY + 32f) : (effTitleTopY + 16f);
                     // ORBITRON_20AA glyphs are wider than standard 15px fonts; use a tighter wrap budget so long AI ship names always wrap cleanly
                     float shipWrapBudget = Math.max(110f, maxWrapW - 12f);
                     String[] shipLines = DivisionDeploymentDialogOrganizer.wrapOtcTextIntoTwoLines(shipLine, cogSuffixLabel, shipWrapBudget, shipWrapBudget);
@@ -366,11 +386,11 @@ public final class FleetCommandPanel {
                 } else if (playerGroup != null && DivisionOtcCommandManager.isOtcDisabled(playerGroup, now)) {
                     profileLine = String.format(Locale.ROOT, "Disrupted: %.0fs | %s",
                             DivisionOtcCommandManager.getOtcDisabledSecondsRemaining(playerGroup, now),
-                            doc.getOtcAuthority().shortName);
+                            effAuth.shortName);
                     profileLabel.setColor(new Color(255, 165, 90, 245));
                     profileLine2Label.setColor(new Color(255, 165, 90, 245));
                 } else {
-                    profileLine = String.format(Locale.ROOT, "%s | %s", personality, doc.getOtcAuthority().shortName);
+                    profileLine = String.format(Locale.ROOT, "%s | %s", personality, effAuth.shortName);
                     profileLabel.setColor(new Color(175, 215, 235, 240));
                     profileLine2Label.setColor(new Color(175, 215, 235, 240));
                 }
@@ -412,22 +432,52 @@ public final class FleetCommandPanel {
 
             private void updateSelectorText() {
                 PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+                if (playerGroup != null) {
+                    playerGroup.ensureCampaignDoctrineInherited();
+                }
                 PermanentDivisionManager.FleetWideFormation fw;
                 boolean isPursuit = OtcAI.isPursuitBattle(engine, playerGroup);
                 boolean isRearguard = (playerGroup != null && playerGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
                 if (preBattle) {
-                    fw = isPursuit ? PermanentDivisionManager.FleetWideFormation.NONE : doc.getFleetWideFormation();
-                    PermanentDivisionManager.OtcAuthority auth = doc.getOtcAuthority();
-                    if (playerGroup != null) {
-                        playerGroup.authority = auth;
-                    }
-                    String selKey = "PRE|" + auth.name() + "|" + fw.name() + "|" + doc.isOrchestratedAdvance() + "|" + isPursuit + "|" + isRearguard;
+                    PermanentDivisionManager.FleetWideFormation baseFw = (playerGroup != null && playerGroup.fleetWideFormation != null)
+                            ? playerGroup.fleetWideFormation
+                            : doc.getFleetWideFormation();
+                    fw = isPursuit ? PermanentDivisionManager.FleetWideFormation.NONE : baseFw;
+                    PermanentDivisionManager.OtcAuthority auth = (playerGroup != null && playerGroup.authority != null)
+                            ? playerGroup.authority
+                            : doc.getOtcAuthority();
+                    PermanentDivisionManager.OperationalTemplate matchedTpl = (playerGroup != null)
+                            ? playerGroup.resolveMatchingOperationalTemplate()
+                            : doc.resolveMatchingOperationalTemplate();
+                    String styleKey = (matchedTpl != null)
+                            ? matchedTpl.name()
+                            : ("CUSTOM:" + (playerGroup != null ? playerGroup.operationalAnchor.name() : "")
+                            + ":" + (playerGroup != null ? playerGroup.objectiveCapturePolicy.name() : "")
+                            + ":" + (playerGroup != null ? playerGroup.decisiveArm.name() : "")
+                            + ":" + (playerGroup != null ? playerGroup.engagementDiscipline.name() : ""));
+                    boolean orch = (playerGroup != null) ? playerGroup.orchestratedAdvance : doc.isOrchestratedAdvance();
+                    String selKey = "PRE|" + auth.name() + "|" + styleKey + "|" + fw.name() + "|" + orch + "|" + isPursuit + "|" + isRearguard
+                            + "|" + organizer.isFightingStyleWindowOpen();
                     if (selKey.equals(lastSelectorLayoutKey)) {
                         return;
                     }
                     lastSelectorLayoutKey = selKey;
                     cmdStyleNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                            auth.dropdownLabel, cmdStyleNameLabel, cmdColW - 64f));
+                            auth.dropdownLabel, cmdStyleNameLabel, cmdColW - 60f));
+                    String styleTitle = (matchedTpl != null) ? matchedTpl.shortName : "Custom Style";
+                    fightingStyleNameLabel.setColor(matchedTpl != null
+                            ? new Color(190, 245, 255, 255)
+                            : new Color(255, 222, 105, 255));
+                    fightingStyleNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
+                            styleTitle, fightingStyleNameLabel, styleColW - 60f));
+                    ButtonAPI custBtn = styleCustomizeButtonRef[0];
+                    if (custBtn != null) {
+                        if (organizer.isFightingStyleWindowOpen() || matchedTpl == null) {
+                            custBtn.highlight();
+                        } else {
+                            custBtn.unhighlight();
+                        }
+                    }
                 } else {
                     fw = isPursuit
                             ? PermanentDivisionManager.FleetWideFormation.NONE
@@ -435,7 +485,9 @@ public final class FleetCommandPanel {
                             && playerGroup.activeFleetWideFormation != null
                             && playerGroup.activeFleetWideFormation != PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO)
                             ? playerGroup.activeFleetWideFormation
-                            : doc.getFleetWideFormation());
+                            : ((playerGroup != null && playerGroup.fleetWideFormation != null)
+                            ? playerGroup.fleetWideFormation
+                            : doc.getFleetWideFormation()));
                     String selKey = "LIVE|" + fw.name() + "|" + isPursuit + "|" + isRearguard;
                     if (selKey.equals(lastSelectorLayoutKey)) {
                         return;
@@ -447,14 +499,14 @@ public final class FleetCommandPanel {
                         : fw.displayName;
                 formationNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
                         fmDisplay, formationNameLabel,
-                        preBattle ? formColW - 64f : rightStatusMaxW));
+                        preBattle ? formColW - 60f : rightStatusMaxW));
                 ButtonAPI entry = entryButtonRef[0];
                 if (preBattle && entry != null) {
                     if (isPursuit) {
                         entry.setText(isRearguard ? "Pursuit Mode: Rearguard" : "Pursuit Zones: C / L / R");
                         entry.unhighlight();
                     } else {
-                        boolean orch = doc.isOrchestratedAdvance();
+                        boolean orch = (playerGroup != null) ? playerGroup.orchestratedAdvance : doc.isOrchestratedAdvance();
                         entry.setText("Orchestrated Advance: " + (orch ? "On" : "Off"));
                         if (orch) entry.highlight();
                         else entry.unhighlight();
@@ -576,6 +628,38 @@ public final class FleetCommandPanel {
                     authNext.setChecked(false);
                     DivisionDeploymentDialogOrganizer.selectOtcAuthority(playerGroup, 1);
                 }
+                ButtonAPI stylePrev = stylePrevButtonRef[0];
+                ButtonAPI styleNext = styleNextButtonRef[0];
+                ButtonAPI styleCust = styleCustomizeButtonRef[0];
+                if (stylePrev != null && stylePrev.isChecked()) {
+                    stylePrev.setChecked(false);
+                    DivisionDeploymentDialogOrganizer.selectFightingStyle(playerGroup, -1);
+                }
+                if (styleNext != null && styleNext.isChecked()) {
+                    styleNext.setChecked(false);
+                    DivisionDeploymentDialogOrganizer.selectFightingStyle(playerGroup, 1);
+                }
+                if (styleCust != null && styleCust.isChecked()) {
+                    styleCust.setChecked(false);
+                    DivisionDeploymentDialogOrganizer.playDeploymentButtonSound();
+                    if (organizer.isFightingStyleWindowOpen()) {
+                        organizer.closeFightingStyleWindow(innerPanel, reservesGrid);
+                    } else {
+                        organizer.openFightingStyleWindow(
+                                innerPanel,
+                                reservesGrid,
+                                width,
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        lastSelectorLayoutKey = null;
+                                        lastOtcLayoutKey = null;
+                                        updateSelectorText();
+                                        refreshOtcDisplay();
+                                    }
+                                });
+                    }
+                }
                 ButtonAPI prev = prevButtonRef[0];
                 ButtonAPI next = nextButtonRef[0];
                 ButtonAPI entry = entryButtonRef[0];
@@ -589,14 +673,11 @@ public final class FleetCommandPanel {
                 }
                 if (entry != null && entry.isChecked()) {
                     entry.setChecked(false);
-                    PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
-                    boolean enabled = !doc.isOrchestratedAdvance();
-                    PermanentDivisionManager.updateOrchestratedAdvance(enabled);
-                    PermanentDivisionManager.updateDeployInFleetFormation(true);
                     if (playerGroup != null) {
-                        playerGroup.orchestratedAdvance = enabled;
+                        playerGroup.ensureCampaignDoctrineInherited();
+                        playerGroup.orchestratedAdvance = !playerGroup.orchestratedAdvance;
                         playerGroup.deployInFleetFormation =
-                                doc.getFleetWideFormation() != PermanentDivisionManager.FleetWideFormation.NONE;
+                                playerGroup.fleetWideFormation != PermanentDivisionManager.FleetWideFormation.NONE;
                     }
                     DivisionDeploymentDialogOrganizer.playDeploymentButtonSound();
                 }
@@ -624,28 +705,67 @@ public final class FleetCommandPanel {
 
             @Override
             public void processInput(List<com.fs.starfarer.api.input.InputEventAPI> events) {
-                if (!preBattle || events == null || organizer.isOtcSelectorWindowOpen()) return;
+                if (events == null || organizer.isAnyEmbeddedModalOpen()) return;
                 CustomPanelAPI self = panelRef[0];
                 if (self == null || self.getPosition() == null) return;
                 PositionAPI pos = self.getPosition();
-                float px = pos.getX() + cmdColX;
+                float x = pos.getX();
                 float py = pos.getY();
                 float ph = pos.getHeight();
-                float pCardW = 122f;
-                float pCardH = 122f;
-                float pStartX = px + Math.round((cmdColW - pCardW) * 0.5f);
-                float pBottomY = py + ph - 68f - pCardH;
-                for (com.fs.starfarer.api.input.InputEventAPI ev : events) {
-                    if (ev == null || ev.isConsumed()) continue;
-                    if (ev.isLMBDownEvent()) {
-                        float ex = ev.getX();
-                        float ey = ev.getY();
-                        if (ex >= pStartX && ex <= pStartX + pCardW && ey >= pBottomY && ey <= pBottomY + pCardH) {
-                            ev.consume();
-                            DivisionDeploymentDialogOrganizer.selectOtcAuthority(playerGroup, 1);
-                            updateSelectorText();
-                            refreshOtcDisplay();
-                            return;
+                if (preBattle) {
+                    float pCardSize = 104f;
+                    float pStartX = x + cmdColX + Math.round((cmdColW - pCardSize) * 0.5f);
+                    float pBottomY = py + ph - 68f - pCardSize;
+                    float sCardSize = 94f;
+                    float sStartX = x + styleColX + Math.round((styleColW - sCardSize) * 0.5f);
+                    float sBottomY = py + ph - 68f - sCardSize;
+                    float fCardSize = 94f;
+                    float fStartX = x + formColX + Math.round((formColW - fCardSize) * 0.5f);
+                    float fBottomY = py + ph - 68f - fCardSize;
+                    for (com.fs.starfarer.api.input.InputEventAPI ev : events) {
+                        if (ev == null || ev.isConsumed()) continue;
+                        if (ev.isLMBDownEvent()) {
+                            float ex = ev.getX();
+                            float ey = ev.getY();
+                            if (ex >= pStartX && ex <= pStartX + pCardSize && ey >= pBottomY && ey <= pBottomY + pCardSize) {
+                                ev.consume();
+                                DivisionDeploymentDialogOrganizer.selectOtcAuthority(playerGroup, 1);
+                                updateSelectorText();
+                                refreshOtcDisplay();
+                                return;
+                            }
+                            if (ex >= sStartX && ex <= sStartX + sCardSize && ey >= sBottomY && ey <= sBottomY + sCardSize) {
+                                ev.consume();
+                                DivisionDeploymentDialogOrganizer.selectFightingStyle(playerGroup, 1);
+                                updateSelectorText();
+                                return;
+                            }
+                            if (ex >= fStartX && ex <= fStartX + fCardSize && ey >= fBottomY && ey <= fBottomY + fCardSize) {
+                                ev.consume();
+                                DivisionDeploymentDialogOrganizer.selectFleetFormation(playerGroup, 1);
+                                updateSelectorText();
+                                return;
+                            }
+                        }
+                    }
+                } else {
+                    float rx = x + rightSectionX;
+                    float rw = rightSectionW;
+                    float midIconSize = 68f;
+                    float styleBadgeX = rx + rw - midIconSize * 2f - 14f;
+                    float badgeY = py + Math.round((ph - topBarH - midIconSize) * 0.5f) - 2f;
+                    for (com.fs.starfarer.api.input.InputEventAPI ev : events) {
+                        if (ev == null || ev.isConsumed()) continue;
+                        if (ev.isLMBDownEvent()) {
+                            float ex = ev.getX();
+                            float ey = ev.getY();
+                            if (ex >= styleBadgeX && ex <= styleBadgeX + midIconSize
+                                    && ey >= badgeY && ey <= badgeY + midIconSize) {
+                                ev.consume();
+                                DivisionDeploymentDialogOrganizer.playDeploymentButtonSound();
+                                organizer.openFightingStyleWindow(innerPanel, reservesGrid, width, null);
+                                return;
+                            }
                         }
                     }
                 }
@@ -706,6 +826,7 @@ public final class FleetCommandPanel {
                 float rh = h - topBarH - 10f;
                 if (preBattle) {
                     float cX = x + cmdColX;
+                    float sX = x + styleColX;
                     float fX = x + formColX;
                     GL11.glColor4f(0.01f, 0.03f, 0.06f, 0.85f * alphaMult);
                     GL11.glBegin(GL11.GL_QUADS);
@@ -713,6 +834,10 @@ public final class FleetCommandPanel {
                     GL11.glVertex2f(cX + cmdColW, ry);
                     GL11.glVertex2f(cX + cmdColW, ry + rh);
                     GL11.glVertex2f(cX, ry + rh);
+                    GL11.glVertex2f(sX, ry);
+                    GL11.glVertex2f(sX + styleColW, ry);
+                    GL11.glVertex2f(sX + styleColW, ry + rh);
+                    GL11.glVertex2f(sX, ry + rh);
                     GL11.glVertex2f(fX, ry);
                     GL11.glVertex2f(fX + formColW, ry);
                     GL11.glVertex2f(fX + formColW, ry + rh);
@@ -724,6 +849,12 @@ public final class FleetCommandPanel {
                     GL11.glVertex2f(cX + cmdColW, ry);
                     GL11.glVertex2f(cX + cmdColW, ry + rh);
                     GL11.glVertex2f(cX, ry + rh);
+                    GL11.glEnd();
+                    GL11.glBegin(GL11.GL_LINE_LOOP);
+                    GL11.glVertex2f(sX, ry);
+                    GL11.glVertex2f(sX + styleColW, ry);
+                    GL11.glVertex2f(sX + styleColW, ry + rh);
+                    GL11.glVertex2f(sX, ry + rh);
                     GL11.glEnd();
                     GL11.glBegin(GL11.GL_LINE_LOOP);
                     GL11.glVertex2f(fX, ry);
@@ -807,39 +938,62 @@ public final class FleetCommandPanel {
                 GL11.glPopAttrib();
 
                 PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+                if (playerGroup != null) {
+                    playerGroup.ensureCampaignDoctrineInherited();
+                }
                 PermanentDivisionManager.FleetWideFormation fw;
                 if (preBattle) {
-                    fw = doc.getFleetWideFormation();
+                    fw = (playerGroup != null && playerGroup.fleetWideFormation != null)
+                            ? playerGroup.fleetWideFormation
+                            : doc.getFleetWideFormation();
                 } else {
                     fw = (playerGroup != null
                             && playerGroup.activeFleetWideFormation != null
                             && playerGroup.activeFleetWideFormation != PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO)
                             ? playerGroup.activeFleetWideFormation
-                            : doc.getFleetWideFormation();
+                            : ((playerGroup != null && playerGroup.fleetWideFormation != null)
+                            ? playerGroup.fleetWideFormation
+                            : doc.getFleetWideFormation());
                 }
+                PermanentDivisionManager.OperationalTemplate iconTpl = (playerGroup != null)
+                        ? playerGroup.resolveIconOperationalTemplate()
+                        : PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
                 if (preBattle) {
-                    PermanentDivisionManager.OtcAuthority activeAuth = (doc != null && doc.getOtcAuthority() != null)
+                    PermanentDivisionManager.OtcAuthority activeAuth = (playerGroup != null && playerGroup.authority != null)
+                            ? playerGroup.authority
+                            : (doc != null && doc.getOtcAuthority() != null
                             ? doc.getOtcAuthority()
-                            : PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION;
-                    float pCardW = 122f;
-                    float pCardH = 122f;
-                    float pStartX = x + cmdColX + Math.round((cmdColW - pCardW) * 0.5f);
-                    float pBottomY = y + h - 68f - pCardH;
+                            : PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION);
+                    float pCardSize = 104f;
+                    float pStartX = x + cmdColX + Math.round((cmdColW - pCardSize) * 0.5f);
+                    float pBottomY = y + h - 68f - pCardSize;
                     FleetDoctrineDialog.renderOtcAuthorityPennantBox(
-                            activeAuth, pStartX, pBottomY, pCardW, pCardH, true, false, alphaMult);
-                    DivisionDeploymentDialogOrganizer.renderFleetFormationIcon(fw, x + formColX + formColW * 0.5f, y + h - 122f, 108f, alphaMult, false);
+                            activeAuth, pStartX, pBottomY, pCardSize, pCardSize, true, false, alphaMult);
+
+                    float sCardSize = 94f;
+                    float sStartX = x + styleColX + Math.round((styleColW - sCardSize) * 0.5f);
+                    float sBottomY = y + h - 68f - sCardSize;
+                    FleetDoctrineDialog.renderOperationalTemplateBox(
+                            iconTpl, sStartX, sBottomY, sCardSize, sCardSize, true, false, alphaMult);
+
+                    DivisionDeploymentDialogOrganizer.renderFleetFormationIcon(
+                            fw, x + formColX + formColW * 0.5f, y + h - 115f, 94f, alphaMult, false);
                 } else {
                     PermanentDivisionManager.OtcAuthority activeAuth = (playerGroup != null && playerGroup.authority != null)
                             ? playerGroup.authority
                             : doc.getOtcAuthority();
-                    float midIconSize = 86f;
-                    float pennantX = rx + rw - midIconSize * 2f - 18f;
-                    float pennantY = y + Math.round((h - topBarH - midIconSize) * 0.5f) - 2f;
+                    float midIconSize = 68f;
+                    float badgeY = y + Math.round((h - topBarH - midIconSize) * 0.5f) - 2f;
+                    float pennantX = rx + rw - midIconSize * 3f - 20f;
+                    float styleBadgeX = rx + rw - midIconSize * 2f - 14f;
                     float wheelCenterX = rx + rw - midIconSize * 0.5f - 8f;
-                    float wheelCenterY = pennantY + midIconSize * 0.5f;
+                    float wheelCenterY = badgeY + midIconSize * 0.5f;
                     FleetDoctrineDialog.renderOtcAuthorityPennantBox(
-                            activeAuth, pennantX, pennantY, midIconSize, midIconSize, true, false, alphaMult);
-                    DivisionDeploymentDialogOrganizer.renderFleetFormationIcon(fw, wheelCenterX, wheelCenterY, midIconSize, alphaMult, true);
+                            activeAuth, pennantX, badgeY, midIconSize, midIconSize, true, false, alphaMult);
+                    FleetDoctrineDialog.renderOperationalTemplateBox(
+                            iconTpl, styleBadgeX, badgeY, midIconSize, midIconSize, true, false, alphaMult);
+                    DivisionDeploymentDialogOrganizer.renderFleetFormationIcon(
+                            fw, wheelCenterX, wheelCenterY, midIconSize, alphaMult, true);
                 }
             }
         };
@@ -880,6 +1034,10 @@ public final class FleetCommandPanel {
                     .setSize(cmdColW - 8f, 15f).inTL(cmdColX + 4f, topBarH + 4f);
             panel.addComponent((UIComponentAPI) cmdStyleNameLabel)
                     .setSize(cmdColW - 60f, 16f).inTL(cmdColX + 30f, topBarH + 24f);
+            panel.addComponent((UIComponentAPI) fightingStyleHeaderLabel)
+                    .setSize(styleColW - 8f, 15f).inTL(styleColX + 4f, topBarH + 4f);
+            panel.addComponent((UIComponentAPI) fightingStyleNameLabel)
+                    .setSize(styleColW - 60f, 16f).inTL(styleColX + 30f, topBarH + 24f);
             panel.addComponent((UIComponentAPI) selectorHeaderLabel)
                     .setSize(formColW - 8f, 15f).inTL(formColX + 4f, topBarH + 4f);
             panel.addComponent((UIComponentAPI) formationNameLabel)
@@ -893,6 +1051,7 @@ public final class FleetCommandPanel {
 
         TooltipMakerAPI leftButtons = panel.createUIElement(leftSectionW, height, false);
         Color base = new Color(245, 200, 65);
+        Color cyanBase = new Color(115, 225, 250);
         Color dark = new Color(24, 34, 44);
         changeOtcButtonRef[0] = leftButtons.addButton("Change", "OTC_CHANGE", base, dark,
                 Alignment.MID, CutStyle.ALL, portraitWRef[0], 18f, 0f);
@@ -930,6 +1089,12 @@ public final class FleetCommandPanel {
                     Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
             authNextButtonRef[0] = buttons.addButton(">", "OTC_AUTH_NEXT", base, dark,
                     Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
+            stylePrevButtonRef[0] = buttons.addButton("<", "FIGHTING_STYLE_PREV", cyanBase, dark,
+                    Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
+            styleNextButtonRef[0] = buttons.addButton(">", "FIGHTING_STYLE_NEXT", cyanBase, dark,
+                    Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
+            styleCustomizeButtonRef[0] = buttons.addButton("Customize", "FIGHTING_STYLE_CUSTOMIZE", cyanBase, dark,
+                    Alignment.MID, CutStyle.ALL, styleColW - 12f, 18f, 0f);
             prevButtonRef[0] = buttons.addButton("<", "FLEET_FORMATION_PREV", base, dark,
                     Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
             nextButtonRef[0] = buttons.addButton(">", "FLEET_FORMATION_NEXT", base, dark,
@@ -938,11 +1103,17 @@ public final class FleetCommandPanel {
                     Alignment.MID, CutStyle.ALL, formColW - 12f, 18f, 0f);
             authPrevButtonRef[0].getPosition().inTL(cmdColX + 4f, topBarH + 22f);
             authNextButtonRef[0].getPosition().inTL(cmdColX + cmdColW - 28f, topBarH + 22f);
+            stylePrevButtonRef[0].getPosition().inTL(styleColX + 4f, topBarH + 22f);
+            styleNextButtonRef[0].getPosition().inTL(styleColX + styleColW - 28f, topBarH + 22f);
+            styleCustomizeButtonRef[0].getPosition().inTL(styleColX + 6f, height - 24f);
             prevButtonRef[0].getPosition().inTL(formColX + 4f, topBarH + 22f);
             nextButtonRef[0].getPosition().inTL(formColX + formColW - 28f, topBarH + 22f);
             entryButtonRef[0].getPosition().inTL(formColX + 6f, height - 24f);
             DivisionUiWidgets.attachActionTooltip(buttons, authPrevButtonRef[0], "OTC_AUTH_PREV");
             DivisionUiWidgets.attachActionTooltip(buttons, authNextButtonRef[0], "OTC_AUTH_NEXT");
+            DivisionUiWidgets.attachActionTooltip(buttons, stylePrevButtonRef[0], "FIGHTING_STYLE_PREV");
+            DivisionUiWidgets.attachActionTooltip(buttons, styleNextButtonRef[0], "FIGHTING_STYLE_NEXT");
+            DivisionUiWidgets.attachActionTooltip(buttons, styleCustomizeButtonRef[0], "FIGHTING_STYLE_CUSTOMIZE");
             DivisionUiWidgets.attachActionTooltip(buttons, prevButtonRef[0], "FLEET_FORMATION_PREV");
             DivisionUiWidgets.attachActionTooltip(buttons, nextButtonRef[0], "FLEET_FORMATION_NEXT");
             DivisionUiWidgets.attachActionTooltip(buttons, entryButtonRef[0], "FLEET_ORCHESTRATED_ADVANCE");

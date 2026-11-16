@@ -193,9 +193,12 @@ public class DivisionDeploymentDialogOrganizer {
     private final Map<String, MemberIconEntry> cachedEntriesForActiveFdd = new LinkedHashMap<>();
     private CustomPanelAPI activeFleetCommandPanel = null;
     private CustomPanelAPI activeOtcSelectorPanel = null;
+    private CustomPanelAPI activeFightingStylePanel = null;
     private UIPanelAPI standaloneEmergencyModalParent = null;
     private boolean otcSelectorWindowOpen = false;
+    private boolean fightingStyleWindowOpen = false;
     private Runnable activeOtcSelectorPollHook = null;
+    private Runnable activeFightingStylePollHook = null;
     private IndexedMemberList lastIndexedReserveMembers = new IndexedMemberList();
 
     public IndexedMemberList getLastIndexedReserveMembers() {
@@ -210,6 +213,18 @@ public class DivisionDeploymentDialogOrganizer {
         return otcSelectorWindowOpen;
     }
 
+    public CustomPanelAPI getActiveFightingStylePanel() {
+        return activeFightingStylePanel;
+    }
+
+    public boolean isFightingStyleWindowOpen() {
+        return fightingStyleWindowOpen;
+    }
+
+    public boolean isAnyEmbeddedModalOpen() {
+        return otcSelectorWindowOpen || fightingStyleWindowOpen;
+    }
+
     private BattleGroupState playerGroup;
     private BattleGroupState enemyGroup;
     private DynamicBattleMusicController musicController;
@@ -219,6 +234,9 @@ public class DivisionDeploymentDialogOrganizer {
             BattleGroupState enemyGroup,
             DynamicBattleMusicController musicController) {
         this.playerGroup = playerGroup;
+        if (this.playerGroup != null) {
+            this.playerGroup.ensureCampaignDoctrineInherited();
+        }
         this.enemyGroup = enemyGroup;
         this.musicController = musicController;
     }
@@ -568,12 +586,15 @@ public class DivisionDeploymentDialogOrganizer {
                 cachedReservesGridForActiveFdd = null;
                 activeFleetCommandPanel = null;
                 activeOtcSelectorPanel = null;
+                activeFightingStylePanel = null;
                 otcSelectorWindowOpen = false;
+                fightingStyleWindowOpen = false;
                 activeOtcSelectorPollHook = null;
+                activeFightingStylePollHook = null;
                 lastReservesSignature = "";
             }
 
-            if (otcSelectorWindowOpen) {
+            if (otcSelectorWindowOpen || fightingStyleWindowOpen) {
                 return;
             }
 
@@ -1087,8 +1108,7 @@ public class DivisionDeploymentDialogOrganizer {
             }
 
             PermanentDivisionManager.FleetDoctrineConfig docCfg = PermanentDivisionManager.getFleetDoctrine();
-            PermanentDivisionManager.DivisionFormation divFm =
-                    PermanentDivisionManager.resolveEffectiveFormation(divSpec, docCfg);
+            PermanentDivisionManager.DivisionFormation divFm = resolveBattleRowFormation(divSpec, docCfg);
             String rowTitle = DivisionNomenclature.resolveDynamicDivisionDisplayName(
                     playerNomCat,
                     divSpec.archetype,
@@ -1486,7 +1506,7 @@ public class DivisionDeploymentDialogOrganizer {
 
                 // Render 12x12 Formation Icon Box aligned with the division name
                 PermanentDivisionManager.DivisionFormation activeDivFm = (divSpec != null)
-                        ? PermanentDivisionManager.resolveEffectiveFormation(divSpec, PermanentDivisionManager.getFleetDoctrine())
+                        ? resolveBattleRowFormation(divSpec, PermanentDivisionManager.getFleetDoctrine())
                         : divFm;
                 if (isDivisionRow && activeDivFm != null) {
                     float iconSize = 12f;
@@ -2249,6 +2269,15 @@ public class DivisionDeploymentDialogOrganizer {
             otcSelectorWindowOpen = false;
             activeOtcSelectorPollHook = null;
         }
+        if (activeFightingStylePanel != null) {
+            try {
+                innerPanel.removeComponent(activeFightingStylePanel);
+            } catch (Throwable ignored) {
+            }
+            activeFightingStylePanel = null;
+            fightingStyleWindowOpen = false;
+            activeFightingStylePollHook = null;
+        }
 
         PositionAPI resPos = ((UIComponentAPI) reservesGrid).getPosition();
         PositionAPI depPos = (deployedGrid instanceof UIComponentAPI)
@@ -2319,10 +2348,47 @@ public class DivisionDeploymentDialogOrganizer {
         if (activeOtcSelectorPollHook != null) {
             activeOtcSelectorPollHook.run();
         }
+        if (activeFightingStylePollHook != null) {
+            activeFightingStylePollHook.run();
+        }
     }
 
     private float savedReservesLeftOff = 10f;
     private float savedReservesTopOff = 204f;
+
+    private PermanentDivisionManager.DivisionFormation resolveBattleRowFormation(
+            PermanentDivisionManager.PermanentDivisionSpec divSpec,
+            PermanentDivisionManager.FleetDoctrineConfig docCfg) {
+        if (divSpec == null) return null;
+        if (playerGroup != null && playerGroup.battleDivisionFormationsHarmonized) {
+            PermanentDivisionManager.DivisionFormation overrideFm =
+                    playerGroup.battleDivisionFormationOverrides.get(divSpec.id);
+            if (overrideFm != null) {
+                return overrideFm;
+            }
+            if (docCfg != null) {
+                PermanentDivisionManager.DoctrineDivisionType dt =
+                        PermanentDivisionManager.DoctrineDivisionType.forArchetype(divSpec.archetype);
+                return docCfg.getFormation(dt);
+            }
+        }
+        return PermanentDivisionManager.resolveEffectiveFormation(divSpec, docCfg);
+    }
+
+    private void restoreReservesGridVisibility(Object reservesGrid) {
+        if (reservesGrid instanceof UIComponentAPI) {
+            PositionAPI resPos = ((UIComponentAPI) reservesGrid).getPosition();
+            if (resPos != null) {
+                resPos.inTL(savedReservesLeftOff, savedReservesTopOff);
+            }
+            if (compSetOpacityHandle != null) {
+                try {
+                    compSetOpacityHandle.invoke(reservesGrid, 1f);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
 
     public void closeOtcSelectorWindow(UIPanelAPI innerPanel, Object reservesGrid) {
         if (activeOtcSelectorPanel != null && innerPanel != null) {
@@ -2335,17 +2401,90 @@ public class DivisionDeploymentDialogOrganizer {
         standaloneEmergencyModalParent = null;
         otcSelectorWindowOpen = false;
         activeOtcSelectorPollHook = null;
-        if (reservesGrid instanceof UIComponentAPI) {
-            PositionAPI resPos = ((UIComponentAPI) reservesGrid).getPosition();
-            if (resPos != null) {
-                resPos.inTL(savedReservesLeftOff, savedReservesTopOff);
+        if (!fightingStyleWindowOpen) {
+            restoreReservesGridVisibility(reservesGrid);
+        }
+    }
+
+    public void closeFightingStyleWindow(UIPanelAPI innerPanel, Object reservesGrid) {
+        if (activeFightingStylePanel != null && innerPanel != null) {
+            try {
+                innerPanel.removeComponent(activeFightingStylePanel);
+            } catch (Throwable ignored) {
             }
-            if (compSetOpacityHandle != null) {
-                try {
-                    compSetOpacityHandle.invoke(reservesGrid, 1f);
-                } catch (Throwable ignored) {
-                }
+        }
+        activeFightingStylePanel = null;
+        fightingStyleWindowOpen = false;
+        activeFightingStylePollHook = null;
+        if (!otcSelectorWindowOpen) {
+            restoreReservesGridVisibility(reservesGrid);
+        }
+    }
+
+    void openFightingStyleWindow(
+            final UIPanelAPI innerPanel,
+            final Object reservesGrid,
+            final float fallbackWidth,
+            final Runnable onStyleChangedCallback) {
+        if (innerPanel == null) return;
+        boolean wasModalAlreadyHidingReserves = otcSelectorWindowOpen || fightingStyleWindowOpen;
+        if (activeOtcSelectorPanel != null) {
+            try {
+                innerPanel.removeComponent(activeOtcSelectorPanel);
+            } catch (Throwable ignored) {
             }
+            activeOtcSelectorPanel = null;
+            otcSelectorWindowOpen = false;
+            activeOtcSelectorPollHook = null;
+        }
+        if (activeFightingStylePanel != null) {
+            try {
+                innerPanel.removeComponent(activeFightingStylePanel);
+            } catch (Throwable ignored) {
+            }
+            activeFightingStylePanel = null;
+            fightingStyleWindowOpen = false;
+            activeFightingStylePollHook = null;
+        }
+
+        PositionAPI innerPos = innerPanel.getPosition();
+        PositionAPI resPos = (reservesGrid instanceof UIComponentAPI)
+                ? ((UIComponentAPI) reservesGrid).getPosition()
+                : null;
+        float winW = (resPos != null && resPos.getWidth() > 100f) ? resPos.getWidth() : fallbackWidth;
+        float winH = (resPos != null && resPos.getHeight() > 100f) ? resPos.getHeight() : 406f;
+        if (!wasModalAlreadyHidingReserves) {
+            float leftOff = (resPos != null && innerPos != null && resPos.getX() > -1000f && resPos.getX() < 5000f)
+                    ? Math.max(0f, resPos.getX() - innerPos.getX())
+                    : 10f;
+            float topOff = (resPos != null && innerPos != null && resPos.getY() > -1000f && resPos.getY() < 5000f)
+                    ? Math.max(0f, (innerPos.getY() + innerPos.getHeight()) - (resPos.getY() + resPos.getHeight()))
+                    : 204f;
+            savedReservesLeftOff = leftOff;
+            savedReservesTopOff = topOff;
+        }
+        if (resPos != null) {
+            resPos.inTL(10000f, 10000f);
+        }
+        if (reservesGrid != null && compSetOpacityHandle != null) {
+            try {
+                compSetOpacityHandle.invoke(reservesGrid, 0f);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        CustomPanelAPI winPanel = FightingStyleModalDialog.createWindowPanel(
+                this,
+                innerPanel,
+                reservesGrid,
+                winW,
+                winH,
+                onStyleChangedCallback);
+        activeFightingStylePanel = winPanel;
+        fightingStyleWindowOpen = true;
+        PositionAPI wp = innerPanel.addComponent(winPanel);
+        if (wp != null) {
+            wp.setSize(winW, winH).inTL(savedReservesLeftOff, savedReservesTopOff);
         }
     }
 
@@ -2428,7 +2567,25 @@ public class DivisionDeploymentDialogOrganizer {
             final boolean preBattle,
             final Runnable onOtcChangedCallback) {
         if (innerPanel == null) return;
-        closeOtcSelectorWindow(innerPanel, reservesGrid);
+        boolean wasModalAlreadyHidingReserves = otcSelectorWindowOpen || fightingStyleWindowOpen;
+        if (activeFightingStylePanel != null) {
+            try {
+                innerPanel.removeComponent(activeFightingStylePanel);
+            } catch (Throwable ignored) {
+            }
+            activeFightingStylePanel = null;
+            fightingStyleWindowOpen = false;
+            activeFightingStylePollHook = null;
+        }
+        if (activeOtcSelectorPanel != null) {
+            try {
+                innerPanel.removeComponent(activeOtcSelectorPanel);
+            } catch (Throwable ignored) {
+            }
+            activeOtcSelectorPanel = null;
+            otcSelectorWindowOpen = false;
+            activeOtcSelectorPollHook = null;
+        }
 
         PositionAPI innerPos = innerPanel.getPosition();
         PositionAPI resPos = (reservesGrid instanceof UIComponentAPI)
@@ -2436,14 +2593,18 @@ public class DivisionDeploymentDialogOrganizer {
                 : null;
         float winW = (resPos != null && resPos.getWidth() > 100f) ? resPos.getWidth() : fallbackWidth;
         float winH = (resPos != null && resPos.getHeight() > 100f) ? resPos.getHeight() : 406f;
-        float leftOff = (resPos != null && innerPos != null && resPos.getX() > -1000f)
-                ? Math.max(0f, resPos.getX() - innerPos.getX())
-                : 10f;
-        float topOff = (resPos != null && innerPos != null && resPos.getY() > -1000f)
-                ? Math.max(0f, (innerPos.getY() + innerPos.getHeight()) - (resPos.getY() + resPos.getHeight()))
-                : 204f;
-        savedReservesLeftOff = leftOff;
-        savedReservesTopOff = topOff;
+        if (!wasModalAlreadyHidingReserves) {
+            float leftOff = (resPos != null && innerPos != null && resPos.getX() > -1000f && resPos.getX() < 5000f)
+                    ? Math.max(0f, resPos.getX() - innerPos.getX())
+                    : 10f;
+            float topOff = (resPos != null && innerPos != null && resPos.getY() > -1000f && resPos.getY() < 5000f)
+                    ? Math.max(0f, (innerPos.getY() + innerPos.getHeight()) - (resPos.getY() + resPos.getHeight()))
+                    : 204f;
+            savedReservesLeftOff = leftOff;
+            savedReservesTopOff = topOff;
+        }
+        float leftOff = savedReservesLeftOff;
+        float topOff = savedReservesTopOff;
 
         if (resPos != null) {
             resPos.inTL(10000f, 10000f);
@@ -2483,6 +2644,10 @@ public class DivisionDeploymentDialogOrganizer {
         this.activeOtcSelectorPollHook = hook;
     }
 
+    void setActiveFightingStylePollHook(Runnable hook) {
+        this.activeFightingStylePollHook = hook;
+    }
+
     private CustomPanelAPI createOtcSelectorWindowPanel(
             final CombatEngineAPI engine,
             final UIPanelAPI innerPanel,
@@ -2508,36 +2673,46 @@ public class DivisionDeploymentDialogOrganizer {
                 onOtcChangedCallback);
     }
 
-
+    /**
+     * Cycles Fleet-Wide Formation strictly on the battle-local {@code playerGroup} (never overwriting
+     * Campaign {@link PermanentDivisionManager#getFleetDoctrine()} or permanent division specs).
+     */
     public static void selectFleetFormation(BattleGroupState playerGroup, int direction) {
-        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
         PermanentDivisionManager.FleetWideFormation[] values = PermanentDivisionManager.FleetWideFormation.values();
-        PermanentDivisionManager.FleetWideFormation currentFm = (doc != null && doc.getFleetWideFormation() != null)
-                ? doc.getFleetWideFormation()
-                : (playerGroup != null && playerGroup.fleetWideFormation != null
+        if (playerGroup != null) {
+            playerGroup.ensureCampaignDoctrineInherited();
+        }
+        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+        PermanentDivisionManager.FleetWideFormation currentFm = (playerGroup != null && playerGroup.fleetWideFormation != null)
                 ? playerGroup.fleetWideFormation
+                : (doc != null && doc.getFleetWideFormation() != null
+                ? doc.getFleetWideFormation()
                 : PermanentDivisionManager.FleetWideFormation.DOCTRINAL_AUTO);
         int current = currentFm.ordinal();
         int step = direction < 0 ? -1 : 1;
         PermanentDivisionManager.FleetWideFormation next = values[(current + step + values.length) % values.length];
-        PermanentDivisionManager.updateFleetWideFormation(next);
-        PermanentDivisionManager.updateDeployInFleetFormation(true);
         if (playerGroup != null) {
             playerGroup.fleetWideFormation = next;
             playerGroup.activeFleetWideFormation = next;
             playerGroup.deployInFleetFormation = (next != PermanentDivisionManager.FleetWideFormation.NONE);
+            harmonizeBattleDivisionsToFleetFormation(playerGroup, next);
         }
-        autoHarmonizePermanentDivisionsToFleetFormation(next);
         playDeploymentButtonSound();
     }
 
+    /**
+     * Cycles OTC Command Style strictly on the battle-local {@code playerGroup} (never overwriting Campaign values).
+     */
     public static void selectOtcAuthority(BattleGroupState playerGroup, int direction) {
-        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
         PermanentDivisionManager.OtcAuthority[] values = PermanentDivisionManager.OtcAuthority.values();
-        PermanentDivisionManager.OtcAuthority currentAuth = (doc != null && doc.getOtcAuthority() != null)
-                ? doc.getOtcAuthority()
-                : (playerGroup != null && playerGroup.authority != null
+        if (playerGroup != null) {
+            playerGroup.ensureCampaignDoctrineInherited();
+        }
+        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+        PermanentDivisionManager.OtcAuthority currentAuth = (playerGroup != null && playerGroup.authority != null)
                 ? playerGroup.authority
+                : (doc != null && doc.getOtcAuthority() != null
+                ? doc.getOtcAuthority()
                 : PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION);
         int current = currentAuth.ordinal();
         int step = direction < 0 ? -1 : 1;
@@ -2547,9 +2722,76 @@ public class DivisionDeploymentDialogOrganizer {
 
     public static void setOtcAuthority(BattleGroupState playerGroup, PermanentDivisionManager.OtcAuthority next) {
         if (next == null) return;
-        PermanentDivisionManager.updateOtcAuthority(next);
         if (playerGroup != null) {
+            playerGroup.ensureCampaignDoctrineInherited();
             playerGroup.authority = next;
+        }
+        playDeploymentButtonSound();
+    }
+
+    /**
+     * Cycles Operational Fighting Style strictly on {@code playerGroup} (preserving a 4th "Custom" slot in the
+     * cycle whenever the player inherited or configured a custom 4-axis combination).
+     */
+    public static void selectFightingStyle(BattleGroupState playerGroup, int direction) {
+        if (playerGroup == null) return;
+        playerGroup.ensureCampaignDoctrineInherited();
+        PermanentDivisionManager.OperationalTemplate[] tpls = PermanentDivisionManager.OperationalTemplate.values();
+        PermanentDivisionManager.OperationalTemplate curTpl = playerGroup.resolveMatchingOperationalTemplate();
+        if (curTpl == null) {
+            playerGroup.recordCustomFightingStyleIfNonPreset();
+        }
+        int totalSlots = playerGroup.hasCustomFightingStyleSnapshot ? (tpls.length + 1) : tpls.length;
+        int curSlot = (curTpl != null) ? curTpl.ordinal() : tpls.length;
+        int step = direction < 0 ? -1 : 1;
+        int nextSlot = (curSlot + step + totalSlots) % totalSlots;
+        if (nextSlot < tpls.length) {
+            playerGroup.applyOperationalTemplateForBattle(tpls[nextSlot]);
+        } else {
+            playerGroup.restoreCustomFightingStyleSnapshot();
+        }
+        playDeploymentButtonSound();
+    }
+
+    public static void applyFightingStyleTemplate(
+            BattleGroupState playerGroup,
+            PermanentDivisionManager.OperationalTemplate tpl) {
+        if (playerGroup == null || tpl == null) return;
+        playerGroup.ensureCampaignDoctrineInherited();
+        playerGroup.applyOperationalTemplateForBattle(tpl);
+        playDeploymentButtonSound();
+    }
+
+    public static void cycleBattleMultiDivisionSetpiece(BattleGroupState playerGroup, int direction) {
+        if (playerGroup == null) return;
+        playerGroup.ensureCampaignDoctrineInherited();
+        PermanentDivisionManager.MultiDivisionSetpiece[] vals = PermanentDivisionManager.MultiDivisionSetpiece.values();
+        PermanentDivisionManager.MultiDivisionSetpiece cur = (playerGroup.multiDivisionSetpieceDoctrine != null)
+                ? playerGroup.multiDivisionSetpieceDoctrine
+                : PermanentDivisionManager.MultiDivisionSetpiece.AUTO_DOCTRINAL;
+        int step = direction < 0 ? -1 : 1;
+        playerGroup.multiDivisionSetpieceDoctrine = vals[(cur.ordinal() + step + vals.length) % vals.length];
+        playDeploymentButtonSound();
+    }
+
+    public static void resetBattleDoctrineToCampaign(BattleGroupState playerGroup) {
+        if (playerGroup == null) return;
+        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+        playerGroup.inheritFromFleetDoctrine(doc);
+        if (doc != null) {
+            Map<String, PermanentDivisionManager.PermanentDivisionSpec> specById = new LinkedHashMap<>();
+            for (PermanentDivisionManager.PermanentDivisionSpec s : PermanentDivisionManager.getNonEmptyPermanentDivisions()) {
+                if (s != null && s.id != null) specById.put(s.id, s);
+            }
+            for (DivisionState d : playerGroup.divisions) {
+                if (d == null) continue;
+                PermanentDivisionManager.PermanentDivisionSpec spec = (d.id != null) ? specById.get(d.id) : null;
+                PermanentDivisionManager.DivisionFormation fm = (spec != null)
+                        ? PermanentDivisionManager.resolveEffectiveFormation(spec, doc)
+                        : doc.getFormation(PermanentDivisionManager.DoctrineDivisionType.forArchetype(d.archetype));
+                d.doctrinalFormation = fm;
+                d.activeFormation = fm;
+            }
         }
         playDeploymentButtonSound();
     }
@@ -2699,9 +2941,110 @@ public class DivisionDeploymentDialogOrganizer {
     }
 
     /**
-     * Automatically harmonizes the player's PermanentDivisionSpecs (and any active combat divisions) with the
-     * selected Fleet-Wide Formation when the player cycles Fleet Formation in the Deployment Screen.
+     * Harmonizes division formations strictly on the battle-local {@code playerGroup} (populating
+     * {@link BattleGroupState#battleDivisionFormationOverrides} and updating any active combat divisions)
+     * without mutating Campaign {@link PermanentDivisionManager.PermanentDivisionSpec#customFormation}.
      */
+    public static void harmonizeBattleDivisionsToFleetFormation(
+            BattleGroupState playerGroup,
+            PermanentDivisionManager.FleetWideFormation fleetFm) {
+        if (playerGroup == null || fleetFm == null) return;
+        playerGroup.battleDivisionFormationOverrides.clear();
+        playerGroup.battleDivisionFormationsHarmonized = true;
+        PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
+        List<PermanentDivisionManager.PermanentDivisionSpec> specs =
+                PermanentDivisionManager.getNonEmptyPermanentDivisions();
+        int n = specs.size();
+        for (int i = 0; i < n; i++) {
+            PermanentDivisionManager.PermanentDivisionSpec spec = specs.get(i);
+            if (spec == null || spec.id == null) continue;
+            PermanentDivisionManager.DivisionFormation harmonized =
+                    computeHarmonizedDivisionFormationForSlot(fleetFm, i);
+            if (harmonized != null) {
+                playerGroup.battleDivisionFormationOverrides.put(spec.id, harmonized);
+            }
+        }
+        for (int i = 0; i < playerGroup.divisions.size(); i++) {
+            DivisionState d = playerGroup.divisions.get(i);
+            if (d == null) continue;
+            PermanentDivisionManager.DivisionFormation overrideFm = (d.id != null)
+                    ? playerGroup.battleDivisionFormationOverrides.get(d.id)
+                    : null;
+            if (overrideFm == null) {
+                overrideFm = computeHarmonizedDivisionFormationForSlot(fleetFm, i);
+            }
+            if (overrideFm != null) {
+                d.doctrinalFormation = overrideFm;
+                d.activeFormation = overrideFm;
+            } else if (doc != null) {
+                PermanentDivisionManager.DoctrineDivisionType dt =
+                        PermanentDivisionManager.DoctrineDivisionType.forArchetype(d.archetype);
+                d.doctrinalFormation = doc.getFormation(dt);
+                d.activeFormation = d.doctrinalFormation;
+            }
+        }
+    }
+
+    private static PermanentDivisionManager.DivisionFormation computeHarmonizedDivisionFormationForSlot(
+            PermanentDivisionManager.FleetWideFormation fleetFm,
+            int divisionSlotIdx) {
+        int wingSide = (divisionSlotIdx == 0) ? 0 : ((divisionSlotIdx % 2 == 1) ? -1 : 1);
+        int rankIdx = (divisionSlotIdx == 0) ? 0 : ((divisionSlotIdx + 1) / 2);
+        switch (fleetFm) {
+            case GRAND_WEDGE_SPEARHEAD:
+            case REFUSED_FLANK_OBLIQUE:
+                return (divisionSlotIdx == 0)
+                        ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
+                        : (wingSide < 0
+                        ? PermanentDivisionManager.DivisionFormation.ECHELON_LEFT
+                        : PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT);
+            case REFUSED_FLANK_LEFT:
+                return (divisionSlotIdx == 0)
+                        ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
+                        : (wingSide > 0
+                        ? PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT
+                        : PermanentDivisionManager.DivisionFormation.ECHELON_LEFT);
+            case REVERSE_WEDGE:
+                return (divisionSlotIdx == 0)
+                        ? PermanentDivisionManager.DivisionFormation.REVERSE_WEDGE
+                        : (wingSide < 0
+                        ? PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT
+                        : PermanentDivisionManager.DivisionFormation.ECHELON_LEFT);
+            case CRESCENT_HORNS:
+                return (divisionSlotIdx == 0)
+                        ? PermanentDivisionManager.DivisionFormation.REVERSE_SEMICIRCLE
+                        : (wingSide < 0
+                        ? PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT
+                        : PermanentDivisionManager.DivisionFormation.ECHELON_LEFT);
+            case REVERSE_CRESCENT:
+                return (divisionSlotIdx == 0)
+                        ? PermanentDivisionManager.DivisionFormation.FORWARD_SEMICIRCLE
+                        : (wingSide < 0
+                        ? PermanentDivisionManager.DivisionFormation.ECHELON_LEFT
+                        : PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT);
+            case CHECKERBOARD_QUINCUNX:
+                return (rankIdx % 2 == 0)
+                        ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
+                        : PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+            case FLEET_PROTECTIVE_BASTION:
+                return (divisionSlotIdx == 0)
+                        ? PermanentDivisionManager.DivisionFormation.FORWARD_SEMICIRCLE
+                        : (wingSide < 0
+                        ? PermanentDivisionManager.DivisionFormation.ECHELON_LEFT
+                        : PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT);
+            case GRAND_COLUMN_IN_DEPTH:
+                return (divisionSlotIdx == 0)
+                        ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
+                        : PermanentDivisionManager.DivisionFormation.LINE_AHEAD;
+            case NONE:
+                return PermanentDivisionManager.DivisionFormation.NONE;
+            case GRAND_LINE_ABREAST:
+            case DOCTRINAL_AUTO:
+            default:
+                return null;
+        }
+    }
+
     public static void autoHarmonizePermanentDivisionsToFleetFormation(
             PermanentDivisionManager.FleetWideFormation fleetFm) {
         if (fleetFm == null) return;
@@ -2711,71 +3054,7 @@ public class DivisionDeploymentDialogOrganizer {
         for (int i = 0; i < n; i++) {
             PermanentDivisionManager.PermanentDivisionSpec spec = specs.get(i);
             if (spec == null) continue;
-            int wingSide = (i == 0) ? 0 : ((i % 2 == 1) ? -1 : 1);
-            int rankIdx = (i == 0) ? 0 : ((i + 1) / 2);
-            switch (fleetFm) {
-                case GRAND_WEDGE_SPEARHEAD:
-                case REFUSED_FLANK_OBLIQUE:
-                    spec.customFormation = (i == 0)
-                            ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
-                            : (wingSide < 0
-                            ? PermanentDivisionManager.DivisionFormation.ECHELON_LEFT
-                            : PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT);
-                    break;
-                case REFUSED_FLANK_LEFT:
-                    spec.customFormation = (i == 0)
-                            ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
-                            : (wingSide > 0
-                            ? PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT
-                            : PermanentDivisionManager.DivisionFormation.ECHELON_LEFT);
-                    break;
-                case REVERSE_WEDGE:
-                    spec.customFormation = (i == 0)
-                            ? PermanentDivisionManager.DivisionFormation.REVERSE_WEDGE
-                            : (wingSide < 0
-                            ? PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT
-                            : PermanentDivisionManager.DivisionFormation.ECHELON_LEFT);
-                    break;
-                case CRESCENT_HORNS:
-                    spec.customFormation = (i == 0)
-                            ? PermanentDivisionManager.DivisionFormation.REVERSE_SEMICIRCLE
-                            : (wingSide < 0
-                            ? PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT
-                            : PermanentDivisionManager.DivisionFormation.ECHELON_LEFT);
-                    break;
-                case REVERSE_CRESCENT:
-                    spec.customFormation = (i == 0)
-                            ? PermanentDivisionManager.DivisionFormation.FORWARD_SEMICIRCLE
-                            : (wingSide < 0
-                            ? PermanentDivisionManager.DivisionFormation.ECHELON_LEFT
-                            : PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT);
-                    break;
-                case CHECKERBOARD_QUINCUNX:
-                    spec.customFormation = (rankIdx % 2 == 0)
-                            ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
-                            : PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
-                    break;
-                case FLEET_PROTECTIVE_BASTION:
-                    spec.customFormation = (i == 0)
-                            ? PermanentDivisionManager.DivisionFormation.FORWARD_SEMICIRCLE
-                            : (wingSide < 0
-                            ? PermanentDivisionManager.DivisionFormation.ECHELON_LEFT
-                            : PermanentDivisionManager.DivisionFormation.ECHELON_RIGHT);
-                    break;
-                case GRAND_COLUMN_IN_DEPTH:
-                    spec.customFormation = (i == 0)
-                            ? PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
-                            : PermanentDivisionManager.DivisionFormation.LINE_AHEAD;
-                    break;
-                case NONE:
-                    spec.customFormation = PermanentDivisionManager.DivisionFormation.NONE;
-                    break;
-                case GRAND_LINE_ABREAST:
-                case DOCTRINAL_AUTO:
-                default:
-                    spec.customFormation = null;
-                    break;
-            }
+            spec.customFormation = computeHarmonizedDivisionFormationForSlot(fleetFm, i);
         }
     }
 }

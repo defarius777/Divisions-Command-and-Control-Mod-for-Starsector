@@ -92,6 +92,7 @@ public class DivisionAITestSuite {
         testTsfOvermatchReinforcementCorridorAndRunTheGauntlet();
         testConstituentShipSensorsAndTacticalMechanics();
         testUIHarnessAndUXSuccinctness();
+        testBattleScopedFightingStyleAndCampaignImmutability();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -5725,6 +5726,120 @@ public class DivisionAITestSuite {
                             closeAlphaEval.incomingAlpha, farPokeEval.incomingAlpha,
                             occludedShot.friendlyShortDot, clearShot.friendlyShortDot,
                             convNearOrtho, convFar, convStacked));
+        }
+    }
+
+    private static void testBattleScopedFightingStyleAndCampaignImmutability() {
+        System.out.println("\n--- Scenario 12: Battle-Scoped Fighting Style, Custom Axis Snapshot & Campaign Immutability ---");
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig doc = divisionai.PermanentDivisionManager.getFleetDoctrine();
+        OtcAuthority savedAuth = doc.getOtcAuthority();
+        divisionai.PermanentDivisionManager.FleetWideFormation savedFw = doc.getFleetWideFormation();
+        boolean savedOrch = doc.isOrchestratedAdvance();
+        divisionai.PermanentDivisionManager.OperationalAnchor savedAnchor = doc.getOperationalAnchor();
+        divisionai.PermanentDivisionManager.ObjectiveCapturePolicy savedPol = doc.getObjectiveCapturePolicy();
+        divisionai.PermanentDivisionManager.DecisiveArm savedArm = doc.getDecisiveArm();
+        divisionai.PermanentDivisionManager.EngagementDiscipline savedDisc = doc.getEngagementDiscipline();
+
+        try {
+            doc.applyOperationalTemplate(divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE);
+            doc.setOtcAuthority(OtcAuthority.COMMAND_BY_DIRECTION);
+            doc.setFleetWideFormation(divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST);
+            doc.setOrchestratedAdvance(true);
+            divisionai.PermanentDivisionManager.saveFleetDoctrine(doc);
+
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec spec =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec(
+                            "perm_test_cruiser", "Cruiser Div 1", DivisionArchetype.CRUISER_DIVISION);
+            spec.customFormation = divisionai.PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+
+            CommanderProfile cmdr = new CommanderProfile(null, "steady");
+            BattleGroupState battle1 = new BattleGroupState(0, cmdr);
+            battle1.ensureCampaignDoctrineInherited();
+
+            boolean inheritedOk = battle1.authority == OtcAuthority.COMMAND_BY_DIRECTION
+                    && battle1.fleetWideFormation == divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST
+                    && battle1.orchestratedAdvance
+                    && battle1.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+
+            // Player customizes granular axes in FightingStyleModalDialog -> remembers Custom snapshot
+            battle1.objectiveCapturePolicy = divisionai.PermanentDivisionManager.ObjectiveCapturePolicy.DIRECT_ORDERS_ONLY;
+            battle1.decisiveArm = divisionai.PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE;
+            battle1.recordCustomFightingStyleIfNonPreset();
+            boolean customDetected = battle1.resolveMatchingOperationalTemplate() == null
+                    && battle1.hasCustomFightingStyleSnapshot;
+
+            // Quick-cycle > from Custom -> Light & Strike -> Linear Warfare -> Carrier-Centric -> back to Custom!
+            divisionai.DivisionDeploymentDialogOrganizer.selectFightingStyle(battle1, 1);
+            boolean step1Light = battle1.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO;
+            divisionai.DivisionDeploymentDialogOrganizer.selectFightingStyle(battle1, 1);
+            boolean step2Linear = battle1.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+            divisionai.DivisionDeploymentDialogOrganizer.selectFightingStyle(battle1, 1);
+            boolean step3Carrier = battle1.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC;
+            divisionai.DivisionDeploymentDialogOrganizer.selectFightingStyle(battle1, 1);
+            boolean step4RestoredCustom = battle1.resolveMatchingOperationalTemplate() == null
+                    && battle1.objectiveCapturePolicy == divisionai.PermanentDivisionManager.ObjectiveCapturePolicy.DIRECT_ORDERS_ONLY
+                    && battle1.decisiveArm == divisionai.PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE;
+
+            // Override Command Style & Fleet Formation for Battle 1, plus battle-local division harmonization
+            divisionai.DivisionDeploymentDialogOrganizer.selectOtcAuthority(battle1, 1);
+            battle1.fleetWideFormation = divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
+            battle1.activeFleetWideFormation = divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
+            battle1.orchestratedAdvance = false;
+            battle1.battleDivisionFormationsHarmonized = true;
+            battle1.battleDivisionFormationOverrides.put(
+                    spec.id, divisionai.PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE);
+
+            // Simulate clicking Deploy -> DivisionAICombatPlugin.initializeCombatState calls ensureCampaignDoctrineInherited()
+            battle1.ensureCampaignDoctrineInherited();
+            DivisionState deployedDiv = new DivisionState(
+                    spec.id, 0, 1, DivisionArchetype.CRUISER_DIVISION, spec.name, cmdr);
+            divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(deployedDiv, spec, doc);
+            divisionai.PermanentDivisionManager.applyBattleFormationOverrideIfPresent(battle1, deployedDiv, spec.id, doc);
+
+            boolean survivedDeployInit = battle1.authority != OtcAuthority.COMMAND_BY_DIRECTION
+                    && battle1.fleetWideFormation == divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD
+                    && !battle1.orchestratedAdvance
+                    && battle1.resolveMatchingOperationalTemplate() == null
+                    && deployedDiv.doctrinalFormation == divisionai.PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE
+                    && deployedDiv.activeFormation == divisionai.PermanentDivisionManager.DivisionFormation.FORWARD_WEDGE;
+
+            boolean campaignUntouched = doc.getOtcAuthority() == OtcAuthority.COMMAND_BY_DIRECTION
+                    && doc.getFleetWideFormation() == divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST
+                    && doc.isOrchestratedAdvance()
+                    && doc.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE
+                    && spec.customFormation == divisionai.PermanentDivisionManager.DivisionFormation.LINE_ABREAST;
+
+            // Next battle starts fresh and inherits campaign values cleanly
+            BattleGroupState battle2 = new BattleGroupState(0, cmdr);
+            battle2.ensureCampaignDoctrineInherited();
+            boolean battle2Clean = battle2.authority == OtcAuthority.COMMAND_BY_DIRECTION
+                    && battle2.fleetWideFormation == divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_LINE_ABREAST
+                    && battle2.orchestratedAdvance
+                    && battle2.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE
+                    && battle2.battleDivisionFormationOverrides.isEmpty();
+
+            check(inheritedOk && customDetected && step1Light && step2Linear && step3Carrier
+                            && step4RestoredCustom && survivedDeployInit && campaignUntouched && battle2Clean,
+                    "Battle-Scoped Fighting Style, 4-Step Custom Cycle, Pre-Battle->Combat Persistence & Strict Campaign Immutability",
+                    String.format(Locale.ROOT,
+                            "inherit=%b, customCycle=[%b,%b,%b,%b,%b], survivedDeploy=%b, campaignUntouched=%b, nextBattleClean=%b",
+                            inheritedOk, customDetected, step1Light, step2Linear, step3Carrier,
+                            step4RestoredCustom, survivedDeployInit, campaignUntouched, battle2Clean));
+        } finally {
+            doc.setOtcAuthority(savedAuth);
+            doc.setFleetWideFormation(savedFw);
+            doc.setOrchestratedAdvance(savedOrch);
+            doc.setOperationalAnchor(savedAnchor);
+            doc.setObjectiveCapturePolicy(savedPol);
+            doc.setDecisiveArm(savedArm);
+            doc.setEngagementDiscipline(savedDisc);
+            divisionai.PermanentDivisionManager.saveFleetDoctrine(doc);
         }
     }
 

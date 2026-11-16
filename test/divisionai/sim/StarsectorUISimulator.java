@@ -1095,8 +1095,8 @@ public class StarsectorUISimulator {
                 }
             }
         }
-        if (preBattle && fcButtons.size() != 6) {
-            System.out.println("FAIL command style + fleet formation + OTC change buttons: " + fcButtons.size());
+        if (preBattle && fcButtons.size() != 9) {
+            System.out.println("FAIL command style + fighting style + fleet formation + OTC change buttons: " + fcButtons.size());
             return false;
         }
         // Verify groupSizes=[4, 15, 5] in UITestHarness still matches, and in StarsectorUISimulator div3 is rendered in reservesGrid
@@ -1307,6 +1307,135 @@ public class StarsectorUISimulator {
                 System.out.println("FAIL Feature A: re-picking Alpha Core before battle did not restore playerGroup.useConvergence");
                 return false;
             }
+
+            // Verify Fighting Style strip + Customize Modal + strict Campaign non-mutation invariant!
+            PermanentDivisionManager.FleetDoctrineConfig campaignDoc = PermanentDivisionManager.getFleetDoctrine();
+            PermanentDivisionManager.OtcAuthority origAuth = campaignDoc.getOtcAuthority();
+            PermanentDivisionManager.FleetWideFormation origFw = campaignDoc.getFleetWideFormation();
+            PermanentDivisionManager.OperationalAnchor origAnchor = campaignDoc.getOperationalAnchor();
+            PermanentDivisionManager.ObjectiveCapturePolicy origPol = campaignDoc.getObjectiveCapturePolicy();
+            PermanentDivisionManager.DecisiveArm origArm = campaignDoc.getDecisiveArm();
+            PermanentDivisionManager.EngagementDiscipline origDisc = campaignDoc.getEngagementDiscipline();
+            boolean origOrch = campaignDoc.isOrchestratedAdvance();
+
+            DivisionDeploymentDialogOrganizer.selectOtcAuthority(playerGroup, 1);
+            DivisionDeploymentDialogOrganizer.selectFleetFormation(playerGroup, 1);
+            DivisionDeploymentDialogOrganizer.selectFightingStyle(playerGroup, 1);
+            fcPanel.advance(0.1f);
+
+            if (campaignDoc.getOtcAuthority() != origAuth
+                    || campaignDoc.getFleetWideFormation() != origFw
+                    || campaignDoc.getOperationalAnchor() != origAnchor
+                    || campaignDoc.getObjectiveCapturePolicy() != origPol
+                    || campaignDoc.getDecisiveArm() != origArm
+                    || campaignDoc.getEngagementDiscipline() != origDisc
+                    || campaignDoc.isOrchestratedAdvance() != origOrch) {
+                System.out.println("FAIL Deployment Screen overrides mutated Campaign FleetDoctrineConfig!");
+                return false;
+            }
+            if (playerGroup.authority == origAuth || playerGroup.fleetWideFormation == origFw) {
+                System.out.println("FAIL Deployment Screen cyclers did not update battle-local playerGroup!");
+                return false;
+            }
+
+            ButtonAPI customizeBtn = null;
+            for (ButtonAPI btn : fcButtons) {
+                if ("Customize".equals(btn.getText())) {
+                    customizeBtn = btn;
+                    break;
+                }
+            }
+            if (customizeBtn == null) {
+                System.out.println("FAIL missing 'Customize' button under FIGHTING STYLE");
+                return false;
+            }
+            customizeBtn.setChecked(true);
+            fcPanel.advance(0.1f);
+            organizer.advance(proxyEngine);
+            CustomPanelAPI styleWin = organizer.getActiveFightingStylePanel();
+            if (!organizer.isFightingStyleWindowOpen() || styleWin == null) {
+                System.out.println("FAIL clicking 'Customize' did not open FightingStyleModalDialog");
+                return false;
+            }
+            for (FleetMember m : reserveMembers) {
+                if (reservesGrid.getIconForMember(m) == null) {
+                    System.out.println("FAIL reservesGrid icon became null while FightingStyleModalDialog open!");
+                    return false;
+                }
+            }
+            List<LabelAPI> fsLabels = new ArrayList<>();
+            List<ButtonAPI> fsButtons = new ArrayList<>();
+            collectLabelsAndButtonsRecursive(styleWin, fsLabels, fsButtons);
+            for (LabelAPI fsl : fsLabels) {
+                String fsTxt = fsl.getText();
+                if (fsTxt == null || fsTxt.isEmpty()) continue;
+                if (!isPurePrintableAscii(fsTxt)) {
+                    System.out.println("FAIL non-ascii label in FightingStyleModalDialog: " + fsTxt);
+                    return false;
+                }
+                PositionAPI fsp = fsl.getPosition();
+                if (fsp != null && fsl.computeTextWidth(fsTxt) > fsp.getWidth() + 2f) {
+                    System.out.println("FAIL FightingStyleModalDialog label overflow: '" + fsTxt
+                            + "' textW=" + fsl.computeTextWidth(fsTxt) + " w=" + fsp.getWidth());
+                    return false;
+                }
+            }
+            // Click "Direct Orders Only" pill to verify granular custom battle style, then "Campaign Default", then "Close"
+            ButtonAPI directOrdersBtn = null;
+            for (ButtonAPI b : fsButtons) {
+                if ("Direct Orders Only".equals(b.getText())) {
+                    directOrdersBtn = b;
+                    break;
+                }
+            }
+            if (directOrdersBtn == null) {
+                System.out.println("FAIL missing 'Direct Orders Only' pill button in FightingStyleModalDialog");
+                return false;
+            }
+            directOrdersBtn.setChecked(true);
+            fcPanel.advance(0.1f);
+            if (playerGroup.objectiveCapturePolicy != PermanentDivisionManager.ObjectiveCapturePolicy.DIRECT_ORDERS_ONLY
+                    || playerGroup.resolveMatchingOperationalTemplate() != null
+                    || campaignDoc.getObjectiveCapturePolicy() != origPol) {
+                System.out.println("FAIL granular axis edit in FightingStyleModalDialog failed or leaked into campaign!");
+                return false;
+            }
+
+            fsLabels.clear();
+            fsButtons.clear();
+            collectLabelsAndButtonsRecursive(styleWin, fsLabels, fsButtons);
+            ButtonAPI resetCampBtn = null;
+            ButtonAPI closeFsBtn = null;
+            for (ButtonAPI b : fsButtons) {
+                if ("Campaign Default".equals(b.getText())) resetCampBtn = b;
+                if ("Close".equals(b.getText())) closeFsBtn = b;
+            }
+            if (resetCampBtn == null || closeFsBtn == null) {
+                System.out.println("FAIL missing 'Campaign Default' or 'Close' button in FightingStyleModalDialog");
+                return false;
+            }
+            resetCampBtn.setChecked(true);
+            fcPanel.advance(0.1f);
+            if (playerGroup.authority != origAuth
+                    || playerGroup.fleetWideFormation != origFw
+                    || playerGroup.objectiveCapturePolicy != origPol) {
+                System.out.println("FAIL 'Campaign Default' did not restore inherited campaign settings on playerGroup!");
+                return false;
+            }
+
+            fsLabels.clear();
+            fsButtons.clear();
+            collectLabelsAndButtonsRecursive(styleWin, fsLabels, fsButtons);
+            for (ButtonAPI b : fsButtons) {
+                if ("Close".equals(b.getText())) closeFsBtn = b;
+            }
+            closeFsBtn.setChecked(true);
+            fcPanel.advance(0.1f);
+            organizer.advance(proxyEngine);
+            if (organizer.isFightingStyleWindowOpen()) {
+                System.out.println("FAIL 'Close' did not close FightingStyleModalDialog");
+                return false;
+            }
         }
         if (expectAlphaCore && (alphaMasterLabel == null || alphaShipLineLabel == null
                 || alphaShipLineLabel.getPosition().getY() >= alphaMasterLabel.getPosition().getY() - 10f)) {
@@ -1316,7 +1445,7 @@ public class StarsectorUISimulator {
 
         float fcX = fcPos.getX();
         float fcW = fcPos.getWidth();
-        float divX = fcX + Math.round(fcW * 0.46f);
+        float divX = fcX + Math.round(fcW * 0.385f);
         for (LabelAPI lbl : fcLabels) {
             String txt = lbl.getText();
             if (txt == null || txt.isEmpty()) continue;
@@ -1381,23 +1510,12 @@ public class StarsectorUISimulator {
             System.out.println("FAIL Bug A regression: 'Auto' not shown first when entering battle!");
             return false;
         }
-        ButtonAPI nextFormationButton = null;
-        ButtonAPI prevFormationButton = null;
-        ButtonAPI nextAuthButton = null;
-        ButtonAPI prevAuthButton = null;
+        List<ButtonAPI> prevBtns = new ArrayList<>();
+        List<ButtonAPI> nextBtns = new ArrayList<>();
         ButtonAPI orchestratedAdvanceButton = null;
-        float cmdMidX = fcPos.getX() + Math.round(fcPos.getWidth() * 0.50f) + 8f + 195f;
         for (ButtonAPI btn : fcButtons) {
-            PositionAPI bp = btn.getPosition();
-            boolean isAuthCol = bp != null && bp.getX() < cmdMidX;
-            if (">".equals(btn.getText())) {
-                if (isAuthCol) nextAuthButton = btn;
-                else nextFormationButton = btn;
-            }
-            if ("<".equals(btn.getText())) {
-                if (isAuthCol) prevAuthButton = btn;
-                else prevFormationButton = btn;
-            }
+            if ("<".equals(btn.getText())) prevBtns.add(btn);
+            if (">".equals(btn.getText())) nextBtns.add(btn);
             if (btn.getText() != null && btn.getText().startsWith("Orchestrated Advance:")) {
                 orchestratedAdvanceButton = btn;
             }
@@ -1406,31 +1524,65 @@ public class StarsectorUISimulator {
                 return false;
             }
         }
-        if (nextFormationButton == null || prevFormationButton == null
-                || nextAuthButton == null || prevAuthButton == null || orchestratedAdvanceButton == null) {
-            System.out.println("FAIL missing command style / fleet formation arrow / Orchestrated Advance buttons");
+        prevBtns.sort((a, b) -> Float.compare(a.getPosition().getX(), b.getPosition().getX()));
+        nextBtns.sort((a, b) -> Float.compare(a.getPosition().getX(), b.getPosition().getX()));
+        if (prevBtns.size() != 3 || nextBtns.size() != 3 || orchestratedAdvanceButton == null) {
+            System.out.println("FAIL missing 3-column command/fighting/formation arrow or Orchestrated Advance buttons");
             return false;
         }
-        PermanentDivisionManager.OtcAuthority initialAuth =
+        ButtonAPI prevAuthButton = prevBtns.get(0);
+        ButtonAPI nextAuthButton = nextBtns.get(0);
+        ButtonAPI prevStyleButton = prevBtns.get(1);
+        ButtonAPI nextStyleButton = nextBtns.get(1);
+        ButtonAPI prevFormationButton = prevBtns.get(2);
+        ButtonAPI nextFormationButton = nextBtns.get(2);
+
+        PermanentDivisionManager.OtcAuthority campaignAuth =
                 PermanentDivisionManager.getFleetDoctrine().getOtcAuthority();
+        PermanentDivisionManager.OtcAuthority initialAuth = playerGroup.authority;
         nextAuthButton.setChecked(true);
         fcPanel.advance(0.1f);
         PermanentDivisionManager.OtcAuthority[] authValues = PermanentDivisionManager.OtcAuthority.values();
         PermanentDivisionManager.OtcAuthority expectedAuth =
                 authValues[(initialAuth.ordinal() + 1) % authValues.length];
-        if (PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() != expectedAuth
-                || playerGroup.authority != expectedAuth) {
-            System.out.println("FAIL pre-battle next command style button did not update doctrine/group authority: got "
-                    + PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() + " expected " + expectedAuth);
+        if (playerGroup.authority != expectedAuth
+                || PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() != campaignAuth) {
+            System.out.println("FAIL pre-battle next command style button did not update battle group or mutated campaign: group="
+                    + playerGroup.authority + " expected=" + expectedAuth
+                    + " campaign=" + PermanentDivisionManager.getFleetDoctrine().getOtcAuthority());
             return false;
         }
         prevAuthButton.setChecked(true);
         fcPanel.advance(0.1f);
-        if (PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() != initialAuth
-                || playerGroup.authority != initialAuth) {
+        if (playerGroup.authority != initialAuth
+                || PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() != campaignAuth) {
             System.out.println("FAIL pre-battle prev command style button did not restore initial authority");
             return false;
         }
+
+        PermanentDivisionManager.OperationalTemplate initialStyle = playerGroup.resolveMatchingOperationalTemplate();
+        PermanentDivisionManager.OperationalAnchor campaignAnchor =
+                PermanentDivisionManager.getFleetDoctrine().getOperationalAnchor();
+        nextStyleButton.setChecked(true);
+        fcPanel.advance(0.1f);
+        PermanentDivisionManager.OperationalTemplate[] styleValues =
+                PermanentDivisionManager.OperationalTemplate.values();
+        PermanentDivisionManager.OperationalTemplate expectedStyle =
+                styleValues[((initialStyle != null ? initialStyle.ordinal() : 0) + 1) % styleValues.length];
+        if (playerGroup.resolveMatchingOperationalTemplate() != expectedStyle
+                || PermanentDivisionManager.getFleetDoctrine().getOperationalAnchor() != campaignAnchor) {
+            System.out.println("FAIL pre-battle next fighting style button did not update battle group or mutated campaign");
+            return false;
+        }
+        prevStyleButton.setChecked(true);
+        fcPanel.advance(0.1f);
+        if (playerGroup.resolveMatchingOperationalTemplate() != initialStyle) {
+            System.out.println("FAIL pre-battle prev fighting style button did not restore initial style");
+            return false;
+        }
+
+        PermanentDivisionManager.FleetWideFormation campaignFw =
+                PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation();
         nextFormationButton.setChecked(true);
         fcPanel.advance(0.1f);
         PermanentDivisionManager.FleetWideFormation[] fwValues =
@@ -1445,13 +1597,13 @@ public class StarsectorUISimulator {
         for (LabelAPI lbl : fcLabels) {
             if (expectedFw.displayName.equals(lbl.getText())) formationLabelUpdated = true;
         }
-        if (PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation() != expectedFw
+        if (PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation() != campaignFw
                 || playerGroup.fleetWideFormation != expectedFw
                 || playerGroup.activeFleetWideFormation != expectedFw
                 || !formationLabelUpdated) {
-            System.out.println("FAIL next fleet formation button did not update doctrine/group/name on single click: initial=" + initialFw
+            System.out.println("FAIL next fleet formation button failed battle update or mutated campaign: initial=" + initialFw
                     + " expected=" + expectedFw
-                    + " doctrine=" + PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation()
+                    + " campaign=" + PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation()
                     + " group=" + playerGroup.fleetWideFormation
                     + " active=" + playerGroup.activeFleetWideFormation
                     + " labelUpdated=" + formationLabelUpdated);
@@ -1459,18 +1611,18 @@ public class StarsectorUISimulator {
         }
         prevFormationButton.setChecked(true);
         fcPanel.advance(0.1f);
-        if (PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation() != initialFw
+        if (PermanentDivisionManager.getFleetDoctrine().getFleetWideFormation() != campaignFw
                 || playerGroup.fleetWideFormation != initialFw) {
             System.out.println("FAIL previous fleet formation button did not restore initial formation");
             return false;
         }
-        boolean orchBefore = PermanentDivisionManager.getFleetDoctrine().isOrchestratedAdvance();
+        boolean campaignOrch = PermanentDivisionManager.getFleetDoctrine().isOrchestratedAdvance();
+        boolean orchBefore = playerGroup.orchestratedAdvance;
         orchestratedAdvanceButton.setChecked(true);
         fcPanel.advance(0.1f);
-        if (PermanentDivisionManager.getFleetDoctrine().isOrchestratedAdvance() == orchBefore
-                || playerGroup.orchestratedAdvance == orchBefore
-                || !PermanentDivisionManager.getFleetDoctrine().isDeployInFleetFormation()) {
-            System.out.println("FAIL Orchestrated Advance toggle did not update doctrine/group or disabled formation entry");
+        if (PermanentDivisionManager.getFleetDoctrine().isOrchestratedAdvance() != campaignOrch
+                || playerGroup.orchestratedAdvance == orchBefore) {
+            System.out.println("FAIL Orchestrated Advance toggle failed battle update or mutated campaign");
             return false;
         }
         // Restore Orchestrated Advance to On

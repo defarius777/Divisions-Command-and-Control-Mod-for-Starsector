@@ -1042,8 +1042,101 @@ public class DivisionModel {
         public float lastStrikePlanEndTime = -100f;
         public final Map<String, Float> orderLogTimes = new HashMap<>();
 
+        // Transient battle-only doctrine inheritance & overrides (never written back to Campaign FleetDoctrineConfig)
+        public boolean campaignDoctrineInherited = false;
+        public final Map<String, PermanentDivisionManager.DivisionFormation> battleDivisionFormationOverrides =
+                new HashMap<>();
+        public boolean battleDivisionFormationsHarmonized = false;
+        public boolean hasCustomFightingStyleSnapshot = false;
+        public PermanentDivisionManager.OperationalAnchor customAnchorSnapshot = null;
+        public PermanentDivisionManager.ObjectiveCapturePolicy customObjectivePolicySnapshot = null;
+        public PermanentDivisionManager.DecisiveArm customDecisiveArmSnapshot = null;
+        public PermanentDivisionManager.EngagementDiscipline customDisciplineSnapshot = null;
+
         public boolean isPlayEnabled(PermanentDivisionManager.OtcPlay play) {
             return plays.contains(play);
+        }
+
+        public void inheritFromFleetDoctrine(PermanentDivisionManager.FleetDoctrineConfig doc) {
+            if (doc == null) return;
+            this.authority = doc.getOtcAuthority();
+            this.fleetWideFormation = doc.getFleetWideFormation();
+            this.activeFleetWideFormation = doc.getFleetWideFormation();
+            this.multiDivisionSetpieceDoctrine = doc.getMultiDivisionSetpiece();
+            this.operationalAnchor = doc.getOperationalAnchor();
+            this.objectiveCapturePolicy = doc.getObjectiveCapturePolicy();
+            this.decisiveArm = doc.getDecisiveArm();
+            this.engagementDiscipline = doc.getEngagementDiscipline();
+            this.deployInFleetFormation = doc.isDeployInFleetFormation();
+            this.orchestratedAdvance = doc.isOrchestratedAdvance();
+            this.plays.clear();
+            this.plays.addAll(doc.getEnabledPlays());
+            this.battleDivisionFormationOverrides.clear();
+            this.battleDivisionFormationsHarmonized = false;
+            this.campaignDoctrineInherited = true;
+            if (resolveMatchingOperationalTemplate() == null) {
+                recordCustomFightingStyleIfNonPreset();
+            } else {
+                this.hasCustomFightingStyleSnapshot = false;
+            }
+        }
+
+        public void ensureCampaignDoctrineInherited() {
+            if (!campaignDoctrineInherited && side == 0 && !isAlliedAi && !isPassiveOpposingView) {
+                inheritFromFleetDoctrine(PermanentDivisionManager.getFleetDoctrine());
+            }
+        }
+
+        public PermanentDivisionManager.OperationalTemplate resolveMatchingOperationalTemplate() {
+            for (PermanentDivisionManager.OperationalTemplate t : PermanentDivisionManager.OperationalTemplate.values()) {
+                if (t.defaultAnchor == operationalAnchor
+                        && t.defaultObjectivePolicy == objectiveCapturePolicy
+                        && t.defaultDecisiveArm == decisiveArm
+                        && t.defaultDiscipline == engagementDiscipline) {
+                    return t;
+                }
+            }
+            return null;
+        }
+
+        public PermanentDivisionManager.OperationalTemplate resolveIconOperationalTemplate() {
+            PermanentDivisionManager.OperationalTemplate exact = resolveMatchingOperationalTemplate();
+            if (exact != null) return exact;
+            if (decisiveArm == PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE
+                    || operationalAnchor == PermanentDivisionManager.OperationalAnchor.CARRIER_SCREEN) {
+                return PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC;
+            }
+            if (decisiveArm == PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES
+                    || operationalAnchor == PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA) {
+                return PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO;
+            }
+            return PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+        }
+
+        public void applyOperationalTemplateForBattle(PermanentDivisionManager.OperationalTemplate tpl) {
+            if (tpl == null) return;
+            this.operationalAnchor = tpl.defaultAnchor;
+            this.objectiveCapturePolicy = tpl.defaultObjectivePolicy;
+            this.decisiveArm = tpl.defaultDecisiveArm;
+            this.engagementDiscipline = tpl.defaultDiscipline;
+        }
+
+        public void recordCustomFightingStyleIfNonPreset() {
+            if (resolveMatchingOperationalTemplate() == null) {
+                this.hasCustomFightingStyleSnapshot = true;
+                this.customAnchorSnapshot = this.operationalAnchor;
+                this.customObjectivePolicySnapshot = this.objectiveCapturePolicy;
+                this.customDecisiveArmSnapshot = this.decisiveArm;
+                this.customDisciplineSnapshot = this.engagementDiscipline;
+            }
+        }
+
+        public void restoreCustomFightingStyleSnapshot() {
+            if (!hasCustomFightingStyleSnapshot) return;
+            if (customAnchorSnapshot != null) this.operationalAnchor = customAnchorSnapshot;
+            if (customObjectivePolicySnapshot != null) this.objectiveCapturePolicy = customObjectivePolicySnapshot;
+            if (customDecisiveArmSnapshot != null) this.decisiveArm = customDecisiveArmSnapshot;
+            if (customDisciplineSnapshot != null) this.engagementDiscipline = customDisciplineSnapshot;
         }
 
         public BattleGroupState(int side, CommanderProfile otc) {

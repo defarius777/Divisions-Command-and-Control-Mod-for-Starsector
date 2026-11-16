@@ -531,17 +531,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         enemyGroup = new BattleGroupState(1, enemyCmdr);
 
         PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
-        playerGroup.authority = doctrine.getOtcAuthority();
-        playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
-        playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
-        playerGroup.operationalAnchor = doctrine.getOperationalAnchor();
-        playerGroup.objectiveCapturePolicy = doctrine.getObjectiveCapturePolicy();
-        playerGroup.decisiveArm = doctrine.getDecisiveArm();
-        playerGroup.engagementDiscipline = doctrine.getEngagementDiscipline();
-        playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
-        playerGroup.orchestratedAdvance = doctrine.isOrchestratedAdvance();
-        playerGroup.plays.clear();
-        playerGroup.plays.addAll(doctrine.getEnabledPlays());
+        playerGroup.inheritFromFleetDoctrine(doctrine);
 
         playerGroup.missionContext = DivisionAutoFormer.detectMissionContext(engine, 0);
         alliedAiGroup.missionContext = playerGroup.missionContext;
