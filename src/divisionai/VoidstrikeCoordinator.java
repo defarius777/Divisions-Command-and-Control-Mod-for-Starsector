@@ -1011,9 +1011,17 @@ public class VoidstrikeCoordinator {
         if (scFriendDiv != null && scFriendDiv.localEnemyStrength > 0f) {
             return true;
         }
+        if (myGroup != null && myGroup.engagedDivisionCount >= 1) {
+            return true;
+        }
         float carrierHardFlux = carrier.getFluxTracker() != null ? carrier.getFluxTracker().getHardFlux() : 0f;
         float anchorHardFlux = anchor.getFluxTracker() != null ? anchor.getFluxTracker().getHardFlux() : 0f;
-        if (carrierHardFlux > 1f || anchorHardFlux > 1f) {
+        if (carrierHardFlux > 1f
+                || anchorHardFlux > 1f
+                || carrier.getFluxLevel() > 0.035f
+                || anchor.getFluxLevel() > 0.035f
+                || carrier.getHullLevel() < 0.99f
+                || anchor.getHullLevel() < 0.99f) {
             return true;
         }
 
@@ -1032,15 +1040,15 @@ public class VoidstrikeCoordinator {
                 return true;
             } else {
                 float launchDist = Math.max(
-                        1850f,
-                        effWingRange + carrier.getCollisionRadius() + focusEnemyShip.getCollisionRadius() + 250f);
+                        3200f,
+                        effWingRange + carrier.getCollisionRadius() + focusEnemyShip.getCollisionRadius() + 1100f);
                 if (minDist <= launchDist) {
                     return true;
                 }
             }
         }
 
-        float fighterAlertDist = isCapMission ? Math.max(1650f, Math.min(2800f, effWingRange + 300f)) : 1650f;
+        float fighterAlertDist = isCapMission ? Math.max(1650f, Math.min(2800f, effWingRange + 300f)) : 2600f;
         for (ShipAPI ef : cachedAliveFighters) {
             if (ef == null || !ef.isAlive() || ef.isHulk() || ef.getOwner() == carrier.getOwner() || ef.getLocation() == null) {
                 continue;
@@ -1054,7 +1062,7 @@ public class VoidstrikeCoordinator {
 
         float shipAlertDist = isCapMission
                 ? Math.max(2400f, Math.min(4200f, effWingRange + 600f))
-                : Math.max(1850f, effWingRange + 250f);
+                : Math.max(3200f, effWingRange + 1100f);
         for (ShipAPI es : collectEnemyCombatShipsForOwner(carrier.getOwner())) {
             if (es == null || !es.isAlive() || es.isHulk() || es.getLocation() == null) continue;
             if (!OtcAI.isShipVisibleToSide(engine, side, es)) continue;
@@ -1231,8 +1239,27 @@ public class VoidstrikeCoordinator {
                 && capInterceptTarget == null
                 && (!inCombatContact || escortAnchor == carrier);
 
+        boolean divHasBomberWings = false;
+        if (div.members != null) {
+            for (ShipAPI m : div.members) {
+                if (m == null || !m.isAlive() || m.isHulk() || m.getAllWings() == null) continue;
+                for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
+                    if (w != null && ((w.getSpec() != null && w.getSpec().isBomber())
+                            || w.getRole() == com.fs.starfarer.api.loading.WingRole.BOMBER)) {
+                        divHasBomberWings = true;
+                        break;
+                    }
+                }
+                if (divHasBomberWings) break;
+            }
+        }
+        boolean isReconOrSweepPatrol = scIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
+                || scIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
+                || scIntent == DivisionIntentType.FLY_CYCLIC_STRIKES;
         boolean coordinatedStagingActive = !holdFightersInFormation
                 && !isCapMission
+                && !isReconOrSweepPatrol
+                && divHasBomberWings
                 && div.voidstrikeStage != 2
                 && focusEnemyShip != null
                 && focusEnemyShip.isAlive()

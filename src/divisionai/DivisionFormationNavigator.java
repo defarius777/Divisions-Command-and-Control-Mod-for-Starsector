@@ -669,6 +669,13 @@ public class DivisionFormationNavigator {
 
         Vector2f helmSlot = applyFleetHelmsmanshipVectorAvoidance(
                 engine, ship, slotX, slotY, fwdX, fwdY, latX, latY, alive, div, myGroup);
+        if (engine != null
+                && engine.getMapHeight() >= 11500f
+                && !divisionInEntryTravelDrive
+                && !ship.isRetreating()
+                && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE) {
+            clampToMapBounds(engine, helmSlot, 620f);
+        }
         return helmSlot;
     }
 

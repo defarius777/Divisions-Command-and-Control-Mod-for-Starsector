@@ -1351,8 +1351,8 @@ public class UITestHarness {
         long perfStageTriNs = 0L;
         long perfStageClipNs = 0L;
         String worstDropInfo = "";
-        // Warm up JIT for 2 frames (including overlap clipping) before measuring late-combat 18-division frame geometry time
-        for (int warm = 0; warm < 2; warm++) {
+        // Warm up JIT for 18 frames (including overlap clipping) before measuring late-combat 18-division frame geometry time
+        for (int warm = 0; warm < 18; warm++) {
             perfPConvs.clear();
             perfEConvs.clear();
             for (DivisionState div : allPerfDivs) {

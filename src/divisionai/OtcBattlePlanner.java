@@ -139,7 +139,7 @@ public class OtcBattlePlanner {
 
         // 1b. Timed strikes (claims its participants from remaining untasked divisions)
         if (myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES) && !myGroup.fleetFeignedRetreatActive) {
-            runStrikePlan(engine, myGroup, active, now, expires, tasked);
+            runStrikePlan(engine, myGroup, active, visibleEnemies, now, expires, tasked);
         } else if (myGroup.strikePlan != null) {
             endStrikePlan(myGroup, now);
         }
@@ -237,6 +237,7 @@ public class OtcBattlePlanner {
             CombatEngineAPI engine,
             BattleGroupState myGroup,
             List<DivisionState> active,
+            List<DivisionState> visibleEnemies,
             float now,
             float expires,
             Set<DivisionState> tasked) {
@@ -380,7 +381,7 @@ public class OtcBattlePlanner {
         }
 
         if (plan == null && (now - myGroup.lastStrikePlanEndTime) >= STRIKE_COOLDOWN) {
-            plan = tryCreateStrikePlan(engine, myGroup, active, now);
+            plan = tryCreateStrikePlan(engine, myGroup, active, visibleEnemies, now);
             myGroup.strikePlan = plan;
         }
         if (plan == null) {
@@ -472,6 +473,7 @@ public class OtcBattlePlanner {
             CombatEngineAPI engine,
             BattleGroupState myGroup,
             List<DivisionState> active,
+            List<DivisionState> visibleEnemies,
             float now) {
 
         DivisionState target = myGroup.primaryThreatEnemyDivision;
@@ -481,6 +483,8 @@ public class OtcBattlePlanner {
                 || !OtcAI.isDivisionVisibleToSide(engine, myGroup.side, target)) {
             return null;
         }
+        boolean holdCarriersForMainBody = DivisionCommanderAI.isPrematureOpeningScoutStrikeTarget(
+                engine, myGroup, visibleEnemies, target, now);
         Vector2f targetPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, target);
 
         List<DivisionState> strikers = new ArrayList<>();
@@ -488,6 +492,11 @@ public class OtcBattlePlanner {
         boolean sisterAlphaCarrierBusyOrRecovering = false;
         for (DivisionState d : active) {
             if (d == myGroup.mainEffortDivision || d == myGroup.reserveDivision || d == myGroup.reinforcingDivision) continue;
+            if (holdCarriersForMainBody
+                    && (DivisionCommanderAI.isCarrierStandoffPosture(d, now)
+                    || (d.archetype != null && d.archetype.isCarrierArchetype()))) {
+                continue;
+            }
             if (DivisionCommanderAI.hasDivisionStrikeCraftCapability(d)
                     && DivisionCommanderAI.resolveActiveStrikeCraftMission(d, now) == StrikeCraftMissionType.ALPHA_STRIKE
                     && d.avgFluxLevel < 0.60f
@@ -877,6 +886,17 @@ public class OtcBattlePlanner {
             if (selfEngaged) continue;
             float dist = DivisionUiWidgets.distance(d.centroid, crisis.centroid);
             if (dist > maxDist) continue;
+            boolean isHeavyLineReinforcer = d.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || d.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+                    || d.archetype == DivisionArchetype.CRUISER_DIVISION
+                    || d.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
+                    || d.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION;
+            boolean isLightFlankerCrisis = crisis.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || crisis.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                    || crisis.totalFpStrength < 16f;
+            if (isHeavyLineReinforcer && isLightFlankerCrisis && dist > 1650f) {
+                continue;
+            }
 
             // Do not send a small Destroyer/Frigate division to commit suicide inside a deep multi-division
             // U-shaped crossfire pocket where combined friendly strength would still be heavily overmatched (< 0.55x).
@@ -910,7 +930,7 @@ public class OtcBattlePlanner {
             float overkillDetachBonus = (d.otcOrder.targetEnemy != null && d.otcOrder.targetEnemy.isOverkilled) ? 420f : 0f;
             float score = -dist * 0.15f - d.avgFluxLevel * 400f + timeReachBonus + overkillDetachBonus;
             if (isReserve) score += 800f;
-            if (d == myGroup.reinforcingDivision) score += 400f;
+            if (d == myGroup.reinforcingDivision) score += (d.avgFluxLevel < 0.62f ? 520f : 400f);
             if (d.isFastFlanker) score += 150f;
             if (score > bestScore) {
                 bestScore = score;
@@ -1124,9 +1144,31 @@ public class OtcBattlePlanner {
                     || primary.retreatingFraction >= 0.35f
                     || DivisionState.isDivisionEscapingInPursuit(engine, primary)))
                     || primary.archetype == DivisionArchetype.SERVICE_GROUP;
-            boolean mainIsHeavyBattleship = main.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                    || main.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
-            boolean flotillaSkirmishNoStaticLine = openFlotillaAnchor && !mainIsHeavyBattleship;
+            boolean mainIsStandoffCarrier = false;
+            if (main.archetype != null && main.archetype.isCarrierArchetype()) {
+                float totalBaseHull = 0f;
+                int hullCnt = 0;
+                for (int mi = 0, mn = main.members.size(); mi < mn; mi++) {
+                    ShipAPI ms = main.members.get(mi);
+                    if (ms != null && ms.getHullSpec() != null) {
+                        totalBaseHull += ms.getHullSpec().getHitpoints();
+                        hullCnt++;
+                    }
+                }
+                float avgBaseHull = (hullCnt > 0) ? (totalBaseHull / hullCnt) : 0f;
+                mainIsStandoffCarrier = main.archetype != DivisionArchetype.ESCORT_CARRIER_DIVISION
+                        || avgBaseHull < 8000f;
+            }
+            boolean singleDestroyerLine = active.size() <= 1
+                    && (main.archetype == DivisionArchetype.DESTROYER_DIVISION
+                    || main.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
+            boolean mainIsHeavyLine = main.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || main.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+                    || main.archetype == DivisionArchetype.CRUISER_DIVISION
+                    || main.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                    || main.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
+                    || singleDestroyerLine;
+            boolean flotillaSkirmishNoStaticLine = mainIsStandoffCarrier || (openFlotillaAnchor && !mainIsHeavyLine);
             // Keep the Main Effort steady as the fixing Anvil during Hammer & Anvil, Double Envelopment, Crossing
             // the T, and Kill-Box setpieces instead of bouncing 0.5s later between TOT_ALPHA_STRIKE and FORM_LINE.
             // Only surge the Main Effort onto EXECUTE_STRIKE during Echeloned Wave Breach or once the struck target
@@ -1218,7 +1260,10 @@ public class OtcBattlePlanner {
                         && !isPursuitInterception
                         && !isRearguardEscape
                         && myGroup.currentPhase != BattlePhase.GENERAL_CHASE
-                        && carrierAnchor.centroid != null) {
+                        && carrierAnchor.centroid != null
+                        && carrierAnchor.totalFpStrength >= Math.max(18f, myGroup.totalFriendlyStrength * 0.22f)
+                        && DivisionUiWidgets.distance(main.centroid, primaryPos) > 1950f
+                        && main.localEnemyStrength < 12f) {
                     float maxScreenLead = (myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
                             ? 1150f
                             : 1450f;
@@ -1379,16 +1424,18 @@ public class OtcBattlePlanner {
                     score += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, e, myGroup) * 0.48f;
                 } else {
                     // Human OTC: weights directional Time reachability and Space Weak Points vs Strongpoints
+                    // (scaled by target mass for non-flankers so Cruisers/Carriers don't chase light screens)
+                    float seamScale = d.isFastFlanker ? 1.0f : Math.max(0.22f, Math.min(1.0f, rawVisFp / 26f));
                     float enemyBearing = (float) Math.toDegrees(Math.atan2(
                             ePos.y - d.centroid.y,
                             ePos.x - d.centroid.x));
                     float dirTimeReach = BattlefieldFirepowerEvaluator.getDirectionalTimeRadius(d, enemyBearing);
                     float dirFreedom = Math.max(0.15f, Math.min(1.05f, dirTimeReach / Math.max(250f, d.freeTimeRadius)));
                     if (dist <= dirTimeReach + d.avgEngageRange) {
-                        score += 140f * dirFreedom;
+                        score += 120f * dirFreedom * seamScale;
                     }
-                    if (e.isWeakPoint) score += 180f;
-                    else if (e.isStrongpoint) score -= 90f;
+                    if (e.isWeakPoint) score += 140f * seamScale;
+                    else if (e.isStrongpoint) score -= (d.isFastFlanker ? 90f : 30f);
                 }
 
                 boolean skipCarrierOverkill = isCarrierDiv
@@ -1542,9 +1589,13 @@ public class OtcBattlePlanner {
             if (BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, candTargetPos) >= 0.45f) {
                 continue;
             }
-            // Also skip wide FLANK doubling when this division is TSF-overmatched against an unfixed target!
-            if (target.engagementLevel < 0.25f
-                    && BattlefieldFirepowerEvaluator.evaluateTsfEngagementRatio(engine, d, target, myGroup) < 0.68f) {
+            // Skip wide FLANK doubling when a Frigate pack (< 0.68) or solo division (< 0.58) faces an unengaged
+            // heavier line before our main body joins battle, while allowing Cruiser/Destroyer wings (>= 0.36) to envelop.
+            boolean isFragileFrigateFlanker = d.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || d.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+            if (target.engagementLevel < 0.22f
+                    && BattlefieldFirepowerEvaluator.evaluateTsfEngagementRatio(engine, d, target, myGroup)
+                    < (isFragileFrigateFlanker ? 0.68f : (active.size() <= 1 ? 0.58f : 0.36f))) {
                 continue;
             }
             // Avoid wide-arc FLANK ("Doubling") orders against fast enemy Frigate/Phase skirmisher packs that are
@@ -2082,11 +2133,14 @@ public class OtcBattlePlanner {
             Set<DivisionState> tasked) {
 
         myGroup.linePassCovererByDivisionId.clear();
-        // Cover relationships are re-derived every OTC tick so a coverer never stays locked in cover mode.
+        // Cover relationships are re-derived every OTC tick so a coverer never stays locked in cover mode,
+        // while preserving coveringFriendDivision hysteresis across both active withdrawals and preemptive high-flux cover.
         for (DivisionState d : myGroup.divisions) {
             d.isCoveringFriend = false;
             d.underCoverByFriend = false;
-            if (!d.currentIntent.isWithdrawalOrBreakout()) {
+            boolean stillNeedsCover = d.currentIntent.isWithdrawalOrBreakout()
+                    || (d.avgFluxLevel >= 0.58f && d.incomingInRangeFirepower > 30f);
+            if (!stillNeedsCover) {
                 d.coveringFriendDivision = null;
                 d.linePassActive = false;
             }
@@ -2127,7 +2181,7 @@ public class OtcBattlePlanner {
                         ? DivisionUiWidgets.distance(cand.centroid, idealScreenPt)
                         : dist;
                 float score = -screenDist * 0.55f + cand.totalFpStrength * 5f - cand.avgFluxLevel * 300f;
-                if (venting.coveringFriendDivision == cand) score += 320f;
+                if (venting.coveringFriendDivision == cand) score += 440f;
                 if (score > bestScore) {
                     bestScore = score;
                     bestCover = cand;
@@ -2218,8 +2272,29 @@ public class OtcBattlePlanner {
     }
 
     private static void logOrder(CombatEngineAPI engine, BattleGroupState battleGroup, String key, String text, float now) {
+        float minPairInterval = ORDER_LOG_INTERVAL;
+        if (key.startsWith("linepass:") || key.startsWith("relief:")) {
+            minPairInterval = 35.0f;
+        }
         Float last = battleGroup.orderLogTimes.get(key);
-        if (last != null && (now - last) < ORDER_LOG_INTERVAL) return;
+        if (last != null && (now - last) < minPairInterval) return;
+        if (key.startsWith("linepass:")) {
+            int gtIdx = key.indexOf('>');
+            if (gtIdx > 9) {
+                String ventScope = "linepass_vent_cd:" + key.substring(gtIdx + 1);
+                Float lastVent = battleGroup.orderLogTimes.get(ventScope);
+                if (lastVent != null && (now - lastVent) < 24.0f) return;
+                battleGroup.orderLogTimes.put(ventScope, now);
+            }
+        } else if (key.startsWith("relief:") && !text.startsWith("Committing the reserve")) {
+            int gtIdx = key.indexOf('>');
+            if (gtIdx > 7) {
+                String crisisScope = "relief_crisis_cd:" + key.substring(gtIdx + 1);
+                Float lastCrisis = battleGroup.orderLogTimes.get(crisisScope);
+                if (lastCrisis != null && (now - lastCrisis) < 22.0f) return;
+                battleGroup.orderLogTimes.put(crisisScope, now);
+            }
+        }
         if (battleGroup.currentPhase == BattlePhase.GENERAL_CHASE
                 && (key.startsWith("pursue:") || key.startsWith("flank:"))) {
             int gtIdx = key.indexOf('>');
