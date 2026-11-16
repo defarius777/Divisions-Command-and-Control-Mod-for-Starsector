@@ -541,8 +541,15 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         initializedBattle = true;
         pendingSummaryInstance = this;
         if (DivisionAISettings.isDebugLoggingEnabled()) {
-            LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, plays=%s",
-                    playerGroup.authority.shortName, playerGroup.plays));
+            PermanentDivisionManager.OperationalTemplate initTpl = playerGroup.resolveMatchingOperationalTemplate();
+            String conductStr = (initTpl != null)
+                    ? initTpl.shortName
+                    : ("Custom[" + playerGroup.operationalAnchor.name()
+                    + "/" + playerGroup.objectiveCapturePolicy.name()
+                    + "/" + playerGroup.decisiveArm.name()
+                    + "/" + playerGroup.engagementDiscipline.name() + "]");
+            LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, conduct=%s, plays=%s",
+                    playerGroup.authority.shortName, conductStr, playerGroup.plays));
         }
     }
 
@@ -1578,16 +1585,24 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             String pForm = (playerGroup != null && playerGroup.activeFleetWideFormation != null)
                     ? playerGroup.activeFleetWideFormation.displayName
                     : "None";
+            PermanentDivisionManager.OperationalTemplate sumTpl = (playerGroup != null)
+                    ? playerGroup.resolveMatchingOperationalTemplate()
+                    : null;
+            String pConduct = (sumTpl != null)
+                    ? sumTpl.shortName
+                    : (playerGroup != null
+                    ? ("Custom[" + playerGroup.operationalAnchor.name() + "/" + playerGroup.decisiveArm.name() + "]")
+                    : "None");
             int pDivs = (playerGroup != null) ? playerGroup.divisions.size() : 0;
             int eDivs = (enemyGroup != null) ? enemyGroup.divisions.size() : 0;
             String eFaction = (enemyGroup != null && enemyGroup.factionId != null) ? enemyGroup.factionId : "unknown";
 
             String line = String.format(
                     java.util.Locale.ROOT,
-                    "[DivisionAI] BATTLE SUMMARY: outcome=%s duration=%.1fs | Player(divs=%d, auth=%s, conv=%b, form=%s, survDP=%.0f, lostDP=%.0f, retDP=%.0f) vs Enemy(faction=%s, divs=%d, survDP=%.0f, lostDP=%.0f, retDP=%.0f)",
+                    "[DivisionAI] BATTLE SUMMARY: outcome=%s duration=%.1fs | Player(divs=%d, auth=%s, conduct=%s, conv=%b, form=%s, survDP=%.0f, lostDP=%.0f, retDP=%.0f) vs Enemy(faction=%s, divs=%d, survDP=%.0f, lostDP=%.0f, retDP=%.0f)",
                     outcome,
                     duration,
-                    pDivs, pAuth, pConv, pForm, pDeployedDp, pDestroyedDp, pRetreatedDp,
+                    pDivs, pAuth, pConduct, pConv, pForm, pDeployedDp, pDestroyedDp, pRetreatedDp,
                     eFaction, eDivs, eDeployedDp, eDestroyedDp, eRetreatedDp);
             if (DivisionAISettings.isDebugLoggingEnabled()) {
                 LOG.info(line);

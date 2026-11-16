@@ -1054,18 +1054,18 @@ public final class DivisionUiWidgets {
             case "FIGHTING_STYLE_PREV":
             case "FIGHTING_STYLE_NEXT":
                 return new String[]{
-                        "Cycle Battle Fighting Style",
-                        "Cycles your fleet's operational fighting style (Light & Strike Warfare, Linear Warfare, Carrier-Centric Ops, or Custom) for this battle only without altering your saved Campaign Fleet Doctrine."
+                        "Cycle Conduct of Battle",
+                        "Cycles your fleet's Conduct of Battle (Light & Strike Warfare, Linear Warfare, Carrier-Centric Ops, or Custom Conduct) for this engagement without altering your saved Campaign Fleet Doctrine."
                 };
             case "FIGHTING_STYLE_CUSTOMIZE":
                 return new String[]{
-                        "Customize Battle Fighting Style",
-                        "Opens the Battle Fighting Style panel to switch operational presets or fine-tune Anchor, Objective Capture, Primary Striking Arm, Engagement Discipline, Setpieces, and Tactical Plays for this battle only."
+                        "Customize Conduct of Battle",
+                        "Opens the Conduct of Battle panel to switch operational presets or fine-tune Anchor, Objective Capture, Primary Striking Arm, Engagement Discipline, Setpieces, and Tactical Plays for this engagement only."
                 };
             case "FIGHTING_STYLE_RESET_CAMPAIGN":
                 return new String[]{
                         "Restore Campaign Doctrine",
-                        "Resets all temporary battle fighting-style, command-style, and formation overrides back to your saved Campaign Fleet Doctrine."
+                        "Resets all temporary Conduct of Battle, Command Style, and Fleet Formation overrides back to your saved Campaign Fleet Doctrine."
                 };
             case "BATTLE_SETPIECE_PREV":
             case "BATTLE_SETPIECE_NEXT":

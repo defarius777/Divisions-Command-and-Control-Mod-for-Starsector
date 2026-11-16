@@ -66,8 +66,8 @@ public final class FleetCommandPanel {
         final float leftSectionW = Math.round(width * 0.385f);
         final float rightSectionX = leftSectionW + 8f;
         final float rightSectionW = Math.max(360f, width - rightSectionX - 6f);
-        final float cmdColW = Math.round((rightSectionW - 12f) * 0.315f);
-        final float styleColW = Math.round((rightSectionW - 12f) * 0.330f);
+        final float cmdColW = Math.round((rightSectionW - 12f) * 0.305f);
+        final float styleColW = Math.round((rightSectionW - 12f) * 0.340f);
         final float cmdColX = rightSectionX;
         final float styleColX = cmdColX + cmdColW + 6f;
         final float formColX = styleColX + styleColW + 6f;
@@ -132,11 +132,11 @@ public final class FleetCommandPanel {
         cmdStyleNameLabel.setColor(new Color(255, 232, 130, 255));
         cmdStyleNameLabel.setAlignment(Alignment.MID);
         final LabelAPI fightingStyleHeaderLabel = Global.getSettings().createLabel(
-                preBattle ? "FIGHTING STYLE" : "", Fonts.ORBITRON_12);
-        fightingStyleHeaderLabel.setColor(new Color(125, 235, 255, 255));
+                preBattle ? "CONDUCT OF BATTLE" : "", Fonts.ORBITRON_12);
+        fightingStyleHeaderLabel.setColor(new Color(255, 215, 80, 255));
         fightingStyleHeaderLabel.setAlignment(Alignment.MID);
         final LabelAPI fightingStyleNameLabel = Global.getSettings().createLabel("", Fonts.ORBITRON_12);
-        fightingStyleNameLabel.setColor(new Color(190, 245, 255, 255));
+        fightingStyleNameLabel.setColor(new Color(255, 232, 130, 255));
         fightingStyleNameLabel.setAlignment(Alignment.MID);
         final LabelAPI selectorHeaderLabel = Global.getSettings().createLabel(
                 preBattle ? "FLEET FORMATION" : "FLEET STATUS", Fonts.ORBITRON_12);
@@ -464,10 +464,10 @@ public final class FleetCommandPanel {
                     lastSelectorLayoutKey = selKey;
                     cmdStyleNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
                             auth.dropdownLabel, cmdStyleNameLabel, cmdColW - 60f));
-                    String styleTitle = (matchedTpl != null) ? matchedTpl.shortName : "Custom Style";
+                    String styleTitle = (matchedTpl != null) ? matchedTpl.shortName : "Custom Conduct";
                     fightingStyleNameLabel.setColor(matchedTpl != null
-                            ? new Color(190, 245, 255, 255)
-                            : new Color(255, 222, 105, 255));
+                            ? new Color(255, 232, 130, 255)
+                            : new Color(175, 240, 255, 255));
                     fightingStyleNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
                             styleTitle, fightingStyleNameLabel, styleColW - 60f));
                     ButtonAPI custBtn = styleCustomizeButtonRef[0];
@@ -716,7 +716,7 @@ public final class FleetCommandPanel {
                     float pCardSize = 104f;
                     float pStartX = x + cmdColX + Math.round((cmdColW - pCardSize) * 0.5f);
                     float pBottomY = py + ph - 68f - pCardSize;
-                    float sCardSize = 94f;
+                    float sCardSize = 104f;
                     float sStartX = x + styleColX + Math.round((styleColW - sCardSize) * 0.5f);
                     float sBottomY = py + ph - 68f - sCardSize;
                     float fCardSize = 94f;
@@ -955,9 +955,9 @@ public final class FleetCommandPanel {
                             ? playerGroup.fleetWideFormation
                             : doc.getFleetWideFormation());
                 }
-                PermanentDivisionManager.OperationalTemplate iconTpl = (playerGroup != null)
-                        ? playerGroup.resolveIconOperationalTemplate()
-                        : PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+                PermanentDivisionManager.OperationalTemplate matchedConductTpl = (playerGroup != null)
+                        ? playerGroup.resolveMatchingOperationalTemplate()
+                        : doc.resolveMatchingOperationalTemplate();
                 if (preBattle) {
                     PermanentDivisionManager.OtcAuthority activeAuth = (playerGroup != null && playerGroup.authority != null)
                             ? playerGroup.authority
@@ -970,11 +970,11 @@ public final class FleetCommandPanel {
                     FleetDoctrineDialog.renderOtcAuthorityPennantBox(
                             activeAuth, pStartX, pBottomY, pCardSize, pCardSize, true, false, alphaMult);
 
-                    float sCardSize = 94f;
+                    float sCardSize = 104f;
                     float sStartX = x + styleColX + Math.round((styleColW - sCardSize) * 0.5f);
                     float sBottomY = y + h - 68f - sCardSize;
                     FleetDoctrineDialog.renderOperationalTemplateBox(
-                            iconTpl, sStartX, sBottomY, sCardSize, sCardSize, true, false, alphaMult);
+                            matchedConductTpl, sStartX, sBottomY, sCardSize, sCardSize, true, false, alphaMult);
 
                     DivisionDeploymentDialogOrganizer.renderFleetFormationIcon(
                             fw, x + formColX + formColW * 0.5f, y + h - 115f, 94f, alphaMult, false);
@@ -991,7 +991,7 @@ public final class FleetCommandPanel {
                     FleetDoctrineDialog.renderOtcAuthorityPennantBox(
                             activeAuth, pennantX, badgeY, midIconSize, midIconSize, true, false, alphaMult);
                     FleetDoctrineDialog.renderOperationalTemplateBox(
-                            iconTpl, styleBadgeX, badgeY, midIconSize, midIconSize, true, false, alphaMult);
+                            matchedConductTpl, styleBadgeX, badgeY, midIconSize, midIconSize, true, false, alphaMult);
                     DivisionDeploymentDialogOrganizer.renderFleetFormationIcon(
                             fw, wheelCenterX, wheelCenterY, midIconSize, alphaMult, true);
                 }
@@ -1089,11 +1089,11 @@ public final class FleetCommandPanel {
                     Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
             authNextButtonRef[0] = buttons.addButton(">", "OTC_AUTH_NEXT", base, dark,
                     Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
-            stylePrevButtonRef[0] = buttons.addButton("<", "FIGHTING_STYLE_PREV", cyanBase, dark,
+            stylePrevButtonRef[0] = buttons.addButton("<", "FIGHTING_STYLE_PREV", base, dark,
                     Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
-            styleNextButtonRef[0] = buttons.addButton(">", "FIGHTING_STYLE_NEXT", cyanBase, dark,
+            styleNextButtonRef[0] = buttons.addButton(">", "FIGHTING_STYLE_NEXT", base, dark,
                     Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
-            styleCustomizeButtonRef[0] = buttons.addButton("Customize", "FIGHTING_STYLE_CUSTOMIZE", cyanBase, dark,
+            styleCustomizeButtonRef[0] = buttons.addButton("Customize", "FIGHTING_STYLE_CUSTOMIZE", base, dark,
                     Alignment.MID, CutStyle.ALL, styleColW - 12f, 18f, 0f);
             prevButtonRef[0] = buttons.addButton("<", "FLEET_FORMATION_PREV", base, dark,
                     Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);

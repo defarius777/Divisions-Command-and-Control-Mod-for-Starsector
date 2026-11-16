@@ -1741,7 +1741,7 @@ public class PermanentDivisionManager {
                 "Light & Strike Warfare",
                 "Flotillas contest the map and converge with torpedo and strike runs.",
                 "icon_template_light_strike_warfare",
-                "graphics/icons/operational_templates/icon_template_light_strike_warfare.png",
+                "graphics/icons/operational_templates/pennant_light_strike_warfare.png",
                 OperationalAnchor.OPEN_FLOTILLA,
                 ObjectiveCapturePolicy.ACTIVE_CONTEST,
                 DecisiveArm.TORPEDO_STRIKES,
@@ -1751,7 +1751,7 @@ public class PermanentDivisionManager {
                 "Linear Warfare",
                 "Gunline fixes the enemy center while light forces work the flanks.",
                 "icon_template_linear_warfare",
-                "graphics/icons/operational_templates/icon_template_linear_warfare.png",
+                "graphics/icons/operational_templates/pennant_linear_warfare.png",
                 OperationalAnchor.BATTLE_LINE,
                 ObjectiveCapturePolicy.LIGHT_FORCES_ONLY,
                 DecisiveArm.SURFACE_GUNFIRE,
@@ -1761,11 +1761,15 @@ public class PermanentDivisionManager {
                 "Carrier-Centric Ops",
                 "Surface warships screen the carrier group while air wings strike.",
                 "icon_template_carrier_centric",
-                "graphics/icons/operational_templates/icon_template_carrier_centric.png",
+                "graphics/icons/operational_templates/pennant_carrier_centric.png",
                 OperationalAnchor.CARRIER_SCREEN,
                 ObjectiveCapturePolicy.FLEET_AXIS_ONLY,
                 DecisiveArm.CARRIER_STRIKE,
                 EngagementDiscipline.CLOSE_SCREEN);
+
+        public static final String CUSTOM_CONDUCT_ICON_KEY = "icon_template_custom_conduct";
+        public static final String CUSTOM_CONDUCT_SPRITE_PATH =
+                "graphics/icons/operational_templates/pennant_custom_conduct.png";
 
         public final String displayName;
         public final String shortName;

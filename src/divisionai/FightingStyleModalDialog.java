@@ -250,17 +250,17 @@ public final class FightingStyleModalDialog {
         final CustomPanelAPI winPanel = Global.getSettings().createCustom(width, height, winPlugin);
         winRef[0] = winPanel;
 
-        LabelAPI titleLbl = Global.getSettings().createLabel("BATTLE FIGHTING STYLE", Fonts.ORBITRON_12);
-        titleLbl.setColor(new Color(125, 235, 255, 255));
+        LabelAPI titleLbl = Global.getSettings().createLabel("CONDUCT OF BATTLE", Fonts.ORBITRON_12);
+        titleLbl.setColor(new Color(255, 215, 80, 255));
         DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(titleLbl);
-        winPanel.addComponent((UIComponentAPI) titleLbl).setSize(218f, 18f).inTL(10f, 4f);
+        winPanel.addComponent((UIComponentAPI) titleLbl).setSize(208f, 18f).inTL(10f, 4f);
 
         String scopeNote = "Applies to this battle only (Campaign Doctrine unchanged)";
         LabelAPI scopeLbl = Global.getSettings().createLabel("", Fonts.GROUP_NUM_FONT);
-        scopeLbl.setColor(new Color(255, 212, 105, 245));
+        scopeLbl.setColor(new Color(190, 225, 245, 245));
         DivisionDeploymentDialogOrganizer.assertCoolTacticalFonts(scopeLbl);
-        float scopeMaxW = Math.max(160f, width - 460f);
-        winPanel.addComponent((UIComponentAPI) scopeLbl).setSize(scopeMaxW, 16f).inTL(232f, 5f);
+        float scopeMaxW = Math.max(160f, width - 450f);
+        winPanel.addComponent((UIComponentAPI) scopeLbl).setSize(scopeMaxW, 16f).inTL(222f, 5f);
         scopeLbl.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(scopeNote, scopeLbl, scopeMaxW - 4f));
 
         TooltipMakerAPI topBtnBar = winPanel.createUIElement(width, topBarH, false);
@@ -304,7 +304,7 @@ public final class FightingStyleModalDialog {
                 final OperationalTemplate[] allTpls = OperationalTemplate.values();
 
                 float rowW = bodyW - 18f;
-                final float cardSize = 68f;
+                final float cardSize = 84f;
                 final float topPad = 4f;
                 final float colGap = 14f;
                 final float colW = Math.max(180f, Math.min(260f, (rowW - colGap * 2f) / 3f));
@@ -364,13 +364,13 @@ public final class FightingStyleModalDialog {
                     DivisionUiWidgets.addTooltip(
                             tplUi,
                             bTpl,
-                            "Battle Fighting Style: " + tpl.displayName,
+                            "Conduct of Battle: " + tpl.displayName,
                             tpl.summary + " Applies to this battle only; individual axes below can also be adjusted.");
                 }
 
                 String statusRaw = (matchedTpl != null)
                         ? matchedTpl.summary
-                        : "Custom Battle Style active - select a preset above or fine-tune axes below.";
+                        : "Custom Conduct active - select a preset above or fine-tune axes below.";
                 LabelAPI sumLbl = Global.getSettings().createLabel("", Fonts.GROUP_NUM_FONT);
                 sumLbl.setColor(matchedTpl != null ? new Color(195, 225, 245, 245) : goldActive);
                 sumLbl.setAlignment(Alignment.MID);

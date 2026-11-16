@@ -1784,22 +1784,23 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             boolean isSelected,
             boolean isHovered,
             float alphaMult) {
-        if (template == null || alphaMult <= 0.01f) return;
-        float bx = Math.round(boxX);
-        float by = Math.round(boxY);
-        float bw = Math.round(boxW);
-        float bh = Math.round(boxH);
+        if (alphaMult <= 0.01f) return;
+        float bx = (float) Math.round(boxX);
+        float by = (float) Math.round(boxY);
+        float bw = (float) Math.round(boxW);
+        float bh = (float) Math.round(boxH);
 
-        // 1. Warroom TSFC-style dark/illuminated square cavity
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+
+        // 1. Dark backing plate + subtle golden deployment wash when selected (matching OTC Authority Pennant box)
         if (isSelected) {
-            GL11.glColor4f(0.06f, 0.18f, 0.25f, 0.96f * alphaMult); // #0F2E40 active cavity
+            GL11.glColor4f(0.06f, 0.10f, 0.16f, 0.92f * alphaMult);
         } else if (isHovered) {
-            GL11.glColor4f(0.05f, 0.11f, 0.16f, 0.92f * alphaMult);
+            GL11.glColor4f(0.07f, 0.12f, 0.20f, 0.88f * alphaMult);
         } else {
-            GL11.glColor4f(0.04f, 0.055f, 0.067f, 0.90f * alphaMult); // #0A0E11 standard cavity
+            GL11.glColor4f(0.03f, 0.06f, 0.10f, 0.84f * alphaMult);
         }
         GL11.glBegin(GL11.GL_QUADS);
         GL11.glVertex2f(bx, by);
@@ -1807,12 +1808,28 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         GL11.glVertex2f(bx + bw, by + bh);
         GL11.glVertex2f(bx, by + bh);
         GL11.glEnd();
+
+        if (isSelected) {
+            GL11.glColor4f(1.0f, 0.84f, 0.16f, 0.11f * alphaMult);
+            GL11.glBegin(GL11.GL_QUADS);
+            GL11.glVertex2f(bx + 1f, by + 1f);
+            GL11.glVertex2f(bx + bw - 1f, by + 1f);
+            GL11.glVertex2f(bx + bw - 1f, by + bh - 1f);
+            GL11.glVertex2f(bx + 1f, by + bh - 1f);
+            GL11.glEnd();
+        }
         GL11.glEnable(GL11.GL_TEXTURE_2D);
         GL11.glColor4f(1f, 1f, 1f, 1f);
 
-        // 2. Render pure-white template silhouette tinted in Warroom Cyan (#AADEFF standard / #E1FCFF active)
+        // 2. Render Conduct of Battle Naval Pennant sprite centered in box (supports null -> Custom Conduct pennant)
+        String iconKey = (template != null)
+                ? template.getSettingsIconKey()
+                : OperationalTemplate.CUSTOM_CONDUCT_ICON_KEY;
+        String spritePath = (template != null)
+                ? template.getSpritePath()
+                : OperationalTemplate.CUSTOM_CONDUCT_SPRITE_PATH;
         try {
-            SpriteAPI sprite = loadFormationSpriteSafe(template.getSettingsIconKey(), template.getSpritePath());
+            SpriteAPI sprite = loadFormationSpriteSafe(iconKey, spritePath);
             if (sprite != null) {
                 float prevW = sprite.getWidth();
                 float prevH = sprite.getHeight();
@@ -1820,13 +1837,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 float prevCy = sprite.getCenterY();
                 Color prevColor = sprite.getColor();
                 float prevAlpha = sprite.getAlphaMult();
-                float drawSize = (float) Math.round(Math.max(16f, Math.min(bw, bh) - 18f));
+                float drawSize = (float) Math.round(Math.max(16f, Math.min(bw, bh) - 6f));
                 float snapX = (float) Math.round(bx + (bw - drawSize) * 0.5f);
                 float snapY = (float) Math.round(by + (bh - drawSize) * 0.5f);
                 sprite.setSize(drawSize, drawSize);
                 sprite.setCenter(drawSize * 0.5f, drawSize * 0.5f);
-                sprite.setColor(isSelected ? new Color(225, 252, 255) : new Color(170, 222, 255));
-                sprite.setAlphaMult((isSelected ? 1.0f : (isHovered ? 0.96f : 0.88f)) * alphaMult);
+                sprite.setColor(Color.WHITE);
+                sprite.setAlphaMult((isSelected ? 1.0f : (isHovered ? 0.95f : 0.82f)) * alphaMult);
                 sprite.render(snapX, snapY);
                 sprite.setSize(prevW, prevH);
                 sprite.setCenter(prevCx, prevCy);
@@ -1838,13 +1855,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         } catch (Throwable ignored) {
         }
 
-        // 3. Draw Warroom Cyan double border when active, or steel-teal Warroom frame when unselected
+        // 3. Draw deployment-style double-lined golden box when selected, or slate border when unselected
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         if (isSelected) {
-            GL11.glLineWidth(2.2f);
-            GL11.glColor4f(0.42f, 0.90f, 1.0f, 0.96f * alphaMult); // #6BE6FF active frame
+            GL11.glLineWidth(2.0f);
+            GL11.glColor4f(1.0f, 0.85f, 0.18f, 0.96f * alphaMult);
             GL11.glBegin(GL11.GL_LINE_LOOP);
             GL11.glVertex2f(bx, by);
             GL11.glVertex2f(bx + bw, by);
@@ -1852,19 +1869,19 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             GL11.glVertex2f(bx, by + bh);
             GL11.glEnd();
 
-            if (bw > 10f && bh > 10f) {
+            if (bw > 8f && bh > 8f) {
                 GL11.glLineWidth(1.0f);
-                GL11.glColor4f(0.45f, 0.95f, 1.0f, 0.58f * alphaMult); // #73F2FF inner hairline
+                GL11.glColor4f(1.0f, 0.94f, 0.55f, 0.55f * alphaMult);
                 GL11.glBegin(GL11.GL_LINE_LOOP);
-                GL11.glVertex2f(bx + 3f, by + 3f);
-                GL11.glVertex2f(bx + bw - 3f, by + 3f);
-                GL11.glVertex2f(bx + bw - 3f, by + bh - 3f);
-                GL11.glVertex2f(bx + 3f, by + bh - 3f);
+                GL11.glVertex2f(bx + 2f, by + 2f);
+                GL11.glVertex2f(bx + bw - 2f, by + 2f);
+                GL11.glVertex2f(bx + bw - 2f, by + bh - 2f);
+                GL11.glVertex2f(bx + 2f, by + bh - 2f);
                 GL11.glEnd();
             }
         } else {
-            GL11.glLineWidth(isHovered ? 1.8f : 1.4f);
-            GL11.glColor4f(0.21f, 0.45f, 0.56f, (isHovered ? 0.92f : 0.72f) * alphaMult); // #36738E steel-teal frame
+            GL11.glLineWidth(isHovered ? 1.5f : 1.0f);
+            GL11.glColor4f(0.26f, 0.36f, 0.48f, (isHovered ? 0.88f : 0.48f) * alphaMult);
             GL11.glBegin(GL11.GL_LINE_LOOP);
             GL11.glVertex2f(bx, by);
             GL11.glVertex2f(bx + bw, by);
@@ -2297,7 +2314,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             Color gray) {
 
         body.addSectionHeading(
-                "Operational Focus and Engagement Rules",
+                "Conduct of Battle",
                 highlight,
                 darkColor,
                 Alignment.LMID,
@@ -2370,13 +2387,13 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             DivisionUiWidgets.addTooltip(
                     tplUi,
                     bTpl,
-                    "Operational Template: " + tpl.displayName,
+                    "Conduct of Battle: " + tpl.displayName,
                     tpl.summary + " Populates the four operational options below, which can be adjusted individually.");
         }
 
         String tplStatus = matchedTpl != null
                 ? matchedTpl.summary
-                : "Custom settings active - select an operational template above to reset all four rows.";
+                : "Custom conduct active - select a preset above to reset all four rows.";
         LabelAPI tplSumLbl = Global.getSettings().createLabel(tplStatus, Fonts.GROUP_NUM_FONT);
         tplSumLbl.setColor(matchedTpl != null ? new Color(195, 220, 240, 245) : highlight);
         tplSumLbl.setAlignment(Alignment.MID);

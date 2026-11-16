@@ -772,6 +772,19 @@ public class StarsectorUISimulator {
                     verifiedOtcPennantSprites++;
                 }
             }
+            for (PermanentDivisionManager.OperationalTemplate tpl : PermanentDivisionManager.OperationalTemplate.values()) {
+                SpriteAPI cSp = FleetDoctrineDialog.loadFormationSpriteSafe(
+                        tpl.getSettingsIconKey(), tpl.getSpritePath());
+                if (cSp == null || cSp.getTextureId() <= 0 || cSp.getWidth() != 256f || cSp.getHeight() != 256f) {
+                    allOtcPennantSpritesOk = false;
+                }
+            }
+            SpriteAPI custSp = FleetDoctrineDialog.loadFormationSpriteSafe(
+                    PermanentDivisionManager.OperationalTemplate.CUSTOM_CONDUCT_ICON_KEY,
+                    PermanentDivisionManager.OperationalTemplate.CUSTOM_CONDUCT_SPRITE_PATH);
+            if (custSp == null || custSp.getTextureId() <= 0 || custSp.getWidth() != 256f || custSp.getHeight() != 256f) {
+                allOtcPennantSpritesOk = false;
+            }
 
             // 2. Build 16 real SimFleetMembers & Campaign Sector persistent data for 1:1 UI simulation
             privatesuper hullSpec = allocateWithoutConstructor(privatesuper.class);

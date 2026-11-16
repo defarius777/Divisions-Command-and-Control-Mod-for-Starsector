@@ -69,9 +69,10 @@
 			"otc_command_by_direction": "graphics/icons/otc_emblems/otc_command_by_direction.png",
 			"otc_command_by_negation": "graphics/icons/otc_emblems/otc_command_by_negation.png",
 			"otc_fire_distribution_only": "graphics/icons/otc_emblems/otc_fire_distribution_only.png",
-			"icon_template_linear_warfare": "graphics/icons/operational_templates/icon_template_linear_warfare.png",
-			"icon_template_light_strike_warfare": "graphics/icons/operational_templates/icon_template_light_strike_warfare.png",
-			"icon_template_carrier_centric": "graphics/icons/operational_templates/icon_template_carrier_centric.png"
+			"icon_template_linear_warfare": "graphics/icons/operational_templates/pennant_linear_warfare.png",
+			"icon_template_light_strike_warfare": "graphics/icons/operational_templates/pennant_light_strike_warfare.png",
+			"icon_template_carrier_centric": "graphics/icons/operational_templates/pennant_carrier_centric.png",
+			"icon_template_custom_conduct": "graphics/icons/operational_templates/pennant_custom_conduct.png"
 		}
 	}
 }
