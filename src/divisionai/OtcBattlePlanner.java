@@ -886,13 +886,8 @@ public class OtcBattlePlanner {
             if (selfEngaged) continue;
             float dist = DivisionUiWidgets.distance(d.centroid, crisis.centroid);
             if (dist > maxDist) continue;
-            boolean isHeavyLineReinforcer = d.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                    || d.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
-                    || d.archetype == DivisionArchetype.CRUISER_DIVISION
-                    || d.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
-                    || d.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION;
-            boolean isLightFlankerCrisis = crisis.archetype == DivisionArchetype.FRIGATE_DIVISION
-                    || crisis.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+            boolean isHeavyLineReinforcer = d.archetype != null && d.archetype.isHeavyLineArchetype();
+            boolean isLightFlankerCrisis = (crisis.archetype != null && crisis.archetype.isFrigateArchetype())
                     || crisis.totalFpStrength < 16f;
             if (isHeavyLineReinforcer && isLightFlankerCrisis && dist > 1650f) {
                 continue;
@@ -1144,29 +1139,11 @@ public class OtcBattlePlanner {
                     || primary.retreatingFraction >= 0.35f
                     || DivisionState.isDivisionEscapingInPursuit(engine, primary)))
                     || primary.archetype == DivisionArchetype.SERVICE_GROUP;
-            boolean mainIsStandoffCarrier = false;
-            if (main.archetype != null && main.archetype.isCarrierArchetype()) {
-                float totalBaseHull = 0f;
-                int hullCnt = 0;
-                for (int mi = 0, mn = main.members.size(); mi < mn; mi++) {
-                    ShipAPI ms = main.members.get(mi);
-                    if (ms != null && ms.getHullSpec() != null) {
-                        totalBaseHull += ms.getHullSpec().getHitpoints();
-                        hullCnt++;
-                    }
-                }
-                float avgBaseHull = (hullCnt > 0) ? (totalBaseHull / hullCnt) : 0f;
-                mainIsStandoffCarrier = main.archetype != DivisionArchetype.ESCORT_CARRIER_DIVISION
-                        || avgBaseHull < 8000f;
-            }
+            boolean mainIsStandoffCarrier = isFragileStandoffCarrierDivision(main);
             boolean singleDestroyerLine = active.size() <= 1
-                    && (main.archetype == DivisionArchetype.DESTROYER_DIVISION
-                    || main.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
-            boolean mainIsHeavyLine = main.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                    || main.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
-                    || main.archetype == DivisionArchetype.CRUISER_DIVISION
-                    || main.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
-                    || main.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
+                    && main.archetype != null
+                    && main.archetype.isDestroyerArchetype();
+            boolean mainIsHeavyLine = (main.archetype != null && main.archetype.isHeavyLineArchetype())
                     || singleDestroyerLine;
             boolean flotillaSkirmishNoStaticLine = mainIsStandoffCarrier || (openFlotillaAnchor && !mainIsHeavyLine);
             // Keep the Main Effort steady as the fixing Anvil during Hammer & Anvil, Double Envelopment, Crossing
@@ -1424,18 +1401,8 @@ public class OtcBattlePlanner {
                     score += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, e, myGroup) * 0.48f;
                 } else {
                     // Human OTC: weights directional Time reachability and Space Weak Points vs Strongpoints
-                    // (scaled by target mass for non-flankers so Cruisers/Carriers don't chase light screens)
-                    float seamScale = d.isFastFlanker ? 1.0f : Math.max(0.22f, Math.min(1.0f, rawVisFp / 26f));
-                    float enemyBearing = (float) Math.toDegrees(Math.atan2(
-                            ePos.y - d.centroid.y,
-                            ePos.x - d.centroid.x));
-                    float dirTimeReach = BattlefieldFirepowerEvaluator.getDirectionalTimeRadius(d, enemyBearing);
-                    float dirFreedom = Math.max(0.15f, Math.min(1.05f, dirTimeReach / Math.max(250f, d.freeTimeRadius)));
-                    if (dist <= dirTimeReach + d.avgEngageRange) {
-                        score += 120f * dirFreedom * seamScale;
-                    }
-                    if (e.isWeakPoint) score += 140f * seamScale;
-                    else if (e.isStrongpoint) score -= (d.isFastFlanker ? 90f : 30f);
+                    score += BattlefieldFirepowerEvaluator.computeHumanDirectionalSeamBonus(
+                            d, e, ePos, dist, rawVisFp, 120f, 140f, 90f, 30f);
                 }
 
                 boolean skipCarrierOverkill = isCarrierDiv
@@ -1591,8 +1558,7 @@ public class OtcBattlePlanner {
             }
             // Skip wide FLANK doubling when a Frigate pack (< 0.68) or solo division (< 0.58) faces an unengaged
             // heavier line before our main body joins battle, while allowing Cruiser/Destroyer wings (>= 0.36) to envelop.
-            boolean isFragileFrigateFlanker = d.archetype == DivisionArchetype.FRIGATE_DIVISION
-                    || d.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+            boolean isFragileFrigateFlanker = d.archetype != null && d.archetype.isFrigateArchetype();
             if (target.engagementLevel < 0.22f
                     && BattlefieldFirepowerEvaluator.evaluateTsfEngagementRatio(engine, d, target, myGroup)
                     < (isFragileFrigateFlanker ? 0.68f : (active.size() <= 1 ? 0.58f : 0.36f))) {
@@ -2271,39 +2237,64 @@ public class OtcBattlePlanner {
                 "Battle sequence initiated against \"%s\": Engage -> Trade Space for Time.", primary.displayName), now);
     }
 
-    private static void logOrder(CombatEngineAPI engine, BattleGroupState battleGroup, String key, String text, float now) {
-        float minPairInterval = ORDER_LOG_INTERVAL;
-        if (key.startsWith("linepass:") || key.startsWith("relief:")) {
-            minPairInterval = 35.0f;
+    private static boolean isFragileStandoffCarrierDivision(DivisionState div) {
+        if (div == null || div.archetype == null || !div.archetype.isCarrierArchetype()) {
+            return false;
         }
+        if (div.archetype != DivisionArchetype.ESCORT_CARRIER_DIVISION) {
+            return true;
+        }
+        float totalBaseHull = 0f;
+        int hullCnt = 0;
+        for (int i = 0, n = div.members.size(); i < n; i++) {
+            ShipAPI ms = div.members.get(i);
+            if (ms != null && ms.getHullSpec() != null) {
+                totalBaseHull += ms.getHullSpec().getHitpoints();
+                hullCnt++;
+            }
+        }
+        float avgBaseHull = (hullCnt > 0) ? (totalBaseHull / hullCnt) : 0f;
+        return avgBaseHull < 8000f;
+    }
+
+    private static boolean isScopedLogOnCooldown(
+            BattleGroupState battleGroup,
+            String scopeKey,
+            float cooldownSec,
+            float now) {
+        Float last = battleGroup.orderLogTimes.get(scopeKey);
+        if (last != null && (now - last) < cooldownSec) {
+            return true;
+        }
+        battleGroup.orderLogTimes.put(scopeKey, now);
+        return false;
+    }
+
+    private static void logOrder(CombatEngineAPI engine, BattleGroupState battleGroup, String key, String text, float now) {
+        float minPairInterval = (key.startsWith("linepass:") || key.startsWith("relief:")) ? 35.0f : ORDER_LOG_INTERVAL;
         Float last = battleGroup.orderLogTimes.get(key);
         if (last != null && (now - last) < minPairInterval) return;
+
         if (key.startsWith("linepass:")) {
             int gtIdx = key.indexOf('>');
-            if (gtIdx > 9) {
-                String ventScope = "linepass_vent_cd:" + key.substring(gtIdx + 1);
-                Float lastVent = battleGroup.orderLogTimes.get(ventScope);
-                if (lastVent != null && (now - lastVent) < 24.0f) return;
-                battleGroup.orderLogTimes.put(ventScope, now);
+            if (gtIdx > 9 && isScopedLogOnCooldown(battleGroup, "linepass_vent_cd:" + key.substring(gtIdx + 1), 24.0f, now)) {
+                return;
             }
         } else if (key.startsWith("relief:") && !text.startsWith("Committing the reserve")) {
             int gtIdx = key.indexOf('>');
-            if (gtIdx > 7) {
-                String crisisScope = "relief_crisis_cd:" + key.substring(gtIdx + 1);
-                Float lastCrisis = battleGroup.orderLogTimes.get(crisisScope);
-                if (lastCrisis != null && (now - lastCrisis) < 22.0f) return;
-                battleGroup.orderLogTimes.put(crisisScope, now);
+            if (gtIdx > 7 && isScopedLogOnCooldown(battleGroup, "relief_crisis_cd:" + key.substring(gtIdx + 1), 22.0f, now)) {
+                return;
             }
         }
         if (battleGroup.currentPhase == BattlePhase.GENERAL_CHASE
                 && (key.startsWith("pursue:") || key.startsWith("flank:"))) {
             int gtIdx = key.indexOf('>');
-            String divScope = key.startsWith("pursue:") && gtIdx > 7
+            String divScope = (key.startsWith("pursue:") && gtIdx > 7)
                     ? "chase_div_cd:" + key.substring(7, gtIdx)
                     : "chase_div_cd:" + key;
-            Float lastDiv = battleGroup.orderLogTimes.get(divScope);
-            if (lastDiv != null && (now - lastDiv) < 15.0f) return;
-            battleGroup.orderLogTimes.put(divScope, now);
+            if (isScopedLogOnCooldown(battleGroup, divScope, 15.0f, now)) {
+                return;
+            }
         }
         battleGroup.orderLogTimes.put(key, now);
         DivisionCombatLog.logOtcOrder(engine, battleGroup, text);

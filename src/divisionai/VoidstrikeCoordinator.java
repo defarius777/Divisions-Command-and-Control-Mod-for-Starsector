@@ -4,6 +4,7 @@ import com.fs.starfarer.api.characters.PersonAPI;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
 import com.fs.starfarer.api.combat.CombatFleetManagerAPI;
 import com.fs.starfarer.api.combat.DamageType;
+import com.fs.starfarer.api.combat.FighterWingAPI;
 import com.fs.starfarer.api.combat.FluxTrackerAPI;
 import com.fs.starfarer.api.combat.FogOfWarAPI;
 import com.fs.starfarer.api.combat.ShieldAPI;
@@ -16,17 +17,12 @@ import com.fs.starfarer.api.combat.WeaponAPI.DerivedWeaponStatsAPI;
 import com.fs.starfarer.api.combat.WeaponAPI.WeaponSize;
 import com.fs.starfarer.api.combat.WeaponAPI.WeaponType;
 import com.fs.starfarer.api.fleet.FleetMemberAPI;
-import com.fs.starfarer.api.graphics.SpriteAPI;
-import com.fs.starfarer.api.input.InputEventAPI;
 import com.fs.starfarer.api.loading.WeaponSlotAPI;
-import com.fs.starfarer.api.ui.Fonts;
-import com.fs.starfarer.api.ui.LabelAPI;
+import com.fs.starfarer.api.loading.WingRole;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.CommanderProfile;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.DivisionModel.DivisionState;
-import divisionai.DivisionNomenclature.NomenclatureCategory;
-import org.lwjgl.opengl.GL11;
 import org.lwjgl.util.vector.Vector2f;
 import java.awt.Color;
 import java.util.ArrayList;
@@ -1014,14 +1010,7 @@ public class VoidstrikeCoordinator {
         if (myGroup != null && myGroup.engagedDivisionCount >= 1) {
             return true;
         }
-        float carrierHardFlux = carrier.getFluxTracker() != null ? carrier.getFluxTracker().getHardFlux() : 0f;
-        float anchorHardFlux = anchor.getFluxTracker() != null ? anchor.getFluxTracker().getHardFlux() : 0f;
-        if (carrierHardFlux > 1f
-                || anchorHardFlux > 1f
-                || carrier.getFluxLevel() > 0.035f
-                || anchor.getFluxLevel() > 0.035f
-                || carrier.getHullLevel() < 0.99f
-                || anchor.getHullLevel() < 0.99f) {
+        if (isHullUnderFluxOrDamage(carrier) || isHullUnderFluxOrDamage(anchor)) {
             return true;
         }
 
@@ -1239,27 +1228,13 @@ public class VoidstrikeCoordinator {
                 && capInterceptTarget == null
                 && (!inCombatContact || escortAnchor == carrier);
 
-        boolean divHasBomberWings = false;
-        if (div.members != null) {
-            for (ShipAPI m : div.members) {
-                if (m == null || !m.isAlive() || m.isHulk() || m.getAllWings() == null) continue;
-                for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
-                    if (w != null && ((w.getSpec() != null && w.getSpec().isBomber())
-                            || w.getRole() == com.fs.starfarer.api.loading.WingRole.BOMBER)) {
-                        divHasBomberWings = true;
-                        break;
-                    }
-                }
-                if (divHasBomberWings) break;
-            }
-        }
         boolean isReconOrSweepPatrol = scIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
                 || scIntent == DivisionIntentType.FLY_FIGHTER_SWEEP
                 || scIntent == DivisionIntentType.FLY_CYCLIC_STRIKES;
         boolean coordinatedStagingActive = !holdFightersInFormation
                 && !isCapMission
                 && !isReconOrSweepPatrol
-                && divHasBomberWings
+                && hasAliveBomberWings(div)
                 && div.voidstrikeStage != 2
                 && focusEnemyShip != null
                 && focusEnemyShip.isAlive()
@@ -2706,6 +2681,28 @@ public class VoidstrikeCoordinator {
      * Returns true if {@code div} currently has any alive non-returning strike craft within {@code radius}
      * of any alive member of {@code targetDiv} (or {@code targetDiv.centroid}).
      */
+    private static boolean isHullUnderFluxOrDamage(ShipAPI ship) {
+        if (ship == null) return false;
+        float hardFlux = ship.getFluxTracker() != null ? ship.getFluxTracker().getHardFlux() : 0f;
+        return hardFlux > 1f || ship.getFluxLevel() > 0.035f || ship.getHullLevel() < 0.99f;
+    }
+
+    static boolean hasAliveBomberWings(DivisionState div) {
+        if (div == null || div.members == null) return false;
+        for (int i = 0, n = div.members.size(); i < n; i++) {
+            ShipAPI m = div.members.get(i);
+            if (m == null || !m.isAlive() || m.isHulk() || m.getAllWings() == null) continue;
+            List<FighterWingAPI> wings = m.getAllWings();
+            for (int wi = 0, wn = wings.size(); wi < wn; wi++) {
+                FighterWingAPI w = wings.get(wi);
+                if (w != null && ((w.getSpec() != null && w.getSpec().isBomber()) || w.getRole() == WingRole.BOMBER)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static boolean hasStrikeCraftInTerminalEnvelope(
             DivisionState div,
             DivisionState targetDiv,

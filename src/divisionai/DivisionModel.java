@@ -69,6 +69,41 @@ public class DivisionModel {
             }
         }
 
+        public boolean isBattleshipArchetype() {
+            return this == BATTLESHIP_DIVISION
+                    || this == MISSILE_BATTLESHIP_DIVISION;
+        }
+
+        public boolean isCruiserArchetype() {
+            return this == CRUISER_DIVISION
+                    || this == MISSILE_CRUISER_DIVISION
+                    || this == STRIKE_CRUISER_DIVISION;
+        }
+
+        public boolean isHeavyLineArchetype() {
+            return isBattleshipArchetype() || isCruiserArchetype();
+        }
+
+        public boolean isLineAnvilArchetype() {
+            return isBattleshipArchetype()
+                    || this == CRUISER_DIVISION
+                    || this == STRIKE_CRUISER_DIVISION;
+        }
+
+        public boolean isDestroyerArchetype() {
+            return this == DESTROYER_DIVISION
+                    || this == MISSILE_DESTROYER_DIVISION;
+        }
+
+        public boolean isFrigateArchetype() {
+            return this == FRIGATE_DIVISION
+                    || this == MISSILE_FRIGATE_DIVISION;
+        }
+
+        public boolean isLightSkirmisherArchetype() {
+            return isFrigateArchetype() || this == PHASE_DIVISION;
+        }
+
         public boolean isCarrierArchetype() {
             return this == FLEET_CARRIER_DIVISION
                     || this == LIGHT_CARRIER_DIVISION

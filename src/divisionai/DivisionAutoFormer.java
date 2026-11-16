@@ -603,20 +603,13 @@ public class DivisionAutoFormer {
                 && div.archetype != DivisionArchetype.STRIKE_CRUISER_DIVISION
                 && missileShips > 0 && missileShips * 2 >= count));
         div.isScreenCapable = (div.archetype == DivisionArchetype.DESTROYER_DIVISION)
-                || (div.archetype == DivisionArchetype.FRIGATE_DIVISION)
-                || (div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION)
+                || div.archetype.isFrigateArchetype()
                 || (pdShips > 0);
         div.isFastFlanker = !div.archetype.isCarrierArchetype()
-                && div.archetype != DivisionArchetype.BATTLESHIP_DIVISION
-                && div.archetype != DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
-                && div.archetype != DivisionArchetype.CRUISER_DIVISION
-                && div.archetype != DivisionArchetype.MISSILE_CRUISER_DIVISION
-                && div.archetype != DivisionArchetype.STRIKE_CRUISER_DIVISION
+                && !div.archetype.isHeavyLineArchetype()
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
                 && (div.avgMaxSpeed >= 105f
-                || div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                || div.archetype == DivisionArchetype.PHASE_DIVISION
+                || div.archetype.isLightSkirmisherArchetype()
                 || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
 
         // Customizable Fleet Doctrine division-type modifiers (intra-spacing, inter-spacing, standoff, leash, opening & main missions, preferred space)
@@ -819,8 +812,8 @@ public class DivisionAutoFormer {
                 return div;
             }
             if (prof.hullSize == HullSize.DESTROYER
-                    && (div.archetype == DivisionArchetype.DESTROYER_DIVISION
-                    || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION)) {
+                    && div.archetype != null
+                    && div.archetype.isDestroyerArchetype()) {
                 return div;
             }
             if (prof.hullSize == HullSize.CRUISER

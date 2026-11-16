@@ -1875,11 +1875,8 @@ public class BattlefieldFirepowerEvaluator {
         div.incomingHybridThreat = eval.incomingHybrid;
         div.crossfireCordonIndex = eval.cordonIndex;
 
-        boolean isLightOrDestroyerDiv = div.archetype == DivisionModel.DivisionArchetype.FRIGATE_DIVISION
-                || div.archetype == DivisionModel.DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                || div.archetype == DivisionModel.DivisionArchetype.DESTROYER_DIVISION
-                || div.archetype == DivisionModel.DivisionArchetype.MISSILE_DESTROYER_DIVISION
-                || div.archetype == DivisionModel.DivisionArchetype.PHASE_DIVISION;
+        boolean isLightOrDestroyerDiv = div.archetype != null
+                && (div.archetype.isLightSkirmisherArchetype() || div.archetype.isDestroyerArchetype());
         float dangerScore = eval.effectiveDanger;
         if (isLightOrDestroyerDiv && (eval.incomingHybrid > 0f || eval.incomingPd > 0f)) {
             // Hybrid weapons (Large/Medium Flak, Devastator, Dual Flak, HMG, Paladin PD) are especially
@@ -2183,8 +2180,7 @@ public class BattlefieldFirepowerEvaluator {
                         || (sib.otcOrder != null && sib.otcOrder.targetEnemy == enemyDiv)
                         || sib == myGroup.mainEffortDivision;
                 float sibEngageReach = Math.max(1250f, sib.spaceDominatedRadius + 350f);
-                boolean myDivIsFragileFrigate = myDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
-                        || myDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+                boolean myDivIsFragileFrigate = myDiv.archetype != null && myDiv.archetype.isFrigateArchetype();
                 boolean distantSupportCounts = !myDivIsFragileFrigate
                         || enemyDiv.engagementLevel >= 0.12f
                         || sib.engagementLevel >= 0.12f;
@@ -2770,18 +2766,15 @@ public class BattlefieldFirepowerEvaluator {
         }
         // In a 2-ship division on combat maps (or any light/phase/carrier pair), pulling one hull 750u+ into a rear
         // relief rank leaves its lone partner to take 100% of enemy focus fire alone; require genuinely high flux stress!
+        DivisionArchetype arch = div.archetype;
         boolean nonCapitalTwoShipPair = effectiveLineShips <= 2
-                && div.archetype != DivisionArchetype.BATTLESHIP_DIVISION
-                && div.archetype != DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+                && (arch == null || !arch.isBattleshipArchetype())
                 && (engine == null || engine.getMapHeight() >= 11500f);
         boolean fragileTwoShipPair = effectiveLineShips <= 2
                 && (nonCapitalTwoShipPair
-                || div.archetype == DivisionArchetype.PHASE_DIVISION
-                || (div.archetype != null && div.archetype.isCarrierArchetype())
-                || div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                || div.archetype == DivisionArchetype.DESTROYER_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                || (arch != null && (arch.isLightSkirmisherArchetype()
+                || arch.isDestroyerArchetype()
+                || arch.isCarrierArchetype()))
                 || div.totalFpStrength < 28f);
         if (fragileTwoShipPair) {
             enterReliefFlux = Math.max(enterReliefFlux, 0.72f);
@@ -5937,10 +5930,7 @@ public class BattlefieldFirepowerEvaluator {
         //    head-on (1.16 vs 0.94) rather than turning away from enemy Capitals/Cruisers to chase screens!
         float enemyEdgePinch = computeEdgeProximityPinch(engine, ePos, enemyDiv.freeTimeRadius);
         float enemyPinnedBonus = 1.0f + enemyDiv.engagementLevel * 0.85f + enemyEdgePinch * 0.35f;
-        boolean myDivIsBattleAnvil = myDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                || myDiv.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
-                || myDiv.archetype == DivisionArchetype.CRUISER_DIVISION
-                || myDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+        boolean myDivIsBattleAnvil = (myDiv.archetype != null && myDiv.archetype.isLineAnvilArchetype())
                 || (myGroup != null && myDiv == myGroup.mainEffortDivision);
         float seamVulnerability = myDivIsBattleAnvil
                 ? (enemyDiv.isWeakPoint ? 1.16f : (enemyDiv.isStrongpoint ? 0.94f : 1.04f))
@@ -6004,29 +5994,58 @@ public class BattlefieldFirepowerEvaluator {
         // than unreachable rearward divisions 3,200u away!
         float reachabilityGate = 0.38f + timeCoincidence * 0.68f;
         float visFp = OtcAI.getVisibleFpForSide(engine, myDiv.side, enemyDiv);
+        DivisionArchetype myArch = myDiv.archetype;
+        DivisionArchetype enemyArch = enemyDiv.archetype;
         boolean enemyIsLightScreen = visFp < 22f
                 && enemyDiv.avgMaxSpeed >= 130f
-                && (enemyDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || enemyDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                || enemyDiv.archetype == DivisionArchetype.PHASE_DIVISION);
-        boolean enemyIsLightDdScreenVsCapital = (myDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                || myDiv.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION)
+                && enemyArch != null
+                && enemyArch.isLightSkirmisherArchetype();
+        boolean enemyIsLightDdScreenVsCapital = myArch != null
+                && myArch.isBattleshipArchetype()
                 && visFp < 24f
-                && (enemyDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
-                || enemyDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
-        boolean myDivIsMainLineOrCarrier = myDiv.archetype == DivisionArchetype.CRUISER_DIVISION
-                || myDiv.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
-                || myDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
-                || myDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                || myDiv.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
-                || myDiv.archetype == DivisionArchetype.PHASE_DIVISION
-                || (myDiv.archetype != null && myDiv.archetype.isCarrierArchetype());
+                && enemyArch != null
+                && enemyArch.isDestroyerArchetype();
+        boolean myDivIsMainLineOrCarrier = myArch != null
+                && (myArch.isHeavyLineArchetype() || myArch == DivisionArchetype.PHASE_DIVISION || myArch.isCarrierArchetype());
         float skirmisherScreenMult = (enemyDiv.avgFluxLevel < 0.72f)
                 ? ((enemyIsLightScreen && myDivIsMainLineOrCarrier) ? 0.42f : (enemyIsLightDdScreenVsCapital ? 0.62f : 1.0f))
                 : 1.0f;
         float baseValue = Math.min(520f, 125f + visFp * 6.2f) + blindSpot * 0.95f;
         return baseValue * enemyPinnedBonus * seamVulnerability * fluxCollapseMult
                 * Math.min(2.05f, pincerSynergy) * unableTargetMult * reachabilityGate * skirmisherScreenMult;
+    }
+
+    /**
+     * Shared Human C2 target-scoring modifier combining directional Time reachability and Space Weak Point / Strongpoint
+     * seam valuation, scaled by target mass for non-flankers so battleline Cruiser/Capital divisions do not chase light screens.
+     */
+    public static float computeHumanDirectionalSeamBonus(
+            DivisionState myDiv,
+            DivisionState enemyDiv,
+            Vector2f enemyVisPos,
+            float dist,
+            float visFp,
+            float reachWeight,
+            float weakPointBonus,
+            float flankerStrongpointPenalty,
+            float lineStrongpointPenalty) {
+        if (myDiv == null || enemyDiv == null || enemyVisPos == null) return 0f;
+        float seamScale = myDiv.isFastFlanker ? 1.0f : Math.max(0.22f, Math.min(1.0f, visFp / 26f));
+        float bearingToEnemy = (float) Math.toDegrees(Math.atan2(
+                enemyVisPos.y - myDiv.centroid.y,
+                enemyVisPos.x - myDiv.centroid.x));
+        float dirTimeReach = getDirectionalTimeRadius(myDiv, bearingToEnemy);
+        float dirFreedom = Math.max(0.15f, Math.min(1.05f, dirTimeReach / Math.max(250f, myDiv.freeTimeRadius)));
+        float bonus = 0f;
+        if (dist <= dirTimeReach + myDiv.avgEngageRange) {
+            bonus += reachWeight * dirFreedom * seamScale;
+        }
+        if (enemyDiv.isWeakPoint) {
+            bonus += weakPointBonus * seamScale;
+        } else if (enemyDiv.isStrongpoint) {
+            bonus -= (myDiv.isFastFlanker ? flankerStrongpointPenalty : lineStrongpointPenalty);
+        }
+        return bonus;
     }
 
     /**
@@ -6121,30 +6140,7 @@ public class BattlefieldFirepowerEvaluator {
                         float peerAng = (float) Math.toDegrees(
                                 Math.atan2(peer.centroid.y - arcCenter.y, peer.centroid.x - arcCenter.x));
                         float sep = Math.abs(shortestAngleDiffDeg(angleDeg, peerAng));
-                        if (multiWingCordon) {
-                            if (sep >= 50f && sep <= 112f) {
-                                float orthoPeak = 1.0f - Math.min(1.0f, Math.abs(sep - 85f) / 40f) * 0.18f;
-                                crossfireSynergy += 245f * orthoPeak;
-                            } else if (sep >= 24f && sep < 50f) {
-                                crossfireSynergy += 165f;
-                            } else if (sep < 18f) {
-                                crossfireSynergy -= 140f;
-                            } else if (sep > 124f && myDiv.localForceRatio < 1.15f) {
-                                crossfireSynergy -= (sep - 124f) * 4.0f;
-                            } else {
-                                crossfireSynergy += 85f;
-                            }
-                        } else {
-                            if (sep >= 24f && sep <= 64f) {
-                                crossfireSynergy += 225f;
-                            } else if (sep < 16f) {
-                                crossfireSynergy -= 120f;
-                            } else if (sep > 74f) {
-                                crossfireSynergy -= (sep - 74f) * 4.5f;
-                            } else {
-                                crossfireSynergy += 110f;
-                            }
-                        }
+                        crossfireSynergy += scorePeerCrossfireSeparation(sep, myDiv.localForceRatio, multiWingCordon);
                     }
                 }
             }
@@ -6185,6 +6181,23 @@ public class BattlefieldFirepowerEvaluator {
         }
 
         outStation.set(bestX, bestY);
+    }
+
+    private static float scorePeerCrossfireSeparation(float sep, float localForceRatio, boolean multiWingCordon) {
+        if (multiWingCordon) {
+            if (sep >= 50f && sep <= 112f) {
+                float orthoPeak = 1.0f - Math.min(1.0f, Math.abs(sep - 85f) / 40f) * 0.18f;
+                return 245f * orthoPeak;
+            }
+            if (sep >= 24f && sep < 50f) return 165f;
+            if (sep < 18f) return -140f;
+            if (sep > 124f && localForceRatio < 1.15f) return -(sep - 124f) * 4.0f;
+            return 85f;
+        }
+        if (sep >= 24f && sep <= 64f) return 225f;
+        if (sep < 16f) return -120f;
+        if (sep > 74f) return -(sep - 74f) * 4.5f;
+        return 110f;
     }
 
     static float clampVal(float v, float min, float max) {

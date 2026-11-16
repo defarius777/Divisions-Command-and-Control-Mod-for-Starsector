@@ -12,6 +12,7 @@ import com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags;
 import com.fs.starfarer.api.combat.WeaponAPI;
 import com.fs.starfarer.api.combat.WeaponAPI.AIHints;
 import com.fs.starfarer.api.combat.WeaponAPI.WeaponType;
+import com.fs.starfarer.api.fleet.FleetMemberAPI;
 import divisionai.DivisionModel.BattlePhase;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.DivisionArchetype;
@@ -795,16 +796,7 @@ public class OtcAI {
             visibleEnemyFp += getVisibleFpForSide(engine, myGroup.side, eDiv);
         }
         myGroup.totalEnemyStrength = visibleEnemyFp;
-        float myUndeployedReserveFp = 0f;
-        if (engine != null && !isPursuitBattle(engine, myGroup)) {
-            com.fs.starfarer.api.combat.CombatFleetManagerAPI myFm = engine.getFleetManager(myGroup.side);
-            if (myFm != null && myFm.getReservesCopy() != null) {
-                for (com.fs.starfarer.api.fleet.FleetMemberAPI rm : myFm.getReservesCopy()) {
-                    if (rm == null || rm.isFighterWing() || rm.isCivilian()) continue;
-                    myUndeployedReserveFp += Math.max(4f, rm.getFleetPointCost());
-                }
-            }
-        }
+        float myUndeployedReserveFp = computeFriendlyUndeployedReserveFp(engine, myGroup);
         // Account symmetrically for undeployed reserves: only the EXCESS of enemy reserves over our own undeployed
         // reserves depresses general forceRatio (preventing equal Medium/Large fleets with reserves from falsely
         // reading forceRatio ~0.81 and entering defensive/retirement posture!), while GENERAL_CHASE additionally
@@ -1714,18 +1706,16 @@ public class OtcAI {
 
     private static float computeMainEffortCandidateScore(BattleGroupState myGroup, DivisionState div, float now) {
         float mainScore = div.totalFpStrength * (1.2f - 0.5f * div.avgFluxLevel);
-        if (div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION) {
+        DivisionArchetype arch = div.archetype;
+        if (arch != null && arch.isBattleshipArchetype()) {
             mainScore = mainScore * 2.05f + 25f;
-        } else if (div.archetype == DivisionArchetype.CRUISER_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
-                || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
+        } else if (arch != null && arch.isCruiserArchetype()) {
             mainScore *= 1.35f;
-        } else if (div.archetype == DivisionArchetype.PHASE_DIVISION) {
+        } else if (arch == DivisionArchetype.PHASE_DIVISION) {
             mainScore *= 0.48f;
-        } else if (div.archetype == DivisionArchetype.CARRIER_GROUP) {
+        } else if (arch == DivisionArchetype.CARRIER_GROUP) {
             mainScore *= 0.35f;
-        } else if (div.archetype != null && div.archetype.isCarrierArchetype()) {
+        } else if (arch != null && arch.isCarrierArchetype()) {
             mainScore *= 0.12f;
         }
         DivisionMissionType mission = DivisionCommanderAI.resolveActiveMission(div, now);
@@ -3119,11 +3109,15 @@ public class OtcAI {
         boolean anyAbleVisibleEnemy = false;
         boolean anyAbleVisibleMobileCombatEnemy = false;
         boolean anyOrganizedCombatEnemy = false;
+        boolean anyAbleVisibleSubstantialEnemy = false;
         int ableVisibleEnemyCount = 0;
         for (DivisionState eDiv : enemyDivs) {
             if (eDiv.isAbleCombatEffective() && isDivisionVisibleToSide(engine, myGroup.side, eDiv)) {
                 anyAbleVisibleEnemy = true;
                 ableVisibleEnemyCount++;
+                if (getVisibleFpForSide(engine, myGroup.side, eDiv) >= 20f) {
+                    anyAbleVisibleSubstantialEnemy = true;
+                }
                 if (!BattlefieldFirepowerEvaluator.isStationBastionDivision(eDiv)
                         && eDiv.archetype != DivisionArchetype.SERVICE_GROUP
                         && eDiv.combatThreatWeight > 0.55f) {
@@ -3195,10 +3189,7 @@ public class OtcAI {
             float nonMainCommittedFp = 0f;
             for (DivisionState myDiv : myGroup.divisions) {
                 if (myDiv == null || !myDiv.isAbleCombatEffective() || myDiv == anchorDiv) continue;
-                if (myDiv.archetype == DivisionArchetype.FLEET_CARRIER_DIVISION
-                        || myDiv.archetype == DivisionArchetype.LIGHT_CARRIER_DIVISION
-                        || myDiv.archetype == DivisionArchetype.ESCORT_CARRIER_DIVISION
-                        || myDiv.archetype == DivisionArchetype.CARRIER_GROUP) continue;
+                if (myDiv.archetype != null && myDiv.archetype.isCarrierArchetype()) continue;
                 if (isCurrentPrimaryForOverkill && myDiv.otcOrder != null && myDiv.otcOrder.targetEnemy != null) {
                     DivisionModel.OtcOrderType ot = myDiv.otcOrder.type;
                     boolean otcSupportOnPrimary = (ot == DivisionModel.OtcOrderType.FLANK
@@ -3252,11 +3243,7 @@ public class OtcAI {
             for (DivisionState myDiv : myGroup.divisions) {
                 if (!myDiv.isAbleCombatEffective()) continue;
                 boolean isHeavyBattleline = (myDiv == anchorDiv)
-                        || myDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                        || myDiv.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
-                        || myDiv.archetype == DivisionArchetype.CRUISER_DIVISION
-                        || myDiv.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
-                        || myDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION;
+                        || (myDiv.archetype != null && myDiv.archetype.isHeavyLineArchetype());
                 if (!isHeavyBattleline && anchorDiv != null) continue;
                 float dd = DivisionUiWidgets.distance(myDiv.centroid, visCentroid);
                 if (dd < minDivDist) minDivDist = dd;
@@ -3282,28 +3269,10 @@ public class OtcAI {
             // Similarly, when a rear-echelon enemy Carrier division sits >= 750u behind an able enemy warship line
             // (and we are not executing an explicit CARRIER_STRIKE template), our surface Main Effort fixes/breaks the
             // intervening warship screen first while friendly strike craft still target backline hulls via VoidstrikeBias.
-            float carrierBehindScreenPenalty = 0f;
-            if (eDiv.archetype != null
-                    && eDiv.archetype.isCarrierArchetype()
-                    && myGroup.decisiveArm != PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE
-                    && minDivDist > 1450f
-                    && ableVisibleEnemyCount >= 2) {
-                for (DivisionState scrE : enemyDivs) {
-                    if (scrE == null || scrE == eDiv || !scrE.isAbleCombatEffective()) continue;
-                    if (scrE.archetype != null && scrE.archetype.isCarrierArchetype()) continue;
-                    if (scrE.archetype == DivisionArchetype.SERVICE_GROUP) continue;
-                    if (!isDivisionVisibleToSide(engine, myGroup.side, scrE)) continue;
-                    if (getVisibleFpForSide(engine, myGroup.side, scrE) < 16f) continue;
-                    Vector2f scrPos = getVisibleCentroidForSide(engine, myGroup.side, scrE);
-                    float scrDist = (anchorDiv != null)
-                            ? DivisionUiWidgets.distance(anchorDiv.centroid, scrPos)
-                            : DivisionUiWidgets.distance(myGroup.fleetCentroid, scrPos);
-                    if (scrDist + 750f < minDivDist) {
-                        carrierBehindScreenPenalty = -420f;
-                        break;
-                    }
-                }
-            }
+            float carrierBehindScreenPenalty = isRearCarrierScreenedByWarships(
+                    engine, myGroup, anchorDiv, eDiv, enemyDivs, minDivDist, ableVisibleEnemyCount)
+                    ? -420f
+                    : 0f;
             // Item F Defensive Counter: if an enemy division is suspected of feigning retreat, discount its lure priority
             float feignPenalty = (eDiv.enemyFeignedRetreatSuspicion >= 0.60f) ? -320f : 0f;
             // Incumbent primary-threat hysteresis: prevent Main Effort from ping-ponging across nearby contacts every 1.5s
@@ -3319,24 +3288,11 @@ public class OtcAI {
                     ? (inGeneralChasePhase ? (isUnassignedContact ? 340f : 520f) : (isUnassignedContact ? 195f : 280f))
                     : 0f;
 
-            boolean anyAbleVisibleSubstantialEnemy = false;
-            if (ableVisibleEnemyCount >= 2) {
-                for (DivisionState otherE : enemyDivs) {
-                    if (otherE == null || !otherE.isAbleCombatEffective()) continue;
-                    if (!isDivisionVisibleToSide(engine, myGroup.side, otherE)) continue;
-                    if (getVisibleFpForSide(engine, myGroup.side, otherE) >= 20f) {
-                        anyAbleVisibleSubstantialEnemy = true;
-                        break;
-                    }
-                }
-            }
             boolean isLightUnfluxedScreen = anyAbleVisibleSubstantialEnemy
                     && !isPursuitInterception
                     && rawVisFp < 20f
                     && eDiv.avgFluxLevel < 0.68f
-                    && (eDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
-                    || eDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                    || eDiv.archetype == DivisionArchetype.PHASE_DIVISION
+                    && ((eDiv.archetype != null && eDiv.archetype.isLightSkirmisherArchetype())
                     || eDiv.avgMaxSpeed >= 130f);
             float lightScreenPrimaryPenalty = isLightUnfluxedScreen ? -420f : 0f;
 
@@ -3371,38 +3327,25 @@ public class OtcAI {
                 }
             }
 
+            float rawAvgConv = computeAverageFleetConvergenceScore(engine, myGroup, eDiv);
+            float sharedModifiers = decisiveArmBonus + lightScreenPrimaryPenalty + auxPenalty + unablePenalty
+                    + edgePinchBonus + cogBonus + overkillPrimaryPenalty + unassignedStragglerPenalty + pursuitContextBonus
+                    + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty + carrierBehindScreenPenalty
+                    + feignPenalty + incumbentBonus - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
+
             float score;
             if (myGroup.useConvergence) {
                 // Convergence OTC decision-making (AI / Threat / Abyssal or Alpha Core flagship):
                 // Synthesizes Capital/Cruiser mass value with Time, Space, and Firepower vulnerability
-                float convSum = 0f;
-                int convCount = 0;
-                for (DivisionState d : myGroup.divisions) {
-                    if (!d.isAbleCombatEffective()) continue;
-                    convSum += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, eDiv, myGroup);
-                    convCount++;
-                }
-                float avgConv = (convCount > 0) ? (convSum / convCount) : 0f;
                 float collapseBonus = (visFp >= 20f)
                         ? (eDiv.avgFluxLevel * 360f + (1.0f - eDiv.avgHullLevel) * 320f)
                         : 0f;
-                score = visFp * 9.5f + avgConv * 0.55f + collapseBonus + decisiveArmBonus + lightScreenPrimaryPenalty + auxPenalty + unablePenalty
-                        + edgePinchBonus + cogBonus + overkillPrimaryPenalty + unassignedStragglerPenalty + pursuitContextBonus
-                        + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty + carrierBehindScreenPenalty
-                        + feignPenalty + incumbentBonus - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
+                score = visFp * 9.5f + rawAvgConv * 0.55f + collapseBonus + sharedModifiers;
             } else {
                 // Human OTC decision-making: weights Firepower value, Space Strongpoint/Weak Point seams, Time pinning, and Map-Edge pinching.
                 // Multi-division target synthesis scales smoothly with organizationRatio while scaling seam bonuses by target mass
                 // so unfluxed 10-14 FP frigate screens never usurp enemy Cruiser/Battleship lines as Primary Threat.
-                float orgC2Scale = Math.max(0f, Math.min(1f, (myGroup.organizationRatio - 0.93f) / 0.07f));
-                float convSum = 0f;
-                int convCount = 0;
-                for (DivisionState d : myGroup.divisions) {
-                    if (!d.isAbleCombatEffective()) continue;
-                    convSum += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, eDiv, myGroup);
-                    convCount++;
-                }
-                float avgConv = (convCount > 0) ? (convSum / convCount) * orgC2Scale : 0f;
+                float avgConv = rawAvgConv * computeOrganizationC2Scale(myGroup);
                 boolean isIndepCluster = eDiv.divisionNumber >= 90;
                 float seamMassScale = Math.max(0.20f, Math.min(1.0f, rawVisFp / 26f));
                 float isolationBonus = (!isIndepCluster && eDiv.stationKeepingRatio > 1.45f)
@@ -3413,12 +3356,7 @@ public class OtcAI {
                 float collapseBonus = (visFp >= 18f)
                         ? (eDiv.avgFluxLevel * 360f + (1.0f - eDiv.avgHullLevel) * 320f)
                         : 0f;
-                score = visFp * 9.5f + avgConv * 0.45f + isolationBonus + spaceSeamBonus + pinnedBonus + collapseBonus
-                        + decisiveArmBonus + lightScreenPrimaryPenalty + edgePinchBonus
-                        + cogBonus + overkillPrimaryPenalty + unassignedStragglerPenalty + pursuitContextBonus
-                        + indepAlignmentBonus + frontlineContactBonus + stationBehindScreenPenalty + carrierBehindScreenPenalty
-                        + feignPenalty + incumbentBonus + auxPenalty + unablePenalty
-                        - minDivDist * (isRearguardEscape ? 0.82f : 0.52f);
+                score = visFp * 9.5f + avgConv * 0.45f + isolationBonus + spaceSeamBonus + pinnedBonus + collapseBonus + sharedModifiers;
             }
             if (score > bestScore) {
                 bestScore = score;
@@ -3426,6 +3364,70 @@ public class OtcAI {
             }
         }
         return best;
+    }
+
+    public static float computeOrganizationC2Scale(BattleGroupState group) {
+        if (group == null) return 0f;
+        return Math.max(0f, Math.min(1f, (group.organizationRatio - 0.93f) / 0.07f));
+    }
+
+    private static float computeFriendlyUndeployedReserveFp(CombatEngineAPI engine, BattleGroupState myGroup) {
+        if (engine == null || myGroup == null || isPursuitBattle(engine, myGroup)) return 0f;
+        CombatFleetManagerAPI myFm = engine.getFleetManager(myGroup.side);
+        if (myFm == null || myFm.getReservesCopy() == null) return 0f;
+        float reserveFp = 0f;
+        for (FleetMemberAPI rm : myFm.getReservesCopy()) {
+            if (rm == null || rm.isFighterWing() || rm.isCivilian()) continue;
+            reserveFp += Math.max(4f, rm.getFleetPointCost());
+        }
+        return reserveFp;
+    }
+
+    private static float computeAverageFleetConvergenceScore(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            DivisionState enemyDiv) {
+        if (myGroup == null || myGroup.divisions.isEmpty()) return 0f;
+        float convSum = 0f;
+        int convCount = 0;
+        for (int i = 0, n = myGroup.divisions.size(); i < n; i++) {
+            DivisionState d = myGroup.divisions.get(i);
+            if (d == null || !d.isAbleCombatEffective()) continue;
+            convSum += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, enemyDiv, myGroup);
+            convCount++;
+        }
+        return (convCount > 0) ? (convSum / convCount) : 0f;
+    }
+
+    private static boolean isRearCarrierScreenedByWarships(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            DivisionState anchorDiv,
+            DivisionState candidateCarrier,
+            List<DivisionState> enemyDivs,
+            float minDivDist,
+            int ableVisibleEnemyCount) {
+        if (candidateCarrier.archetype == null
+                || !candidateCarrier.archetype.isCarrierArchetype()
+                || myGroup.decisiveArm == PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE
+                || minDivDist <= 1450f
+                || ableVisibleEnemyCount < 2) {
+            return false;
+        }
+        Vector2f refOrigin = (anchorDiv != null) ? anchorDiv.centroid : myGroup.fleetCentroid;
+        for (int i = 0, n = enemyDivs.size(); i < n; i++) {
+            DivisionState scrE = enemyDivs.get(i);
+            if (scrE == null || scrE == candidateCarrier || !scrE.isAbleCombatEffective()) continue;
+            if (scrE.archetype != null && scrE.archetype.isCarrierArchetype()) continue;
+            if (scrE.archetype == DivisionArchetype.SERVICE_GROUP) continue;
+            if (!isDivisionVisibleToSide(engine, myGroup.side, scrE)) continue;
+            if (getVisibleFpForSide(engine, myGroup.side, scrE) < 16f) continue;
+            Vector2f scrPos = getVisibleCentroidForSide(engine, myGroup.side, scrE);
+            if (DivisionUiWidgets.distance(refOrigin, scrPos) + 750f < minDivDist) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static DivisionState findPrimaryCarrierAnchorDivision(BattleGroupState group) {
