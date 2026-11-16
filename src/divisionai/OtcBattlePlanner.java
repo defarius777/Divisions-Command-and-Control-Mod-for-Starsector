@@ -1132,143 +1132,13 @@ public class OtcBattlePlanner {
                 && carrierAnchor != null;
         boolean isPursuitInterception = (myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
         boolean isRearguardEscape = (myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
+
         if (!fullAssault && main != null && main.isCombatEffective() && !tasked.contains(main) && primary != null) {
-            Vector2f primaryPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, primary);
-            boolean primaryFleeing = (isPursuitInterception
-                    && (primary.isUnableDivision
-                    || primary.retreatingFraction >= 0.35f
-                    || DivisionState.isDivisionEscapingInPursuit(engine, primary)))
-                    || primary.archetype == DivisionArchetype.SERVICE_GROUP;
-            boolean mainIsStandoffCarrier = isFragileStandoffCarrierDivision(main);
-            boolean singleDestroyerLine = active.size() <= 1
-                    && main.archetype != null
-                    && main.archetype.isDestroyerArchetype();
-            boolean mainIsHeavyLine = (main.archetype != null && main.archetype.isHeavyLineArchetype())
-                    || singleDestroyerLine;
-            boolean flotillaSkirmishNoStaticLine = mainIsStandoffCarrier || (openFlotillaAnchor && !mainIsHeavyLine);
-            // Keep the Main Effort steady as the fixing Anvil during Hammer & Anvil, Double Envelopment, Crossing
-            // the T, and Kill-Box setpieces instead of bouncing 0.5s later between TOT_ALPHA_STRIKE and FORM_LINE.
-            // Only surge the Main Effort onto EXECUTE_STRIKE during Echeloned Wave Breach or once the struck target
-            // is visibly breaking (hull/CR < 52% or flux >= 65%).
-            boolean strikeExecuting = isStrikeExecutingOn(myGroup, primary)
-                    && myGroup.strikePlan != null
-                    && !myGroup.strikePlan.participants.isEmpty();
-            MultiDivisionSetpiece activeSp = (myGroup.strikePlan != null && myGroup.strikePlan.setpieceType != null)
-                    ? myGroup.strikePlan.setpieceType
-                    : MultiDivisionSetpiece.NONE;
-            boolean enemyBreakingUnderStrike = primary.effectiveHpRatio < 0.52f || primary.avgFluxLevel >= 0.65f;
-            boolean mainPressesHomeWithStrike = strikeExecuting
-                    && !primaryFleeing
-                    && !main.archetype.isCarrierArchetype()
-                    && main.avgFluxLevel < 0.62f
-                    && main.effectiveHpRatio >= 0.58f
-                    && (activeSp == MultiDivisionSetpiece.ECHELONED_WAVE_BREACH || enemyBreakingUnderStrike);
-            OtcOrderType mainOrderType = (primaryFleeing || flotillaSkirmishNoStaticLine)
-                    ? OtcOrderType.ENGAGE_ASSIGNED
-                    : (mainPressesHomeWithStrike ? OtcOrderType.EXECUTE_STRIKE : OtcOrderType.FORM_LINE);
-            boolean newOrder = !(main.otcOrder.type == mainOrderType && main.otcOrder.targetEnemy == primary);
-            main.otcOrder.set(mainOrderType, primary, null, 0f, expires,
-                    primaryFleeing
-                            ? ("OTC: Main Effort, intercept and pin \"" + primary.displayName + "\"")
-                            : (flotillaSkirmishNoStaticLine
-                            ? ("OTC: Flotilla lead, skirmish \"" + primary.displayName + "\"")
-                            : (mainPressesHomeWithStrike
-                            ? ("OTC: Main Effort, press home on \"" + primary.displayName + "\"")
-                            : ("OTC: Main Effort, form the line on \"" + primary.displayName + "\""))));
-            if (wedgeOrOblique && myGroup.authority != OtcAuthority.COMMAND_BY_NEGATION) {
-                main.otcOrder.orderedFormation = DivisionFormation.FORWARD_WEDGE;
-            } else if (myGroup.authority == OtcAuthority.POSITIVE_CONTROL
-                    && !flotillaSkirmishNoStaticLine
-                    && (main.doctrinalFormation == null || main.doctrinalFormation == DivisionFormation.NONE)) {
-                main.otcOrder.orderedFormation = DivisionFormation.LINE_ABREAST;
-            }
-            if (myGroup.authority.allowsPositioning() && !primaryFleeing && !flotillaSkirmishNoStaticLine) {
-                float dx = myGroup.fleetCentroid.x - primaryPos.x;
-                float dy = myGroup.fleetCentroid.y - primaryPos.y;
-                float len = (float) Math.sqrt(dx * dx + dy * dy);
-                if (len < 1f) {
-                    dx = 0f;
-                    dy = (myGroup.side == 0) ? -1f : 1f;
-                    len = 1f;
-                }
-                float hold = Math.max(500f, main.standoffRange * (isPursuitInterception ? 0.68f : 0.9f));
-                if (BattlefieldFirepowerEvaluator.isStationBastionDivision(primary)
-                        && !main.archetype.isCarrierArchetype()
-                        && main.avgEngageRange > 250f) {
-                    // A space station is stationary and will never close onto a high-standoff line; clamp fixing distance
-                    // to the Main Effort's actual gun envelope plus the station's module ring spread!
-                    float gunReach = Math.max(560f, main.avgEngageRange * 0.86f)
-                            + Math.min(260f, Math.max(0f, primary.spreadRadius - 180f) * 0.55f);
-                    hold = Math.min(hold, gunReach);
-                }
-                if (wedgeOrOblique && myGroup.forceRatio >= 1.12f) {
-                    hold = Math.max(400f, hold * 0.78f);
-                }
-                // Explicit Fleet Engagement OTC adaptation: if vanguard/light divisions are in violent contact
-                // (engagedDivisionCount >= 1) while the heavy Main Effort is still uncommitted (!mainEffortEngaged),
-                // tighten the Main Effort's fixing station by 22% so the battleships rapidly close into gun range
-                // to relieve the vanguard rather than hanging back out of range!
-                if (myGroup.engagedDivisionCount >= 1
-                        && !myGroup.mainEffortEngaged
-                        && myGroup.forceRatio >= 0.88f) {
-                    hold = Math.max(460f, hold * 0.78f);
-                }
-                float stX = primaryPos.x + dx / len * hold;
-                float stY = primaryPos.y + dy / len * hold;
-                // Item D (Disorganized Fleet OTC): When organizationRatio < 0.65 and friendly independent ships are present,
-                // blend the Main Effort's fixing station toward the friendly independent battleline so our organized core
-                // fights shoulder-to-shoulder with its independent swarm instead of holding a distant isolated station!
-                if (myGroup.organizationRatio < 0.65f && myGroup.friendlyIndependentFp >= 15f) {
-                    float indepBlend = Math.min(0.45f, (0.68f - myGroup.organizationRatio) * 0.70f);
-                    stX = stX * (1f - indepBlend) + myGroup.independentCentroid.x * indepBlend;
-                    stY = stY * (1f - indepBlend) + myGroup.independentCentroid.y * indepBlend;
-                }
-                // Item D: If our fleet is outnumbered, in a rearguard escape, or balled up in a protective bastion,
-                // pull the Main Effort's fixing station toward the safe fallback direction (North toward the escape exit
-                // in REARGUARD_ACTION, or friendly map edge in normal battles)!
-                if (isRearguardEscape
-                        || myGroup.forceRatio < 0.84f
-                        || myGroup.activeFleetWideFormation == FleetWideFormation.FLEET_PROTECTIVE_BASTION) {
-                    float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
-                    stY += retreatDirY * (isRearguardEscape ? 320f : 140f);
-                }
-                if (carrierScreenAnchor
-                        && main != carrierAnchor
-                        && !isPursuitInterception
-                        && !isRearguardEscape
-                        && myGroup.currentPhase != BattlePhase.GENERAL_CHASE
-                        && carrierAnchor.centroid != null
-                        && carrierAnchor.totalFpStrength >= Math.max(18f, myGroup.totalFriendlyStrength * 0.22f)
-                        && DivisionUiWidgets.distance(main.centroid, primaryPos) > 1950f
-                        && main.localEnemyStrength < 12f) {
-                    float maxScreenLead = (myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
-                            ? 1150f
-                            : 1450f;
-                    float cdx = stX - carrierAnchor.centroid.x;
-                    float cdy = stY - carrierAnchor.centroid.y;
-                    float cDist = (float) Math.sqrt(cdx * cdx + cdy * cdy);
-                    if (cDist > maxScreenLead) {
-                        float tx = primaryPos.x - carrierAnchor.centroid.x;
-                        float ty = primaryPos.y - carrierAnchor.centroid.y;
-                        float tLen = (float) Math.sqrt(tx * tx + ty * ty);
-                        if (tLen > 1f) {
-                            stX = carrierAnchor.centroid.x + (tx / tLen) * maxScreenLead;
-                            stY = carrierAnchor.centroid.y + (ty / tLen) * maxScreenLead;
-                        }
-                    }
-                }
-                main.otcOrder.hasStation = true;
-                main.otcOrder.station.set(stX, stY);
-            } else {
-                main.otcOrder.hasStation = false;
-            }
-            tasked.add(main);
-            allocationOut.put(main, primary);
-            assignedFp.put(primary, assignedFp.get(primary) + main.totalFpStrength);
-            if (newOrder && mainOrderType == OtcOrderType.FORM_LINE) {
-                logOrder(engine, myGroup, "fix:" + main.id + ">" + primary.id, String.format(
-                        "Main Effort \"%s\" to form the line on \"%s\" and fix it.", main.displayName, primary.displayName), now);
-            }
+            assignMainEffortFixingOrder(
+                    engine, myGroup, active, main, primary, carrierAnchor,
+                    wedgeOrOblique, openFlotillaAnchor, carrierScreenAnchor,
+                    isPursuitInterception, isRearguardEscape,
+                    now, expires, tasked, allocationOut, assignedFp);
         }
 
         // Remaining divisions: economy-of-force allocation, strongest first
@@ -1297,133 +1167,11 @@ public class OtcBattlePlanner {
                             engine, myGroup.side, d, primary, visibleEnemies)) {
                 sharedAlphaCarrierTarget = primary;
             }
-            DivisionState best = null;
-            float bestScore = -Float.MAX_VALUE;
-            DivisionState previous = (d.otcOrder.type == OtcOrderType.ENGAGE_ASSIGNED || d.otcOrder.type == OtcOrderType.FLANK)
-                    ? d.otcOrder.targetEnemy : null;
-
-            if (isAlphaStrikeCarrier && sharedAlphaCarrierTarget != null && sharedAlphaCarrierTarget.isCombatEffective()) {
-                best = sharedAlphaCarrierTarget;
-            }
-
-            boolean anyOtherUnderCap = false;
-            if (best == null && visibleEnemies.size() >= 2) {
-                for (DivisionState otherE : visibleEnemies) {
-                    if (assignedFp.getOrDefault(otherE, 0f) < neededFp.getOrDefault(otherE, 10f)) {
-                        anyOtherUnderCap = true;
-                        break;
-                    }
-                }
-            }
-
-            for (DivisionState e : visibleEnemies) {
-                if (best != null && isAlphaStrikeCarrier && sharedAlphaCarrierTarget != null) break;
-                Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e);
-                float need = Math.max(4f, neededFp.get(e));
-                float have = assignedFp.get(e);
-                float dist = DivisionUiWidgets.distance(d.centroid, ePos);
-                float rawVisFp = OtcAI.getVisibleFpForSide(engine, myGroup.side, e);
-                float threatW = Math.max(0.28f, e.combatThreatWeight);
-                float visFp = rawVisFp * threatW;
-                boolean targetOverkilled = anyOtherUnderCap && (have >= need || e.isOverkilled);
-
-                float score = -dist * (dist > 1500f ? 0.62f : 0.48f);
-                if (e == previous && dist <= 2200f && !targetOverkilled) score += 260f;
-                if (e == primary) score += (dist <= 2400f) ? 720f : 460f;
-                if (e.archetype == DivisionArchetype.SERVICE_GROUP || threatW <= 0.55f) score -= 480f;
-
-                // Enemy Center of Gravity bonus: weight force distribution toward the Enemy Center of Gravity
-                if (myGroup.hasEnemyCenterOfGravity && visibleEnemies.size() >= 2) {
-                    float distToCog = DivisionUiWidgets.distance(ePos, myGroup.enemyCenterOfGravity);
-                    score += Math.max(-340f, 180f - distToCog * 0.14f);
-                }
-
-                // Beleaguered Friendly Line Relief: if a significant friendly division (e.g. Line Cruiser Div 1)
-                // is outnumbered in combat, strongly prioritize enemy divisions pressing that friendly division!
-                for (DivisionState friendDiv : active) {
-                    if (friendDiv == null || friendDiv == d || !friendDiv.isAbleCombatEffective()) continue;
-                    if (friendDiv.totalFpStrength >= 18f
-                            && friendDiv.localEnemyStrength >= 12f
-                            && friendDiv.localForceRatio < 0.90f) {
-                        float dFriend = DivisionUiWidgets.distance(friendDiv.centroid, ePos);
-                        if (dFriend <= 2050f) {
-                            float urgency = Math.min(1.6f, Math.max(0.4f, 1.15f - friendDiv.localForceRatio));
-                            score += (2050f - dFriend) * 0.32f * urgency;
-                        }
-                    }
-                }
-
-                // Grand Formation Wing Consent: match Port/Starboard wing divisions to enemy contacts on their consented wing
-                if (d.consentedWingSide != 0 && visibleEnemies.size() >= 2) {
-                    float latSide = Math.signum(ePos.x - myGroup.fleetCentroid.x);
-                    if (latSide == d.consentedWingSide) {
-                        score += 240f;
-                    } else if (latSide == -d.consentedWingSide && e != primary) {
-                        score -= 280f;
-                    }
-                }
-
-                // Item D: Align fire distribution with friendly independent ships when organizationRatio < 0.75
-                if (myGroup.friendlyIndependentFp >= 12f && myGroup.organizationRatio < 0.75f) {
-                    float dIndep = DivisionUiWidgets.distance(myGroup.independentProjectedCentroid, ePos);
-                    if (dIndep <= 1750f) {
-                        score += (1750f - dIndep) * 0.25f * (1f - myGroup.organizationRatio);
-                    }
-                }
-                // Item F Defensive Counter: avoid focusing on an enemy division suspected of feigning retreat
-                if (e.enemyFeignedRetreatSuspicion >= 0.60f && visibleEnemies.size() > 1) {
-                    score -= 280f;
-                }
-
-                // Defeat-in-Detail: reward isolated & collapsing targets so our heavy divisions focus them down
-                if (e.divisionNumber < 90 && e.stationKeepingRatio > 1.45f && threatW >= 0.65f) {
-                    score += 220f;
-                }
-                if (visFp >= 18f) {
-                    score += e.avgFluxLevel * 280f + (1.0f - e.avgHullLevel) * 260f;
-                }
-
-                // Prevent heavy/medium divisions & carriers from being baited away by stray freighters or tiny light screens
-                if ((d.totalFpStrength >= 20f || isCarrierDiv) && visFp < 18f && e != primary && anyOtherUnderCap) {
-                    score -= 560f;
-                } else if (d.totalFpStrength >= 32f && visFp >= 28f) {
-                    score += Math.min(280f, visFp * 3.5f);
-                }
-
-                if (isCarrierDiv) {
-                    score += DivisionCommanderAI.computeVoidstrikeTargetBiasAdjustment(
-                            engine, myGroup.side, d, e, visibleEnemies);
-                }
-
-                if (myGroup.useConvergence) {
-                    // Convergence OTC (AI / Threat / Abyssal or Alpha Core flagship):
-                    // Non-linear synthesis of Time reachability, Space seam isolation, and orthogonal Firepower
-                    score += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, e, myGroup) * 0.48f;
-                } else {
-                    // Human OTC: weights directional Time reachability and Space Weak Points vs Strongpoints
-                    score += BattlefieldFirepowerEvaluator.computeHumanDirectionalSeamBonus(
-                            d, e, ePos, dist, rawVisFp, 120f, 140f, 90f, 30f);
-                }
-
-                boolean skipCarrierOverkill = isCarrierDiv
-                        && !DivisionCommanderAI.hasEqualOrHigherUnderCapBiasAlternative(
-                                engine, myGroup.side, d, e, visibleEnemies);
-                if (have < need) {
-                    score += 280f;
-                } else if (anyOtherUnderCap && !skipCarrierOverkill) {
-                    // OTC Overkill Force-Distribution Cap: once an enemy contact has sufficient friendly FP assigned
-                    // and other enemy divisions remain below cap, strongly redirect remaining divisions to the CoG!
-                    float overRatio = have / Math.max(1f, need);
-                    score -= 1450f + 650f * (overRatio - 1f);
-                } else if (!skipCarrierOverkill) {
-                    float overAllocPenalty = (visibleEnemies.size() >= 3) ? 160f : 320f;
-                    score -= overAllocPenalty * (have / need - 1f);
-                }
-                if (score > bestScore) {
-                    bestScore = score;
-                    best = e;
-                }
-            }
+            DivisionState best = (isAlphaStrikeCarrier && sharedAlphaCarrierTarget != null && sharedAlphaCarrierTarget.isCombatEffective())
+                    ? sharedAlphaCarrierTarget
+                    : selectBestRemainingForceTarget(
+                            engine, myGroup, d, primary, active, visibleEnemies,
+                            assignedFp, neededFp, isCarrierDiv);
             if (best == null) continue;
             if (isAlphaStrikeCarrier && sharedAlphaCarrierTarget == null) {
                 sharedAlphaCarrierTarget = best;
@@ -1431,68 +1179,368 @@ public class OtcBattlePlanner {
 
             d.otcOrder.set(OtcOrderType.ENGAGE_ASSIGNED, best, null, 0f, expires, "OTC: fire distribution, engage \"" + best.displayName + "\"");
             d.otcOrder.hasStation = false;
-            if (carrierScreenAnchor
-                    && myGroup.authority.allowsPositioning()
-                    && !d.archetype.isCarrierArchetype()
-                    && d.archetype != DivisionArchetype.SERVICE_GROUP
-                    && !isPursuitInterception
-                    && !isRearguardEscape
-                    && myGroup.currentPhase != BattlePhase.GENERAL_CHASE
-                    && carrierAnchor.centroid != null) {
-                Vector2f bPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, best);
-                float maxScreenLead = (myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
-                        ? 1150f
-                        : 1450f;
-                float tx = bPos.x - carrierAnchor.centroid.x;
-                float ty = bPos.y - carrierAnchor.centroid.y;
-                float tLen = (float) Math.sqrt(tx * tx + ty * ty);
-                if (tLen > maxScreenLead + 350f) {
-                    float latSign = (d.fleetFormationWingSide != 0) ? d.fleetFormationWingSide : ((d.divisionNumber % 2 == 0) ? 1f : -1f);
-                    float perpX = -(ty / tLen);
-                    float perpY = (tx / tLen);
-                    d.otcOrder.hasStation = true;
-                    d.otcOrder.station.set(
-                            carrierAnchor.centroid.x + (tx / tLen) * maxScreenLead + perpX * latSign * 380f,
-                            carrierAnchor.centroid.y + (ty / tLen) * maxScreenLead + perpY * latSign * 380f);
-                }
-            }
-            if ((wedgeOrOblique || orchestratedAdvanceActive)
-                    && myGroup.authority.allowsPositioning()
-                    && d.hasFleetFormationOffset
-                    && main != null
-                    && main.hasFleetFormationOffset
-                    && !d.isFastFlanker
-                    && !d.archetype.isCarrierArchetype()
-                    && d.archetype != DivisionArchetype.SERVICE_GROUP
-                    && DivisionCommanderAI.resolveActiveMission(d, now) != DivisionMissionType.ENVELOPMENT
-                    && DivisionCommanderAI.resolveActiveMission(d, now) != DivisionMissionType.SCOUTING) {
-                Vector2f bPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, best);
-                float distToTarget = DivisionUiWidgets.distance(d.centroid, bPos);
-                if (wedgeOrOblique) {
-                    if (d.fleetFormationWingSide < 0) {
-                        d.otcOrder.orderedFormation = DivisionFormation.ECHELON_LEFT;
-                    } else if (d.fleetFormationWingSide > 0) {
-                        d.otcOrder.orderedFormation = DivisionFormation.ECHELON_RIGHT;
-                    }
-                }
-                if ((best == primary || orchestratedAdvanceActive)
-                        && myGroup.engagedDivisionCount == 0
-                        && distToTarget > Math.max(1650f, d.standoffRange * 1.55f)) {
-                    float anchorX = main.otcOrder.hasStation ? main.otcOrder.station.x : main.centroid.x;
-                    float anchorY = main.otcOrder.hasStation ? main.otcOrder.station.y : main.centroid.y;
-                    float relX = d.fleetFormationOffset.x - main.fleetFormationOffset.x;
-                    float relY = d.fleetFormationOffset.y - main.fleetFormationOffset.y;
-                    d.otcOrder.hasStation = true;
-                    d.otcOrder.station.set(anchorX + relX, anchorY + relY);
-                }
-            }
+            applySupportingDivisionStationOverrides(
+                    engine, myGroup, d, main, best, primary, carrierAnchor,
+                    carrierScreenAnchor, wedgeOrOblique, orchestratedAdvanceActive,
+                    isPursuitInterception, isRearguardEscape, now);
+
             tasked.add(d);
             allocationOut.put(d, best);
-            if (isAlphaStrikeCarrier && sharedAlphaCarrierTarget == null) {
-                sharedAlphaCarrierTarget = best;
-            }
             float weight = d.archetype.isCarrierArchetype() ? 0.5f : 1f;
             assignedFp.put(best, assignedFp.get(best) + d.totalFpStrength * weight);
+        }
+    }
+
+    private static void assignMainEffortFixingOrder(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            List<DivisionState> active,
+            DivisionState main,
+            DivisionState primary,
+            DivisionState carrierAnchor,
+            boolean wedgeOrOblique,
+            boolean openFlotillaAnchor,
+            boolean carrierScreenAnchor,
+            boolean isPursuitInterception,
+            boolean isRearguardEscape,
+            float now,
+            float expires,
+            Set<DivisionState> tasked,
+            Map<DivisionState, DivisionState> allocationOut,
+            Map<DivisionState, Float> assignedFp) {
+
+        Vector2f primaryPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, primary);
+        boolean primaryFleeing = (isPursuitInterception
+                && (primary.isUnableDivision
+                || primary.retreatingFraction >= 0.35f
+                || DivisionState.isDivisionEscapingInPursuit(engine, primary)))
+                || primary.archetype == DivisionArchetype.SERVICE_GROUP;
+        boolean mainIsStandoffCarrier = isFragileStandoffCarrierDivision(main);
+        boolean singleDestroyerLine = active.size() <= 1
+                && main.archetype != null
+                && main.archetype.isDestroyerArchetype();
+        boolean mainIsHeavyLine = (main.archetype != null && main.archetype.isHeavyLineArchetype())
+                || singleDestroyerLine;
+        boolean flotillaSkirmishNoStaticLine = mainIsStandoffCarrier || (openFlotillaAnchor && !mainIsHeavyLine);
+
+        // Keep the Main Effort steady as the fixing Anvil during Hammer & Anvil, Double Envelopment, Crossing
+        // the T, and Kill-Box setpieces; only surge onto EXECUTE_STRIKE during Echeloned Wave Breach or once breaking.
+        boolean strikeExecuting = isStrikeExecutingOn(myGroup, primary)
+                && myGroup.strikePlan != null
+                && !myGroup.strikePlan.participants.isEmpty();
+        MultiDivisionSetpiece activeSp = (myGroup.strikePlan != null && myGroup.strikePlan.setpieceType != null)
+                ? myGroup.strikePlan.setpieceType
+                : MultiDivisionSetpiece.NONE;
+        boolean enemyBreakingUnderStrike = primary.effectiveHpRatio < 0.52f || primary.avgFluxLevel >= 0.65f;
+        boolean mainPressesHomeWithStrike = strikeExecuting
+                && !primaryFleeing
+                && !main.archetype.isCarrierArchetype()
+                && main.avgFluxLevel < 0.62f
+                && main.effectiveHpRatio >= 0.58f
+                && (activeSp == MultiDivisionSetpiece.ECHELONED_WAVE_BREACH || enemyBreakingUnderStrike);
+
+        OtcOrderType mainOrderType = (primaryFleeing || flotillaSkirmishNoStaticLine)
+                ? OtcOrderType.ENGAGE_ASSIGNED
+                : (mainPressesHomeWithStrike ? OtcOrderType.EXECUTE_STRIKE : OtcOrderType.FORM_LINE);
+        boolean newOrder = !(main.otcOrder.type == mainOrderType && main.otcOrder.targetEnemy == primary);
+        main.otcOrder.set(mainOrderType, primary, null, 0f, expires,
+                primaryFleeing
+                        ? ("OTC: Main Effort, intercept and pin \"" + primary.displayName + "\"")
+                        : (flotillaSkirmishNoStaticLine
+                        ? ("OTC: Flotilla lead, skirmish \"" + primary.displayName + "\"")
+                        : (mainPressesHomeWithStrike
+                        ? ("OTC: Main Effort, press home on \"" + primary.displayName + "\"")
+                        : ("OTC: Main Effort, form the line on \"" + primary.displayName + "\""))));
+
+        if (wedgeOrOblique && myGroup.authority != OtcAuthority.COMMAND_BY_NEGATION) {
+            main.otcOrder.orderedFormation = DivisionFormation.FORWARD_WEDGE;
+        } else if (myGroup.authority == OtcAuthority.POSITIVE_CONTROL
+                && !flotillaSkirmishNoStaticLine
+                && (main.doctrinalFormation == null || main.doctrinalFormation == DivisionFormation.NONE)) {
+            main.otcOrder.orderedFormation = DivisionFormation.LINE_ABREAST;
+        }
+
+        if (myGroup.authority.allowsPositioning() && !primaryFleeing && !flotillaSkirmishNoStaticLine) {
+            computeMainEffortFixingStation(
+                    myGroup, main, primary, primaryPos, carrierAnchor,
+                    wedgeOrOblique, carrierScreenAnchor, isPursuitInterception, isRearguardEscape,
+                    main.otcOrder.station);
+            main.otcOrder.hasStation = true;
+        } else {
+            main.otcOrder.hasStation = false;
+        }
+
+        tasked.add(main);
+        allocationOut.put(main, primary);
+        assignedFp.put(primary, assignedFp.get(primary) + main.totalFpStrength);
+        if (newOrder && mainOrderType == OtcOrderType.FORM_LINE) {
+            logOrder(engine, myGroup, "fix:" + main.id + ">" + primary.id, String.format(
+                    "Main Effort \"%s\" to form the line on \"%s\" and fix it.", main.displayName, primary.displayName), now);
+        }
+    }
+
+    private static void computeMainEffortFixingStation(
+            BattleGroupState myGroup,
+            DivisionState main,
+            DivisionState primary,
+            Vector2f primaryPos,
+            DivisionState carrierAnchor,
+            boolean wedgeOrOblique,
+            boolean carrierScreenAnchor,
+            boolean isPursuitInterception,
+            boolean isRearguardEscape,
+            Vector2f outStation) {
+
+        float dx = myGroup.fleetCentroid.x - primaryPos.x;
+        float dy = myGroup.fleetCentroid.y - primaryPos.y;
+        float len = (float) Math.sqrt(dx * dx + dy * dy);
+        if (len < 1f) {
+            dx = 0f;
+            dy = (myGroup.side == 0) ? -1f : 1f;
+            len = 1f;
+        }
+        float hold = Math.max(500f, main.standoffRange * (isPursuitInterception ? 0.68f : 0.9f));
+        if (BattlefieldFirepowerEvaluator.isStationBastionDivision(primary)
+                && !main.archetype.isCarrierArchetype()
+                && main.avgEngageRange > 250f) {
+            float gunReach = Math.max(560f, main.avgEngageRange * 0.86f)
+                    + Math.min(260f, Math.max(0f, primary.spreadRadius - 180f) * 0.55f);
+            hold = Math.min(hold, gunReach);
+        }
+        if (wedgeOrOblique && myGroup.forceRatio >= 1.12f) {
+            hold = Math.max(400f, hold * 0.78f);
+        }
+        if (myGroup.engagedDivisionCount >= 1
+                && !myGroup.mainEffortEngaged
+                && myGroup.forceRatio >= 0.88f) {
+            hold = Math.max(460f, hold * 0.78f);
+        }
+        float stX = primaryPos.x + dx / len * hold;
+        float stY = primaryPos.y + dy / len * hold;
+
+        if (myGroup.organizationRatio < 0.65f && myGroup.friendlyIndependentFp >= 15f) {
+            float indepBlend = Math.min(0.45f, (0.68f - myGroup.organizationRatio) * 0.70f);
+            stX = stX * (1f - indepBlend) + myGroup.independentCentroid.x * indepBlend;
+            stY = stY * (1f - indepBlend) + myGroup.independentCentroid.y * indepBlend;
+        }
+        if (isRearguardEscape
+                || myGroup.forceRatio < 0.84f
+                || myGroup.activeFleetWideFormation == FleetWideFormation.FLEET_PROTECTIVE_BASTION) {
+            float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
+            stY += retreatDirY * (isRearguardEscape ? 320f : 140f);
+        }
+        if (carrierScreenAnchor
+                && main != carrierAnchor
+                && !isPursuitInterception
+                && !isRearguardEscape
+                && myGroup.currentPhase != BattlePhase.GENERAL_CHASE
+                && carrierAnchor.centroid != null
+                && carrierAnchor.totalFpStrength >= Math.max(18f, myGroup.totalFriendlyStrength * 0.22f)
+                && DivisionUiWidgets.distance(main.centroid, primaryPos) > 1950f
+                && main.localEnemyStrength < 12f) {
+            float maxScreenLead = (myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
+                    ? 1150f
+                    : 1450f;
+            float cdx = stX - carrierAnchor.centroid.x;
+            float cdy = stY - carrierAnchor.centroid.y;
+            float cDist = (float) Math.sqrt(cdx * cdx + cdy * cdy);
+            if (cDist > maxScreenLead) {
+                float tx = primaryPos.x - carrierAnchor.centroid.x;
+                float ty = primaryPos.y - carrierAnchor.centroid.y;
+                float tLen = (float) Math.sqrt(tx * tx + ty * ty);
+                if (tLen > 1f) {
+                    stX = carrierAnchor.centroid.x + (tx / tLen) * maxScreenLead;
+                    stY = carrierAnchor.centroid.y + (ty / tLen) * maxScreenLead;
+                }
+            }
+        }
+        outStation.set(stX, stY);
+    }
+
+    private static DivisionState selectBestRemainingForceTarget(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            DivisionState d,
+            DivisionState primary,
+            List<DivisionState> active,
+            List<DivisionState> visibleEnemies,
+            Map<DivisionState, Float> assignedFp,
+            Map<DivisionState, Float> neededFp,
+            boolean isCarrierDiv) {
+
+        DivisionState previous = (d.otcOrder.type == OtcOrderType.ENGAGE_ASSIGNED || d.otcOrder.type == OtcOrderType.FLANK)
+                ? d.otcOrder.targetEnemy : null;
+        boolean anyOtherUnderCap = false;
+        if (visibleEnemies.size() >= 2) {
+            for (DivisionState otherE : visibleEnemies) {
+                if (assignedFp.getOrDefault(otherE, 0f) < neededFp.getOrDefault(otherE, 10f)) {
+                    anyOtherUnderCap = true;
+                    break;
+                }
+            }
+        }
+
+        DivisionState best = null;
+        float bestScore = -Float.MAX_VALUE;
+        for (DivisionState e : visibleEnemies) {
+            Vector2f ePos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e);
+            float need = Math.max(4f, neededFp.get(e));
+            float have = assignedFp.get(e);
+            float dist = DivisionUiWidgets.distance(d.centroid, ePos);
+            float rawVisFp = OtcAI.getVisibleFpForSide(engine, myGroup.side, e);
+            float threatW = Math.max(0.28f, e.combatThreatWeight);
+            float visFp = rawVisFp * threatW;
+            boolean targetOverkilled = anyOtherUnderCap && (have >= need || e.isOverkilled);
+
+            float score = -dist * (dist > 1500f ? 0.62f : 0.48f);
+            if (e == previous && dist <= 2200f && !targetOverkilled) score += 260f;
+            if (e == primary) score += (dist <= 2400f) ? 720f : 460f;
+            if (e.archetype == DivisionArchetype.SERVICE_GROUP || threatW <= 0.55f) score -= 480f;
+
+            if (myGroup.hasEnemyCenterOfGravity && visibleEnemies.size() >= 2) {
+                float distToCog = DivisionUiWidgets.distance(ePos, myGroup.enemyCenterOfGravity);
+                score += Math.max(-340f, 180f - distToCog * 0.14f);
+            }
+            for (DivisionState friendDiv : active) {
+                if (friendDiv == null || friendDiv == d || !friendDiv.isAbleCombatEffective()) continue;
+                if (friendDiv.totalFpStrength >= 18f
+                        && friendDiv.localEnemyStrength >= 12f
+                        && friendDiv.localForceRatio < 0.90f) {
+                    float dFriend = DivisionUiWidgets.distance(friendDiv.centroid, ePos);
+                    if (dFriend <= 2050f) {
+                        float urgency = Math.min(1.6f, Math.max(0.4f, 1.15f - friendDiv.localForceRatio));
+                        score += (2050f - dFriend) * 0.32f * urgency;
+                    }
+                }
+            }
+            if (d.consentedWingSide != 0 && visibleEnemies.size() >= 2) {
+                float latSide = Math.signum(ePos.x - myGroup.fleetCentroid.x);
+                if (latSide == d.consentedWingSide) {
+                    score += 240f;
+                } else if (latSide == -d.consentedWingSide && e != primary) {
+                    score -= 280f;
+                }
+            }
+            if (myGroup.friendlyIndependentFp >= 12f && myGroup.organizationRatio < 0.75f) {
+                float dIndep = DivisionUiWidgets.distance(myGroup.independentProjectedCentroid, ePos);
+                if (dIndep <= 1750f) {
+                    score += (1750f - dIndep) * 0.25f * (1f - myGroup.organizationRatio);
+                }
+            }
+            if (e.enemyFeignedRetreatSuspicion >= 0.60f && visibleEnemies.size() > 1) {
+                score -= 280f;
+            }
+            if (e.divisionNumber < 90 && e.stationKeepingRatio > 1.45f && threatW >= 0.65f) {
+                score += 220f;
+            }
+            if (visFp >= 18f) {
+                score += e.avgFluxLevel * 280f + (1.0f - e.avgHullLevel) * 260f;
+            }
+            if ((d.totalFpStrength >= 20f || isCarrierDiv) && visFp < 18f && e != primary && anyOtherUnderCap) {
+                score -= 560f;
+            } else if (d.totalFpStrength >= 32f && visFp >= 28f) {
+                score += Math.min(280f, visFp * 3.5f);
+            }
+            if (isCarrierDiv) {
+                score += DivisionCommanderAI.computeVoidstrikeTargetBiasAdjustment(
+                        engine, myGroup.side, d, e, visibleEnemies);
+            }
+            if (myGroup.useConvergence) {
+                score += BattlefieldFirepowerEvaluator.computeConvergenceTargetScore(engine, d, e, myGroup) * 0.48f;
+            } else {
+                score += BattlefieldFirepowerEvaluator.computeHumanDirectionalSeamBonus(
+                        d, e, ePos, dist, rawVisFp, 120f, 140f, 90f, 30f);
+            }
+
+            boolean skipCarrierOverkill = isCarrierDiv
+                    && !DivisionCommanderAI.hasEqualOrHigherUnderCapBiasAlternative(
+                            engine, myGroup.side, d, e, visibleEnemies);
+            if (have < need) {
+                score += 280f;
+            } else if (anyOtherUnderCap && !skipCarrierOverkill) {
+                float overRatio = have / Math.max(1f, need);
+                score -= 1450f + 650f * (overRatio - 1f);
+            } else if (!skipCarrierOverkill) {
+                float overAllocPenalty = (visibleEnemies.size() >= 3) ? 160f : 320f;
+                score -= overAllocPenalty * (have / need - 1f);
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = e;
+            }
+        }
+        return best;
+    }
+
+    private static void applySupportingDivisionStationOverrides(
+            CombatEngineAPI engine,
+            BattleGroupState myGroup,
+            DivisionState d,
+            DivisionState main,
+            DivisionState best,
+            DivisionState primary,
+            DivisionState carrierAnchor,
+            boolean carrierScreenAnchor,
+            boolean wedgeOrOblique,
+            boolean orchestratedAdvanceActive,
+            boolean isPursuitInterception,
+            boolean isRearguardEscape,
+            float now) {
+
+        if (carrierScreenAnchor
+                && myGroup.authority.allowsPositioning()
+                && !d.archetype.isCarrierArchetype()
+                && d.archetype != DivisionArchetype.SERVICE_GROUP
+                && !isPursuitInterception
+                && !isRearguardEscape
+                && myGroup.currentPhase != BattlePhase.GENERAL_CHASE
+                && carrierAnchor.centroid != null) {
+            Vector2f bPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, best);
+            float maxScreenLead = (myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
+                    ? 1150f
+                    : 1450f;
+            float tx = bPos.x - carrierAnchor.centroid.x;
+            float ty = bPos.y - carrierAnchor.centroid.y;
+            float tLen = (float) Math.sqrt(tx * tx + ty * ty);
+            if (tLen > maxScreenLead + 350f) {
+                float latSign = (d.fleetFormationWingSide != 0) ? d.fleetFormationWingSide : ((d.divisionNumber % 2 == 0) ? 1f : -1f);
+                float perpX = -(ty / tLen);
+                float perpY = (tx / tLen);
+                d.otcOrder.hasStation = true;
+                d.otcOrder.station.set(
+                        carrierAnchor.centroid.x + (tx / tLen) * maxScreenLead + perpX * latSign * 380f,
+                        carrierAnchor.centroid.y + (ty / tLen) * maxScreenLead + perpY * latSign * 380f);
+            }
+        }
+        if ((wedgeOrOblique || orchestratedAdvanceActive)
+                && myGroup.authority.allowsPositioning()
+                && d.hasFleetFormationOffset
+                && main != null
+                && main.hasFleetFormationOffset
+                && !d.isFastFlanker
+                && !d.archetype.isCarrierArchetype()
+                && d.archetype != DivisionArchetype.SERVICE_GROUP
+                && DivisionCommanderAI.resolveActiveMission(d, now) != DivisionMissionType.ENVELOPMENT
+                && DivisionCommanderAI.resolveActiveMission(d, now) != DivisionMissionType.SCOUTING) {
+            Vector2f bPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, best);
+            float distToTarget = DivisionUiWidgets.distance(d.centroid, bPos);
+            if (wedgeOrOblique) {
+                if (d.fleetFormationWingSide < 0) {
+                    d.otcOrder.orderedFormation = DivisionFormation.ECHELON_LEFT;
+                } else if (d.fleetFormationWingSide > 0) {
+                    d.otcOrder.orderedFormation = DivisionFormation.ECHELON_RIGHT;
+                }
+            }
+            if ((best == primary || orchestratedAdvanceActive)
+                    && myGroup.engagedDivisionCount == 0
+                    && distToTarget > Math.max(1650f, d.standoffRange * 1.55f)) {
+                float anchorX = main.otcOrder.hasStation ? main.otcOrder.station.x : main.centroid.x;
+                float anchorY = main.otcOrder.hasStation ? main.otcOrder.station.y : main.centroid.y;
+                float relX = d.fleetFormationOffset.x - main.fleetFormationOffset.x;
+                float relY = d.fleetFormationOffset.y - main.fleetFormationOffset.y;
+                d.otcOrder.hasStation = true;
+                d.otcOrder.station.set(anchorX + relX, anchorY + relY);
+            }
         }
     }
 

@@ -948,35 +948,11 @@ public final class ShipSystemCoordinator {
                             engine, div, alive, focusEnemy, myGroup, enemyGroup, ramMode, ramScope, maxRamSlots)
                     : java.util.Collections.emptyMap();
 
-            // Frame-accurate Stage 1 -> Stage 2 Lance Charge promotion:
-            // As soon as the assigned rammers have dressed and aligned their bows (within 18 deg) onto their assigned
-            // targets in the conducive localized space, promote Stage 1 -> Stage 2 immediately on this frame so the
-            // entire division ignites its ram drives together instead of piecemeal!
             if (syncSkills
                     && div.synchronizedSkillManeuverActive
                     && div.synchronizedSkillStage == 1
                     && !assignedRamTargets.isEmpty()) {
-                int assignedReady = 0;
-                int alignedAndInRange = 0;
-                for (Map.Entry<ShipAPI, ShipAPI> entry : assignedRamTargets.entrySet()) {
-                    ShipAPI rShip = entry.getKey();
-                    ShipAPI rTgt = entry.getValue();
-                    if (rShip == null || rTgt == null) continue;
-                    assignedReady++;
-                    float d = DivisionCommanderAI.distance(rShip.getLocation(), rTgt.getLocation());
-                    Vector2f aim = computeRamInterceptPoint(rShip, rTgt, 0, div.targetEnemyDivision, ramMode);
-                    if (d <= 1650f && isShipAlignedToPoint(rShip, aim, 18f)) {
-                        alignedAndInRange++;
-                    }
-                }
-                float stageElapsedNow = Math.max(0f, now - div.synchronizedSkillStageStartTime);
-                if (assignedReady > 0
-                        && ((alignedAndInRange >= assignedReady && (div.stationKeepingRatio <= 1.15f || stageElapsedNow >= 0.45f))
-                        || (stageElapsedNow >= 1.75f && alignedAndInRange >= Math.max(1, assignedReady - 1)))) {
-                    div.synchronizedSkillStage = 2;
-                    div.synchronizedSkillStageStartTime = now;
-                    div.activeSkillManeuverLabel = "Sync Ram Charge";
-                }
+                tryPromoteSynchronizedLanceStage2(div, assignedRamTargets, ramMode, now);
             }
 
             boolean stage2SyncCharge = syncSkills && div.synchronizedSkillManeuverActive && div.synchronizedSkillStage == 2;
@@ -999,49 +975,8 @@ public final class ShipSystemCoordinator {
                 if (ship == null || OtcAI.isPlayerManuallyPiloting(engine, ship)) continue;
 
                 ShipwideAIFlags flags = ship.getAIFlags();
-                if (directObjectiveMarch
-                        && ship.getFluxLevel() < 0.80f
-                        && (ship.getFluxTracker() == null || !ship.getFluxTracker().isOverloadedOrVenting())) {
-                    ShipAPI blockingFriendlyObjMarch = findImminentFriendlyInForwardPath(engine, ship, alive, myGroup, 380f);
-                    if (blockingFriendlyObjMarch == null) {
-                        Vector2f objLoc = div.targetObjective.getLocation();
-                        Vector2f campGoal = (flags != null && flags.getCustom(AIFlags.CAMP_LOCATION) instanceof Vector2f)
-                                ? (Vector2f) flags.getCustom(AIFlags.CAMP_LOCATION)
-                                : null;
-                        Vector2f helmGoal;
-                        float distShipToObj = DivisionCommanderAI.distance(ship.getLocation(), objLoc);
-                        if (sIdx == 0 || ship == div.flagship || campGoal == null) {
-                            helmGoal = (div.hasRouteWaypoint && distShipToObj > 1250f && div.routeWaypoint != null)
-                                    ? div.routeWaypoint
-                                    : objLoc;
-                        } else if (!div.hasRouteWaypoint
-                                && (distShipToObj <= 1350f
-                                || DivisionCommanderAI.distance(campGoal, objLoc) > distShipToObj - 240f)) {
-                            float sdx = campGoal.x - objLoc.x;
-                            float sdy = campGoal.y - objLoc.y;
-                            float sDist = (float) Math.sqrt(sdx * sdx + sdy * sdy);
-                            helmGoal = (sDist > 240f)
-                                    ? new Vector2f(objLoc.x + (sdx / sDist) * 240f, objLoc.y + (sdy / sDist) * 240f)
-                                    : campGoal;
-                        } else {
-                            helmGoal = campGoal;
-                        }
-                        float distShipToGoal = DivisionCommanderAI.distance(ship.getLocation(), helmGoal);
-                        if (flags != null) {
-                            flags.unsetFlag(AIFlags.BACK_OFF);
-                            flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.50f);
-                            flags.setFlag(AIFlags.DO_NOT_PURSUE, 0.50f);
-                            flags.setFlag(AIFlags.CAMP_LOCATION, 0.50f, helmGoal);
-                            flags.setFlag(AIFlags.MOVEMENT_DEST, 0.50f, helmGoal);
-                            if (distShipToObj > 420f) {
-                                flags.unsetFlag(AIFlags.MANEUVER_TARGET);
-                                flags.unsetFlag(AIFlags.HARASS_MOVE_IN);
-                                flags.unsetFlag(AIFlags.PURSUING);
-                                DivisionCommanderAI.clearBasicShipAiTargetOverride(ship);
-                            }
-                        }
-                        steerShipHelmOntoObjectivePoint(ship, helmGoal, distShipToGoal, distShipToObj);
-                    }
+                if (directObjectiveMarch) {
+                    applyDirectObjectiveMarchHelm(engine, div, ship, sIdx, alive, myGroup, flags);
                 }
 
                 ShipSkillProfile prof = getSkillProfile(ship);
@@ -1050,19 +985,7 @@ public final class ShipSystemCoordinator {
                 ShipSystemAPI sys = ship.getSystem();
                 if (sys == null) continue;
 
-                // Record unboosted base mass before a ram drive multiplies it, and restore it once the drive is fully off
-                // (fixes JYD_RamDriveStats leaving ships permanently stuck at 5x mass with sluggish thrusters after one ram).
-                if (prof.isDesignedToRam) {
-                    float curMass = ship.getMass();
-                    if (curMass > 1f) {
-                        Float baseMass = BASE_MASS_CACHE.get(ship);
-                        if (baseMass == null || (curMass < baseMass && !sys.isActive() && !sys.isChargeup())) {
-                            BASE_MASS_CACHE.put(ship, curMass);
-                        } else if (!sys.isActive() && !sys.isChargeup() && !sys.isChargedown() && curMass > baseMass * 1.45f) {
-                            ship.setMass(baseMass);
-                        }
-                    }
-                }
+                maintainBaseMassCacheForRamDrive(ship, prof, sys);
 
                 Vector2f campLoc = (flags != null && flags.getCustom(AIFlags.CAMP_LOCATION) instanceof Vector2f)
                         ? (Vector2f) flags.getCustom(AIFlags.CAMP_LOCATION)
@@ -1089,165 +1012,15 @@ public final class ShipSystemCoordinator {
                         ? assignedSlotTarget
                         : resolveEffectiveRamOrSkillTarget(ship, flags, focusEnemy);
 
-                // ------------------------------------------------------------------
-                // A. ACTIVE LINEAR DRIVE MANAGEMENT: Helmsmanship Anti-Friendly Cutoff,
-                //    Glancing Side-Body Ram, Escape Burn & Standoff Cutoff
-                // ------------------------------------------------------------------
+                // A. ACTIVE LINEAR DRIVE MANAGEMENT
                 if (prof.category.isLinearVector() && (sys.isActive() || sys.isChargeup())) {
                     anyActiveLinear = true;
-                    float currSpd = ship.getVelocity() != null
-                            ? (float) Math.sqrt(ship.getVelocity().x * ship.getVelocity().x + ship.getVelocity().y * ship.getVelocity().y)
-                            : ship.getMaxSpeed();
-                    float decel = Math.max(25f, ship.getDeceleration());
-                    float brakeDist = (currSpd * currSpd) / (2f * decel);
-
-                    // HELMSMANSHIP RULE #1: Never allow an active linear/ram drive to slam into ANY friendly ship in the fleet!
-                    float friendlyCheckDist = Math.max(420f, Math.min(820f, currSpd * 1.45f + 140f));
-                    ShipAPI blockingFriendly = findImminentFriendlyInForwardPath(engine, ship, alive, myGroup, friendlyCheckDist);
-                    if (blockingFriendly != null) {
-                        // Steer laterally around the friendly hull immediately
-                        Vector2f avoidPt = computeLateralAvoidancePoint(ship, blockingFriendly);
-                        if (flags != null && avoidPt != null) {
-                            flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, avoidPt);
-                        }
-                        ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
-                        ship.giveCommand(ShipCommand.DECELERATE, null, 0);
-                        if (prof.isToggle && sys.isActive()) {
-                            sys.deactivate();
-                            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                            Float baseMass = BASE_MASS_CACHE.get(ship);
-                            if (baseMass != null && baseMass > 1f) {
-                                ship.setMass(baseMass);
-                            }
-                            continue;
-                        }
-                    }
-
-                    if (prof.isToggle && sys.isActive()) {
-                        boolean shouldCutToggle = false;
-
-                        if (isShipExtracting) {
-                            // ESCAPE BURN MANAGEMENT: Cut toggle drive once safely clear of enemy gun range or arriving at extraction point,
-                            // or if an enemy ship blocks our escape path!
-                            Vector2f escGoal = movDest != null ? movDest : (campLoc != null ? campLoc : div.stationPoint);
-                            if (!isForwardCorridorClearOfEnemies(engine, ship, enemyGroup, 420f)) {
-                                shouldCutToggle = true;
-                            } else if (effTarget != null) {
-                                float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
-                                if (distE >= Math.max(1380f, div.standoffRange * 1.45f)) {
-                                    shouldCutToggle = true;
-                                }
-                            }
-                            if (escGoal != null) {
-                                float distGoal = DivisionCommanderAI.distance(ship.getLocation(), escGoal);
-                                if (distGoal <= Math.max(220f, Math.min(400f, brakeDist * 0.65f))) {
-                                    shouldCutToggle = true;
-                                }
-                            }
-                        } else if (prof.isDesignedToRam && effTarget != null) {
-                            if (ramMode == DivisionRammingMode.OFF || isStationOrStationModule(effTarget)) {
-                                // Ramming is OFF for this division (or target is an immovable station):
-                                // Cut the drive at gun standoff range so the ship never rams!
-                                float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
-                                float stopBand = isStationOrStationModule(effTarget)
-                                        ? 900f
-                                        : (Math.max(540f, div.standoffRange * 0.88f) + Math.min(340f, brakeDist * 0.55f));
-                                if (distE <= stopBand) {
-                                    shouldCutToggle = true;
-                                }
-                            } else {
-                                // RAMMING DRIVE (e.g. Rambunctious JYD_ramdrive):
-                                // Keep the drive burning all the way through physical hull impact, then cut right after
-                                // passing the target's beam or after collision momentum transfer so shields/guns come back up!
-                                float toEx = effTarget.getLocation().x - ship.getLocation().x;
-                                float toEy = effTarget.getLocation().y - ship.getLocation().y;
-                                float distE = (float) Math.sqrt(toEx * toEx + toEy * toEy);
-                                float sRad = Math.max(35f, ship.getCollisionRadius());
-                                float tRad = Math.max(45f, effTarget.getCollisionRadius());
-                                float deepHullContactDist = (sRad + tRad) * 0.58f;
-                                double rad = Math.toRadians(ship.getFacing());
-                                float hdgX = (float) Math.cos(rad);
-                                float hdgY = (float) Math.sin(rad);
-                                float dot = (distE > 1f) ? ((toEx / distE) * hdgX + (toEy / distE) * hdgY) : 1f;
-                                if ((distE > 110f && dot < -0.15f)
-                                        || (distE <= deepHullContactDist && (currSpd < 135f || dot < -0.05f))
-                                        || ship.getFluxLevel() > 0.86f) {
-                                    shouldCutToggle = true;
-                                }
-                            }
-                        } else if (!prof.isDesignedToRam && effTarget != null) {
-                            // NON-RAMMING LINEAR DRIVE (e.g. Eagle/Dominator/Mora Burn Drive):
-                            // Caveat enforcement: NEVER slam into the enemy! Cut off at standoff range + braking margin.
-                            float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
-                            float stopBand = Math.max(540f, div.standoffRange * 0.88f) + Math.min(340f, brakeDist * 0.55f);
-                            if (distE <= stopBand) {
-                                shouldCutToggle = true;
-                            }
-                        }
-
-                        // If burning to catch up to a formation slot (campLoc) out of combat, cut off upon arrival
-                        if (!stage2SyncCharge && !prof.isDesignedToRam && campLoc != null) {
-                            float distSlot = DivisionCommanderAI.distance(ship.getLocation(), campLoc);
-                            if (distSlot <= Math.max(180f, Math.min(360f, brakeDist * 0.65f))) {
-                                shouldCutToggle = true;
-                            }
-                        } else if (!stage2SyncCharge && prof.isDesignedToRam && campLoc != null
-                                && (effTarget == null || DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation()) > 1650f)) {
-                            float distSlot = DivisionCommanderAI.distance(ship.getLocation(), campLoc);
-                            if (distSlot <= Math.max(220f, Math.min(400f, brakeDist * 0.70f))) {
-                                shouldCutToggle = true;
-                            }
-                        }
-
-                        if (shouldCutToggle) {
-                            sys.deactivate();
-                            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                            Float baseMass = BASE_MASS_CACHE.get(ship);
-                            if (baseMass != null && baseMass > 1f) {
-                                ship.setMass(baseMass);
-                            }
-                            continue;
-                        }
-                    }
-
-                    if (isShipExtracting && flags != null) {
-                        Vector2f escGoal = movDest != null ? movDest : (campLoc != null ? campLoc : div.stationPoint);
-                        if (escGoal != null) {
-                            flags.unsetFlag(AIFlags.MANEUVER_TARGET);
-                            flags.setFlag(AIFlags.DO_NOT_PURSUE, 0.25f);
-                            flags.setFlag(AIFlags.RUN_QUICKLY, 0.25f);
-                            flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, escGoal);
-                        }
-                        continue;
-                    }
-
-                    // Whenever ANY dedicated ramming ship is actively executing an offensive ram (when ramMode != OFF),
-                    // steer its movement vector AND direct helm commands onto the intercept point on its assigned target
-                    // so vanilla BasicShipAI collision-avoidance cannot dodge around the enemy hull or brake before impact!
-                    if (prof.isDesignedToRam && ramMode != DivisionRammingMode.OFF
-                            && effTarget != null && !isStationOrStationModule(effTarget)
-                            && flags != null && blockingFriendly == null) {
-                        float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
-                        if (distE <= 2150f) {
-                            Vector2f aimPt = computeRamInterceptPoint(ship, effTarget, sIdx, div.targetEnemyDivision, ramMode);
-                            flags.unsetFlag(AIFlags.CAMP_LOCATION);
-                            flags.unsetFlag(AIFlags.BACK_OFF);
-                            flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
-                            flags.unsetFlag(AIFlags.RUN_QUICKLY);
-                            flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.25f);
-                            flags.setFlag(AIFlags.HARASS_MOVE_IN, 0.25f);
-                            flags.setFlag(AIFlags.PURSUING, 0.25f);
-                            flags.setFlag(AIFlags.MANEUVER_TARGET, 0.25f, effTarget);
-                            flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, aimPt);
-                            ship.setShipTarget(effTarget);
-                            steerShipHelmOntoRamTarget(ship, aimPt, true);
-                        }
-                    }
+                    manageActiveLinearDrive(
+                            engine, div, ship, sIdx, alive, myGroup, enemyGroup, prof, sys, flags,
+                            ramMode, stage2SyncCharge, isShipExtracting, campLoc, movDest, effTarget);
                     continue;
                 }
 
-                // If Ramming is OFF for this division, block any offensive ram-drive activation near enemies
-                // (after extraction and out-of-combat straggler catch-up are handled).
                 if (prof.isDesignedToRam && ramMode == DivisionRammingMode.OFF && !isShipExtracting) {
                     if (effTarget != null && DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation()) <= 1650f) {
                         ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
@@ -1255,288 +1028,629 @@ public final class ShipSystemCoordinator {
                     }
                 }
 
-                // HELMSMANSHIP RULE #2: Even in INDEPENDENT skill mode, NEVER allow a ship to ignite a forward linear/ram
-                // drive when another friendly ship anywhere in the fleet is in its forward trajectory!
                 if (prof.category.isLinearVector()
                         && !isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, prof.isDesignedToRam ? 760f : 560f)) {
                     ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
                     continue;
                 }
 
-                // Out-of-Combat Mixed-Division Speed Pacing: while marching out of combat, forbid ships that are already
-                // at or ahead of their division's formation rank from triggering speed-boost systems that break formation!
                 if (outOfCombatMarch && alive.size() >= 2 && (prof.category.isLinearVector() || prof.estimatedSpeedBonus > 10f)) {
-                    float distFromCentroid = div.centroid != null
-                            ? DivisionCommanderAI.distance(ship.getLocation(), div.centroid)
-                            : 0f;
-                    float alongLead = (div.centroid != null)
-                            ? ((ship.getLocation().x - div.centroid.x) * div.formationHeadingX
-                            + (ship.getLocation().y - div.centroid.y) * div.formationHeadingY)
-                            : 0f;
-                    boolean genuineStragglerBehind = distFromCentroid >= Math.max(820f, div.stationKeepingRadius * 1.65f)
-                            && alongLead < -280f;
-                    if (!genuineStragglerBehind) {
+                    if (!isOutOfCombatStragglerBehind(div, ship)) {
                         ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
                         continue;
                     }
                 }
 
-                // Extraction Escape Drive Ignition (applies in both SYNCHRONIZED and INDEPENDENT modes):
-                // When a ship or division is extracting from danger and has turned its bow toward the escape corridor
-                // (away from the enemy, with a clear path free of friendlies and enemies), ignite its movement/ram drive
-                // to sprint out of enemy gun range!
                 if (isShipExtracting && isShipSystemReady(ship, prof)) {
-                    Vector2f escGoal = movDest != null ? movDest : (campLoc != null ? campLoc : div.stationPoint);
-                    if (prof.category.isLinearVector() && escGoal != null && effTarget != null) {
-                        float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
-                        float toEx = effTarget.getLocation().x - ship.getLocation().x;
-                        float toEy = effTarget.getLocation().y - ship.getLocation().y;
-                        double rad = Math.toRadians(ship.getFacing());
-                        float hdgX = (float) Math.cos(rad);
-                        float hdgY = (float) Math.sin(rad);
-                        float dotEnemy = (distE > 1f) ? ((toEx / distE) * hdgX + (toEy / distE) * hdgY) : 0f;
-                        if (distE <= Math.max(1250f, div.standoffRange * 1.35f)
-                                && dotEnemy < -0.25f
-                                && isShipAlignedToPoint(ship, escGoal, 26f)
-                                && DivisionCommanderAI.distance(ship.getLocation(), escGoal) >= 420f
-                                && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 780f)
-                                && isForwardCorridorClearOfEnemies(engine, ship, enemyGroup, 650f)) {
-                            if (flags != null) {
-                                flags.unsetFlag(AIFlags.MANEUVER_TARGET);
-                                flags.setFlag(AIFlags.DO_NOT_PURSUE, 0.40f);
-                                flags.setFlag(AIFlags.RUN_QUICKLY, 0.40f);
-                                flags.setFlag(AIFlags.MOVEMENT_DEST, 0.40f, escGoal);
-                            }
-                            ship.useSystem();
-                            anyActiveLinear = true;
-                            continue;
-                        }
-                    } else if ((prof.category == ShipSkillCategory.BLINK_DISPLACER
-                            || prof.category == ShipSkillCategory.OMNI_AGILITY_JETS)
-                            && effTarget != null
-                            && DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation()) <= 1150f) {
-                        ship.useSystem();
+                    int escOutcome = tryTriggerExtractionEscapeSystem(
+                            engine, div, ship, alive, myGroup, enemyGroup, prof, flags, campLoc, movDest, effTarget);
+                    if (escOutcome > 0) {
+                        if (escOutcome == 2) anyActiveLinear = true;
                         continue;
                     }
                 }
 
                 if (!syncSkills) continue;
 
-                // ------------------------------------------------------------------
                 // B. SYNCHRONIZED LINEAR SKILL DISCIPLINE & TRIGGERING
-                // ------------------------------------------------------------------
                 if (prof.category.isLinearVector()) {
-                    // 1. Out-of-Fire Free Marshaling (Straggler Catch-Up to Division Carriage):
-                    // When NOT under enemy fire and a ship has fallen >= 780u behind its own division's centroid
-                    // and formation slot (after initial deployment), allow/trigger linear thrust to rapidly rejoin!
-                    float distFromCentroid = div.centroid != null
-                            ? DivisionCommanderAI.distance(ship.getLocation(), div.centroid)
-                            : 0f;
-                    if (!underFire && !stage2SyncCharge && now > 6.0f && alive.size() >= 2 && campLoc != null
-                            && distFromCentroid >= Math.max(780f, div.stationKeepingRadius * 1.55f)) {
-                        float distToSlot = DivisionCommanderAI.distance(ship.getLocation(), campLoc);
-                        boolean alignedToSlot = isShipAlignedToPoint(ship, campLoc, 16f);
-                        if (distToSlot >= 720f && alignedToSlot
-                                && isShipSystemReady(ship, prof)
-                                && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 680f)) {
-                            ship.useSystem();
-                            anyActiveLinear = true;
-                            continue;
-                        }
-                    }
-
-                    // 2. Per-Division Ramming Mode & Attack Slot Enforcement (1..10 slots against Single Ship or Enemy Division):
-                    if (!stage2SyncCharge && prof.isDesignedToRam) {
-                        if (ramMode == DivisionRammingMode.OFF) {
-                            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                            continue;
-                        }
-                        if (ramMode == DivisionRammingMode.SYNCHRONIZED_LANCE || stage1Marshaling) {
-                            // During SYNCHRONIZED_LANCE / Stage 1 Marshaling: hold solo ram-drive ignition so the division
-                            // never attacks piecemeal, while actively aligning every assigned rammer's bow onto its target
-                            // in the conducive localized space so all assigned rammers ignite together in Stage 2!
-                            if (assignedSlotTarget != null && !isShipExtracting
-                                    && DivisionCommanderAI.distance(ship.getLocation(), assignedSlotTarget.getLocation()) <= 2150f) {
-                                Vector2f prepAim = computeRamInterceptPoint(
-                                        ship, assignedSlotTarget, sIdx, div.targetEnemyDivision, ramMode);
-                                if (flags != null) {
-                                    flags.unsetFlag(AIFlags.CAMP_LOCATION);
-                                    flags.unsetFlag(AIFlags.BACK_OFF);
-                                    flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
-                                    flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.25f);
-                                    flags.setFlag(AIFlags.MANEUVER_TARGET, 0.25f, assignedSlotTarget);
-                                    flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, prepAim);
-                                }
-                                ship.setShipTarget(assignedSlotTarget);
-                                steerShipHelmOntoRamTarget(ship, prepAim, isShipAlignedToPoint(ship, prepAim, 18f));
-                            }
-                            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                            continue;
-                        }
-                        ShipAPI slotTarget = assignedSlotTarget;
-                        boolean allowOpportunisticRam = slotTarget != null
-                                && !scoutingOrStandoffPosture
-                                && !hasBackOff
-                                && !isShipExtracting
-                                && div.currentIntent != DivisionIntentType.CLOSE_UP
-                                && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE
-                                && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
-                                && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
-                                && !isStationOrStationModule(slotTarget)
-                                && (ramMode == DivisionRammingMode.DIRECT_RAM
-                                        ? (ship.getFluxLevel() < 0.72f && ship.getHullLevel() > 0.35f)
-                                        : (div.crossfireCordonIndex < 0.42f
-                                                && div.localForceRatio >= 0.80f
-                                                && ship.getFluxLevel() < 0.48f
-                                                && ship.getHullLevel() > 0.58f));
-                        if (allowOpportunisticRam) {
-                            float distE = DivisionCommanderAI.distance(ship.getLocation(), slotTarget.getLocation());
-                            Vector2f ramAim = computeRamInterceptPoint(ship, slotTarget, sIdx, div.targetEnemyDivision, ramMode);
-                            float alignTol = (ramMode == DivisionRammingMode.DIRECT_RAM) ? 34f : 26f;
-                            if (distE <= 1450f) {
-                                if (flags != null) {
-                                    flags.unsetFlag(AIFlags.CAMP_LOCATION);
-                                    flags.unsetFlag(AIFlags.BACK_OFF);
-                                    flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
-                                    flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.35f);
-                                    flags.setFlag(AIFlags.HARASS_MOVE_IN, 0.35f);
-                                    flags.setFlag(AIFlags.PURSUING, 0.35f);
-                                    flags.setFlag(AIFlags.MANEUVER_TARGET, 0.35f, slotTarget);
-                                    flags.setFlag(AIFlags.MOVEMENT_DEST, 0.35f, ramAim);
-                                }
-                                ship.setShipTarget(slotTarget);
-                                steerShipHelmOntoRamTarget(ship, ramAim, distE <= 1250f);
-                            }
-                            if (distE >= 260f && distE <= 1350f
-                                    && isShipAlignedToPoint(ship, ramAim, alignTol)
-                                    && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 760f)
-                                    && isShipSystemReady(ship, prof)) {
-                                LOCKED_RAM_TARGETS.put(ship, slotTarget);
-                                ship.useSystem();
-                                anyActiveLinear = true;
-                                continue;
-                            }
-                        }
-                        // Otherwise hold ram drive activation until aligned onto an open slot target in a conducive space
-                        ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                        continue;
-                    }
-
-                    // 3. Under-Fire / Scouting / Standoff / Stage-1 Marshaling Discipline Gate for Non-Ramming Linear Skills:
-                    if (!stage2SyncCharge) {
-                        if (stage1Marshaling && effTarget != null && !isShipExtracting) {
-                            // Rolling forward alignment lead (280u toward target) so non-ramming Burn Drive / Plasma Jets
-                            // hulls turn onto charge heading under active helm authority instead of stalling stationary!
-                            float tdx = effTarget.getLocation().x - ship.getLocation().x;
-                            float tdy = effTarget.getLocation().y - ship.getLocation().y;
-                            float tlen = (float) Math.sqrt(tdx * tdx + tdy * tdy);
-                            if (tlen > 1f) {
-                                Vector2f alignLead = new Vector2f(
-                                        ship.getLocation().x + (tdx / tlen) * 280f,
-                                        ship.getLocation().y + (tdy / tlen) * 280f);
-                                if (flags != null) {
-                                    flags.setFlag(AIFlags.CAMP_LOCATION, 0.25f, alignLead);
-                                    flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, alignLead);
-                                }
-                                steerShipHelmOntoRamTarget(ship, alignLead, false);
-                            }
-                        }
-                        boolean blockSoloBurst = scoutingOrStandoffPosture
-                                || stage1Marshaling
-                                || hasDoNotPursue
-                                || hasBackOff
-                                || div.currentIntent == DivisionIntentType.CLOSE_UP
-                                || div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
-                                || (underFire && prof.dropsShield && div.getAliveMembers().size() >= 2);
-                        if (blockSoloBurst) {
-                            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                            continue;
-                        }
-                    }
-
-                    // 4. Stage 2 Synchronized Division / OTC Charge Ignition:
-                    if (stage2SyncCharge && effTarget != null && isShipSystemReady(ship, prof)) {
-                        float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
-                        boolean explicitLanceRam = ramMode != DivisionRammingMode.OFF
-                                && (ramMode == DivisionRammingMode.SYNCHRONIZED_LANCE
-                                        || ramMode == DivisionRammingMode.DIRECT_RAM
-                                        || ramMode == DivisionRammingMode.GLANCING_SKIRMISH
-                                        || div.activeSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE
-                                        || div.doctrinalSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE
-                                        || (div.otcOrder != null && div.otcOrder.isActive(now)
-                                        && div.otcOrder.orderedSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE));
-                        if (prof.isDesignedToRam && explicitLanceRam && !isStationOrStationModule(effTarget)) {
-                            ShipAPI slotTarget = assignedSlotTarget;
-                            if (slotTarget != null) {
-                                float slotDist = DivisionCommanderAI.distance(ship.getLocation(), slotTarget.getLocation());
-                                Vector2f ramAim = computeRamInterceptPoint(
-                                        ship, slotTarget, sIdx, div.targetEnemyDivision, ramMode);
-                                if (slotDist <= 1850f) {
-                                    // Always steer assigned Stage 2 rammers directly onto their assigned target so any wingman
-                                    // slightly off-angle snaps onto bore and ignites immediately alongside its division mates!
-                                    if (flags != null) {
-                                        flags.unsetFlag(AIFlags.CAMP_LOCATION);
-                                        flags.unsetFlag(AIFlags.BACK_OFF);
-                                        flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
-                                        flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.5f);
-                                        flags.setFlag(AIFlags.HARASS_MOVE_IN, 0.5f);
-                                        flags.setFlag(AIFlags.PURSUING, 0.5f);
-                                        flags.setFlag(AIFlags.MANEUVER_TARGET, 0.5f, slotTarget);
-                                        flags.setFlag(AIFlags.MOVEMENT_DEST, 0.5f, ramAim);
-                                    }
-                                    ship.setShipTarget(slotTarget);
-                                    steerShipHelmOntoRamTarget(ship, ramAim, true);
-                                }
-                                if (slotDist >= 220f && slotDist <= 1750f
-                                        && isShipAlignedToPoint(ship, ramAim, 18f)
-                                        && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 760f)) {
-                                    LOCKED_RAM_TARGETS.put(ship, slotTarget);
-                                    ship.useSystem();
-                                    anyActiveLinear = true;
-                                } else {
-                                    ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                                }
-                            } else {
-                                ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                            }
-                        } else {
-                            // Synchronized Non-Ramming Linear Approach (or Ram-Drive Standoff Gap-Close without ramming!):
-                            float stopBand = Math.max(580f, div.standoffRange * 0.92f);
-                            Vector2f goalPt = campLoc != null ? campLoc : div.stationPoint;
-                            if (distE >= stopBand + 380f && distE <= 2550f
-                                    && isShipAlignedToPoint(ship, goalPt != null ? goalPt : effTarget.getLocation(), 22f)
-                                    && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 620f)) {
-                                ship.useSystem();
-                                anyActiveLinear = true;
-                            } else if (distE < stopBand + 300f) {
-                                // Too close to weapon standoff band — forbid forward burn so ship never rams!
-                                ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                            }
-                        }
+                    if (handleSynchronizedLinearSkill(
+                            engine, div, ship, sIdx, alive, myGroup, prof, flags, ramMode,
+                            underFire, scoutingOrStandoffPosture, stage1Marshaling, stage2SyncCharge,
+                            hasDoNotPursue, hasBackOff, isShipExtracting, campLoc, assignedSlotTarget, effTarget, now)) {
+                        anyActiveLinear = true;
                     }
                     continue;
                 }
 
-                // ------------------------------------------------------------------
                 // C. SYNCHRONIZED OFFENSIVE AMPLIFIER (Ammo Feed / High Energy Focus / Lidar)
-                // ------------------------------------------------------------------
                 if (prof.category == ShipSkillCategory.OFFENSIVE_AMP && focusEnemy != null) {
-                    float distE = DivisionCommanderAI.distance(ship.getLocation(), focusEnemy.getLocation());
-                    if (ship.getShipTarget() != null && ship.getShipTarget().isAlive()
-                            && !ship.getShipTarget().isHulk() && ship.getShipTarget().getOwner() != ship.getOwner()) {
-                        distE = Math.min(distE, DivisionCommanderAI.distance(ship.getLocation(), ship.getShipTarget().getLocation()));
-                    }
-                    float maxGunRange = Math.max(1350f, div.avgEngageRange * 1.08f);
-                    if (distE > maxGunRange || (stage1Marshaling && distE > 1100f)) {
-                        // Hold offensive amplifier when out of primary gun range so cooldown isn't wasted at 3,000u!
-                        ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
-                    } else if (isShipSystemReady(ship, prof) && ship.getFluxLevel() < 0.72f) {
-                        ship.useSystem();
-                    }
+                    handleSynchronizedOffensiveAmplifier(div, ship, prof, focusEnemy, stage1Marshaling);
                 }
             }
 
             div.hasActiveLinearSkillBurn = anyActiveLinear;
+        }
+    }
+
+    private static void tryPromoteSynchronizedLanceStage2(
+            DivisionState div,
+            Map<ShipAPI, ShipAPI> assignedRamTargets,
+            DivisionRammingMode ramMode,
+            float now) {
+        int assignedReady = 0;
+        int alignedAndInRange = 0;
+        for (Map.Entry<ShipAPI, ShipAPI> entry : assignedRamTargets.entrySet()) {
+            ShipAPI rShip = entry.getKey();
+            ShipAPI rTgt = entry.getValue();
+            if (rShip == null || rTgt == null) continue;
+            assignedReady++;
+            float d = DivisionCommanderAI.distance(rShip.getLocation(), rTgt.getLocation());
+            Vector2f aim = computeRamInterceptPoint(rShip, rTgt, 0, div.targetEnemyDivision, ramMode);
+            if (d <= 1650f && isShipAlignedToPoint(rShip, aim, 18f)) {
+                alignedAndInRange++;
+            }
+        }
+        float stageElapsedNow = Math.max(0f, now - div.synchronizedSkillStageStartTime);
+        if (assignedReady > 0
+                && ((alignedAndInRange >= assignedReady && (div.stationKeepingRatio <= 1.15f || stageElapsedNow >= 0.45f))
+                || (stageElapsedNow >= 1.75f && alignedAndInRange >= Math.max(1, assignedReady - 1)))) {
+            div.synchronizedSkillStage = 2;
+            div.synchronizedSkillStageStartTime = now;
+            div.activeSkillManeuverLabel = "Sync Ram Charge";
+        }
+    }
+
+    private static void applyDirectObjectiveMarchHelm(
+            CombatEngineAPI engine,
+            DivisionState div,
+            ShipAPI ship,
+            int sIdx,
+            List<ShipAPI> alive,
+            BattleGroupState myGroup,
+            ShipwideAIFlags flags) {
+        if (ship.getFluxLevel() >= 0.80f) return;
+        if (ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting()) return;
+        ShipAPI blockingFriendlyObjMarch = findImminentFriendlyInForwardPath(engine, ship, alive, myGroup, 380f);
+        if (blockingFriendlyObjMarch != null) return;
+
+        Vector2f objLoc = div.targetObjective.getLocation();
+        Vector2f campGoal = (flags != null && flags.getCustom(AIFlags.CAMP_LOCATION) instanceof Vector2f)
+                ? (Vector2f) flags.getCustom(AIFlags.CAMP_LOCATION)
+                : null;
+        Vector2f helmGoal;
+        float distShipToObj = DivisionCommanderAI.distance(ship.getLocation(), objLoc);
+        if (sIdx == 0 || ship == div.flagship || campGoal == null) {
+            helmGoal = (div.hasRouteWaypoint && distShipToObj > 1250f && div.routeWaypoint != null)
+                    ? div.routeWaypoint
+                    : objLoc;
+        } else if (!div.hasRouteWaypoint
+                && (distShipToObj <= 1350f
+                || DivisionCommanderAI.distance(campGoal, objLoc) > distShipToObj - 240f)) {
+            float sdx = campGoal.x - objLoc.x;
+            float sdy = campGoal.y - objLoc.y;
+            float sDist = (float) Math.sqrt(sdx * sdx + sdy * sdy);
+            helmGoal = (sDist > 240f)
+                    ? new Vector2f(objLoc.x + (sdx / sDist) * 240f, objLoc.y + (sdy / sDist) * 240f)
+                    : campGoal;
+        } else {
+            helmGoal = campGoal;
+        }
+        float distShipToGoal = DivisionCommanderAI.distance(ship.getLocation(), helmGoal);
+        if (flags != null) {
+            flags.unsetFlag(AIFlags.BACK_OFF);
+            flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.50f);
+            flags.setFlag(AIFlags.DO_NOT_PURSUE, 0.50f);
+            flags.setFlag(AIFlags.CAMP_LOCATION, 0.50f, helmGoal);
+            flags.setFlag(AIFlags.MOVEMENT_DEST, 0.50f, helmGoal);
+            if (distShipToObj > 420f) {
+                flags.unsetFlag(AIFlags.MANEUVER_TARGET);
+                flags.unsetFlag(AIFlags.HARASS_MOVE_IN);
+                flags.unsetFlag(AIFlags.PURSUING);
+                DivisionCommanderAI.clearBasicShipAiTargetOverride(ship);
+            }
+        }
+        steerShipHelmOntoObjectivePoint(ship, helmGoal, distShipToGoal, distShipToObj);
+    }
+
+    private static void maintainBaseMassCacheForRamDrive(
+            ShipAPI ship,
+            ShipSkillProfile prof,
+            ShipSystemAPI sys) {
+        if (!prof.isDesignedToRam) return;
+        float curMass = ship.getMass();
+        if (curMass <= 1f) return;
+        Float baseMass = BASE_MASS_CACHE.get(ship);
+        if (baseMass == null || (curMass < baseMass && !sys.isActive() && !sys.isChargeup())) {
+            BASE_MASS_CACHE.put(ship, curMass);
+        } else if (!sys.isActive() && !sys.isChargeup() && !sys.isChargedown() && curMass > baseMass * 1.45f) {
+            ship.setMass(baseMass);
+        }
+    }
+
+    private static void manageActiveLinearDrive(
+            CombatEngineAPI engine,
+            DivisionState div,
+            ShipAPI ship,
+            int sIdx,
+            List<ShipAPI> alive,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup,
+            ShipSkillProfile prof,
+            ShipSystemAPI sys,
+            ShipwideAIFlags flags,
+            DivisionRammingMode ramMode,
+            boolean stage2SyncCharge,
+            boolean isShipExtracting,
+            Vector2f campLoc,
+            Vector2f movDest,
+            ShipAPI effTarget) {
+        float currSpd = ship.getVelocity() != null
+                ? (float) Math.sqrt(ship.getVelocity().x * ship.getVelocity().x + ship.getVelocity().y * ship.getVelocity().y)
+                : ship.getMaxSpeed();
+        float decel = Math.max(25f, ship.getDeceleration());
+        float brakeDist = (currSpd * currSpd) / (2f * decel);
+
+        float friendlyCheckDist = Math.max(420f, Math.min(820f, currSpd * 1.45f + 140f));
+        ShipAPI blockingFriendly = findImminentFriendlyInForwardPath(engine, ship, alive, myGroup, friendlyCheckDist);
+        if (blockingFriendly != null) {
+            Vector2f avoidPt = computeLateralAvoidancePoint(ship, blockingFriendly);
+            if (flags != null && avoidPt != null) {
+                flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, avoidPt);
+            }
+            ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
+            ship.giveCommand(ShipCommand.DECELERATE, null, 0);
+            if (prof.isToggle && sys.isActive()) {
+                deactivateToggleDriveAndRestoreMass(ship, sys);
+                return;
+            }
+        }
+
+        if (prof.isToggle && sys.isActive()) {
+            if (shouldCutActiveToggleDrive(
+                    engine, div, ship, enemyGroup, prof, ramMode, stage2SyncCharge,
+                    isShipExtracting, currSpd, brakeDist, campLoc, movDest, effTarget)) {
+                deactivateToggleDriveAndRestoreMass(ship, sys);
+                return;
+            }
+        }
+
+        if (isShipExtracting && flags != null) {
+            Vector2f escGoal = movDest != null ? movDest : (campLoc != null ? campLoc : div.stationPoint);
+            if (escGoal != null) {
+                flags.unsetFlag(AIFlags.MANEUVER_TARGET);
+                flags.setFlag(AIFlags.DO_NOT_PURSUE, 0.25f);
+                flags.setFlag(AIFlags.RUN_QUICKLY, 0.25f);
+                flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, escGoal);
+            }
+            return;
+        }
+
+        if (prof.isDesignedToRam && ramMode != DivisionRammingMode.OFF
+                && effTarget != null && !isStationOrStationModule(effTarget)
+                && flags != null && blockingFriendly == null) {
+            float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
+            if (distE <= 2150f) {
+                Vector2f aimPt = computeRamInterceptPoint(ship, effTarget, sIdx, div.targetEnemyDivision, ramMode);
+                flags.unsetFlag(AIFlags.CAMP_LOCATION);
+                flags.unsetFlag(AIFlags.BACK_OFF);
+                flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
+                flags.unsetFlag(AIFlags.RUN_QUICKLY);
+                flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.25f);
+                flags.setFlag(AIFlags.HARASS_MOVE_IN, 0.25f);
+                flags.setFlag(AIFlags.PURSUING, 0.25f);
+                flags.setFlag(AIFlags.MANEUVER_TARGET, 0.25f, effTarget);
+                flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, aimPt);
+                ship.setShipTarget(effTarget);
+                steerShipHelmOntoRamTarget(ship, aimPt, true);
+            }
+        }
+    }
+
+    private static void deactivateToggleDriveAndRestoreMass(ShipAPI ship, ShipSystemAPI sys) {
+        sys.deactivate();
+        ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+        Float baseMass = BASE_MASS_CACHE.get(ship);
+        if (baseMass != null && baseMass > 1f) {
+            ship.setMass(baseMass);
+        }
+    }
+
+    private static boolean shouldCutActiveToggleDrive(
+            CombatEngineAPI engine,
+            DivisionState div,
+            ShipAPI ship,
+            BattleGroupState enemyGroup,
+            ShipSkillProfile prof,
+            DivisionRammingMode ramMode,
+            boolean stage2SyncCharge,
+            boolean isShipExtracting,
+            float currSpd,
+            float brakeDist,
+            Vector2f campLoc,
+            Vector2f movDest,
+            ShipAPI effTarget) {
+        boolean shouldCutToggle = false;
+        if (isShipExtracting) {
+            Vector2f escGoal = movDest != null ? movDest : (campLoc != null ? campLoc : div.stationPoint);
+            if (!isForwardCorridorClearOfEnemies(engine, ship, enemyGroup, 420f)) {
+                shouldCutToggle = true;
+            } else if (effTarget != null) {
+                float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
+                if (distE >= Math.max(1380f, div.standoffRange * 1.45f)) {
+                    shouldCutToggle = true;
+                }
+            }
+            if (escGoal != null) {
+                float distGoal = DivisionCommanderAI.distance(ship.getLocation(), escGoal);
+                if (distGoal <= Math.max(220f, Math.min(400f, brakeDist * 0.65f))) {
+                    shouldCutToggle = true;
+                }
+            }
+        } else if (prof.isDesignedToRam && effTarget != null) {
+            if (ramMode == DivisionRammingMode.OFF || isStationOrStationModule(effTarget)) {
+                float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
+                float stopBand = isStationOrStationModule(effTarget)
+                        ? 900f
+                        : (Math.max(540f, div.standoffRange * 0.88f) + Math.min(340f, brakeDist * 0.55f));
+                if (distE <= stopBand) {
+                    shouldCutToggle = true;
+                }
+            } else {
+                float toEx = effTarget.getLocation().x - ship.getLocation().x;
+                float toEy = effTarget.getLocation().y - ship.getLocation().y;
+                float distE = (float) Math.sqrt(toEx * toEx + toEy * toEy);
+                float sRad = Math.max(35f, ship.getCollisionRadius());
+                float tRad = Math.max(45f, effTarget.getCollisionRadius());
+                float deepHullContactDist = (sRad + tRad) * 0.58f;
+                double rad = Math.toRadians(ship.getFacing());
+                float hdgX = (float) Math.cos(rad);
+                float hdgY = (float) Math.sin(rad);
+                float dot = (distE > 1f) ? ((toEx / distE) * hdgX + (toEy / distE) * hdgY) : 1f;
+                if ((distE > 110f && dot < -0.15f)
+                        || (distE <= deepHullContactDist && (currSpd < 135f || dot < -0.05f))
+                        || ship.getFluxLevel() > 0.86f) {
+                    shouldCutToggle = true;
+                }
+            }
+        } else if (!prof.isDesignedToRam && effTarget != null) {
+            float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
+            float stopBand = Math.max(540f, div.standoffRange * 0.88f) + Math.min(340f, brakeDist * 0.55f);
+            if (distE <= stopBand) {
+                shouldCutToggle = true;
+            }
+        }
+
+        if (!stage2SyncCharge && !prof.isDesignedToRam && campLoc != null) {
+            float distSlot = DivisionCommanderAI.distance(ship.getLocation(), campLoc);
+            if (distSlot <= Math.max(180f, Math.min(360f, brakeDist * 0.65f))) {
+                shouldCutToggle = true;
+            }
+        } else if (!stage2SyncCharge && prof.isDesignedToRam && campLoc != null
+                && (effTarget == null || DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation()) > 1650f)) {
+            float distSlot = DivisionCommanderAI.distance(ship.getLocation(), campLoc);
+            if (distSlot <= Math.max(220f, Math.min(400f, brakeDist * 0.70f))) {
+                shouldCutToggle = true;
+            }
+        }
+        return shouldCutToggle;
+    }
+
+    private static boolean isOutOfCombatStragglerBehind(DivisionState div, ShipAPI ship) {
+        float distFromCentroid = div.centroid != null
+                ? DivisionCommanderAI.distance(ship.getLocation(), div.centroid)
+                : 0f;
+        float alongLead = (div.centroid != null)
+                ? ((ship.getLocation().x - div.centroid.x) * div.formationHeadingX
+                + (ship.getLocation().y - div.centroid.y) * div.formationHeadingY)
+                : 0f;
+        return distFromCentroid >= Math.max(820f, div.stationKeepingRadius * 1.65f)
+                && alongLead < -280f;
+    }
+
+    /**
+     * Attempts extraction escape system ignition. Returns 0 if not triggered, 1 if non-linear triggered,
+     * or 2 if linear drive triggered.
+     */
+    private static int tryTriggerExtractionEscapeSystem(
+            CombatEngineAPI engine,
+            DivisionState div,
+            ShipAPI ship,
+            List<ShipAPI> alive,
+            BattleGroupState myGroup,
+            BattleGroupState enemyGroup,
+            ShipSkillProfile prof,
+            ShipwideAIFlags flags,
+            Vector2f campLoc,
+            Vector2f movDest,
+            ShipAPI effTarget) {
+        Vector2f escGoal = movDest != null ? movDest : (campLoc != null ? campLoc : div.stationPoint);
+        if (prof.category.isLinearVector() && escGoal != null && effTarget != null) {
+            float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
+            float toEx = effTarget.getLocation().x - ship.getLocation().x;
+            float toEy = effTarget.getLocation().y - ship.getLocation().y;
+            double rad = Math.toRadians(ship.getFacing());
+            float hdgX = (float) Math.cos(rad);
+            float hdgY = (float) Math.sin(rad);
+            float dotEnemy = (distE > 1f) ? ((toEx / distE) * hdgX + (toEy / distE) * hdgY) : 0f;
+            if (distE <= Math.max(1250f, div.standoffRange * 1.35f)
+                    && dotEnemy < -0.25f
+                    && isShipAlignedToPoint(ship, escGoal, 26f)
+                    && DivisionCommanderAI.distance(ship.getLocation(), escGoal) >= 420f
+                    && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 780f)
+                    && isForwardCorridorClearOfEnemies(engine, ship, enemyGroup, 650f)) {
+                if (flags != null) {
+                    flags.unsetFlag(AIFlags.MANEUVER_TARGET);
+                    flags.setFlag(AIFlags.DO_NOT_PURSUE, 0.40f);
+                    flags.setFlag(AIFlags.RUN_QUICKLY, 0.40f);
+                    flags.setFlag(AIFlags.MOVEMENT_DEST, 0.40f, escGoal);
+                }
+                ship.useSystem();
+                return 2;
+            }
+        } else if ((prof.category == ShipSkillCategory.BLINK_DISPLACER
+                || prof.category == ShipSkillCategory.OMNI_AGILITY_JETS)
+                && effTarget != null
+                && DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation()) <= 1150f) {
+            ship.useSystem();
+            return 1;
+        }
+        return 0;
+    }
+
+    /**
+     * Evaluates synchronized linear skills (straggler catch-up, ram slot discipline, marshaling hold, Stage 2 charge).
+     * Returns true if this ship ignited a linear system on this frame.
+     */
+    private static boolean handleSynchronizedLinearSkill(
+            CombatEngineAPI engine,
+            DivisionState div,
+            ShipAPI ship,
+            int sIdx,
+            List<ShipAPI> alive,
+            BattleGroupState myGroup,
+            ShipSkillProfile prof,
+            ShipwideAIFlags flags,
+            DivisionRammingMode ramMode,
+            boolean underFire,
+            boolean scoutingOrStandoffPosture,
+            boolean stage1Marshaling,
+            boolean stage2SyncCharge,
+            boolean hasDoNotPursue,
+            boolean hasBackOff,
+            boolean isShipExtracting,
+            Vector2f campLoc,
+            ShipAPI assignedSlotTarget,
+            ShipAPI effTarget,
+            float now) {
+        float distFromCentroid = div.centroid != null
+                ? DivisionCommanderAI.distance(ship.getLocation(), div.centroid)
+                : 0f;
+        if (!underFire && !stage2SyncCharge && now > 6.0f && alive.size() >= 2 && campLoc != null
+                && distFromCentroid >= Math.max(780f, div.stationKeepingRadius * 1.55f)) {
+            float distToSlot = DivisionCommanderAI.distance(ship.getLocation(), campLoc);
+            if (distToSlot >= 720f
+                    && isShipAlignedToPoint(ship, campLoc, 16f)
+                    && isShipSystemReady(ship, prof)
+                    && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 680f)) {
+                ship.useSystem();
+                return true;
+            }
+        }
+
+        if (!stage2SyncCharge && prof.isDesignedToRam) {
+            return handlePreStage2RamDriveDiscipline(
+                    engine, div, ship, sIdx, alive, myGroup, prof, flags, ramMode,
+                    scoutingOrStandoffPosture, stage1Marshaling, hasBackOff, isShipExtracting, assignedSlotTarget);
+        }
+
+        if (!stage2SyncCharge) {
+            if (stage1Marshaling && effTarget != null && !isShipExtracting) {
+                float tdx = effTarget.getLocation().x - ship.getLocation().x;
+                float tdy = effTarget.getLocation().y - ship.getLocation().y;
+                float tlen = (float) Math.sqrt(tdx * tdx + tdy * tdy);
+                if (tlen > 1f) {
+                    Vector2f alignLead = new Vector2f(
+                            ship.getLocation().x + (tdx / tlen) * 280f,
+                            ship.getLocation().y + (tdy / tlen) * 280f);
+                    if (flags != null) {
+                        flags.setFlag(AIFlags.CAMP_LOCATION, 0.25f, alignLead);
+                        flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, alignLead);
+                    }
+                    steerShipHelmOntoRamTarget(ship, alignLead, false);
+                }
+            }
+            boolean blockSoloBurst = scoutingOrStandoffPosture
+                    || stage1Marshaling
+                    || hasDoNotPursue
+                    || hasBackOff
+                    || div.currentIntent == DivisionIntentType.CLOSE_UP
+                    || div.currentIntent == DivisionIntentType.MARSHAL_FOR_STRIKE
+                    || (underFire && prof.dropsShield && div.getAliveMembers().size() >= 2);
+            if (blockSoloBurst) {
+                ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+                return false;
+            }
+        }
+
+        if (stage2SyncCharge && effTarget != null && isShipSystemReady(ship, prof)) {
+            return executeStage2SynchronizedCharge(
+                    engine, div, ship, sIdx, alive, myGroup, prof, flags, ramMode,
+                    campLoc, assignedSlotTarget, effTarget, now);
+        }
+        return false;
+    }
+
+    private static boolean handlePreStage2RamDriveDiscipline(
+            CombatEngineAPI engine,
+            DivisionState div,
+            ShipAPI ship,
+            int sIdx,
+            List<ShipAPI> alive,
+            BattleGroupState myGroup,
+            ShipSkillProfile prof,
+            ShipwideAIFlags flags,
+            DivisionRammingMode ramMode,
+            boolean scoutingOrStandoffPosture,
+            boolean stage1Marshaling,
+            boolean hasBackOff,
+            boolean isShipExtracting,
+            ShipAPI assignedSlotTarget) {
+        if (ramMode == DivisionRammingMode.OFF) {
+            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+            return false;
+        }
+        if (ramMode == DivisionRammingMode.SYNCHRONIZED_LANCE || stage1Marshaling) {
+            if (assignedSlotTarget != null && !isShipExtracting
+                    && DivisionCommanderAI.distance(ship.getLocation(), assignedSlotTarget.getLocation()) <= 2150f) {
+                Vector2f prepAim = computeRamInterceptPoint(
+                        ship, assignedSlotTarget, sIdx, div.targetEnemyDivision, ramMode);
+                if (flags != null) {
+                    flags.unsetFlag(AIFlags.CAMP_LOCATION);
+                    flags.unsetFlag(AIFlags.BACK_OFF);
+                    flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
+                    flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.25f);
+                    flags.setFlag(AIFlags.MANEUVER_TARGET, 0.25f, assignedSlotTarget);
+                    flags.setFlag(AIFlags.MOVEMENT_DEST, 0.25f, prepAim);
+                }
+                ship.setShipTarget(assignedSlotTarget);
+                steerShipHelmOntoRamTarget(ship, prepAim, isShipAlignedToPoint(ship, prepAim, 18f));
+            }
+            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+            return false;
+        }
+
+        boolean allowOpportunisticRam = assignedSlotTarget != null
+                && !scoutingOrStandoffPosture
+                && !hasBackOff
+                && !isShipExtracting
+                && div.currentIntent != DivisionIntentType.CLOSE_UP
+                && div.currentIntent != DivisionIntentType.MARSHAL_FOR_STRIKE
+                && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
+                && div.currentIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
+                && !isStationOrStationModule(assignedSlotTarget)
+                && (ramMode == DivisionRammingMode.DIRECT_RAM
+                        ? (ship.getFluxLevel() < 0.72f && ship.getHullLevel() > 0.35f)
+                        : (div.crossfireCordonIndex < 0.42f
+                                && div.localForceRatio >= 0.80f
+                                && ship.getFluxLevel() < 0.48f
+                                && ship.getHullLevel() > 0.58f));
+        if (allowOpportunisticRam) {
+            float distE = DivisionCommanderAI.distance(ship.getLocation(), assignedSlotTarget.getLocation());
+            Vector2f ramAim = computeRamInterceptPoint(ship, assignedSlotTarget, sIdx, div.targetEnemyDivision, ramMode);
+            float alignTol = (ramMode == DivisionRammingMode.DIRECT_RAM) ? 34f : 26f;
+            if (distE <= 1450f) {
+                if (flags != null) {
+                    flags.unsetFlag(AIFlags.CAMP_LOCATION);
+                    flags.unsetFlag(AIFlags.BACK_OFF);
+                    flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
+                    flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.35f);
+                    flags.setFlag(AIFlags.HARASS_MOVE_IN, 0.35f);
+                    flags.setFlag(AIFlags.PURSUING, 0.35f);
+                    flags.setFlag(AIFlags.MANEUVER_TARGET, 0.35f, assignedSlotTarget);
+                    flags.setFlag(AIFlags.MOVEMENT_DEST, 0.35f, ramAim);
+                }
+                ship.setShipTarget(assignedSlotTarget);
+                steerShipHelmOntoRamTarget(ship, ramAim, distE <= 1250f);
+            }
+            if (distE >= 260f && distE <= 1350f
+                    && isShipAlignedToPoint(ship, ramAim, alignTol)
+                    && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 760f)
+                    && isShipSystemReady(ship, prof)) {
+                LOCKED_RAM_TARGETS.put(ship, assignedSlotTarget);
+                ship.useSystem();
+                return true;
+            }
+        }
+        ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+        return false;
+    }
+
+    private static boolean executeStage2SynchronizedCharge(
+            CombatEngineAPI engine,
+            DivisionState div,
+            ShipAPI ship,
+            int sIdx,
+            List<ShipAPI> alive,
+            BattleGroupState myGroup,
+            ShipSkillProfile prof,
+            ShipwideAIFlags flags,
+            DivisionRammingMode ramMode,
+            Vector2f campLoc,
+            ShipAPI assignedSlotTarget,
+            ShipAPI effTarget,
+            float now) {
+        float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
+        boolean explicitLanceRam = ramMode != DivisionRammingMode.OFF
+                && (ramMode == DivisionRammingMode.SYNCHRONIZED_LANCE
+                        || ramMode == DivisionRammingMode.DIRECT_RAM
+                        || ramMode == DivisionRammingMode.GLANCING_SKIRMISH
+                        || div.activeSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE
+                        || div.doctrinalSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE
+                        || (div.otcOrder != null && div.otcOrder.isActive(now)
+                        && div.otcOrder.orderedSetpieceAttack == DivisionSetpieceAttack.LANCE_CHARGE));
+        if (prof.isDesignedToRam && explicitLanceRam && !isStationOrStationModule(effTarget)) {
+            if (assignedSlotTarget == null) {
+                ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+                return false;
+            }
+            float slotDist = DivisionCommanderAI.distance(ship.getLocation(), assignedSlotTarget.getLocation());
+            Vector2f ramAim = computeRamInterceptPoint(
+                    ship, assignedSlotTarget, sIdx, div.targetEnemyDivision, ramMode);
+            if (slotDist <= 1850f) {
+                if (flags != null) {
+                    flags.unsetFlag(AIFlags.CAMP_LOCATION);
+                    flags.unsetFlag(AIFlags.BACK_OFF);
+                    flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
+                    flags.setFlag(AIFlags.DO_NOT_BACK_OFF, 0.5f);
+                    flags.setFlag(AIFlags.HARASS_MOVE_IN, 0.5f);
+                    flags.setFlag(AIFlags.PURSUING, 0.5f);
+                    flags.setFlag(AIFlags.MANEUVER_TARGET, 0.5f, assignedSlotTarget);
+                    flags.setFlag(AIFlags.MOVEMENT_DEST, 0.5f, ramAim);
+                }
+                ship.setShipTarget(assignedSlotTarget);
+                steerShipHelmOntoRamTarget(ship, ramAim, true);
+            }
+            if (slotDist >= 220f && slotDist <= 1750f
+                    && isShipAlignedToPoint(ship, ramAim, 18f)
+                    && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 760f)) {
+                LOCKED_RAM_TARGETS.put(ship, assignedSlotTarget);
+                ship.useSystem();
+                return true;
+            }
+            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+            return false;
+        }
+
+        float stopBand = Math.max(580f, div.standoffRange * 0.92f);
+        Vector2f goalPt = campLoc != null ? campLoc : div.stationPoint;
+        if (distE >= stopBand + 380f && distE <= 2550f
+                && isShipAlignedToPoint(ship, goalPt != null ? goalPt : effTarget.getLocation(), 22f)
+                && isForwardCorridorClearOfFleetFriendlies(engine, ship, alive, myGroup, 620f)) {
+            ship.useSystem();
+            return true;
+        } else if (distE < stopBand + 300f) {
+            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+        }
+        return false;
+    }
+
+    private static void handleSynchronizedOffensiveAmplifier(
+            DivisionState div,
+            ShipAPI ship,
+            ShipSkillProfile prof,
+            ShipAPI focusEnemy,
+            boolean stage1Marshaling) {
+        float distE = DivisionCommanderAI.distance(ship.getLocation(), focusEnemy.getLocation());
+        if (ship.getShipTarget() != null && ship.getShipTarget().isAlive()
+                && !ship.getShipTarget().isHulk() && ship.getShipTarget().getOwner() != ship.getOwner()) {
+            distE = Math.min(distE, DivisionCommanderAI.distance(ship.getLocation(), ship.getShipTarget().getLocation()));
+        }
+        float maxGunRange = Math.max(1350f, div.avgEngageRange * 1.08f);
+        if (distE > maxGunRange || (stage1Marshaling && distE > 1100f)) {
+            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+        } else if (isShipSystemReady(ship, prof) && ship.getFluxLevel() < 0.72f) {
+            ship.useSystem();
         }
     }
 
