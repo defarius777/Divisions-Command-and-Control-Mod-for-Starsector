@@ -481,6 +481,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         if (tacticalOverlay != null) {
             tacticalOverlay.pruneLeakedWarroomOrderArrows();
+            tacticalOverlay.sanitizeWarroomStaleFighterWingMenus();
         }
         if (initializedBattle) {
             DivisionCommanderAI.scrubPooledAutoAssignmentsEveryFrame(engine, playerGroup);
@@ -516,6 +517,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         // Ensure every active FighterWing has a non-null leader and non-null leaderFlockingAI so vanilla
         // FighterAI.advance never throws a NullPointerException when a wing leader is killed while returning
         ensureAllFighterWingsHaveValidLeaders(engine);
+        if (tacticalOverlay != null) {
+            tacticalOverlay.sanitizeWarroomStaleFighterWingMenus();
+        }
         advanceMusicController(amount);
         maintainPlayerHudStatus();
     }
@@ -806,7 +810,15 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             if (s.isFighter()) {
                 com.fs.starfarer.api.combat.FighterWingAPI wing = s.getWing();
                 if (wing != null) {
-                    ensureFighterWingLeaderAndFlockingAI(wing);
+                    ShipAPI src = wing.getSourceShip();
+                    if (src != null && src.isAlive() && src.hasLaunchBays()) {
+                        // Handled once per wing via the live source carrier's getAllWings() below
+                        continue;
+                    }
+                    ShipAPI leader = wing.getLeader();
+                    if (leader == null || !leader.isAlive() || leader.isHulk() || isFirstAliveWingMember(wing, s)) {
+                        ensureFighterWingLeaderAndFlockingAI(wing);
+                    }
                 }
             } else if (s.hasLaunchBays()) {
                 List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
@@ -820,6 +832,18 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 }
             }
         }
+    }
+
+    private static boolean isFirstAliveWingMember(com.fs.starfarer.api.combat.FighterWingAPI wing, ShipAPI candidate) {
+        List<ShipAPI> members = wing.getWingMembers();
+        if (members == null) return true;
+        for (int i = 0, n = members.size(); i < n; i++) {
+            ShipAPI m = members.get(i);
+            if (m != null && m.isAlive()) {
+                return m == candidate;
+            }
+        }
+        return true;
     }
 
     public static ShipAPI ensureFighterWingLeaderAndFlockingAI(com.fs.starfarer.api.combat.FighterWingAPI wing) {

@@ -94,6 +94,7 @@ public class DivisionAITestSuite {
         testUIHarnessAndUXSuccinctness();
         testBattleScopedFightingStyleAndCampaignImmutability();
         testSixNewDivisionTypesHegemonyBcvAndMissilePhaseAI();
+        testWarroomFighterWingCrashGuard();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -6096,6 +6097,108 @@ public class DivisionAITestSuite {
                         "usableAmmo=%d, catReload=%b, intent=%s, salvoSync=%b, heldFull=%b, reloadedAt1450u=%b",
                         ammoWithForge, forgeCategorizedAsReload, misPhaseDiv.currentIntent,
                         salvoWindowTriggered, heldForgeWhenFull, triggeredForgeAtStandoff));
+    }
+
+    private static void testWarroomFighterWingCrashGuard() throws Exception {
+        System.out.println("\n--- Regression: Warroom Leaderless Fighter Wing UI Crash Guard (0.98a-RC8 H.advanceImpl NPE) ---");
+        final boolean[] f1Alive = {true};
+        final boolean[] f2Alive = {true};
+        final com.fs.starfarer.api.combat.ShipAPI[] wingLeaderRef = new com.fs.starfarer.api.combat.ShipAPI[1];
+
+        final com.fs.starfarer.api.combat.ShipAPI f1 = (com.fs.starfarer.api.combat.ShipAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("isAlive".equals(n)) return f1Alive[0];
+                    if ("isHulk".equals(n)) return !f1Alive[0];
+                    if ("isFighter".equals(n)) return true;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final com.fs.starfarer.api.combat.ShipAPI f2 = (com.fs.starfarer.api.combat.ShipAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("isAlive".equals(n)) return f2Alive[0];
+                    if ("isHulk".equals(n)) return !f2Alive[0];
+                    if ("isFighter".equals(n)) return true;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+        final com.fs.starfarer.api.combat.ShipAPI dummyShuttlepod = (com.fs.starfarer.api.combat.ShipAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("isFighter".equals(n)) return false;
+                    if ("isShuttlePod".equals(n)) return true;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+
+        wingLeaderRef[0] = f1;
+        final List<com.fs.starfarer.api.combat.ShipAPI> wingMembers = java.util.Arrays.asList(f1, f2);
+        final com.fs.starfarer.api.combat.FighterWingAPI mockWing = (com.fs.starfarer.api.combat.FighterWingAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.FighterWingAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getLeader".equals(n)) return wingLeaderRef[0];
+                    if ("getWingMembers".equals(n)) return wingMembers;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+
+        final boolean[] isWingFlag = {true};
+        com.fs.starfarer.api.combat.DeployedFleetMemberAPI mockDfm =
+                (com.fs.starfarer.api.combat.DeployedFleetMemberAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.DeployedFleetMemberAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.DeployedFleetMemberAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("isFighterWing".equals(n)) return isWingFlag[0];
+                            if ("getShip".equals(n)) {
+                                return (wingLeaderRef[0] != null) ? wingLeaderRef[0] : dummyShuttlepod;
+                            }
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+
+        java.lang.invoke.MethodHandle constWingHandle = java.lang.invoke.MethodHandles.dropArguments(
+                java.lang.invoke.MethodHandles.constant(com.fs.starfarer.api.combat.FighterWingAPI.class, mockWing),
+                0, Object.class);
+
+        boolean healthy = divisionai.DivisionTacticalMapOverlay.isLeaderlessFighterWingDfm(mockDfm, constWingHandle);
+        f1Alive[0] = false;
+        wingLeaderRef[0] = null;
+        boolean wingmanSurvived = divisionai.DivisionTacticalMapOverlay.isLeaderlessFighterWingDfm(mockDfm, constWingHandle);
+        f2Alive[0] = false;
+        boolean wipedViaHandle = divisionai.DivisionTacticalMapOverlay.isLeaderlessFighterWingDfm(mockDfm, constWingHandle);
+        boolean wipedViaShipFallback = divisionai.DivisionTacticalMapOverlay.isLeaderlessFighterWingDfm(mockDfm, null);
+        isWingFlag[0] = false;
+        boolean regularShip = divisionai.DivisionTacticalMapOverlay.isLeaderlessFighterWingDfm(mockDfm, constWingHandle);
+
+        check(!healthy && !wingmanSurvived && wipedViaHandle && wipedViaShipFallback && !regularShip,
+                "Warroom leaderless fighter wing crash guard detects wiped-out wings via both MethodHandle and shuttlepod_xfer fallback while preserving wings with surviving wingmen",
+                String.format(Locale.ROOT, "healthy=%b, wingmanSurvived=%b, wipedHandle=%b, wipedFallback=%b, regularShip=%b",
+                        healthy, wingmanSurvived, wipedViaHandle, wipedViaShipFallback, regularShip));
     }
 
     private static int countMatchingLogs(List<String> logs, String needle) {

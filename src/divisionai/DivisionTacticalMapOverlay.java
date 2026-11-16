@@ -4,6 +4,7 @@ import com.fs.starfarer.api.Global;
 import com.fs.starfarer.api.campaign.BaseCustomUIPanelPlugin;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
 import com.fs.starfarer.api.combat.CombatUIAPI;
+import com.fs.starfarer.api.combat.FighterWingAPI;
 import com.fs.starfarer.api.combat.FogOfWarAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
 import com.fs.starfarer.api.combat.ShipAPI.HullSize;
@@ -12,6 +13,7 @@ import com.fs.starfarer.api.input.InputEventAPI;
 import com.fs.starfarer.api.ui.CustomPanelAPI;
 import com.fs.starfarer.api.ui.Fonts;
 import com.fs.starfarer.api.ui.LabelAPI;
+import com.fs.starfarer.api.ui.UIComponentAPI;
 import com.fs.starfarer.api.ui.UIPanelAPI;
 import divisionai.DivisionModel.BattleGroupState;
 import divisionai.DivisionModel.DivisionIntentType;
@@ -612,6 +614,15 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private boolean loggedHookFailure = false;
     private Object warroomInstance = null;
     private Object mapDisplayInstance = null;
+    private UIPanelAPI widgetPanelInstance = null;
+    private MethodHandle widgetPanelGetChildrenHandle = null;
+    private Object warroomCtxBarInstance = null;
+    private MethodHandle ctxBarGetTaskTargetHandle = null;
+    private MethodHandle ctxBarSyncWithHandle = null;
+    private Class<?> warroomRightClickMenuClass = null;
+    private MethodHandle rightClickGetTaskTargetHandle = null;
+    private MethodHandle rightClickFadeOutHandle = null;
+    private MethodHandle dfmGetWingIfFighterHandle = null;
     private MethodHandle isShowingVideoFeedHandle = null;
     private MethodHandle getEntityToFollowV2Handle = null;
     private MethodHandle areWeaponArcsOnHandle = null;
@@ -917,6 +928,82 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             UIPanelAPI warroomPanel = (UIPanelAPI) wr;
             CustomPanelAPI custom = Global.getSettings().createCustom(0f, 0f, this);
             warroomPanel.addComponent(custom).inBL(0f, 0f);
+
+            // Attach a 0x0 pre-advance guard at index 0 of CombatState.widgetPanel (via sendToBottom) so it runs
+            // BEFORE OoOO.advanceImpl / _.advanceImpl / J.advanceImpl on every UI frame. Prevents vanilla's
+            // H.advanceImpl NullPointerException ("this.void_void$do is null") when all fighters in a Warroom-selected
+            // fighter wing are destroyed (causing O0.getShip() to return a dummy shuttlepod_xfer with !isFighter()).
+            try {
+                Class<?> widgetPanelCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                        cl, "com.fs.starfarer.ui.interfacenew", ui.getClass().getName(), "getWidgetPanel");
+                MethodHandle getWidgetPanelHandle = lookup.findVirtual(
+                        ui.getClass(), "getWidgetPanel", MethodType.methodType(widgetPanelCls));
+                Object wpObj = getWidgetPanelHandle.invoke(ui);
+                if (wpObj instanceof UIPanelAPI) {
+                    this.widgetPanelInstance = (UIPanelAPI) wpObj;
+                    this.widgetPanelGetChildrenHandle = lookup.findVirtual(
+                            widgetPanelCls, "getChildrenNonCopy", MethodType.methodType(List.class))
+                            .asType(MethodType.methodType(List.class, Object.class));
+                }
+
+                Class<?> ctxBarCls = ObfuscatedBytecodeBridge.resolveWarroomContextBarClass(cl, wrClass, mdClass);
+                String ctxBarField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                        cl, wrClass, ObfuscatedBytecodeBridge.toDescriptor(ctxBarCls), "private.String$do");
+                MethodHandles.Lookup wrLookup = MethodHandles.privateLookupIn(wrClass, lookup);
+                MethodHandle ctxBarGetter = wrLookup.findGetter(wrClass, ctxBarField, ctxBarCls);
+                this.warroomCtxBarInstance = ctxBarGetter.invoke(wr);
+
+                Class<?> taskTargetRetCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                        cl, "com.fs.starfarer.combat.tasks.CombatTask$Oo", ctxBarCls.getName(), "getTaskTarget");
+                this.ctxBarGetTaskTargetHandle = lookup.findVirtual(
+                        ctxBarCls, "getTaskTarget", MethodType.methodType(taskTargetRetCls))
+                        .asType(MethodType.methodType(Object.class, Object.class));
+                this.ctxBarSyncWithHandle = lookup.findVirtual(
+                        ctxBarCls, "syncWith", MethodType.methodType(void.class, Object.class, boolean.class, mdClass))
+                        .asType(MethodType.methodType(void.class, Object.class, Object.class, boolean.class, Object.class));
+
+                try {
+                    Class<?> rcMenuCls = ObfuscatedBytecodeBridge.resolveWarroomRightClickMenuClass(cl, wrClass, ctxBarCls);
+                    Class<?> rcTargetRetCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                            cl, taskTargetRetCls.getName(), rcMenuCls.getName(), "getTaskTarget");
+                    this.warroomRightClickMenuClass = rcMenuCls;
+                    this.rightClickGetTaskTargetHandle = lookup.findVirtual(
+                            rcMenuCls, "getTaskTarget", MethodType.methodType(rcTargetRetCls))
+                            .asType(MethodType.methodType(Object.class, Object.class));
+                    this.rightClickFadeOutHandle = lookup.findVirtual(
+                            rcMenuCls, "fadeOut", MethodType.methodType(void.class))
+                            .asType(MethodType.methodType(void.class, Object.class));
+                } catch (Throwable ignoredRc) {
+                    this.warroomRightClickMenuClass = null;
+                    this.rightClickGetTaskTargetHandle = null;
+                    this.rightClickFadeOutHandle = null;
+                }
+
+                try {
+                    Class<?> dfmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager$O0", false, cl);
+                    Class<?> wingImplCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                            cl, "com.fs.starfarer.combat.ai.M", dfmCls.getName(), "getWingIfFighter");
+                    this.dfmGetWingIfFighterHandle = lookup.findVirtual(
+                            dfmCls, "getWingIfFighter", MethodType.methodType(wingImplCls))
+                            .asType(MethodType.methodType(FighterWingAPI.class, Object.class));
+                } catch (Throwable ignoredDfm) {
+                    this.dfmGetWingIfFighterHandle = null;
+                }
+
+                if (this.widgetPanelInstance != null) {
+                    CustomPanelAPI preGuardPanel = Global.getSettings().createCustom(0f, 0f, new BaseCustomUIPanelPlugin() {
+                        @Override
+                        public void advance(float amount) {
+                            sanitizeWarroomStaleFighterWingMenus();
+                        }
+                    });
+                    this.widgetPanelInstance.addComponent(preGuardPanel).inBL(0f, 0f);
+                    this.widgetPanelInstance.sendToBottom(preGuardPanel);
+                }
+            } catch (Throwable ignoredGuard) {
+                // Non-fatal: combat C2 and Warroom overlay still operate normally
+            }
+
             this.attachedToWarroom = true;
             LOG.info("[DivisionAI] Attached Command Window tactical overlay to warroom.");
         } catch (Throwable t) {
@@ -995,10 +1082,113 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             spriteLookup.findGetter(spriteCls, "texture", texObjCls);
             spriteLookup.findSetter(spriteCls, "texture", texObjCls);
             spriteLookup.findVirtual(spriteCls, "readResolve", MethodType.methodType(Object.class));
+            Class<?> widgetPanelCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.ui.interfacenew", csClass.getName(), "getWidgetPanel");
+            lookup.findVirtual(csClass, "getWidgetPanel", MethodType.methodType(widgetPanelCls));
+            lookup.findVirtual(widgetPanelCls, "getChildrenNonCopy", MethodType.methodType(List.class));
+            Class<?> ctxBarCls = ObfuscatedBytecodeBridge.resolveWarroomContextBarClass(cl, wrClass, mdClass);
+            String ctxBarField = ObfuscatedBytecodeBridge.resolveFieldNameByDescriptor(
+                    cl, wrClass, ObfuscatedBytecodeBridge.toDescriptor(ctxBarCls), "private.String$do");
+            MethodHandles.privateLookupIn(wrClass, lookup).findGetter(wrClass, ctxBarField, ctxBarCls);
+            Class<?> taskTargetRetCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.tasks.CombatTask$Oo", ctxBarCls.getName(), "getTaskTarget");
+            lookup.findVirtual(ctxBarCls, "getTaskTarget", MethodType.methodType(taskTargetRetCls));
+            lookup.findVirtual(ctxBarCls, "syncWith", MethodType.methodType(void.class, Object.class, boolean.class, mdClass));
+            Class<?> rcMenuCls = ObfuscatedBytecodeBridge.resolveWarroomRightClickMenuClass(cl, wrClass, ctxBarCls);
+            Class<?> rcTargetRetCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, taskTargetRetCls.getName(), rcMenuCls.getName(), "getTaskTarget");
+            lookup.findVirtual(rcMenuCls, "getTaskTarget", MethodType.methodType(rcTargetRetCls));
+            lookup.findVirtual(rcMenuCls, "fadeOut", MethodType.methodType(void.class));
+            Class<?> dfmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager$O0", false, cl);
+            Class<?> wingImplCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.ai.M", dfmCls.getName(), "getWingIfFighter");
+            lookup.findVirtual(dfmCls, "getWingIfFighter", MethodType.methodType(wingImplCls));
             return true;
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /**
+     * Prevents vanilla Starsector's Warroom {@code H.advanceImpl} crash ({@code NullPointerException: Cannot invoke
+     * "...renderers.A.I.update(float)" because "this.void_void$do" is null}) when a Warroom-selected fighter wing loses
+     * all live fighters ({@code wing.getLeader() == null}), which causes {@code O0.getShip()} to return a dummy
+     * {@code shuttlepod_xfer} hull with {@code isFighter() == false} on an {@code H} widget constructed without hull/flux bars.
+     */
+    public void sanitizeWarroomStaleFighterWingMenus() {
+        if (!attachedToWarroom) return;
+        try {
+            if (warroomCtxBarInstance != null
+                    && ctxBarGetTaskTargetHandle != null
+                    && ctxBarSyncWithHandle != null
+                    && mapDisplayInstance != null) {
+                Object target = ctxBarGetTaskTargetHandle.invoke(warroomCtxBarInstance);
+                if (target instanceof com.fs.starfarer.api.combat.DeployedFleetMemberAPI) {
+                    com.fs.starfarer.api.combat.DeployedFleetMemberAPI dfm =
+                            (com.fs.starfarer.api.combat.DeployedFleetMemberAPI) target;
+                    if (dfm.isFighterWing() && isLeaderlessFighterWingDfm(dfm)) {
+                        ctxBarSyncWithHandle.invoke(warroomCtxBarInstance, null, false, mapDisplayInstance);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (widgetPanelInstance != null
+                    && widgetPanelGetChildrenHandle != null
+                    && warroomRightClickMenuClass != null
+                    && rightClickGetTaskTargetHandle != null) {
+                @SuppressWarnings("unchecked")
+                List<Object> children = (List<Object>) widgetPanelGetChildrenHandle.invoke(widgetPanelInstance);
+                if (children != null && !children.isEmpty()) {
+                    for (int i = children.size() - 1; i >= 0; i--) {
+                        Object child = children.get(i);
+                        if (child instanceof UIComponentAPI && warroomRightClickMenuClass.isInstance(child)) {
+                            Object target = rightClickGetTaskTargetHandle.invoke(child);
+                            if (target instanceof com.fs.starfarer.api.combat.DeployedFleetMemberAPI) {
+                                com.fs.starfarer.api.combat.DeployedFleetMemberAPI dfm =
+                                        (com.fs.starfarer.api.combat.DeployedFleetMemberAPI) target;
+                                if (dfm.isFighterWing() && isLeaderlessFighterWingDfm(dfm)) {
+                                    if (rightClickFadeOutHandle != null) {
+                                        try {
+                                            rightClickFadeOutHandle.invoke(child);
+                                        } catch (Throwable ignoredFade) {
+                                        }
+                                    }
+                                    widgetPanelInstance.removeComponent((UIComponentAPI) child);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static boolean isLeaderlessFighterWingDfm(
+            com.fs.starfarer.api.combat.DeployedFleetMemberAPI dfm,
+            MethodHandle getWingHandle) {
+        if (dfm == null || !dfm.isFighterWing()) return false;
+        if (getWingHandle != null) {
+            try {
+                FighterWingAPI wing = (FighterWingAPI) getWingHandle.invoke(dfm);
+                if (wing == null) return true;
+                ShipAPI leader = wing.getLeader();
+                if (leader != null && leader.isAlive() && !leader.isHulk()) {
+                    return false;
+                }
+                ShipAPI repaired = DivisionAICombatPlugin.ensureFighterWingLeaderAndFlockingAI(wing);
+                return repaired == null || !repaired.isAlive() || repaired.isHulk();
+            } catch (Throwable ignored) {
+            }
+        }
+        ShipAPI ship = dfm.getShip();
+        return ship == null || !ship.isFighter();
+    }
+
+    private boolean isLeaderlessFighterWingDfm(com.fs.starfarer.api.combat.DeployedFleetMemberAPI dfm) {
+        return isLeaderlessFighterWingDfm(dfm, this.dfmGetWingIfFighterHandle);
     }
 
     public boolean isShowingVideoFeed() {

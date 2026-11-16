@@ -839,19 +839,16 @@ public class DivisionOtcCommandManager {
     }
 
 
+    private static volatile Object cachedReserveFlagshipEngine = null;
+    private static volatile float cachedReserveFlagshipCheckTime = -1000f;
+    private static volatile boolean cachedHasUndeployedReserveFlagship = false;
+
     /**
      * Feature E: Returns true if the player side's designated OTC ship is currently deployed and alive in battle.
      */
     public static boolean isPlayerOtcDeployedInBattle(CombatEngineAPI engine, BattleGroupState playerGroup) {
         String preferredId = getPreferredPlayerOtcMemberId(playerGroup);
         if (preferredId != null && !preferredId.isEmpty()) {
-            ShipAPI livePref = findLiveShipForMember(engine, preferredId);
-            if (livePref != null
-                    && livePref.isAlive()
-                    && !livePref.isHulk()
-                    && !isShipRetreatedFromBattle(engine, playerGroup, livePref)) {
-                return true;
-            }
             if (playerGroup != null && playerGroup.activeFleetFlagship != null) {
                 ShipAPI af = playerGroup.activeFleetFlagship;
                 boolean matches = preferredId.equals(af.getId())
@@ -860,23 +857,60 @@ public class DivisionOtcCommandManager {
                     return true;
                 }
             }
+            ShipAPI livePref = findLiveShipForMember(engine, preferredId);
+            if (livePref != null
+                    && livePref.isAlive()
+                    && !livePref.isHulk()
+                    && !isShipRetreatedFromBattle(engine, playerGroup, livePref)) {
+                return true;
+            }
             return false;
+        }
+
+        // Fast path: if activeFleetFlagship is already the player's campaign flagship and alive on the field,
+        // it cannot be sitting undeployed in reserves — skip cloning fm.getReservesCopy() every frame.
+        if (playerGroup != null && playerGroup.activeFleetFlagship != null) {
+            ShipAPI af = playerGroup.activeFleetFlagship;
+            if (!af.isAlly()
+                    && af.getFleetMember() != null
+                    && af.getFleetMember().isFlagship()
+                    && af.isAlive()
+                    && !af.isHulk()
+                    && !isShipRetreatedFromBattle(engine, playerGroup, af)) {
+                return true;
+            }
         }
 
         // If no explicit preferred OTC id is set, check if a campaign flagship is sitting undeployed in reserves
         try {
             if (engine != null && engine.getFleetManager(0) != null) {
-                CombatFleetManagerAPI fm = engine.getFleetManager(0);
-                List<FleetMemberAPI> reserves = fm.getReservesCopy();
-                if (reserves != null) {
-                    for (FleetMemberAPI rm : reserves) {
-                        if (rm != null && !rm.isAlly() && rm.isFlagship()) {
-                            ShipAPI liveFlag = findLiveShipForMember(engine, rm.getId());
-                            if (liveFlag == null || !liveFlag.isAlive() || liveFlag.isHulk()) {
-                                return false;
+                float now = engine.getTotalElapsedTime(false);
+                boolean useCache = (engine == cachedReserveFlagshipEngine)
+                        && Math.abs(now - cachedReserveFlagshipCheckTime) < 0.20f
+                        && !engine.isPaused();
+                boolean undeployedReserveFlagship = false;
+                if (useCache) {
+                    undeployedReserveFlagship = cachedHasUndeployedReserveFlagship;
+                } else {
+                    CombatFleetManagerAPI fm = engine.getFleetManager(0);
+                    List<FleetMemberAPI> reserves = fm.getReservesCopy();
+                    if (reserves != null) {
+                        for (FleetMemberAPI rm : reserves) {
+                            if (rm != null && !rm.isAlly() && rm.isFlagship()) {
+                                ShipAPI liveFlag = findLiveShipForMember(engine, rm.getId());
+                                if (liveFlag == null || !liveFlag.isAlive() || liveFlag.isHulk()) {
+                                    undeployedReserveFlagship = true;
+                                    break;
+                                }
                             }
                         }
                     }
+                    cachedReserveFlagshipEngine = engine;
+                    cachedReserveFlagshipCheckTime = now;
+                    cachedHasUndeployedReserveFlagship = undeployedReserveFlagship;
+                }
+                if (undeployedReserveFlagship) {
+                    return false;
                 }
             }
         } catch (Throwable ignored) {
@@ -1021,8 +1055,8 @@ public class DivisionOtcCommandManager {
         checkDivisionFlagshipsDestroyed(engine, alliedGroup, now);
         checkDivisionFlagshipsDestroyed(engine, enemyGroup, now);
         // Feature E: Enforce -75% Max CP and -50% CP Generation Speed if the player's OTC is not deployed in battle
-        boolean anyPlayerSideShipInPlay = false;
-        if (engine.getShips() != null) {
+        boolean anyPlayerSideShipInPlay = (playerGroup != null && playerGroup.initialDeploymentDone);
+        if (!anyPlayerSideShipInPlay && engine.getShips() != null) {
             for (ShipAPI s : engine.getShips()) {
                 if (s != null && s.getOwner() == 0 && !s.isAlly() && !s.isFighter() && !s.isStationModule() && s.isAlive()) {
                     anyPlayerSideShipInPlay = true;
@@ -1030,7 +1064,7 @@ public class DivisionOtcCommandManager {
                 }
             }
         }
-        if (anyPlayerSideShipInPlay || (playerGroup != null && playerGroup.initialDeploymentDone)) {
+        if (anyPlayerSideShipInPlay) {
             updatePlayerOtcNotDeployedCommandPointPenalty(engine, playerGroup);
         }
     }
@@ -1048,13 +1082,13 @@ public class DivisionOtcCommandManager {
         if (flagship.isRetreating() || flagship.isDirectRetreat()) {
             group.formationSpawnHijackedShipIds.add("__retreating_" + flagshipId);
         }
+        boolean destroyed = !flagship.isAlive() || flagship.isHulk();
+        if (!destroyed) return;
+
         String lossKey = "__otc_lost_" + flagshipId;
         if (group.formationSpawnHijackedShipIds.contains(lossKey)) {
             return;
         }
-
-        boolean destroyed = !flagship.isAlive() || flagship.isHulk();
-        if (!destroyed) return;
 
         boolean retreated = isShipRetreatedFromBattle(engine, group, flagship);
         boolean wasAlphaCoreOtc = isAlphaCoreControlledShip(flagship)

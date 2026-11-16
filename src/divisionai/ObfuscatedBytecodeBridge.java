@@ -464,6 +464,78 @@ public final class ObfuscatedBytecodeBridge {
         return Class.forName("com.fs.starfarer.combat.new.o0Oo", false, cl);
     }
 
+    /**
+     * Resolves the Warroom bottom selected-unit context bar class ({@code com.fs.starfarer.combat.new._} on 0.98a-RC8,
+     * {@code com.fs.starfarer.combat.B.oooo} on 0.98.5a-RC5 Windows, {@code ...intsuper} on macOS, etc.)
+     * by scanning {@code wrClass}'s fields for a Warroom-package type declaring
+     * {@code syncWith(Object, boolean, <mdClass>)}.
+     */
+    public static Class<?> resolveWarroomContextBarClass(ClassLoader cl, Class<?> wrClass, Class<?> mdClass)
+            throws ClassNotFoundException {
+        if (wrClass != null && mdClass != null) {
+            String pkgPrefix = "L" + getInternalPackagePrefix(wrClass, "com/fs/starfarer/combat/new/");
+            String expectedSyncDesc = "(Ljava/lang/Object;Z" + toDescriptor(mdClass) + ")V";
+            ClassBytecodeInfo wrInfo = readClassInfo(cl, wrClass.getName());
+            if (wrInfo != null) {
+                for (int i = 0, n = wrInfo.fields.size(); i < n; i++) {
+                    MemberEntry f = wrInfo.fields.get(i);
+                    if (f.descriptor != null && f.descriptor.startsWith(pkgPrefix) && f.descriptor.endsWith(";")) {
+                        String candName = f.descriptor.substring(1, f.descriptor.length() - 1).replace('/', '.');
+                        ClassBytecodeInfo cand = readClassInfo(cl, candName);
+                        if (cand == null) continue;
+                        for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
+                            MemberEntry me = cand.methods.get(m);
+                            if ("syncWith".equals(me.name) && expectedSyncDesc.equals(me.descriptor)) {
+                                return Class.forName(candName, false, cl);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Class.forName("com.fs.starfarer.combat.new._", false, cl);
+    }
+
+    /**
+     * Resolves the Warroom right-click popup order menu class ({@code com.fs.starfarer.combat.new.J} on 0.98a-RC8,
+     * {@code com.fs.starfarer.combat.B.O0oO} on 0.98.5a-RC5 Windows, {@code ...if} on macOS, etc.)
+     * by scanning {@code wrClass}'s constant pool for a Warroom-package class (other than {@code wrClass} and
+     * {@code ctxBarClass}) that declares both {@code getTaskTarget} and {@code fadeOut()V}.
+     */
+    public static Class<?> resolveWarroomRightClickMenuClass(ClassLoader cl, Class<?> wrClass, Class<?> ctxBarClass)
+            throws ClassNotFoundException {
+        if (wrClass != null) {
+            String pkgPrefix = getInternalPackagePrefix(wrClass, "com/fs/starfarer/combat/new/");
+            String skipCtx = (ctxBarClass != null) ? ctxBarClass.getName() : null;
+            ClassBytecodeInfo wrInfo = readClassInfo(cl, wrClass.getName());
+            if (wrInfo != null) {
+                for (int i = 0, n = wrInfo.referencedInternalClasses.size(); i < n; i++) {
+                    String ref = wrInfo.referencedInternalClasses.get(i);
+                    if (ref != null && ref.startsWith(pkgPrefix) && ref.indexOf('$') < 0) {
+                        String dotName = ref.replace('/', '.');
+                        if (dotName.equals(wrClass.getName()) || dotName.equals(skipCtx)) continue;
+                        ClassBytecodeInfo cand = readClassInfo(cl, dotName);
+                        if (cand == null) continue;
+                        boolean hasGetTaskTarget = false;
+                        boolean hasFadeOut = false;
+                        for (int m = 0, mn = cand.methods.size(); m < mn; m++) {
+                            MemberEntry me = cand.methods.get(m);
+                            if ("getTaskTarget".equals(me.name) && me.descriptor.startsWith("()L")) {
+                                hasGetTaskTarget = true;
+                            } else if ("fadeOut".equals(me.name) && "()V".equals(me.descriptor)) {
+                                hasFadeOut = true;
+                            }
+                        }
+                        if (hasGetTaskTarget && hasFadeOut) {
+                            return Class.forName(dotName, false, cl);
+                        }
+                    }
+                }
+            }
+        }
+        return Class.forName("com.fs.starfarer.combat.new.J", false, cl);
+    }
+
     public static Class<?> resolveMethodReturnClass(
             ClassLoader cl,
             String ownerClassName,

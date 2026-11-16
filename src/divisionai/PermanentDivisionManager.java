@@ -5674,9 +5674,29 @@ public class PermanentDivisionManager {
         }
     }
 
+    private static volatile Object lastNonMissionEngineRef = null;
+
     public static void clearActiveMissionScenario() {
         activeMissionEngineRef = null;
         activeWorkingScenario = null;
+        lastNonMissionEngineRef = null;
+    }
+
+    private static boolean hasPopulatedCombatFleetsForMissionCheck(com.fs.starfarer.api.combat.CombatEngineAPI engine) {
+        if (engine == null) return false;
+        for (int side = 0; side <= 1; side++) {
+            try {
+                com.fs.starfarer.api.combat.CombatFleetManagerAPI fm = engine.getFleetManager(side);
+                if (fm == null) continue;
+                List<FleetMemberAPI> res = fm.getReservesCopy();
+                if (res != null && !res.isEmpty()) return true;
+                List<FleetMemberAPI> dep = fm.getDeployedCopy();
+                if (dep != null && !dep.isEmpty()) return true;
+            } catch (Throwable ignored) {
+            }
+        }
+        List<ShipAPI> ships = engine.getShips();
+        return ships != null && !ships.isEmpty();
     }
 
     private static String detectMissionIdFromEngine(com.fs.starfarer.api.combat.CombatEngineAPI engine) {
@@ -5734,8 +5754,24 @@ public class PermanentDivisionManager {
         if (engine == null || !BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) {
             return null;
         }
+        if (engine == activeMissionEngineRef && activeWorkingScenario != null) {
+            return activeWorkingScenario;
+        }
+        if (engine == lastNonMissionEngineRef) {
+            try {
+                if (engine.getCustomData() == null
+                        || !(engine.getCustomData().get(MISSION_SCENARIO_CUSTOM_DATA_KEY) instanceof String)) {
+                    return null;
+                }
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
         String detectedId = detectMissionIdFromEngine(engine);
         if (detectedId == null) {
+            if (hasPopulatedCombatFleetsForMissionCheck(engine)) {
+                lastNonMissionEngineRef = engine;
+            }
             return null;
         }
         if (engine == activeMissionEngineRef
