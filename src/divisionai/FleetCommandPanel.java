@@ -649,6 +649,7 @@ public final class FleetCommandPanel {
                                 innerPanel,
                                 reservesGrid,
                                 width,
+                                preBattle,
                                 new Runnable() {
                                     @Override
                                     public void run() {
@@ -705,67 +706,45 @@ public final class FleetCommandPanel {
 
             @Override
             public void processInput(List<com.fs.starfarer.api.input.InputEventAPI> events) {
-                if (events == null || organizer.isAnyEmbeddedModalOpen()) return;
+                if (!preBattle || events == null || organizer.isAnyEmbeddedModalOpen()) return;
                 CustomPanelAPI self = panelRef[0];
                 if (self == null || self.getPosition() == null) return;
                 PositionAPI pos = self.getPosition();
                 float x = pos.getX();
                 float py = pos.getY();
                 float ph = pos.getHeight();
-                if (preBattle) {
-                    float pCardSize = 104f;
-                    float pStartX = x + cmdColX + Math.round((cmdColW - pCardSize) * 0.5f);
-                    float pBottomY = py + ph - 68f - pCardSize;
-                    float sCardSize = 104f;
-                    float sStartX = x + styleColX + Math.round((styleColW - sCardSize) * 0.5f);
-                    float sBottomY = py + ph - 68f - sCardSize;
-                    float fCardSize = 94f;
-                    float fStartX = x + formColX + Math.round((formColW - fCardSize) * 0.5f);
-                    float fBottomY = py + ph - 68f - fCardSize;
-                    for (com.fs.starfarer.api.input.InputEventAPI ev : events) {
-                        if (ev == null || ev.isConsumed()) continue;
-                        if (ev.isLMBDownEvent()) {
-                            float ex = ev.getX();
-                            float ey = ev.getY();
-                            if (ex >= pStartX && ex <= pStartX + pCardSize && ey >= pBottomY && ey <= pBottomY + pCardSize) {
-                                ev.consume();
-                                DivisionDeploymentDialogOrganizer.selectOtcAuthority(playerGroup, 1);
-                                updateSelectorText();
-                                refreshOtcDisplay();
-                                return;
-                            }
-                            if (ex >= sStartX && ex <= sStartX + sCardSize && ey >= sBottomY && ey <= sBottomY + sCardSize) {
-                                ev.consume();
-                                DivisionDeploymentDialogOrganizer.selectFightingStyle(playerGroup, 1);
-                                updateSelectorText();
-                                return;
-                            }
-                            if (ex >= fStartX && ex <= fStartX + fCardSize && ey >= fBottomY && ey <= fBottomY + fCardSize) {
-                                ev.consume();
-                                DivisionDeploymentDialogOrganizer.selectFleetFormation(playerGroup, 1);
-                                updateSelectorText();
-                                return;
-                            }
+                float pCardSize = 104f;
+                float pStartX = x + cmdColX + Math.round((cmdColW - pCardSize) * 0.5f);
+                float pBottomY = py + ph - 68f - pCardSize;
+                float sCardSize = 104f;
+                float sStartX = x + styleColX + Math.round((styleColW - sCardSize) * 0.5f);
+                float sBottomY = py + ph - 68f - sCardSize;
+                float fCardSize = 94f;
+                float fStartX = x + formColX + Math.round((formColW - fCardSize) * 0.5f);
+                float fBottomY = py + ph - 68f - fCardSize;
+                for (com.fs.starfarer.api.input.InputEventAPI ev : events) {
+                    if (ev == null || ev.isConsumed()) continue;
+                    if (ev.isLMBDownEvent()) {
+                        float ex = ev.getX();
+                        float ey = ev.getY();
+                        if (ex >= pStartX && ex <= pStartX + pCardSize && ey >= pBottomY && ey <= pBottomY + pCardSize) {
+                            ev.consume();
+                            DivisionDeploymentDialogOrganizer.selectOtcAuthority(playerGroup, 1);
+                            updateSelectorText();
+                            refreshOtcDisplay();
+                            return;
                         }
-                    }
-                } else {
-                    float rx = x + rightSectionX;
-                    float rw = rightSectionW;
-                    float midIconSize = 68f;
-                    float styleBadgeX = rx + rw - midIconSize * 2f - 14f;
-                    float badgeY = py + Math.round((ph - topBarH - midIconSize) * 0.5f) - 2f;
-                    for (com.fs.starfarer.api.input.InputEventAPI ev : events) {
-                        if (ev == null || ev.isConsumed()) continue;
-                        if (ev.isLMBDownEvent()) {
-                            float ex = ev.getX();
-                            float ey = ev.getY();
-                            if (ex >= styleBadgeX && ex <= styleBadgeX + midIconSize
-                                    && ey >= badgeY && ey <= badgeY + midIconSize) {
-                                ev.consume();
-                                DivisionDeploymentDialogOrganizer.playDeploymentButtonSound();
-                                organizer.openFightingStyleWindow(innerPanel, reservesGrid, width, null);
-                                return;
-                            }
+                        if (ex >= sStartX && ex <= sStartX + sCardSize && ey >= sBottomY && ey <= sBottomY + sCardSize) {
+                            ev.consume();
+                            DivisionDeploymentDialogOrganizer.selectFightingStyle(playerGroup, 1);
+                            updateSelectorText();
+                            return;
+                        }
+                        if (ex >= fStartX && ex <= fStartX + fCardSize && ey >= fBottomY && ey <= fBottomY + fCardSize) {
+                            ev.consume();
+                            DivisionDeploymentDialogOrganizer.selectFleetFormation(playerGroup, 1);
+                            updateSelectorText();
+                            return;
                         }
                     }
                 }

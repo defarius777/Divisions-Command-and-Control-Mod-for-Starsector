@@ -1449,6 +1449,18 @@ public class StarsectorUISimulator {
                 System.out.println("FAIL 'Close' did not close FightingStyleModalDialog");
                 return false;
             }
+        } else {
+            // Verify Conduct of Battle is strictly pre-battle only (read-only mid-battle)
+            for (ButtonAPI btn : fcButtons) {
+                if ("Customize".equals(btn.getText())) {
+                    System.out.println("FAIL 'Customize' button must not appear mid-battle");
+                    return false;
+                }
+            }
+            if (organizer.isFightingStyleWindowOpen()) {
+                System.out.println("FAIL Conduct of Battle modal must not be open mid-battle");
+                return false;
+            }
         }
         if (expectAlphaCore && (alphaMasterLabel == null || alphaShipLineLabel == null
                 || alphaShipLineLabel.getPosition().getY() >= alphaMasterLabel.getPosition().getY() - 10f)) {

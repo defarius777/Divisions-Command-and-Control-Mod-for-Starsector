@@ -2425,8 +2425,9 @@ public class DivisionDeploymentDialogOrganizer {
             final UIPanelAPI innerPanel,
             final Object reservesGrid,
             final float fallbackWidth,
+            final boolean preBattle,
             final Runnable onStyleChangedCallback) {
-        if (innerPanel == null) return;
+        if (innerPanel == null || !preBattle) return;
         boolean wasModalAlreadyHidingReserves = otcSelectorWindowOpen || fightingStyleWindowOpen;
         if (activeOtcSelectorPanel != null) {
             try {
