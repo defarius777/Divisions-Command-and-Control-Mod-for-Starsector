@@ -93,6 +93,7 @@ public class DivisionAITestSuite {
         testConstituentShipSensorsAndTacticalMechanics();
         testUIHarnessAndUXSuccinctness();
         testBattleScopedFightingStyleAndCampaignImmutability();
+        testSixNewDivisionTypesHegemonyBcvAndMissilePhaseAI();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -5841,6 +5842,260 @@ public class DivisionAITestSuite {
             doc.setEngagementDiscipline(savedDisc);
             divisionai.PermanentDivisionManager.saveFleetDoctrine(doc);
         }
+    }
+
+    private static void testSixNewDivisionTypesHegemonyBcvAndMissilePhaseAI() {
+        System.out.println("\n--- Scenario 18: 22 Division Archetypes, Hegemony BCV Battle-Line Folding & Missile-Phase Autoforge AI ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+
+        // 1. Verify all 6 new division types classify accurately in ShipCapabilityProfile + DivisionAutoFormer
+        BattleGroupState pPoolGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState ePoolGroup = new BattleGroupState(1, eCmdr);
+        DivisionState dummyDiv = new DivisionState("dummy", 0, 1, DivisionArchetype.FORCE_DIVISION, "Force 1", pCmdr);
+        pPoolGroup.divisions.add(dummyDiv);
+        SimArena poolArena = new SimArena("18a. Hull Classification Pool", "22-archetype classification & BCV folding", pPoolGroup, ePoolGroup);
+
+        SimShipState conquest = poolArena.addShip(dummyDiv, "c_bc1", "PLS Conquest", "conquest", HullSize.CAPITAL_SHIP, -400f, -1500f, 45f, 1400f, 4, 0);
+        conquest.designation = "Battlecruiser";
+        SimShipState odyssey = poolArena.addShip(dummyDiv, "c_bc2", "TTS Odyssey", "odyssey", HullSize.CAPITAL_SHIP, -200f, -1500f, 80f, 1200f, 4, 2);
+        odyssey.designation = "Battlecruiser";
+        SimShipState legion = poolArena.addShip(dummyDiv, "c_bcv", "HSS Legion", "legion", HullSize.CAPITAL_SHIP, 0f, -1500f, 50f, 1200f, 4, 4);
+        legion.designation = "Battlecarrier";
+        SimShipState onslaught = poolArena.addShip(dummyDiv, "c_bb", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 200f, -1500f, 50f, 1300f, 4, 0);
+        onslaught.designation = "Battleship";
+        SimShipState mora = poolArena.addShip(dummyDiv, "c_lcv", "HSS Mora", "mora", HullSize.CRUISER, 400f, -1500f, 45f, 900f, 2, 3);
+        mora.designation = "Carrier";
+        SimShipState medusa = poolArena.addShip(dummyDiv, "c_sdd", "TTS Medusa", "medusa", HullSize.DESTROYER, -300f, -1200f, 95f, 800f, 0, 0);
+        SimShipState shrieker = poolArena.addShip(dummyDiv, "c_sdd2", "TTS Shrieker", "shrieker", HullSize.DESTROYER, -200f, -1200f, 100f, 750f, 0, 0);
+        SimShipState hammerhead = poolArena.addShip(dummyDiv, "c_dd", "ISS Hammerhead", "hammerhead", HullSize.DESTROYER, -100f, -1200f, 90f, 900f, 0, 0);
+        SimShipState tempest = poolArena.addShip(dummyDiv, "c_sff", "TTS Tempest", "tempest", HullSize.FRIGATE, 100f, -1200f, 135f, 750f, 0, 0);
+        SimShipState doom = poolArena.addShip(dummyDiv, "c_pcru", "TTS Doom", "doom", HullSize.CRUISER, 300f, -1200f, 75f, 900f, 2, 0);
+        doom.isPhaseShip = true;
+        SimShipState zig = poolArena.addShip(dummyDiv, "c_pcap", "TTS Ziggurat", "ziggurat", HullSize.CAPITAL_SHIP, 500f, -1200f, 60f, 1100f, 4, 0);
+        zig.isPhaseShip = true;
+
+        SimShipState missileAfflictor = poolArena.addShip(dummyDiv, "c_mph", "TTS Afflictor", "afflictor", HullSize.FRIGATE, 700f, -1200f, 135f, 1400f, 0, 0);
+        missileAfflictor.isPhaseShip = true;
+        missileAfflictor.detailedCombatModel = true;
+        missileAfflictor.weapons.clear();
+        missileAfflictor.weaponMounts.clear();
+        missileAfflictor.configureShipSystem("forgevats", "Missile Autoforge", false);
+        missileAfflictor.systemAmmo = 1;
+        missileAfflictor.systemMaxAmmo = 1;
+        missileAfflictor.addWeaponMount(new SimArena.SimWeaponMount(
+                "atropos_rack",
+                com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE,
+                com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.SMALL,
+                com.fs.starfarer.api.combat.DamageType.HIGH_EXPLOSIVE,
+                1400f, 30f, 0f, 800f, 160f, 0f, 5.0f, true, 4, false, false, false));
+
+        divisionai.ShipCapabilityProfile pConquest = new divisionai.ShipCapabilityProfile(conquest.proxy);
+        divisionai.ShipCapabilityProfile pOdyssey = new divisionai.ShipCapabilityProfile(odyssey.proxy);
+        divisionai.ShipCapabilityProfile pLegion = new divisionai.ShipCapabilityProfile(legion.proxy);
+        divisionai.ShipCapabilityProfile pOnslaught = new divisionai.ShipCapabilityProfile(onslaught.proxy);
+        divisionai.ShipCapabilityProfile pMora = new divisionai.ShipCapabilityProfile(mora.proxy);
+        divisionai.ShipCapabilityProfile pMedusa = new divisionai.ShipCapabilityProfile(medusa.proxy);
+        divisionai.ShipCapabilityProfile pShrieker = new divisionai.ShipCapabilityProfile(shrieker.proxy);
+        divisionai.ShipCapabilityProfile pHammerhead = new divisionai.ShipCapabilityProfile(hammerhead.proxy);
+        divisionai.ShipCapabilityProfile pTempest = new divisionai.ShipCapabilityProfile(tempest.proxy);
+        divisionai.ShipCapabilityProfile pDoom = new divisionai.ShipCapabilityProfile(doom.proxy);
+        divisionai.ShipCapabilityProfile pZig = new divisionai.ShipCapabilityProfile(zig.proxy);
+        divisionai.ShipCapabilityProfile pMisAff = new divisionai.ShipCapabilityProfile(missileAfflictor.proxy);
+
+        boolean bcOk = pConquest.primaryTag == divisionai.ShipCapabilityProfile.TacticalTag.STRIKE_CAPITAL
+                && !pConquest.isBattlecarrier
+                && pOdyssey.primaryTag == divisionai.ShipCapabilityProfile.TacticalTag.STRIKE_CAPITAL
+                && !pOdyssey.isBattlecarrier
+                && !pOdyssey.isDedicatedCarrier;
+        boolean bcvOk = pLegion.isBattlecarrier
+                && pLegion.primaryTag == divisionai.ShipCapabilityProfile.TacticalTag.BATTLECARRIER
+                && !pMora.isBattlecarrier
+                && pMora.isCarrier;
+        boolean strikeScreenOk = pMedusa.primaryTag == divisionai.ShipCapabilityProfile.TacticalTag.STRIKE_DESTROYER
+                && pHammerhead.primaryTag != divisionai.ShipCapabilityProfile.TacticalTag.STRIKE_DESTROYER
+                && pTempest.primaryTag == divisionai.ShipCapabilityProfile.TacticalTag.STRIKE_FRIGATE;
+        boolean phaseTypesOk = pDoom.primaryTag == divisionai.ShipCapabilityProfile.TacticalTag.PHASE_CRUISER
+                && pZig.primaryTag == divisionai.ShipCapabilityProfile.TacticalTag.PHASE_CRUISER
+                && pMisAff.primaryTag == divisionai.ShipCapabilityProfile.TacticalTag.MISSILE_PHASE
+                && pMisAff.avgWeaponRange >= 1350f;
+
+        // Form divisions with default Persean/Player doctrine (all 6 new schemes ON)
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig perseanDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("persean", null);
+        BattleGroupState perseanGroup = new BattleGroupState(1, eCmdr);
+        perseanGroup.factionId = "persean";
+        List<divisionai.ShipCapabilityProfile> fullPool = java.util.Arrays.asList(
+                pConquest, pOdyssey, pLegion, pOnslaught, pMora,
+                pMedusa, pShrieker, pHammerhead, pTempest, pDoom, pZig, pMisAff);
+        List<DivisionState> perseanDivs = divisionai.DivisionAutoFormer.formDivisionsFromPool(perseanGroup, fullPool);
+        java.util.EnumSet<DivisionArchetype> formedArchetypes = java.util.EnumSet.noneOf(DivisionArchetype.class);
+        for (DivisionState d : perseanDivs) {
+            formedArchetypes.add(d.archetype);
+        }
+        boolean allSixFormed = formedArchetypes.contains(DivisionArchetype.BATTLECRUISER_DIVISION)
+                && formedArchetypes.contains(DivisionArchetype.BATTLECARRIER_DIVISION)
+                && formedArchetypes.contains(DivisionArchetype.STRIKE_DESTROYER_DIVISION)
+                && formedArchetypes.contains(DivisionArchetype.STRIKE_FRIGATE_DIVISION)
+                && formedArchetypes.contains(DivisionArchetype.PHASE_CRUISER_DIVISION)
+                && formedArchetypes.contains(DivisionArchetype.MISSILE_PHASE_DIVISION)
+                && formedArchetypes.contains(DivisionArchetype.BATTLESHIP_DIVISION)
+                && formedArchetypes.contains(DivisionArchetype.LIGHT_CARRIER_DIVISION)
+                && formedArchetypes.contains(DivisionArchetype.DESTROYER_DIVISION);
+
+        check(bcOk && bcvOk && strikeScreenOk && phaseTypesOk && allSixFormed,
+                "6 New Division Types (BC, BCV, Strike DD/FF, Phase Cruiser, Missile Phase; Zero Phase BB) classify & auto-form cleanly",
+                String.format(Locale.ROOT,
+                        "bcOk=%b, bcvOk=%b, strikeScreenOk=%b, phaseTypesOk=%b, allSixFormed=%b, formed=%s",
+                        bcOk, bcvOk, strikeScreenOk, phaseTypesOk, allSixFormed, formedArchetypes));
+
+        // 2. Verify Faction Library & Faction Doctrines: Hegemony / Iron Shell / Luddic fold BCV into Battleship Division!
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig hegDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig ironDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("ironshell", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig lcDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("luddic_church", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig kolDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("knights_of_ludd", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig ttDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null);
+
+        boolean hegBcvDisabled = !hegDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && !ironDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && !lcDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && !kolDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP);
+        boolean perseanTtBcvEnabled = perseanDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && ttDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP);
+
+        List<divisionai.ShipCapabilityProfile> hegCapLine = java.util.Arrays.asList(pLegion, pOnslaught);
+        BattleGroupState hegGroup = new BattleGroupState(1, eCmdr);
+        hegGroup.factionId = "hegemony";
+        List<DivisionState> hegFormed = divisionai.DivisionAutoFormer.formDivisionsFromPool(hegGroup, hegCapLine);
+        boolean hegUnitedBattleLine = hegFormed.size() == 1
+                && hegFormed.get(0).archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                && hegFormed.get(0).members.size() == 2
+                && "Battle Div. I".equals(hegFormed.get(0).displayName);
+
+        BattleGroupState perseanCapGroup = new BattleGroupState(1, eCmdr);
+        perseanCapGroup.factionId = "persean";
+        List<DivisionState> perseanFormed = divisionai.DivisionAutoFormer.formDivisionsFromPool(perseanCapGroup, hegCapLine);
+        boolean perseanSplitBcv = perseanFormed.size() == 2
+                && (perseanFormed.get(0).archetype == DivisionArchetype.BATTLECARRIER_DIVISION
+                || perseanFormed.get(1).archetype == DivisionArchetype.BATTLECARRIER_DIVISION);
+
+        check(hegBcvDisabled && perseanTtBcvEnabled && hegUnitedBattleLine && perseanSplitBcv,
+                "Faction Library & Fleet Doctrines: Hegemony/Iron Shell/Luddic fold Legion+Onslaught into 'Battle Div. I' while Cruiser-School factions form BCV Divisions",
+                String.format(Locale.ROOT,
+                        "hegBcvOff=%b, perseanTtBcvOn=%b, hegUnited=%b (%s, ships=%d), perseanSplit=%b (divs=%d)",
+                        hegBcvDisabled, perseanTtBcvEnabled, hegUnitedBattleLine,
+                        hegFormed.isEmpty() ? "none" : hegFormed.get(0).displayName,
+                        hegFormed.isEmpty() ? 0 : hegFormed.get(0).members.size(),
+                        perseanSplitBcv, perseanFormed.size()));
+
+        // 3. Verify Missile Phase + Missile Autoforge Combat AI (Standoff Salvo, Synchronized Unphase, & Autoforge Reload)
+        BattleGroupState pMisGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState eMisGroup = new BattleGroupState(1, eCmdr);
+        DivisionState misPhaseDiv = new DivisionState(
+                "p_mph", 0, 1, DivisionArchetype.MISSILE_PHASE_DIVISION, "Missile Phase Div 1", pCmdr);
+        misPhaseDiv.openingMission = DivisionMissionType.TOT_ALPHA_STRIKE;
+        misPhaseDiv.mainMission = DivisionMissionType.TOT_ALPHA_STRIKE;
+        misPhaseDiv.standoffRange = 1350f;
+        pMisGroup.divisions.add(misPhaseDiv);
+
+        DivisionState eCruDiv = new DivisionState(
+                "e_cru_tgt", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Cruiser Line", eCmdr);
+        eCruDiv.openingMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        eCruDiv.mainMission = DivisionMissionType.STANDOFF_ENGAGEMENT;
+        eCruDiv.standoffRange = 1000f;
+        eMisGroup.divisions.add(eCruDiv);
+
+        SimArena misArena = new SimArena(
+                "18b. Missile Phase + Autoforge Salvo & Standoff Reload",
+                "2 Autoforge Missile-Phase ships salvo together from standoff without brawling or sitting cloaked, then reload via AMMO_RELOAD.",
+                pMisGroup, eMisGroup);
+        SimShipState mp1 = misArena.addShip(misPhaseDiv, "mp1", "TTS Shade-M 1", "afflictor", HullSize.FRIGATE, -120f, -1280f, 135f, 1400f, 0, 0);
+        SimShipState mp2 = misArena.addShip(misPhaseDiv, "mp2", "TTS Shade-M 2", "afflictor", HullSize.FRIGATE, 120f, -1280f, 135f, 1400f, 0, 0);
+        for (SimShipState mp : java.util.Arrays.asList(mp1, mp2)) {
+            mp.isPhaseShip = true;
+            mp.detailedCombatModel = true;
+            mp.phased = true;
+            mp.fluxLevel = 0.14f;
+            mp.hardFluxFraction = 0.20f;
+            mp.weapons.clear();
+            mp.weaponMounts.clear();
+            mp.configureShipSystem("forgevats", "Missile Autoforge", false);
+            mp.systemAmmo = 1;
+            mp.systemMaxAmmo = 1;
+            // Non-STRIKE anti-ship missile rack (e.g. Sabot / Harpoon / modded missile without AIHints.STRIKE)
+            mp.addWeaponMount(new SimArena.SimWeaponMount(
+                    mp.id + "_harpoon",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.MEDIUM,
+                    com.fs.starfarer.api.combat.DamageType.HIGH_EXPLOSIVE,
+                    1400f, 35f, 0f, 1000f, 200f, 0f, 4.0f, true, 4, false, false, false));
+        }
+        SimShipState eTgt = misArena.addShip(eCruDiv, "e_eagle", "HSS Eagle", "eagle", HullSize.CRUISER, 0f, 0f, 65f, 1000f, 0, 0);
+        eTgt.detailedCombatModel = true;
+
+        // Check usableStrikeAmmoCount counts non-STRIKE anti-ship missiles (4) + Autoforge reserve (4) = 8 per ship (16 total)
+        int ammoWithForge = divisionai.OtcAI.countUsableStrikeAmmo(mp1.proxy);
+        boolean forgeCategorizedAsReload = ShipSystemCoordinator.classifyShipSystem(mp1.proxy).category
+                == ShipSystemCoordinator.ShipSkillCategory.AMMO_RELOAD;
+
+        // Run 1 C2 tick with full racks (4/4) at 1,280u standoff:
+        // - Division must pick TOT_MISSILE_STRIKE (not TOT_ALPHA_STRIKE 700u brawl!)
+        // - Synchronized phase missile salvo window must unphase cloaked ships (VENT_FLUX) & fire missiles (SELECT_GROUP + FIRE)
+        // - Autoforge must NOT fire prematurely while racks are 4/4!
+        com.fs.starfarer.api.Global.setCombatEngine(misArena.engineProxy);
+        misArena.runSimulation(0.25f);
+        ShipSystemCoordinator.advanceEveryFrame(misArena.engineProxy, pMisGroup, null, eMisGroup, misArena.elapsedTime);
+
+        boolean selectedStandoffMissileIntent = misPhaseDiv.currentIntent == DivisionIntentType.TOT_MISSILE_STRIKE;
+        boolean unphaseCommandIssued = misPhaseDiv.lastPhaseMissileSalvoTimestamp > -90f
+                && mp1.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TOGGLE_SHIELD_OR_PHASE_CLOAK)
+                && mp2.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.TOGGLE_SHIELD_OR_PHASE_CLOAK)
+                && mp1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.DO_NOT_USE_FLUX)
+                && !mp1.aiFlags.hasFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION);
+        boolean heldForgeWhenFull = !mp1.systemActive && mp1.systemAmmo == 1;
+
+        // Next C2 tick (0.50s) once uncloaked inside the 2.8s salvo window: verify synchronized missile group selection & FIRE!
+        mp1.phased = false;
+        mp2.phased = false;
+        misArena.runSimulation(0.50f);
+        boolean salvoFiredTogether = mp1.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.SELECT_GROUP)
+                && mp1.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE)
+                && mp2.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.FIRE);
+        boolean salvoWindowTriggered = unphaseCommandIssued && salvoFiredTogether;
+
+        // Now deplete mp1's missile rack to 0/4 at 1,450u standoff (outside gun range!) and verify ShipSystemCoordinator
+        // fires Missile Autoforge via AMMO_RELOAD without requiring close gun contact!
+        mp1.location.set(-120f, -1450f);
+        mp1.phased = false;
+        mp1.fluxLevel = 0.22f;
+        mp1.weaponMounts.get(0).ammo = 0;
+        ShipSystemCoordinator.advanceEveryFrame(misArena.engineProxy, pMisGroup, null, eMisGroup, misArena.elapsedTime + 1.0f);
+        boolean triggeredForgeAtStandoff = mp1.systemActive && mp1.systemAmmo == 0;
+
+        check(ammoWithForge >= 6 && forgeCategorizedAsReload && selectedStandoffMissileIntent
+                        && salvoWindowTriggered && heldForgeWhenFull && triggeredForgeAtStandoff,
+                "Missile Phase & Autoforge Combat AI: Standoff TOT_MISSILE_STRIKE, Synchronized Unphase Salvo Window & Standoff AMMO_RELOAD",
+                String.format(Locale.ROOT,
+                        "usableAmmo=%d, catReload=%b, intent=%s, salvoSync=%b, heldFull=%b, reloadedAt1450u=%b",
+                        ammoWithForge, forgeCategorizedAsReload, misPhaseDiv.currentIntent,
+                        salvoWindowTriggered, heldForgeWhenFull, triggeredForgeAtStandoff));
     }
 
     private static int countMatchingLogs(List<String> logs, String needle) {

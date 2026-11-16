@@ -23,18 +23,23 @@ public class ShipCapabilityProfile {
 
     public enum TacticalTag {
         CARRIER,
+        BATTLECARRIER,
         BATTLE_LINE_CAPITAL,
         MISSILE_CAPITAL,
         STRIKE_CAPITAL,
         LINE_CRUISER,
         MISSILE_CRUISER,
         STRIKE_CRUISER,
+        PHASE_CRUISER,
         MISSILE_DESTROYER,
+        STRIKE_DESTROYER,
         ESCORT_DESTROYER,
         LINE_DESTROYER,
         MISSILE_FRIGATE,
+        STRIKE_FRIGATE,
         SCREEN_FRIGATE,
         PHASE,
+        MISSILE_PHASE,
         CIVILIAN_AUX
     }
 
@@ -43,10 +48,13 @@ public class ShipCapabilityProfile {
     public final float fpStrength;
     public final float baseMaxSpeed;
     public final boolean isCarrier;
+    public final boolean isBattlecarrier;
     public final boolean isDedicatedCarrier;
     public final boolean isPhase;
     public final boolean isCivilian;
     public final boolean hasSafetyOverrides;
+    public final boolean hasMissileAutoforge;
+    public final boolean isPrimaryMissileBoat;
 
     public final float totalWeaponOP;
     public final float strikeMissileWeight;
@@ -197,12 +205,15 @@ public class ShipCapabilityProfile {
 
         float purePdSum = 0f;
         float missileWeight = 0f;
+        float antiShipMissileRangeWeightedSum = 0f;
+        float antiShipMissileWeight = 0f;
         float weaponOnlyOpSum = 0f;
         int largeMissileCount = 0;
         int mediumMissileCount = 0;
         String hullIdLower = (spec != null && spec.getHullId() != null)
                 ? spec.getHullId().toLowerCase(java.util.Locale.ROOT)
                 : "";
+        this.hasMissileAutoforge = hasMissileReloadOrAutoforgeSystem(ship);
 
         List<WeaponAPI> weapons = ship.getAllWeapons();
         if (weapons != null) {
@@ -233,6 +244,10 @@ public class ShipCapabilityProfile {
                     } else if (effSize == WeaponSize.MEDIUM) {
                         mediumMissileCount++;
                     }
+                    if (fireClass != BattlefieldFirepowerEvaluator.FireClassification.POINT_DEFENSE) {
+                        antiShipMissileWeight += weight;
+                        antiShipMissileRangeWeightedSum += Math.max(900f, Math.min(1850f, range)) * weight;
+                    }
                 }
 
                 if (fireClass == BattlefieldFirepowerEvaluator.FireClassification.POINT_DEFENSE) {
@@ -254,20 +269,37 @@ public class ShipCapabilityProfile {
                         closeSum += weight;
                     }
                 }
-                if (isStrike) {
-                    strikeSum += weight * (type == WeaponType.MISSILE ? 1.35f : 1.0f);
+                if (isStrike || (type == WeaponType.MISSILE && fireClass != BattlefieldFirepowerEvaluator.FireClassification.POINT_DEFENSE)) {
+                    strikeSum += weight * (isStrike ? (type == WeaponType.MISSILE ? 1.35f : 1.0f) : 0.85f);
                 }
             }
         }
 
-        this.isDedicatedCarrier = isDedicatedCarrierHull(this.hullSize, bays, hints, opSum - purePdSum);
+        String designationLower = (spec != null && spec.getDesignation() != null)
+                ? spec.getDesignation().toLowerCase(java.util.Locale.ROOT)
+                : "";
+        float nonPdWeaponOp = Math.max(0f, weaponOnlyOpSum - purePdSum);
+        this.isBattlecarrier = isBattlecarrierHull(this.hullSize, bays, hints, designationLower, nonPdWeaponOp);
+        this.isDedicatedCarrier = !this.isBattlecarrier && isDedicatedCarrierHull(this.hullSize, bays, hints, designationLower, nonPdWeaponOp);
 
         this.totalWeaponOP = Math.max(1f, opSum);
         this.strikeMissileWeight = strikeSum;
         this.pdWeaponWeight = pdSum;
         this.longRangeWeight = longSum;
         this.closeBrawlWeight = closeSum;
-        this.avgWeaponRange = opSum > 0f ? (weightedRangeSum / opSum) : 700f;
+
+        this.isPrimaryMissileBoat = !this.isDedicatedCarrier
+                && antiShipMissileWeight >= 1.0f
+                && (nonPdWeaponOp <= 0.5f || (antiShipMissileWeight / Math.max(1f, nonPdWeaponOp)) >= 0.62f
+                || (this.hasMissileAutoforge && (antiShipMissileWeight / Math.max(1f, nonPdWeaponOp)) >= 0.42f));
+
+        float rawAvgRange = opSum > 0f ? (weightedRangeSum / opSum) : 700f;
+        if (this.isPrimaryMissileBoat && antiShipMissileWeight > 0f) {
+            float mslRange = antiShipMissileRangeWeightedSum / antiShipMissileWeight;
+            this.avgWeaponRange = Math.max(980f, Math.min(1650f, mslRange));
+        } else {
+            this.avgWeaponRange = rawAvgRange;
+        }
 
         boolean isHeadlessMockMissileShip = (weapons != null && weapons.size() <= 2 && strikeSum >= 3.0f);
         this.hasHeavyMissileLoadout = isHeavyMissileHullLoadout(
@@ -277,7 +309,9 @@ public class ShipCapabilityProfile {
                 largeMissileCount,
                 missileWeight,
                 weaponOnlyOpSum,
-                isHeadlessMockMissileShip);
+                isHeadlessMockMissileShip)
+                || (this.isPhase && this.isPrimaryMissileBoat)
+                || (this.hasMissileAutoforge && missileWeight >= 3.0f && (missileWeight / Math.max(1f, weaponOnlyOpSum)) >= 0.34f);
 
         this.isPdScreenCapable = (pdSum / this.totalWeaponOP) >= 0.32f
                 || (interceptorSupportWings >= 1 && pdSum >= 2.0f);
@@ -286,9 +320,49 @@ public class ShipCapabilityProfile {
         this.primaryTag = classifyPrimaryTag();
     }
 
+    public static boolean hasMissileReloadOrAutoforgeSystem(ShipAPI ship) {
+        if (ship == null) return false;
+        if (ship.getVariant() != null && ship.getVariant().hasHullMod("missleracks")) {
+            // Expanded Missile Racks alone is passive, not an active autoforge system
+        }
+        com.fs.starfarer.api.combat.ShipSystemAPI sys = ship.getSystem();
+        if (sys == null || sys.getId() == null) return false;
+        String id = sys.getId().toLowerCase(java.util.Locale.ROOT);
+        if (id.contains("forge") || id.contains("autoforge") || id.contains("missile_reload") || id.contains("fastmissileracks")) {
+            return id.contains("forge") || id.contains("reload");
+        }
+        try {
+            com.fs.starfarer.api.combat.ShipSystemSpecAPI sSpec = sys.getSpecAPI();
+            if (sSpec != null) {
+                Object json = JsonReflectBridge.getShipSystemSpecJson(sSpec);
+                if (json != null) {
+                    String jType = JsonReflectBridge.optString(json, "type", "").toUpperCase(java.util.Locale.ROOT);
+                    String aiType = JsonReflectBridge.optString(json, "aiType", "").toUpperCase(java.util.Locale.ROOT);
+                    if ("AMMO_RELOAD".equals(jType) || aiType.contains("AMMO_RELOAD") || aiType.contains("FORGE")) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
     private TacticalTag classifyPrimaryTag() {
         if (isCivilian) return TacticalTag.CIVILIAN_AUX;
-        if (isPhase) return TacticalTag.PHASE;
+        String desgLower = (ship != null && ship.getHullSpec() != null && ship.getHullSpec().getDesignation() != null)
+                ? ship.getHullSpec().getDesignation().toLowerCase(java.util.Locale.ROOT)
+                : "";
+        if (isPhase) {
+            if (hasHeavyMissileLoadout || isPrimaryMissileBoat) {
+                return TacticalTag.MISSILE_PHASE;
+            }
+            if (hullSize == HullSize.CRUISER || hullSize == HullSize.CAPITAL_SHIP) {
+                return TacticalTag.PHASE_CRUISER;
+            }
+            return TacticalTag.PHASE;
+        }
+        if (isBattlecarrier) return TacticalTag.BATTLECARRIER;
         if (isDedicatedCarrier) return TacticalTag.CARRIER;
 
         switch (hullSize) {
@@ -296,7 +370,7 @@ public class ShipCapabilityProfile {
                 if (hasHeavyMissileLoadout) {
                     return TacticalTag.MISSILE_CAPITAL;
                 }
-                if (baseMaxSpeed >= 75f) {
+                if (isFastBattlecruiserHull(hullSize, baseMaxSpeed, desgLower, hasSafetyOverrides)) {
                     return TacticalTag.STRIKE_CAPITAL;
                 }
                 return TacticalTag.BATTLE_LINE_CAPITAL;
@@ -304,13 +378,16 @@ public class ShipCapabilityProfile {
                 if (hasHeavyMissileLoadout) {
                     return TacticalTag.MISSILE_CRUISER;
                 }
-                if (baseMaxSpeed >= 90f && closeBrawlWeight >= longRangeWeight) {
+                if (isFastStrikeCruiserHull(baseMaxSpeed, desgLower, closeBrawlWeight, longRangeWeight, hasSafetyOverrides)) {
                     return TacticalTag.STRIKE_CRUISER;
                 }
                 return TacticalTag.LINE_CRUISER;
             case DESTROYER:
                 if (hasHeavyMissileLoadout) {
                     return TacticalTag.MISSILE_DESTROYER;
+                }
+                if (isFastStrikeDestroyerHull(baseMaxSpeed, isPdScreenCapable, closeBrawlWeight, longRangeWeight, hasSafetyOverrides)) {
+                    return TacticalTag.STRIKE_DESTROYER;
                 }
                 if (isPdScreenCapable) {
                     return TacticalTag.ESCORT_DESTROYER;
@@ -321,8 +398,38 @@ public class ShipCapabilityProfile {
                 if (hasHeavyMissileLoadout) {
                     return TacticalTag.MISSILE_FRIGATE;
                 }
+                if (isFastStrikeFrigateHull(baseMaxSpeed, desgLower, isPdScreenCapable, closeBrawlWeight, longRangeWeight, hasSafetyOverrides)) {
+                    return TacticalTag.STRIKE_FRIGATE;
+                }
                 return TacticalTag.SCREEN_FRIGATE;
         }
+    }
+
+    public static boolean isFastBattlecruiserHull(HullSize size, float baseSpeed, String designationLower, boolean safetyOverrides) {
+        if (size != HullSize.CAPITAL_SHIP) return false;
+        String d = designationLower != null ? designationLower : "";
+        return d.contains("battlecruiser") || baseSpeed >= 65f || safetyOverrides;
+    }
+
+    public static boolean isFastStrikeCruiserHull(
+            float baseSpeed, String designationLower, float closeWeight, float longWeight, boolean safetyOverrides) {
+        String d = designationLower != null ? designationLower : "";
+        return safetyOverrides
+                || d.contains("fast cruiser")
+                || (baseSpeed >= 80f && closeWeight >= longWeight * 0.75f);
+    }
+
+    public static boolean isFastStrikeDestroyerHull(
+            float baseSpeed, boolean pdScreenCapable, float closeWeight, float longWeight, boolean safetyOverrides) {
+        if (safetyOverrides) return true;
+        return !pdScreenCapable && (baseSpeed >= 95f || (baseSpeed >= 88f && closeWeight > longWeight));
+    }
+
+    public static boolean isFastStrikeFrigateHull(
+            float baseSpeed, String designationLower, boolean pdScreenCapable, float closeWeight, float longWeight, boolean safetyOverrides) {
+        if (safetyOverrides) return true;
+        String d = designationLower != null ? designationLower : "";
+        return !pdScreenCapable && (baseSpeed >= 135f || d.contains("gunship") || (baseSpeed >= 120f && closeWeight > longWeight));
     }
 
     public static float sizeWeight(WeaponSize size) {
@@ -379,9 +486,21 @@ public class ShipCapabilityProfile {
             int bays,
             EnumSet<ShipTypeHints> hints,
             float nonPdWeaponWeight) {
+        return isBattlecarrierHull(hullSize, bays, hints, "", nonPdWeaponWeight);
+    }
+
+    public static boolean isBattlecarrierHull(
+            HullSize hullSize,
+            int bays,
+            EnumSet<ShipTypeHints> hints,
+            String designationLower,
+            float nonPdWeaponWeight) {
         if (bays <= 0 || hullSize != HullSize.CAPITAL_SHIP) return false;
-        return (hints != null && hints.contains(ShipTypeHints.COMBAT))
-                || (bays <= 2 && nonPdWeaponWeight >= 20f);
+        String d = designationLower != null ? designationLower : "";
+        if (d.contains("battlecruiser")) return false;
+        if (d.contains("battlecarrier")) return true;
+        return (hints != null && hints.contains(ShipTypeHints.CARRIER) && hints.contains(ShipTypeHints.COMBAT))
+                || (bays >= 3 && nonPdWeaponWeight >= 22f && (hints == null || !hints.contains(ShipTypeHints.CARRIER)));
     }
 
     /**
@@ -392,8 +511,21 @@ public class ShipCapabilityProfile {
             int bays,
             EnumSet<ShipTypeHints> hints,
             float nonPdWeaponWeight) {
-        boolean isBc = isBattlecarrierHull(hullSize, bays, hints, nonPdWeaponWeight);
-        return !isBc && ((bays >= 1 && hints != null && hints.contains(ShipTypeHints.CARRIER)) || bays >= 2);
+        return isDedicatedCarrierHull(hullSize, bays, hints, "", nonPdWeaponWeight);
+    }
+
+    public static boolean isDedicatedCarrierHull(
+            HullSize hullSize,
+            int bays,
+            EnumSet<ShipTypeHints> hints,
+            String designationLower,
+            float nonPdWeaponWeight) {
+        String d = designationLower != null ? designationLower : "";
+        if (hullSize == HullSize.CAPITAL_SHIP && d.contains("battlecruiser")) {
+            return false;
+        }
+        boolean isBc = isBattlecarrierHull(hullSize, bays, hints, d, nonPdWeaponWeight);
+        return !isBc && ((bays >= 1 && hints != null && hints.contains(ShipTypeHints.CARRIER)) || (bays >= 2 && nonPdWeaponWeight < 20f));
     }
 
     /**

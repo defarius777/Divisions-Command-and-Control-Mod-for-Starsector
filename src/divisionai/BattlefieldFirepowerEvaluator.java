@@ -6006,7 +6006,7 @@ public class BattlefieldFirepowerEvaluator {
                 && enemyArch != null
                 && enemyArch.isDestroyerArchetype();
         boolean myDivIsMainLineOrCarrier = myArch != null
-                && (myArch.isHeavyLineArchetype() || myArch == DivisionArchetype.PHASE_DIVISION || myArch.isCarrierArchetype());
+                && (myArch.isHeavyLineArchetype() || myArch.isPhaseArchetype() || myArch.isCarrierArchetype());
         float skirmisherScreenMult = (enemyDiv.avgFluxLevel < 0.72f)
                 ? ((enemyIsLightScreen && myDivIsMainLineOrCarrier) ? 0.42f : (enemyIsLightDdScreenVsCapital ? 0.62f : 1.0f))
                 : 1.0f;

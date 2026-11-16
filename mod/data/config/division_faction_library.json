@@ -2,6 +2,7 @@
   "#_comment_overview": "Submod-friendly Faction & Fleet-Role Library for Divisions: Command and Control (division_ai). Automatically merged across all enabled mods via Global.getSettings().getMergedJSONForMod('data/config/division_faction_library.json', 'division_ai').",
   "#_comment_organization_ratings": "Supported organizationRating values: 'none' (0% of ships in a division), 'low' (25%), 'average' (50%), 'high' (80% - default fallback for any faction not listed here), 'very_high' (90%), 'perfect' (100%).",
   "#_comment_fleet_roles": "Non-war fleets adapt both their organization rating (via patrolOrganizationRating, merchantOrganizationRating, smugglerOrganizationRating, scavengerOrganizationRating) and their nomenclature (via merchantFleetPrefixes / merchantConvoyNouns / merchantEscortNouns, smugglerFleetPrefixes, scavengerFleetPrefixes). Merchant fleets never call their merchant divisions 'Service Groups'.",
+  "#_comment_division_schemes": "Doctrinal division-organization flags: separatesBattlecarriers (if false, e.g. Hegemony/XIV/Iron Shell/Luddic Church, capital battlecarriers like the Legion stay inside Battleship Divisions on the line of battle), separatesBattlecruisers, separatesStrikeScreen (Strike Destroyer / Strike Frigate split), separatesPhaseSpecialists (Phase Cruiser / Missile Phase split), plus optional per-cell autoAssignSchemes overrides (e.g. {'BATTLECARRIER:BATTLESHIP': false}).",
   "#_comment_submod_api": "Submodders can either place a partial data/config/division_faction_library.json in their own mod or call divisionai.FactionLibrary.registerFaction(factionId, attributes) / FactionLibrary.getOrCreateFaction(factionId) in Java.",
   "defaultOrganizationRating": "high",
   "defaultMerchantPrefixes": {
@@ -20,7 +21,13 @@
     "FRIGATE_DIVISION": "Convoy Picket",
     "MISSILE_FRIGATE_DIVISION": "Convoy Picket",
     "PHASE_DIVISION": "Convoy Scout Screen",
-    "FORCE_DIVISION": "Convoy Guard"
+    "FORCE_DIVISION": "Convoy Guard",
+    "BATTLECRUISER_DIVISION": "Convoy Fast Capital Escort",
+    "BATTLECARRIER_DIVISION": "Convoy Battlecarrier Escort",
+    "PHASE_CRUISER_DIVISION": "Convoy Phase Escort",
+    "STRIKE_DESTROYER_DIVISION": "Convoy Outrider Escort",
+    "STRIKE_FRIGATE_DIVISION": "Convoy Outrider Picket",
+    "MISSILE_PHASE_DIVISION": "Convoy Phase Escort"
   },
   "defaultSmugglerPrefixes": {
     "SERVICE_GROUP": "Blockade Runner Group",
@@ -30,7 +37,13 @@
     "DESTROYER_DIVISION": "Runner Escort",
     "FRIGATE_DIVISION": "Runner Outriders",
     "PHASE_DIVISION": "Shadow Runner Group",
-    "FORCE_DIVISION": "Smuggler Group"
+    "FORCE_DIVISION": "Smuggler Group",
+    "BATTLECRUISER_DIVISION": "Fast Raider Group",
+    "BATTLECARRIER_DIVISION": "Heavy Raider Carrier Group",
+    "PHASE_CRUISER_DIVISION": "Shadow Cruiser Group",
+    "STRIKE_DESTROYER_DIVISION": "Fast Runner Escort",
+    "STRIKE_FRIGATE_DIVISION": "Fast Runner Outriders",
+    "MISSILE_PHASE_DIVISION": "Shadow Torpedo Group"
   },
   "defaultScavengerPrefixes": {
     "SERVICE_GROUP": "Salvage Convoy",
@@ -39,7 +52,13 @@
     "DESTROYER_DIVISION": "Salvage Guard",
     "FRIGATE_DIVISION": "Claim Watch",
     "PHASE_DIVISION": "Survey Recon Group",
-    "FORCE_DIVISION": "Expedition Group"
+    "FORCE_DIVISION": "Expedition Group",
+    "BATTLECRUISER_DIVISION": "Fast Salvage Guard",
+    "BATTLECARRIER_DIVISION": "Heavy Salvage Carrier Guard",
+    "PHASE_CRUISER_DIVISION": "Survey Phase Guard",
+    "STRIKE_DESTROYER_DIVISION": "Expedition Outrider Guard",
+    "STRIKE_FRIGATE_DIVISION": "Expedition Scout Watch",
+    "MISSILE_PHASE_DIVISION": "Survey Phase Recon Group"
   },
   "factions": {
     "hegemony": {
@@ -62,8 +81,23 @@
         "CRUISER_DIVISION": "Convoy Cruiser Escort",
         "DESTROYER_DIVISION": "Convoy Destroyer Escort",
         "FRIGATE_DIVISION": "Convoy Picket",
-        "PHASE_DIVISION": "Convoy Phase Screen"
-      }
+        "PHASE_DIVISION": "Convoy Phase Screen",
+        "BATTLECRUISER_DIVISION": "Convoy Battle Escort",
+        "BATTLECARRIER_DIVISION": "Convoy Carrier Wing",
+        "PHASE_CRUISER_DIVISION": "Convoy Phase Screen",
+        "STRIKE_DESTROYER_DIVISION": "Convoy Destroyer Escort",
+        "STRIKE_FRIGATE_DIVISION": "Convoy Picket",
+        "MISSILE_PHASE_DIVISION": "Convoy Phase Screen"
+      },
+      "aliases": [
+        "xiv",
+        "xiv_battlegroup",
+        "hegemony_xiv"
+      ],
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": false,
+      "separatesStrikeScreen": false,
+      "separatesPhaseSpecialists": false
     },
     "ironshell": {
       "aliases": [
@@ -82,11 +116,24 @@
         "BATTLESHIP_DIVISION": "Ministry Heavy Escort",
         "CRUISER_DIVISION": "Commerce Cruiser Escort",
         "DESTROYER_DIVISION": "Revenue Escort Flotilla",
-        "FRIGATE_DIVISION": "Customs Picket"
-      }
+        "FRIGATE_DIVISION": "Customs Picket",
+        "BATTLECRUISER_DIVISION": "Ministry Heavy Escort",
+        "BATTLECARRIER_DIVISION": "Ministry Heavy Escort",
+        "PHASE_CRUISER_DIVISION": "Commerce Cruiser Escort",
+        "STRIKE_DESTROYER_DIVISION": "Revenue Escort Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "Customs Picket"
+      },
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": false
     },
     "ironsentinel": {
-      "organizationRating": "perfect"
+      "organizationRating": "perfect",
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": false
     },
     "tritachyon": {
       "aliases": [
@@ -110,8 +157,18 @@
         "CRUISER_DIVISION": "Asset Security Unit",
         "DESTROYER_DIVISION": "Convoy Assurance Unit",
         "FRIGATE_DIVISION": "Caravan Picket Unit",
-        "PHASE_DIVISION": "Special Commerce Escort"
-      }
+        "PHASE_DIVISION": "Special Commerce Escort",
+        "BATTLECRUISER_DIVISION": "Capital Protection Unit",
+        "BATTLECARRIER_DIVISION": "Caravan Flight Group",
+        "PHASE_CRUISER_DIVISION": "Special Commerce Escort",
+        "STRIKE_DESTROYER_DIVISION": "Convoy Assurance Unit",
+        "STRIKE_FRIGATE_DIVISION": "Caravan Picket Unit",
+        "MISSILE_PHASE_DIVISION": "Special Commerce Escort"
+      },
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "persean": {
       "aliases": [
@@ -157,12 +214,25 @@
         "BATTLESHIP_DIVISION": "Convoy Heavy Phalanx",
         "CRUISER_DIVISION": "Convoy Cruiser Mora",
         "DESTROYER_DIVISION": "Convoy Destroyer Lochos",
-        "FRIGATE_DIVISION": "Convoy Frigate Screen"
-      }
+        "FRIGATE_DIVISION": "Convoy Frigate Screen",
+        "BATTLECRUISER_DIVISION": "Convoy Heavy Phalanx",
+        "BATTLECARRIER_DIVISION": "Convoy Heavy Phalanx",
+        "PHASE_CRUISER_DIVISION": "Convoy Cruiser Mora",
+        "STRIKE_DESTROYER_DIVISION": "Convoy Destroyer Lochos",
+        "STRIKE_FRIGATE_DIVISION": "Convoy Frigate Screen"
+      },
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "mayasuran_guard": {
       "organizationRating": "perfect",
-      "namingStyle": "CULTURAL_PERSEAN"
+      "namingStyle": "CULTURAL_PERSEAN",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "sindrian_diktat": {
       "aliases": [
@@ -192,7 +262,13 @@
         "MISSILE_FRIGATE_DIVISION": "State Missile Picket",
         "PHASE_DIVISION": "State Phase Detachment",
         "SERVICE_GROUP": "Askonia Supply Convoy",
-        "FORCE_DIVISION": "State Task Group"
+        "FORCE_DIVISION": "State Task Group",
+        "BATTLECRUISER_DIVISION": "State Battlecruiser Line",
+        "BATTLECARRIER_DIVISION": "State Battlecarrier Line",
+        "PHASE_CRUISER_DIVISION": "State Phase Cruiser Detachment",
+        "STRIKE_DESTROYER_DIVISION": "State Strike Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "State Strike Picket",
+        "MISSILE_PHASE_DIVISION": "State Missile Phase Detachment"
       },
       "merchantFleetPrefixes": {
         "SERVICE_GROUP": "State Fuel Convoy",
@@ -200,8 +276,17 @@
         "FLEET_CARRIER_DIVISION": "State Convoy Carrier Wing",
         "CRUISER_DIVISION": "Fuel Convoy Cruiser Guard",
         "DESTROYER_DIVISION": "Convoy Escort Flotilla",
-        "FRIGATE_DIVISION": "Convoy Frigate Picket"
-      }
+        "FRIGATE_DIVISION": "Convoy Frigate Picket",
+        "BATTLECRUISER_DIVISION": "Fuel Convoy Heavy Guard",
+        "BATTLECARRIER_DIVISION": "State Convoy Carrier Wing",
+        "PHASE_CRUISER_DIVISION": "Fuel Convoy Cruiser Guard",
+        "STRIKE_DESTROYER_DIVISION": "Convoy Escort Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "Convoy Frigate Picket"
+      },
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "lions_guard": {
       "organizationRating": "perfect",
@@ -224,8 +309,18 @@
         "FRIGATE_DIVISION": "Guard Convoy Picket",
         "MISSILE_FRIGATE_DIVISION": "Guard Convoy Picket",
         "PHASE_DIVISION": "Guard Phase Screen",
-        "FORCE_DIVISION": "Guard Escort Flotilla"
-      }
+        "FORCE_DIVISION": "Guard Escort Flotilla",
+        "BATTLECRUISER_DIVISION": "Guard Heavy Escort",
+        "BATTLECARRIER_DIVISION": "Guard Carrier Wing",
+        "PHASE_CRUISER_DIVISION": "Guard Phase Screen",
+        "STRIKE_DESTROYER_DIVISION": "Guard Escort Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "Guard Convoy Picket",
+        "MISSILE_PHASE_DIVISION": "Guard Phase Screen"
+      },
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "diktat_achilles": {
       "organizationRating": "very_high",
@@ -252,7 +347,13 @@
         "MISSILE_FRIGATE_DIVISION": "Reformer Missile Picket",
         "PHASE_DIVISION": "Reformer Phase Detachment",
         "SERVICE_GROUP": "Askonia Supply Convoy",
-        "FORCE_DIVISION": "Reformer Task Group"
+        "FORCE_DIVISION": "Reformer Task Group",
+        "BATTLECRUISER_DIVISION": "Reformer Battlecruiser Line",
+        "BATTLECARRIER_DIVISION": "Reformer Battlecarrier Line",
+        "PHASE_CRUISER_DIVISION": "Reformer Phase Cruiser Detachment",
+        "STRIKE_DESTROYER_DIVISION": "Reformer Strike Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "Reformer Strike Picket",
+        "MISSILE_PHASE_DIVISION": "Reformer Missile Phase Detachment"
       },
       "merchantFleetPrefixes": {
         "SERVICE_GROUP": "Askonia Fuel Convoy",
@@ -260,8 +361,17 @@
         "FLEET_CARRIER_DIVISION": "Convoy Carrier Wing",
         "CRUISER_DIVISION": "Fuel Convoy Cruiser Guard",
         "DESTROYER_DIVISION": "Convoy Escort Flotilla",
-        "FRIGATE_DIVISION": "Convoy Frigate Picket"
-      }
+        "FRIGATE_DIVISION": "Convoy Frigate Picket",
+        "BATTLECRUISER_DIVISION": "Fuel Convoy Heavy Guard",
+        "BATTLECARRIER_DIVISION": "Convoy Carrier Wing",
+        "PHASE_CRUISER_DIVISION": "Fuel Convoy Cruiser Guard",
+        "STRIKE_DESTROYER_DIVISION": "Convoy Escort Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "Convoy Frigate Picket"
+      },
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "luddic_church": {
       "organizationRating": "high",
@@ -277,13 +387,22 @@
         "FLEET_CARRIER_DIVISION": "Convoy Carrier Wing",
         "CRUISER_DIVISION": "Warden Cruiser Escort",
         "DESTROYER_DIVISION": "Parish Escort Flotilla",
-        "FRIGATE_DIVISION": "Vigil Convoy Picket"
+        "FRIGATE_DIVISION": "Vigil Convoy Picket",
+        "BATTLECRUISER_DIVISION": "Convoy Heavy Escort",
+        "BATTLECARRIER_DIVISION": "Convoy Carrier Wing",
+        "PHASE_CRUISER_DIVISION": "Warden Cruiser Escort",
+        "STRIKE_DESTROYER_DIVISION": "Parish Escort Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "Vigil Convoy Picket"
       },
       "scavengerFleetPrefixes": {
         "SERVICE_GROUP": "Parish Salvage Convoy",
         "DESTROYER_DIVISION": "Salvage Escort Flotilla",
         "FRIGATE_DIVISION": "Vigil Salvage Picket"
-      }
+      },
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": false,
+      "separatesPhaseSpecialists": false
     },
     "knights_of_ludd": {
       "aliases": [
@@ -315,7 +434,13 @@
         "MISSILE_FRIGATE_DIVISION": "Vigil Missile Picket",
         "PHASE_DIVISION": "Auxiliary Phase Picket",
         "SERVICE_GROUP": "Sanctuary Supply Convoy",
-        "FORCE_DIVISION": "Order Task Group"
+        "FORCE_DIVISION": "Order Task Group",
+        "BATTLECRUISER_DIVISION": "Knight Fast Battle Line",
+        "BATTLECARRIER_DIVISION": "Knight Battlecarrier Line",
+        "PHASE_CRUISER_DIVISION": "Auxiliary Phase Squadron",
+        "STRIKE_DESTROYER_DIVISION": "Order Pursuit Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "Vigil Outrider Picket",
+        "MISSILE_PHASE_DIVISION": "Auxiliary Torpedo Picket"
       },
       "merchantFleetPrefixes": {
         "SERVICE_GROUP": "Sanctuary Relief Convoy",
@@ -333,8 +458,18 @@
         "FRIGATE_DIVISION": "Vigil Convoy Picket",
         "MISSILE_FRIGATE_DIVISION": "Vigil Convoy Picket",
         "PHASE_DIVISION": "Auxiliary Recon Screen",
-        "FORCE_DIVISION": "Sanctuary Escort Flotilla"
-      }
+        "FORCE_DIVISION": "Sanctuary Escort Flotilla",
+        "BATTLECRUISER_DIVISION": "Knight Heavy Escort",
+        "BATTLECARRIER_DIVISION": "Sanctuary Carrier Wing",
+        "PHASE_CRUISER_DIVISION": "Auxiliary Recon Screen",
+        "STRIKE_DESTROYER_DIVISION": "Sanctuary Escort Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "Vigil Convoy Picket",
+        "MISSILE_PHASE_DIVISION": "Auxiliary Recon Screen"
+      },
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": false,
+      "separatesStrikeScreen": false,
+      "separatesPhaseSpecialists": false
     },
     "luddic_path": {
       "aliases": [
@@ -379,7 +514,11 @@
         "Escort Cell",
         "Ambush Group",
         "Outrider Cell"
-      ]
+      ],
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": false
     },
     "pirates": {
       "aliases": [
@@ -443,7 +582,11 @@
         "Scrapper Guard",
         "Claim-Jumper Pack",
         "Salvage Escort"
-      ]
+      ],
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": false
     },
     "independent": {
       "aliases": [
@@ -511,7 +654,11 @@
         "Claim Watch",
         "Expedition Escort",
         "Rig Escort"
-      ]
+      ],
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "cft": {
       "aliases": [
@@ -542,7 +689,11 @@
         "Unit",
         "Division",
         "Caravan"
-      ]
+      ],
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "scavengers": {
       "aliases": [
@@ -572,7 +723,11 @@
         "Group",
         "Unit",
         "Crew"
-      ]
+      ],
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": false
     },
     "hmi": {
       "aliases": [
@@ -616,7 +771,11 @@
         "Division",
         "Crew",
         "Pack"
-      ]
+      ],
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": false
     },
     "mercenary": {
       "aliases": [
@@ -648,7 +807,11 @@
         "Contract Escort",
         "Charter Guard",
         "Security Lance"
-      ]
+      ],
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "uaf": {
       "organizationRating": "very_high",
@@ -674,8 +837,18 @@
         "FRIGATE_DIVISION": "Auroran Convoy Picket",
         "MISSILE_FRIGATE_DIVISION": "Auroran Convoy Picket",
         "PHASE_DIVISION": "Convoy Phase Screen",
-        "FORCE_DIVISION": "Royal Convoy Destroyer Escort"
-      }
+        "FORCE_DIVISION": "Royal Convoy Destroyer Escort",
+        "BATTLECRUISER_DIVISION": "Royal Convoy Battle Escort",
+        "BATTLECARRIER_DIVISION": "Auroran Escort Carrier Wing",
+        "PHASE_CRUISER_DIVISION": "Convoy Phase Screen",
+        "STRIKE_DESTROYER_DIVISION": "Royal Convoy Destroyer Escort",
+        "STRIKE_FRIGATE_DIVISION": "Auroran Convoy Picket",
+        "MISSILE_PHASE_DIVISION": "Convoy Phase Screen"
+      },
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "uaf_november": {
       "aliases": [
@@ -684,7 +857,11 @@
       "organizationRating": "perfect",
       "namingStyle": "STANDARD_PREFIX",
       "basePreset": "DOMAIN_ARMADA",
-      "defaultNumbering": "ROMAN"
+      "defaultNumbering": "ROMAN",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "interstellarimperium": {
       "aliases": [
@@ -711,7 +888,13 @@
         "MISSILE_FRIGATE_DIVISION": "Imperial Missile Picket",
         "PHASE_DIVISION": "Imperial Phase Detachment",
         "SERVICE_GROUP": "Imperial Supply Convoy",
-        "FORCE_DIVISION": "Legion Task Group"
+        "FORCE_DIVISION": "Legion Task Group",
+        "BATTLECRUISER_DIVISION": "Imperial Battlecruiser Line",
+        "BATTLECARRIER_DIVISION": "Imperial Battlecarrier Line",
+        "PHASE_CRUISER_DIVISION": "Imperial Phase Cohort",
+        "STRIKE_DESTROYER_DIVISION": "Strike Destroyer Maniple",
+        "STRIKE_FRIGATE_DIVISION": "Imperial Outrider Picket",
+        "MISSILE_PHASE_DIVISION": "Imperial Torpedo Phase Detachment"
       },
       "merchantFleetPrefixes": {
         "SERVICE_GROUP": "Imperial Trade Convoy",
@@ -729,8 +912,18 @@
         "FRIGATE_DIVISION": "Imperial Convoy Picket",
         "MISSILE_FRIGATE_DIVISION": "Imperial Convoy Picket",
         "PHASE_DIVISION": "Imperial Phase Screen",
-        "FORCE_DIVISION": "Manipular Escort"
-      }
+        "FORCE_DIVISION": "Manipular Escort",
+        "BATTLECRUISER_DIVISION": "Legionary Convoy Escort",
+        "BATTLECARRIER_DIVISION": "Imperial Convoy Carrier Wing",
+        "PHASE_CRUISER_DIVISION": "Imperial Phase Screen",
+        "STRIKE_DESTROYER_DIVISION": "Manipular Destroyer Escort",
+        "STRIKE_FRIGATE_DIVISION": "Imperial Convoy Picket",
+        "MISSILE_PHASE_DIVISION": "Imperial Phase Screen"
+      },
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "ii_imperial_guard": {
       "organizationRating": "perfect",
@@ -753,26 +946,48 @@
         "MISSILE_FRIGATE_DIVISION": "Guard Missile Picket",
         "PHASE_DIVISION": "Guard Phase Detachment",
         "SERVICE_GROUP": "Imperial Supply Convoy",
-        "FORCE_DIVISION": "Guard Task Group"
-      }
+        "FORCE_DIVISION": "Guard Task Group",
+        "BATTLECRUISER_DIVISION": "Guard Battlecruiser Line",
+        "BATTLECARRIER_DIVISION": "Guard Battlecarrier Line",
+        "PHASE_CRUISER_DIVISION": "Guard Phase Cohort",
+        "STRIKE_DESTROYER_DIVISION": "Guard Strike Maniple",
+        "STRIKE_FRIGATE_DIVISION": "Guard Outrider Picket",
+        "MISSILE_PHASE_DIVISION": "Guard Torpedo Phase Detachment"
+      },
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "diableavionics": {
       "organizationRating": "very_high",
-      "merchantOrganizationRating": "high"
+      "merchantOrganizationRating": "high",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "xhanempire": {
       "aliases": [
         "vantanet"
       ],
       "organizationRating": "very_high",
-      "merchantOrganizationRating": "high"
+      "merchantOrganizationRating": "high",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "scy": {
       "aliases": [
         "scynation"
       ],
       "organizationRating": "high",
-      "merchantOrganizationRating": "average"
+      "merchantOrganizationRating": "average",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "remnant": {
       "aliases": [
@@ -789,7 +1004,11 @@
       ],
       "nomenclatureCategory": "POST_AI_WAR",
       "namingStyle": "POST_AI_WAR_UNKNOWN",
-      "organizationRating": "perfect"
+      "organizationRating": "perfect",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "threat": {
       "aliases": [
@@ -799,7 +1018,11 @@
       ],
       "nomenclatureCategory": "THREAT_SWARM",
       "namingStyle": "THREAT_CORRUPTED",
-      "organizationRating": "perfect"
+      "organizationRating": "perfect",
+      "separatesBattlecarriers": false,
+      "separatesBattlecruisers": false,
+      "separatesStrikeScreen": false,
+      "separatesPhaseSpecialists": false
     },
     "dweller": {
       "aliases": [
@@ -822,7 +1045,11 @@
       ],
       "nomenclatureCategory": "ABYSSAL_ERROR",
       "namingStyle": "ABYSSAL_ERROR",
-      "organizationRating": "perfect"
+      "organizationRating": "perfect",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "koc": {
       "aliases": [
@@ -848,7 +1075,11 @@
         "jdp_technology"
       ],
       "organizationRating": "high",
-      "merchantOrganizationRating": "high"
+      "merchantOrganizationRating": "high",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "tahlan_legioinfernalis": {
       "organizationRating": "very_high",
@@ -871,14 +1102,24 @@
         "MISSILE_FRIGATE_DIVISION": "Legio Missile Picket",
         "PHASE_DIVISION": "Legio Phase Detachment",
         "SERVICE_GROUP": "Legio Supply Convoy",
-        "FORCE_DIVISION": "Legio Task Force"
+        "FORCE_DIVISION": "Legio Task Force",
+        "BATTLECRUISER_DIVISION": "Legio Battlecruiser Line",
+        "BATTLECARRIER_DIVISION": "Legio Battlecarrier Line",
+        "PHASE_CRUISER_DIVISION": "Legio Phase Squadron",
+        "STRIKE_DESTROYER_DIVISION": "Legio Hunter Flotilla",
+        "STRIKE_FRIGATE_DIVISION": "Legio Hunter Picket",
+        "MISSILE_PHASE_DIVISION": "Legio Torpedo Phase Detachment"
       },
       "aliases": [
         "tahlan_daemons",
         "tahlan_legiodaemons",
         "tahlan_legioelite",
         "tahlan_allmother"
-      ]
+      ],
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "maybegoogle": {
       "aliases": [
@@ -887,7 +1128,11 @@
         "jdp_deadcomm",
         "jdp_laplacians"
       ],
-      "organizationRating": "average"
+      "organizationRating": "average",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "armaarmatura": {
       "aliases": [
@@ -919,8 +1164,18 @@
         "MISSILE_FRIGATE_DIVISION": "Missile Frigate Wing",
         "PHASE_DIVISION": "Phase Recon Wing",
         "SERVICE_GROUP": "Logistics Convoy",
-        "FORCE_DIVISION": "Mobile Task Group"
-      }
+        "FORCE_DIVISION": "Mobile Task Group",
+        "BATTLECRUISER_DIVISION": "Fast Capital Group",
+        "BATTLECARRIER_DIVISION": "Battlecarrier Strike Group",
+        "PHASE_CRUISER_DIVISION": "Phase Cruiser Wing",
+        "STRIKE_DESTROYER_DIVISION": "Strike Destroyer Squadron",
+        "STRIKE_FRIGATE_DIVISION": "Interceptor Frigate Wing",
+        "MISSILE_PHASE_DIVISION": "Ordnance Phase Wing"
+      },
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     },
     "vic": {
       "aliases": [],
@@ -929,7 +1184,11 @@
       "merchantOrganizationRating": "high",
       "namingStyle": "STANDARD_PREFIX",
       "basePreset": "TRITACHYON_CORPORATE",
-      "defaultNumbering": "ROMAN"
+      "defaultNumbering": "ROMAN",
+      "separatesBattlecarriers": true,
+      "separatesBattlecruisers": true,
+      "separatesStrikeScreen": true,
+      "separatesPhaseSpecialists": true
     }
   }
 }

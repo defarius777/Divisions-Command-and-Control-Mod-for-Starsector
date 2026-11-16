@@ -799,8 +799,12 @@ public final class DivisionNomenclature {
         switch (archetype) {
             case BATTLESHIP_DIVISION:
                 return "BATTLE";
+            case BATTLECRUISER_DIVISION:
+                return "BATTLECRUISER";
             case MISSILE_BATTLESHIP_DIVISION:
                 return "MISSILE_BATTLESHIP";
+            case BATTLECARRIER_DIVISION:
+                return "BATTLECARRIER";
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
             case ESCORT_CARRIER_DIVISION:
@@ -811,16 +815,24 @@ public final class DivisionNomenclature {
                 return "MISSILE_CRUISER";
             case STRIKE_CRUISER_DIVISION:
                 return "STRIKE_CRUISER";
+            case PHASE_CRUISER_DIVISION:
+                return "PHASE_CRUISER";
             case CRUISER_DIVISION:
                 return "CRUISER";
+            case STRIKE_DESTROYER_DIVISION:
+                return "STRIKE_DESTROYER";
             case MISSILE_DESTROYER_DIVISION:
                 return "MISSILE_DESTROYER";
             case DESTROYER_DIVISION:
                 return "DESTROYER";
+            case STRIKE_FRIGATE_DIVISION:
+                return "STRIKE_FRIGATE";
             case MISSILE_FRIGATE_DIVISION:
                 return "MISSILE_FRIGATE";
             case FRIGATE_DIVISION:
                 return "FRIGATE";
+            case MISSILE_PHASE_DIVISION:
+                return "MISSILE_PHASE";
             case PHASE_DIVISION:
                 return "PHASE";
             case SERVICE_GROUP:
@@ -1358,8 +1370,12 @@ public final class DivisionNomenclature {
         switch (archetype) {
             case BATTLESHIP_DIVISION:
                 return "Battle";
+            case BATTLECRUISER_DIVISION:
+                return "Battlecruiser";
             case MISSILE_BATTLESHIP_DIVISION:
                 return "Missile Battle";
+            case BATTLECARRIER_DIVISION:
+                return "Battlecarrier";
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
             case ESCORT_CARRIER_DIVISION:
@@ -1369,16 +1385,24 @@ public final class DivisionNomenclature {
                 return "Missile Cruiser";
             case STRIKE_CRUISER_DIVISION:
                 return "Strike Cruiser";
+            case PHASE_CRUISER_DIVISION:
+                return "Phase Cruiser";
             case CRUISER_DIVISION:
                 return "Cruiser";
+            case STRIKE_DESTROYER_DIVISION:
+                return "Strike Destroyer";
             case DESTROYER_DIVISION:
                 return "Destroyer";
             case MISSILE_DESTROYER_DIVISION:
                 return "Torpedo";
+            case STRIKE_FRIGATE_DIVISION:
+                return "Strike Frigate";
             case FRIGATE_DIVISION:
                 return "Frigate";
             case MISSILE_FRIGATE_DIVISION:
                 return "Missile Frigate";
+            case MISSILE_PHASE_DIVISION:
+                return "Missile Phase";
             case PHASE_DIVISION:
                 return "Phase";
             case SERVICE_GROUP:
@@ -1475,7 +1499,9 @@ public final class DivisionNomenclature {
         if (archetype == null) return "RECLAMATION SWARM";
         switch (archetype) {
             case BATTLESHIP_DIVISION:
+            case BATTLECRUISER_DIVISION:
             case MISSILE_BATTLESHIP_DIVISION:
+            case BATTLECARRIER_DIVISION:
                 return "STANDOFF UNIT";
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
@@ -1484,13 +1510,17 @@ public final class DivisionNomenclature {
                 return "HIVE UNIT";
             case CRUISER_DIVISION:
             case MISSILE_CRUISER_DIVISION:
+            case PHASE_CRUISER_DIVISION:
                 return "OVERSEER UNIT";
             case STRIKE_CRUISER_DIVISION:
+            case STRIKE_DESTROYER_DIVISION:
             case DESTROYER_DIVISION:
             case MISSILE_DESTROYER_DIVISION:
                 return "ASSAULT UNIT";
+            case STRIKE_FRIGATE_DIVISION:
             case FRIGATE_DIVISION:
             case MISSILE_FRIGATE_DIVISION:
+            case MISSILE_PHASE_DIVISION:
             case PHASE_DIVISION:
                 return "SKIRMISH UNIT";
             case SERVICE_GROUP:
@@ -1505,8 +1535,10 @@ public final class DivisionNomenclature {
         if (archetype == null) return "UNFABRICATE";
         switch (archetype) {
             case BATTLESHIP_DIVISION:
+            case BATTLECRUISER_DIVISION:
                 return "TYPE 300";
             case MISSILE_BATTLESHIP_DIVISION:
+            case BATTLECARRIER_DIVISION:
                 return "TYPE 302";
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
@@ -1515,15 +1547,19 @@ public final class DivisionNomenclature {
                 return "TYPE 350";
             case CRUISER_DIVISION:
             case MISSILE_CRUISER_DIVISION:
+            case PHASE_CRUISER_DIVISION:
                 return "TYPE 250";
             case STRIKE_CRUISER_DIVISION:
+            case STRIKE_DESTROYER_DIVISION:
             case MISSILE_DESTROYER_DIVISION:
                 return "TYPE 201";
             case DESTROYER_DIVISION:
                 return "TYPE 200";
             case FRIGATE_DIVISION:
+            case STRIKE_FRIGATE_DIVISION:
                 return "TYPE 100";
             case MISSILE_FRIGATE_DIVISION:
+            case MISSILE_PHASE_DIVISION:
             case PHASE_DIVISION:
                 return "TYPE 101";
             case SERVICE_GROUP:
@@ -1543,8 +1579,12 @@ public final class DivisionNomenclature {
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
                         return "Battle Div";
+                    case BATTLECRUISER_DIVISION:
+                        return "Battlecruiser Div";
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Missile Battleship Div";
+                    case BATTLECARRIER_DIVISION:
+                        return "Battlecarrier Div";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
@@ -1557,16 +1597,24 @@ public final class DivisionNomenclature {
                         return "Missile Cruiser Div";
                     case STRIKE_CRUISER_DIVISION:
                         return "Strike Cruiser Div";
+                    case PHASE_CRUISER_DIVISION:
+                        return "Phase Cruiser Div";
                     case DESTROYER_DIVISION:
                         return "Destroyer Div";
+                    case STRIKE_DESTROYER_DIVISION:
+                        return "Strike Destroyer Div";
                     case MISSILE_DESTROYER_DIVISION:
                         return "Missile Destroyer Div";
                     case FRIGATE_DIVISION:
                         return "Frigate Div";
+                    case STRIKE_FRIGATE_DIVISION:
+                        return "Strike Frigate Div";
                     case MISSILE_FRIGATE_DIVISION:
                         return "Missile Frigate Div";
                     case PHASE_DIVISION:
                         return "Phase Div";
+                    case MISSILE_PHASE_DIVISION:
+                        return "Missile Phase Div";
                     case SERVICE_GROUP:
                         return "Service Group";
                     case FORCE_DIVISION:
@@ -1582,8 +1630,12 @@ public final class DivisionNomenclature {
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
                         return "Battle Line";
+                    case BATTLECRUISER_DIVISION:
+                        return "Battlecruiser Squadron";
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Missile Battle Line";
+                    case BATTLECARRIER_DIVISION:
+                        return "Battlecarrier Line";
                     case FLEET_CARRIER_DIVISION:
                         return "Fleet Carrier Wing";
                     case LIGHT_CARRIER_DIVISION:
@@ -1598,16 +1650,24 @@ public final class DivisionNomenclature {
                         return "Missile Cruiser Squadron";
                     case STRIKE_CRUISER_DIVISION:
                         return "Strike Cruiser Squadron";
+                    case PHASE_CRUISER_DIVISION:
+                        return "Phase Cruiser Detachment";
                     case DESTROYER_DIVISION:
                         return "Destroyer Flotilla";
+                    case STRIKE_DESTROYER_DIVISION:
+                        return "Strike Destroyer Flotilla";
                     case MISSILE_DESTROYER_DIVISION:
                         return "Torpedo Flotilla";
                     case FRIGATE_DIVISION:
                         return "Frigate Picket";
+                    case STRIKE_FRIGATE_DIVISION:
+                        return "Strike Frigate Squadron";
                     case MISSILE_FRIGATE_DIVISION:
                         return "Missile Frigate Picket";
                     case PHASE_DIVISION:
                         return "Phase Detachment";
+                    case MISSILE_PHASE_DIVISION:
+                        return "Ordnance Phase Detachment";
                     case SERVICE_GROUP:
                         return "Auxiliary Train";
                     case FORCE_DIVISION:
@@ -1620,8 +1680,12 @@ public final class DivisionNomenclature {
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
                         return "Capital Asset Group";
+                    case BATTLECRUISER_DIVISION:
+                        return "Fast Capital Group";
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Missile Capital Group";
+                    case BATTLECARRIER_DIVISION:
+                        return "Battlecarrier Asset Group";
                     case FLEET_CARRIER_DIVISION:
                         return "Heavy Flight Group";
                     case LIGHT_CARRIER_DIVISION:
@@ -1636,16 +1700,24 @@ public final class DivisionNomenclature {
                         return "Ordnance Cruiser Unit";
                     case STRIKE_CRUISER_DIVISION:
                         return "Strike Cruiser Unit";
+                    case PHASE_CRUISER_DIVISION:
+                        return "Heavy Phase Unit";
                     case DESTROYER_DIVISION:
                         return "Destroyer Security Unit";
+                    case STRIKE_DESTROYER_DIVISION:
+                        return "Rapid Response Unit";
                     case MISSILE_DESTROYER_DIVISION:
                         return "Torpedo Destroyer Unit";
                     case FRIGATE_DIVISION:
                         return "Frigate Picket Unit";
+                    case STRIKE_FRIGATE_DIVISION:
+                        return "Interceptor Frigate Unit";
                     case MISSILE_FRIGATE_DIVISION:
                         return "Missile Frigate Unit";
                     case PHASE_DIVISION:
                         return "Special Phase Unit";
+                    case MISSILE_PHASE_DIVISION:
+                        return "Ordnance Phase Unit";
                     case SERVICE_GROUP:
                         return "Logistics Asset Group";
                     case FORCE_DIVISION:
@@ -1658,8 +1730,12 @@ public final class DivisionNomenclature {
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
                         return "Battle Phalanx";
+                    case BATTLECRUISER_DIVISION:
+                        return "Battlecruiser Phalanx";
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Missile Battle Phalanx";
+                    case BATTLECARRIER_DIVISION:
+                        return "Battlecarrier Phalanx";
                     case FLEET_CARRIER_DIVISION:
                         return "Fleet Carrier Mora";
                     case LIGHT_CARRIER_DIVISION:
@@ -1674,16 +1750,24 @@ public final class DivisionNomenclature {
                         return "Missile Cruiser Mora";
                     case STRIKE_CRUISER_DIVISION:
                         return "Strike Cruiser Mora";
+                    case PHASE_CRUISER_DIVISION:
+                        return "Phase Cruiser Mora";
                     case DESTROYER_DIVISION:
                         return "Destroyer Lochos";
+                    case STRIKE_DESTROYER_DIVISION:
+                        return "Strike Destroyer Lochos";
                     case MISSILE_DESTROYER_DIVISION:
                         return "Torpedo Destroyer Lochos";
                     case FRIGATE_DIVISION:
                         return "Frigate Screen";
+                    case STRIKE_FRIGATE_DIVISION:
+                        return "Outrider Frigate Lochos";
                     case MISSILE_FRIGATE_DIVISION:
                         return "Missile Frigate Screen";
                     case PHASE_DIVISION:
                         return "Phase Recon Detachment";
+                    case MISSILE_PHASE_DIVISION:
+                        return "Missile Phase Detachment";
                     case SERVICE_GROUP:
                         return "League Supply Convoy";
                     case FORCE_DIVISION:
@@ -1696,8 +1780,12 @@ public final class DivisionNomenclature {
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
                         return "Guard Battle Line";
+                    case BATTLECRUISER_DIVISION:
+                        return "Guard Battlecruiser Line";
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Guard Missile Line";
+                    case BATTLECARRIER_DIVISION:
+                        return "Guard Battlecarrier Line";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
@@ -1710,16 +1798,24 @@ public final class DivisionNomenclature {
                         return "Guard Missile Squadron";
                     case STRIKE_CRUISER_DIVISION:
                         return "Strike Cruiser Squadron";
+                    case PHASE_CRUISER_DIVISION:
+                        return "Special Phase Cruiser Detachment";
                     case DESTROYER_DIVISION:
                         return "Guard Destroyer Flotilla";
+                    case STRIKE_DESTROYER_DIVISION:
+                        return "Strike Destroyer Flotilla";
                     case MISSILE_DESTROYER_DIVISION:
                         return "Torpedo Destroyer Flotilla";
                     case FRIGATE_DIVISION:
                         return "Guard Frigate Picket";
+                    case STRIKE_FRIGATE_DIVISION:
+                        return "Guard Strike Picket";
                     case MISSILE_FRIGATE_DIVISION:
                         return "Guard Missile Picket";
                     case PHASE_DIVISION:
                         return "Special Phase Detachment";
+                    case MISSILE_PHASE_DIVISION:
+                        return "Special Missile Phase Detachment";
                     case SERVICE_GROUP:
                         return "Askonia Supply Convoy";
                     case FORCE_DIVISION:
@@ -1732,8 +1828,12 @@ public final class DivisionNomenclature {
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
                         return "Armada Battle Line";
+                    case BATTLECRUISER_DIVISION:
+                        return "Fast Battle Line";
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Missile Battle Line";
+                    case BATTLECARRIER_DIVISION:
+                        return "Armada Battlecarrier Line";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
@@ -1746,16 +1846,24 @@ public final class DivisionNomenclature {
                         return "Missile Cruiser Squadron";
                     case STRIKE_CRUISER_DIVISION:
                         return "Strike Cruiser Squadron";
+                    case PHASE_CRUISER_DIVISION:
+                        return "Auxiliary Phase Squadron";
                     case DESTROYER_DIVISION:
                         return "Warden Destroyer Flotilla";
+                    case STRIKE_DESTROYER_DIVISION:
+                        return "Pursuit Destroyer Flotilla";
                     case MISSILE_DESTROYER_DIVISION:
                         return "Torpedo Destroyer Flotilla";
                     case FRIGATE_DIVISION:
                         return "Vigil Frigate Picket";
+                    case STRIKE_FRIGATE_DIVISION:
+                        return "Vigil Outrider Picket";
                     case MISSILE_FRIGATE_DIVISION:
                         return "Vigil Missile Picket";
                     case PHASE_DIVISION:
                         return "Auxiliary Phase Picket";
+                    case MISSILE_PHASE_DIVISION:
+                        return "Auxiliary Torpedo Picket";
                     case SERVICE_GROUP:
                         return "Parish Supply Convoy";
                     case FORCE_DIVISION:
@@ -1768,8 +1876,12 @@ public final class DivisionNomenclature {
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
                         return "Capital Raider Pack";
+                    case BATTLECRUISER_DIVISION:
+                        return "Fast Capital Pack";
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Heavy Missile Pack";
+                    case BATTLECARRIER_DIVISION:
+                        return "Battlecarrier Raider Pack";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
@@ -1781,16 +1893,24 @@ public final class DivisionNomenclature {
                         return "Missile Cruiser Pack";
                     case STRIKE_CRUISER_DIVISION:
                         return "Strike Cruiser Pack";
+                    case PHASE_CRUISER_DIVISION:
+                        return "Phase Cruiser Pack";
                     case DESTROYER_DIVISION:
                         return "Destroyer Raider Pack";
+                    case STRIKE_DESTROYER_DIVISION:
+                        return "Hunter Destroyer Pack";
                     case MISSILE_DESTROYER_DIVISION:
                         return "Torpedo Destroyer Pack";
                     case FRIGATE_DIVISION:
                         return "Frigate Wolfpack";
+                    case STRIKE_FRIGATE_DIVISION:
+                        return "Hunter Wolfpack";
                     case MISSILE_FRIGATE_DIVISION:
                         return "Missile Frigate Pack";
                     case PHASE_DIVISION:
                         return "Phase Raider Pack";
+                    case MISSILE_PHASE_DIVISION:
+                        return "Torpedo Phase Pack";
                     case SERVICE_GROUP:
                         return "Prize Supply Convoy";
                     case FORCE_DIVISION:
@@ -1803,8 +1923,12 @@ public final class DivisionNomenclature {
                 switch (archetype) {
                     case BATTLESHIP_DIVISION:
                         return "Heavy Sub-Ordo";
+                    case BATTLECRUISER_DIVISION:
+                        return "Pursuit Sub-Ordo";
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Barrage Sub-Ordo";
+                    case BATTLECARRIER_DIVISION:
+                        return "Battlecarrier Sub-Ordo";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
@@ -1816,16 +1940,24 @@ public final class DivisionNomenclature {
                         return "Ordnance Sub-Ordo";
                     case STRIKE_CRUISER_DIVISION:
                         return "Strike Sub-Ordo";
+                    case PHASE_CRUISER_DIVISION:
+                        return "Phase Sub-Ordo";
                     case DESTROYER_DIVISION:
                         return "Destroyer Fragment";
+                    case STRIKE_DESTROYER_DIVISION:
+                        return "Hunter Fragment";
                     case MISSILE_DESTROYER_DIVISION:
                         return "Torpedo Fragment";
                     case FRIGATE_DIVISION:
                         return "Frigate Fragment";
+                    case STRIKE_FRIGATE_DIVISION:
+                        return "Pursuit Fragment";
                     case MISSILE_FRIGATE_DIVISION:
                         return "Missile Fragment";
                     case PHASE_DIVISION:
                         return "Phase Fragment";
+                    case MISSILE_PHASE_DIVISION:
+                        return "Ordnance Phase Fragment";
                     case SERVICE_GROUP:
                         return "Utility Fragment";
                     case FORCE_DIVISION:

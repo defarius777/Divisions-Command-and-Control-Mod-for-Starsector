@@ -204,6 +204,18 @@ public final class FactionLibrary {
         public final Map<FleetRoleCategory, OrganizationRating> roleOrganizationOverrides =
                 new EnumMap<>(FleetRoleCategory.class);
 
+        // Doctrinal division-organization flags (configurable via division_faction_library.json or submod API):
+        //  - separatesBattlecarriers: if false (e.g. Hegemony, XIV, Iron Shell, Luddic Church), capital battlecarriers
+        //    such as the Legion stand on the line of battle inside Battleship Divisions rather than separate BCV divisions.
+        //  - separatesBattlecruisers: controls whether fast capitals / Battlecruisers form dedicated Battlecruiser Divisions.
+        //  - separatesStrikeScreen: controls whether fast attack Destroyers & Frigates split into Strike Destroyer / Strike Frigate Divisions.
+        //  - separatesPhaseSpecialists: controls whether heavy Phase Cruisers & Missile Phase ships form specialist divisions.
+        public boolean separatesBattlecarriers = true;
+        public boolean separatesBattlecruisers = true;
+        public boolean separatesStrikeScreen = true;
+        public boolean separatesPhaseSpecialists = true;
+        public final Map<String, Boolean> autoSchemeOverrides = new LinkedHashMap<>();
+
         public final List<String> warUnitNouns = new ArrayList<>();
         public final List<String> merchantConvoyNouns = new ArrayList<>();
         public final List<String> merchantEscortNouns = new ArrayList<>();
@@ -284,6 +296,68 @@ public final class FactionLibrary {
             return DivisionNomenclature.getDefaultPrefixForPreset(
                     basePreset != null ? basePreset : PlayerNamingPreset.NAVAL_STANDARD,
                     arch);
+        }
+
+        public void applyDivisionSchemePreferences(PermanentDivisionManager.FleetDoctrineConfig cfg) {
+            if (cfg == null) return;
+            cfg.setSchemeEnabled(
+                    PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                    PermanentDivisionManager.AutoAssignHull.BATTLESHIP,
+                    separatesBattlecarriers);
+            cfg.setSchemeEnabled(
+                    PermanentDivisionManager.AutoAssignCapability.STRIKE,
+                    PermanentDivisionManager.AutoAssignHull.BATTLESHIP,
+                    separatesBattlecruisers);
+            cfg.setSchemeEnabled(
+                    PermanentDivisionManager.AutoAssignCapability.STRIKE,
+                    PermanentDivisionManager.AutoAssignHull.DESTROYER,
+                    separatesStrikeScreen);
+            cfg.setSchemeEnabled(
+                    PermanentDivisionManager.AutoAssignCapability.STRIKE,
+                    PermanentDivisionManager.AutoAssignHull.FRIGATE,
+                    separatesStrikeScreen);
+            cfg.setSchemeEnabled(
+                    PermanentDivisionManager.AutoAssignCapability.PHASE,
+                    PermanentDivisionManager.AutoAssignHull.CRUISER,
+                    separatesPhaseSpecialists);
+            for (PermanentDivisionManager.AutoAssignHull h : PermanentDivisionManager.AutoAssignHull.values()) {
+                if (PermanentDivisionManager.AutoAssignCapability.MISSILE_PHASE.supportsHull(h)) {
+                    cfg.setSchemeEnabled(
+                            PermanentDivisionManager.AutoAssignCapability.MISSILE_PHASE,
+                            h,
+                            separatesPhaseSpecialists);
+                }
+            }
+            for (Map.Entry<String, Boolean> entry : autoSchemeOverrides.entrySet()) {
+                String k = entry.getKey();
+                Boolean v = entry.getValue();
+                if (k == null || v == null) continue;
+                applySchemeOverrideToken(cfg, k, v.booleanValue());
+            }
+        }
+    }
+
+    public static void applySchemeOverrideToken(
+            PermanentDivisionManager.FleetDoctrineConfig cfg,
+            String rawKey,
+            boolean enabled) {
+        if (cfg == null || rawKey == null) return;
+        String clean = rawKey.trim().toUpperCase(Locale.ROOT);
+        int sep = clean.indexOf(':');
+        if (sep <= 0 || sep >= clean.length() - 1) return;
+        String first = clean.substring(0, sep).trim();
+        String second = clean.substring(sep + 1).trim();
+        if ("CAPITAL".equals(first)) first = "BATTLESHIP";
+        if ("CAPITAL".equals(second)) second = "BATTLESHIP";
+        PermanentDivisionManager.AutoAssignCapability cap = PermanentDivisionManager.AutoAssignCapability.fromId(first, null);
+        PermanentDivisionManager.AutoAssignHull hull = PermanentDivisionManager.AutoAssignHull.fromId(second, null);
+        if (cap == null || hull == null) {
+            // Support HULL:CAPABILITY order as well as CAPABILITY:HULL
+            hull = PermanentDivisionManager.AutoAssignHull.fromId(first, null);
+            cap = PermanentDivisionManager.AutoAssignCapability.fromId(second, null);
+        }
+        if (cap != null && hull != null && cap.supportsHull(hull)) {
+            cfg.setSchemeEnabled(cap, hull, enabled);
         }
     }
 
@@ -868,7 +942,9 @@ public final class FactionLibrary {
         DEFAULT_MERCHANT_PREFIXES.clear();
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.SERVICE_GROUP, "Merchant Convoy");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.BATTLESHIP_DIVISION, "Heavy Convoy Escort");
+        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.BATTLECRUISER_DIVISION, "Convoy Fast Capital Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, "Heavy Convoy Escort");
+        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.BATTLECARRIER_DIVISION, "Convoy Battlecarrier Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.FLEET_CARRIER_DIVISION, "Convoy Carrier Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.LIGHT_CARRIER_DIVISION, "Convoy Carrier Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.ESCORT_CARRIER_DIVISION, "Convoy Escort Wing");
@@ -876,17 +952,23 @@ public final class FactionLibrary {
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.CRUISER_DIVISION, "Convoy Cruiser Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.MISSILE_CRUISER_DIVISION, "Convoy Cruiser Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.STRIKE_CRUISER_DIVISION, "Convoy Outrider Escort");
+        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.PHASE_CRUISER_DIVISION, "Convoy Phase Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.DESTROYER_DIVISION, "Convoy Escort");
+        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.STRIKE_DESTROYER_DIVISION, "Convoy Outrider Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.MISSILE_DESTROYER_DIVISION, "Convoy Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.FRIGATE_DIVISION, "Convoy Picket");
+        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.STRIKE_FRIGATE_DIVISION, "Convoy Outrider Picket");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.MISSILE_FRIGATE_DIVISION, "Convoy Picket");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.PHASE_DIVISION, "Convoy Scout Screen");
+        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.MISSILE_PHASE_DIVISION, "Convoy Phase Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.FORCE_DIVISION, "Convoy Guard");
 
         DEFAULT_SMUGGLER_PREFIXES.clear();
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.SERVICE_GROUP, "Blockade Runner Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.BATTLESHIP_DIVISION, "Heavy Raider Group");
+        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.BATTLECRUISER_DIVISION, "Fast Raider Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, "Heavy Raider Group");
+        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.BATTLECARRIER_DIVISION, "Heavy Raider Carrier Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.FLEET_CARRIER_DIVISION, "Raider Carrier Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.LIGHT_CARRIER_DIVISION, "Raider Carrier Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.ESCORT_CARRIER_DIVISION, "Runner Carrier Group");
@@ -894,17 +976,23 @@ public final class FactionLibrary {
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.CRUISER_DIVISION, "Raider Cruiser Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.MISSILE_CRUISER_DIVISION, "Raider Cruiser Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.STRIKE_CRUISER_DIVISION, "Fast Runner Group");
+        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.PHASE_CRUISER_DIVISION, "Shadow Cruiser Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.DESTROYER_DIVISION, "Runner Escort");
+        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.STRIKE_DESTROYER_DIVISION, "Fast Runner Escort");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.MISSILE_DESTROYER_DIVISION, "Runner Escort");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.FRIGATE_DIVISION, "Runner Outriders");
+        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.STRIKE_FRIGATE_DIVISION, "Fast Runner Outriders");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.MISSILE_FRIGATE_DIVISION, "Runner Outriders");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.PHASE_DIVISION, "Shadow Runner Group");
+        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.MISSILE_PHASE_DIVISION, "Shadow Torpedo Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.FORCE_DIVISION, "Smuggler Group");
 
         DEFAULT_SCAVENGER_PREFIXES.clear();
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.SERVICE_GROUP, "Salvage Convoy");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.BATTLESHIP_DIVISION, "Heavy Salvage Guard");
+        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.BATTLECRUISER_DIVISION, "Fast Salvage Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, "Heavy Salvage Guard");
+        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.BATTLECARRIER_DIVISION, "Heavy Salvage Carrier Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.FLEET_CARRIER_DIVISION, "Salvage Carrier Group");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.LIGHT_CARRIER_DIVISION, "Salvage Carrier Group");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.ESCORT_CARRIER_DIVISION, "Survey Carrier Group");
@@ -912,11 +1000,15 @@ public final class FactionLibrary {
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.CRUISER_DIVISION, "Salvage Cruiser Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.MISSILE_CRUISER_DIVISION, "Salvage Cruiser Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.STRIKE_CRUISER_DIVISION, "Expedition Outriders");
+        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.PHASE_CRUISER_DIVISION, "Survey Phase Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.DESTROYER_DIVISION, "Salvage Guard");
+        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.STRIKE_DESTROYER_DIVISION, "Expedition Outrider Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.MISSILE_DESTROYER_DIVISION, "Salvage Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.FRIGATE_DIVISION, "Claim Watch");
+        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.STRIKE_FRIGATE_DIVISION, "Expedition Scout Watch");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.MISSILE_FRIGATE_DIVISION, "Claim Watch");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.PHASE_DIVISION, "Survey Recon Group");
+        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.MISSILE_PHASE_DIVISION, "Survey Phase Recon Group");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.FORCE_DIVISION, "Expedition Group");
 
     }
@@ -1005,6 +1097,23 @@ public final class FactionLibrary {
 
             attr.battleshipDotRoman = JsonReflectBridge.optBoolean(fObj, "battleshipDotRoman", attr.battleshipDotRoman);
             attr.commanderPossessiveChance = JsonReflectBridge.optInt(fObj, "commanderPossessiveChance", attr.commanderPossessiveChance);
+            attr.separatesBattlecarriers = JsonReflectBridge.optBoolean(fObj, "separatesBattlecarriers", attr.separatesBattlecarriers);
+            attr.separatesBattlecruisers = JsonReflectBridge.optBoolean(fObj, "separatesBattlecruisers", attr.separatesBattlecruisers);
+            attr.separatesStrikeScreen = JsonReflectBridge.optBoolean(fObj, "separatesStrikeScreen", attr.separatesStrikeScreen);
+            attr.separatesPhaseSpecialists = JsonReflectBridge.optBoolean(fObj, "separatesPhaseSpecialists", attr.separatesPhaseSpecialists);
+
+            Object schemesObj = JsonReflectBridge.optJSONObject(fObj, "autoAssignSchemes");
+            if (schemesObj != null) {
+                Object schemeKeys = JsonReflectBridge.names(schemesObj);
+                if (schemeKeys != null) {
+                    int sLen = JsonReflectBridge.arrayLength(schemeKeys);
+                    for (int si = 0; si < sLen; si++) {
+                        String sKey = JsonReflectBridge.arrayOptString(schemeKeys, si, "");
+                        if (sKey == null || sKey.isEmpty() || sKey.startsWith("#")) continue;
+                        attr.autoSchemeOverrides.put(sKey.trim(), Boolean.valueOf(JsonReflectBridge.optBoolean(schemesObj, sKey, true)));
+                    }
+                }
+            }
 
             String orgStr = JsonReflectBridge.optString(fObj, "organizationRating", "");
             if (!orgStr.isEmpty()) {

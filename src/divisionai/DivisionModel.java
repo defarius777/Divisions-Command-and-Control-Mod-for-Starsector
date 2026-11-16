@@ -26,7 +26,9 @@ public class DivisionModel {
      */
     public enum DivisionArchetype {
         BATTLESHIP_DIVISION("Battleship Div", true),
+        BATTLECRUISER_DIVISION("Battlecruiser Div", false),
         MISSILE_BATTLESHIP_DIVISION("Missile Battleship Div", false),
+        BATTLECARRIER_DIVISION("Battlecarrier Div", false),
         FLEET_CARRIER_DIVISION("Fleet Carrier Div", false),
         LIGHT_CARRIER_DIVISION("Light Carrier Div", false),
         ESCORT_CARRIER_DIVISION("Escort Carrier Div", false),
@@ -34,11 +36,15 @@ public class DivisionModel {
         CRUISER_DIVISION("Line Cruiser Div", false),
         MISSILE_CRUISER_DIVISION("Missile Cruiser Div", false),
         STRIKE_CRUISER_DIVISION("Strike Cruiser Div", false),
+        PHASE_CRUISER_DIVISION("Phase Cruiser Div", false),
         DESTROYER_DIVISION("Destroyer Div", false),
+        STRIKE_DESTROYER_DIVISION("Strike Destroyer Div", false),
         MISSILE_DESTROYER_DIVISION("Missile Destroyer Div", false),
         FRIGATE_DIVISION("Frigate Div", false),
+        STRIKE_FRIGATE_DIVISION("Strike Frigate Div", false),
         MISSILE_FRIGATE_DIVISION("Missile Frigate Div", false),
         PHASE_DIVISION("Phase Div", false),
+        MISSILE_PHASE_DIVISION("Missile Phase Div", false),
         SERVICE_GROUP("Service Group", true),
         FORCE_DIVISION("Force", true);
 
@@ -71,13 +77,16 @@ public class DivisionModel {
 
         public boolean isBattleshipArchetype() {
             return this == BATTLESHIP_DIVISION
-                    || this == MISSILE_BATTLESHIP_DIVISION;
+                    || this == BATTLECRUISER_DIVISION
+                    || this == MISSILE_BATTLESHIP_DIVISION
+                    || this == BATTLECARRIER_DIVISION;
         }
 
         public boolean isCruiserArchetype() {
             return this == CRUISER_DIVISION
                     || this == MISSILE_CRUISER_DIVISION
-                    || this == STRIKE_CRUISER_DIVISION;
+                    || this == STRIKE_CRUISER_DIVISION
+                    || this == PHASE_CRUISER_DIVISION;
         }
 
         public boolean isHeavyLineArchetype() {
@@ -85,23 +94,50 @@ public class DivisionModel {
         }
 
         public boolean isLineAnvilArchetype() {
-            return isBattleshipArchetype()
+            return this == BATTLESHIP_DIVISION
+                    || this == BATTLECARRIER_DIVISION
                     || this == CRUISER_DIVISION
                     || this == STRIKE_CRUISER_DIVISION;
         }
 
         public boolean isDestroyerArchetype() {
             return this == DESTROYER_DIVISION
+                    || this == STRIKE_DESTROYER_DIVISION
                     || this == MISSILE_DESTROYER_DIVISION;
         }
 
         public boolean isFrigateArchetype() {
             return this == FRIGATE_DIVISION
+                    || this == STRIKE_FRIGATE_DIVISION
                     || this == MISSILE_FRIGATE_DIVISION;
         }
 
+        public boolean isPhaseArchetype() {
+            return this == PHASE_DIVISION
+                    || this == PHASE_CRUISER_DIVISION
+                    || this == MISSILE_PHASE_DIVISION;
+        }
+
+        public boolean isFastStrikeArchetype() {
+            return this == BATTLECRUISER_DIVISION
+                    || this == STRIKE_CRUISER_DIVISION
+                    || this == STRIKE_DESTROYER_DIVISION
+                    || this == STRIKE_FRIGATE_DIVISION;
+        }
+
+        public boolean isStrikeArchetype() {
+            return isFastStrikeArchetype();
+        }
+
+        public boolean hasStrikeCraftCapability() {
+            return isCarrierArchetype() || this == BATTLECARRIER_DIVISION;
+        }
+
         public boolean isLightSkirmisherArchetype() {
-            return isFrigateArchetype() || this == PHASE_DIVISION;
+            return isFrigateArchetype()
+                    || this == PHASE_DIVISION
+                    || this == MISSILE_PHASE_DIVISION
+                    || this == STRIKE_DESTROYER_DIVISION;
         }
 
         public boolean isCarrierArchetype() {
@@ -115,7 +151,8 @@ public class DivisionModel {
             return this == MISSILE_BATTLESHIP_DIVISION
                     || this == MISSILE_CRUISER_DIVISION
                     || this == MISSILE_DESTROYER_DIVISION
-                    || this == MISSILE_FRIGATE_DIVISION;
+                    || this == MISSILE_FRIGATE_DIVISION
+                    || this == MISSILE_PHASE_DIVISION;
         }
     }
 
@@ -443,6 +480,8 @@ public class DivisionModel {
 
         // Capabilities aggregated from member profiles
         public boolean hasMissileStrikeCapability;
+        public float primaryMissileLoadoutRatio = 0f;
+        public float lastPhaseMissileSalvoTimestamp = -100f;
         public boolean hasCarrierCapability;
         public boolean isScreenCapable;
         public boolean isFastFlanker;

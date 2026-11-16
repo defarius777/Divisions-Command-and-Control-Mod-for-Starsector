@@ -922,13 +922,13 @@ public class UITestHarness {
                 && DoctrineDivisionType.forArchetype(null) == DoctrineDivisionType.FORCE
                 && "FORCE".equals(DivisionNomenclature.resolvePrefixBucketKey(DivisionArchetype.FORCE_DIVISION))
                 && "Force 1".equals(DivisionNomenclature.formatPlayerDivisionName(DivisionArchetype.FORCE_DIVISION, 1))
-                && DivisionArchetype.values().length == 16
-                && DoctrineDivisionType.values().length == 16;
+                && DivisionArchetype.values().length == 22
+                && DoctrineDivisionType.values().length == 22;
 
         res.record(
                 itemCOk,
                 "v0.7.0 Item C: Generic 'Force' division added as default fallback across DivisionArchetype & DoctrineDivisionType",
-                "archetypes=16, doctrineTypes=16, defaultPlayerForceName='Force 1'");
+                "archetypes=" + DivisionArchetype.values().length + ", doctrineTypes=" + DoctrineDivisionType.values().length + ", defaultPlayerForceName='Force 1'");
 
         // Item D: All existing nomenclatures have explicit entries for all capability & hull divisions (including Missile & Force)
         PlayerNamingPreset[] presetsToVerify = {

@@ -104,19 +104,24 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         BATTLESHIPS(
                 "Battleships & Capitals",
                 DoctrineDivisionType.BATTLESHIP,
-                DoctrineDivisionType.MISSILE_BATTLESHIP),
+                DoctrineDivisionType.BATTLECRUISER,
+                DoctrineDivisionType.MISSILE_BATTLESHIP,
+                DoctrineDivisionType.BATTLECARRIER),
         CRUISERS(
                 "Cruisers",
                 DoctrineDivisionType.CRUISER,
+                DoctrineDivisionType.STRIKE_CRUISER,
                 DoctrineDivisionType.MISSILE_CRUISER,
-                DoctrineDivisionType.STRIKE_CRUISER),
+                DoctrineDivisionType.PHASE_CRUISER),
         DESTROYERS(
                 "Destroyers",
                 DoctrineDivisionType.DESTROYER,
+                DoctrineDivisionType.STRIKE_DESTROYER,
                 DoctrineDivisionType.MISSILE_DESTROYER),
         FRIGATES(
                 "Frigates",
                 DoctrineDivisionType.FRIGATE,
+                DoctrineDivisionType.STRIKE_FRIGATE,
                 DoctrineDivisionType.MISSILE_FRIGATE),
         CARRIERS(
                 "Carriers & Strike Wings",
@@ -127,6 +132,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         SPECIAL(
                 "Phase, Auxiliaries & Mixed",
                 DoctrineDivisionType.PHASE,
+                DoctrineDivisionType.MISSILE_PHASE,
                 DoctrineDivisionType.SERVICE_GROUP,
                 DoctrineDivisionType.FORCE);
 
@@ -153,19 +159,25 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private static final String NAMING_PRESET_DROPDOWN_KEY = "NAMING_PRESET";
     private static final DivisionArchetype[] CUSTOMIZABLE_ARCHETYPES = {
             DivisionArchetype.BATTLESHIP_DIVISION,
+            DivisionArchetype.BATTLECRUISER_DIVISION,
             DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
+            DivisionArchetype.BATTLECARRIER_DIVISION,
             DivisionArchetype.FLEET_CARRIER_DIVISION,
             DivisionArchetype.LIGHT_CARRIER_DIVISION,
             DivisionArchetype.ESCORT_CARRIER_DIVISION,
             DivisionArchetype.CARRIER_GROUP,
             DivisionArchetype.CRUISER_DIVISION,
-            DivisionArchetype.MISSILE_CRUISER_DIVISION,
             DivisionArchetype.STRIKE_CRUISER_DIVISION,
+            DivisionArchetype.MISSILE_CRUISER_DIVISION,
+            DivisionArchetype.PHASE_CRUISER_DIVISION,
             DivisionArchetype.DESTROYER_DIVISION,
+            DivisionArchetype.STRIKE_DESTROYER_DIVISION,
             DivisionArchetype.MISSILE_DESTROYER_DIVISION,
             DivisionArchetype.FRIGATE_DIVISION,
+            DivisionArchetype.STRIKE_FRIGATE_DIVISION,
             DivisionArchetype.MISSILE_FRIGATE_DIVISION,
             DivisionArchetype.PHASE_DIVISION,
+            DivisionArchetype.MISSILE_PHASE_DIVISION,
             DivisionArchetype.SERVICE_GROUP,
             DivisionArchetype.FORCE_DIVISION
     };
@@ -1311,8 +1323,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         bMaster.getPosition().inTL(x, 5f);
         x += 148f;
 
+        float startCapX = x;
+        float btnY = 5f;
+        float btnW = 122f;
         for (AutoAssignCapability cap : AutoAssignCapability.values()) {
             if (!cap.supportsHull(hull)) continue;
+            if (x + btnW > rowWidth - 6f && x > startCapX) {
+                x = startCapX;
+                btnY += 26f;
+            }
             boolean effectiveOn = doctrine.isSchemeEnabled(cap, hull);
             boolean rawCellOn = doctrine.isRawSchemeCellEnabled(cap, hull);
             boolean nextState = !effectiveOn;
@@ -1325,16 +1344,16 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             darkColor,
                             Alignment.MID,
                             CutStyle.ALL,
-                            116f,
+                            btnW,
                             22f,
                             0f),
                     cmd);
             if (effectiveOn) bCap.highlight();
-            bCap.getPosition().inTL(x, 5f);
-            x += 122f;
+            bCap.getPosition().inTL(x, btnY);
+            x += btnW + 6f;
         }
 
-        DivisionUiWidgets.resizeRowToFit(row, ui, rowWidth, Math.max(rowH, lblBot + 4f));
+        DivisionUiWidgets.resizeRowToFit(row, ui, rowWidth, Math.max(rowH, Math.max(lblBot + 4f, btnY + 27f)));
         row.addUIElement(ui).inTL(0f, 0f);
         body.addCustom(row, 3f);
     }

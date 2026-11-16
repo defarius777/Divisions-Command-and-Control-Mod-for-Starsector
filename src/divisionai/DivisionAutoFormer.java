@@ -334,49 +334,151 @@ public class DivisionAutoFormer {
         return newlyCreated;
     }
 
-    private static List<DivisionState> formDivisionsFromPool(
+    private static PermanentDivisionManager.FleetDoctrineConfig resolveDoctrineForPool(
+            BattleGroupState battleGroup,
+            List<ShipCapabilityProfile> pool) {
+        boolean isAlliedPool = pool != null && !pool.isEmpty() && pool.get(0).ship != null && pool.get(0).ship.isAlly();
+        if (battleGroup != null && (battleGroup.side == 1
+                || isAlliedPool
+                || (battleGroup.factionId != null
+                && !battleGroup.factionId.isEmpty()
+                && !"player".equalsIgnoreCase(battleGroup.factionId)))) {
+            return FactionFleetDoctrines.getDoctrineForFactionId(battleGroup.factionId, null);
+        }
+        return PermanentDivisionManager.getFleetDoctrine();
+    }
+
+    private static PermanentDivisionManager.AutoAssignHull toAutoAssignHull(HullSize size) {
+        if (size == null) return PermanentDivisionManager.AutoAssignHull.FRIGATE;
+        switch (size) {
+            case CAPITAL_SHIP: return PermanentDivisionManager.AutoAssignHull.BATTLESHIP;
+            case CRUISER:      return PermanentDivisionManager.AutoAssignHull.CRUISER;
+            case DESTROYER:    return PermanentDivisionManager.AutoAssignHull.DESTROYER;
+            case FRIGATE:
+            default:           return PermanentDivisionManager.AutoAssignHull.FRIGATE;
+        }
+    }
+
+    public static List<DivisionState> formDivisionsFromPool(
             BattleGroupState battleGroup,
             List<ShipCapabilityProfile> pool) {
         List<DivisionState> newlyCreated = new ArrayList<>();
+        PermanentDivisionManager.FleetDoctrineConfig doc = resolveDoctrineForPool(battleGroup, pool);
+
         List<ShipCapabilityProfile> carriers = new ArrayList<>();
+        List<ShipCapabilityProfile> battlecarriers = new ArrayList<>();
+        List<ShipCapabilityProfile> battlecruisers = new ArrayList<>();
         List<ShipCapabilityProfile> capitals = new ArrayList<>();
         List<ShipCapabilityProfile> missileCapitals = new ArrayList<>();
         List<ShipCapabilityProfile> strikeCruisers = new ArrayList<>();
         List<ShipCapabilityProfile> missileCruisers = new ArrayList<>();
+        List<ShipCapabilityProfile> phaseCruisers = new ArrayList<>();
         List<ShipCapabilityProfile> lineCruisers = new ArrayList<>();
+        List<ShipCapabilityProfile> strikeDestroyers = new ArrayList<>();
         List<ShipCapabilityProfile> missileDestroyers = new ArrayList<>();
         List<ShipCapabilityProfile> escortDestroyers = new ArrayList<>();
         List<ShipCapabilityProfile> lineDestroyers = new ArrayList<>();
+        List<ShipCapabilityProfile> strikeFrigates = new ArrayList<>();
         List<ShipCapabilityProfile> missileFrigates = new ArrayList<>();
         List<ShipCapabilityProfile> screenFrigates = new ArrayList<>();
         List<ShipCapabilityProfile> phaseShips = new ArrayList<>();
+        List<ShipCapabilityProfile> missilePhaseShips = new ArrayList<>();
         List<ShipCapabilityProfile> auxiliaries = new ArrayList<>();
 
         for (ShipCapabilityProfile p : pool) {
+            PermanentDivisionManager.AutoAssignHull aaHull = toAutoAssignHull(p.hullSize);
             if (p.primaryTag == TacticalTag.CIVILIAN_AUX) {
                 auxiliaries.add(p);
+            } else if (p.primaryTag == TacticalTag.MISSILE_PHASE) {
+                PermanentDivisionManager.AutoAssignHull phaseHull =
+                        (p.hullSize == HullSize.CAPITAL_SHIP) ? PermanentDivisionManager.AutoAssignHull.CRUISER : aaHull;
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.MISSILE_PHASE, phaseHull)) {
+                    missilePhaseShips.add(p);
+                } else if (p.hullSize == HullSize.CRUISER || p.hullSize == HullSize.CAPITAL_SHIP) {
+                    phaseCruisers.add(p);
+                } else {
+                    phaseShips.add(p);
+                }
+            } else if (p.primaryTag == TacticalTag.PHASE_CRUISER) {
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.PHASE, PermanentDivisionManager.AutoAssignHull.CRUISER)) {
+                    phaseCruisers.add(p);
+                } else {
+                    phaseShips.add(p);
+                }
             } else if (p.primaryTag == TacticalTag.PHASE) {
                 phaseShips.add(p);
+            } else if (p.primaryTag == TacticalTag.BATTLECARRIER) {
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER, PermanentDivisionManager.AutoAssignHull.BATTLESHIP)) {
+                    battlecarriers.add(p);
+                } else {
+                    capitals.add(p);
+                }
             } else if (p.primaryTag == TacticalTag.CARRIER) {
-                carriers.add(p);
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.CARRIER, aaHull)) {
+                    carriers.add(p);
+                } else if (p.hullSize == HullSize.CAPITAL_SHIP) {
+                    capitals.add(p);
+                } else if (p.hullSize == HullSize.CRUISER) {
+                    lineCruisers.add(p);
+                } else {
+                    escortDestroyers.add(p);
+                }
             } else if (p.primaryTag == TacticalTag.MISSILE_CAPITAL) {
-                missileCapitals.add(p);
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.MISSILE, aaHull)) {
+                    missileCapitals.add(p);
+                } else {
+                    capitals.add(p);
+                }
+            } else if (p.primaryTag == TacticalTag.STRIKE_CAPITAL) {
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.STRIKE, aaHull)) {
+                    battlecruisers.add(p);
+                } else {
+                    capitals.add(p);
+                }
             } else if (p.hullSize == HullSize.CAPITAL_SHIP) {
                 capitals.add(p);
             } else if (p.primaryTag == TacticalTag.MISSILE_CRUISER) {
-                missileCruisers.add(p);
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.MISSILE, aaHull)) {
+                    missileCruisers.add(p);
+                } else {
+                    lineCruisers.add(p);
+                }
             } else if (p.primaryTag == TacticalTag.STRIKE_CRUISER) {
-                strikeCruisers.add(p);
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.STRIKE, aaHull)) {
+                    strikeCruisers.add(p);
+                } else {
+                    lineCruisers.add(p);
+                }
             } else if (p.hullSize == HullSize.CRUISER) {
                 lineCruisers.add(p);
             } else if (p.primaryTag == TacticalTag.MISSILE_DESTROYER) {
-                missileDestroyers.add(p);
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.MISSILE, aaHull)) {
+                    missileDestroyers.add(p);
+                } else {
+                    lineDestroyers.add(p);
+                }
+            } else if (p.primaryTag == TacticalTag.STRIKE_DESTROYER) {
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.STRIKE, aaHull)) {
+                    strikeDestroyers.add(p);
+                } else {
+                    lineDestroyers.add(p);
+                }
             } else if (p.primaryTag == TacticalTag.ESCORT_DESTROYER) {
                 escortDestroyers.add(p);
             } else if (p.hullSize == HullSize.DESTROYER) {
                 lineDestroyers.add(p);
             } else if (p.primaryTag == TacticalTag.MISSILE_FRIGATE) {
-                missileFrigates.add(p);
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.MISSILE, aaHull)) {
+                    missileFrigates.add(p);
+                } else {
+                    screenFrigates.add(p);
+                }
+            } else if (p.primaryTag == TacticalTag.STRIKE_FRIGATE) {
+                if (doc == null || doc.isSchemeEnabled(PermanentDivisionManager.AutoAssignCapability.STRIKE, aaHull)) {
+                    strikeFrigates.add(p);
+                } else {
+                    screenFrigates.add(p);
+                }
             } else {
                 screenFrigates.add(p);
             }
@@ -429,7 +531,9 @@ public class DivisionAutoFormer {
             newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.ESCORT_CARRIER_DIVISION, escortCarriers, 4));
         }
 
-        // 2. Form "Battle Div" & "Missile Battleship Div" from capitals.
+        // 2. Form Capital Divisions (Battlecarrier, Battlecruiser, Missile Battleship, Battleship).
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.BATTLECARRIER_DIVISION, battlecarriers, 2));
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.BATTLECRUISER_DIVISION, battlecruisers, 2));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, missileCapitals, 2));
         for (int i = 0; i < capitals.size(); i += 2) {
             List<ShipCapabilityProfile> group = new ArrayList<>();
@@ -445,26 +549,36 @@ public class DivisionAutoFormer {
             newlyCreated.add(div);
         }
 
-        // 3. Form Cruiser Divisions (missile cruisers, strike cruisers, line cruisers).
+        // 3. Form Cruiser Divisions (missile cruisers, strike cruisers, phase cruisers, line cruisers).
         if (strikeCruisers.size() == 1 && !lineCruisers.isEmpty()) {
             lineCruisers.add(strikeCruisers.remove(0));
         }
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.MISSILE_CRUISER_DIVISION, missileCruisers, MAX_MONOTYPE_DIV_SIZE));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.STRIKE_CRUISER_DIVISION, strikeCruisers, MAX_MONOTYPE_DIV_SIZE));
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.PHASE_CRUISER_DIVISION, phaseCruisers, 3));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.CRUISER_DIVISION, lineCruisers, MAX_MONOTYPE_DIV_SIZE));
 
-        // 4. Form Destroyer Divisions (missile destroyers vs line/escort destroyers).
+        // 4. Form Destroyer Divisions (missile destroyers, strike destroyers, line/escort destroyers).
         List<ShipCapabilityProfile> gunDestroyers = new ArrayList<>();
         gunDestroyers.addAll(escortDestroyers);
         gunDestroyers.addAll(lineDestroyers);
+        if (strikeDestroyers.size() == 1 && !gunDestroyers.isEmpty()) {
+            gunDestroyers.add(strikeDestroyers.remove(0));
+        }
 
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.MISSILE_DESTROYER_DIVISION, missileDestroyers, MAX_MONOTYPE_DIV_SIZE));
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.STRIKE_DESTROYER_DIVISION, strikeDestroyers, MAX_MONOTYPE_DIV_SIZE));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.DESTROYER_DIVISION, gunDestroyers, MAX_MONOTYPE_DIV_SIZE));
 
-        // 5. Form Frigate, Missile Frigate, & Phase Divisions
+        // 5. Form Frigate, Strike Frigate, Missile Frigate, Phase, & Missile Phase Divisions
+        if (strikeFrigates.size() == 1 && !screenFrigates.isEmpty()) {
+            screenFrigates.add(strikeFrigates.remove(0));
+        }
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.MISSILE_FRIGATE_DIVISION, missileFrigates, MAX_FRIGATE_DIV_SIZE));
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.STRIKE_FRIGATE_DIVISION, strikeFrigates, MAX_FRIGATE_DIV_SIZE));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.FRIGATE_DIVISION, screenFrigates, MAX_FRIGATE_DIV_SIZE));
 
+        newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.MISSILE_PHASE_DIVISION, missilePhaseShips, MAX_MONOTYPE_DIV_SIZE));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.PHASE_DIVISION, phaseShips, MAX_MONOTYPE_DIV_SIZE));
         newlyCreated.addAll(chunkIntoDivisions(battleGroup, DivisionArchetype.SERVICE_GROUP, auxiliaries, MAX_FRIGATE_DIV_SIZE));
 
@@ -568,6 +682,7 @@ public class DivisionAutoFormer {
         float speedSum = 0f;
         float rangeSum = 0f;
         int missileShips = 0;
+        int primaryMissileShips = 0;
         int pdShips = 0;
         int carrierShips = 0;
         int ramShips = 0;
@@ -577,8 +692,9 @@ public class DivisionAutoFormer {
             speedSum += p.baseMaxSpeed;
             rangeSum += p.avgWeaponRange;
             if (p.hasHeavyMissileLoadout) missileShips++;
+            if (p.isPrimaryMissileBoat || p.hasMissileAutoforge) primaryMissileShips++;
             if (p.isPdScreenCapable) pdShips++;
-            if (p.isCarrier) carrierShips++;
+            if (p.isCarrier || p.isBattlecarrier) carrierShips++;
             if (p.ship != null && ShipSystemCoordinator.getSkillProfile(p.ship).isDesignedToRam) {
                 ramShips++;
             }
@@ -592,23 +708,29 @@ public class DivisionAutoFormer {
         div.totalFpStrength = fpSum;
         div.avgMaxSpeed = speedSum / count;
         div.avgEngageRange = rangeSum / count;
+        div.primaryMissileLoadoutRatio = (float) primaryMissileShips / (float) count;
 
-        div.hasCarrierCapability = div.archetype.isCarrierArchetype() || (carrierShips > 0);
+        div.hasCarrierCapability = div.archetype.hasStrikeCraftCapability() || (carrierShips > 0);
         div.hasMissileStrikeCapability = !div.archetype.isCarrierArchetype()
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
                 && (div.archetype.isMissileArchetype()
                 || (div.archetype == DivisionArchetype.PHASE_DIVISION)
+                || (div.archetype == DivisionArchetype.PHASE_CRUISER_DIVISION)
                 || (div.archetype != DivisionArchetype.BATTLESHIP_DIVISION
+                && div.archetype != DivisionArchetype.BATTLECRUISER_DIVISION
+                && div.archetype != DivisionArchetype.BATTLECARRIER_DIVISION
                 && div.archetype != DivisionArchetype.CRUISER_DIVISION
                 && div.archetype != DivisionArchetype.STRIKE_CRUISER_DIVISION
                 && missileShips > 0 && missileShips * 2 >= count));
         div.isScreenCapable = (div.archetype == DivisionArchetype.DESTROYER_DIVISION)
-                || div.archetype.isFrigateArchetype()
-                || (pdShips > 0);
+                || (div.archetype == DivisionArchetype.FRIGATE_DIVISION)
+                || (pdShips > 0 && !div.archetype.isPhaseArchetype());
         div.isFastFlanker = !div.archetype.isCarrierArchetype()
                 && !div.archetype.isHeavyLineArchetype()
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
                 && (div.avgMaxSpeed >= 105f
+                || div.archetype == DivisionArchetype.BATTLECRUISER_DIVISION
+                || div.archetype.isStrikeArchetype()
                 || div.archetype.isLightSkirmisherArchetype()
                 || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
 
@@ -701,7 +823,9 @@ public class DivisionAutoFormer {
         } else {
             switch (archetype) {
                 case BATTLESHIP_DIVISION:
+                case BATTLECRUISER_DIVISION:
                 case MISSILE_BATTLESHIP_DIVISION:
+                case BATTLECARRIER_DIVISION:
                 case FLEET_CARRIER_DIVISION:
                 case LIGHT_CARRIER_DIVISION:
                 case ESCORT_CARRIER_DIVISION:
@@ -711,16 +835,20 @@ public class DivisionAutoFormer {
                 case CRUISER_DIVISION:
                 case MISSILE_CRUISER_DIVISION:
                 case STRIKE_CRUISER_DIVISION:
+                case PHASE_CRUISER_DIVISION:
                 case FORCE_DIVISION:
                     baseRadius = 850f;
                     break;
                 case DESTROYER_DIVISION:
+                case STRIKE_DESTROYER_DIVISION:
                 case MISSILE_DESTROYER_DIVISION:
                     baseRadius = 780f;
                     break;
                 case FRIGATE_DIVISION:
+                case STRIKE_FRIGATE_DIVISION:
                 case MISSILE_FRIGATE_DIVISION:
                 case PHASE_DIVISION:
+                case MISSILE_PHASE_DIVISION:
                 default:
                     baseRadius = 720f;
                     break;
@@ -785,8 +913,8 @@ public class DivisionAutoFormer {
             boolean divIsAlly = (div.flagship != null && div.flagship.isAlly());
             if (divIsAlly != prof.ship.isAlly()) continue;
             int aliveCount = div.getAliveMembers().size();
-            int maxCap = (div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                    || div.archetype == DivisionArchetype.SERVICE_GROUP)
+            int maxCap = (div.archetype != null && (div.archetype.isFrigateArchetype()
+                    || div.archetype == DivisionArchetype.SERVICE_GROUP))
                     ? MAX_FRIGATE_DIV_SIZE
                     : MAX_MONOTYPE_DIV_SIZE;
             if (aliveCount >= maxCap) continue;
@@ -802,13 +930,26 @@ public class DivisionAutoFormer {
             if (prof.primaryTag == TacticalTag.CIVILIAN_AUX && div.archetype == DivisionArchetype.SERVICE_GROUP) {
                 return div;
             }
-            if (prof.primaryTag == TacticalTag.PHASE && div.archetype == DivisionArchetype.PHASE_DIVISION) {
+            if (prof.primaryTag == TacticalTag.MISSILE_PHASE && div.archetype == DivisionArchetype.MISSILE_PHASE_DIVISION) {
+                return div;
+            }
+            if (prof.primaryTag == TacticalTag.PHASE_CRUISER && div.archetype == DivisionArchetype.PHASE_CRUISER_DIVISION) {
+                return div;
+            }
+            if (prof.isPhase && div.archetype == DivisionArchetype.PHASE_DIVISION) {
+                return div;
+            }
+            if (prof.primaryTag == TacticalTag.BATTLECARRIER
+                    && (div.archetype == DivisionArchetype.BATTLECARRIER_DIVISION
+                    || div.archetype == DivisionArchetype.BATTLESHIP_DIVISION)) {
                 return div;
             }
             if (prof.primaryTag == TacticalTag.CARRIER && div.archetype.isCarrierArchetype()) {
                 return div;
             }
-            if (prof.hullSize == HullSize.CAPITAL_SHIP && div.archetype == DivisionArchetype.BATTLESHIP_DIVISION) {
+            if (prof.hullSize == HullSize.CAPITAL_SHIP
+                    && (div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                    || div.archetype == DivisionArchetype.BATTLECRUISER_DIVISION)) {
                 return div;
             }
             if (prof.hullSize == HullSize.DESTROYER
@@ -817,12 +958,15 @@ public class DivisionAutoFormer {
                 return div;
             }
             if (prof.hullSize == HullSize.CRUISER
+                    && !prof.isPhase
                     && (div.archetype == DivisionArchetype.CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION)) {
                 return div;
             }
             if (prof.hullSize == HullSize.FRIGATE
+                    && !prof.isPhase
                     && (div.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || div.archetype == DivisionArchetype.STRIKE_FRIGATE_DIVISION
                     || (div.archetype == DivisionArchetype.CARRIER_GROUP && aliveCount < 3))) {
                 return div;
             }

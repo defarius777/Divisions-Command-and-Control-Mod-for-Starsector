@@ -225,9 +225,12 @@ public class SimArena {
         public final EnumSet<com.fs.starfarer.api.combat.ShipCommand> blockedCommands = EnumSet.noneOf(com.fs.starfarer.api.combat.ShipCommand.class);
         public String systemId = null;
         public String systemName = null;
+        public String designation = null;
         public boolean systemActive = false;
         public boolean systemOnOff = false;
         public float systemCooldownRemaining = 0f;
+        public int systemAmmo = Integer.MAX_VALUE;
+        public int systemMaxAmmo = Integer.MAX_VALUE;
         public final ShipwideAIFlags aiFlags = new ShipwideAIFlags();
         public final List<WeaponAPI> weapons = new ArrayList<>();
         public final List<SimWeaponMount> weaponMounts = new ArrayList<>();
@@ -508,6 +511,9 @@ public class SimArena {
                     (p, m, a) -> {
                         if ("getHullName".equals(m.getName()) || "getHullId".equals(m.getName())) return hullName;
                         if ("getHullSize".equals(m.getName())) return hullSize;
+                        if ("getDesignation".equals(m.getName())) return designation;
+                        if ("getShipSystemId".equals(m.getName())) return systemId;
+                        if ("getFighterBays".equals(m.getName())) return fighterBays;
                         if (detailedCombatModel && "getArmorRating".equals(m.getName())) return armorRating;
                         if (detailedCombatModel && "getHitpoints".equals(m.getName())) return maxHullHp;
                         if ("getTags".equals(m.getName())) return Collections.emptyList();
@@ -544,21 +550,20 @@ public class SimArena {
                         return null;
                     });
 
-            final ShipSystemAPI phaseProxy = isPhaseShip
-                    ? (ShipSystemAPI) Proxy.newProxyInstance(
+            final ShipSystemAPI phaseProxy = (ShipSystemAPI) Proxy.newProxyInstance(
                     ShipSystemAPI.class.getClassLoader(),
                     new Class<?>[]{ShipSystemAPI.class},
                     (pp, pm, pa) -> {
                         String pn = pm.getName();
                         if ("getId".equals(pn)) return "phasecloak";
                         if ("isActive".equals(pn) || "isOn".equals(pn)) return phased;
+                        if ("getCooldownRemaining".equals(pn)) return phaseCloakCooldown;
                         Class<?> prt = pm.getReturnType();
                         if (prt == boolean.class) return false;
                         if (prt == int.class) return 0;
                         if (prt == float.class) return 0f;
                         return null;
-                    })
-                    : null;
+                    });
 
             final ShipSystemAPI sysProxy = (ShipSystemAPI) Proxy.newProxyInstance(
                     ShipSystemAPI.class.getClassLoader(),
@@ -576,7 +581,8 @@ public class SimArena {
                             systemCooldownRemaining = 4.0f;
                             return null;
                         }
-                        if ("getAmmo".equals(sn) || "getMaxAmmo".equals(sn)) return Integer.MAX_VALUE;
+                        if ("getAmmo".equals(sn)) return systemAmmo;
+                        if ("getMaxAmmo".equals(sn)) return systemMaxAmmo;
                         if ("getSpecAPI".equals(sn)) {
                             return Proxy.newProxyInstance(
                                     com.fs.starfarer.api.combat.ShipSystemSpecAPI.class.getClassLoader(),
@@ -630,14 +636,17 @@ public class SimArena {
                                         return null;
                                     });
                         }
-                        if ("getPhaseCloak".equals(n)) return detailedCombatModel ? phaseProxy : null;
+                        if ("getPhaseCloak".equals(n)) return (detailedCombatModel && isPhaseShip) ? phaseProxy : null;
                         if ("getSystem".equals(n)) return systemId != null ? sysProxy : null;
                         if ("useSystem".equals(n)) {
-                            if (systemId != null && systemCooldownRemaining <= 0f) {
+                            if (systemId != null && systemCooldownRemaining <= 0f && systemAmmo > 0) {
                                 if (systemOnOff) {
                                     systemActive = !systemActive;
                                 } else {
                                     systemActive = true;
+                                    if (systemAmmo < Integer.MAX_VALUE) {
+                                        systemAmmo--;
+                                    }
                                 }
                             }
                             return null;
@@ -792,7 +801,7 @@ public class SimArena {
                                     });
                         }
                         if ("getHullSize".equals(n)) return hullSize;
-                        if ("getMaxSpeed".equals(n)) return maxSpeed;
+                        if ("getMaxSpeed".equals(n) || "getMaxSpeedWithoutBoost".equals(n)) return maxSpeed;
                         if ("getAcceleration".equals(n)) return accel;
                         if ("getDeceleration".equals(n)) return accel * 0.85f;
                         if ("getCollisionRadius".equals(n)) {
@@ -806,6 +815,20 @@ public class SimArena {
                         if ("getAIFlags".equals(n)) return aiFlags;
                         if ("getNumFighterBays".equals(n)) return fighterBays;
                         if ("getAllWeapons".equals(n)) return weapons;
+                        if ("getWeaponGroupsCopy".equals(n)) {
+                            com.fs.starfarer.api.combat.WeaponGroupAPI grp = (com.fs.starfarer.api.combat.WeaponGroupAPI) Proxy.newProxyInstance(
+                                    com.fs.starfarer.api.combat.WeaponGroupAPI.class.getClassLoader(),
+                                    new Class<?>[]{com.fs.starfarer.api.combat.WeaponGroupAPI.class},
+                                    (gp, gm, ga) -> {
+                                        if ("getWeaponsCopy".equals(gm.getName())) return weapons;
+                                        Class<?> grt = gm.getReturnType();
+                                        if (grt == boolean.class) return false;
+                                        if (grt == int.class) return 0;
+                                        if (grt == float.class) return 0f;
+                                        return null;
+                                    });
+                            return Collections.singletonList(grp);
+                        }
                         if ("equals".equals(n)) return p == a[0];
                         if ("hashCode".equals(n)) return System.identityHashCode(p);
                         if ("toString".equals(n)) return name + "(" + id + ")";

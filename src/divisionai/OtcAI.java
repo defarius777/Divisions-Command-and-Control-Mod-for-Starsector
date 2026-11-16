@@ -304,6 +304,12 @@ public class OtcAI {
         div.hasShipNeedingHelp = needsHelp;
         div.shipNeedingHelp = helpShip;
         div.usableStrikeAmmoCount = strikeAmmo;
+        if (!div.hasMissileStrikeCapability
+                && strikeAmmo > 0
+                && div.archetype != null
+                && (div.archetype.isMissileArchetype() || div.archetype.isPhaseArchetype())) {
+            div.hasMissileStrikeCapability = true;
+        }
         div.totalFpStrength = (ableCount > 0) ? Math.max(1f, ableWeightSum) : Math.max(1f, weightSum * 0.25f);
 
         float coreDistSqSum = 0f;
@@ -1709,9 +1715,9 @@ public class OtcAI {
         DivisionArchetype arch = div.archetype;
         if (arch != null && arch.isBattleshipArchetype()) {
             mainScore = mainScore * 2.05f + 25f;
-        } else if (arch != null && arch.isCruiserArchetype()) {
+        } else if (arch != null && arch.isCruiserArchetype() && !arch.isPhaseArchetype()) {
             mainScore *= 1.35f;
-        } else if (arch == DivisionArchetype.PHASE_DIVISION) {
+        } else if (arch != null && arch.isPhaseArchetype()) {
             mainScore *= 0.48f;
         } else if (arch == DivisionArchetype.CARRIER_GROUP) {
             mainScore *= 0.35f;
@@ -1752,8 +1758,7 @@ public class OtcAI {
         for (DivisionState div : myGroup.divisions) {
             if (div == null || !div.isAbleCombatEffective()) continue;
             if (div == strongestLineDiv
-                    || div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                    || div.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+                    || (div.archetype != null && div.archetype.isBattleshipArchetype())
                     || div.archetype == DivisionArchetype.CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
                     || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
@@ -3503,15 +3508,36 @@ public class OtcAI {
         return minDist;
     }
 
-    private static int countUsableStrikeAmmo(ShipAPI ship) {
+    public static int countUsableStrikeAmmo(ShipAPI ship) {
+        if (ship == null) return 0;
         int total = 0;
+        int antiShipMissileRacks = 0;
         List<WeaponAPI> weapons = ship.getAllWeapons();
         if (weapons == null) return 0;
         for (WeaponAPI w : weapons) {
             if (w == null || w.isDisabled() || w.isPermanentlyDisabled()) continue;
-            boolean isStrikeMissile = (w.getType() == WeaponType.MISSILE) && w.hasAIHint(AIHints.STRIKE);
-            if (isStrikeMissile) {
+            if (w.getType() != WeaponType.MISSILE) continue;
+            boolean isPdOnly = w.hasAIHint(AIHints.PD_ONLY)
+                    || (w.hasAIHint(AIHints.PD) && !w.hasAIHint(AIHints.PD_ALSO));
+            if (isPdOnly) continue;
+            antiShipMissileRacks++;
+            if (w.hasAIHint(AIHints.STRIKE)) {
                 total += w.usesAmmo() ? w.getAmmo() : 4;
+            } else {
+                // Count non-STRIKE anti-ship missile racks (Sabots, Squalls, MIRVs, Pilums, modded missiles)
+                // normalized by burst size so all-missile / missile-phase divisions track usable salvos accurately.
+                if (!w.usesAmmo()) {
+                    total += 3;
+                } else if (w.getAmmo() > 0) {
+                    int burst = Math.max(1, w.getSpec() != null ? w.getSpec().getBurstSize() : 1);
+                    total += Math.max(1, Math.min(8, (w.getAmmo() + burst - 1) / burst));
+                }
+            }
+        }
+        if (antiShipMissileRacks > 0 && ship.getSystem() != null && ship.getSystem().getId() != null) {
+            String sysId = ship.getSystem().getId().toLowerCase(java.util.Locale.ROOT);
+            if ((sysId.contains("forge") || sysId.contains("missile_reload")) && ship.getSystem().getAmmo() > 0) {
+                total += ship.getSystem().getAmmo() * Math.max(2, antiShipMissileRacks * 2);
             }
         }
         return total;

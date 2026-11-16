@@ -1550,19 +1550,25 @@ final class DivisionConfigureSubscreen {
 
     private static final DivisionArchetype[] CONFIGURABLE_ARCHETYPES = new DivisionArchetype[]{
             DivisionArchetype.BATTLESHIP_DIVISION,
+            DivisionArchetype.BATTLECRUISER_DIVISION,
             DivisionArchetype.MISSILE_BATTLESHIP_DIVISION,
+            DivisionArchetype.BATTLECARRIER_DIVISION,
             DivisionArchetype.CRUISER_DIVISION,
-            DivisionArchetype.MISSILE_CRUISER_DIVISION,
             DivisionArchetype.STRIKE_CRUISER_DIVISION,
+            DivisionArchetype.MISSILE_CRUISER_DIVISION,
+            DivisionArchetype.PHASE_CRUISER_DIVISION,
             DivisionArchetype.DESTROYER_DIVISION,
+            DivisionArchetype.STRIKE_DESTROYER_DIVISION,
             DivisionArchetype.MISSILE_DESTROYER_DIVISION,
             DivisionArchetype.FRIGATE_DIVISION,
+            DivisionArchetype.STRIKE_FRIGATE_DIVISION,
             DivisionArchetype.MISSILE_FRIGATE_DIVISION,
             DivisionArchetype.FLEET_CARRIER_DIVISION,
             DivisionArchetype.LIGHT_CARRIER_DIVISION,
             DivisionArchetype.ESCORT_CARRIER_DIVISION,
             DivisionArchetype.CARRIER_GROUP,
             DivisionArchetype.PHASE_DIVISION,
+            DivisionArchetype.MISSILE_PHASE_DIVISION,
             DivisionArchetype.SERVICE_GROUP,
             DivisionArchetype.FORCE_DIVISION
     };

@@ -326,8 +326,8 @@ public class DivisionFormationNavigator {
             }
         }
 
-        if ((div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || div.archetype == DivisionArchetype.PHASE_DIVISION)
+        if (div.archetype != null
+                && (div.archetype.isFrigateArchetype() || div.archetype.isPhaseArchetype())
                 && myGroup.mainEffortDivision != null
                 && myGroup.mainEffortDivision != div
                 && myGroup.mainEffortDivision != div.targetFriendlyDivision
@@ -1477,9 +1477,7 @@ public class DivisionFormationNavigator {
             BattleGroupState myGroup) {
         Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, flankerDiv.side, enemyDiv);
         float weaponRange = (flankerDiv.avgEngageRange > 250f) ? flankerDiv.avgEngageRange : flankerDiv.standoffRange;
-        boolean enemyIsLightOrFlanking = enemyDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || enemyDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                || enemyDiv.archetype == DivisionArchetype.PHASE_DIVISION
+        boolean enemyIsLightOrFlanking = (enemyDiv.archetype != null && enemyDiv.archetype.isLightSkirmisherArchetype())
                 || enemyDiv.currentIntent == DivisionIntentType.WORK_FLANK;
         boolean targetCorneredOrWeak = enemyDiv.edgeProximityPinch >= 0.25f
                 || enemyDiv.isUnableDivision
@@ -1627,9 +1625,7 @@ public class DivisionFormationNavigator {
         boolean flankTargetIsLightOrFlanking = false;
         if (intent == DivisionIntentType.WORK_FLANK && div.targetEnemyDivision != null) {
             DivisionState fTgt = div.targetEnemyDivision;
-            flankTargetIsLightOrFlanking = fTgt.archetype == DivisionArchetype.FRIGATE_DIVISION
-                    || fTgt.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                    || fTgt.archetype == DivisionArchetype.PHASE_DIVISION
+            flankTargetIsLightOrFlanking = (fTgt.archetype != null && fTgt.archetype.isLightSkirmisherArchetype())
                     || fTgt.currentIntent == DivisionIntentType.WORK_FLANK;
         }
 

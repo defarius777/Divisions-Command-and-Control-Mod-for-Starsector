@@ -1889,12 +1889,16 @@ public class DivisionCommanderAI {
                     : nearestEnemyDiv;
             boolean targetCollapsing = alphaTarget.avgFluxLevel >= 0.62f || alphaTarget.avgHullLevel < 0.52f
                     || (myGroup != null && myGroup.fleetFeignedRetreatStage == 2);
-            if (div.archetype.isMissileArchetype()
+            boolean prefersStandoffSalvo = div.archetype.isMissileArchetype()
+                    || div.primaryMissileLoadoutRatio >= 0.55f;
+            if (prefersStandoffSalvo
                     && div.hasMissileStrikeCapability
                     && div.usableStrikeAmmoCount > 0
                     && strikeCooldownElapsed
-                    && div.avgFluxLevel < 0.52f
-                    && (!targetCollapsing || alphaTarget.avgFluxLevel < 0.42f)) {
+                    && div.avgFluxLevel < 0.56f
+                    && (!targetCollapsing || alphaTarget.avgFluxLevel < 0.42f
+                    || div.archetype == DivisionArchetype.MISSILE_PHASE_DIVISION
+                    || div.primaryMissileLoadoutRatio >= 0.55f)) {
                 Vector2f visTargetPos = OtcAI.getVisibleCentroidForSide(engine, div.side, alphaTarget);
                 div.targetEnemyDivision = alphaTarget;
                 div.stationPoint.set(visTargetPos);
@@ -2106,20 +2110,21 @@ public class DivisionCommanderAI {
                     && (myGroup.mainEffortDivision != null && myGroup.mainEffortDivision != div)
                     && (missileTargetEnemyDiv == myGroup.primaryThreatEnemyDivision);
             boolean targetHasHeavyHybridFlak = hasEnemyHybridFlakScreen(missileTargetEnemyDiv);
-            boolean isLightOrDestroyerDiv = (div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                    || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                    || div.archetype == DivisionArchetype.DESTROYER_DIVISION
-                    || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);
+            boolean isLightOrDestroyerDiv = (div.archetype != null
+                    && (div.archetype.isFrigateArchetype() || div.archetype.isDestroyerArchetype()));
             // Opportunistic ToT Alpha Strike: only charge in with all guns when the target capital is genuinely
             // high-flux / damaged & isolated AND (for frigates/destroyers) not protected by active Large/Medium Flak!
-            boolean strandedCapitalTarget = (missileTargetEnemyDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
+            boolean strandedCapitalTarget = div.archetype != DivisionArchetype.MISSILE_PHASE_DIVISION
+                    && div.primaryMissileLoadoutRatio < 0.55f
+                    && (missileTargetEnemyDiv.archetype.isBattleshipArchetype()
                     || missileTargetEnemyDiv.archetype.isCarrierArchetype())
                     && (missileTargetEnemyDiv.avgFluxLevel >= 0.68f
                     || missileTargetEnemyDiv.effectiveHpRatio <= 0.45f)
                     && missileTargetEnemyDiv.localFriendlyStrength <= 45f
                     && (!isLightOrDestroyerDiv || !targetHasHeavyHybridFlak || missileTargetEnemyDiv.avgFluxLevel >= 0.80f)
                     && (isLightOrDestroyerDiv
-                    || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION)
+                    || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                    || div.archetype == DivisionArchetype.PHASE_CRUISER_DIVISION)
                     && div.getAliveMembers().size() >= 2
                     && div.avgFluxLevel < 0.38f;
 
@@ -2414,9 +2419,11 @@ public class DivisionCommanderAI {
                         DivisionFormationNavigator.computeFlankStation(engine, div, target, div.stationPoint, myGroup);
                     }
                 } else if ((activeMission == DivisionMissionType.TOT_ALPHA_STRIKE
-                        && !(div.archetype.isMissileArchetype() && div.hasMissileStrikeCapability && div.usableStrikeAmmoCount > 0))
+                        && !((div.archetype.isMissileArchetype() || div.primaryMissileLoadoutRatio >= 0.55f)
+                        && div.hasMissileStrikeCapability && div.usableStrikeAmmoCount > 0))
                         || !div.hasMissileStrikeCapability
-                        || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) {
+                        || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                        || div.archetype == DivisionArchetype.BATTLECRUISER_DIVISION) {
                     boolean targetCollapsingExec = target.avgFluxLevel >= 0.58f || target.avgHullLevel < 0.58f;
                     if (targetCollapsingExec || (now >= 18f && div.localEnemyStrength >= 12f && div.localForceRatio >= 1.15f)) {
                         div.currentIntent = DivisionIntentType.TOT_ALPHA_STRIKE;
@@ -4565,14 +4572,25 @@ public class DivisionCommanderAI {
             }
             return;
         }
-        if (ship.getFluxLevel() < 0.55f) {
+        boolean isPhaseMissileBoat = ship.getPhaseCloak() != null
+                && (div.archetype == DivisionArchetype.MISSILE_PHASE_DIVISION
+                || div.primaryMissileLoadoutRatio >= 0.50f);
+        if (isPhaseMissileBoat && focusEnemyShip != null) {
+            if (coordinatePhaseMissileSalvoWindow(ship, flags, slotPos, focusEnemyShip, div, now)) {
+                return;
+            }
+        }
+        if (ship.getFluxLevel() < 0.55f && !isPhaseMissileBoat) {
             flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL * 1.5f);
         }
         if (focusEnemyShip != null) {
             directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
             float dEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
-            float minSafeStrikeDist = Math.max(680f, div.avgEngageRange * 0.80f);
-            if (dEnemy < minSafeStrikeDist && ship.getFluxLevel() >= 0.35f) {
+            float minSafeStrikeDist = isPhaseMissileBoat
+                    ? Math.max(980f, Math.min(1320f, div.standoffRange * 0.90f))
+                    : Math.max(680f, div.avgEngageRange * 0.80f);
+            if (dEnemy < minSafeStrikeDist && (isPhaseMissileBoat || ship.getFluxLevel() >= 0.35f)) {
+                flags.unsetFlag(AIFlags.HARASS_MOVE_IN);
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                 flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
             } else if (dEnemy > 2100f || (structuredFormation && distance(ship.getLocation(), slotPos) > combatSlotLeash * 1.35f)) {
@@ -4580,6 +4598,124 @@ public class DivisionCommanderAI {
             }
         } else if (div.targetEnemyDivision != null) {
             flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
+        }
+    }
+
+    /**
+     * Coordinates brief division-level unphase + missile release windows (2.8s every ~7.5s) for
+     * Missile Phase / missile-autoforge phase divisions so members unphase together at safe missile
+     * standoff and salvo simultaneously rather than sitting cloaked until overfluxed.
+     */
+    private static boolean coordinatePhaseMissileSalvoWindow(
+            ShipAPI ship,
+            ShipwideAIFlags flags,
+            Vector2f slotPos,
+            ShipAPI focusEnemyShip,
+            DivisionState div,
+            float now) {
+        if (ship == null || flags == null || focusEnemyShip == null || div == null) return false;
+        float maxMslRange = resolveMaxReadyAntiShipMissileRange(ship, false);
+        if (maxMslRange <= 0f) {
+            return false;
+        }
+        float readyMslRange = resolveMaxReadyAntiShipMissileRange(ship, true);
+        boolean shipRackReady = readyMslRange > 0f && ship.getFluxLevel() < 0.74f;
+        float dEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
+
+        // Trigger a new division-wide 2.8s salvo window once cooldown has elapsed and a quorum of phase boats have ready racks in range
+        if (now - div.lastPhaseMissileSalvoTimestamp > 7.5f && shipRackReady && dEnemy <= readyMslRange * 0.96f) {
+            List<ShipAPI> alive = div.getAliveMembers();
+            int phaseCount = 0;
+            int readyInRangeCount = 0;
+            for (int i = 0, n = alive.size(); i < n; i++) {
+                ShipAPI m = alive.get(i);
+                if (m == null || m.getPhaseCloak() == null) continue;
+                phaseCount++;
+                float mReadyRange = resolveMaxReadyAntiShipMissileRange(m, true);
+                if (mReadyRange > 0f && m.getFluxLevel() < 0.74f
+                        && distance(m.getLocation(), focusEnemyShip.getLocation()) <= mReadyRange * 0.98f) {
+                    readyInRangeCount++;
+                }
+            }
+            if (phaseCount > 0 && readyInRangeCount >= Math.max(1, (phaseCount + 1) / 2)) {
+                div.lastPhaseMissileSalvoTimestamp = now;
+            }
+        }
+
+        boolean inSalvoWindow = div.lastPhaseMissileSalvoTimestamp > -100f
+                && (now - div.lastPhaseMissileSalvoTimestamp) <= 2.8f;
+        if (inSalvoWindow && shipRackReady && dEnemy <= readyMslRange * 0.96f && dEnemy >= 600f) {
+            directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
+            // Drop CAMP_LOCATION flocking vector and pulse DO_NOT_USE_FLUX so PhaseCloakAI unphases cleanly
+            flags.unsetFlag(AIFlags.CAMP_LOCATION);
+            flags.unsetFlag(AIFlags.STAY_PHASED);
+            flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
+            flags.setFlag(AIFlags.DO_NOT_USE_FLUX, 0.35f);
+            float dx = focusEnemyShip.getLocation().x - ship.getLocation().x;
+            float dy = focusEnemyShip.getLocation().y - ship.getLocation().y;
+            float aimDeg = (float) Math.toDegrees(Math.atan2(dy, dx));
+            float diffDeg = Math.abs(com.fs.starfarer.api.util.Misc.getAngleDiff(ship.getFacing(), aimDeg));
+            if (diffDeg <= 50f) {
+                if (ship.isPhased() && ship.getPhaseCloak() != null && ship.getPhaseCloak().isActive()) {
+                    ship.giveCommand(com.fs.starfarer.api.combat.ShipCommand.TOGGLE_SHIELD_OR_PHASE_CLOAK, null, 0);
+                }
+                if (!ship.isPhased()) {
+                    commandReadyAntiShipMissileSalvo(ship, focusEnemyShip, dEnemy);
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static float resolveMaxReadyAntiShipMissileRange(ShipAPI ship, boolean requireReadyNow) {
+        if (ship == null || ship.getAllWeapons() == null) return 0f;
+        float best = 0f;
+        for (com.fs.starfarer.api.combat.WeaponAPI w : ship.getAllWeapons()) {
+            if (w == null || w.isDisabled() || w.isPermanentlyDisabled()) continue;
+            if (w.getType() != com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE) continue;
+            if (w.hasAIHint(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD_ONLY)
+                    || (w.hasAIHint(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD)
+                    && !w.hasAIHint(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD_ALSO))) {
+                continue;
+            }
+            if (requireReadyNow) {
+                if (w.usesAmmo() && w.getAmmo() <= 0) continue;
+                if (w.getCooldownRemaining() > 0.25f) continue;
+            }
+            if (w.getRange() > best) {
+                best = w.getRange();
+            }
+        }
+        return best;
+    }
+
+    private static void commandReadyAntiShipMissileSalvo(ShipAPI ship, ShipAPI target, float distToTarget) {
+        if (ship == null || target == null || ship.getWeaponGroupsCopy() == null) return;
+        List<com.fs.starfarer.api.combat.WeaponGroupAPI> groups = ship.getWeaponGroupsCopy();
+        for (int gIdx = 0; gIdx < groups.size(); gIdx++) {
+            com.fs.starfarer.api.combat.WeaponGroupAPI grp = groups.get(gIdx);
+            if (grp == null || grp.getWeaponsCopy() == null) continue;
+            boolean hasReadyMissileInRange = false;
+            for (com.fs.starfarer.api.combat.WeaponAPI w : grp.getWeaponsCopy()) {
+                if (w == null || w.isDisabled() || w.isPermanentlyDisabled()) continue;
+                if (w.getType() != com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE) continue;
+                if (w.hasAIHint(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD_ONLY)
+                        || (w.hasAIHint(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD)
+                        && !w.hasAIHint(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD_ALSO))) {
+                    continue;
+                }
+                if ((!w.usesAmmo() || w.getAmmo() > 0)
+                        && w.getCooldownRemaining() <= 0.05f
+                        && distToTarget <= w.getRange() * 0.97f) {
+                    hasReadyMissileInRange = true;
+                    break;
+                }
+            }
+            if (hasReadyMissileInRange) {
+                ship.giveCommand(com.fs.starfarer.api.combat.ShipCommand.SELECT_GROUP, null, gIdx);
+                ship.giveCommand(com.fs.starfarer.api.combat.ShipCommand.FIRE, target.getLocation(), gIdx);
+            }
         }
     }
 
@@ -4779,9 +4915,7 @@ public class DivisionCommanderAI {
         float contactDist = Math.min(distToFocus, nearestEnemyDist);
         float distToSlot = distance(ship.getLocation(), slotPos);
         boolean enemyIsLightOrFlanking = div.targetEnemyDivision != null
-                && (div.targetEnemyDivision.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || div.targetEnemyDivision.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                || div.targetEnemyDivision.archetype == DivisionArchetype.PHASE_DIVISION
+                && ((div.targetEnemyDivision.archetype != null && div.targetEnemyDivision.archetype.isLightSkirmisherArchetype())
                 || div.targetEnemyDivision.currentIntent == DivisionIntentType.WORK_FLANK);
         boolean targetCorneredOrWeak = div.targetEnemyDivision != null
                 && (div.targetEnemyDivision.edgeProximityPinch >= 0.25f
@@ -4885,10 +5019,10 @@ public class DivisionCommanderAI {
             float nearestEnemyDist,
             float now) {
         DivisionMissionType activeMission = resolveActiveMission(div, now);
-        boolean isLightOrDestroyerDiv = div.archetype == DivisionArchetype.DESTROYER_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
-                || div.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+        boolean isLightOrDestroyerDiv = div.archetype != null
+                && (div.archetype.isDestroyerArchetype()
+                || div.archetype.isFrigateArchetype()
+                || div.archetype == DivisionArchetype.MISSILE_PHASE_DIVISION);
         boolean standoffPosture = (activeMission == DivisionMissionType.STANDOFF_ENGAGEMENT
                 || activeMission == DivisionMissionType.SCOUTING
                 || (isLightOrDestroyerDiv && div.localForceRatio < 1.15f)
@@ -4926,6 +5060,15 @@ public class DivisionCommanderAI {
             float individualEngageHorizon,
             float combatSlotLeash,
             float nearestEnemyDist) {
+        if (ship.getPhaseCloak() != null
+                && (div.archetype == DivisionArchetype.MISSILE_PHASE_DIVISION
+                || div.primaryMissileLoadoutRatio >= 0.50f)
+                && com.fs.starfarer.api.Global.getCombatEngine() != null) {
+            if (coordinatePhaseMissileSalvoWindow(
+                    ship, flags, slotPos, focusEnemyShip, div, com.fs.starfarer.api.Global.getCombatEngine().getTotalElapsedTime(false))) {
+                return;
+            }
+        }
         directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
         float distToFocus = distance(ship.getLocation(), focusEnemyShip.getLocation());
         float contactDist = Math.min(distToFocus, nearestEnemyDist);
@@ -5182,8 +5325,7 @@ public class DivisionCommanderAI {
             DivisionState nearestEnemyDiv,
             float distToVisibleEnemy) {
         if (div == null || obj == null || obj.getLocation() == null) return false;
-        if (div.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+        if ((div.archetype != null && div.archetype.isBattleshipArchetype())
                 || div.archetype.isCarrierArchetype()
                 || div.archetype == DivisionArchetype.SERVICE_GROUP) {
             return false;
@@ -5196,9 +5338,7 @@ public class DivisionCommanderAI {
             return false;
         }
 
-        boolean isCruiserLine = div.archetype == DivisionArchetype.CRUISER_DIVISION
-                || div.archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
-                || div.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION;
+        boolean isCruiserLine = div.archetype != null && div.archetype.isCruiserArchetype() && !div.archetype.isPhaseArchetype();
         float distToObj = (div.centroid != null) ? distance(div.centroid, obj.getLocation()) : 4000f;
         float axisX = (div.centroid != null) ? div.centroid.x : 0f;
         if (myGroup != null) {
@@ -5877,11 +6017,10 @@ public class DivisionCommanderAI {
                 score -= 480f;
             }
 
-            boolean isLightDiv = myDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
-                    || myDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
-                    || myDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
-                    || myDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                    || myDiv.archetype == DivisionArchetype.PHASE_DIVISION;
+            boolean isLightDiv = myDiv.archetype != null
+                    && (myDiv.archetype.isDestroyerArchetype()
+                    || myDiv.archetype.isFrigateArchetype()
+                    || myDiv.archetype.isPhaseArchetype());
             boolean isCarrierDiv = (myDiv.archetype != null && myDiv.archetype.isCarrierArchetype())
                     || (preferMissilePrey && hasDivisionStrikeCraftCapability(myDiv));
 
@@ -5899,9 +6038,7 @@ public class DivisionCommanderAI {
                     }
                 }
                 score += computeVoidstrikeTargetBiasAdjustment(engine, myDiv.side, myDiv, eDiv, enemyDivs);
-                boolean enemyIsLightSkirmisher = eDiv.archetype == DivisionArchetype.FRIGATE_DIVISION
-                        || eDiv.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                        || eDiv.archetype == DivisionArchetype.PHASE_DIVISION;
+                boolean enemyIsLightSkirmisher = eDiv.archetype != null && eDiv.archetype.isLightSkirmisherArchetype();
                 boolean isLoneUnassignedStraggler = eDiv.id != null
                         && eDiv.id.startsWith("unassigned_enemy_contacts_")
                         && eDiv.getAliveMembers().size() <= 1
@@ -5914,12 +6051,11 @@ public class DivisionCommanderAI {
                         if (eDiv.avgMaxSpeed >= 155f || eDiv.getAliveMembers().size() <= 2) {
                             score -= 220f;
                         }
-                    } else if (eDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
-                            || eDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
-                            || eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
-                            || eDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
-                            || eDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                            || (eDiv.archetype != null && eDiv.archetype.isCarrierArchetype())) {
+                    } else if (eDiv.archetype != null
+                            && (eDiv.archetype.isDestroyerArchetype()
+                            || eDiv.archetype.isCruiserArchetype()
+                            || eDiv.archetype.isBattleshipArchetype()
+                            || eDiv.archetype.isCarrierArchetype())) {
                         score += 240f;
                     }
                 } else {
@@ -5930,12 +6066,11 @@ public class DivisionCommanderAI {
                         if (eDiv.avgMaxSpeed >= 155f || eDiv.getAliveMembers().size() <= 2) {
                             score -= 320f;
                         }
-                    } else if (eDiv.archetype == DivisionArchetype.DESTROYER_DIVISION
-                            || eDiv.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
-                            || eDiv.archetype == DivisionArchetype.CRUISER_DIVISION
-                            || eDiv.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
-                            || eDiv.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                            || (eDiv.archetype != null && eDiv.archetype.isCarrierArchetype())) {
+                    } else if (eDiv.archetype != null
+                            && (eDiv.archetype.isDestroyerArchetype()
+                            || eDiv.archetype.isCruiserArchetype()
+                            || eDiv.archetype.isBattleshipArchetype()
+                            || eDiv.archetype.isCarrierArchetype())) {
                         score += 420f;
                         if (eDiv.getAliveMembers().size() >= 2) {
                             score += 220f;
@@ -6576,14 +6711,12 @@ public class DivisionCommanderAI {
                     DivisionState d = availDivs.get(dIdx);
                     // Only use a Battleship division for a pooled objective if no non-Battleship division remains
                     // or if there is only 1 division in the battle group
-                    if ((d.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                            || d.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION)
+                    if ((d.archetype != null && d.archetype.isBattleshipArchetype())
                             && myGroup.divisions.size() > 1) {
                         boolean nonBattleshipAvailable = false;
                         for (int k = 0; k < availDivs.size(); k++) {
                             DivisionState ok = availDivs.get(k);
-                            if (ok.archetype != DivisionArchetype.BATTLESHIP_DIVISION
-                                    && ok.archetype != DivisionArchetype.MISSILE_BATTLESHIP_DIVISION) {
+                            if (ok.archetype == null || !ok.archetype.isBattleshipArchetype()) {
                                 nonBattleshipAvailable = true;
                                 break;
                             }
@@ -6648,14 +6781,11 @@ public class DivisionCommanderAI {
             BattleObjectiveAPI prevObj) {
         if (d == null || obj == null || d.archetype.isCarrierArchetype()) return -1000000f;
         float roleBonus;
-        if (d.archetype == DivisionArchetype.FRIGATE_DIVISION
-                || d.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
-                || d.archetype == DivisionArchetype.PHASE_DIVISION
-                || d.archetype == DivisionArchetype.DESTROYER_DIVISION
-                || d.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION) {
+        if (d.archetype != null && (d.archetype.isFrigateArchetype()
+                || d.archetype.isPhaseArchetype()
+                || d.archetype.isDestroyerArchetype())) {
             roleBonus = 2200f;
-        } else if (d.archetype == DivisionArchetype.BATTLESHIP_DIVISION
-                || d.archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION) {
+        } else if (d.archetype != null && d.archetype.isBattleshipArchetype()) {
             roleBonus = -2400f;
         } else {
             roleBonus = 600f;

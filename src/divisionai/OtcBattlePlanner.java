@@ -261,7 +261,8 @@ public class OtcBattlePlanner {
             int surfaceCountBeforePrune = 0;
             for (int i = 0, n = plan.participants.size(); i < n; i++) {
                 DivisionState pre = plan.participants.get(i);
-                if (pre != null && !((pre.archetype != null && pre.archetype.isCarrierArchetype()) || pre.hasCarrierCapability)) {
+                if (pre != null && !(DivisionCommanderAI.isCarrierStandoffPosture(pre, now)
+                        || (pre.archetype != null && pre.archetype.isCarrierArchetype()))) {
                     surfaceCountBeforePrune++;
                 }
             }
@@ -270,7 +271,8 @@ public class OtcBattlePlanner {
             boolean anyCarrierVoidstrikeAirborne = false;
             for (Iterator<DivisionState> it = plan.participants.iterator(); it.hasNext(); ) {
                 DivisionState p = it.next();
-                boolean isCarrierPart = (p.archetype != null && p.archetype.isCarrierArchetype()) || p.hasCarrierCapability;
+                boolean isCarrierPart = DivisionCommanderAI.isCarrierStandoffPosture(p, now)
+                        || (p.archetype != null && p.archetype.isCarrierArchetype());
                 if (plan.committed && isCarrierPart && p.voidstrikeEgressActive) {
                     plan.carrierSortieCommitted = true;
                 }
@@ -566,6 +568,7 @@ public class OtcBattlePlanner {
         if (strikers.size() == 1) {
             DivisionState sole = strikers.get(0);
             boolean lightFrigatePack = sole.archetype == DivisionArchetype.FRIGATE_DIVISION
+                    || sole.archetype == DivisionArchetype.STRIKE_FRIGATE_DIVISION
                     || sole.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
             if (lightFrigatePack
                     && sole.totalFpStrength < 20f
@@ -581,7 +584,7 @@ public class OtcBattlePlanner {
             int flankCapable = 0;
             for (DivisionState s : strikers) {
                 if (s.archetype != null && s.archetype.isCarrierArchetype()) anyCarrierStriker = true;
-                if (s.isFastFlanker || s.archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION) flankCapable++;
+                if (s.isFastFlanker || (s.archetype != null && s.archetype.isFastStrikeArchetype())) flankCapable++;
             }
             if (myGroup.useConvergence || anyCarrierStriker) {
                 chosenSetpiece = MultiDivisionSetpiece.CONVERGENCE_KILL_BOX;
@@ -627,11 +630,15 @@ public class OtcBattlePlanner {
                 dy = fdy;
                 len = 1f;
             }
+            boolean missileStandoffMarshal = (d.archetype != null && d.archetype.isMissileArchetype())
+                    || d.primaryMissileLoadoutRatio >= 0.55f;
             float marshalDist = d.archetype.isCarrierArchetype()
                     ? Math.max(2000f, d.standoffRange)
+                    : (missileStandoffMarshal
+                    ? Math.max(1250f, Math.min(1650f, Math.max(d.standoffRange, d.avgEngageRange) * 1.05f))
                     : (DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.TOT_ALPHA_STRIKE
                     ? Math.min(1150f, Math.max(800f, d.avgEngageRange * 1.05f))
-                    : Math.max(850f, Math.min(1250f, d.avgEngageRange > 100f ? d.avgEngageRange * 1.05f : d.standoffRange)));
+                    : Math.max(850f, Math.min(1250f, d.avgEngageRange > 100f ? d.avgEngageRange * 1.05f : d.standoffRange))));
 
             DivisionSetpieceAttack spAtk = DivisionSetpieceAttack.WALL_SALVO_PASS;
             DivisionFormation spForm = DivisionFormation.LINE_ABREAST;
@@ -1216,12 +1223,13 @@ public class OtcBattlePlanner {
                 || DivisionState.isDivisionEscapingInPursuit(engine, primary)))
                 || primary.archetype == DivisionArchetype.SERVICE_GROUP;
         boolean mainIsStandoffCarrier = isFragileStandoffCarrierDivision(main);
+        boolean mainIsPhase = main.archetype != null && main.archetype.isPhaseArchetype();
         boolean singleDestroyerLine = active.size() <= 1
                 && main.archetype != null
                 && main.archetype.isDestroyerArchetype();
         boolean mainIsHeavyLine = (main.archetype != null && main.archetype.isHeavyLineArchetype())
                 || singleDestroyerLine;
-        boolean flotillaSkirmishNoStaticLine = mainIsStandoffCarrier || (openFlotillaAnchor && !mainIsHeavyLine);
+        boolean flotillaSkirmishNoStaticLine = mainIsStandoffCarrier || mainIsPhase || (openFlotillaAnchor && !mainIsHeavyLine);
 
         // Keep the Main Effort steady as the fixing Anvil during Hammer & Anvil, Double Envelopment, Crossing
         // the T, and Kill-Box setpieces; only surge onto EXECUTE_STRIKE during Echeloned Wave Breach or once breaking.

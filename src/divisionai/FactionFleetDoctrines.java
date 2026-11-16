@@ -797,13 +797,13 @@ public final class FactionFleetDoctrines {
                 if (key == null || key.startsWith("_")) continue;
                 Object entryJson = JsonReflectBridge.optJSONObject(factionsJson, key);
                 if (entryJson == null) continue;
-                FleetDoctrineConfig cfg = parseDoctrineFromJson(entryJson);
                 String normKey = key.trim().toLowerCase(Locale.ROOT);
+                FleetDoctrineConfig cfg = parseDoctrineFromJson(normKey, entryJson);
                 DOCTRINE_CACHE.put(normKey, cfg);
                 for (String alias : JsonReflectBridge.optStringList(entryJson, "aliases")) {
                     String normAlias = alias.trim().toLowerCase(Locale.ROOT);
                     if (!normAlias.isEmpty()) {
-                        DOCTRINE_CACHE.put(normAlias, cfg.copy());
+                        DOCTRINE_CACHE.put(normAlias, parseDoctrineFromJson(normAlias, entryJson));
                     }
                 }
             }
@@ -812,8 +812,19 @@ public final class FactionFleetDoctrines {
         }
     }
 
-    private static FleetDoctrineConfig parseDoctrineFromJson(Object entryJson) throws Throwable {
+    private static FleetDoctrineConfig parseDoctrineFromJson(String factionId, Object entryJson) throws Throwable {
         FleetDoctrineConfig cfg = new FleetDoctrineConfig();
+        FactionLibrary.getAttributesForFaction(factionId).applyDivisionSchemePreferences(cfg);
+        Object schemesJson = JsonReflectBridge.optJSONObject(entryJson, "autoAssignSchemes");
+        if (schemesJson == null) {
+            schemesJson = JsonReflectBridge.optJSONObject(entryJson, "enabledSchemes");
+        }
+        if (schemesJson != null) {
+            for (String sKey : JsonReflectBridge.keys(schemesJson)) {
+                if (sKey == null || sKey.startsWith("#") || sKey.startsWith("_")) continue;
+                FactionLibrary.applySchemeOverrideToken(cfg, sKey, JsonReflectBridge.optBoolean(schemesJson, sKey, true));
+            }
+        }
         String authStr = JsonReflectBridge.optString(entryJson, "otcAuthority", null);
         if (authStr != null && !authStr.isEmpty()) {
             cfg.setOtcAuthority(OtcAuthority.fromId(authStr, cfg.getOtcAuthority()));
@@ -995,6 +1006,7 @@ public final class FactionFleetDoctrines {
 
     private static FleetDoctrineConfig buildFactionDoctrine(String id, FactionAPI optionalFaction) {
         FleetDoctrineConfig cfg = new FleetDoctrineConfig();
+        FactionLibrary.getAttributesForFaction(id).applyDivisionSchemePreferences(cfg);
         // Dynamic fallback from FactionDoctrineAPI if present for unknown modded factions
         if (optionalFaction != null && optionalFaction.getDoctrine() != null) {
             FactionDoctrineAPI fd = optionalFaction.getDoctrine();
@@ -1628,32 +1640,54 @@ public final class FactionFleetDoctrines {
     private static boolean areArchetypesSameHullWeight(DivisionArchetype a, DivisionArchetype b) {
         if (a == null || b == null) return false;
         if (a == b) return true;
-        boolean aCap = a == DivisionArchetype.BATTLESHIP_DIVISION || a == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
-        boolean bCap = b == DivisionArchetype.BATTLESHIP_DIVISION || b == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION;
+        boolean aCap = a == DivisionArchetype.BATTLESHIP_DIVISION
+                || a == DivisionArchetype.BATTLECRUISER_DIVISION
+                || a == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+                || a == DivisionArchetype.BATTLECARRIER_DIVISION;
+        boolean bCap = b == DivisionArchetype.BATTLESHIP_DIVISION
+                || b == DivisionArchetype.BATTLECRUISER_DIVISION
+                || b == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+                || b == DivisionArchetype.BATTLECARRIER_DIVISION;
         if (aCap && bCap) return true;
         boolean aCru = a == DivisionArchetype.CRUISER_DIVISION
                 || a == DivisionArchetype.MISSILE_CRUISER_DIVISION
-                || a == DivisionArchetype.STRIKE_CRUISER_DIVISION;
+                || a == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                || a == DivisionArchetype.PHASE_CRUISER_DIVISION;
         boolean bCru = b == DivisionArchetype.CRUISER_DIVISION
                 || b == DivisionArchetype.MISSILE_CRUISER_DIVISION
-                || b == DivisionArchetype.STRIKE_CRUISER_DIVISION;
+                || b == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                || b == DivisionArchetype.PHASE_CRUISER_DIVISION;
         if (aCru && bCru) return true;
-        boolean aDes = a == DivisionArchetype.DESTROYER_DIVISION || a == DivisionArchetype.MISSILE_DESTROYER_DIVISION;
-        boolean bDes = b == DivisionArchetype.DESTROYER_DIVISION || b == DivisionArchetype.MISSILE_DESTROYER_DIVISION;
+        boolean aDes = a == DivisionArchetype.DESTROYER_DIVISION
+                || a == DivisionArchetype.STRIKE_DESTROYER_DIVISION
+                || a == DivisionArchetype.MISSILE_DESTROYER_DIVISION;
+        boolean bDes = b == DivisionArchetype.DESTROYER_DIVISION
+                || b == DivisionArchetype.STRIKE_DESTROYER_DIVISION
+                || b == DivisionArchetype.MISSILE_DESTROYER_DIVISION;
         if (aDes && bDes) return true;
-        boolean aFri = a == DivisionArchetype.FRIGATE_DIVISION || a == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
-        boolean bFri = b == DivisionArchetype.FRIGATE_DIVISION || b == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
-        return aFri && bFri;
+        boolean aFri = a == DivisionArchetype.FRIGATE_DIVISION
+                || a == DivisionArchetype.STRIKE_FRIGATE_DIVISION
+                || a == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+        boolean bFri = b == DivisionArchetype.FRIGATE_DIVISION
+                || b == DivisionArchetype.STRIKE_FRIGATE_DIVISION
+                || b == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+        if (aFri && bFri) return true;
+        boolean aPh = a == DivisionArchetype.PHASE_DIVISION || a == DivisionArchetype.MISSILE_PHASE_DIVISION;
+        boolean bPh = a == DivisionArchetype.PHASE_DIVISION || b == DivisionArchetype.MISSILE_PHASE_DIVISION;
+        return aPh && bPh;
     }
 
     private static int getMaxForArchetype(FleetDoctrineConfig doctrine, DivisionArchetype arch) {
         if (doctrine == null || arch == null) return 4;
         switch (arch) {
             case BATTLESHIP_DIVISION:
+            case BATTLECRUISER_DIVISION:
             case MISSILE_BATTLESHIP_DIVISION:
+            case BATTLECARRIER_DIVISION:
             case FLEET_CARRIER_DIVISION:
                 return Math.max(1, doctrine.getMax(DoctrineHullCategory.CAPITAL));
             case LIGHT_CARRIER_DIVISION:
+            case PHASE_CRUISER_DIVISION:
                 return Math.min(3, Math.max(1, doctrine.getMax(DoctrineHullCategory.CRUISER)));
             case ESCORT_CARRIER_DIVISION:
                 return Math.min(4, Math.max(1, doctrine.getMax(DoctrineHullCategory.DESTROYER)));
@@ -1664,15 +1698,18 @@ public final class FactionFleetDoctrines {
             case STRIKE_CRUISER_DIVISION:
                 return Math.max(1, doctrine.getMax(DoctrineHullCategory.CRUISER));
             case DESTROYER_DIVISION:
+            case STRIKE_DESTROYER_DIVISION:
             case MISSILE_DESTROYER_DIVISION:
                 return Math.max(1, doctrine.getMax(DoctrineHullCategory.DESTROYER));
             case PHASE_DIVISION:
+            case MISSILE_PHASE_DIVISION:
                 return Math.min(4, Math.max(1, doctrine.getMax(DoctrineHullCategory.FRIGATE)));
             case SERVICE_GROUP:
                 return Math.max(4, doctrine.getMax(DoctrineHullCategory.FREIGHTER));
             case FORCE_DIVISION:
                 return Math.max(1, doctrine.getMax(DoctrineHullCategory.CRUISER));
             case FRIGATE_DIVISION:
+            case STRIKE_FRIGATE_DIVISION:
             case MISSILE_FRIGATE_DIVISION:
             default:
                 return Math.max(1, doctrine.getMax(DoctrineHullCategory.FRIGATE));
@@ -1726,16 +1763,22 @@ public final class FactionFleetDoctrines {
         List<FleetMemberAPI> fleetCarriers = buckets.get(DivisionArchetype.FLEET_CARRIER_DIVISION);
         List<FleetMemberAPI> lightCarriers = buckets.get(DivisionArchetype.LIGHT_CARRIER_DIVISION);
         List<FleetMemberAPI> escortCarriers = buckets.get(DivisionArchetype.ESCORT_CARRIER_DIVISION);
+        List<FleetMemberAPI> battlecarriers = buckets.get(DivisionArchetype.BATTLECARRIER_DIVISION);
+        List<FleetMemberAPI> battlecruisers = buckets.get(DivisionArchetype.BATTLECRUISER_DIVISION);
         List<FleetMemberAPI> capitals = buckets.get(DivisionArchetype.BATTLESHIP_DIVISION);
         List<FleetMemberAPI> missileCapitals = buckets.get(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION);
         List<FleetMemberAPI> strikeCruisers = buckets.get(DivisionArchetype.STRIKE_CRUISER_DIVISION);
         List<FleetMemberAPI> missileCruisers = buckets.get(DivisionArchetype.MISSILE_CRUISER_DIVISION);
+        List<FleetMemberAPI> phaseCruisers = buckets.get(DivisionArchetype.PHASE_CRUISER_DIVISION);
         List<FleetMemberAPI> lineCruisers = buckets.get(DivisionArchetype.CRUISER_DIVISION);
+        List<FleetMemberAPI> strikeDestroyers = buckets.get(DivisionArchetype.STRIKE_DESTROYER_DIVISION);
         List<FleetMemberAPI> missileDestroyers = buckets.get(DivisionArchetype.MISSILE_DESTROYER_DIVISION);
         List<FleetMemberAPI> destroyers = buckets.get(DivisionArchetype.DESTROYER_DIVISION);
+        List<FleetMemberAPI> strikeFrigates = buckets.get(DivisionArchetype.STRIKE_FRIGATE_DIVISION);
         List<FleetMemberAPI> missileFrigates = buckets.get(DivisionArchetype.MISSILE_FRIGATE_DIVISION);
         List<FleetMemberAPI> frigates = buckets.get(DivisionArchetype.FRIGATE_DIVISION);
         List<FleetMemberAPI> phaseShips = buckets.get(DivisionArchetype.PHASE_DIVISION);
+        List<FleetMemberAPI> missilePhaseShips = buckets.get(DivisionArchetype.MISSILE_PHASE_DIVISION);
         List<FleetMemberAPI> auxiliaries = buckets.get(DivisionArchetype.SERVICE_GROUP);
         List<FleetMemberAPI> forceShips = buckets.get(DivisionArchetype.FORCE_DIVISION);
 
@@ -1748,7 +1791,9 @@ public final class FactionFleetDoctrines {
         List<PermanentDivisionSpec> specs = new ArrayList<>();
         Map<DivisionArchetype, Integer> seqByArch = new LinkedHashMap<>();
 
-        // 1. Battle & Missile Battleship Divisions
+        // 1. Capital Divisions (Battlecarrier, Battlecruiser, Missile Battleship, Battleship)
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.BATTLECARRIER_DIVISION, battlecarriers, capMax, factionId, nomCat);
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.BATTLECRUISER_DIVISION, battlecruisers, capMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, missileCapitals, capMax, factionId, nomCat);
         if (!capitals.isEmpty()) {
             if (capitals.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty() && missileCruisers.isEmpty()) {
@@ -1780,14 +1825,24 @@ public final class FactionFleetDoctrines {
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.CRUISER_DIVISION, lineCruisers, cruMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_CRUISER_DIVISION, missileCruisers, cruMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.STRIKE_CRUISER_DIVISION, strikeCruisers, cruMax, factionId, nomCat);
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.PHASE_CRUISER_DIVISION, phaseCruisers, Math.min(3, cruMax), factionId, nomCat);
 
         // 4. Destroyer Divisions
+        if (strikeDestroyers.size() == 1 && !destroyers.isEmpty()) {
+            destroyers.add(strikeDestroyers.remove(0));
+        }
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_DESTROYER_DIVISION, missileDestroyers, desMax, factionId, nomCat);
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.STRIKE_DESTROYER_DIVISION, strikeDestroyers, desMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.DESTROYER_DIVISION, destroyers, desMax, factionId, nomCat);
 
         // 5. Frigate & Phase Divisions
+        if (strikeFrigates.size() == 1 && !frigates.isEmpty()) {
+            frigates.add(strikeFrigates.remove(0));
+        }
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_FRIGATE_DIVISION, missileFrigates, friMax, factionId, nomCat);
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.STRIKE_FRIGATE_DIVISION, strikeFrigates, friMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.FRIGATE_DIVISION, frigates, friMax, factionId, nomCat);
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_PHASE_DIVISION, missilePhaseShips, Math.min(4, friMax), factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.PHASE_DIVISION, phaseShips, Math.min(4, friMax), factionId, nomCat);
 
         // 6. Auxiliary / Service Groups & Generic Force Divisions

@@ -59,6 +59,7 @@ public final class ShipSystemCoordinator {
         OMNI_AGILITY_JETS("Omnidirectional Agility Jets"),
         BLINK_DISPLACER("Blink / Phase Displacer"),
         OFFENSIVE_AMP("Offensive Weapon Amplifier"),
+        AMMO_RELOAD("Missile Autoforge / Reload"),
         DEFENSIVE_BULWARK("Defensive Bulwark / Screen"),
         TACTICAL_DEPLOYABLE("Tactical Deployable / EMP");
 
@@ -392,22 +393,26 @@ public final class ShipSystemCoordinator {
                 || jsonAiType.contains("INTERDICTOR")
                 || jsonAiType.contains("EMP")) {
             category = ShipSkillCategory.TACTICAL_DEPLOYABLE;
+        } else if ("AMMO_RELOAD".equals(jsonType)
+                || "FAST_RELOAD".equals(jsonType)
+                || jsonAiType.contains("AMMO_RELOAD")
+                || jsonAiType.contains("FAST_RELOAD")
+                || sysIdLower.contains("forge")
+                || sysIdLower.contains("racks")
+                || sysIdLower.contains("missile_reload")
+                || statsScriptLower.contains("forge")
+                || statsScriptLower.contains("missileracks")) {
+            category = ShipSkillCategory.AMMO_RELOAD;
         } else if ("STAT_MOD".equals(jsonType)
                 || "WEAPON".equals(jsonType)
-                || "AMMO_RELOAD".equals(jsonType)
-                || "FAST_RELOAD".equals(jsonType)
                 || jsonAiType.contains("WEAPON_BOOST")
                 || jsonAiType.contains("LIDAR_ARRAY")
                 || jsonAiType.contains("TARGETING_FEED")
-                || jsonAiType.contains("AMMO_RELOAD")
-                || jsonAiType.contains("FAST_RELOAD")
                 || jsonAiType.contains("ENTROPY")
                 || jsonAiType.contains("ACAUSAL")
                 || sysIdLower.contains("ammofeed")
                 || sysIdLower.contains("focus")
-                || sysIdLower.contains("lidar")
-                || sysIdLower.contains("racks")
-                || sysIdLower.contains("forge")) {
+                || sysIdLower.contains("lidar")) {
             category = ShipSkillCategory.OFFENSIVE_AMP;
         } else {
             category = ShipSkillCategory.NONE;
@@ -1063,7 +1068,13 @@ public final class ShipSystemCoordinator {
                     continue;
                 }
 
-                // C. SYNCHRONIZED OFFENSIVE AMPLIFIER (Ammo Feed / High Energy Focus / Lidar)
+                // C. MISSILE AUTOFORGE & FAST MISSILE RACKS (AMMO_RELOAD)
+                if (prof.category == ShipSkillCategory.AMMO_RELOAD) {
+                    handleAmmoReloadSystem(div, ship, prof, focusEnemy);
+                    continue;
+                }
+
+                // D. SYNCHRONIZED OFFENSIVE AMPLIFIER (Ammo Feed / High Energy Focus / Lidar)
                 if (prof.category == ShipSkillCategory.OFFENSIVE_AMP && focusEnemy != null) {
                     handleSynchronizedOffensiveAmplifier(div, ship, prof, focusEnemy, stage1Marshaling);
                 }
@@ -1633,6 +1644,76 @@ public final class ShipSystemCoordinator {
             ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
         }
         return false;
+    }
+
+    private static void handleAmmoReloadSystem(
+            DivisionState div,
+            ShipAPI ship,
+            ShipSkillProfile prof,
+            ShipAPI focusEnemy) {
+        if (ship == null) return;
+        List<com.fs.starfarer.api.combat.WeaponAPI> weapons = ship.getAllWeapons();
+        if (weapons == null || weapons.isEmpty()) return;
+
+        String sysIdLower = prof.systemId != null ? prof.systemId.toLowerCase(Locale.ROOT) : "";
+        boolean isFastCooldownReset = sysIdLower.contains("racks") && !sysIdLower.contains("forge");
+
+        int finiteAmmoCur = 0;
+        int finiteAmmoMax = 0;
+        float missileOpTotal = 0f;
+        float missileOpCooling = 0f;
+        float maxMslRange = 1200f;
+
+        for (com.fs.starfarer.api.combat.WeaponAPI w : weapons) {
+            if (w == null || w.isDisabled() || w.isPermanentlyDisabled()) continue;
+            if (w.getType() != com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE) continue;
+            if (w.hasAIHint(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD_ONLY)
+                    || (w.hasAIHint(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD)
+                    && !w.hasAIHint(com.fs.starfarer.api.combat.WeaponAPI.AIHints.PD_ALSO))) {
+                continue;
+            }
+            float wWeight = ShipCapabilityProfile.sizeWeight(w.getSize());
+            missileOpTotal += wWeight;
+            if (w.getRange() > maxMslRange) {
+                maxMslRange = w.getRange();
+            }
+            if (w.usesAmmo() && w.getMaxAmmo() > 0) {
+                finiteAmmoCur += Math.max(0, w.getAmmo());
+                finiteAmmoMax += w.getMaxAmmo();
+            }
+            if (w.getCooldownRemaining() >= 2.5f) {
+                missileOpCooling += wWeight;
+            }
+        }
+
+        if (missileOpTotal <= 0f) return;
+
+        if (isFastCooldownReset) {
+            float distE = (focusEnemy != null && focusEnemy.getLocation() != null)
+                    ? DivisionCommanderAI.distance(ship.getLocation(), focusEnemy.getLocation())
+                    : Float.MAX_VALUE;
+            if (missileOpCooling <= 0.05f) {
+                ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+            } else if ((missileOpCooling / missileOpTotal) >= 0.50f
+                    && distE <= maxMslRange * 1.15f
+                    && ship.getFluxLevel() < 0.78f
+                    && isShipSystemReady(ship, prof)) {
+                ship.useSystem();
+            }
+        } else {
+            // Missile Autoforge / Forge Vats: reload freely even at standoff/retreat once finite racks are depleted,
+            // and guard against wasting limited autoforge charges while missile racks are still full!
+            if (finiteAmmoMax <= 0) return;
+            float ammoRatio = (float) finiteAmmoCur / (float) finiteAmmoMax;
+            if (ammoRatio > 0.65f) {
+                ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+            } else if (ammoRatio <= 0.25f
+                    && ship.getFluxLevel() < 0.88f
+                    && isShipSystemReady(ship, prof)
+                    && (!ship.isPhased() || !prof.suppressesWeapons)) {
+                ship.useSystem();
+            }
+        }
     }
 
     private static void handleSynchronizedOffensiveAmplifier(
