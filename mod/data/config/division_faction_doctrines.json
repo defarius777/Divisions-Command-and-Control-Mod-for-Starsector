@@ -1052,7 +1052,7 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LINEAR_WARFARE",
+      "operationalTemplate": "LIGHT_FORCES_TORPEDO",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": true,
         "STRIKE:BATTLESHIP": true,
@@ -2735,7 +2735,7 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LINEAR_WARFARE",
+      "operationalTemplate": "LIGHT_FORCES_TORPEDO",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": false,
         "STRIKE:BATTLESHIP": false,
@@ -2934,7 +2934,7 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LINEAR_WARFARE",
+      "operationalTemplate": "CARRIER_CENTRIC",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": false,
         "STRIKE:BATTLESHIP": true,
@@ -3289,7 +3289,6 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LIGHT_FORCES_TORPEDO",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": false,
         "STRIKE:BATTLESHIP": true,
@@ -3299,7 +3298,11 @@
         "MISSILE_PHASE:CRUISER": false,
         "MISSILE_PHASE:DESTROYER": false,
         "MISSILE_PHASE:FRIGATE": false
-      }
+      },
+      "operationalAnchor": "OPEN_FLOTILLA",
+      "objectiveCapturePolicy": "DIRECT_ORDERS_ONLY",
+      "decisiveArm": "TORPEDO_STRIKES",
+      "engagementDiscipline": "LINE_COHESION"
     },
     "pirates": {
       "aliases": [
@@ -6950,7 +6953,6 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LIGHT_FORCES_TORPEDO",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": false,
         "STRIKE:BATTLESHIP": true,
@@ -6960,7 +6962,11 @@
         "MISSILE_PHASE:CRUISER": false,
         "MISSILE_PHASE:DESTROYER": false,
         "MISSILE_PHASE:FRIGATE": false
-      }
+      },
+      "operationalAnchor": "OPEN_FLOTILLA",
+      "objectiveCapturePolicy": "DIRECT_ORDERS_ONLY",
+      "decisiveArm": "TORPEDO_STRIKES",
+      "engagementDiscipline": "LINE_COHESION"
     },
     "maybegoogle": {
       "aliases": [
@@ -7165,7 +7171,7 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LINEAR_WARFARE",
+      "operationalTemplate": "LIGHT_FORCES_TORPEDO",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": true,
         "STRIKE:BATTLESHIP": true,
@@ -7880,7 +7886,6 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LINEAR_WARFARE",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": true,
         "STRIKE:BATTLESHIP": true,
@@ -7890,7 +7895,11 @@
         "MISSILE_PHASE:CRUISER": true,
         "MISSILE_PHASE:DESTROYER": true,
         "MISSILE_PHASE:FRIGATE": true
-      }
+      },
+      "operationalAnchor": "BATTLE_LINE",
+      "objectiveCapturePolicy": "ACTIVE_CONTEST",
+      "decisiveArm": "SURFACE_GUNFIRE",
+      "engagementDiscipline": "LINE_COHESION"
     },
     "threat": {
       "aliases": [
@@ -8119,7 +8128,6 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LINEAR_WARFARE",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": false,
         "STRIKE:BATTLESHIP": false,
@@ -8129,7 +8137,11 @@
         "MISSILE_PHASE:CRUISER": false,
         "MISSILE_PHASE:DESTROYER": false,
         "MISSILE_PHASE:FRIGATE": false
-      }
+      },
+      "operationalAnchor": "OPEN_FLOTILLA",
+      "objectiveCapturePolicy": "DIRECT_ORDERS_ONLY",
+      "decisiveArm": "SURFACE_GUNFIRE",
+      "engagementDiscipline": "LINE_COHESION"
     },
     "dweller": {
       "aliases": [
@@ -8370,7 +8382,6 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LINEAR_WARFARE",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": true,
         "STRIKE:BATTLESHIP": true,
@@ -8380,7 +8391,11 @@
         "MISSILE_PHASE:CRUISER": true,
         "MISSILE_PHASE:DESTROYER": true,
         "MISSILE_PHASE:FRIGATE": true
-      }
+      },
+      "operationalAnchor": "OPEN_FLOTILLA",
+      "objectiveCapturePolicy": "DIRECT_ORDERS_ONLY",
+      "decisiveArm": "SURFACE_GUNFIRE",
+      "engagementDiscipline": "LINE_COHESION"
     },
     "tahlan_legioinfernalis": {
       "aliases": [
@@ -8673,7 +8688,6 @@
           "setpieceAttack": "WALL_SALVO_PASS"
         }
       },
-      "operationalTemplate": "LINEAR_WARFARE",
       "autoAssignSchemes": {
         "BATTLECARRIER:BATTLESHIP": true,
         "STRIKE:BATTLESHIP": true,
@@ -8683,7 +8697,11 @@
         "MISSILE_PHASE:CRUISER": true,
         "MISSILE_PHASE:DESTROYER": true,
         "MISSILE_PHASE:FRIGATE": true
-      }
+      },
+      "operationalAnchor": "BATTLE_LINE",
+      "objectiveCapturePolicy": "ACTIVE_CONTEST",
+      "decisiveArm": "SURFACE_GUNFIRE",
+      "engagementDiscipline": "LINE_COHESION"
     },
     "armaarmatura": {
       "otcAuthority": "POSITIVE_CONTROL",
@@ -9207,6 +9225,191 @@
         "MISSILE_PHASE:DESTROYER": true,
         "MISSILE_PHASE:FRIGATE": true
       }
+    },
+    "vwl": {
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "fleetWideFormation": "FLEET_PROTECTIVE_BASTION",
+      "multiDivisionSetpiece": "NONE",
+      "operationalAnchor": "BATTLE_LINE",
+      "objectiveCapturePolicy": "DIRECT_ORDERS_ONLY",
+      "decisiveArm": "SURFACE_GUNFIRE",
+      "engagementDiscipline": "CLOSE_SCREEN",
+      "description": "Void Wildlife (Stjarwhals): Peaceful social space-whale pods where adult bulls and cows form protective herds around calves.",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 520,
+          "standoffRange": 450,
+          "formation": "PROTECTIVE_CIRCLE"
+        },
+        "CRUISER": {
+          "stationSpacing": 460,
+          "standoffRange": 450,
+          "formation": "PROTECTIVE_CIRCLE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 400,
+          "standoffRange": 420,
+          "formation": "LOOSE_SKIRMISH"
+        },
+        "FRIGATE": {
+          "stationSpacing": 360,
+          "standoffRange": 400,
+          "formation": "PROTECTIVE_CIRCLE"
+        }
+      }
+    },
+    "svc": {
+      "aliases": [
+        "symbiotic_void_creatures"
+      ],
+      "otcAuthority": "FIRE_DISTRIBUTION_ONLY",
+      "fleetWideFormation": "NONE",
+      "multiDivisionSetpiece": "NONE",
+      "objectiveCapturePolicy": "DIRECT_ORDERS_ONLY",
+      "engagementDiscipline": "LINE_COHESION",
+      "description": "Symbiotic Void Creatures: Feral pack-hunting organisms and Arbiter-relayed hunting parties rushing prey with claws, grapplers, and acid.",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 480,
+          "standoffRange": 360,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "LOOSE_SKIRMISH"
+        },
+        "CRUISER": {
+          "stationSpacing": 430,
+          "standoffRange": 340,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "LOOSE_SKIRMISH"
+        },
+        "DESTROYER": {
+          "stationSpacing": 390,
+          "standoffRange": 320,
+          "openingMission": "RECON_IN_FORCE",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "LOOSE_SKIRMISH"
+        },
+        "FRIGATE": {
+          "stationSpacing": 350,
+          "standoffRange": 300,
+          "openingMission": "RECON_IN_FORCE",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "LOOSE_SKIRMISH"
+        },
+        "PHASE": {
+          "stationSpacing": 420,
+          "standoffRange": 380,
+          "openingMission": "RECON_IN_FORCE",
+          "mainMission": "ENVELOPMENT",
+          "formation": "LOOSE_SKIRMISH"
+        }
+      },
+      "operationalAnchor": "OPEN_FLOTILLA",
+      "decisiveArm": "TORPEDO_STRIKES"
+    },
+    "bugmaster": {
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "fleetWideFormation": "NONE",
+      "multiDivisionSetpiece": "CANNAAE_DOUBLE_ENVELOPMENT",
+      "objectiveCapturePolicy": "DIRECT_ORDERS_ONLY",
+      "engagementDiscipline": "LINE_COHESION",
+      "description": "Bugmaster: Dark-evolved voidling packs closing from multiple angles in coordinated melee swarms.",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 480,
+          "standoffRange": 360,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE"
+        },
+        "CRUISER": {
+          "stationSpacing": 430,
+          "standoffRange": 340,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "ENVELOPMENT",
+          "formation": "LOOSE_SKIRMISH"
+        },
+        "DESTROYER": {
+          "stationSpacing": 390,
+          "standoffRange": 320,
+          "openingMission": "RECON_IN_FORCE",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "LOOSE_SKIRMISH"
+        },
+        "FRIGATE": {
+          "stationSpacing": 350,
+          "standoffRange": 300,
+          "openingMission": "RECON_IN_FORCE",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "LOOSE_SKIRMISH"
+        }
+      },
+      "operationalAnchor": "OPEN_FLOTILLA",
+      "decisiveArm": "TORPEDO_STRIKES"
+    },
+    "mmm": {
+      "aliases": [
+        "mind_metamorphosis"
+      ],
+      "otcAuthority": "COMMAND_BY_DIRECTION",
+      "fleetWideFormation": "CRESCENT_HORNS",
+      "multiDivisionSetpiece": "CANNAAE_DOUBLE_ENVELOPMENT",
+      "objectiveCapturePolicy": "DIRECT_ORDERS_ONLY",
+      "engagementDiscipline": "LINE_COHESION",
+      "description": "Mind Metamorphosis: Telepathic p-space hive brood directed by a Mastermind nexus in enveloping swarms.",
+      "divisionTypes": {
+        "BATTLESHIP": {
+          "stationSpacing": 500,
+          "standoffRange": 380,
+          "openingMission": "CLOSE_ACTION",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "FORWARD_WEDGE"
+        },
+        "CRUISER": {
+          "stationSpacing": 440,
+          "standoffRange": 350,
+          "openingMission": "ENVELOPMENT",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "FORWARD_SEMICIRCLE"
+        },
+        "DESTROYER": {
+          "stationSpacing": 400,
+          "standoffRange": 330,
+          "openingMission": "RECON_IN_FORCE",
+          "mainMission": "ENVELOPMENT",
+          "formation": "LOOSE_SKIRMISH"
+        },
+        "FRIGATE": {
+          "stationSpacing": 360,
+          "standoffRange": 300,
+          "openingMission": "RECON_IN_FORCE",
+          "mainMission": "CLOSE_ACTION",
+          "formation": "LOOSE_SKIRMISH"
+        }
+      },
+      "operationalAnchor": "OPEN_FLOTILLA",
+      "decisiveArm": "TORPEDO_STRIKES"
+    },
+    "cft": {
+      "aliases": [
+        "indevo_couriers"
+      ],
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "fleetWideFormation": "REFUSED_FLANK_OBLIQUE",
+      "multiDivisionSetpiece": "NONE",
+      "operationalTemplate": "LIGHT_FORCES_TORPEDO",
+      "description": "Centralized Freight & Transit / Independent Couriers: Nimble fast-courier flotillas avoiding static slugging lines."
+    },
+    "scavengers": {
+      "aliases": [
+        "astroidships"
+      ],
+      "otcAuthority": "COMMAND_BY_NEGATION",
+      "fleetWideFormation": "FLEET_PROTECTIVE_BASTION",
+      "multiDivisionSetpiece": "NONE",
+      "operationalTemplate": "LIGHT_FORCES_TORPEDO",
+      "description": "Independent Scavengers: Opportunistic salvage flotillas skirmishing and withdrawing under pressure."
     }
   }
 }

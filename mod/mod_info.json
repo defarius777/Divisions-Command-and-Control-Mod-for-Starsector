@@ -9,7 +9,7 @@
 		"patch": "2c"
 	},
 	"description": "A Combat AI overhaul for Starsector.",
-	"gameVersion": "0.98.5a-RC5",
+	"gameVersion": "0.98.5a-RC7",
 	"jars": [ "jars/DivisionAI.jar" ],
 	"modPlugin": "divisionai.DivisionAIModPlugin"
 }

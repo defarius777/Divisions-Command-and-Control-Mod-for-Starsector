@@ -1086,11 +1086,7 @@ public class BattlefieldFirepowerEvaluator {
         }
 
         float fluxLevel = ship.getFluxLevel();
-        boolean isPhaseShip = ship.isPhased()
-                || ship.getPhaseCloak() != null
-                || (ship.getShield() != null && ship.getShield().getType() == ShieldAPI.ShieldType.PHASE)
-                || (ship.getHullSpec() != null && ship.getHullSpec().getHints() != null
-                && ship.getHullSpec().getHints().contains(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.PHASE));
+        boolean isPhaseShip = ShipCapabilityProfile.hasTruePhaseCloak(ship);
         float readiness;
         if (overloadedOrVenting && ovldVentRemaining > 0.6f) {
             readiness = 0.04f;
@@ -1985,11 +1981,7 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     private static boolean isPhaseShipUncached(ShipAPI ship) {
-        return ship.isPhased()
-                || ship.getPhaseCloak() != null
-                || (ship.getShield() != null && ship.getShield().getType() == ShieldAPI.ShieldType.PHASE)
-                || (ship.getHullSpec() != null && ship.getHullSpec().getHints() != null
-                && ship.getHullSpec().getHints().contains(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.PHASE));
+        return ShipCapabilityProfile.hasTruePhaseCloak(ship);
     }
 
     public static boolean isShieldlessArmorTank(ShipAPI ship) {
@@ -2004,10 +1996,11 @@ public class BattlefieldFirepowerEvaluator {
     private static boolean isShieldlessArmorTankUncached(ShipAPI ship) {
         ShieldAPI sh = ship.getShield();
         if (sh != null) {
-            return sh.getType() == ShieldAPI.ShieldType.NONE;
+            return sh.getType() == ShieldAPI.ShieldType.NONE || sh.getType() == ShieldAPI.ShieldType.PHASE;
         }
         if (ship.getHullSpec() != null && ship.getHullSpec().getShieldType() != null) {
-            return ship.getHullSpec().getShieldType() == ShieldAPI.ShieldType.NONE;
+            return ship.getHullSpec().getShieldType() == ShieldAPI.ShieldType.NONE
+                    || ship.getHullSpec().getShieldType() == ShieldAPI.ShieldType.PHASE;
         }
         return ship.getVariant() != null && ship.getVariant().hasHullMod("shield_shunt");
     }
@@ -2455,11 +2448,7 @@ public class BattlefieldFirepowerEvaluator {
      */
     public static float computeShipLiveFirepowerScore(ShipAPI ship, boolean maxCapacityOnly) {
         if (ship == null || !ship.isAlive() || ship.isHulk()) return 0f;
-        boolean isPhaseShip = ship.isPhased()
-                || ship.getPhaseCloak() != null
-                || (ship.getShield() != null && ship.getShield().getType() == ShieldAPI.ShieldType.PHASE)
-                || (ship.getHullSpec() != null && ship.getHullSpec().getHints() != null
-                && ship.getHullSpec().getHints().contains(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.PHASE));
+        boolean isPhaseShip = ShipCapabilityProfile.hasTruePhaseCloak(ship);
 
         FluxTrackerAPI ft = ship.getFluxTracker();
         boolean overloadedOrVenting = !maxCapacityOnly && ft != null && ft.isOverloadedOrVenting();
@@ -2512,9 +2501,7 @@ public class BattlefieldFirepowerEvaluator {
         FluxTrackerAPI ft = attacker.getFluxTracker();
         if (ft != null && ft.isOverloadedOrVenting()) return 0f;
 
-        boolean isPhaseShip = attacker.isPhased()
-                || attacker.getPhaseCloak() != null
-                || (attacker.getShield() != null && attacker.getShield().getType() == ShieldAPI.ShieldType.PHASE);
+        boolean isPhaseShip = ShipCapabilityProfile.hasTruePhaseCloak(attacker);
         float dist = distance(attacker.getLocation(), target.getLocation());
         int attackerBays = attacker.getNumFighterBays();
         ShipFirepowerRose attackerRose = rosesByShipId.get(attacker.getId());
@@ -3316,7 +3303,7 @@ public class BattlefieldFirepowerEvaluator {
             ShieldAPI sh = s.getShield();
             if (sh != null && sh.getType() != ShieldAPI.ShieldType.NONE && sh.getArc() > 0f) {
                 sum += sh.getArc();
-            } else if (s.getPhaseCloak() != null) {
+            } else if (ShipCapabilityProfile.hasTruePhaseCloak(s)) {
                 sum += 270f;
             } else {
                 sum += 90f; // Unshielded hulls are vulnerable to multi-angle crossfire
@@ -3440,7 +3427,7 @@ public class BattlefieldFirepowerEvaluator {
                 float remFlux = Math.max(0f, maxFlux - currFlux);
                 shieldEhp = (remFlux / fluxPerDam) * arcFactor;
             }
-        } else if (ship.getPhaseCloak() != null || (sh != null && sh.getType() == ShieldAPI.ShieldType.PHASE)) {
+        } else if (ShipCapabilityProfile.hasTruePhaseCloak(ship)) {
             if (!ovldOrVent) {
                 float remFlux = Math.max(0f, maxFlux - currFlux);
                 shieldEhp = remFlux * 1.25f;
@@ -5142,10 +5129,10 @@ public class BattlefieldFirepowerEvaluator {
                 mDefMode[mCount] = 1;
                 mShieldFacingDeg[mCount] = normalizeAngle360(sh.getFacing() != 0f ? sh.getFacing() : m.getFacing());
                 mShieldHalfArc[mCount] = Math.min(180f, sh.getArc() * 0.5f);
-            } else if ((sh != null && (sh.getType() == ShieldAPI.ShieldType.OMNI || sh.getType() == ShieldAPI.ShieldType.PHASE))
-                    || m.getPhaseCloak() != null) {
+            } else if ((sh != null && sh.getType() == ShieldAPI.ShieldType.OMNI)
+                    || ShipCapabilityProfile.hasTruePhaseCloak(m)) {
                 mDefMode[mCount] = ovl ? 3 : 2;
-            } else if (sh != null && sh.getType() == ShieldAPI.ShieldType.NONE) {
+            } else if (sh != null && (sh.getType() == ShieldAPI.ShieldType.NONE || sh.getType() == ShieldAPI.ShieldType.PHASE)) {
                 mDefMode[mCount] = 3;
                 mShieldFacingDeg[mCount] = normalizeAngle360(m.getFacing());
             } else {

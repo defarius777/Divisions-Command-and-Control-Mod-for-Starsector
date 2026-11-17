@@ -6522,7 +6522,7 @@ public class PermanentDivisionManager {
             return DivisionArchetype.FORCE_DIVISION;
         }
 
-        boolean isPhase = member.isPhaseShip() || hints.contains(ShipTypeHints.PHASE);
+        boolean isPhase = isTruePhaseFleetMember(member);
         boolean safetyOverrides = variant != null && variant.hasHullMod("safetyoverrides");
         String desgLower = (hullSpec != null && hullSpec.getDesignation() != null)
                 ? hullSpec.getDesignation().toLowerCase(java.util.Locale.ROOT)
@@ -6720,8 +6720,60 @@ public class PermanentDivisionManager {
         }
     }
 
+    public static boolean isTruePhaseFleetMember(FleetMemberAPI member) {
+        if (member == null) return false;
+        ShipHullSpecAPI hullSpec = member.getHullSpec();
+        EnumSet<ShipTypeHints> hints = hullSpec != null ? hullSpec.getHints() : EnumSet.noneOf(ShipTypeHints.class);
+        if (hints != null && hints.contains(ShipTypeHints.PHASE)) {
+            return true;
+        }
+        if (!member.isPhaseShip()) {
+            return false;
+        }
+        String defId = (hullSpec != null) ? hullSpec.getShipDefenseId() : null;
+        if (defId == null || defId.isEmpty()) {
+            return true; // Mock FleetMemberAPI fallback
+        }
+        try {
+            if (Global.getSettings() != null) {
+                com.fs.starfarer.api.combat.ShipSystemSpecAPI sysSpec = Global.getSettings().getShipSystemSpec(defId);
+                if (sysSpec != null) {
+                    if (sysSpec.isPhaseCloak()) return true;
+                    return defId.toLowerCase(java.util.Locale.ROOT).contains("phase");
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        String lower = defId.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("phase") || lower.contains("cloak");
+    }
+
+    public static boolean isAsteroidOrInertPropFleetMember(FleetMemberAPI m) {
+        if (m == null) return true;
+        if (m.getVariant() != null && m.getVariant().hasHullMod("wfpasm_valuable_asteroid")) {
+            return true;
+        }
+        ShipHullSpecAPI hs = m.getHullSpec();
+        if (hs != null) {
+            java.util.List<String> builtIns = hs.getBuiltInMods();
+            if (builtIns != null && builtIns.contains("wfpasm_valuable_asteroid")) {
+                return true;
+            }
+            if (hs.getEngineSpec() != null
+                    && hs.getEngineSpec().getMaxSpeed() > 0f
+                    && hs.getEngineSpec().getAcceleration() <= 0f
+                    && hs.getEngineSpec().getTurnAcceleration() <= 0f
+                    && hs.getFluxCapacity() <= 0f
+                    && hs.getMaxCrew() <= 0f) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static boolean isEligibleFleetMember(FleetMemberAPI m) {
         if (m == null || m.isFighterWing() || m.isMothballed() || m.isStation()) return false;
+        if (isAsteroidOrInertPropFleetMember(m)) return false;
         HullSize size = m.getHullSpec() != null ? m.getHullSpec().getHullSize() : null;
         return size == HullSize.FRIGATE
                 || size == HullSize.DESTROYER

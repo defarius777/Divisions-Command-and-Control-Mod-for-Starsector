@@ -983,7 +983,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 }
 
                 try {
-                    Class<?> dfmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager$O0", false, cl);
+                    Class<?> fmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager", false, cl);
+                    Class<?> dfmCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                            cl, "com.fs.starfarer.combat.CombatFleetManager$O0", fmCls.getName(), "getBiggestStation");
                     Class<?> wingImplCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
                             cl, "com.fs.starfarer.combat.ai.M", dfmCls.getName(), "getWingIfFighter");
                     this.dfmGetWingIfFighterHandle = lookup.findVirtual(
@@ -1115,7 +1117,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                     cl, taskTargetRetCls.getName(), rcMenuCls.getName(), "getTaskTarget");
             lookup.findVirtual(rcMenuCls, "getTaskTarget", MethodType.methodType(rcTargetRetCls));
             lookup.findVirtual(rcMenuCls, "fadeOut", MethodType.methodType(void.class));
-            Class<?> dfmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager$O0", false, cl);
+            Class<?> fmCls = Class.forName("com.fs.starfarer.combat.CombatFleetManager", false, cl);
+            Class<?> dfmCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
+                    cl, "com.fs.starfarer.combat.CombatFleetManager$O0", fmCls.getName(), "getBiggestStation");
             Class<?> wingImplCls = ObfuscatedBytecodeBridge.resolveClassOrMethodReturn(
                     cl, "com.fs.starfarer.combat.ai.M", dfmCls.getName(), "getWingIfFighter");
             lookup.findVirtual(dfmCls, "getWingIfFighter", MethodType.methodType(wingImplCls));

@@ -90,6 +90,33 @@ public class ShipCapabilityProfile {
         return false;
     }
 
+    public static boolean hasTruePhaseCloak(ShipAPI ship) {
+        if (ship == null) return false;
+        if (ship.isPhased()) return true;
+        ShipHullSpecAPI spec = ship.getHullSpec();
+        if (spec != null && spec.getHints() != null && spec.getHints().contains(ShipTypeHints.PHASE)) {
+            return true;
+        }
+        com.fs.starfarer.api.combat.ShipSystemAPI cloak = ship.getPhaseCloak();
+        if (cloak != null) {
+            com.fs.starfarer.api.combat.ShipSystemSpecAPI sysSpec = cloak.getSpecAPI();
+            if (sysSpec == null) {
+                String cId = cloak.getId();
+                if (cId == null || cId.isEmpty()) {
+                    return true; // Headless mock ShipSystemAPI without spec
+                }
+                String lower = cId.toLowerCase(java.util.Locale.ROOT);
+                return lower.contains("phase") || lower.contains("cloak");
+            }
+            if (sysSpec.isPhaseCloak()) {
+                return true;
+            }
+            String sysId = sysSpec.getId();
+            return sysId != null && sysId.toLowerCase(java.util.Locale.ROOT).contains("phase");
+        }
+        return false;
+    }
+
     public ShipCapabilityProfile(ShipAPI ship) {
         this.ship = ship;
         this.hullSize = ship.getHullSize();
@@ -105,7 +132,7 @@ public class ShipCapabilityProfile {
 
         ShipHullSpecAPI spec = ship.getHullSpec();
         EnumSet<ShipTypeHints> hints = spec != null ? spec.getHints() : EnumSet.noneOf(ShipTypeHints.class);
-        this.isPhase = (ship.getPhaseCloak() != null) || hints.contains(ShipTypeHints.PHASE);
+        this.isPhase = hasTruePhaseCloak(ship);
         this.isCivilian = hints.contains(ShipTypeHints.CIVILIAN)
                 || hints.contains(ShipTypeHints.FREIGHTER)
                 || hints.contains(ShipTypeHints.TANKER)

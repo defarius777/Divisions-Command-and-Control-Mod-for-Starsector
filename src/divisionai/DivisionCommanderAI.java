@@ -4572,7 +4572,7 @@ public class DivisionCommanderAI {
             }
             return;
         }
-        boolean isPhaseMissileBoat = ship.getPhaseCloak() != null
+        boolean isPhaseMissileBoat = ShipCapabilityProfile.hasTruePhaseCloak(ship)
                 && (div.archetype == DivisionArchetype.MISSILE_PHASE_DIVISION
                 || div.primaryMissileLoadoutRatio >= 0.50f);
         if (isPhaseMissileBoat && focusEnemyShip != null) {
@@ -5060,7 +5060,7 @@ public class DivisionCommanderAI {
             float individualEngageHorizon,
             float combatSlotLeash,
             float nearestEnemyDist) {
-        if (ship.getPhaseCloak() != null
+        if (ShipCapabilityProfile.hasTruePhaseCloak(ship)
                 && (div.archetype == DivisionArchetype.MISSILE_PHASE_DIVISION
                 || div.primaryMissileLoadoutRatio >= 0.50f)
                 && com.fs.starfarer.api.Global.getCombatEngine() != null) {

@@ -241,9 +241,22 @@ public class SimArena {
         public ShipAPI forceCarrierTarget = null;
         public float forceCarrierTargetTime = 0f;
         public float forceCarrierPullBackTime = 0f;
+        private static final com.fs.starfarer.api.combat.ShipAIPlugin DEFAULT_SIM_SHIP_AI =
+                (com.fs.starfarer.api.combat.ShipAIPlugin) Proxy.newProxyInstance(
+                        SimShipState.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipAIPlugin.class},
+                        (p, m, a) -> {
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == float.class) return 0f;
+                            if (rt == int.class) return 0;
+                            return null;
+                        });
+
         public final java.util.Set<String> hullMods = new java.util.LinkedHashSet<>();
         public final java.util.Set<String> tags = new java.util.LinkedHashSet<>();
-        public com.fs.starfarer.api.combat.ShipAIPlugin shipAI = null;
+        public final java.util.Map<String, Object> customData = new java.util.HashMap<>();
+        public com.fs.starfarer.api.combat.ShipAIPlugin shipAI = DEFAULT_SIM_SHIP_AI;
         public ShipAPI proxy;
 
         public SimShipState(
@@ -722,6 +735,7 @@ public class SimArena {
                         if ("getAllWings".equals(n)) return wings;
                         if ("getWing".equals(n)) return wing;
                         if ("getShipAI".equals(n)) return shipAI;
+                        if ("getCustomData".equals(n)) return customData;
                         if ("isPullBackFighters".equals(n)) return pullBackFighters;
                         if ("setPullBackFighters".equals(n)) {
                             if (a != null && a.length > 0 && a[0] instanceof Boolean) {

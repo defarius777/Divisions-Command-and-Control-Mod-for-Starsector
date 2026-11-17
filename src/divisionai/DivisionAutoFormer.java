@@ -40,6 +40,11 @@ public class DivisionAutoFormer {
 
     private static final int MAX_MONOTYPE_DIV_SIZE = 4;
     private static final int MAX_FRIGATE_DIV_SIZE = 5;
+    private static volatile CombatEngineAPI activeCombatEngine = null;
+
+    public static void setActiveCombatEngine(CombatEngineAPI engine) {
+        activeCombatEngine = engine;
+    }
 
     public static MissionContextType detectMissionContext(CombatEngineAPI engine, int side) {
         if (engine == null) return MissionContextType.FLEET_ACTION;
@@ -124,6 +129,9 @@ public class DivisionAutoFormer {
             CombatEngineAPI engine,
             BattleGroupState playerGroup,
             List<ShipAPI> playerShips) {
+        if (engine != null) {
+            activeCombatEngine = engine;
+        }
 
         List<DivisionState> newlyCreated = new ArrayList<>();
         Set<String> assignedIds = new HashSet<>(playerGroup.shipIdToDivision.keySet());
@@ -199,6 +207,9 @@ public class DivisionAutoFormer {
             CombatEngineAPI engine,
             BattleGroupState battleGroup,
             List<ShipAPI> eligibleShips) {
+        if (engine != null) {
+            activeCombatEngine = engine;
+        }
 
         List<DivisionState> newlyCreated = new ArrayList<>();
         Set<String> assignedIds = new HashSet<>(battleGroup.shipIdToDivision.keySet());
@@ -242,19 +253,27 @@ public class DivisionAutoFormer {
                         eligibleShips,
                         detectedFactionId,
                         false);
-                PermanentDivisionManager.FleetDoctrineConfig fDoc =
-                        FactionFleetDoctrines.getDoctrineForFactionId(detectedFactionId, null);
-                battleGroup.authority = fDoc.getOtcAuthority();
-                battleGroup.fleetWideFormation = fDoc.getFleetWideFormation();
-                battleGroup.multiDivisionSetpieceDoctrine = fDoc.getMultiDivisionSetpiece();
-                battleGroup.operationalAnchor = fDoc.getOperationalAnchor();
-                battleGroup.objectiveCapturePolicy = fDoc.getObjectiveCapturePolicy();
-                battleGroup.decisiveArm = fDoc.getDecisiveArm();
-                battleGroup.engagementDiscipline = fDoc.getEngagementDiscipline();
-                battleGroup.deployInFleetFormation = fDoc.isDeployInFleetFormation();
-                battleGroup.orchestratedAdvance = fDoc.isOrchestratedAdvance();
-                battleGroup.plays.clear();
-                battleGroup.plays.addAll(fDoc.getEnabledPlays());
+                if (!battleGroup.campaignDoctrineInherited) {
+                    PermanentDivisionManager.FleetDoctrineConfig fDoc =
+                            FactionFleetDoctrines.getDoctrineForFactionId(detectedFactionId, null);
+                    battleGroup.authority = fDoc.getOtcAuthority();
+                    battleGroup.fleetWideFormation = fDoc.getFleetWideFormation();
+                    battleGroup.multiDivisionSetpieceDoctrine = fDoc.getMultiDivisionSetpiece();
+                    battleGroup.operationalAnchor = fDoc.getOperationalAnchor();
+                    battleGroup.objectiveCapturePolicy = fDoc.getObjectiveCapturePolicy();
+                    battleGroup.decisiveArm = fDoc.getDecisiveArm();
+                    battleGroup.engagementDiscipline = fDoc.getEngagementDiscipline();
+                    battleGroup.deployInFleetFormation = fDoc.isDeployInFleetFormation();
+                    battleGroup.orchestratedAdvance = fDoc.isOrchestratedAdvance();
+                    battleGroup.plays.clear();
+                    battleGroup.plays.addAll(fDoc.getEnabledPlays());
+                    instantiatePreCombatConductOfBattle(
+                            engine,
+                            battleGroup,
+                            detectedFactionId,
+                            fDoc,
+                            eligibleShips);
+                }
             }
         }
 
@@ -991,15 +1010,297 @@ public class DivisionAutoFormer {
         return candidates.remove(bestIdx);
     }
 
+    public static boolean isAsteroidOrNonCombatProp(ShipAPI ship) {
+        if (ship == null) return true;
+        int owner = ship.getOwner();
+        if (owner != 0 && owner != 1) {
+            return true; // Excludes neutral side-100 derelict hulks / map props (e.g. Asteroid Mining objective hulks)
+        }
+        if (ship.isPiece()) {
+            return true;
+        }
+        Map<String, Object> custom = ship.getCustomData();
+        if (custom != null && (custom.containsKey("wfpasm_resource")
+                || Boolean.TRUE.equals(custom.get("divisionai_non_combat_prop")))) {
+            return true;
+        }
+        com.fs.starfarer.api.combat.ShipVariantAPI var = ship.getVariant();
+        if (var != null && var.hasHullMod("wfpasm_valuable_asteroid")) {
+            return true;
+        }
+        com.fs.starfarer.api.combat.ShipHullSpecAPI hs = ship.getHullSpec();
+        if (hs != null && hs.getBuiltInMods() != null && hs.getBuiltInMods().contains("wfpasm_valuable_asteroid")) {
+            return true;
+        }
+        // Null-AI entities on the combat layer (Asteroid Mining wild/tugged rocks, foiler null-AI station parts, props):
+        // preserve only the player's own manually-piloted flagship (where Starsector sets shipAI == null when Autopilot is OFF)
+        // and bare standalone unit-test ShipAPI stubs outside an active combat engine.
+        if (ship.getShipAI() == null) {
+            CombatEngineAPI eng = activeCombatEngine;
+            if (eng == null) {
+                try {
+                    eng = com.fs.starfarer.api.Global.getCombatEngine();
+                } catch (Throwable ignored) {
+                }
+            }
+            List<ShipAPI> activeShips = eng != null ? eng.getShips() : null;
+            if ((activeShips != null && activeShips.contains(ship)) || ship.getMutableStats() != null) {
+                ShipAPI playerShip = VoidstrikeCoordinator.safeGetPlayerShip(eng);
+                if (ship != playerShip) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static boolean isEligibleCombatHull(ShipAPI ship) {
         if (ship == null) return false;
         if (!ship.isAlive() || ship.isHulk() || ship.isExpired()) return false;
         if (ship.isFighter() || ship.isDrone() || ship.isStation() || ship.isStationModule()) return false;
         if (ship.getParentStation() != null) return false;
+        if (isAsteroidOrNonCombatProp(ship)) return false;
         HullSize size = ship.getHullSize();
         return size == HullSize.FRIGATE
                 || size == HullSize.DESTROYER
                 || size == HullSize.CRUISER
                 || size == HullSize.CAPITAL_SHIP;
+    }
+
+    private static final Set<String> CORE_GUNLINE_FACTIONS = new HashSet<>(java.util.Arrays.asList(
+            "hegemony", "xiv", "xiv_battlegroup", "hegemony_xiv",
+            "ironshell", "iron shell 1.183aj", "ironsentinel",
+            "sindrian_diktat", "sindran_diktat", "diktat_achilles", "lions_guard",
+            "interstellarimperium", "imperium", "ii_imperial_guard",
+            "vic", "xhanempire", "vantanet",
+            "uaf_november", "uaf_automata",
+            "knights_of_ludd", "knights_of_selkie", "templars", "zea_dawn"
+    ));
+
+    private static final Set<String> NON_CARRIER_DOCTRINE_FACTIONS = new HashSet<>(java.util.Arrays.asList(
+            "svc", "symbiotic_void_creatures",
+            "vwl", "void_wildlife",
+            "bugmaster",
+            "mmm", "mind_metamorphosis",
+            "luddic_path", "luddenhance",
+            "fang",
+            "threat", "mess", "mess_remnant", "hmi_nightmare",
+            "dweller", "omega", "liminal", "blade_breakers"
+    ));
+
+    /**
+     * Hybrid Pre-Combat Conduct of Battle Instantiator:
+     * Starts from the faction's doctrinal baseline in {@code fDoc} (preserving faction personality on mixed fleets
+     * and non-preset Custom Conduct axes on fanatical/biological/AI factions), then inspects the actual deployed
+     * + reserve combat hulls of this specific NPC battle group so atypical fleets adapt cleanly:
+     *  - Carrier-Centric factions without carriers fall back to Linear Warfare or Light & Strike Warfare.
+     *  - Pure frigate/destroyer/phase/strike pickets (0 Capitals and 0 Line Cruisers) switch off static Battle Line
+     *    to Open Flotilla + Torpedo/Strike Runs instead of trying to form a battleship gunline.
+     *  - Carrier-dominant task forces from Linear/Light factions promote to Carrier-Centric Operations.
+     *  - Heavy surface armadas from Light/Strike factions promote to Linear Warfare.
+     */
+    public static void instantiatePreCombatConductOfBattle(
+            CombatEngineAPI engine,
+            BattleGroupState battleGroup,
+            String factionId,
+            PermanentDivisionManager.FleetDoctrineConfig fDoc,
+            List<ShipAPI> eligibleShips) {
+        if (battleGroup == null || fDoc == null) return;
+
+        String normFid = factionId != null ? factionId.trim().toLowerCase(java.util.Locale.ROOT) : "";
+        boolean isAlliedGroup = false;
+        if (eligibleShips != null) {
+            for (int i = 0, n = eligibleShips.size(); i < n; i++) {
+                ShipAPI s = eligibleShips.get(i);
+                if (s != null && s.isAlly()) {
+                    isAlliedGroup = true;
+                    break;
+                }
+            }
+        }
+
+        float totalFp = 0f;
+        float carrierFp = 0f;
+        float heavyLineFp = 0f;
+        float lightStrikeFp = 0f;
+        int carrierCount = 0;
+        int heavyLineCount = 0;
+        Set<String> countedMemberIds = new HashSet<>();
+
+        if (eligibleShips != null) {
+            for (int i = 0, n = eligibleShips.size(); i < n; i++) {
+                ShipAPI s = eligibleShips.get(i);
+                if (s == null || !isEligibleCombatHull(s)) continue;
+                if (s.getFleetMemberId() != null) {
+                    countedMemberIds.add(s.getFleetMemberId());
+                }
+                ShipCapabilityProfile prof = new ShipCapabilityProfile(s);
+                if (prof.primaryTag == TacticalTag.CIVILIAN_AUX) continue;
+                float fp = Math.max(1f, prof.fpStrength);
+                totalFp += fp;
+                HullSize sz = prof.hullSize;
+                if (prof.primaryTag == TacticalTag.BATTLECARRIER) {
+                    carrierCount++;
+                    heavyLineCount++;
+                    carrierFp += fp * 0.60f;
+                    heavyLineFp += fp * 0.40f;
+                } else if (prof.primaryTag == TacticalTag.CARRIER) {
+                    carrierCount++;
+                    carrierFp += fp;
+                } else if (sz == HullSize.CAPITAL_SHIP) {
+                    heavyLineCount++;
+                    heavyLineFp += fp;
+                } else if (sz == HullSize.CRUISER
+                        && prof.primaryTag != TacticalTag.STRIKE_CRUISER
+                        && prof.primaryTag != TacticalTag.MISSILE_CRUISER
+                        && prof.primaryTag != TacticalTag.PHASE_CRUISER
+                        && prof.primaryTag != TacticalTag.PHASE
+                        && prof.primaryTag != TacticalTag.MISSILE_PHASE) {
+                    heavyLineCount++;
+                    heavyLineFp += fp;
+                } else {
+                    lightStrikeFp += fp;
+                }
+            }
+        }
+
+        if (engine != null) {
+            CombatFleetManagerAPI fm = engine.getFleetManager(battleGroup.side);
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> reserves = fm != null ? fm.getReservesCopy() : null;
+            if (reserves != null) {
+                for (int i = 0, n = reserves.size(); i < n; i++) {
+                    com.fs.starfarer.api.fleet.FleetMemberAPI m = reserves.get(i);
+                    if (m == null || !PermanentDivisionManager.isEligibleFleetMember(m)) continue;
+                    if (battleGroup.side == 0 && isAlliedGroup && !m.isAlly()) continue;
+                    if (m.getId() != null && !countedMemberIds.add(m.getId())) continue;
+                    float fp = Math.max(1f, m.getFleetPointCost());
+                    DivisionArchetype arch = PermanentDivisionManager.classifyFleetMemberArchetype(m);
+                    totalFp += fp;
+                    switch (arch) {
+                        case FLEET_CARRIER_DIVISION:
+                        case LIGHT_CARRIER_DIVISION:
+                        case ESCORT_CARRIER_DIVISION:
+                        case CARRIER_GROUP:
+                            carrierCount++;
+                            carrierFp += fp;
+                            break;
+                        case BATTLECARRIER_DIVISION:
+                            carrierCount++;
+                            heavyLineCount++;
+                            carrierFp += fp * 0.60f;
+                            heavyLineFp += fp * 0.40f;
+                            break;
+                        case BATTLESHIP_DIVISION:
+                        case MISSILE_BATTLESHIP_DIVISION:
+                        case BATTLECRUISER_DIVISION:
+                        case CRUISER_DIVISION:
+                            heavyLineCount++;
+                            heavyLineFp += fp;
+                            break;
+                        case SERVICE_GROUP:
+                            break;
+                        default:
+                            lightStrikeFp += fp;
+                            break;
+                    }
+                }
+            }
+        }
+
+        if (totalFp <= 0f) return;
+
+        float carrierShare = carrierFp / totalFp;
+        float heavyShare = heavyLineFp / totalFp;
+        float lightShare = lightStrikeFp / totalFp;
+
+        PermanentDivisionManager.OperationalTemplate matchedPreset = fDoc.resolveMatchingOperationalTemplate();
+        boolean isCustomConduct = (matchedPreset == null);
+        boolean prefersCarrier = fDoc.getOperationalAnchor() == PermanentDivisionManager.OperationalAnchor.CARRIER_SCREEN
+                || fDoc.getDecisiveArm() == PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE;
+        boolean prefersOpenFlotilla = fDoc.getOperationalAnchor() == PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA;
+        boolean isCoreGunline = CORE_GUNLINE_FACTIONS.contains(normFid);
+        boolean blocksCarrierScreen = NON_CARRIER_DOCTRINE_FACTIONS.contains(normFid)
+                || normFid.startsWith("rat_abyssals");
+
+        // 1. Carrier-Centric Operations retention / promotion
+        if (!blocksCarrierScreen) {
+            if (prefersCarrier) {
+                if (carrierCount >= 1 && carrierShare >= 0.15f) {
+                    battleGroup.operationalAnchor = fDoc.getOperationalAnchor();
+                    battleGroup.objectiveCapturePolicy = fDoc.getObjectiveCapturePolicy();
+                    battleGroup.decisiveArm = fDoc.getDecisiveArm();
+                    battleGroup.engagementDiscipline = fDoc.getEngagementDiscipline();
+                    return;
+                }
+                // Carrier-Centric faction spawned a 0-carrier / low-carrier surface patrol -> fall through!
+            } else {
+                float carrierPromoteThreshold = isCoreGunline ? 0.42f : (isCustomConduct ? 0.38f : 0.33f);
+                int minCarriers = isCoreGunline ? 2 : 1;
+                if (carrierCount >= minCarriers && carrierShare >= carrierPromoteThreshold) {
+                    PermanentDivisionManager.ObjectiveCapturePolicy savedObj = fDoc.getObjectiveCapturePolicy();
+                    battleGroup.applyOperationalTemplateForBattle(PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC);
+                    if (isCustomConduct) {
+                        battleGroup.objectiveCapturePolicy = savedObj;
+                    }
+                    return;
+                }
+            }
+        }
+
+        // 2. Pure Light / Wolfpack / Phase Picket Guard (0 Capitals and 0 Line Cruisers)
+        if (heavyLineCount == 0) {
+            if (isCustomConduct) {
+                battleGroup.operationalAnchor = PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA;
+                battleGroup.decisiveArm = (fDoc.getDecisiveArm() == PermanentDivisionManager.DecisiveArm.CARRIER_STRIKE)
+                        ? PermanentDivisionManager.DecisiveArm.SURFACE_GUNFIRE
+                        : fDoc.getDecisiveArm();
+                battleGroup.objectiveCapturePolicy = fDoc.getObjectiveCapturePolicy();
+                battleGroup.engagementDiscipline = (fDoc.getEngagementDiscipline() == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN
+                        && !"vwl".equals(normFid) && !"void_wildlife".equals(normFid))
+                        ? PermanentDivisionManager.EngagementDiscipline.LINE_COHESION
+                        : fDoc.getEngagementDiscipline();
+            } else {
+                battleGroup.applyOperationalTemplateForBattle(PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO);
+            }
+            return;
+        }
+
+        // 3. Fleets with >= 1 Capital or Line Cruiser
+        if (prefersOpenFlotilla) {
+            // Standard Light/Strike factions (e.g. Tri-Tachyon Paragon battlefleet or Pirate Atlas Mk.II armada)
+            // promote to Linear Warfare when overwhelmingly anchored by heavy surface gunlines.
+            if (!isCustomConduct && heavyLineCount >= 3 && heavyShare >= 0.55f) {
+                battleGroup.applyOperationalTemplateForBattle(PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE);
+            } else {
+                battleGroup.operationalAnchor = fDoc.getOperationalAnchor();
+                battleGroup.objectiveCapturePolicy = fDoc.getObjectiveCapturePolicy();
+                battleGroup.decisiveArm = fDoc.getDecisiveArm();
+                battleGroup.engagementDiscipline = fDoc.getEngagementDiscipline();
+            }
+            return;
+        }
+
+        if (prefersCarrier) {
+            // Carrier-Centric faction with < 15% carrier FP: fight Linear if gunline-backed, else Light & Strike
+            if (heavyShare >= 0.30f) {
+                battleGroup.applyOperationalTemplateForBattle(PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE);
+            } else {
+                battleGroup.applyOperationalTemplateForBattle(PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO);
+            }
+            return;
+        }
+
+        // Linear Warfare / Custom Battle-Line baseline:
+        // If a non-core-gunline fleet has only 1 lone cruiser leading a large wolfpack (>= 70% light/strike FP),
+        // fight as an Open Flotilla instead of anchoring the whole wolfpack onto 1 cruiser.
+        if (!isCoreGunline && !isCustomConduct && heavyLineCount == 1 && heavyShare < 0.22f && lightShare >= 0.70f) {
+            battleGroup.applyOperationalTemplateForBattle(PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO);
+            return;
+        }
+
+        battleGroup.operationalAnchor = fDoc.getOperationalAnchor();
+        battleGroup.objectiveCapturePolicy = fDoc.getObjectiveCapturePolicy();
+        battleGroup.decisiveArm = fDoc.getDecisiveArm();
+        battleGroup.engagementDiscipline = fDoc.getEngagementDiscipline();
     }
 }

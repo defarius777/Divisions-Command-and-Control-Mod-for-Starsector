@@ -155,6 +155,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         BattlefieldFirepowerEvaluator.resetForNewBattle();
         DivisionOtcCommandManager.resetForNewBattle();
         VoidstrikeCoordinator.resetForNewBattle();
+        DivisionAutoFormer.setActiveCombatEngine(engine);
         if (engine != null && engine.getCustomData() != null) {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
         }
@@ -470,6 +471,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
 
         float now = engine.getTotalElapsedTime(false);
+        DivisionAutoFormer.setActiveCombatEngine(engine);
 
         // Flagship-loss command disruption (120s for fleet commander, 30s for lower-rank / no-rank)
         if (!engine.isPaused() || DivisionOtcCommandManager.isEmergencyModalAutoOpenRequested()) {

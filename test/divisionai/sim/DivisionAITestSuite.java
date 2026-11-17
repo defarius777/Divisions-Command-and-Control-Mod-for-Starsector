@@ -96,6 +96,8 @@ public class DivisionAITestSuite {
         testSixNewDivisionTypesHegemonyBcvAndMissilePhaseAI();
         testWarroomFighterWingCrashGuard();
         testPlayerPilotedFighterPostureCycleAndHudLabel();
+        testAsteroidMiningNullAiAndSymbioticVoidCreatures();
+        testPreCombatConductOfBattleInstantiationAndFactionDoctrines();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -3793,10 +3795,27 @@ public class DivisionAITestSuite {
                         csInfo != null, deployOk, combatOk, settingsOk));
 
         // Verify all 7 obfuscated handle bridges against REAL cross-platform / cross-version Starsector JARs
-        // (macOS 0.98.5a-RC5, Linux 0.98.5a-RC5, and Windows 0.98a-RC8 if configured via lib/starsector_rc8_core_path.txt)
+        // (macOS 0.98.5a-RC7, Linux 0.98.5a-RC7, and Windows 0.98a-RC8 if configured via lib/starsector_rc8_core_path.txt)
         List<String[]> platformEntries = new ArrayList<>();
-        platformEntries.add(new String[]{"macOS 0.98.5a-RC5", "[!] Starsector for Mac/Starsector.app/Contents/Resources/Java", "com.fs.starfarer.loading.scripts.OoOO"});
-        platformEntries.add(new String[]{"Linux 0.98.5a-RC5", "[!] Starsector for Linux/starsector", "com.fs.starfarer.loading.scripts.new"});
+        File coreCfg = new File("lib/starsector_core_path.txt");
+        File gamesRoot = null;
+        if (coreCfg.isFile()) {
+            String corePath = java.nio.file.Files.readString(coreCfg.toPath(), StandardCharsets.UTF_8).trim();
+            if (!corePath.isEmpty()) {
+                File coreDir = new File(corePath);
+                if (coreDir.getParentFile() != null) {
+                    gamesRoot = coreDir.getParentFile().getParentFile();
+                }
+            }
+        }
+        String macRc7Path = gamesRoot != null
+                ? new File(gamesRoot, "Starsector for Mac 0.98.5a-RC7/Contents/Resources/Java").getPath()
+                : "[!] Starsector for Mac/Starsector.app/Contents/Resources/Java";
+        String linuxRc7Path = gamesRoot != null
+                ? new File(gamesRoot, "Starsector for Linux 0.98.5a-RC7").getPath()
+                : "[!] Starsector for Linux/starsector";
+        platformEntries.add(new String[]{"macOS 0.98.5a-RC7", macRc7Path, "com.fs.starfarer.loading.scripts.ScriptClassLoader"});
+        platformEntries.add(new String[]{"Linux 0.98.5a-RC7", linuxRc7Path, "com.fs.starfarer.loading.scripts.ScriptClassLoader"});
         File rc8Cfg = new File("lib/starsector_rc8_core_path.txt");
         if (rc8Cfg.isFile()) {
             String rc8Path = java.nio.file.Files.readString(rc8Cfg.toPath(), StandardCharsets.UTF_8).trim();
@@ -6562,5 +6581,372 @@ public class DivisionAITestSuite {
                     if ("getTarget".equals(n)) return target;
                     return null;
                 });
+    }
+
+    private static void testAsteroidMiningNullAiAndSymbioticVoidCreatures() {
+        System.out.println("\n--- [Test] Asteroid Mining (wfpasm / Null-AI / Neutral) & Symbiotic Void Creatures (Pods / Packs / Non-Phase Defense) ---");
+
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile enemyCmdr = new CommanderProfile(null, "aggressive");
+        BattleGroupState playerGroup = new BattleGroupState(0, pCmdr);
+        BattleGroupState enemyGroup = new BattleGroupState(1, enemyCmdr);
+        SimArena arena = new SimArena(
+                "Asteroid Mining & SVC Verification",
+                "Verifies wfpasm resource rocks & null-AI station props never form divisions while real invading pirates do.",
+                playerGroup,
+                enemyGroup);
+        divisionai.DivisionAutoFormer.setActiveCombatEngine(arena.engineProxy);
+
+        // 1. Player manually-piloted flagship (shipAI == null, must remain eligible!) + tug-deployed player asteroid (must be excluded!)
+        SimShipState playerFlag = new SimShipState("asm_p_flag", "HSS Sovereign", "Onslaught", 0, HullSize.CAPITAL_SHIP, -300f, -2000f, 55f, 1000f, 4, 0);
+        playerFlag.shipAI = null;
+        arena.ships.add(playerFlag);
+        arena.playerShip = playerFlag.proxy;
+
+        SimShipState playerTowedRock = new SimShipState("asm_p_rock", "", "wfpasm_metal_0", 0, HullSize.CRUISER, 300f, -2200f, 600f, 0f, 0, 0);
+        playerTowedRock.shipAI = null;
+        playerTowedRock.hullMods.add("wfpasm_valuable_asteroid");
+        arena.ships.add(playerTowedRock);
+
+        // 2. Six enemy resource asteroids (wfpasm_resource + null AI), one foiler null-AI station part, one side-100 derelict hulk
+        List<com.fs.starfarer.api.combat.ShipAPI> enemyShips = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            SimShipState rock = new SimShipState(
+                    "asm_e_rock_" + i,
+                    "",
+                    "wfpasm_rare_" + i,
+                    1,
+                    (i % 2 == 0) ? HullSize.CRUISER : HullSize.DESTROYER,
+                    -1500f + i * 600f,
+                    1200f,
+                    600f,
+                    0f,
+                    0,
+                    0);
+            rock.shipAI = null;
+            rock.customData.put("wfpasm_resource", Boolean.TRUE);
+            arena.ships.add(rock);
+            enemyShips.add(rock.proxy);
+        }
+        SimShipState nullAiStationPart = new SimShipState("foiler_part_1", "Station Strut", "station_strut", 1, HullSize.CAPITAL_SHIP, 0f, 2500f, 0f, 0f, 0, 0);
+        nullAiStationPart.shipAI = null;
+        arena.ships.add(nullAiStationPart);
+        enemyShips.add(nullAiStationPart.proxy);
+
+        SimShipState side100Hulk = new SimShipState("asm_obj_hulk", "Derelict Cruiser", "Eagle", 100, HullSize.CRUISER, 800f, 900f, 0f, 800f, 0, 0);
+        arena.ships.add(side100Hulk);
+        enemyShips.add(side100Hulk.proxy);
+
+        // 3. Three real invading pirate cruisers (non-null ShipAI) arriving mid-mining -> MUST form 1 real division!
+        for (int i = 0; i < 3; i++) {
+            SimShipState pirate = new SimShipState(
+                    "asm_pirate_" + i,
+                    "Pirate Raider " + (i + 1),
+                    "Eradicator",
+                    1,
+                    HullSize.CRUISER,
+                    -600f + i * 600f,
+                    4800f,
+                    80f,
+                    900f,
+                    4,
+                    0);
+            arena.ships.add(pirate);
+            enemyShips.add(pirate.proxy);
+        }
+
+        boolean playerFlagEligible = divisionai.DivisionAutoFormer.isEligibleCombatHull(playerFlag.proxy);
+        boolean towedRockExcluded = !divisionai.DivisionAutoFormer.isEligibleCombatHull(playerTowedRock.proxy);
+        boolean enemyRocksExcluded = true;
+        for (int i = 0; i < 6; i++) {
+            if (divisionai.DivisionAutoFormer.isEligibleCombatHull(enemyShips.get(i))) {
+                enemyRocksExcluded = false;
+            }
+        }
+        boolean nullAiPartExcluded = !divisionai.DivisionAutoFormer.isEligibleCombatHull(nullAiStationPart.proxy);
+        boolean side100Excluded = !divisionai.DivisionAutoFormer.isEligibleCombatHull(side100Hulk.proxy);
+
+        divisionai.DivisionAutoFormer.syncDivisionsForSide(arena.engineProxy, enemyGroup, enemyShips);
+        boolean onlyPiratesFormedDiv = enemyGroup.divisions.size() == 1
+                && enemyGroup.divisions.get(0).members.size() == 3;
+        divisionai.DivisionAutoFormer.setActiveCombatEngine(null);
+
+        // Campaign FleetMemberAPI towed-asteroid check
+        com.fs.starfarer.api.combat.ShipVariantAPI rockVar = (com.fs.starfarer.api.combat.ShipVariantAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipVariantAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipVariantAPI.class},
+                (p, m, a) -> {
+                    if ("hasHullMod".equals(m.getName()) && a != null && a.length == 1) {
+                        return "wfpasm_valuable_asteroid".equals(a[0]);
+                    }
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        com.fs.starfarer.api.fleet.FleetMemberAPI campaignRockMember = (com.fs.starfarer.api.fleet.FleetMemberAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.fleet.FleetMemberAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getVariant".equals(n)) return rockVar;
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        boolean campaignRockExcluded = !divisionai.PermanentDivisionManager.isEligibleFleetMember(campaignRockMember);
+
+        // 4. FactionLibrary: "neutral" -> NONE (0%), while SVC factions use LOW/AVERAGE/VERY_HIGH + biological Pods/Packs/Broods
+        boolean neutralNoneOk = divisionai.FactionLibrary.resolveFactionOrganizationRating("neutral")
+                == divisionai.FactionLibrary.OrganizationRating.NONE;
+        boolean svcRatingsOk = divisionai.FactionLibrary.resolveFactionOrganizationRating("vwl")
+                == divisionai.FactionLibrary.OrganizationRating.LOW
+                && divisionai.FactionLibrary.resolveFactionOrganizationRating("svc")
+                == divisionai.FactionLibrary.OrganizationRating.LOW
+                && divisionai.FactionLibrary.resolveFactionOrganizationRating("bugmaster")
+                == divisionai.FactionLibrary.OrganizationRating.AVERAGE
+                && divisionai.FactionLibrary.resolveFactionOrganizationRating("mmm")
+                == divisionai.FactionLibrary.OrganizationRating.VERY_HIGH;
+
+        String whaleHerd = DivisionNomenclature.formatFactionDivisionName(
+                "vwl", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.CRUISER_DIVISION, 1, null, 0L);
+        String whalePod = DivisionNomenclature.formatFactionDivisionName(
+                "vwl", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.BATTLESHIP_DIVISION, 1, null, 0L);
+        String svcPack = DivisionNomenclature.formatFactionDivisionName(
+                "svc", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.CRUISER_DIVISION, 1, null, 0L);
+        String svcBrood = DivisionNomenclature.formatFactionDivisionName(
+                "svc", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.BATTLESHIP_DIVISION, 1, null, 0L);
+        String mmmBrood = DivisionNomenclature.formatFactionDivisionName(
+                "mmm", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.BATTLESHIP_DIVISION, 1, null, 0L);
+        boolean bioNamesOk = "Stjarwhal Herd 1".equals(whaleHerd)
+                && "Bull Pod 1".equals(whalePod)
+                && "Hunting Pack 1".equals(svcPack)
+                && "Tyrant Brood 1".equals(svcBrood)
+                && "Synapse Brood I".equals(mmmBrood);
+
+        // 5. Non-phase biological right-click defense ("parry" / "svc_dash") vs true phase cloak ("phasecloak" / "svc_phasesubmerge")
+        final com.fs.starfarer.api.combat.ShipSystemSpecAPI parrySpec = (com.fs.starfarer.api.combat.ShipSystemSpecAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipSystemSpecAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipSystemSpecAPI.class},
+                (p, m, a) -> {
+                    if ("isPhaseCloak".equals(m.getName())) return false;
+                    if ("getId".equals(m.getName())) return "parry";
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        final com.fs.starfarer.api.combat.ShipSystemAPI parrySystem = (com.fs.starfarer.api.combat.ShipSystemAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipSystemAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipSystemAPI.class},
+                (p, m, a) -> {
+                    if ("getSpecAPI".equals(m.getName())) return parrySpec;
+                    if ("getId".equals(m.getName())) return "parry";
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        final com.fs.starfarer.api.combat.ShieldAPI dummyPhaseTypeShield = (com.fs.starfarer.api.combat.ShieldAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShieldAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShieldAPI.class},
+                (p, m, a) -> {
+                    if ("getType".equals(m.getName())) return com.fs.starfarer.api.combat.ShieldAPI.ShieldType.PHASE;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        com.fs.starfarer.api.combat.ShipAPI keratinosMock = (com.fs.starfarer.api.combat.ShipAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "svc_keratinos_1";
+                    if ("getPhaseCloak".equals(n)) return parrySystem;
+                    if ("getShield".equals(n)) return dummyPhaseTypeShield;
+                    if ("getHullSize".equals(n)) return HullSize.CAPITAL_SHIP;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        final com.fs.starfarer.api.combat.ShipSystemSpecAPI realCloakSpec = (com.fs.starfarer.api.combat.ShipSystemSpecAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipSystemSpecAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipSystemSpecAPI.class},
+                (p, m, a) -> {
+                    if ("isPhaseCloak".equals(m.getName())) return true;
+                    if ("getId".equals(m.getName())) return "phasecloak";
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        final com.fs.starfarer.api.combat.ShipSystemAPI realCloakSys = (com.fs.starfarer.api.combat.ShipSystemAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipSystemAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipSystemAPI.class},
+                (p, m, a) -> {
+                    if ("getSpecAPI".equals(m.getName())) return realCloakSpec;
+                    if ("getId".equals(m.getName())) return "phasecloak";
+                    if (m.getReturnType() == boolean.class) return false;
+                    return null;
+                });
+        com.fs.starfarer.api.combat.ShipAPI doomMock = (com.fs.starfarer.api.combat.ShipAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.combat.ShipAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return "doom_1";
+                    if ("getPhaseCloak".equals(n)) return realCloakSys;
+                    if ("getHullSize".equals(n)) return HullSize.CRUISER;
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+
+        boolean parryNotPhase = !divisionai.ShipCapabilityProfile.hasTruePhaseCloak(keratinosMock)
+                && BattlefieldFirepowerEvaluator.isShieldlessArmorTank(keratinosMock);
+        boolean realCloakIsPhase = divisionai.ShipCapabilityProfile.hasTruePhaseCloak(doomMock)
+                && !BattlefieldFirepowerEvaluator.isShieldlessArmorTank(doomMock);
+
+        boolean allOk = playerFlagEligible
+                && towedRockExcluded
+                && enemyRocksExcluded
+                && nullAiPartExcluded
+                && side100Excluded
+                && onlyPiratesFormedDiv
+                && campaignRockExcluded
+                && neutralNoneOk
+                && svcRatingsOk
+                && bioNamesOk
+                && parryNotPhase
+                && realCloakIsPhase;
+
+        check(allOk,
+                "Asteroid Mining (null-AI/wfpasm/side-100/neutral) & Symbiotic Void Creatures (Pods/Packs/Broods & non-phase parry/dash)",
+                String.format(Locale.ROOT,
+                        "pFlag=%b, towedExcl=%b, rocksExcl=%b, nullPartExcl=%b, side100Excl=%b, pirateDivOnly=%b, campRockExcl=%b, neutral0=%b, svcRatings=%b, names=[%s / %s / %s], parryArmor=%b, doomPhase=%b",
+                        playerFlagEligible, towedRockExcluded, enemyRocksExcluded, nullAiPartExcluded,
+                        side100Excluded, onlyPiratesFormedDiv, campaignRockExcluded, neutralNoneOk,
+                        svcRatingsOk, whaleHerd, svcPack, mmmBrood, parryNotPhase, realCloakIsPhase));
+    }
+
+    private static void testPreCombatConductOfBattleInstantiationAndFactionDoctrines() {
+        System.out.println("\n--- [Test] Hybrid Pre-Combat Conduct of Battle Instantiator & Faction Doctrine Profiles ---");
+
+        CommanderProfile cmdr = new CommanderProfile(null, "steady");
+
+        // 1. Hegemony: Battleship+Cruiser fleet stays LINEAR_WARFARE; 5-Frigate Fast Picket instantiates LIGHT_FORCES_TORPEDO
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig hegDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null);
+        BattleGroupState hegLineGroup = new BattleGroupState(1, cmdr);
+        List<com.fs.starfarer.api.combat.ShipAPI> hegLineShips = java.util.Arrays.asList(
+                new SimShipState("hl_1", "HSS Onslaught", "Onslaught", 1, HullSize.CAPITAL_SHIP, 0f, 3000f, 50f, 1100f, 4, 0).proxy,
+                new SimShipState("hl_2", "HSS Dominator 1", "Dominator", 1, HullSize.CRUISER, -400f, 3000f, 55f, 950f, 2, 0).proxy,
+                new SimShipState("hl_3", "HSS Dominator 2", "Dominator", 1, HullSize.CRUISER, 400f, 3000f, 55f, 950f, 2, 0).proxy,
+                new SimShipState("hl_4", "HSS Lasher 1", "Lasher", 1, HullSize.FRIGATE, -800f, 3000f, 125f, 700f, 0, 0).proxy
+        );
+        divisionai.DivisionAutoFormer.instantiatePreCombatConductOfBattle(null, hegLineGroup, "hegemony", hegDoc, hegLineShips);
+        boolean hegLineOk = hegLineGroup.resolveMatchingOperationalTemplate()
+                == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+
+        BattleGroupState hegPicketGroup = new BattleGroupState(1, cmdr);
+        List<com.fs.starfarer.api.combat.ShipAPI> hegPicketShips = java.util.Arrays.asList(
+                new SimShipState("hp_1", "HSS Lasher 1", "Lasher", 1, HullSize.FRIGATE, -400f, 3000f, 125f, 700f, 2, 0).proxy,
+                new SimShipState("hp_2", "HSS Lasher 2", "Lasher", 1, HullSize.FRIGATE, 0f, 3000f, 125f, 700f, 2, 0).proxy,
+                new SimShipState("hp_3", "HSS Enforcer", "Enforcer", 1, HullSize.DESTROYER, 400f, 3000f, 80f, 800f, 4, 0).proxy
+        );
+        divisionai.DivisionAutoFormer.instantiatePreCombatConductOfBattle(null, hegPicketGroup, "hegemony", hegDoc, hegPicketShips);
+        boolean hegPicketOk = hegPicketGroup.resolveMatchingOperationalTemplate()
+                == divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO;
+
+        // 2. UAF: Carrier Battlegroup keeps CARRIER_CENTRIC; 0-carrier Surface Patrol falls back to LINEAR_WARFARE
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig uafDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("uaf", null);
+        BattleGroupState uafCvGroup = new BattleGroupState(1, cmdr);
+        List<com.fs.starfarer.api.combat.ShipAPI> uafCvShips = java.util.Arrays.asList(
+                new SimShipState("uc_1", "UAF Zepporia", "Zepporia", 1, HullSize.CAPITAL_SHIP, 0f, 3000f, 55f, 1200f, 0, 4).proxy,
+                new SimShipState("uc_2", "UAF Rillaru", "Rillaru", 1, HullSize.CRUISER, 500f, 3000f, 70f, 1000f, 2, 0).proxy
+        );
+        divisionai.DivisionAutoFormer.instantiatePreCombatConductOfBattle(null, uafCvGroup, "uaf", uafDoc, uafCvShips);
+        boolean uafCvOk = uafCvGroup.resolveMatchingOperationalTemplate()
+                == divisionai.PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC;
+
+        BattleGroupState uafGunGroup = new BattleGroupState(1, cmdr);
+        List<com.fs.starfarer.api.combat.ShipAPI> uafGunShips = java.util.Arrays.asList(
+                new SimShipState("ug_1", "UAF Rillaru 1", "Rillaru", 1, HullSize.CRUISER, -300f, 3000f, 70f, 1000f, 2, 0).proxy,
+                new SimShipState("ug_2", "UAF Rillaru 2", "Rillaru", 1, HullSize.CRUISER, 300f, 3000f, 70f, 1000f, 2, 0).proxy,
+                new SimShipState("ug_3", "UAF Nakiha", "Nakiha", 1, HullSize.DESTROYER, 700f, 3000f, 95f, 800f, 0, 0).proxy
+        );
+        divisionai.DivisionAutoFormer.instantiatePreCombatConductOfBattle(null, uafGunGroup, "uaf", uafDoc, uafGunShips);
+        boolean uafGunFallbackOk = uafGunGroup.resolveMatchingOperationalTemplate()
+                == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+
+        // 3. Persean League: Heron Carrier Task Force promotes from LINEAR_WARFARE to CARRIER_CENTRIC
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig plDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("persean", null);
+        BattleGroupState plCvGroup = new BattleGroupState(1, cmdr);
+        List<com.fs.starfarer.api.combat.ShipAPI> plCvShips = java.util.Arrays.asList(
+                new SimShipState("pc_1", "PLS Heron 1", "Heron", 1, HullSize.CRUISER, -300f, 3000f, 80f, 1000f, 0, 3).proxy,
+                new SimShipState("pc_2", "PLS Heron 2", "Heron", 1, HullSize.CRUISER, 300f, 3000f, 80f, 1000f, 0, 3).proxy,
+                new SimShipState("pc_3", "PLS Vigilance", "Vigilance", 1, HullSize.FRIGATE, 0f, 2600f, 130f, 800f, 2, 0).proxy
+        );
+        divisionai.DivisionAutoFormer.instantiatePreCombatConductOfBattle(null, plCvGroup, "persean", plDoc, plCvShips);
+        boolean plCvPromotedOk = plCvGroup.resolveMatchingOperationalTemplate()
+                == divisionai.PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC;
+
+        // 4. Tri-Tachyon: Wolfpack defaults to LIGHT_FORCES_TORPEDO; 3-Paragon Heavy Armada promotes to LINEAR_WARFARE
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig ttDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null);
+        boolean ttBaselineLight = ttDoc.resolveMatchingOperationalTemplate()
+                == divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO;
+        BattleGroupState ttArmadaGroup = new BattleGroupState(1, cmdr);
+        List<com.fs.starfarer.api.combat.ShipAPI> ttArmadaShips = java.util.Arrays.asList(
+                new SimShipState("tta_1", "TTS Paragon 1", "Paragon", 1, HullSize.CAPITAL_SHIP, -500f, 3000f, 40f, 1400f, 2, 0).proxy,
+                new SimShipState("tta_2", "TTS Paragon 2", "Paragon", 1, HullSize.CAPITAL_SHIP, 0f, 3000f, 40f, 1400f, 2, 0).proxy,
+                new SimShipState("tta_3", "TTS Paragon 3", "Paragon", 1, HullSize.CAPITAL_SHIP, 500f, 3000f, 40f, 1400f, 2, 0).proxy,
+                new SimShipState("tta_4", "TTS Tempest", "Tempest", 1, HullSize.FRIGATE, 900f, 3000f, 150f, 800f, 2, 0).proxy
+        );
+        divisionai.DivisionAutoFormer.instantiatePreCombatConductOfBattle(null, ttArmadaGroup, "tritachyon", ttDoc, ttArmadaShips);
+        boolean ttArmadaLinearOk = ttArmadaGroup.resolveMatchingOperationalTemplate()
+                == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+
+        // 5. Custom Conduct profiles: Luddic Path, SVC, Stjarwhals, Remnant, plus CFT & Scavengers
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig lpDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("luddic_path", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig svcDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("svc", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig vwlDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("vwl", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig remDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("remnant", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig cftDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("cft", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig scavDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("scavengers", null);
+
+        boolean customProfilesOk = lpDoc.resolveMatchingOperationalTemplate() == null
+                && lpDoc.getOperationalAnchor() == divisionai.PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA
+                && lpDoc.getObjectiveCapturePolicy() == divisionai.PermanentDivisionManager.ObjectiveCapturePolicy.DIRECT_ORDERS_ONLY
+                && lpDoc.getEngagementDiscipline() == divisionai.PermanentDivisionManager.EngagementDiscipline.LINE_COHESION
+                && svcDoc.getOtcAuthority() == OtcAuthority.FIRE_DISTRIBUTION_ONLY
+                && svcDoc.getObjectiveCapturePolicy() == divisionai.PermanentDivisionManager.ObjectiveCapturePolicy.DIRECT_ORDERS_ONLY
+                && svcDoc.getEngagementDiscipline() == divisionai.PermanentDivisionManager.EngagementDiscipline.LINE_COHESION
+                && vwlDoc.getOperationalAnchor() == divisionai.PermanentDivisionManager.OperationalAnchor.BATTLE_LINE
+                && vwlDoc.getEngagementDiscipline() == divisionai.PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN
+                && remDoc.getOperationalAnchor() == divisionai.PermanentDivisionManager.OperationalAnchor.BATTLE_LINE
+                && remDoc.getObjectiveCapturePolicy() == divisionai.PermanentDivisionManager.ObjectiveCapturePolicy.ACTIVE_CONTEST
+                && cftDoc.resolveMatchingOperationalTemplate() == divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO
+                && scavDoc.resolveMatchingOperationalTemplate() == divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO;
+
+        // 6. Player BattleGroup protection: campaignDoctrineInherited prevents syncDivisionsForSide from overwriting pre-battle Conduct!
+        BattleGroupState pGroup = new BattleGroupState(0, cmdr);
+        pGroup.campaignDoctrineInherited = true;
+        pGroup.applyOperationalTemplateForBattle(divisionai.PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC);
+        divisionai.DivisionAutoFormer.syncDivisionsForSide(null, pGroup, hegLineShips);
+        boolean playerConductProtected = pGroup.resolveMatchingOperationalTemplate()
+                == divisionai.PermanentDivisionManager.OperationalTemplate.CARRIER_CENTRIC;
+
+        boolean allOk = hegLineOk && hegPicketOk && uafCvOk && uafGunFallbackOk
+                && plCvPromotedOk && ttBaselineLight && ttArmadaLinearOk
+                && customProfilesOk && playerConductProtected;
+
+        check(allOk,
+                "Hybrid Pre-Combat Conduct of Battle Instantiator & Faction Doctrine Profiles (Preset + Custom Conduct)",
+                String.format(Locale.ROOT,
+                        "hegLine=%b, hegPicket=%b, uafCv=%b, uafGunFallback=%b, plCvPromo=%b, ttLight=%b, ttArmadaLinear=%b, customProfiles=%b, playerProtected=%b",
+                        hegLineOk, hegPicketOk, uafCvOk, uafGunFallbackOk, plCvPromotedOk,
+                        ttBaselineLight, ttArmadaLinearOk, customProfilesOk, playerConductProtected));
     }
 }
