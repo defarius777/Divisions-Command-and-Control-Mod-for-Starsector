@@ -243,6 +243,7 @@ public class SimArena {
         public float forceCarrierPullBackTime = 0f;
         public final java.util.Set<String> hullMods = new java.util.LinkedHashSet<>();
         public final java.util.Set<String> tags = new java.util.LinkedHashSet<>();
+        public com.fs.starfarer.api.combat.ShipAIPlugin shipAI = null;
         public ShipAPI proxy;
 
         public SimShipState(
@@ -720,6 +721,7 @@ public class SimArena {
                         }
                         if ("getAllWings".equals(n)) return wings;
                         if ("getWing".equals(n)) return wing;
+                        if ("getShipAI".equals(n)) return shipAI;
                         if ("isPullBackFighters".equals(n)) return pullBackFighters;
                         if ("setPullBackFighters".equals(n)) {
                             if (a != null && a.length > 0 && a[0] instanceof Boolean) {
@@ -901,6 +903,9 @@ public class SimArena {
     public final CombatEngineAPI engineProxy;
     public final ScenarioRecording recording;
     public boolean fogOfWarEnabled = false;
+    public ShipAPI playerShip = null;
+    public boolean uiAutopilotOn = true;
+    public boolean paused = false;
     public boolean fullAssaultSide0 = false;
     public boolean fullAssaultSide1 = false;
     public float baseShipSightRadius = 3000f;
@@ -1063,11 +1068,24 @@ public class SimArena {
                     return null;
                 });
 
+        final com.fs.starfarer.api.combat.CombatUIAPI uiProxy =
+                (com.fs.starfarer.api.combat.CombatUIAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatUIAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatUIAPI.class},
+                        (p, m, a) -> {
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+
         return (CombatEngineAPI) Proxy.newProxyInstance(
                 CombatEngineAPI.class.getClassLoader(),
                 new Class<?>[]{CombatEngineAPI.class},
                 (p, m, a) -> {
                     String n = m.getName();
+                    if ("getCombatUI".equals(n)) return uiProxy;
                     if ("getTotalElapsedTime".equals(n)) return elapsedTime;
                     if ("getMapWidth".equals(n)) return mapWidth;
                     if ("getMapHeight".equals(n)) return mapHeight;
@@ -1088,7 +1106,9 @@ public class SimArena {
                         return (side == 1) ? fogProxy1 : fogProxy0;
                     }
                     if ("getObjectives".equals(n)) return objectives;
-                    if ("isUIAutopilotOn".equals(n)) return Boolean.TRUE;
+                    if ("getPlayerShip".equals(n)) return playerShip;
+                    if ("isUIAutopilotOn".equals(n)) return uiAutopilotOn;
+                    if ("isPaused".equals(n)) return paused;
                     Class<?> rt = m.getReturnType();
                     if (rt == boolean.class) return false;
                     if (rt == int.class) return 0;

@@ -1393,7 +1393,52 @@ public class StarsectorUISimulator {
                     return false;
                 }
             }
-            // Click "Direct Orders Only" pill to verify granular custom battle style, then "Campaign Default", then "Close"
+            // 1) Click "Light & Strike Warfare" inside Customize modal via CustomUIPanelPlugin.buttonPressed
+            //    and verify both playerGroup and FleetCommandPanel update to "Light & Strike Warfare" without touching Campaign!
+            ButtonAPI lightStrikeBtn = null;
+            for (ButtonAPI b : fsButtons) {
+                if ("Light & Strike Warfare".equals(b.getText())) {
+                    lightStrikeBtn = b;
+                    break;
+                }
+            }
+            if (lightStrikeBtn == null) {
+                System.out.println("FAIL missing 'Light & Strike Warfare' button in FightingStyleModalDialog");
+                return false;
+            }
+            if (styleWin.getPlugin() != null) {
+                styleWin.getPlugin().buttonPressed("TPL:LIGHT_FORCES_TORPEDO");
+            } else {
+                lightStrikeBtn.setChecked(true);
+            }
+            fcPanel.advance(0.1f);
+            if (playerGroup.resolveMatchingOperationalTemplate()
+                    != PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO
+                    || campaignDoc.getOperationalAnchor() != origAnchor
+                    || campaignDoc.getDecisiveArm() != origArm) {
+                System.out.println("FAIL selecting 'Light & Strike Warfare' in Customize modal did not apply or leaked into campaign!");
+                return false;
+            }
+            List<LabelAPI> checkFcLabels = new ArrayList<>();
+            List<ButtonAPI> checkFcButtons = new ArrayList<>();
+            collectLabelsAndButtonsRecursive(fcPanel, checkFcLabels, checkFcButtons);
+            boolean sawLightStrikeLabelOnFc = false;
+            for (LabelAPI l : checkFcLabels) {
+                if (l.getText() != null && l.getText().contains("Light & Strike Warfare")) {
+                    sawLightStrikeLabelOnFc = true;
+                    break;
+                }
+            }
+            if (!sawLightStrikeLabelOnFc) {
+                System.out.println("FAIL FleetCommandPanel did not update Conduct of Battle label to 'Light & Strike Warfare'");
+                return false;
+            }
+
+            fsLabels.clear();
+            fsButtons.clear();
+            collectLabelsAndButtonsRecursive(styleWin, fsLabels, fsButtons);
+
+            // 2) Click "Direct Orders Only" pill to verify granular custom battle style, then "Campaign Default", then "Close"
             ButtonAPI directOrdersBtn = null;
             for (ButtonAPI b : fsButtons) {
                 if ("Direct Orders Only".equals(b.getText())) {

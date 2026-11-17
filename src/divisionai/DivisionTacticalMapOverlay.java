@@ -615,7 +615,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     private Object warroomInstance = null;
     private Object mapDisplayInstance = null;
     private UIPanelAPI widgetPanelInstance = null;
+    private Class<?> widgetPanelBaseClass = null;
     private MethodHandle widgetPanelGetChildrenHandle = null;
+    private com.fs.starfarer.api.ui.LabelAPI cachedFighterOrdersLabel = null;
     private Object warroomCtxBarInstance = null;
     private MethodHandle ctxBarGetTaskTargetHandle = null;
     private MethodHandle ctxBarSyncWithHandle = null;
@@ -941,6 +943,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 Object wpObj = getWidgetPanelHandle.invoke(ui);
                 if (wpObj instanceof UIPanelAPI) {
                     this.widgetPanelInstance = (UIPanelAPI) wpObj;
+                    this.widgetPanelBaseClass = widgetPanelCls;
                     this.widgetPanelGetChildrenHandle = lookup.findVirtual(
                             widgetPanelCls, "getChildrenNonCopy", MethodType.methodType(List.class))
                             .asType(MethodType.methodType(List.class, Object.class));
@@ -996,9 +999,22 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         public void advance(float amount) {
                             sanitizeWarroomStaleFighterWingMenus();
                         }
+
+                        @Override
+                        public void renderBelow(float alphaMult) {
+                            syncPlayerFighterHudOrdersLabel();
+                        }
                     });
                     this.widgetPanelInstance.addComponent(preGuardPanel).inBL(0f, 0f);
                     this.widgetPanelInstance.sendToBottom(preGuardPanel);
+
+                    CustomPanelAPI postHudSyncPanel = Global.getSettings().createCustom(0f, 0f, new BaseCustomUIPanelPlugin() {
+                        @Override
+                        public void advance(float amount) {
+                            syncPlayerFighterHudOrdersLabel();
+                        }
+                    });
+                    this.widgetPanelInstance.addComponent(postHudSyncPanel).inBL(0f, 0f);
                 }
             } catch (Throwable ignoredGuard) {
                 // Non-fatal: combat C2 and Warroom overlay still operate normally
@@ -1164,6 +1180,89 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
         } catch (Throwable ignored) {
         }
+    }
+
+    public static final String FIGHTER_HUD_ORDERS_PREFIX = "      orders: ";
+    public static final String FIGHTER_HUD_ORDERS_DIVISION = "      orders: division";
+
+    /**
+     * Updates vanilla's bottom-left Fighter Wing HUD label ({@code "      orders: engage"} /
+     * {@code "      orders: regroup"}) in place to {@code "      orders: division"} whenever the player's ship belongs
+     * to a Division and its strike craft are under Division Fighter Control (either via the 3-state {@code Z} cycle or
+     * Autopilot {@code U}). Leaves manual {@code Regroup} / {@code Engage} labels completely untouched.
+     */
+    public void syncPlayerFighterHudOrdersLabel() {
+        if (engine == null || widgetPanelInstance == null
+                || widgetPanelBaseClass == null || widgetPanelGetChildrenHandle == null) {
+            return;
+        }
+        ShipAPI pShip = VoidstrikeCoordinator.safeGetPlayerShip(engine);
+        if (pShip == null || !pShip.isAlive() || pShip.isHulk() || pShip.isShuttlePod()) {
+            return;
+        }
+        List<FighterWingAPI> wings = pShip.getAllWings();
+        if (wings == null || wings.isEmpty()) {
+            return;
+        }
+        boolean inDivision = playerGroup != null
+                && pShip.getId() != null
+                && playerGroup.shipIdToDivision.containsKey(pShip.getId());
+        if (!inDivision || !VoidstrikeCoordinator.isCarrierUnderDivisionFighterControl(engine, pShip)) {
+            return;
+        }
+        try {
+            if (cachedFighterOrdersLabel != null) {
+                String txt = cachedFighterOrdersLabel.getText();
+                if (txt != null && txt.startsWith(FIGHTER_HUD_ORDERS_PREFIX)) {
+                    if (!FIGHTER_HUD_ORDERS_DIVISION.equals(txt)) {
+                        cachedFighterOrdersLabel.setText(FIGHTER_HUD_ORDERS_DIVISION);
+                    }
+                    return;
+                }
+                cachedFighterOrdersLabel = null;
+            }
+            com.fs.starfarer.api.ui.LabelAPI found = findFighterOrdersLabelRecursive(
+                    widgetPanelInstance, widgetPanelBaseClass, widgetPanelGetChildrenHandle, 0);
+            if (found != null) {
+                cachedFighterOrdersLabel = found;
+                if (!FIGHTER_HUD_ORDERS_DIVISION.equals(found.getText())) {
+                    found.setText(FIGHTER_HUD_ORDERS_DIVISION);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static com.fs.starfarer.api.ui.LabelAPI findFighterOrdersLabelRecursive(
+            Object panel,
+            Class<?> panelBaseClass,
+            MethodHandle getChildrenHandle,
+            int depth) throws Throwable {
+        if (panel == null || depth > 3 || !panelBaseClass.isInstance(panel)) {
+            return null;
+        }
+        @SuppressWarnings("unchecked")
+        List<Object> children = (List<Object>) getChildrenHandle.invoke(panel);
+        if (children == null || children.isEmpty()) {
+            return null;
+        }
+        for (int i = 0, n = children.size(); i < n; i++) {
+            Object child = children.get(i);
+            if (child instanceof com.fs.starfarer.api.ui.LabelAPI) {
+                com.fs.starfarer.api.ui.LabelAPI lbl = (com.fs.starfarer.api.ui.LabelAPI) child;
+                String txt = lbl.getText();
+                if (txt != null && txt.startsWith(FIGHTER_HUD_ORDERS_PREFIX)) {
+                    return lbl;
+                }
+            } else if (panelBaseClass.isInstance(child)) {
+                com.fs.starfarer.api.ui.LabelAPI sub = findFighterOrdersLabelRecursive(
+                        child, panelBaseClass, getChildrenHandle, depth + 1);
+                if (sub != null) {
+                    return sub;
+                }
+            }
+        }
+        return null;
     }
 
     public static boolean isLeaderlessFighterWingDfm(

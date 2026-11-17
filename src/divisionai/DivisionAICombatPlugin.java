@@ -47,6 +47,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private BattleGroupState playerGroup;
     private BattleGroupState alliedAiGroup;
     private BattleGroupState enemyGroup;
+
+    public BattleGroupState getPlayerGroup() {
+        return playerGroup;
+    }
     private DivisionTacticalMapOverlay tacticalOverlay;
     private DivisionDeploymentDialogOrganizer deploymentOrganizer;
     private DynamicBattleMusicController musicController;
@@ -150,6 +154,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.musicController = new DynamicBattleMusicController();
         BattlefieldFirepowerEvaluator.resetForNewBattle();
         DivisionOtcCommandManager.resetForNewBattle();
+        VoidstrikeCoordinator.resetForNewBattle();
         if (engine != null && engine.getCustomData() != null) {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
         }
@@ -486,6 +491,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (initializedBattle) {
             DivisionCommanderAI.scrubPooledAutoAssignmentsEveryFrame(engine, playerGroup);
             DivisionCommanderAI.scrubPooledAutoAssignmentsEveryFrame(engine, alliedAiGroup);
+            VoidstrikeCoordinator.advancePlayerFighterControlCycle(engine, playerGroup);
         }
 
         if (engine.isPaused()) {
@@ -534,8 +540,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         alliedAiGroup.isAlliedAi = true;
         enemyGroup = new BattleGroupState(1, enemyCmdr);
 
-        PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
-        playerGroup.inheritFromFleetDoctrine(doctrine);
+        playerGroup.ensureCampaignDoctrineInherited();
 
         playerGroup.missionContext = DivisionAutoFormer.detectMissionContext(engine, 0);
         alliedAiGroup.missionContext = playerGroup.missionContext;
@@ -544,17 +549,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
         initializedBattle = true;
         pendingSummaryInstance = this;
-        if (DivisionAISettings.isDebugLoggingEnabled()) {
-            PermanentDivisionManager.OperationalTemplate initTpl = playerGroup.resolveMatchingOperationalTemplate();
-            String conductStr = (initTpl != null)
-                    ? initTpl.shortName
-                    : ("Custom[" + playerGroup.operationalAnchor.name()
-                    + "/" + playerGroup.objectiveCapturePolicy.name()
-                    + "/" + playerGroup.decisiveArm.name()
-                    + "/" + playerGroup.engagementDiscipline.name() + "]");
-            LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, conduct=%s, plays=%s",
-                    playerGroup.authority.shortName, conductStr, playerGroup.plays));
-        }
     }
 
     private void handleCombatOverState(float amount) {
@@ -623,6 +617,17 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         if (playerHasDivisions && !loggedPlayerOtcInit) {
             loggedPlayerOtcInit = true;
+            if (DivisionAISettings.isDebugLoggingEnabled()) {
+                PermanentDivisionManager.OperationalTemplate initTpl = playerGroup.resolveMatchingOperationalTemplate();
+                String conductStr = (initTpl != null)
+                        ? initTpl.shortName
+                        : ("Custom[" + playerGroup.operationalAnchor.name()
+                        + "/" + playerGroup.objectiveCapturePolicy.name()
+                        + "/" + playerGroup.decisiveArm.name()
+                        + "/" + playerGroup.engagementDiscipline.name() + "]");
+                LOG.info(String.format("[DivisionAI] Player OTC doctrine: authority=%s, conduct=%s, plays=%s",
+                        playerGroup.authority.shortName, conductStr, playerGroup.plays));
+            }
             logOtcInitialized("Player", playerGroup);
         }
         if (alliedAiHasDivisions && !loggedAlliedAiOtcInit) {
@@ -1049,18 +1054,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 engine, now, playerGroup, alliedAiGroup, enemyGroup);
 
         if (newPlayerWave != null && playerGroup != null) {
-            PermanentDivisionManager.FleetDoctrineConfig doctrine = PermanentDivisionManager.getFleetDoctrine();
-            if (doctrine != null) {
-                playerGroup.authority = doctrine.getOtcAuthority();
-                playerGroup.fleetWideFormation = doctrine.getFleetWideFormation();
-                playerGroup.multiDivisionSetpieceDoctrine = doctrine.getMultiDivisionSetpiece();
-                playerGroup.operationalAnchor = doctrine.getOperationalAnchor();
-                playerGroup.objectiveCapturePolicy = doctrine.getObjectiveCapturePolicy();
-                playerGroup.decisiveArm = doctrine.getDecisiveArm();
-                playerGroup.engagementDiscipline = doctrine.getEngagementDiscipline();
-                playerGroup.deployInFleetFormation = doctrine.isDeployInFleetFormation();
-                playerGroup.orchestratedAdvance = doctrine.isOrchestratedAdvance();
-            }
+            // Inherit Campaign doctrine at most once per battle so battle-scoped pre-battle Deployment overrides
+            // (Conduct of Battle, Command Style, Fleet Formation, Orchestrated Advance, Multi-Division Setpiece)
+            // and mid-battle adjustments are preserved across Wave 1 and subsequent reinforcement waves.
+            playerGroup.ensureCampaignDoctrineInherited();
             List<DivisionState> formed = DivisionAutoFormer.syncPlayerPermanentDivisionsOnly(engine, playerGroup, playerHulls);
             if (!playerGroup.divisions.isEmpty()) {
                 OtcAI.updateTelemetry(engine, playerGroup);

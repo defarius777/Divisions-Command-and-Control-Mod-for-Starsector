@@ -48,9 +48,9 @@ public final class FleetCommandPanel {
         final FleetMemberAPI[] currentFlagshipRef = new FleetMemberAPI[]{
                 organizer.resolvePlayerFlagshipMember(fdd, preBattle, deployedMembers, reserveMembers)
         };
-        final BattleGroupState playerGroup = organizer.getPlayerGroup();
+        final BattleGroupState initialPlayerGroup = organizer.getPlayerGroup();
         final boolean[] isAlphaCoreRef = new boolean[]{
-                DivisionDeploymentDialogOrganizer.isFlagshipAlphaCoreEquipped(engine, currentFlagshipRef[0], playerGroup)
+                DivisionDeploymentDialogOrganizer.isFlagshipAlphaCoreEquipped(engine, currentFlagshipRef[0], initialPlayerGroup)
         };
         final String[] portraitSpritePathRef = new String[]{DivisionDeploymentDialogOrganizer.ALPHA_CORE_PORTRAIT_SPRITE};
 
@@ -66,8 +66,8 @@ public final class FleetCommandPanel {
         final float leftSectionW = Math.round(width * 0.385f);
         final float rightSectionX = leftSectionW + 8f;
         final float rightSectionW = Math.max(360f, width - rightSectionX - 6f);
-        final float cmdColW = Math.round((rightSectionW - 12f) * 0.305f);
-        final float styleColW = Math.round((rightSectionW - 12f) * 0.340f);
+        final float cmdColW = Math.round((rightSectionW - 12f) * 0.312f);
+        final float styleColW = Math.round((rightSectionW - 12f) * 0.356f);
         final float cmdColX = rightSectionX;
         final float styleColX = cmdColX + cmdColW + 6f;
         final float formColX = styleColX + styleColW + 6f;
@@ -181,7 +181,13 @@ public final class FleetCommandPanel {
             private String lastOtcLayoutKey = null;
             private String lastSelectorLayoutKey = null;
 
+            private BattleGroupState activePlayerGroup() {
+                BattleGroupState live = organizer.getPlayerGroup();
+                return (live != null) ? live : initialPlayerGroup;
+            }
+
             private void refreshOtcDisplay() {
+                BattleGroupState playerGroup = activePlayerGroup();
                 FleetMemberAPI fm = organizer.resolvePlayerFlagshipMember(fdd, preBattle, deployedMembers, reserveMembers);
                 currentFlagshipRef[0] = fm;
                 boolean alpha = DivisionDeploymentDialogOrganizer.isFlagshipAlphaCoreEquipped(engine, fm, playerGroup);
@@ -431,6 +437,7 @@ public final class FleetCommandPanel {
             }
 
             private void updateSelectorText() {
+                BattleGroupState playerGroup = activePlayerGroup();
                 PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
                 if (playerGroup != null) {
                     playerGroup.ensureCampaignDoctrineInherited();
@@ -463,13 +470,13 @@ public final class FleetCommandPanel {
                     }
                     lastSelectorLayoutKey = selKey;
                     cmdStyleNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                            auth.dropdownLabel, cmdStyleNameLabel, cmdColW - 60f));
+                            auth.dropdownLabel, cmdStyleNameLabel, cmdColW - 40f));
                     String styleTitle = (matchedTpl != null) ? matchedTpl.shortName : "Custom Conduct";
                     fightingStyleNameLabel.setColor(matchedTpl != null
                             ? new Color(255, 232, 130, 255)
                             : new Color(175, 240, 255, 255));
                     fightingStyleNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
-                            styleTitle, fightingStyleNameLabel, styleColW - 60f));
+                            styleTitle, fightingStyleNameLabel, styleColW - 40f));
                     ButtonAPI custBtn = styleCustomizeButtonRef[0];
                     if (custBtn != null) {
                         if (organizer.isFightingStyleWindowOpen() || matchedTpl == null) {
@@ -499,7 +506,7 @@ public final class FleetCommandPanel {
                         : fw.displayName;
                 formationNameLabel.setText(CampaignFleetTooltipOrganizer.fitSingleLineToWidth(
                         fmDisplay, formationNameLabel,
-                        preBattle ? formColW - 60f : rightStatusMaxW));
+                        preBattle ? formColW - 40f : rightStatusMaxW));
                 ButtonAPI entry = entryButtonRef[0];
                 if (preBattle && entry != null) {
                     if (isPursuit) {
@@ -515,6 +522,7 @@ public final class FleetCommandPanel {
             }
 
             private void updateLiveStatusText() {
+                BattleGroupState playerGroup = activePlayerGroup();
                 float eng = 0f;
                 if (organizer.getMusicController() != null) eng = Math.max(eng, organizer.getMusicController().getCurrentBattleEngagementLevel());
                 if (playerGroup != null) {
@@ -589,6 +597,7 @@ public final class FleetCommandPanel {
             }
 
             private void pollButtons() {
+                BattleGroupState playerGroup = activePlayerGroup();
                 organizer.runActiveOtcSelectorPollHook();
                 ButtonAPI changeBtn = changeOtcButtonRef[0];
                 if (changeBtn != null && changeBtn.isChecked()) {
@@ -707,6 +716,7 @@ public final class FleetCommandPanel {
             @Override
             public void processInput(List<com.fs.starfarer.api.input.InputEventAPI> events) {
                 if (!preBattle || events == null || organizer.isAnyEmbeddedModalOpen()) return;
+                BattleGroupState playerGroup = activePlayerGroup();
                 CustomPanelAPI self = panelRef[0];
                 if (self == null || self.getPosition() == null) return;
                 PositionAPI pos = self.getPosition();
@@ -916,6 +926,7 @@ public final class FleetCommandPanel {
                 GL11.glEnd();
                 GL11.glPopAttrib();
 
+                BattleGroupState playerGroup = activePlayerGroup();
                 PermanentDivisionManager.FleetDoctrineConfig doc = PermanentDivisionManager.getFleetDoctrine();
                 if (playerGroup != null) {
                     playerGroup.ensureCampaignDoctrineInherited();
@@ -1012,15 +1023,15 @@ public final class FleetCommandPanel {
             panel.addComponent((UIComponentAPI) cmdStyleHeaderLabel)
                     .setSize(cmdColW - 8f, 15f).inTL(cmdColX + 4f, topBarH + 4f);
             panel.addComponent((UIComponentAPI) cmdStyleNameLabel)
-                    .setSize(cmdColW - 60f, 16f).inTL(cmdColX + 30f, topBarH + 24f);
+                    .setSize(cmdColW - 40f, 16f).inTL(cmdColX + 20f, topBarH + 24f);
             panel.addComponent((UIComponentAPI) fightingStyleHeaderLabel)
                     .setSize(styleColW - 8f, 15f).inTL(styleColX + 4f, topBarH + 4f);
             panel.addComponent((UIComponentAPI) fightingStyleNameLabel)
-                    .setSize(styleColW - 60f, 16f).inTL(styleColX + 30f, topBarH + 24f);
+                    .setSize(styleColW - 40f, 16f).inTL(styleColX + 20f, topBarH + 24f);
             panel.addComponent((UIComponentAPI) selectorHeaderLabel)
                     .setSize(formColW - 8f, 15f).inTL(formColX + 4f, topBarH + 4f);
             panel.addComponent((UIComponentAPI) formationNameLabel)
-                    .setSize(formColW - 60f, 16f).inTL(formColX + 30f, topBarH + 24f);
+                    .setSize(formColW - 40f, 16f).inTL(formColX + 20f, topBarH + 24f);
         } else {
             panel.addComponent((UIComponentAPI) selectorHeaderLabel)
                     .setSize(rightMaxW, 15f).inTL(rightLabelX, topBarH + 4f);
@@ -1036,7 +1047,7 @@ public final class FleetCommandPanel {
                 Alignment.MID, CutStyle.ALL, portraitWRef[0], 18f, 0f);
         changeOtcButtonRef[0].getPosition().inTL(portraitX, portraitTopY + portraitH + 5f);
         changeOtcButtonRef[0].setEnabled(!DivisionOtcCommandManager.isPlayerOtcLockedByAlphaCoreInBattle(
-                engine, currentFlagshipRef[0], playerGroup, preBattle));
+                engine, currentFlagshipRef[0], initialPlayerGroup, preBattle));
         DivisionUiWidgets.attachActionTooltip(leftButtons, changeOtcButtonRef[0], "OTC_CHANGE");
         leftButtons.setHeightSoFar(height);
         panel.addUIElement(leftButtons).inTL(0f, 0f);
@@ -1065,28 +1076,28 @@ public final class FleetCommandPanel {
         } else {
             TooltipMakerAPI buttons = panel.createUIElement(width, height, false);
             authPrevButtonRef[0] = buttons.addButton("<", "OTC_AUTH_PREV", base, dark,
-                    Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
+                    Alignment.MID, CutStyle.ALL, 18f, 20f, 0f);
             authNextButtonRef[0] = buttons.addButton(">", "OTC_AUTH_NEXT", base, dark,
-                    Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
+                    Alignment.MID, CutStyle.ALL, 18f, 20f, 0f);
             stylePrevButtonRef[0] = buttons.addButton("<", "FIGHTING_STYLE_PREV", base, dark,
-                    Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
+                    Alignment.MID, CutStyle.ALL, 18f, 20f, 0f);
             styleNextButtonRef[0] = buttons.addButton(">", "FIGHTING_STYLE_NEXT", base, dark,
-                    Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
+                    Alignment.MID, CutStyle.ALL, 18f, 20f, 0f);
             styleCustomizeButtonRef[0] = buttons.addButton("Customize", "FIGHTING_STYLE_CUSTOMIZE", base, dark,
                     Alignment.MID, CutStyle.ALL, styleColW - 12f, 18f, 0f);
             prevButtonRef[0] = buttons.addButton("<", "FLEET_FORMATION_PREV", base, dark,
-                    Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
+                    Alignment.MID, CutStyle.ALL, 18f, 20f, 0f);
             nextButtonRef[0] = buttons.addButton(">", "FLEET_FORMATION_NEXT", base, dark,
-                    Alignment.MID, CutStyle.ALL, 24f, 20f, 0f);
+                    Alignment.MID, CutStyle.ALL, 18f, 20f, 0f);
             entryButtonRef[0] = buttons.addButton("Orchestrated Advance: On", "FLEET_ORCHESTRATED_ADVANCE", base, dark,
                     Alignment.MID, CutStyle.ALL, formColW - 12f, 18f, 0f);
-            authPrevButtonRef[0].getPosition().inTL(cmdColX + 4f, topBarH + 22f);
-            authNextButtonRef[0].getPosition().inTL(cmdColX + cmdColW - 28f, topBarH + 22f);
-            stylePrevButtonRef[0].getPosition().inTL(styleColX + 4f, topBarH + 22f);
-            styleNextButtonRef[0].getPosition().inTL(styleColX + styleColW - 28f, topBarH + 22f);
+            authPrevButtonRef[0].getPosition().inTL(cmdColX + 2f, topBarH + 22f);
+            authNextButtonRef[0].getPosition().inTL(cmdColX + cmdColW - 20f, topBarH + 22f);
+            stylePrevButtonRef[0].getPosition().inTL(styleColX + 2f, topBarH + 22f);
+            styleNextButtonRef[0].getPosition().inTL(styleColX + styleColW - 20f, topBarH + 22f);
             styleCustomizeButtonRef[0].getPosition().inTL(styleColX + 6f, height - 24f);
-            prevButtonRef[0].getPosition().inTL(formColX + 4f, topBarH + 22f);
-            nextButtonRef[0].getPosition().inTL(formColX + formColW - 28f, topBarH + 22f);
+            prevButtonRef[0].getPosition().inTL(formColX + 2f, topBarH + 22f);
+            nextButtonRef[0].getPosition().inTL(formColX + formColW - 20f, topBarH + 22f);
             entryButtonRef[0].getPosition().inTL(formColX + 6f, height - 24f);
             DivisionUiWidgets.attachActionTooltip(buttons, authPrevButtonRef[0], "OTC_AUTH_PREV");
             DivisionUiWidgets.attachActionTooltip(buttons, authNextButtonRef[0], "OTC_AUTH_NEXT");

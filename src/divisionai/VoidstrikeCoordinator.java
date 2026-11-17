@@ -185,6 +185,20 @@ public class VoidstrikeCoordinator {
         }
     }
 
+    public enum PlayerFighterControlMode {
+        REGROUP,
+        ENGAGE,
+        DIVISION
+    }
+
+    private static CombatEngineAPI trackedPlayerEngine = null;
+    private static ShipAPI trackedPlayerShip = null;
+    private static boolean trackedPlayerShipHadManualHelm = false;
+    private static boolean trackedPlayerShipInDivision = false;
+    private static PlayerFighterControlMode playerFighterMode = PlayerFighterControlMode.REGROUP;
+    private static boolean visitedOppositeManualMode = false;
+    private static boolean expectedPlayerPullBack = true;
+
     public static void resetForNewBattle() {
         activeVoidstrikes.clear();
         recentVoidstrikeHistory.clear();
@@ -199,6 +213,231 @@ public class VoidstrikeCoordinator {
         lastVoidstrikePlayerGroup = null;
         lastVoidstrikeAlliedGroup = null;
         lastVoidstrikeEnemyGroup = null;
+        trackedPlayerEngine = null;
+        trackedPlayerShip = null;
+        trackedPlayerShipHadManualHelm = false;
+        trackedPlayerShipInDivision = false;
+        playerFighterMode = PlayerFighterControlMode.REGROUP;
+        visitedOppositeManualMode = false;
+        expectedPlayerPullBack = true;
+    }
+
+    public static PlayerFighterControlMode getPlayerFighterControlMode() {
+        return playerFighterMode;
+    }
+
+    public static ShipAPI safeGetPlayerShip(CombatEngineAPI engine) {
+        if (engine == null) return null;
+        try {
+            return engine.getPlayerShip();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static boolean isCarrierUnderDivisionFighterControl(ShipAPI carrier) {
+        if (carrier == null) return true;
+        if (carrier != trackedPlayerShip) return true;
+        if (carrier.getShipAI() != null) return true;
+        return trackedPlayerShipInDivision && playerFighterMode == PlayerFighterControlMode.DIVISION;
+    }
+
+    public static boolean isCarrierUnderDivisionFighterControl(CombatEngineAPI engine, ShipAPI carrier) {
+        if (carrier == null || engine == null) return true;
+        ShipAPI pShip = (trackedPlayerEngine == engine) ? trackedPlayerShip : safeGetPlayerShip(engine);
+        if (carrier != pShip) return true;
+        // When Autopilot (U) is active, ShipAI drives the ship and Division AI coordinates its strike craft.
+        if (carrier.getShipAI() != null) return true;
+        return trackedPlayerShip == carrier && trackedPlayerShipInDivision
+                && playerFighterMode == PlayerFighterControlMode.DIVISION;
+    }
+
+    public static void syncExpectedPlayerPullBackFromDivisionAi(ShipAPI carrier) {
+        if (carrier != null && carrier == trackedPlayerShip
+                && trackedPlayerShipHadManualHelm
+                && trackedPlayerShipInDivision
+                && playerFighterMode == PlayerFighterControlMode.DIVISION) {
+            expectedPlayerPullBack = carrier.isPullBackFighters();
+        }
+    }
+
+    public static void releaseCarrierFromDivisionFighterControl(
+            ShipAPI carrier,
+            DivisionState div,
+            boolean clearCarrierForceTimers) {
+        if (carrier == null) return;
+        if (clearCarrierForceTimers) {
+            carrier.setForceCarrierPullBackTime(0f);
+            carrier.setForceCarrierTargetTime(0f);
+            carrier.setForceCarrierTarget(null);
+        }
+        ShipwideAIFlags cFlags = carrier.getAIFlags();
+        if (cFlags != null) {
+            cFlags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
+        }
+        if (div != null && carrier.getId() != null) {
+            div.fighterPullbackShipIds.remove(carrier.getId());
+        }
+        if (carrier.getMutableStats() != null && carrier.getMutableStats().getFighterWingRange() != null) {
+            carrier.getMutableStats().getFighterWingRange().unmodify(VOIDSTRIKE_MAX_RANGE_STAT_ID);
+        }
+        List<FighterWingAPI> wings = carrier.getAllWings();
+        if (wings != null) {
+            for (int w = 0; w < wings.size(); w++) {
+                FighterWingAPI wing = wings.get(w);
+                if (wing == null || wing.getWingMembers() == null) continue;
+                List<ShipAPI> members = wing.getWingMembers();
+                for (int i = 0; i < members.size(); i++) {
+                    ShipAPI f = members.get(i);
+                    if (f == null) continue;
+                    if (f.getId() != null) {
+                        flankingGateClearedTargetByFighter.remove(f.getId());
+                    }
+                    ShipwideAIFlags flags = f.getAIFlags();
+                    if (flags != null) {
+                        flags.unsetFlag(AIFlags.ESCORT_OTHER_SHIP);
+                        flags.unsetFlag(AIFlags.MOVEMENT_DEST);
+                        flags.unsetFlag(AIFlags.DO_NOT_PURSUE);
+                        flags.unsetFlag(AIFlags.MANEUVER_TARGET);
+                        flags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Keybind-agnostic 3-state fighter posture controller for player-piloted division ships:
+     * <ul>
+     *   <li>Player-piloted ships ALWAYS initialize in Starsector's default fighter posture ({@code REGROUP} when
+     *       {@code ship.isPullBackFighters()} is {@code true}, {@code ENGAGE} when {@code false}).</li>
+     *   <li>When assigned to a Division, pressing {@code SHIP_PULL_BACK_FIGHTERS} (default {@code Z}) cycles cleanly
+     *       across {@code Regroup -> Engage -> Division Control} (and out of {@code Division Control} adaptively into
+     *       whichever manual posture immediately flips the current fighter state, followed by the opposite manual
+     *       posture, then back to {@code Division Control}).</li>
+     *   <li>Unassigned player ships remain in pure 2-state vanilla {@code Regroup <-> Engage}.</li>
+     * </ul>
+     */
+    public static void advancePlayerFighterControlCycle(CombatEngineAPI engine, BattleGroupState playerGroup) {
+        if (engine == null) return;
+        if (trackedPlayerEngine != engine) {
+            trackedPlayerEngine = engine;
+            trackedPlayerShip = null;
+            trackedPlayerShipHadManualHelm = false;
+            trackedPlayerShipInDivision = false;
+            playerFighterMode = PlayerFighterControlMode.REGROUP;
+            visitedOppositeManualMode = false;
+            expectedPlayerPullBack = true;
+        }
+
+        ShipAPI pShip = safeGetPlayerShip(engine);
+        if (pShip == null || !pShip.isAlive() || pShip.isHulk() || pShip.isShuttlePod()) {
+            trackedPlayerShip = null;
+            trackedPlayerShipHadManualHelm = false;
+            trackedPlayerShipInDivision = false;
+            return;
+        }
+
+        List<FighterWingAPI> wings = pShip.getAllWings();
+        boolean hasFighterWings = (wings != null && !wings.isEmpty()) || pShip.getNumFighterBays() > 0;
+        DivisionState pDiv = (playerGroup != null && pShip.getId() != null)
+                ? playerGroup.shipIdToDivision.get(pShip.getId())
+                : null;
+        boolean inDivision = (pDiv != null);
+        boolean manualHelm = (pShip.getShipAI() == null);
+
+        if (!hasFighterWings) {
+            trackedPlayerShip = pShip;
+            trackedPlayerShipHadManualHelm = manualHelm;
+            trackedPlayerShipInDivision = inDivision;
+            expectedPlayerPullBack = pShip.isPullBackFighters();
+            return;
+        }
+
+        // Ship transfer (X) or initial spawn, or toggling Autopilot (U) OFF back to manual helm:
+        // Start manual control in the ship's current vanilla fighter posture (default Regroup at spawn).
+        if (pShip != trackedPlayerShip || (manualHelm && !trackedPlayerShipHadManualHelm)) {
+            boolean switchedFromAiHelm = (pShip == trackedPlayerShip && !trackedPlayerShipHadManualHelm)
+                    || (trackedPlayerShip != null && pShip != trackedPlayerShip);
+            trackedPlayerShip = pShip;
+            trackedPlayerShipHadManualHelm = manualHelm;
+            trackedPlayerShipInDivision = inDivision;
+            boolean curPullBack = pShip.isPullBackFighters();
+            playerFighterMode = curPullBack ? PlayerFighterControlMode.REGROUP : PlayerFighterControlMode.ENGAGE;
+            visitedOppositeManualMode = false;
+            expectedPlayerPullBack = curPullBack;
+            if (manualHelm) {
+                releaseCarrierFromDivisionFighterControl(pShip, pDiv, switchedFromAiHelm);
+            }
+            return;
+        }
+
+        // Autopilot (U) ON: Division AI controls fighters alongside ShipAI.
+        if (!manualHelm) {
+            trackedPlayerShipHadManualHelm = false;
+            trackedPlayerShipInDivision = inDivision;
+            expectedPlayerPullBack = pShip.isPullBackFighters();
+            return;
+        }
+
+        // Division membership changed mid-battle (e.g. player assigned/unassigned flagship in Warroom):
+        if (inDivision != trackedPlayerShipInDivision) {
+            trackedPlayerShipInDivision = inDivision;
+            if (!inDivision && playerFighterMode == PlayerFighterControlMode.DIVISION) {
+                boolean curPullBack = pShip.isPullBackFighters();
+                playerFighterMode = curPullBack ? PlayerFighterControlMode.REGROUP : PlayerFighterControlMode.ENGAGE;
+                visitedOppositeManualMode = false;
+                expectedPlayerPullBack = curPullBack;
+                releaseCarrierFromDivisionFighterControl(pShip, null, true);
+                return;
+            }
+        }
+
+        boolean actualPullBack = pShip.isPullBackFighters();
+        if (!inDivision) {
+            // Unassigned player ship: pure 2-state vanilla Regroup <-> Engage
+            playerFighterMode = actualPullBack ? PlayerFighterControlMode.REGROUP : PlayerFighterControlMode.ENGAGE;
+            visitedOppositeManualMode = false;
+            expectedPlayerPullBack = actualPullBack;
+            return;
+        }
+
+        // Detect player pressing SHIP_PULL_BACK_FIGHTERS (Z or custom keybind) via unexpected flip of pullBackFighters
+        if (actualPullBack != expectedPlayerPullBack) {
+            if (playerFighterMode == PlayerFighterControlMode.DIVISION) {
+                // Step out of Division Control into the immediate manual posture vanilla just toggled into
+                playerFighterMode = actualPullBack ? PlayerFighterControlMode.REGROUP : PlayerFighterControlMode.ENGAGE;
+                visitedOppositeManualMode = false;
+                expectedPlayerPullBack = actualPullBack;
+                releaseCarrierFromDivisionFighterControl(pShip, pDiv, false);
+            } else if (!visitedOppositeManualMode) {
+                // 1st Z press from initial manual posture -> opposite manual posture (e.g. Regroup -> Engage)
+                playerFighterMode = actualPullBack ? PlayerFighterControlMode.REGROUP : PlayerFighterControlMode.ENGAGE;
+                visitedOppositeManualMode = true;
+                expectedPlayerPullBack = actualPullBack;
+            } else {
+                // 2nd Z press after visiting both manual postures -> enter Division Control!
+                playerFighterMode = PlayerFighterControlMode.DIVISION;
+                visitedOppositeManualMode = false;
+                pShip.setForceCarrierPullBackTime(0f);
+                pShip.setForceCarrierTargetTime(0f);
+                pShip.setForceCarrierTarget(null);
+                // Immediately run Division strike-craft C2 for this carrier so posture syncs on this exact frame
+                ShipAPI focusEnemy = resolveVoidstrikeFocusShip(pDiv);
+                int cIdx = pDiv.getAliveMembers().indexOf(pShip);
+                if (cIdx < 0) cIdx = 0;
+                dressShipStrikeCraftInFormation(
+                        pShip, cIdx, focusEnemy, pDiv, playerGroup, engine.getTotalElapsedTime(false));
+                expectedPlayerPullBack = pShip.isPullBackFighters();
+            }
+        } else if (playerFighterMode != PlayerFighterControlMode.DIVISION) {
+            // Enforce locked manual posture so nothing can drift pullBackFighters while under manual control
+            boolean wantPullBack = (playerFighterMode == PlayerFighterControlMode.REGROUP);
+            if (actualPullBack != wantPullBack) {
+                pShip.setPullBackFighters(wantPullBack);
+            }
+            expectedPlayerPullBack = wantPullBack;
+        }
     }
 
     static final Map<String, String> flankingGateClearedTargetByFighter = new HashMap<>();
@@ -246,6 +485,7 @@ public class VoidstrikeCoordinator {
         int wingsClearedCarriers = 0;
         int wingsCommittedDownrange = 0;
         for (ShipAPI m : div.getAliveMembers()) {
+            if (!isCarrierUnderDivisionFighterControl(m)) continue;
             if (m.getAllWings() != null && !m.getAllWings().isEmpty()) {
                 for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
                     if (w == null || isSupportEscortOnlyWing(m, w)) continue;
@@ -295,6 +535,7 @@ public class VoidstrikeCoordinator {
             int recoveredFighters = 0;
             int countedFighters = 0;
             for (ShipAPI m : div.getAliveMembers()) {
+                if (!isCarrierUnderDivisionFighterControl(m)) continue;
                 if (m.getAllWings() == null) continue;
                 for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
                     if (w == null || w.getWingMembers() == null) continue;
@@ -426,6 +667,7 @@ public class VoidstrikeCoordinator {
                 int bomberCounted = 0;
                 int bomberReadyNearDeck = 0;
                 for (ShipAPI m : div.getAliveMembers()) {
+                    if (!isCarrierUnderDivisionFighterControl(m)) continue;
                     if (m.getAllWings() == null) continue;
                     for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
                         if (w == null || w.getLeader() == null || !w.getLeader().isAlive()) continue;
@@ -467,6 +709,7 @@ public class VoidstrikeCoordinator {
             // 420u of voidstrikeMarshalPoint, then execute Stage 2 and snapshot the Maximum Average Effective Massed Strike Package!
             int assembledWings = 0;
             for (ShipAPI m : div.getAliveMembers()) {
+                if (!isCarrierUnderDivisionFighterControl(m)) continue;
                 if (m.getAllWings() == null) continue;
                 for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
                     if (w == null || w.getLeader() == null || !w.getLeader().isAlive()) continue;
@@ -498,6 +741,7 @@ public class VoidstrikeCoordinator {
             if (elapsedInStage >= 14.5f && airborneWings > 0) {
                 int nearCarrier = 0;
                 for (ShipAPI m : div.getAliveMembers()) {
+                    if (!isCarrierUnderDivisionFighterControl(m)) continue;
                     if (m.getAllWings() == null) continue;
                     for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
                         if (w == null || w.getLeader() == null || !w.getLeader().isAlive()) continue;
@@ -856,6 +1100,7 @@ public class VoidstrikeCoordinator {
         if (cFlags != null) {
             cFlags.unsetFlag(AIFlags.CARRIER_FIGHTER_TARGET);
         }
+        syncExpectedPlayerPullBackFromDivisionAi(carrier);
     }
 
     /**
@@ -884,6 +1129,7 @@ public class VoidstrikeCoordinator {
         if (cFlags != null && alsoSetAiFlag && carrierTarget != null && carrierTarget.isAlive() && !carrierTarget.isHulk()) {
             cFlags.setFlag(AIFlags.CARRIER_FIGHTER_TARGET, 1.2f, carrierTarget);
         }
+        syncExpectedPlayerPullBackFromDivisionAi(carrier);
     }
 
     /**
@@ -1079,6 +1325,7 @@ public class VoidstrikeCoordinator {
             BattleGroupState myGroup,
             float now) {
         if (carrier == null || div == null) return;
+        if (!isCarrierUnderDivisionFighterControl(carrier)) return;
         List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
         if (wings == null || wings.isEmpty()) return;
 
@@ -1239,6 +1486,7 @@ public class VoidstrikeCoordinator {
         List<ShipAPI> divAlive = div.getAliveMembers();
         for (int i = 0; i < divAlive.size(); i++) {
             ShipAPI m = divAlive.get(i);
+            if (!isCarrierUnderDivisionFighterControl(m)) continue;
             int mWings = (m.getAllWings() != null) ? m.getAllWings().size() : 0;
             if (i < carrierIdxInDiv) {
                 priorCarrierWings += mWings;
@@ -1511,6 +1759,7 @@ public class VoidstrikeCoordinator {
                 if (peerDiv != null && peerDiv != div && peerDiv.id != null
                         && activeSharedRecord.participatingDivisionIds.contains(peerDiv.id)) {
                     for (ShipAPI mc : peerDiv.getAliveMembers()) {
+                        if (!isCarrierUnderDivisionFighterControl(mc)) continue;
                         if (mc != null && mc.isAlive() && mc.getAllWings() != null) {
                             totalMergedPackageWings += mc.getAllWings().size();
                         }
@@ -1547,6 +1796,7 @@ public class VoidstrikeCoordinator {
             if (sAlive == null || sAlive.isEmpty()) continue;
             int sTotalWings = 0;
             for (ShipAPI mc : sAlive) {
+                if (!isCarrierUnderDivisionFighterControl(mc)) continue;
                 if (mc != null && mc.isAlive() && mc.getAllWings() != null) {
                     sTotalWings += mc.getAllWings().size();
                 }
@@ -1586,6 +1836,7 @@ public class VoidstrikeCoordinator {
             int scanGlobalIdx = 0;
             int numAxesEst = (sGeom == VoidstrikeAttackGeometry.DIRECT_ASSAULT && sTotalWings >= 3) ? 3 : 2;
             for (ShipAPI mCarrier : sAlive) {
+                if (!isCarrierUnderDivisionFighterControl(mCarrier)) continue;
                 if (mCarrier == null || !mCarrier.isAlive() || mCarrier.getAllWings() == null) continue;
                 for (FighterWingAPI mWing : mCarrier.getAllWings()) {
                     if (mWing != null && mWing.getWingMembers() != null && !mWing.getWingMembers().isEmpty()) {
@@ -2468,6 +2719,7 @@ public class VoidstrikeCoordinator {
     public static boolean hasArmedStrikeCraftAirborne(DivisionState div) {
         if (div == null) return false;
         for (ShipAPI m : div.getAliveMembers()) {
+            if (!isCarrierUnderDivisionFighterControl(m)) continue;
             if (m == null || m.getAllWings() == null) continue;
             for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
                 if (w == null || w.getWingMembers() == null || isSupportEscortOnlyWing(m, w)) continue;
@@ -2491,6 +2743,7 @@ public class VoidstrikeCoordinator {
     public static boolean hasArmedStrikeCraftCommittedDownrange(DivisionState div) {
         if (div == null) return false;
         for (ShipAPI m : div.getAliveMembers()) {
+            if (!isCarrierUnderDivisionFighterControl(m)) continue;
             if (m == null || m.getAllWings() == null) continue;
             for (com.fs.starfarer.api.combat.FighterWingAPI w : m.getAllWings()) {
                 if (w == null || w.getWingMembers() == null || isSupportEscortOnlyWing(m, w)) continue;
@@ -2563,6 +2816,7 @@ public class VoidstrikeCoordinator {
         int craftCount = 0;
 
         for (ShipAPI carrier : carriers) {
+            if (!isCarrierUnderDivisionFighterControl(carrier)) continue;
             if (carrier == null || carrier.getAllWings() == null) continue;
             for (com.fs.starfarer.api.combat.FighterWingAPI w : carrier.getAllWings()) {
                 if (w == null || w.getWingMembers() == null || w.getWingMembers().isEmpty()) continue;
@@ -2771,6 +3025,7 @@ public class VoidstrikeCoordinator {
         if (div == null || div.members == null) return false;
         for (int i = 0, n = div.members.size(); i < n; i++) {
             ShipAPI m = div.members.get(i);
+            if (!isCarrierUnderDivisionFighterControl(m)) continue;
             if (m == null || !m.isAlive() || m.isHulk() || m.getAllWings() == null) continue;
             List<FighterWingAPI> wings = m.getAllWings();
             for (int wi = 0, wn = wings.size(); wi < wn; wi++) {
@@ -2789,6 +3044,7 @@ public class VoidstrikeCoordinator {
             float radius) {
         if (div == null || targetDiv == null) return false;
         for (ShipAPI carrier : div.getAliveMembers()) {
+            if (!isCarrierUnderDivisionFighterControl(carrier)) continue;
             if (carrier == null || carrier.getAllWings() == null) continue;
             for (com.fs.starfarer.api.combat.FighterWingAPI w : carrier.getAllWings()) {
                 if (w == null || w.getWingMembers() == null) continue;
@@ -3848,6 +4104,7 @@ public class VoidstrikeCoordinator {
             if (alive == null || alive.isEmpty()) continue;
             for (int i = 0; i < alive.size(); i++) {
                 ShipAPI carrier = alive.get(i);
+                if (!isCarrierUnderDivisionFighterControl(carrier)) continue;
                 if (carrier == null || carrier.getAllWings() == null || carrier.getAllWings().isEmpty()) continue;
                 dressShipStrikeCraftInFormation(carrier, i, focusEnemyShip, div, group, now);
             }
@@ -4162,6 +4419,14 @@ public class VoidstrikeCoordinator {
         if (carrier == null || !carrier.isAlive() || carrier.isHulk() || carrier.isExpired()) return;
         List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
         if (wings == null || wings.isEmpty()) return;
+        if (div != null && !isCarrierUnderDivisionFighterControl(carrier)) {
+            for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
+                String wk = carrier.getId() + "#wing_" + wIdx;
+                visitedWingKeys.add(wk);
+                returningWingKeys.add(wk);
+            }
+            return;
+        }
 
         // Emergency-Only Pullback: only discard a carrier's strike wings as returning when the carrier/division is
         // in a genuine emergency pullback or post-culmination egress with no armed craft still pressing downrange!

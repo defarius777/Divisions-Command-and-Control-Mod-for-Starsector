@@ -95,6 +95,7 @@ public class DivisionAITestSuite {
         testBattleScopedFightingStyleAndCampaignImmutability();
         testSixNewDivisionTypesHegemonyBcvAndMissilePhaseAI();
         testWarroomFighterWingCrashGuard();
+        testPlayerPilotedFighterPostureCycleAndHudLabel();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -5731,6 +5732,246 @@ public class DivisionAITestSuite {
         }
     }
 
+    private static void testPlayerPilotedFighterPostureCycleAndHudLabel() {
+        System.out.println("--- [Test] Player-Piloted 3-State Fighter Posture Cycle (Regroup -> Engage -> Division) & Native HUD Label ---");
+        try {
+            divisionai.VoidstrikeCoordinator.resetForNewBattle();
+            CommanderProfile cmdr = new CommanderProfile(null, "steady");
+            BattleGroupState pg = new BattleGroupState(0, cmdr);
+            BattleGroupState eg = new BattleGroupState(1, cmdr);
+            SimArena arena = new SimArena("player_fighter_cycle", "Player Fighter Cycle Test", pg, eg);
+            arena.uiAutopilotOn = false;
+
+            DivisionState playerDiv = new DivisionState(
+                    "div_cv_1", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div 1", cmdr);
+            pg.divisions.add(playerDiv);
+            DivisionState enemyDiv = new DivisionState(
+                    "div_en_1", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Div 1", cmdr);
+            eg.divisions.add(enemyDiv);
+
+            SimArena.SimShipState playerHeron = arena.addShip(
+                    playerDiv, "p_heron", "ISS Valiant", "Heron",
+                    HullSize.CRUISER, 0f, -600f, 100f, 1000f, 0, 3);
+            SimArena.SimShipState aiWingmanHeron = arena.addShip(
+                    playerDiv, "ai_heron", "ISS Hornet", "Heron",
+                    HullSize.CRUISER, 320f, -600f, 100f, 1000f, 0, 3);
+            SimArena.SimShipState unassignedCondor = new SimArena.SimShipState(
+                    "p_condor_solo", "ISS Lone", "Condor", 0,
+                    HullSize.DESTROYER, -900f, -900f, 80f, 900f, 0, 2);
+            arena.ships.add(unassignedCondor);
+            SimArena.SimShipState enemyCruiser = arena.addShip(
+                    enemyDiv, "e_eagle", "Enemy Eagle", "Eagle",
+                    HullSize.CRUISER, 0f, 900f, 90f, 1000f, 0, 0);
+
+            pg.shipIdToDivision.put(playerHeron.id, playerDiv);
+            pg.shipIdToDivision.put(aiWingmanHeron.id, playerDiv);
+            eg.shipIdToDivision.put(enemyCruiser.id, enemyDiv);
+            playerDiv.currentIntent = DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
+            playerDiv.targetEnemyDivision = enemyDiv;
+            pg.primaryThreatEnemyDivision = enemyDiv;
+
+            java.util.function.Consumer<SimArena.SimShipState> attachBomberWing = (carrier) -> {
+                SimArena.SimShipState craft = new SimArena.SimShipState(
+                        carrier.id + "_dagger_0", "Dagger", "Dagger", carrier.owner,
+                        HullSize.FIGHTER,
+                        carrier.location.x, carrier.location.y + 40f, 220f, 600f, 2, 0);
+                craft.addWeaponMount(new SimArena.SimWeaponMount(
+                        craft.id + "_atropos",
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponType.MISSILE,
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.SMALL,
+                        com.fs.starfarer.api.combat.DamageType.HIGH_EXPLOSIVE,
+                        700f, 20f, 0f, 600f, 1200f, 0f, 4.0f, true, 2, false, true, false));
+                final java.util.List<com.fs.starfarer.api.combat.ShipAPI> members =
+                        java.util.Collections.singletonList(craft.proxy);
+                com.fs.starfarer.api.loading.FighterWingSpecAPI specProxy =
+                        (com.fs.starfarer.api.loading.FighterWingSpecAPI) Proxy.newProxyInstance(
+                                com.fs.starfarer.api.loading.FighterWingSpecAPI.class.getClassLoader(),
+                                new Class<?>[]{com.fs.starfarer.api.loading.FighterWingSpecAPI.class},
+                                (p, m, a) -> {
+                                    String n = m.getName();
+                                    if ("getId".equals(n)) return "dagger_wing";
+                                    if ("getRole".equals(n)) return com.fs.starfarer.api.loading.WingRole.BOMBER;
+                                    if ("isBomber".equals(n)) return Boolean.TRUE;
+                                    if ("getRange".equals(n)) return 4000f;
+                                    if ("getNumFighters".equals(n)) return 1;
+                                    Class<?> rt = m.getReturnType();
+                                    if (rt == boolean.class) return false;
+                                    if (rt == int.class) return 0;
+                                    if (rt == float.class) return 0f;
+                                    return null;
+                                });
+                com.fs.starfarer.api.combat.FighterWingAPI wingProxy =
+                        (com.fs.starfarer.api.combat.FighterWingAPI) Proxy.newProxyInstance(
+                                com.fs.starfarer.api.combat.FighterWingAPI.class.getClassLoader(),
+                                new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                                (p, m, a) -> {
+                                    String n = m.getName();
+                                    if ("equals".equals(n)) return p == a[0];
+                                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                                    if ("getSpec".equals(n)) return specProxy;
+                                    if ("getRole".equals(n)) return com.fs.starfarer.api.loading.WingRole.BOMBER;
+                                    if ("getRange".equals(n)) return 4000f;
+                                    if ("getSourceShip".equals(n)) return carrier.proxy;
+                                    if ("getWingMembers".equals(n)) return members;
+                                    if ("getLeader".equals(n)) return craft.proxy;
+                                    if ("isReturning".equals(n)) return carrier.pullBackFighters;
+                                    Class<?> rt = m.getReturnType();
+                                    if (rt == boolean.class) return false;
+                                    if (rt == int.class) return 0;
+                                    if (rt == float.class) return 0f;
+                                    return null;
+                                });
+                craft.wing = wingProxy;
+                carrier.wings.add(wingProxy);
+                carrier.pullBackFighters = true; // Vanilla Starsector default spawn posture = Regroup
+                carrier.pullBackToggleCount = 0;
+            };
+            attachBomberWing.accept(playerHeron);
+            attachBomberWing.accept(aiWingmanHeron);
+            attachBomberWing.accept(unassignedCondor);
+
+            com.fs.starfarer.api.combat.ShipAIPlugin dummyAi =
+                    (com.fs.starfarer.api.combat.ShipAIPlugin) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.ShipAIPlugin.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.ShipAIPlugin.class},
+                            (p, m, a) -> null);
+            aiWingmanHeron.shipAI = dummyAi;
+            playerHeron.shipAI = null; // Player manually piloting!
+            arena.playerShip = playerHeron.proxy;
+
+            // 1. Default spawn posture MUST be vanilla Regroup (NOT Division Control), and Division AI MUST NOT override it!
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            divisionai.VoidstrikeCoordinator.updateVoidstrikes(arena.engineProxy, pg, null, eg, 1.0f);
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pg, null, eg, 1.0f);
+            boolean startsDefaultRegroup = divisionai.VoidstrikeCoordinator.getPlayerFighterControlMode()
+                    == divisionai.VoidstrikeCoordinator.PlayerFighterControlMode.REGROUP
+                    && playerHeron.pullBackFighters
+                    && !divisionai.VoidstrikeCoordinator.isCarrierUnderDivisionFighterControl(arena.engineProxy, playerHeron.proxy)
+                    && !aiWingmanHeron.pullBackFighters; // AI wingman in same division engages normally!
+
+            // 2. 1st Z press: Regroup -> Engage (manual), and even when enemies vanish Division AI MUST NOT force Regroup!
+            playerHeron.proxy.setPullBackFighters(!playerHeron.pullBackFighters); // Vanilla Z toggle: true -> false
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            playerDiv.currentIntent = DivisionIntentType.HOLD_IN_RESERVE;
+            playerDiv.targetEnemyDivision = null;
+            pg.primaryThreatEnemyDivision = null;
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pg, null, eg, 2.0f);
+            boolean firstZManualEngage = divisionai.VoidstrikeCoordinator.getPlayerFighterControlMode()
+                    == divisionai.VoidstrikeCoordinator.PlayerFighterControlMode.ENGAGE
+                    && !playerHeron.pullBackFighters
+                    && aiWingmanHeron.pullBackFighters; // AI wingman holds Regroup in reserve, player stays manual Engage!
+
+            // 3. 2nd Z press: Engage -> Division Control! Restore strike intent so Division AI immediately engages enemyCruiser.
+            playerDiv.currentIntent = DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
+            playerDiv.targetEnemyDivision = enemyDiv;
+            pg.primaryThreatEnemyDivision = enemyDiv;
+            playerHeron.proxy.setPullBackFighters(!playerHeron.pullBackFighters); // Vanilla Z toggle: false -> true
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pg, null, eg, 3.0f);
+            boolean secondZDivisionControl = divisionai.VoidstrikeCoordinator.getPlayerFighterControlMode()
+                    == divisionai.VoidstrikeCoordinator.PlayerFighterControlMode.DIVISION
+                    && divisionai.VoidstrikeCoordinator.isCarrierUnderDivisionFighterControl(arena.engineProxy, playerHeron.proxy)
+                    && !playerHeron.pullBackFighters; // Division Control switched carrier to Engage against enemyCruiser!
+
+            // 4. 3rd Z press (while Division Control is Engaging, pullBack == false): adaptively enters Manual Regroup immediately!
+            playerHeron.proxy.setPullBackFighters(!playerHeron.pullBackFighters); // Vanilla Z toggle: false -> true
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pg, null, eg, 4.0f);
+            boolean thirdZBackToManualRegroup = divisionai.VoidstrikeCoordinator.getPlayerFighterControlMode()
+                    == divisionai.VoidstrikeCoordinator.PlayerFighterControlMode.REGROUP
+                    && playerHeron.pullBackFighters
+                    && !divisionai.VoidstrikeCoordinator.isCarrierUnderDivisionFighterControl(arena.engineProxy, playerHeron.proxy);
+
+            // 5. Cycle into Division Control while Division is holding Regroup (HOLD_IN_RESERVE), then press Z to verify adaptive jump to Manual Engage!
+            playerDiv.currentIntent = DivisionIntentType.HOLD_IN_RESERVE;
+            playerDiv.targetEnemyDivision = null;
+            pg.primaryThreatEnemyDivision = null;
+            playerHeron.proxy.setPullBackFighters(!playerHeron.pullBackFighters); // Z -> Engage
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            playerHeron.proxy.setPullBackFighters(!playerHeron.pullBackFighters); // Z -> Division Control (holds Regroup)
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arena.engineProxy, pg, null, eg, 5.0f);
+            boolean divHoldsRegroupInReserve = divisionai.VoidstrikeCoordinator.getPlayerFighterControlMode()
+                    == divisionai.VoidstrikeCoordinator.PlayerFighterControlMode.DIVISION
+                    && playerHeron.pullBackFighters;
+            playerHeron.proxy.setPullBackFighters(!playerHeron.pullBackFighters); // Z out of Division (Regroup) -> Manual Engage!
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            boolean adaptiveExitToEngage = divHoldsRegroupInReserve
+                    && divisionai.VoidstrikeCoordinator.getPlayerFighterControlMode()
+                    == divisionai.VoidstrikeCoordinator.PlayerFighterControlMode.ENGAGE
+                    && !playerHeron.pullBackFighters;
+
+            // 6. Autopilot (U) ON hands fighters to Division Control; Autopilot OFF returns to manual in current posture;
+            //    and unassigned solo carrier stays strictly 2-state vanilla (never enters DIVISION).
+            playerHeron.shipAI = dummyAi;
+            arena.uiAutopilotOn = true;
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            boolean autopilotUsesDivision = divisionai.VoidstrikeCoordinator.isCarrierUnderDivisionFighterControl(
+                    arena.engineProxy, playerHeron.proxy);
+            playerHeron.shipAI = null;
+            arena.uiAutopilotOn = false;
+            playerHeron.pullBackFighters = true;
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            boolean autopilotOffResumesManual = !divisionai.VoidstrikeCoordinator.isCarrierUnderDivisionFighterControl(
+                    arena.engineProxy, playerHeron.proxy)
+                    && divisionai.VoidstrikeCoordinator.getPlayerFighterControlMode()
+                    == divisionai.VoidstrikeCoordinator.PlayerFighterControlMode.REGROUP;
+
+            arena.playerShip = unassignedCondor.proxy;
+            unassignedCondor.shipAI = null;
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            unassignedCondor.proxy.setPullBackFighters(false);
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            unassignedCondor.proxy.setPullBackFighters(true);
+            divisionai.VoidstrikeCoordinator.advancePlayerFighterControlCycle(arena.engineProxy, pg);
+            boolean unassignedNeverEntersDivision = divisionai.VoidstrikeCoordinator.getPlayerFighterControlMode()
+                    != divisionai.VoidstrikeCoordinator.PlayerFighterControlMode.DIVISION;
+
+            // 7. Native Fighter HUD label tree traversal check (zero reflection)
+            final String[] labelHolder = new String[]{"      orders: engage"};
+            com.fs.starfarer.api.ui.LabelAPI mockOrdersLabel =
+                    (com.fs.starfarer.api.ui.LabelAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.ui.LabelAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.ui.LabelAPI.class},
+                            (p, m, a) -> {
+                                if ("getText".equals(m.getName())) return labelHolder[0];
+                                if ("setText".equals(m.getName()) && a != null && a.length > 0) {
+                                    labelHolder[0] = (String) a[0];
+                                    return null;
+                                }
+                                return null;
+                            });
+            java.util.List<Object> innerChildren = java.util.Collections.singletonList(mockOrdersLabel);
+            java.util.List<Object> outerChildren = java.util.Collections.singletonList(innerChildren);
+            java.lang.invoke.MethodHandle listIdentity = java.lang.invoke.MethodHandles.identity(java.util.List.class)
+                    .asType(java.lang.invoke.MethodType.methodType(java.util.List.class, Object.class));
+            com.fs.starfarer.api.ui.LabelAPI foundLbl = divisionai.DivisionTacticalMapOverlay.findFighterOrdersLabelRecursive(
+                    outerChildren, java.util.List.class, listIdentity, 0);
+            if (foundLbl != null) {
+                foundLbl.setText(divisionai.DivisionTacticalMapOverlay.FIGHTER_HUD_ORDERS_DIVISION);
+            }
+            boolean hudLabelResolvedOk = foundLbl == mockOrdersLabel
+                    && "      orders: division".equals(labelHolder[0]);
+
+            check(startsDefaultRegroup && firstZManualEngage && secondZDivisionControl
+                            && thirdZBackToManualRegroup && adaptiveExitToEngage
+                            && autopilotUsesDivision && autopilotOffResumesManual
+                            && unassignedNeverEntersDivision && hudLabelResolvedOk,
+                    "Player-Piloted 3-State Fighter Posture Cycle (Default Regroup -> Engage -> Division) & HUD Label",
+                    String.format(Locale.ROOT,
+                            "defaultRegroup=%s, 1stZEngage=%s, 2ndZDiv=%s, 3rdZRegroup=%s, adaptiveEngage=%s, autopilot=%s/%s, solo2State=%s, hud=%s",
+                            startsDefaultRegroup, firstZManualEngage, secondZDivisionControl,
+                            thirdZBackToManualRegroup, adaptiveExitToEngage,
+                            autopilotUsesDivision, autopilotOffResumesManual,
+                            unassignedNeverEntersDivision, hudLabelResolvedOk));
+        } catch (Throwable t) {
+            t.printStackTrace();
+            check(false,
+                    "Player-Piloted 3-State Fighter Posture Cycle (Default Regroup -> Engage -> Division) & HUD Label",
+                    "Exception: " + t);
+        }
+    }
+
     private static void testBattleScopedFightingStyleAndCampaignImmutability() {
         System.out.println("\n--- Scenario 12: Battle-Scoped Fighting Style, Custom Axis Snapshot & Campaign Immutability ---");
         divisionai.PermanentDivisionManager.FleetDoctrineConfig doc = divisionai.PermanentDivisionManager.getFleetDoctrine();
@@ -5826,13 +6067,77 @@ public class DivisionAITestSuite {
                     == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE
                     && battle2.battleDivisionFormationOverrides.isEmpty();
 
+            // Real DivisionAICombatPlugin wave-spawn test (reproduces pre-battle Customize -> Light & Strike Warfare -> Deploy Wave 1 & Wave 2!)
+            SimArena waveArena = new SimArena(
+                    "wave_deploy_test", "Wave Deploy Test",
+                    new BattleGroupState(0, cmdr), new BattleGroupState(1, cmdr));
+            divisionai.DivisionAICombatPlugin livePlugin = new divisionai.DivisionAICombatPlugin();
+            livePlugin.init(waveArena.engineProxy);
+            // Frame 0 (paused pre-battle Deployment Screen): initializes playerGroup from Campaign (LINEAR_WARFARE)
+            livePlugin.advance(0f, java.util.Collections.emptyList());
+            BattleGroupState livePg = livePlugin.getPlayerGroup();
+            boolean preBattleInheritedLinear = livePg != null
+                    && livePg.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+
+            // Player selects "Light & Strike Warfare" + Command Style + Fleet Formation in Pre-Battle Deployment / Customize
+            divisionai.DivisionDeploymentDialogOrganizer.applyFightingStyleTemplate(
+                    livePg, divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO);
+            divisionai.DivisionDeploymentDialogOrganizer.setOtcAuthority(livePg, OtcAuthority.POSITIVE_CONTROL);
+            livePg.fleetWideFormation = divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
+            livePg.activeFleetWideFormation = divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
+            livePg.orchestratedAdvance = false;
+
+            // Player clicks Deploy -> Wave 1 spawns into engine.getShips() and interceptNewlyDeployedWaves + C2 tick run!
+            SimShipState w1a = new SimShipState(
+                    "p_wave1_dd1", "ISS Shrike", "Shrike", 0,
+                    com.fs.starfarer.api.combat.ShipAPI.HullSize.DESTROYER,
+                    0f, -3500f, 150f, 1000f, 4, 0);
+            SimShipState w1b = new SimShipState(
+                    "p_wave1_ff1", "ISS Tempest", "Tempest", 0,
+                    com.fs.starfarer.api.combat.ShipAPI.HullSize.FRIGATE,
+                    220f, -3500f, 180f, 900f, 2, 0);
+            SimShipState e1 = new SimShipState(
+                    "e_wave1_ca1", "HSS Dominator", "Dominator", 1,
+                    com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER,
+                    0f, 3500f, 70f, 1100f, 4, 0);
+            waveArena.ships.add(w1a);
+            waveArena.ships.add(w1b);
+            waveArena.ships.add(e1);
+            waveArena.elapsedTime = 0.25f;
+            livePlugin.advance(0.6f, java.util.Collections.emptyList());
+
+            boolean survivedWave1Spawn = livePg.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO
+                    && livePg.operationalAnchor == divisionai.PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA
+                    && livePg.decisiveArm == divisionai.PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES
+                    && livePg.authority == OtcAuthority.POSITIVE_CONTROL
+                    && livePg.fleetWideFormation == divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD
+                    && !livePg.orchestratedAdvance;
+
+            // Mid-battle Reinforcement Wave 2 spawns -> must ALSO preserve Light & Strike Warfare!
+            SimShipState w2a = new SimShipState(
+                    "p_wave2_dd2", "ISS Medusa", "Medusa", 0,
+                    com.fs.starfarer.api.combat.ShipAPI.HullSize.DESTROYER,
+                    -240f, -4500f, 155f, 1000f, 2, 0);
+            waveArena.ships.add(w2a);
+            waveArena.elapsedTime = 15.0f;
+            livePlugin.advance(0.6f, java.util.Collections.emptyList());
+
+            boolean survivedReinforcementWave = livePg.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO
+                    && doc.resolveMatchingOperationalTemplate()
+                    == divisionai.PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;
+
             check(inheritedOk && customDetected && step1Light && step2Linear && step3Carrier
-                            && step4RestoredCustom && survivedDeployInit && campaignUntouched && battle2Clean,
-                    "Battle-Scoped Fighting Style, 4-Step Custom Cycle, Pre-Battle->Combat Persistence & Strict Campaign Immutability",
+                            && step4RestoredCustom && survivedDeployInit && preBattleInheritedLinear
+                            && survivedWave1Spawn && survivedReinforcementWave && campaignUntouched && battle2Clean,
+                    "Battle-Scoped Fighting Style, 4-Step Custom Cycle, Pre-Battle->Combat Wave-Spawn Persistence & Strict Campaign Immutability",
                     String.format(Locale.ROOT,
-                            "inherit=%b, customCycle=[%b,%b,%b,%b,%b], survivedDeploy=%b, campaignUntouched=%b, nextBattleClean=%b",
+                            "inherit=%b, customCycle=[%b,%b,%b,%b,%b], survivedDeploy=%b, wave1LightStrike=%b, wave2LightStrike=%b, campaignUntouched=%b, nextBattleClean=%b",
                             inheritedOk, customDetected, step1Light, step2Linear, step3Carrier,
-                            step4RestoredCustom, survivedDeployInit, campaignUntouched, battle2Clean));
+                            step4RestoredCustom, survivedDeployInit, survivedWave1Spawn, survivedReinforcementWave,
+                            campaignUntouched, battle2Clean));
         } finally {
             doc.setOtcAuthority(savedAuth);
             doc.setFleetWideFormation(savedFw);

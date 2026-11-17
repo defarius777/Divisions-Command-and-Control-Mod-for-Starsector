@@ -60,17 +60,45 @@ public final class FightingStyleModalDialog {
         final float bodyW = Math.max(320f, width - 4f);
 
         final Runnable[] rebuildBodyRef = new Runnable[1];
+        final String[] pendingCmdHolder = new String[1];
+        final Runnable[] dispatchRef = new Runnable[1];
 
-        final BaseCustomUIPanelPlugin subPanelPlugin = new BaseCustomUIPanelPlugin();
-
-        final Runnable handleAction = new Runnable() {
-            private String pendingCmd = null;
-
+        final DivisionUiWidgets.ButtonPressRelay buttonRelay = new DivisionUiWidgets.ButtonPressRelay() {
             @Override
-            public void run() {
+            public void onButtonPressed(Object buttonId) {
+                if (buttonId == null || !organizer.isFightingStyleWindowOpen()) return;
+                String id = String.valueOf(buttonId);
+                if ("FIGHTING_STYLE_CLOSE".equals(id)) {
+                    if (closeBtnRef[0] != null) closeBtnRef[0].setChecked(false);
+                    DivisionDeploymentDialogOrganizer.playDeploymentButtonSound();
+                    organizer.closeFightingStyleWindow(innerPanel, reservesGrid);
+                    return;
+                }
+                if ("FIGHTING_STYLE_RESET_CAMPAIGN".equals(id)) {
+                    if (resetBtnRef[0] != null) resetBtnRef[0].setChecked(false);
+                    DivisionDeploymentDialogOrganizer.resetBattleDoctrineToCampaign(organizer.getPlayerGroup());
+                    if (onStyleChangedCallback != null) onStyleChangedCallback.run();
+                    if (rebuildBodyRef[0] != null) rebuildBodyRef[0].run();
+                    return;
+                }
+                for (Map.Entry<ButtonAPI, String> entry : activeButtons.entrySet()) {
+                    if (id.equals(entry.getValue()) && entry.getKey() != null) {
+                        entry.getKey().setChecked(false);
+                    }
+                }
+                pendingCmdHolder[0] = id;
+                if (dispatchRef[0] != null) {
+                    dispatchRef[0].run();
+                }
             }
         };
-        final String[] pendingCmdHolder = new String[1];
+
+        final BaseCustomUIPanelPlugin subPanelPlugin = new BaseCustomUIPanelPlugin() {
+            @Override
+            public void buttonPressed(Object buttonId) {
+                buttonRelay.onButtonPressed(buttonId);
+            }
+        };
 
         final Runnable dispatchPendingAction = new Runnable() {
             @Override
@@ -134,6 +162,7 @@ public final class FightingStyleModalDialog {
                 }
             }
         };
+        dispatchRef[0] = dispatchPendingAction;
 
         final Runnable pollWindowButtons = new Runnable() {
             @Override
@@ -167,7 +196,7 @@ public final class FightingStyleModalDialog {
                         return;
                     }
                 }
-                if (handleAction != null && pendingCmdHolder[0] != null) {
+                if (pendingCmdHolder[0] != null) {
                     dispatchPendingAction.run();
                 }
             }
@@ -181,13 +210,23 @@ public final class FightingStyleModalDialog {
             }
 
             @Override
+            public void buttonPressed(Object buttonId) {
+                buttonRelay.onButtonPressed(buttonId);
+            }
+
+            @Override
             public void processInput(List<InputEventAPI> events) {
                 if (!organizer.isFightingStyleWindowOpen() || events == null) return;
+                PositionAPI vp = (bodyContainerRef[0] != null) ? bodyContainerRef[0].getPosition() : null;
                 for (InputEventAPI ev : events) {
                     if (ev == null || ev.isConsumed()) continue;
                     if (ev.isLMBDownEvent()) {
                         float mx = ev.getX();
                         float my = ev.getY();
+                        if (vp != null && (mx < vp.getX() || mx > vp.getX() + vp.getWidth()
+                                || my < vp.getY() || my > vp.getY() + vp.getHeight())) {
+                            continue;
+                        }
                         for (DivisionUiWidgets.OperationalTemplateBox box : templateBoxes) {
                             if (box.contains(mx, my)) {
                                 ev.consume();
@@ -314,6 +353,36 @@ public final class FightingStyleModalDialog {
                 final CustomPanelAPI[] tplBannerRef = new CustomPanelAPI[1];
 
                 BaseCustomUIPanelPlugin tplPlugin = new BaseCustomUIPanelPlugin() {
+                    @Override
+                    public void buttonPressed(Object buttonId) {
+                        buttonRelay.onButtonPressed(buttonId);
+                    }
+
+                    @Override
+                    public void processInput(List<InputEventAPI> events) {
+                        if (!organizer.isFightingStyleWindowOpen() || events == null) return;
+                        PositionAPI vp = (bodyContainerRef[0] != null) ? bodyContainerRef[0].getPosition() : null;
+                        for (InputEventAPI ev : events) {
+                            if (ev == null || ev.isConsumed()) continue;
+                            if (ev.isLMBDownEvent()) {
+                                float mx = ev.getX();
+                                float my = ev.getY();
+                                if (vp != null && (mx < vp.getX() || mx > vp.getX() + vp.getWidth()
+                                        || my < vp.getY() || my > vp.getY() + vp.getHeight())) {
+                                    continue;
+                                }
+                                for (DivisionUiWidgets.OperationalTemplateBox box : templateBoxes) {
+                                    if (box.contains(mx, my)) {
+                                        ev.consume();
+                                        pendingCmdHolder[0] = "TPL:" + box.template.name();
+                                        dispatchPendingAction.run();
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     @Override
                     public void render(float alphaMult) {
                         CustomPanelAPI self = tplBannerRef[0];
