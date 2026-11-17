@@ -86,6 +86,27 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     public static final float DIALOG_HEIGHT = 800f;
     private static final float CONTROL_COL_X = 210f;
 
+    public static float resolveDialogWidth(float screenW) {
+        if (screenW <= 0f) return DIALOG_WIDTH;
+        return Math.max(1000f, Math.min(DIALOG_WIDTH, Math.round(screenW - 40f)));
+    }
+
+    public static float resolveDialogHeight(float screenH) {
+        if (screenH <= 0f) return DIALOG_HEIGHT;
+        return Math.max(600f, Math.min(DIALOG_HEIGHT, Math.round(screenH - 32f)));
+    }
+
+    private float activeDialogWidth = DIALOG_WIDTH;
+    private float activeDialogHeight = DIALOG_HEIGHT;
+
+    public float getActiveDialogWidth() {
+        return activeDialogWidth;
+    }
+
+    public float getActiveDialogHeight() {
+        return activeDialogHeight;
+    }
+
     private static final int[] STATION_SPACING_PRESETS = {200, 300, 400, 500, 600, 750, 900, 1100};
     private static final int[] DIVISION_INTERVAL_PRESETS = {500, 700, 900, 1100, 1300, 1500, 1800, 2100};
     private static final int[] STANDOFF_RANGE_PRESETS = {450, 650, 800, 950, 1150, 1400, 1700, 2000};
@@ -328,10 +349,12 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         float screenW = Global.getSettings().getScreenWidth();
         float screenH = Global.getSettings().getScreenHeight();
-        float x = Math.round((screenW - DIALOG_WIDTH) * 0.5f);
-        float y = Math.round((screenH - DIALOG_HEIGHT) * 0.5f);
+        activeDialogWidth = resolveDialogWidth(screenW);
+        activeDialogHeight = resolveDialogHeight(screenH);
+        float x = Math.max(12f, Math.round((screenW - activeDialogWidth) * 0.5f));
+        float y = Math.max(12f, Math.round((screenH - activeDialogHeight) * 0.5f));
 
-        contentContainer = Global.getSettings().createCustom(DIALOG_WIDTH, DIALOG_HEIGHT, subPanelPlugin);
+        contentContainer = Global.getSettings().createCustom(activeDialogWidth, activeDialogHeight, subPanelPlugin);
         rootOverlayPanel.addComponent(contentContainer).inTL(x, y);
         dialogTooltipHost = contentContainer.createUIElement(16f, 16f, false);
 
@@ -359,17 +382,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 "CLOSE");
         bTopX.getPosition().inTL(2f, 1f);
         topCloseUi.setHeightSoFar(24f);
-        contentContainer.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
+        contentContainer.addUIElement(topCloseUi).inTL(activeDialogWidth - 46f, 8f);
 
         // 1. Header (subtitle removed per UI Item A)
-        TooltipMakerAPI header = contentContainer.createUIElement(DIALOG_WIDTH - 64f, 28f, false);
+        TooltipMakerAPI header = contentContainer.createUIElement(activeDialogWidth - 64f, 28f, false);
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET DOCTRINE", baseColor);
         header.setHeightSoFar(28f);
         contentContainer.addUIElement(header).inTL(12f, 8f);
 
         // 2. Top Toolbar (Left: 5 Filter Tabs with 8px gaps | Right: 3 Action Buttons with 150px separation)
-        float toolbarW = DIALOG_WIDTH - 24f;
+        float toolbarW = activeDialogWidth - 24f;
         CustomPanelAPI toolbarRow = Global.getSettings().createCustom(toolbarW, 30f, subPanelPlugin);
         TooltipMakerAPI tb = toolbarRow.createUIElement(toolbarW, 30f, false);
 
@@ -519,8 +542,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         // 3. Scrollable Body
         float bodyTop = 74f;
-        float bodyHeight = DIALOG_HEIGHT - bodyTop - 14f;
-        float bodyWidth = DIALOG_WIDTH - 24f;
+        float bodyHeight = activeDialogHeight - bodyTop - 14f;
+        float bodyWidth = activeDialogWidth - 24f;
 
         TooltipMakerAPI body = contentContainer.createUIElement(bodyWidth, bodyHeight, true);
 
@@ -2342,8 +2365,14 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         final OperationalTemplate matchedTpl = doctrine.resolveMatchingOperationalTemplate();
         final OperationalTemplate[] allTpls = OperationalTemplate.values();
         final float cardSize = 124f;
-        final float colW = 224f;
-        final float colGap = 36f;
+        final float colGap = (rowWidth >= 1276f)
+                ? 36f
+                : Math.max(10f, Math.min(36f, (float) Math.floor(
+                        (rowWidth - 24f - allTpls.length * 196f) / Math.max(1, allTpls.length - 1))));
+        final float colW = (rowWidth >= 1276f)
+                ? 224f
+                : Math.max(194f, Math.min(224f, (float) Math.floor(
+                        (rowWidth - 24f - (allTpls.length - 1) * colGap) / allTpls.length)));
         final float totalColsW = allTpls.length * colW + (allTpls.length - 1) * colGap;
         final float colStartX = Math.max(12f, Math.round((rowWidth - totalColsW) * 0.5f));
         final float topPad = 8f;
@@ -3126,8 +3155,8 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
 
         float boxW = 600f;
         float boxH = 220f;
-        float boxX = Math.round((DIALOG_WIDTH - boxW) * 0.5f);
-        float boxY = Math.round((DIALOG_HEIGHT - boxH) * 0.5f);
+        float boxX = Math.round((activeDialogWidth - boxW) * 0.5f);
+        float boxY = Math.round((activeDialogHeight - boxH) * 0.5f);
 
         CustomPanelAPI confirmBox = Global.getSettings().createCustom(boxW, boxH, subPanelPlugin);
         TooltipMakerAPI ui = confirmBox.createUIElement(boxW, boxH, false);

@@ -394,11 +394,18 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
 
         float gap = 10f;
         float desiredTopScreenY = lowestBottomY - gap;
-        if (desiredTopScreenY - myPos.getHeight() < 10f) {
-            desiredTopScreenY = 10f + myPos.getHeight();
+        float targetLeftX = 0f;
+        if (desiredTopScreenY - myPos.getHeight() < 8f) {
+            // 720p heavily-modded sidebar fallback: when vertical space below the contiguous sidebar stack is exhausted,
+            // shift the 2-button block cleanly beside the lower sidebar column instead of overlapping the bottom widget.
+            desiredTopScreenY = 12f + myPos.getHeight();
+            targetLeftX = autoW + 14f;
         }
         float deltaDown = myTopY - desiredTopScreenY;
-        if (deltaDown > 1.5f) {
+        float curRelX = (leftControlPanel.getPosition() != null)
+                ? (myPos.getX() - leftControlPanel.getPosition().getX())
+                : 0f;
+        if (Math.abs(deltaDown) > 1.5f || Math.abs(curRelX - targetLeftX) > 1.5f) {
             float baseInTlY = (inTlTopYRef != null && inTlTopYRef.length > 0)
                     ? inTlTopYRef[0]
                     : ((leftControlPanel.getPosition() != null && leftControlPanel.getPosition().getHeight() > 100f)
@@ -408,7 +415,7 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
             if (inTlTopYRef != null && inTlTopYRef.length > 0) {
                 inTlTopYRef[0] = newTopY;
             }
-            myPos.inTL(0f, newTopY);
+            myPos.inTL(targetLeftX, newTopY);
             return true;
         }
         return false;

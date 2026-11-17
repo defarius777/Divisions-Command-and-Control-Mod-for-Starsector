@@ -67,11 +67,13 @@ final class DivisionConfigureSubscreen {
         Color positive = Misc.getPositiveHighlightColor();
         Color gray = Misc.getGrayColor();
 
-        buildDivisionHeaderSection(dialog, container, spec, baseColor, darkColor, highlight, positive);
+        float dialogW = dialog.activeDialogWidth;
+        float dialogH = dialog.activeDialogHeight;
+        buildDivisionHeaderSection(dialog, container, spec, dialogW, baseColor, darkColor, highlight, positive);
 
         float bodyTop = 108f;
-        float bodyHeight = DIALOG_HEIGHT - bodyTop - 12f;
-        float colWidth = (DIALOG_WIDTH - 36f) * 0.5f;
+        float bodyHeight = dialogH - bodyTop - 12f;
+        float colWidth = (dialogW - 36f) * 0.5f;
 
         buildDivisionLeftSettingsAndShipsColumn(
                 dialog, container, spec, fleet, divMembers, bodyTop, bodyHeight, colWidth,
@@ -86,6 +88,7 @@ final class DivisionConfigureSubscreen {
             final DivisionEditorDialog dialog,
             CustomPanelAPI container,
             PermanentDivisionSpec spec,
+            float dialogW,
             Color baseColor,
             Color darkColor,
             Color highlight,
@@ -106,15 +109,15 @@ final class DivisionConfigureSubscreen {
                 "CLOSE");
         bTopX.getPosition().inTL(2f, 1f);
         topCloseUi.setHeightSoFar(24f);
-        container.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
+        container.addUIElement(topCloseUi).inTL(dialogW - 46f, 8f);
 
         // 1. Top Control & Doctrine Header (height 96f; Division Type moved to dropdown per UI Item G)
         float headerH = 96f;
-        TooltipMakerAPI top = container.createUIElement(DIALOG_WIDTH - 24f, headerH, false);
+        TooltipMakerAPI top = container.createUIElement(dialogW - 24f, headerH, false);
 
         // Row A: Back button ("<- Fleet Organization"), Title, Disband button, Close button
-        CustomPanelAPI navRow = Global.getSettings().createCustom(DIALOG_WIDTH - 72f, 28f, dialog.subPanelPlugin);
-        TooltipMakerAPI navUi = navRow.createUIElement(DIALOG_WIDTH - 72f, 28f, false);
+        CustomPanelAPI navRow = Global.getSettings().createCustom(dialogW - 72f, 28f, dialog.subPanelPlugin);
+        TooltipMakerAPI navUi = navRow.createUIElement(dialogW - 72f, 28f, false);
         ButtonAPI bBack = dialog.registerButton(
                 navUi.addButton(
                         "<- Fleet Organization",
@@ -133,7 +136,7 @@ final class DivisionConfigureSubscreen {
         LabelAPI titleLbl = navUi.addTitle(
                 spec.name.toUpperCase(Locale.ROOT) + " - " + spec.archetype.shortPrefix.toUpperCase(Locale.ROOT),
                 highlight);
-        float disbandX = DIALOG_WIDTH - 72f - 130f - 8f - 144f;
+        float disbandX = dialogW - 72f - 130f - 8f - 144f;
         DivisionUiWidgets.wrapLabelInPlace(titleLbl, disbandX - 198f - 10f, 198f, 3f);
 
         String delAct = "DELETE_DIV:" + spec.id;
@@ -149,7 +152,7 @@ final class DivisionConfigureSubscreen {
                         24f,
                         0f),
                 delAct);
-        bDisband.getPosition().inTL(DIALOG_WIDTH - 72f - 130f - 8f - 144f, 2f);
+        bDisband.getPosition().inTL(dialogW - 72f - 130f - 8f - 144f, 2f);
 
         ButtonAPI bClose = dialog.registerButton(
                 navUi.addButton(
@@ -163,14 +166,14 @@ final class DivisionConfigureSubscreen {
                         24f,
                         0f),
                 "CLOSE");
-        bClose.getPosition().inTL(DIALOG_WIDTH - 72f - 130f, 2f);
+        bClose.getPosition().inTL(dialogW - 72f - 130f, 2f);
         navUi.setHeightSoFar(28f);
         navRow.addUIElement(navUi).inTL(0f, 0f);
         top.addCustom(navRow, 2f);
 
         // Row B: Editable Callsign TextField + Rename Button + Doctrine Posture Buttons on the same row
-        CustomPanelAPI nameRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, dialog.subPanelPlugin);
-        TooltipMakerAPI nameUi = nameRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
+        CustomPanelAPI nameRow = Global.getSettings().createCustom(dialogW - 24f, 28f, dialog.subPanelPlugin);
+        TooltipMakerAPI nameUi = nameRow.createUIElement(dialogW - 24f, 28f, false);
         LabelAPI callLbl = nameUi.addPara("Callsign:", 0f, baseColor);
         DivisionUiWidgets.wrapLabelInPlace(callLbl, 60f, 2f, 5f);
         DivisionUiWidgets.attachRowLabelTooltip(nameUi, (com.fs.starfarer.api.ui.UIComponentAPI) callLbl, "Callsign:");
@@ -198,6 +201,11 @@ final class DivisionConfigureSubscreen {
         DivisionUiWidgets.attachRowLabelTooltip(nameUi, (com.fs.starfarer.api.ui.UIComponentAPI) postLbl, "Posture:");
         DoctrineOption[] doctrines = DoctrineOption.values();
         float dx = 478f;
+        float availPostureW = (dialogW - 24f) - dx;
+        float docBtnStep = (availPostureW >= doctrines.length * 136f)
+                ? 136f
+                : Math.max(104f, (float) Math.floor(availPostureW / Math.max(1, doctrines.length)));
+        float docBtnW = docBtnStep - 4f;
         for (DoctrineOption doc : doctrines) {
             boolean selected = (spec.doctrine == doc);
             Color fg = selected ? positive : baseColor;
@@ -211,13 +219,13 @@ final class DivisionConfigureSubscreen {
                             bg,
                             Alignment.MID,
                             CutStyle.TL_BR,
-                            132f,
+                            docBtnW,
                             22f,
                             0f),
                     docAct);
             if (selected) bDoc.highlight();
             bDoc.getPosition().inTL(dx, 3f);
-            dx += 136f;
+            dx += docBtnStep;
         }
         nameUi.setHeightSoFar(28f);
         nameRow.addUIElement(nameUi).inTL(0f, 0f);

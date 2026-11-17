@@ -2308,6 +2308,9 @@ public class DivisionDeploymentDialogOrganizer {
                 deployedMembers,
                 reserveMembers);
         activeFleetCommandPanel = fcPanel;
+        savedFleetCmdLeftOff = leftOff;
+        savedFleetCmdTopOff = topOff;
+        fleetCommandHiddenByModal = false;
         PositionAPI fcPos = innerPanel.addComponent(fcPanel);
         if (fcPos != null) {
             fcPos.setSize(panelW, panelH).inTL(leftOff, topOff);
@@ -2355,6 +2358,10 @@ public class DivisionDeploymentDialogOrganizer {
 
     private float savedReservesLeftOff = 10f;
     private float savedReservesTopOff = 204f;
+    private float savedReservesHeight = 406f;
+    private float savedFleetCmdLeftOff = 10f;
+    private float savedFleetCmdTopOff = 10f;
+    private boolean fleetCommandHiddenByModal = false;
 
     private PermanentDivisionManager.DivisionFormation resolveBattleRowFormation(
             PermanentDivisionManager.PermanentDivisionSpec divSpec,
@@ -2388,6 +2395,10 @@ public class DivisionDeploymentDialogOrganizer {
                 }
             }
         }
+        if (fleetCommandHiddenByModal && activeFleetCommandPanel != null && activeFleetCommandPanel.getPosition() != null) {
+            activeFleetCommandPanel.getPosition().inTL(savedFleetCmdLeftOff, savedFleetCmdTopOff);
+        }
+        fleetCommandHiddenByModal = false;
     }
 
     public void closeOtcSelectorWindow(UIPanelAPI innerPanel, Object reservesGrid) {
@@ -2453,7 +2464,6 @@ public class DivisionDeploymentDialogOrganizer {
                 ? ((UIComponentAPI) reservesGrid).getPosition()
                 : null;
         float winW = (resPos != null && resPos.getWidth() > 100f) ? resPos.getWidth() : fallbackWidth;
-        float winH = (resPos != null && resPos.getHeight() > 100f) ? resPos.getHeight() : 406f;
         if (!wasModalAlreadyHidingReserves) {
             float leftOff = (resPos != null && innerPos != null && resPos.getX() > -1000f && resPos.getX() < 5000f)
                     ? Math.max(0f, resPos.getX() - innerPos.getX())
@@ -2463,6 +2473,18 @@ public class DivisionDeploymentDialogOrganizer {
                     : 204f;
             savedReservesLeftOff = leftOff;
             savedReservesTopOff = topOff;
+            savedReservesHeight = (resPos != null && resPos.getHeight() > 100f) ? resPos.getHeight() : 406f;
+        }
+        float winH = savedReservesHeight;
+        float modalTopOff = savedReservesTopOff;
+        // At 720p / 768p (4-5 reserve rows -> 232-290px height), expand the modal upward over FleetCommandPanel so
+        // 256px Conduct of Battle pennants and axis controls have ~436-494px of vertical breathing room!
+        if (winH < 360f && activeFleetCommandPanel != null && activeFleetCommandPanel.getPosition() != null) {
+            float combinedBottom = savedReservesTopOff + winH;
+            modalTopOff = savedFleetCmdTopOff;
+            winH = Math.max(winH, combinedBottom - modalTopOff);
+            activeFleetCommandPanel.getPosition().inTL(10000f, 10000f);
+            fleetCommandHiddenByModal = true;
         }
         if (resPos != null) {
             resPos.inTL(10000f, 10000f);
@@ -2485,7 +2507,7 @@ public class DivisionDeploymentDialogOrganizer {
         fightingStyleWindowOpen = true;
         PositionAPI wp = innerPanel.addComponent(winPanel);
         if (wp != null) {
-            wp.setSize(winW, winH).inTL(savedReservesLeftOff, savedReservesTopOff);
+            wp.setSize(winW, winH).inTL(savedReservesLeftOff, modalTopOff);
         }
     }
 
@@ -2593,7 +2615,6 @@ public class DivisionDeploymentDialogOrganizer {
                 ? ((UIComponentAPI) reservesGrid).getPosition()
                 : null;
         float winW = (resPos != null && resPos.getWidth() > 100f) ? resPos.getWidth() : fallbackWidth;
-        float winH = (resPos != null && resPos.getHeight() > 100f) ? resPos.getHeight() : 406f;
         if (!wasModalAlreadyHidingReserves) {
             float leftOff = (resPos != null && innerPos != null && resPos.getX() > -1000f && resPos.getX() < 5000f)
                     ? Math.max(0f, resPos.getX() - innerPos.getX())
@@ -2603,9 +2624,18 @@ public class DivisionDeploymentDialogOrganizer {
                     : 204f;
             savedReservesLeftOff = leftOff;
             savedReservesTopOff = topOff;
+            savedReservesHeight = (resPos != null && resPos.getHeight() > 100f) ? resPos.getHeight() : 406f;
         }
         float leftOff = savedReservesLeftOff;
         float topOff = savedReservesTopOff;
+        float winH = savedReservesHeight;
+        if (winH < 360f && activeFleetCommandPanel != null && activeFleetCommandPanel.getPosition() != null) {
+            float combinedBottom = savedReservesTopOff + winH;
+            topOff = savedFleetCmdTopOff;
+            winH = Math.max(winH, combinedBottom - topOff);
+            activeFleetCommandPanel.getPosition().inTL(10000f, 10000f);
+            fleetCommandHiddenByModal = true;
+        }
 
         if (resPos != null) {
             resPos.inTL(10000f, 10000f);

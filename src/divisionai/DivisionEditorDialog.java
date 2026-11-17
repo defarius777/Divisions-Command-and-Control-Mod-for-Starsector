@@ -69,6 +69,27 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     static final float CONTROL_COL_X = 250f;
     private static final float DRAG_START_THRESHOLD_PX = 6f;
 
+    public static float resolveDialogWidth(float screenW) {
+        if (screenW <= 0f) return DIALOG_WIDTH;
+        return Math.max(1000f, Math.min(DIALOG_WIDTH, Math.round(screenW - 40f)));
+    }
+
+    public static float resolveDialogHeight(float screenH) {
+        if (screenH <= 0f) return DIALOG_HEIGHT;
+        return Math.max(600f, Math.min(DIALOG_HEIGHT, Math.round(screenH - 32f)));
+    }
+
+    float activeDialogWidth = DIALOG_WIDTH;
+    float activeDialogHeight = DIALOG_HEIGHT;
+
+    public float getActiveDialogWidth() {
+        return activeDialogWidth;
+    }
+
+    public float getActiveDialogHeight() {
+        return activeDialogHeight;
+    }
+
     private static class ShipIconTile {
         final FleetMemberAPI member;
         final String sourceDivisionId; // null if in Unassigned Fleet Pool
@@ -302,10 +323,12 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         float screenW = Global.getSettings().getScreenWidth();
         float screenH = Global.getSettings().getScreenHeight();
-        float boxX = Math.max(20f, (screenW - DIALOG_WIDTH) * 0.5f);
-        float boxYTop = Math.max(20f, (screenH - DIALOG_HEIGHT) * 0.5f);
+        activeDialogWidth = resolveDialogWidth(screenW);
+        activeDialogHeight = resolveDialogHeight(screenH);
+        float boxX = Math.max(12f, Math.round((screenW - activeDialogWidth) * 0.5f));
+        float boxYTop = Math.max(12f, Math.round((screenH - activeDialogHeight) * 0.5f));
 
-        contentContainer = Global.getSettings().createCustom(DIALOG_WIDTH, DIALOG_HEIGHT, subPanelPlugin);
+        contentContainer = Global.getSettings().createCustom(activeDialogWidth, activeDialogHeight, subPanelPlugin);
         rootModalPanel.addComponent(contentContainer).inTL(boxX, boxYTop);
         dialogTooltipHost = contentContainer.createUIElement(16f, 16f, false);
 
@@ -343,8 +366,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
         float boxW = 560f;
         float boxH = 220f;
-        float boxX = (DIALOG_WIDTH - boxW) * 0.5f;
-        float boxY = (DIALOG_HEIGHT - boxH) * 0.5f;
+        float boxX = (activeDialogWidth - boxW) * 0.5f;
+        float boxY = (activeDialogHeight - boxH) * 0.5f;
 
         final CustomPanelAPI[] cardRef = new CustomPanelAPI[1];
         CustomPanelAPI confirmPanel = Global.getSettings().createCustom(boxW, boxH, new BaseCustomUIPanelPlugin() {
@@ -466,7 +489,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 "CLOSE");
         bTopX.getPosition().inTL(2f, 1f);
         topCloseUi.setHeightSoFar(24f);
-        container.addUIElement(topCloseUi).inTL(DIALOG_WIDTH - 46f, 8f);
+        container.addUIElement(topCloseUi).inTL(activeDialogWidth - 46f, 8f);
 
         // 1. Header & Top Toolbar
         PermanentDivisionSpec selectedSpec = selectedOverviewDivisionId != null
@@ -474,7 +497,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 : null;
         String selectedDivName = selectedSpec != null ? selectedSpec.name : "None";
 
-        TooltipMakerAPI header = container.createUIElement(DIALOG_WIDTH - 64f, 52f, false);
+        TooltipMakerAPI header = container.createUIElement(activeDialogWidth - 64f, 52f, false);
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET ORGANIZATION", baseColor);
         header.addPara(
@@ -485,8 +508,8 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         header.setHeightSoFar(52f);
         container.addUIElement(header).inTL(12f, 6f);
 
-        CustomPanelAPI toolbarRow = Global.getSettings().createCustom(DIALOG_WIDTH - 24f, 28f, subPanelPlugin);
-        TooltipMakerAPI tb = toolbarRow.createUIElement(DIALOG_WIDTH - 24f, 28f, false);
+        CustomPanelAPI toolbarRow = Global.getSettings().createCustom(activeDialogWidth - 24f, 28f, subPanelPlugin);
+        TooltipMakerAPI tb = toolbarRow.createUIElement(activeDialogWidth - 24f, 28f, false);
         ButtonAPI bCreate = registerButton(
                 tb.addButton(
                         "+ New Division",
@@ -561,16 +584,18 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         24f,
                         0f),
                 "CLOSE");
-        bClose.getPosition().inTL(DIALOG_WIDTH - 24f - 140f, 2f);
+        bClose.getPosition().inTL(activeDialogWidth - 24f - 140f, 2f);
 
         tb.setHeightSoFar(28f);
         toolbarRow.addUIElement(tb).inTL(0f, 0f);
         container.addComponent(toolbarRow).inTL(12f, 60f);
 
-        // 2. Left Column: Permanent Divisions Scrollable List (width 760f)
-        float bodyHeight = DIALOG_HEIGHT - 104f;
-        float leftWidth = 760f;
-        float rightWidth = DIALOG_WIDTH - leftWidth - 36f;
+        // 2. Left Column: Permanent Divisions Scrollable List (760f at 1080p+, responsive at 720p while keeping right column >= 484f for 4 OTC pennants)
+        float bodyHeight = activeDialogHeight - 104f;
+        float rightWidth = (activeDialogWidth >= 1320f)
+                ? (activeDialogWidth - 760f - 36f)
+                : Math.max(484f, Math.round((activeDialogWidth - 36f) * 0.402f));
+        float leftWidth = activeDialogWidth - rightWidth - 36f;
 
         TooltipMakerAPI leftCol = container.createUIElement(leftWidth, bodyHeight, true);
         leftCol.addSectionHeading(
@@ -652,9 +677,11 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 ? currentAuthority
                 : OtcAuthority.COMMAND_BY_DIRECTION;
         final OtcAuthority[] allAuths = OtcAuthority.values();
-        final float cardW = 104f;
-        final float cardH = 104f;
-        final float cardGap = 14f;
+        final float cardGap = (panelWidth >= 474f) ? 14f : 8f;
+        final float cardW = (panelWidth >= 474f)
+                ? 104f
+                : Math.max(84f, (float) Math.floor((panelWidth - 16f - (allAuths.length - 1) * cardGap) / allAuths.length));
+        final float cardH = cardW;
         final float totalCardsW = allAuths.length * cardW + (allAuths.length - 1) * cardGap;
         final float startX = Math.max(8f, Math.round((panelWidth - totalCardsW) * 0.5f));
         final float textWidth = panelWidth - 16f;
