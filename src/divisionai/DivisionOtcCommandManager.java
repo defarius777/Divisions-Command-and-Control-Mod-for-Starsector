@@ -278,7 +278,7 @@ public class DivisionOtcCommandManager {
     }
 
     public static boolean isPlayerCharacterMember(FleetMemberAPI m) {
-        if (m == null) return false;
+        if (m == null || m.isAlly()) return false;
         if (m.isFlagship()) return true;
         PersonAPI cap = m.getCaptain();
         if (cap != null) {
@@ -346,7 +346,7 @@ public class DivisionOtcCommandManager {
         if (selectedMembers == null || selectedMembers.isEmpty()) return null;
         boolean anyNamedCommander = false;
         for (FleetMemberAPI m : selectedMembers) {
-            if (m == null || m.isFighterWing()) continue;
+            if (m == null || m.isAlly() || m.isFighterWing()) continue;
             PersonAPI cap = m.getCaptain();
             boolean hasCmdr = (cap != null && !cap.isDefault())
                     || DivisionDeploymentDialogOrganizer.isFlagshipAlphaCoreEquipped(null, m, null)
@@ -359,7 +359,7 @@ public class DivisionOtcCommandManager {
         FleetMemberAPI best = null;
         float bestScore = -1e9f;
         for (FleetMemberAPI m : selectedMembers) {
-            if (m == null || m.isFighterWing()) continue;
+            if (m == null || m.isAlly() || m.isFighterWing()) continue;
             if (anyNamedCommander) {
                 PersonAPI cap = m.getCaptain();
                 boolean hasCmdr = (cap != null && !cap.isDefault())
@@ -390,6 +390,25 @@ public class DivisionOtcCommandManager {
             List<FleetMemberAPI> allMembers,
             List<FleetMemberAPI> selectedForDeploy) {
         if (allMembers == null || allMembers.isEmpty()) return null;
+
+        List<FleetMemberAPI> playerMembers = new ArrayList<>(allMembers.size());
+        for (FleetMemberAPI m : allMembers) {
+            if (m != null && !m.isAlly()) {
+                playerMembers.add(m);
+            }
+        }
+        if (playerMembers.isEmpty()) return null;
+        allMembers = playerMembers;
+
+        if (selectedForDeploy != null && !selectedForDeploy.isEmpty()) {
+            List<FleetMemberAPI> playerSelected = new ArrayList<>(selectedForDeploy.size());
+            for (FleetMemberAPI sm : selectedForDeploy) {
+                if (sm != null && !sm.isAlly()) {
+                    playerSelected.add(sm);
+                }
+            }
+            selectedForDeploy = playerSelected;
+        }
 
         FleetMemberAPI playerShip = findPlayerCharacterMember(allMembers);
         if (playerShip != null && selectedForDeploy != null) {
@@ -462,7 +481,7 @@ public class DivisionOtcCommandManager {
         if (ship != null && ship.getCaptain() != null && !ship.getCaptain().isDefault()) {
             return ship.getCaptain();
         }
-        if (member != null && member.isFlagship()) {
+        if (member != null && !member.isAlly() && member.isFlagship()) {
             try {
                 if (Global.getSector() != null && Global.getSector().getPlayerPerson() != null) {
                     return Global.getSector().getPlayerPerson();
@@ -533,7 +552,7 @@ public class DivisionOtcCommandManager {
         java.util.Map<String, FleetMemberAPI> byId = new java.util.LinkedHashMap<>();
         if (deployedMembers != null) {
             for (FleetMemberAPI m : deployedMembers) {
-                if (m != null && m.getId() != null && !byId.containsKey(m.getId())) {
+                if (m != null && !m.isAlly() && m.getId() != null && !byId.containsKey(m.getId())) {
                     byId.put(m.getId(), m);
                     allMembers.add(m);
                 }
@@ -541,7 +560,7 @@ public class DivisionOtcCommandManager {
         }
         if (reserveMembers != null) {
             for (FleetMemberAPI m : reserveMembers) {
-                if (m != null && m.getId() != null && !byId.containsKey(m.getId())) {
+                if (m != null && !m.isAlly() && m.getId() != null && !byId.containsKey(m.getId())) {
                     byId.put(m.getId(), m);
                     allMembers.add(m);
                 }
@@ -685,7 +704,7 @@ public class DivisionOtcCommandManager {
     static ShipAPI findLiveShipForMember(CombatEngineAPI engine, String memberId) {
         if (engine == null || memberId == null || engine.getShips() == null) return null;
         for (ShipAPI s : engine.getShips()) {
-            if (s == null) continue;
+            if (s == null || s.getOwner() != 0 || s.isAlly() || s.isFighter() || s.isShuttlePod() || s.isStationModule()) continue;
             if (memberId.equals(s.getId())) return s;
             if (s.getFleetMember() != null && memberId.equals(s.getFleetMember().getId())) return s;
         }
@@ -851,8 +870,8 @@ public class DivisionOtcCommandManager {
         if (preferredId != null && !preferredId.isEmpty()) {
             if (playerGroup != null && playerGroup.activeFleetFlagship != null) {
                 ShipAPI af = playerGroup.activeFleetFlagship;
-                boolean matches = preferredId.equals(af.getId())
-                        || (af.getFleetMember() != null && preferredId.equals(af.getFleetMember().getId()));
+                boolean matches = !af.isAlly() && (preferredId.equals(af.getId())
+                        || (af.getFleetMember() != null && preferredId.equals(af.getFleetMember().getId())));
                 if (matches && af.isAlive() && !af.isHulk() && !isShipRetreatedFromBattle(engine, playerGroup, af)) {
                     return true;
                 }
@@ -918,7 +937,7 @@ public class DivisionOtcCommandManager {
 
         if (playerGroup != null && playerGroup.activeFleetFlagship != null) {
             ShipAPI af = playerGroup.activeFleetFlagship;
-            return af.isAlive() && !af.isHulk() && !isShipRetreatedFromBattle(engine, playerGroup, af);
+            return !af.isAlly() && af.isAlive() && !af.isHulk() && !isShipRetreatedFromBattle(engine, playerGroup, af);
         }
 
         if (engine != null && engine.getShips() != null) {

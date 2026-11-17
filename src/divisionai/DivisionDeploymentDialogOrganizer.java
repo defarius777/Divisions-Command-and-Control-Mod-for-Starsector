@@ -613,16 +613,16 @@ public class DivisionDeploymentDialogOrganizer {
             if (reservesGrid == null) return;
 
             @SuppressWarnings("unchecked")
-            List<FleetMemberAPI> deployedMembers = (deployedGrid != null)
+            List<FleetMemberAPI> rawDeployedMembers = (deployedGrid != null)
                     ? (List<FleetMemberAPI>) gridGetMembersHandle.invoke(deployedGrid)
-                    : new ArrayList<FleetMemberAPI>();
-            if (deployedMembers == null) deployedMembers = new ArrayList<>();
+                    : null;
+            List<FleetMemberAPI> deployedMembers = filterNonAllyMembers(rawDeployedMembers);
 
             @SuppressWarnings("unchecked")
             List<FleetMemberAPI> reserveMembers = (List<FleetMemberAPI>) gridGetMembersHandle.invoke(reservesGrid);
             if (reserveMembers == null) reserveMembers = new ArrayList<>();
 
-            if (deployedMembers.isEmpty() && reserveMembers.isEmpty()) {
+            if (deployedMembers.isEmpty() && filterNonAllyMembers(reserveMembers).isEmpty()) {
                 return;
             }
 
@@ -980,7 +980,7 @@ public class DivisionDeploymentDialogOrganizer {
 
         if (deployedGrid != null && deployedMembersList != null) {
             for (FleetMemberAPI m : new ArrayList<>(deployedMembersList)) {
-                if (m == null || m.getId() == null) continue;
+                if (m == null || m.isAlly() || m.getId() == null) continue;
                 Object btn = gridGetButtonForMemberHandle.invoke(deployedGrid, m);
                 Object icon = gridGetIconForMemberHandle.invoke(deployedGrid, m);
                 MemberIconEntry entry;
@@ -1027,7 +1027,7 @@ public class DivisionDeploymentDialogOrganizer {
 
         if (reserveMembersList != null) {
             for (FleetMemberAPI m : new ArrayList<>(reserveMembersList)) {
-                if (m == null || m.getId() == null) continue;
+                if (m == null || m.isAlly() || m.getId() == null) continue;
                 Object btn = gridGetButtonForMemberHandle.invoke(reservesGrid, m);
                 Object icon = gridGetIconForMemberHandle.invoke(reservesGrid, m);
                 MemberIconEntry entry;
@@ -2124,9 +2124,25 @@ public class DivisionDeploymentDialogOrganizer {
         return false;
     }
 
+    static List<FleetMemberAPI> filterNonAllyMembers(List<FleetMemberAPI> members) {
+        List<FleetMemberAPI> out = new ArrayList<>();
+        if (members != null) {
+            for (FleetMemberAPI m : members) {
+                if (m != null && !m.isAlly()) {
+                    out.add(m);
+                }
+            }
+        }
+        return out;
+    }
+
     public static boolean isPreBattleDeployment(CombatEngineAPI engine, List<FleetMemberAPI> deployedMembers) {
-        if (deployedMembers != null && !deployedMembers.isEmpty()) {
-            return false;
+        if (deployedMembers != null) {
+            for (FleetMemberAPI m : deployedMembers) {
+                if (m != null && !m.isAlly()) {
+                    return false;
+                }
+            }
         }
         if (engine != null && engine.getShips() != null) {
             for (ShipAPI s : engine.getShips()) {
@@ -2144,11 +2160,12 @@ public class DivisionDeploymentDialogOrganizer {
             Object fdd,
             FleetMemberAPI otcMember,
             List<FleetMemberAPI> deployedMembers) {
-        if (otcMember == null) return false;
+        if (otcMember == null || otcMember.isAlly()) return false;
         String targetId = otcMember.getId();
         if (deployedMembers != null) {
             for (FleetMemberAPI dm : deployedMembers) {
-                if (dm == otcMember || (dm != null && targetId != null && targetId.equals(dm.getId()))) {
+                if (dm == null || dm.isAlly()) continue;
+                if (dm == otcMember || (targetId != null && targetId.equals(dm.getId()))) {
                     return true;
                 }
             }
@@ -2167,7 +2184,8 @@ public class DivisionDeploymentDialogOrganizer {
                 List<FleetMemberAPI> selected = (List<FleetMemberAPI>) fddGetSelectedHandle.invoke(fdd);
                 if (selected != null) {
                     for (FleetMemberAPI sm : selected) {
-                        if (sm == otcMember || (sm != null && targetId != null && targetId.equals(sm.getId()))) {
+                        if (sm == null || sm.isAlly()) continue;
+                        if (sm == otcMember || (targetId != null && targetId.equals(sm.getId()))) {
                             return true;
                         }
                     }
@@ -2185,15 +2203,24 @@ public class DivisionDeploymentDialogOrganizer {
             List<FleetMemberAPI> deployedMembers,
             List<FleetMemberAPI> reserveMembers) {
         List<FleetMemberAPI> all = new ArrayList<>();
-        if (deployedMembers != null) all.addAll(deployedMembers);
-        if (reserveMembers != null) all.addAll(reserveMembers);
+        if (deployedMembers != null) {
+            for (FleetMemberAPI m : deployedMembers) {
+                if (m != null && !m.isAlly()) all.add(m);
+            }
+        }
+        if (reserveMembers != null) {
+            for (FleetMemberAPI m : reserveMembers) {
+                if (m != null && !m.isAlly()) all.add(m);
+            }
+        }
 
         if (preBattle) {
             List<FleetMemberAPI> selectedForDeploy = null;
             Object activeFdd = (fdd != null) ? fdd : lastFddInstance;
             if (activeFdd != null && fddGetSelectedHandle != null) {
                 try {
-                    selectedForDeploy = (List<FleetMemberAPI>) fddGetSelectedHandle.invoke(activeFdd);
+                    List<FleetMemberAPI> rawSelected = (List<FleetMemberAPI>) fddGetSelectedHandle.invoke(activeFdd);
+                    selectedForDeploy = filterNonAllyMembers(rawSelected);
                 } catch (Throwable ignored) {
                 }
             }
@@ -2203,8 +2230,9 @@ public class DivisionDeploymentDialogOrganizer {
                 try {
                     List<FleetMemberAPI> liveDeployed =
                             (List<FleetMemberAPI>) gridGetMembersHandle.invoke(cachedDeployedGridForActiveFdd);
-                    if (liveDeployed != null && !liveDeployed.isEmpty()) {
-                        selectedForDeploy = liveDeployed;
+                    List<FleetMemberAPI> nonAllyDeployed = filterNonAllyMembers(liveDeployed);
+                    if (!nonAllyDeployed.isEmpty()) {
+                        selectedForDeploy = nonAllyDeployed;
                     }
                 } catch (Throwable ignored) {
                 }

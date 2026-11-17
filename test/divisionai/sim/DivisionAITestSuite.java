@@ -98,6 +98,8 @@ public class DivisionAITestSuite {
         testPlayerPilotedFighterPostureCycleAndHudLabel();
         testAsteroidMiningNullAiAndSymbioticVoidCreatures();
         testPreCombatConductOfBattleInstantiationAndFactionDoctrines();
+        testTestingLogForensicsOpenFlotillaStickyCapVentAndDisambig();
+        testAlliedBattlePreDeploymentAndOtcIsolation();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -6948,5 +6950,380 @@ public class DivisionAITestSuite {
                         "hegLine=%b, hegPicket=%b, uafCv=%b, uafGunFallback=%b, plCvPromo=%b, ttLight=%b, ttArmadaLinear=%b, customProfiles=%b, playerProtected=%b",
                         hegLineOk, hegPicketOk, uafCvOk, uafGunFallbackOk, plCvPromotedOk,
                         ttBaselineLight, ttArmadaLinearOk, customProfilesOk, playerConductProtected));
+    }
+
+    private static void testTestingLogForensicsOpenFlotillaStickyCapVentAndDisambig() {
+        System.out.println("\n--- [Test] Testing-Log Forensics: Open Flotilla Cruiser Lead, Sticky CAP, Superiority Vent Guard & Cross-Side Disambiguation ---");
+        CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+        CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+
+        // 1. OPEN_FLOTILLA ('Light & Strike Warfare') with Cruiser / Strike Cruiser Main Effort must NOT issue FORM_LINE!
+        BattleGroupState pOpen = new BattleGroupState(0, pCmdr);
+        BattleGroupState eOpen = new BattleGroupState(1, eCmdr);
+        pOpen.authority = OtcAuthority.COMMAND_BY_DIRECTION;
+        pOpen.applyOperationalTemplateForBattle(divisionai.PermanentDivisionManager.OperationalTemplate.LIGHT_FORCES_TORPEDO);
+        DivisionState strikeCruMain = new DivisionState(
+                "p_sc1", 0, 1, DivisionArchetype.STRIKE_CRUISER_DIVISION, "Strike Cruiser Div 1", pCmdr);
+        DivisionState frigWing = new DivisionState(
+                "p_ff1", 0, 1, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 1", pCmdr);
+        DivisionState cv1 = new DivisionState(
+                "p_cv1", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div 1", pCmdr);
+        DivisionState cv2 = new DivisionState(
+                "p_cv2", 0, 2, DivisionArchetype.LIGHT_CARRIER_DIVISION, "Carrier Div 2", pCmdr);
+        pOpen.divisions.add(strikeCruMain);
+        pOpen.divisions.add(frigWing);
+        pOpen.divisions.add(cv1);
+        pOpen.divisions.add(cv2);
+
+        DivisionState eBattle = new DivisionState(
+                "e_bb1", 1, 6, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. VI", eCmdr);
+        DivisionState eCv1 = new DivisionState(
+                "e_cv1", 1, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div 1", eCmdr);
+        eOpen.divisions.add(eBattle);
+        eOpen.divisions.add(eCv1);
+
+        SimArena arena = new SimArena("Open Flotilla Cruiser Lead", "No FORM_LINE under OPEN_FLOTILLA", pOpen, eOpen);
+        SimShipState sc1 = arena.addShip(strikeCruMain, "sc_1", "RDS Falcon", "falcon", HullSize.CRUISER, 0f, -600f, 95f, 1000f, 0, 1);
+        SimShipState ff1 = arena.addShip(frigWing, "ff_1", "RDS Centurion", "centurion", HullSize.FRIGATE, -500f, -700f, 130f, 650f, 0, 0);
+        SimShipState cvShip1 = arena.addShip(cv1, "cv_1", "RDS Heron", "heron", HullSize.CRUISER, -200f, -1800f, 80f, 4000f, 3, 0);
+        SimShipState cvShip2 = arena.addShip(cv2, "cv_2", "RDS Chester", "condor", HullSize.DESTROYER, 200f, -1800f, 70f, 4000f, 2, 0);
+        SimShipState eb1 = arena.addShip(eBattle, "eb_1", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, 900f, 50f, 1200f, 0, 2);
+        SimShipState ecvShip1 = arena.addShip(eCv1, "ecv_1", "HSS Mora", "mora", HullSize.CRUISER, 300f, 1900f, 50f, 4000f, 3, 0);
+        pOpen.shipIdToDivision.put(sc1.id, strikeCruMain);
+        pOpen.shipIdToDivision.put(ff1.id, frigWing);
+        pOpen.shipIdToDivision.put(cvShip1.id, cv1);
+        pOpen.shipIdToDivision.put(cvShip2.id, cv2);
+        eOpen.shipIdToDivision.put(eb1.id, eBattle);
+        eOpen.shipIdToDivision.put(ecvShip1.id, eCv1);
+        for (DivisionState d : pOpen.divisions) divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(d);
+        for (DivisionState d : eOpen.divisions) divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(d);
+
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, pOpen);
+        divisionai.OtcAI.updateTelemetry(arena.engineProxy, eOpen);
+        divisionai.OtcAI.evaluateOtcStrategy(arena.engineProxy, pOpen, eOpen, 15.0f);
+        divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pOpen, eOpen, null, null, 15.0f);
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(arena.engineProxy, pOpen, eOpen, 15.0f);
+        boolean openFlotillaCruiserNoFormLine = pOpen.mainEffortDivision == strikeCruMain
+                && strikeCruMain.otcOrder.type == divisionai.DivisionModel.OtcOrderType.ENGAGE_ASSIGNED
+                && !strikeCruMain.otcOrder.hasStation
+                && strikeCruMain.currentIntent != DivisionIntentType.FORM_LINE_AND_FIX;
+
+        // 2. Cross-side division name collision disambiguation:
+        // Friendly Carrier Div 2 attacking enemy "Carrier Div 1" when friendly also has a "Carrier Div 1"!
+        List<String> logCapture = new ArrayList<>();
+        Boolean prevDbg = divisionai.DivisionAISettings.testDebugLoggingEnabledOverride;
+        divisionai.DivisionAISettings.testDebugLoggingEnabledOverride = Boolean.TRUE;
+        divisionai.DivisionCombatLog.simLogSink = logCapture;
+        try {
+            divisionai.BattlefieldFirepowerEvaluator.setActiveBattleGroups(pOpen, null, eOpen);
+            cv2.currentIntent = DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
+            cv2.targetEnemyDivision = eCv1;
+            cv2.lastLoggedSignature = "";
+            cv2.lastLogAnnouncementTime = -100f;
+            divisionai.DivisionCombatLog.logDivisionIntent(arena.engineProxy, cv2, eCv1.displayName, "Main: Deck Voidstrike", 50.0f);
+        } finally {
+            divisionai.DivisionCombatLog.simLogSink = null;
+            divisionai.DivisionAISettings.testDebugLoggingEnabledOverride = prevDbg;
+        }
+        boolean crossSideDisambigOk = false;
+        for (String line : logCapture) {
+            if (line.contains("\"Carrier Div 2\" intends to launch a deckload strike on \"Enemy Carrier Div 1\"")) {
+                crossSideDisambigOk = true;
+                break;
+            }
+        }
+
+        // 3. Sticky CAP umbrella: Carrier Div 4 holds incumbent Battle Div. VI across transient minor endangerment (<20s),
+        //    yet switches after >=8s when another friendly division enters critical emergency (<0.52x & high flux)!
+        DivisionState capCv = new DivisionState(
+                "e_cv4", 1, 4, DivisionArchetype.ESCORT_CARRIER_DIVISION, "Carrier Div 4", eCmdr);
+        DivisionState incBb = new DivisionState(
+                "e_bb6", 1, 6, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. VI", eCmdr);
+        DivisionState otherCru = new DivisionState(
+                "e_cru4", 1, 4, DivisionArchetype.CRUISER_DIVISION, "Line Cruiser Div 4", eCmdr);
+        eOpen.divisions.add(capCv);
+        eOpen.divisions.add(incBb);
+        eOpen.divisions.add(otherCru);
+        arena.addShip(capCv, "ecv4_1", "HSS Condor", "condor", HullSize.DESTROYER, 0f, 1800f, 65f, 4000f, 2, 0);
+        arena.addShip(incBb, "ebb6_1", "HSS Arcubus", "onslaught", HullSize.CAPITAL_SHIP, 0f, 900f, 50f, 1200f, 0, 1);
+        arena.addShip(otherCru, "ecru4_1", "HSS Eagle", "eagle", HullSize.CRUISER, 600f, 1000f, 75f, 1100f, 0, 0);
+        incBb.ableMemberCount = 1;
+        otherCru.ableMemberCount = 1;
+        incBb.centroid.set(0f, 900f);
+        otherCru.centroid.set(600f, 1000f);
+        capCv.centroid.set(0f, 1800f);
+        incBb.localEnemyStrength = 25f;
+        incBb.localForceRatio = 0.90f;
+        otherCru.localEnemyStrength = 20f;
+        otherCru.localForceRatio = 0.68f;
+        otherCru.avgFluxLevel = 0.35f;
+
+        DivisionState firstPick = divisionai.DivisionCommanderAI.selectStickyCapProtectedDivision(
+                capCv, eOpen, null, null, incBb, false, 10.0f);
+        DivisionState heldMinorBounce = divisionai.DivisionCommanderAI.selectStickyCapProtectedDivision(
+                capCv, eOpen, firstPick, otherCru, incBb, false, 16.0f);
+        // Critical emergency on otherCru while incBb has no close enemy contact after >= 8s
+        incBb.localEnemyStrength = 0f;
+        incBb.localForceRatio = 2.0f;
+        otherCru.localForceRatio = 0.40f;
+        otherCru.avgFluxLevel = 0.70f;
+        otherCru.hasShipNeedingHelp = true;
+        DivisionState switchedOnCritical = divisionai.DivisionCommanderAI.selectStickyCapProtectedDivision(
+                capCv, eOpen, heldMinorBounce, otherCru, incBb, false, 20.0f);
+        boolean stickyCapOk = (firstPick == incBb) && (heldMinorBounce == incBb) && (switchedOnCritical == otherCru);
+
+        // 4. Superiority Vent Guard & Capital Anvil Trade-Space-for-Time Retention:
+        //    (a) 2-ship Frigate division at 31% avg flux (1 ship 60%, 1 ship 2%) with 3.5x local superiority does NOT haul out!
+        BattleGroupState ventBg = new BattleGroupState(1, eCmdr);
+        DivisionState twoFrig = new DivisionState(
+                "e_ff4", 1, 4, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 4", eCmdr);
+        ventBg.divisions.add(twoFrig);
+        SimArena ventArena = new SimArena("Superiority Vent Guard", "No premature 31% flux haul-out", new BattleGroupState(0, pCmdr), ventBg);
+        SimShipState vf1 = ventArena.addShip(twoFrig, "vf1", "HSS Lasher", "lasher", HullSize.FRIGATE, 0f, 0f, 130f, 700f, 0, 0);
+        SimShipState vf2 = ventArena.addShip(twoFrig, "vf2", "HSS Centurion", "centurion", HullSize.FRIGATE, 120f, 0f, 120f, 700f, 0, 0);
+        vf1.fluxLevel = 0.60f;
+        vf2.fluxLevel = 0.02f;
+        twoFrig.ableMemberCount = 2;
+        twoFrig.totalFpStrength = 10f;
+        twoFrig.avgFluxLevel = 0.31f;
+        twoFrig.maxMemberFluxLevel = 0.60f;
+        twoFrig.avgHullLevel = 0.95f;
+        twoFrig.effectiveHpRatio = 0.90f;
+        twoFrig.crossfireCordonIndex = 0.42f;
+        twoFrig.localEnemyStrength = 12f;
+        twoFrig.localForceRatio = 3.50f;
+        boolean twoShipSuperiorityNoHaul = !divisionai.DivisionCommanderAI.isUnderHighFluxPressure(twoFrig, ventBg);
+
+        //    (b) Battlecarrier / Battleship (Legion) at 73% flux & 0.45 cordon steps back via TRADE_SPACE_FOR_TIME
+        //        instead of turning stern to sprint to "safe extraction corridor"!
+        BattleGroupState pPress = new BattleGroupState(0, pCmdr);
+        BattleGroupState eLegionBg = new BattleGroupState(1, eCmdr);
+        DivisionState pAttacker = new DivisionState(
+                "p_cru_att", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", pCmdr);
+        DivisionState eLegion = new DivisionState(
+                "e_bcv7", 1, 7, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. VII", eCmdr);
+        pPress.divisions.add(pAttacker);
+        eLegionBg.divisions.add(eLegion);
+        SimArena legArena = new SimArena("Legion Trade Space", "Bow-on Trade Space vs stern sprint", pPress, eLegionBg);
+        SimShipState pa1 = legArena.addShip(pAttacker, "pa1", "RDS Eagle", "eagle", HullSize.CRUISER, 0f, 0f, 75f, 1000f, 0, 0);
+        SimShipState legShip = legArena.addShip(eLegion, "el1", "HSS Legion", "legion", HullSize.CAPITAL_SHIP, 0f, 850f, 50f, 1100f, 4, 1);
+        pPress.shipIdToDivision.put(pa1.id, pAttacker);
+        eLegionBg.shipIdToDivision.put(legShip.id, eLegion);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(pAttacker);
+        divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(eLegion);
+        divisionai.OtcAI.updateTelemetry(legArena.engineProxy, pPress);
+        divisionai.OtcAI.updateTelemetry(legArena.engineProxy, eLegionBg);
+        legShip.fluxLevel = 0.73f;
+        legShip.hullLevel = 0.64f;
+        eLegion.avgFluxLevel = 0.73f;
+        eLegion.maxMemberFluxLevel = 0.73f;
+        eLegion.avgHullLevel = 0.64f;
+        eLegion.crossfireCordonIndex = 0.45f;
+        eLegion.incomingInRangeFirepower = 120f;
+        eLegion.localEnemyStrength = 25f;
+        eLegion.localForceRatio = 0.90f;
+        eLegion.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
+        eLegion.intentCommitUntil = -100f;
+        divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(legArena.engineProxy, eLegionBg, pPress, 25.0f);
+        boolean legionTradesSpaceBowOn = eLegion.currentIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME;
+
+        check(openFlotillaCruiserNoFormLine && crossSideDisambigOk && stickyCapOk && twoShipSuperiorityNoHaul && legionTradesSpaceBowOn,
+                "Testing-Log Forensics: Open Flotilla Cruiser skirmish lead, Sticky CAP umbrella, 2-ship superiority vent guard & Legion bow-on Trade Space",
+                String.format(Locale.ROOT,
+                        "openFlotillaCruiserNoFormLine=%b (order=%s, intent=%s), crossSideDisambig=%b, stickyCap=%b, twoShipNoHaul=%b, legionTradeSpace=%b (intent=%s)",
+                        openFlotillaCruiserNoFormLine, strikeCruMain.otcOrder.type, strikeCruMain.currentIntent,
+                        crossSideDisambigOk, stickyCapOk, twoShipSuperiorityNoHaul,
+                        legionTradesSpaceBowOn, eLegion.currentIntent));
+    }
+
+    private static com.fs.starfarer.api.fleet.FleetMemberAPI createMockOtcFleetMember(
+            final String id,
+            final String shipName,
+            final HullSize hullSize,
+            final float dp,
+            final boolean isAlly,
+            final boolean isFlagship,
+            final PersonAPI captain) {
+        final com.fs.starfarer.api.combat.ShipHullSpecAPI hullSpec =
+                (com.fs.starfarer.api.combat.ShipHullSpecAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.ShipHullSpecAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipHullSpecAPI.class},
+                        (hp, hm, ha) -> {
+                            String hn = hm.getName();
+                            if ("getHullSize".equals(hn)) return hullSize;
+                            if ("getHullNameWithDashClass".equals(hn) || "getHullName".equals(hn)) return shipName + "-class";
+                            Class<?> hrt = hm.getReturnType();
+                            if (hrt == boolean.class) return false;
+                            if (hrt == int.class) return 0;
+                            if (hrt == float.class) return 0f;
+                            return null;
+                        });
+        return (com.fs.starfarer.api.fleet.FleetMemberAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.fleet.FleetMemberAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                (mp, mm, ma) -> {
+                    String mn = mm.getName();
+                    if ("getId".equals(mn)) return id;
+                    if ("getShipName".equals(mn)) return shipName;
+                    if ("getHullSpec".equals(mn)) return hullSpec;
+                    if ("getDeploymentPointsCost".equals(mn) || "getUnmodifiedDeploymentPointsCost".equals(mn)) return dp;
+                    if ("isAlly".equals(mn)) return isAlly;
+                    if ("isFlagship".equals(mn)) return isFlagship;
+                    if ("getCaptain".equals(mn)) return captain;
+                    if ("equals".equals(mn) && ma != null && ma.length == 1) return mp == ma[0];
+                    if ("hashCode".equals(mn)) return System.identityHashCode(mp);
+                    Class<?> rt = mm.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+    }
+
+    private static PersonAPI createMockOtcPerson(
+            final String fullName,
+            final String personalityId,
+            final boolean isPlayer,
+            final boolean isAlphaCore) {
+        return (PersonAPI) Proxy.newProxyInstance(
+                PersonAPI.class.getClassLoader(),
+                new Class<?>[]{PersonAPI.class},
+                (pp, pm, pa) -> {
+                    String pn = pm.getName();
+                    if ("getNameString".equals(pn)) return fullName;
+                    if ("getName".equals(pn)) return new FullName(fullName, "", Gender.ANY);
+                    if ("isDefault".equals(pn)) return false;
+                    if ("isPlayer".equals(pn)) return isPlayer;
+                    if ("isAICore".equals(pn)) return isAlphaCore;
+                    if ("getAICoreId".equals(pn)) return isAlphaCore ? "alpha_core" : null;
+                    if ("getPortraitSprite".equals(pn)) {
+                        return isAlphaCore ? "graphics/portraits/portrait_ai2b.png" : "graphics/portraits/portrait_generic.png";
+                    }
+                    if ("getPersonalityAPI".equals(pn)) {
+                        return Proxy.newProxyInstance(
+                                pm.getReturnType().getClassLoader(),
+                                new Class<?>[]{pm.getReturnType()},
+                                (perP, perM, perA) -> {
+                                    if ("getId".equals(perM.getName())) return personalityId;
+                                    if ("getDisplayName".equals(perM.getName())) return personalityId;
+                                    return null;
+                                });
+                    }
+                    if ("equals".equals(pn) && pa != null && pa.length == 1) return pp == pa[0];
+                    if ("hashCode".equals(pn)) return System.identityHashCode(pp);
+                    Class<?> rt = pm.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == int.class) return 0;
+                    if (rt == float.class) return 0f;
+                    return null;
+                });
+    }
+
+    private static void testAlliedBattlePreDeploymentAndOtcIsolation() {
+        System.out.println("\n[Scenario 30] Allied-Battle Pre-Deployment Detection & OTC Candidate / CP Isolation");
+        divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        try {
+            PersonAPI alliedCmdr = createMockOtcPerson("Freya Leonard", "aggressive", false, false);
+            PersonAPI playerChar = createMockOtcPerson("Negasi Fisher", "steady", true, false);
+            PersonAPI alphaCore = createMockOtcPerson("Alpha Core", "fearless", false, true);
+            PersonAPI divOfficer = createMockOtcPerson("Yurania Valcourt", "aggressive", false, false);
+
+            com.fs.starfarer.api.fleet.FleetMemberAPI alliedFlagship = createMockOtcFleetMember(
+                    "ally_shoebill_1", "ISS Shoebill", HullSize.CAPITAL_SHIP, 45f, true, true, alliedCmdr);
+            com.fs.starfarer.api.fleet.FleetMemberAPI playerFlagship = createMockOtcFleetMember(
+                    "plr_supernova_1", "RDS Supernova", HullSize.CAPITAL_SHIP, 50f, false, true, playerChar);
+            com.fs.starfarer.api.fleet.FleetMemberAPI playerAlphaShip = createMockOtcFleetMember(
+                    "plr_starsector_1", "RDS Star Sector", HullSize.CAPITAL_SHIP, 55f, false, false, alphaCore);
+            com.fs.starfarer.api.fleet.FleetMemberAPI playerDestroyer = createMockOtcFleetMember(
+                    "plr_rambunctious_1", "RDS Rambunctious", HullSize.DESTROYER, 12f, false, false, divOfficer);
+
+            PersonAPI enemyCmdr = createMockOtcPerson("Jett Flex", "aggressive", false, false);
+            CommanderProfile allyProfile = new CommanderProfile(alliedCmdr, "Freya Leonard");
+            CommanderProfile enemyProfile = new CommanderProfile(enemyCmdr, "Jett Flex");
+            BattleGroupState alliedGroup = new BattleGroupState(0, allyProfile);
+            alliedGroup.isAlliedAi = true;
+            BattleGroupState enemyGroup = new BattleGroupState(1, enemyProfile);
+            DivisionState alliedDiv = new DivisionState(
+                    "ally_bb1", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. II", allyProfile);
+            alliedGroup.divisions.add(alliedDiv);
+            DivisionState enemyDiv = new DivisionState(
+                    "enemy_cru1", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", enemyProfile);
+            enemyGroup.divisions.add(enemyDiv);
+
+            SimArena arena = new SimArena("Allied Pre-Deployment", "Allied ships spawned before player deploys", alliedGroup, enemyGroup);
+            SimShipState allyLiveShip = arena.addShip(
+                    alliedDiv, "ally_shoebill_1", "ISS Shoebill", "onslaught", HullSize.CAPITAL_SHIP, 0f, -2000f, 55f, 1200f, 0, 1);
+            allyLiveShip.isAlly = true;
+            allyLiveShip.fleetMemberOverride = alliedFlagship;
+            arena.addShip(enemyDiv, "enemy_eagle_1", "HSS Eagle", "eagle", HullSize.CRUISER, 0f, 2000f, 75f, 1000f, 0, 0);
+
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> rawDeployedWithAllies = new ArrayList<>();
+            rawDeployedWithAllies.add(alliedFlagship);
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> playerReserves = new ArrayList<>();
+            playerReserves.add(playerFlagship);
+            playerReserves.add(playerAlphaShip);
+            playerReserves.add(playerDestroyer);
+
+            BattleGroupState playerGroup = new BattleGroupState(0, new CommanderProfile(playerChar, "Negasi Fisher"));
+
+            // 1. Even with Allied AI ships already spawned on owner 0 and sitting in deployedGrid, preBattle MUST be true!
+            boolean preBattleDetected = divisionai.DivisionDeploymentDialogOrganizer.isPreBattleDeployment(
+                    arena.engineProxy, rawDeployedWithAllies);
+
+            // 2. Allied flagship with isFlagship() == true MUST NOT be treated as the player character's ship!
+            boolean alliedFlagshipRejectedAsPlayer = !divisionai.DivisionOtcCommandManager.isPlayerCharacterMember(alliedFlagship)
+                    && divisionai.DivisionOtcCommandManager.isPlayerCharacterMember(playerFlagship);
+
+            // 3. Player OTC candidate list MUST exclude Allied AI ships and contain only the 3 player commanders!
+            List<divisionai.DivisionOtcCommandManager.OtcCandidate> candidates =
+                    divisionai.DivisionOtcCommandManager.collectPlayerOtcCandidates(
+                            arena.engineProxy, playerGroup, rawDeployedWithAllies, playerReserves);
+            boolean noAlliedCandidate = candidates.size() == 3;
+            for (divisionai.DivisionOtcCommandManager.OtcCandidate c : candidates) {
+                if ("ally_shoebill_1".equals(c.memberId) || "Freya Leonard".equals(c.commanderName)) {
+                    noAlliedCandidate = false;
+                }
+            }
+
+            // 4. Pre-battle Alpha Core selection must NOT lock out subsequent pre-battle OTC changes, and switching
+            //    back to Negasi Fisher in pre-battle must succeed at 0 CP without mid-battle CP deduction!
+            boolean pickedAlphaPre = divisionai.DivisionOtcCommandManager.selectPlayerOtcByMemberId(
+                    arena.engineProxy, playerGroup, rawDeployedWithAllies, playerReserves,
+                    playerFlagship, "plr_starsector_1", preBattleDetected);
+            boolean notLockedInPreBattle = !divisionai.DivisionOtcCommandManager.isAlphaCoreOtcLockedInBattle(playerGroup)
+                    && !divisionai.DivisionOtcCommandManager.isPlayerOtcLockedByAlphaCoreInBattle(
+                            arena.engineProxy, playerAlphaShip, playerGroup, preBattleDetected);
+            boolean switchedBackToHumanPre = divisionai.DivisionOtcCommandManager.selectPlayerOtcByMemberId(
+                    arena.engineProxy, playerGroup, rawDeployedWithAllies, playerReserves,
+                    playerAlphaShip, "plr_supernova_1", preBattleDetected);
+
+            // 5. Auto pre-battle OTC resolution ignores Allied ships in selectedForDeploy and updates to Yurania Valcourt
+            //    when the player selects RDS Rambunctious without RDS Supernova!
+            divisionai.DivisionOtcCommandManager.resetForNewBattle();
+            BattleGroupState freshPlayerGroup = new BattleGroupState(0, new CommanderProfile(playerChar, "Negasi Fisher"));
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> allMixed = new ArrayList<>();
+            allMixed.addAll(rawDeployedWithAllies);
+            allMixed.addAll(playerReserves);
+            com.fs.starfarer.api.fleet.FleetMemberAPI initialPreOtc =
+                    divisionai.DivisionOtcCommandManager.resolvePreBattlePlayerOtcMember(
+                            freshPlayerGroup, allMixed, rawDeployedWithAllies);
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> selectedOnlyDestroyer = new ArrayList<>();
+            selectedOnlyDestroyer.add(alliedFlagship);
+            selectedOnlyDestroyer.add(playerDestroyer);
+            com.fs.starfarer.api.fleet.FleetMemberAPI autoSwitchedPreOtc =
+                    divisionai.DivisionOtcCommandManager.resolvePreBattlePlayerOtcMember(
+                            freshPlayerGroup, allMixed, selectedOnlyDestroyer);
+            boolean autoPreOtcOk = (initialPreOtc == playerFlagship) && (autoSwitchedPreOtc == playerDestroyer);
+
+            check(preBattleDetected && alliedFlagshipRejectedAsPlayer && noAlliedCandidate
+                            && pickedAlphaPre && notLockedInPreBattle && switchedBackToHumanPre && autoPreOtcOk,
+                    "Allied-Battle OTC Isolation: preBattle=true despite deployed Allies, 0 Allied OTC candidates, 0 CP / unlocked pre-battle Alpha Core switch & clean auto-OTC",
+                    String.format(Locale.ROOT,
+                            "preBattle=%b, allyFlagRejected=%b, noAlliedCand=%b (cands=%d), alphaPre=%b, unlocked=%b, humanSwitchBack=%b, autoPreOtc=%b",
+                            preBattleDetected, alliedFlagshipRejectedAsPlayer, noAlliedCandidate, candidates.size(),
+                            pickedAlphaPre, notLockedInPreBattle, switchedBackToHumanPre, autoPreOtcOk));
+        } finally {
+            divisionai.DivisionOtcCommandManager.resetForNewBattle();
+        }
     }
 }

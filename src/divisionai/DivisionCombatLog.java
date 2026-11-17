@@ -334,6 +334,27 @@ public class DivisionCombatLog {
         }
     }
 
+    private static boolean hasFriendlySideDivisionWithDisplayName(int side, String targetName) {
+        if (targetName == null || targetName.isEmpty()) return false;
+        BattleGroupState[] groups = (side == 0)
+                ? new BattleGroupState[]{BattlefieldFirepowerEvaluator.activePlayerGroupRef, BattlefieldFirepowerEvaluator.activeAlliedGroupRef}
+                : new BattleGroupState[]{BattlefieldFirepowerEvaluator.activeEnemyGroupRef};
+        for (int g = 0; g < groups.length; g++) {
+            BattleGroupState bg = groups[g];
+            if (bg == null || bg.divisions == null) continue;
+            for (int i = 0, n = bg.divisions.size(); i < n; i++) {
+                DivisionState d = bg.divisions.get(i);
+                if (d == null || d.members.isEmpty()) continue;
+                String dName = DivisionNomenclature.resolveDynamicDivisionDisplayName(
+                        d.nomenclatureCategory, d.archetype, d.divisionNumber, d.displayName);
+                if (targetName.equals(dName) || targetName.equals(d.displayName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static void logDivisionIntent(
             CombatEngineAPI engine,
             DivisionState div,
@@ -371,12 +392,15 @@ public class DivisionCombatLog {
                 div.divisionNumber,
                 div.displayName);
         if (!cleanTarget.isEmpty()
-                && cleanTarget.equals(actorName)
+                && !cleanTarget.startsWith("Enemy ")
+                && !cleanTarget.startsWith("Player ")
                 && div.targetEnemyDivision != null
                 && div.currentIntent != DivisionIntentType.TAKE_SCREENING_STATION
+                && div.currentIntent != DivisionIntentType.FLY_COMBAT_SPACE_PATROL
                 && div.currentIntent != DivisionIntentType.REINFORCE_DIVISION
                 && div.currentIntent != DivisionIntentType.HAUL_OUT_TO_VENT
-                && div.currentIntent != DivisionIntentType.RUN_THE_GAUNTLET) {
+                && div.currentIntent != DivisionIntentType.RUN_THE_GAUNTLET
+                && (cleanTarget.equals(actorName) || hasFriendlySideDivisionWithDisplayName(div.side, cleanTarget))) {
             cleanTarget = (div.side == 0 ? "Enemy " : "Player ") + cleanTarget;
         }
 

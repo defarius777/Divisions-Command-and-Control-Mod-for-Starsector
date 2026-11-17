@@ -677,6 +677,7 @@ public class DivisionModel {
         public DivisionIntentType currentIntent = DivisionIntentType.CLOSE_UP;
         public DivisionState targetEnemyDivision;
         public DivisionState targetFriendlyDivision;
+        public float lastCapTargetSelectTime = -100f;
         public BattleObjectiveAPI targetObjective;
         public final Vector2f stationPoint = new Vector2f();
         public final Vector2f routeWaypoint = new Vector2f();

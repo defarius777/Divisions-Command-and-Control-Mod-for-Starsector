@@ -44,7 +44,7 @@ public final class FleetCommandPanel {
             final List<FleetMemberAPI> deployedMembers,
             final List<FleetMemberAPI> reserveMembers) {
 
-        final boolean preBattle = deployedMembers == null || deployedMembers.isEmpty();
+        final boolean preBattle = DivisionDeploymentDialogOrganizer.isPreBattleDeployment(engine, deployedMembers);
         final FleetMemberAPI[] currentFlagshipRef = new FleetMemberAPI[]{
                 organizer.resolvePlayerFlagshipMember(fdd, preBattle, deployedMembers, reserveMembers)
         };
@@ -538,7 +538,7 @@ public final class FleetCommandPanel {
                 int depCount = 0;
                 if (deployedMembers != null) {
                     for (FleetMemberAPI m : deployedMembers) {
-                        if (m != null) {
+                        if (m != null && !m.isAlly()) {
                             depCount++;
                             depDp += m.getDeploymentPointsCost();
                         }
@@ -548,7 +548,7 @@ public final class FleetCommandPanel {
                 int resCount = 0;
                 if (reserveMembers != null) {
                     for (FleetMemberAPI m : reserveMembers) {
-                        if (m != null) {
+                        if (m != null && !m.isAlly()) {
                             resCount++;
                             resDp += m.getDeploymentPointsCost();
                         }

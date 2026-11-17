@@ -1229,7 +1229,7 @@ public class OtcBattlePlanner {
                 && main.archetype.isDestroyerArchetype();
         boolean mainIsHeavyLine = (main.archetype != null && main.archetype.isHeavyLineArchetype())
                 || singleDestroyerLine;
-        boolean flotillaSkirmishNoStaticLine = mainIsStandoffCarrier || mainIsPhase || (openFlotillaAnchor && !mainIsHeavyLine);
+        boolean flotillaSkirmishNoStaticLine = mainIsStandoffCarrier || mainIsPhase || openFlotillaAnchor;
 
         // Keep the Main Effort steady as the fixing Anvil during Hammer & Anvil, Double Envelopment, Crossing
         // the T, and Kill-Box setpieces; only surge onto EXECUTE_STRIKE during Echeloned Wave Breach or once breaking.

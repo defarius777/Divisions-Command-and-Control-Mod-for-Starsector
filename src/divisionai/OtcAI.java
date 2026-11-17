@@ -1240,6 +1240,7 @@ public class OtcAI {
                 ? " {" + battleGroup.activeMultiDivisionSetpiece.shortName + "}"
                 : "";
 
+        boolean openFlotilla = battleGroup.operationalAnchor == PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA;
         switch (battleGroup.currentPhase) {
             case APPROACH:
                 if (battleGroup.missionContext == MissionContextType.INTERCEPTION) {
@@ -1251,7 +1252,9 @@ public class OtcAI {
                 return String.format("Scouts ahead%s, %s leading, to take objectives and gain contact.", fwTag, mainName);
             case COORDINATED_STRIKE:
                 if (battleGroup.strikePlan != null && battleGroup.strikePlan.target != null) {
-                    return String.format("%s fixes%s%s; %d strike division%s on time-on-target against \"%s\".",
+                    return String.format(openFlotilla
+                                    ? "%s leads flotilla%s%s; %d strike division%s on time-on-target against \"%s\"."
+                                    : "%s fixes%s%s; %d strike division%s on time-on-target against \"%s\".",
                             mainName,
                             fwTag,
                             spTag,
@@ -1259,7 +1262,10 @@ public class OtcAI {
                             battleGroup.strikePlan.participants.size() == 1 ? "" : "s",
                             battleGroup.strikePlan.target.displayName);
                 }
-                return String.format("%s fixes%s%s; strike divisions stand by against %s.", mainName, fwTag, spTag, targetName);
+                return String.format(openFlotilla
+                                ? "%s leads flotilla%s%s; strike divisions stand by against %s."
+                                : "%s fixes%s%s; strike divisions stand by against %s.",
+                        mainName, fwTag, spTag, targetName);
             case REINFORCE_THE_LINE:
                 if (endangeredDiv != null) {
                     return String.format("Reinforce \"%s\" (local ratio %.2f); close up the screens.",
@@ -1281,7 +1287,10 @@ public class OtcAI {
                 return "Retire by divisions toward the rendezvous, covering each other.";
             case GENERAL_ENGAGEMENT:
             default:
-                return String.format("Line of battle%s%s formed on %s, engaging %s.", fwTag, spTag, mainName, targetName);
+                return String.format(openFlotilla
+                                ? "Flotilla%s%s led by %s, engaging %s."
+                                : "Line of battle%s%s formed on %s, engaging %s.",
+                        fwTag, spTag, mainName, targetName);
         }
     }
 

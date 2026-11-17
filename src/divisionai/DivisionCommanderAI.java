@@ -732,7 +732,12 @@ public class DivisionCommanderAI {
                 && div.avgFluxLevel >= 0.44f
                 && div.hasMissileStrikeCapability
                 && div.usableStrikeAmmoCount <= 0;
-        boolean singleOutlierInFreshWinningPack = (alive.size() >= 3
+        boolean isCarrierDiv = div.archetype != null && div.archetype.isCarrierArchetype();
+        boolean singleOutlierInFreshWinningPack = (alive.size() >= 2
+                && endangeredMemberCount <= 1
+                && div.avgFluxLevel < 0.42f
+                && div.localForceRatio >= 1.35f)
+                || (alive.size() >= 3
                 && endangeredMemberCount <= 1
                 && div.avgFluxLevel < 0.34f
                 && div.localForceRatio >= 1.50f)
@@ -743,14 +748,19 @@ public class DivisionCommanderAI {
                 && div.effectiveHpRatio >= 0.65f
                 && div.localForceRatio >= 0.55f
                 && !div.inEnemyReinforcementHazard);
+        boolean carrierSafeStandoffSuperiority = isCarrierDiv
+                && div.avgFluxLevel < 0.52f
+                && div.maxMemberFluxLevel < 0.72f
+                && div.avgHullLevel >= 0.65f
+                && div.localForceRatio >= 1.25f;
         boolean highFluxPressure = div.avgFluxLevel >= effFluxThreshold
                 || skirmishSalvoSpentUnderFire
                 || loneFrigateOvermatched
                 || multiShipExtractionNeeded
-                || (!isHeavyLineDiv && ehpDepletedUnderFire)
-                || (!isHeavyLineDiv && !singleOutlierInFreshWinningPack && div.maxMemberFluxLevel >= 0.76f && div.localEnemyStrength > 10f && (div.localForceRatio < 0.75f || inCrossfireCordon))
+                || (!isHeavyLineDiv && !carrierSafeStandoffSuperiority && ehpDepletedUnderFire)
+                || (!isHeavyLineDiv && !singleOutlierInFreshWinningPack && !carrierSafeStandoffSuperiority && div.maxMemberFluxLevel >= 0.76f && div.localEnemyStrength > 10f && (div.localForceRatio < 0.75f || (inCrossfireCordon && div.localForceRatio < 1.25f)))
                 || (!isHeavyLineDiv && div.avgFluxLevel >= 0.52f && div.localEnemyStrength > 12f && div.localForceRatio < 0.62f && div.commander.aggressionBias < 1.35f)
-                || (!isHeavyLineDiv && !singleOutlierInFreshWinningPack && inCrossfireCordon && (div.maxMemberFluxLevel >= 0.60f || (div.avgFluxLevel >= 0.36f && div.localForceRatio < 0.72f)));
+                || (!isHeavyLineDiv && !singleOutlierInFreshWinningPack && !carrierSafeStandoffSuperiority && inCrossfireCordon && ((div.maxMemberFluxLevel >= 0.60f && (div.avgFluxLevel >= 0.44f || div.localForceRatio < 1.25f)) || (div.avgFluxLevel >= 0.36f && div.localForceRatio < 0.72f)));
         // Intra-Division Double-Line Rank Relief: ONLY applies to divisions of >= 3 able combat ships that are NOT
         // locally TSF-overmatched (< 0.68x), NOT inside an active enemy reinforcement gate, and NOT in a crossfire cordon!
         // A 2-ship destroyer division overmatched 0.50x must never suppress withdrawal because 1 ship is momentarily < 66% flux.
@@ -837,6 +847,7 @@ public class DivisionCommanderAI {
             float now) {
 
         DivisionState prevEnemyTarget = div.targetEnemyDivision;
+        DivisionState prevFriendlyTarget = div.targetFriendlyDivision;
         BattleObjectiveAPI prevObjective = div.targetObjective;
         DivisionIntentType prevIntent = div.currentIntent;
 
@@ -1070,7 +1081,7 @@ public class DivisionCommanderAI {
         if ((activeMission == DivisionMissionType.CARRIER_STANDOFF || activeMission.isCarrierMission)
                 && trySelectCarrierMissionIntent(
                         engine, div, myGroup, enemyGroup, activeMission, missionPhaseTag,
-                        prevEnemyTarget, nearestEnemyDiv, endangeredFriendlyDiv, heavyFriendlyToScreen, uncapturedObj, now)) {
+                        prevEnemyTarget, prevFriendlyTarget, prevIntent, nearestEnemyDiv, endangeredFriendlyDiv, heavyFriendlyToScreen, uncapturedObj, now)) {
             return;
         }
 
@@ -1248,19 +1259,21 @@ public class DivisionCommanderAI {
             }
 
             // Item C & E: If there is NO covering friendly division (ventBehindFriend == null) and enemies are actively
-            // shooting us in gun range, heavy line divisions (Cruisers/Battleships) with healthy hulls Trade Space for Time
-            // instead of turning tail; whereas Frigate/Destroyer/Ramming divisions execute a high-speed extraction!
+            // shooting us in gun range, heavy line divisions (Cruisers/Battleships/Battlecarriers) step back bow-on via
+            // Trade Space for Time instead of turning their unshielded stern for a 1,350u HAUL_OUT_TO_VENT sprint,
+            // unless hull/flux is genuinely critical or encircled; whereas Frigate/Destroyer/Ramming divisions sprint clear!
             boolean isLightOrRamDiv = (div.archetype != null
                     && (div.archetype.isLightSkirmisherArchetype() || div.archetype.isDestroyerArchetype()))
                     || div.ramCapableMemberCount >= 1;
+            boolean isCapitalAnvilDiv = div.archetype != null && div.archetype.isBattleshipArchetype();
             if (ventBehindFriend == null
                     && !isLightOrRamDiv
                     && !fightingRetirementVent
-                    && div.crossfireCordonIndex < 0.35f
-                    && div.incomingInRangeFirepower > 35f
-                    && div.avgHullLevel >= 0.72f
-                    && div.avgFluxLevel < div.commander.rotationFluxThreshold
-                    && div.maxMemberFluxLevel < 0.86f) {
+                    && div.crossfireCordonIndex < (isCapitalAnvilDiv ? 0.58f : 0.42f)
+                    && (div.incomingInRangeFirepower > 35f || isCapitalAnvilDiv)
+                    && div.avgHullLevel >= (isCapitalAnvilDiv ? 0.48f : 0.65f)
+                    && div.avgFluxLevel < (isCapitalAnvilDiv ? 0.80f : div.commander.rotationFluxThreshold)
+                    && div.maxMemberFluxLevel < (isCapitalAnvilDiv ? 0.88f : 0.86f)) {
                 if (nearestEnemyDiv != null && nearestEnemyDiv.isCombatEffective()) {
                     div.targetEnemyDivision = nearestEnemyDiv;
                     BattlefieldFirepowerEvaluator.computeTradeSpaceForTimeOffset(
@@ -1591,11 +1604,14 @@ public class DivisionCommanderAI {
                 div.strikeCraftTargetFriendlyDivision = null;
                 break;
             case COMBAT_SPACE_PATROL: {
-                DivisionState protectedFriendly = (endangeredFriendlyDiv != null)
-                        ? endangeredFriendlyDiv
-                        : ((heavyFriendlyToScreen != null)
-                        ? heavyFriendlyToScreen
-                        : ((myGroup != null && myGroup.mainEffortDivision != null) ? myGroup.mainEffortDivision : div));
+                DivisionState prevCapFriendly = div.currentStrikeCraftIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL
+                        ? div.strikeCraftTargetFriendlyDivision
+                        : null;
+                DivisionState protectedFriendly = selectStickyCapProtectedDivision(
+                        div, myGroup, prevCapFriendly, endangeredFriendlyDiv, heavyFriendlyToScreen, true, now);
+                if (protectedFriendly == null) {
+                    protectedFriendly = div;
+                }
                 div.currentStrikeCraftIntent = DivisionIntentType.FLY_COMBAT_SPACE_PATROL;
                 div.strikeCraftTargetFriendlyDivision = protectedFriendly;
                 div.strikeCraftTargetEnemyDivision = scTargetDiv;
@@ -1748,6 +1764,48 @@ public class DivisionCommanderAI {
         return isPrematureOpeningScoutStrikeTarget(engine, myGroup, allEffectiveEnemies, target, now);
     }
 
+    public static DivisionState selectStickyCapProtectedDivision(
+            DivisionState div,
+            BattleGroupState myGroup,
+            DivisionState incumbent,
+            DivisionState endangeredFriendlyDiv,
+            DivisionState heavyFriendlyToScreen,
+            boolean allowSelfFallback,
+            float now) {
+        DivisionState defaultAnchor = (heavyFriendlyToScreen != null)
+                ? heavyFriendlyToScreen
+                : (myGroup != null ? myGroup.mainEffortDivision : null);
+        DivisionState freshPick = (endangeredFriendlyDiv != null) ? endangeredFriendlyDiv : defaultAnchor;
+        if (freshPick == null && allowSelfFallback) {
+            freshPick = div;
+        }
+        if (incumbent != null && incumbent != div && incumbent.isAbleCombatEffective()) {
+            float distInc = distance(div.centroid, incumbent.centroid);
+            if (distInc <= 4800f) {
+                float heldFor = now - div.lastCapTargetSelectTime;
+                boolean incumbentStillRelevant = (incumbent == freshPick)
+                        || incumbent == defaultAnchor
+                        || incumbent == (myGroup != null ? myGroup.mainEffortDivision : null)
+                        || incumbent.localEnemyStrength >= 10f
+                        || incumbent.archetype.isHeavyLineArchetype()
+                        || incumbent.archetype.isCarrierArchetype();
+                boolean criticalOverride = endangeredFriendlyDiv != null
+                        && endangeredFriendlyDiv != incumbent
+                        && endangeredFriendlyDiv.localForceRatio < 0.52f
+                        && (endangeredFriendlyDiv.hasShipNeedingHelp || endangeredFriendlyDiv.avgFluxLevel >= 0.62f)
+                        && (incumbent.localEnemyStrength < 8f || incumbent.localForceRatio >= 1.15f)
+                        && heldFor >= 8.0f;
+                if (incumbentStillRelevant && !criticalOverride && heldFor < 20.0f) {
+                    return incumbent;
+                }
+            }
+        }
+        if (freshPick != incumbent) {
+            div.lastCapTargetSelectTime = now;
+        }
+        return freshPick;
+    }
+
     static boolean trySelectCarrierMissionIntent(
             CombatEngineAPI engine,
             DivisionState div,
@@ -1756,6 +1814,8 @@ public class DivisionCommanderAI {
             DivisionMissionType activeMission,
             String missionPhaseTag,
             DivisionState prevCarrierTarget,
+            DivisionState prevFriendlyTarget,
+            DivisionIntentType prevIntent,
             DivisionState nearestEnemyDiv,
             DivisionState endangeredFriendlyDiv,
             DivisionState heavyFriendlyToScreen,
@@ -1797,9 +1857,11 @@ public class DivisionCommanderAI {
                 return commitIntent(engine, div, DivisionIntentType.FLY_FIGHTER_SWEEP, targetLabel, baseReason, now);
             }
             case COMBAT_SPACE_PATROL: {
-                DivisionState protectedFriendly = (endangeredFriendlyDiv != null)
-                        ? endangeredFriendlyDiv
-                        : ((heavyFriendlyToScreen != null) ? heavyFriendlyToScreen : myGroup.mainEffortDivision);
+                DivisionState prevCapFriendly = (prevIntent == DivisionIntentType.FLY_COMBAT_SPACE_PATROL)
+                        ? prevFriendlyTarget
+                        : null;
+                DivisionState protectedFriendly = selectStickyCapProtectedDivision(
+                        div, myGroup, prevCapFriendly, endangeredFriendlyDiv, heavyFriendlyToScreen, false, now);
                 div.targetFriendlyDivision = protectedFriendly;
                 div.targetEnemyDivision = carrierTargetDiv;
                 String targetLabel;

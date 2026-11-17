@@ -257,6 +257,8 @@ public class SimArena {
         public final java.util.Set<String> tags = new java.util.LinkedHashSet<>();
         public final java.util.Map<String, Object> customData = new java.util.HashMap<>();
         public com.fs.starfarer.api.combat.ShipAIPlugin shipAI = DEFAULT_SIM_SHIP_AI;
+        public boolean isAlly = false;
+        public com.fs.starfarer.api.fleet.FleetMemberAPI fleetMemberOverride = null;
         public ShipAPI proxy;
 
         public SimShipState(
@@ -697,9 +699,15 @@ public class SimArena {
                         if ("isFighter".equals(n)) {
                             return hullSize == HullSize.FIGHTER;
                         }
+                        if ("isAlly".equals(n)) {
+                            return isAlly;
+                        }
+                        if ("getFleetMember".equals(n) && fleetMemberOverride != null) {
+                            return fleetMemberOverride;
+                        }
                         if ("isExpired".equals(n) || "isRetreating".equals(n) || "isDirectRetreat".equals(n)
                                 || "isDrone".equals(n)
-                                || "isAlly".equals(n) || "isShuttlePod".equals(n)) {
+                                || "isShuttlePod".equals(n)) {
                             return Boolean.FALSE;
                         }
                         if ("getLocation".equals(n)) return location;
