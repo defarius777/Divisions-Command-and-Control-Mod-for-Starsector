@@ -507,7 +507,7 @@ public class DivisionDeploymentDialogOrganizer {
     }
 
     public void advance(CombatEngineAPI engine) {
-        if (engine == null) return;
+        if (engine == null || BattlefieldFirepowerEvaluator.isSimulationEngine(engine)) return;
         CombatUIAPI ui = engine.getCombatUI();
         if (ui == null) return;
         // Fast path during combat / Warroom when the deployment dialog is closed and no emergency OTC modal is active

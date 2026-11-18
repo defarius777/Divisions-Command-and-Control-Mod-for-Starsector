@@ -1042,6 +1042,31 @@ public class StarsectorUISimulator {
         DivisionDeploymentDialogOrganizer organizer = new DivisionDeploymentDialogOrganizer();
         organizer.setBattleContext(playerGroup, enemyGroup, new DynamicBattleMusicController());
         Global.setSector(sector);
+
+        // Verify Refit Simulator (isSimulation == true) leaves vanilla FleetDeploymentDialog (Opponents/Allies tabs) 100% untouched
+        float vanillaResW = reservesGrid.getPosition().getWidth();
+        float vanillaResH = reservesGrid.getPosition().getHeight();
+        int vanillaInnerChildCount = innerPanel.getChildrenCopy().size();
+        CombatEngineAPI simProxyEngine = (CombatEngineAPI) Proxy.newProxyInstance(
+                StarsectorUISimulator.class.getClassLoader(),
+                new Class<?>[]{CombatEngineAPI.class},
+                (p, m, a) -> {
+                    if ("getCombatUI".equals(m.getName())) return cs;
+                    if ("isSimulation".equals(m.getName())) return true;
+                    if ("getShips".equals(m.getName())) return Collections.emptyList();
+                    if (m.getReturnType() == boolean.class) return false;
+                    if (m.getReturnType() == float.class) return 0f;
+                    if (m.getReturnType() == int.class) return 0;
+                    return null;
+                });
+        organizer.advance(simProxyEngine);
+        if (Math.abs(reservesGrid.getPosition().getWidth() - vanillaResW) > 0.01f
+                || Math.abs(reservesGrid.getPosition().getHeight() - vanillaResH) > 0.01f
+                || innerPanel.getChildrenCopy().size() != vanillaInnerChildCount) {
+            System.out.println("FAIL Simulator UI modified by organizer!");
+            return false;
+        }
+
         organizer.advance(proxyEngine);
         innerPanel.advance(0.1f);
 

@@ -928,6 +928,7 @@ public class SimArena {
     public ShipAPI playerShip = null;
     public boolean uiAutopilotOn = true;
     public boolean paused = false;
+    public boolean simulation = false;
     public boolean fullAssaultSide0 = false;
     public boolean fullAssaultSide1 = false;
     public float baseShipSightRadius = 3000f;
@@ -1131,6 +1132,7 @@ public class SimArena {
                     if ("getPlayerShip".equals(n)) return playerShip;
                     if ("isUIAutopilotOn".equals(n)) return uiAutopilotOn;
                     if ("isPaused".equals(n)) return paused;
+                    if ("isSimulation".equals(n) || "isInCampaignSim".equals(n)) return simulation;
                     Class<?> rt = m.getReturnType();
                     if (rt == boolean.class) return false;
                     if (rt == int.class) return 0;

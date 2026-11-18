@@ -129,6 +129,9 @@ public class DivisionAutoFormer {
             CombatEngineAPI engine,
             BattleGroupState playerGroup,
             List<ShipAPI> playerShips) {
+        if (BattlefieldFirepowerEvaluator.isSimulationEngine(engine)) {
+            return new ArrayList<>();
+        }
         if (engine != null) {
             activeCombatEngine = engine;
         }
@@ -207,6 +210,9 @@ public class DivisionAutoFormer {
             CombatEngineAPI engine,
             BattleGroupState battleGroup,
             List<ShipAPI> eligibleShips) {
+        if (BattlefieldFirepowerEvaluator.isSimulationEngine(engine)) {
+            return new ArrayList<>();
+        }
         if (engine != null) {
             activeCombatEngine = engine;
         }

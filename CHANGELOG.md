@@ -4,6 +4,14 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.2.0a] — 2026-11-18 (Starsector `0.98.5a-RC7` & `0.98a-RC8`)
+
+### Fixed
+- **Refit Simulator Default UI & Zero-Division Bypass (`BattlefieldFirepowerEvaluator`, `DivisionDeploymentDialogOrganizer`, `DivisionAICombatPlugin`, `DivisionAutoFormer`):**
+  - Excluded Refit Simulator sessions (`isSimulation()`, `isInCampaignSim()`, `isInMissionSim()`) from Deployment Dialog organization, Warroom (`Tab`) tactical overlays, pre-render wave hooks, and combat division instantiation so both the Simulator **Opponents** and **Allies** tabs use 100% default vanilla UI and Simulator fights run without instantiating divisions.
+
+---
+
 ## [v1.2.0] — 2026-11-18 (Starsector `0.98.5a-RC7` & `0.98a-RC8`)
 
 ### Added

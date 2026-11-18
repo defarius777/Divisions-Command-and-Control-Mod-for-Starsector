@@ -6196,11 +6196,26 @@ public class BattlefieldFirepowerEvaluator {
     // =========================================================================
 
     /**
-     * Returns true ONLY when the engine belongs to an active combat battle (CombatState),
-     * and false on the Main Menu background battle (TitleScreenState / GameState.TITLE) or Campaign.
+     * Returns true when the combat engine is running a Refit Simulator session
+     * (Campaign Simulator or Mission Simulator). Simulator battles intentionally keep
+     * 100% default vanilla UI and do not instantiate divisions (placeholder for future support).
+     */
+    public static boolean isSimulationEngine(CombatEngineAPI engine) {
+        if (engine == null) return false;
+        try {
+            return engine.isSimulation() || engine.isInCampaignSim() || engine.isInMissionSim();
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Returns true ONLY when the engine belongs to an active non-simulation combat battle (CombatState),
+     * and false on the Main Menu background battle (TitleScreenState / GameState.TITLE), Campaign,
+     * or Refit Simulator (isSimulation / isInCampaignSim / isInMissionSim).
      */
     public static boolean isRealCombatEngine(CombatEngineAPI engine) {
-        if (engine == null) return false;
+        if (engine == null || isSimulationEngine(engine)) return false;
         try {
             com.fs.starfarer.api.GameState state = Global.getCurrentState();
             if (state != null && state != com.fs.starfarer.api.GameState.COMBAT) {

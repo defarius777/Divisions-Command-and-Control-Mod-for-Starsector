@@ -100,6 +100,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (inst == null) return;
         pendingSummaryInstance = null;
         if (!inst.initializedBattle || inst.loggedBattleSummary || inst.engine == null) return;
+        if (BattlefieldFirepowerEvaluator.isSimulationEngine(inst.engine)) return;
         try {
             com.fs.starfarer.api.combat.CombatUIAPI ui = inst.engine.getCombatUI();
             if (ui != null && ui.getClass().getName().contains("TitleScreenState")) return;
@@ -161,7 +162,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
         this.preRenderHookAttached = false;
         this.renderedBelowShipsLayerThisFrame = false;
-        ensurePreRenderDeploymentHook();
+        // Defer ensurePreRenderDeploymentHook() to advance()/renderInWorldCoords() because Refit Simulator
+        // sets AppDriver session "run combat simulator" immediately AFTER new CombatEngine(...) invokes init().
     }
 
     /**
@@ -171,7 +173,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
      * doctrinal formation on the exact frame they first appear (no vanilla spawn grid is ever drawn).
      */
     private void ensurePreRenderDeploymentHook() {
-        if (engine == null) return;
+        if (engine == null || !BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) return;
         if (preRenderHookAttached && preRenderHookEngine == engine) return;
         final DivisionAICombatPlugin owner = this;
         final CombatEngineAPI hookEngine = engine;
@@ -214,6 +216,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     void interceptBeforeRender() {
         try {
             if (engine == null || !initializedBattle || engine.isCombatOver()) return;
+            if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) return;
             interceptNewlyDeployedWaves(engine.getTotalElapsedTime(false));
         } catch (Throwable t) {
             LOG.warn("[DivisionAI] Pre-render deployment interception failed: " + t);
@@ -222,6 +225,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     @Override
     public void renderInWorldCoords(ViewportAPI viewport) {
+        if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) return;
         ensurePreRenderDeploymentHook();
         // Fallback in case BELOW_SHIPS_LAYER has not yet been flushed by executeAdds() on the very first frame
         if (!renderedBelowShipsLayerThisFrame) {
@@ -422,6 +426,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         if (engine == null) {
             engine = Global.getCombatEngine();
             if (engine == null) return;
+        }
+        // Placeholder bypass: Refit Simulator battles keep 100% default vanilla UI (Opponents/Allies tabs & Warroom)
+        // and never instantiate divisions.
+        if (BattlefieldFirepowerEvaluator.isSimulationEngine(engine)) {
+            return;
         }
         // Never run combat C2 or UI overlays on the Main Menu background battle (TitleScreenState)
         if (!BattlefieldFirepowerEvaluator.isRealCombatEngine(engine)) {

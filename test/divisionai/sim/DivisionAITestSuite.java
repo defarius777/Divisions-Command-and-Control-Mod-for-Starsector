@@ -100,6 +100,7 @@ public class DivisionAITestSuite {
         testPreCombatConductOfBattleInstantiationAndFactionDoctrines();
         testTestingLogForensicsOpenFlotillaStickyCapVentAndDisambig();
         testAlliedBattlePreDeploymentAndOtcIsolation();
+        testSimulatorDefaultUiAndZeroDivisionBypass();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -7325,5 +7326,108 @@ public class DivisionAITestSuite {
         } finally {
             divisionai.DivisionOtcCommandManager.resetForNewBattle();
         }
+    }
+
+    private static void testSimulatorDefaultUiAndZeroDivisionBypass() {
+        System.out.println("\n[Scenario 31] Refit Simulator Default UI (Allies/Opponents Tabs) & Zero-Division Bypass");
+        CommanderProfile cmdr = new CommanderProfile(null, "steady");
+        SimArena simArena = new SimArena(
+                "simulator_bypass_test", "Refit Simulator Bypass",
+                new BattleGroupState(0, cmdr), new BattleGroupState(1, cmdr));
+        simArena.simulation = true;
+
+        SimShipState p1 = new SimShipState(
+                "sim_p_1", "HSS Onslaught", "Onslaught", 0,
+                HullSize.CAPITAL_SHIP, 0f, -1500f, 55f, 1200f, 4, 0);
+        SimShipState a1 = new SimShipState(
+                "sim_a_1", "HSS Dominator", "Dominator", 0,
+                HullSize.CRUISER, 300f, -1500f, 65f, 1000f, 4, 0);
+        SimShipState e1 = new SimShipState(
+                "sim_e_1", "HSS Eagle", "Eagle", 1,
+                HullSize.CRUISER, 0f, 1500f, 80f, 1000f, 2, 0);
+        simArena.ships.add(p1);
+        simArena.ships.add(a1);
+        simArena.ships.add(e1);
+
+        // 1. Verify BattlefieldFirepowerEvaluator.isSimulationEngine / isRealCombatEngine
+        boolean simDetected = BattlefieldFirepowerEvaluator.isSimulationEngine(simArena.engineProxy)
+                && !BattlefieldFirepowerEvaluator.isRealCombatEngine(simArena.engineProxy);
+
+        // 2. Verify DivisionAICombatPlugin never initializes battle groups, never attaches hooks, and instantiates 0 divisions
+        final int[] layeredHooksAdded = {0};
+        final com.fs.starfarer.api.combat.CombatUIAPI deployUiProxy =
+                (com.fs.starfarer.api.combat.CombatUIAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatUIAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatUIAPI.class},
+                        (p, m, a) -> {
+                            if ("isShowingDeploymentDialog".equals(m.getName())) return true;
+                            if ("isShowingCommandUI".equals(m.getName())) return true;
+                            if ("getCommandUIOpacity".equals(m.getName())) return 1.0f;
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+        com.fs.starfarer.api.combat.CombatEngineAPI simEngineWithDeployUi =
+                (com.fs.starfarer.api.combat.CombatEngineAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatEngineAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatEngineAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getCombatUI".equals(n)) return deployUiProxy;
+                            if ("addLayeredRenderingPlugin".equals(n)) {
+                                layeredHooksAdded[0]++;
+                                return null;
+                            }
+                            return m.invoke(simArena.engineProxy, a);
+                        });
+
+        divisionai.DivisionAICombatPlugin plugin = new divisionai.DivisionAICombatPlugin();
+        plugin.init(simEngineWithDeployUi);
+        plugin.advance(0.6f, java.util.Collections.emptyList());
+        plugin.renderInWorldCoords(null);
+        plugin.renderInUICoords(null);
+        plugin.processInputPreCoreControls(0.1f, java.util.Collections.emptyList());
+
+        boolean noBattleGroupsInitialized = (plugin.getPlayerGroup() == null);
+        boolean noPreRenderHooksAdded = (layeredHooksAdded[0] == 0);
+
+        // 3. Verify DivisionDeploymentDialogOrganizer and DivisionAutoFormer both no-op in Simulator
+        divisionai.DivisionDeploymentDialogOrganizer organizer = new divisionai.DivisionDeploymentDialogOrganizer();
+        organizer.advance(simEngineWithDeployUi);
+
+        BattleGroupState dummyPlayerGroup = new BattleGroupState(0, cmdr);
+        BattleGroupState dummyEnemyGroup = new BattleGroupState(1, cmdr);
+        List<com.fs.starfarer.api.combat.ShipAPI> side0Hulls = java.util.Arrays.asList(p1.proxy, a1.proxy);
+        List<com.fs.starfarer.api.combat.ShipAPI> side1Hulls = java.util.Collections.singletonList(e1.proxy);
+        List<DivisionState> pFormed = divisionai.DivisionAutoFormer.syncPlayerPermanentDivisionsOnly(
+                simEngineWithDeployUi, dummyPlayerGroup, side0Hulls);
+        List<DivisionState> eFormed = divisionai.DivisionAutoFormer.syncDivisionsForSide(
+                simEngineWithDeployUi, dummyEnemyGroup, side1Hulls);
+        boolean zeroDivisionsInstantiated = pFormed.isEmpty() && eFormed.isEmpty()
+                && dummyPlayerGroup.divisions.isEmpty() && dummyEnemyGroup.divisions.isEmpty();
+
+        // 4. Also verify Mission Simulator flag (isInMissionSim == true while isSimulation == false)
+        com.fs.starfarer.api.combat.CombatEngineAPI missionSimEngine =
+                (com.fs.starfarer.api.combat.CombatEngineAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.CombatEngineAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatEngineAPI.class},
+                        (p, m, a) -> {
+                            if ("isInMissionSim".equals(m.getName())) return true;
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == int.class) return 0;
+                            if (rt == float.class) return 0f;
+                            return null;
+                        });
+        boolean missionSimDetected = BattlefieldFirepowerEvaluator.isSimulationEngine(missionSimEngine)
+                && !BattlefieldFirepowerEvaluator.isRealCombatEngine(missionSimEngine);
+
+        check(simDetected && missionSimDetected && noBattleGroupsInitialized && noPreRenderHooksAdded && zeroDivisionsInstantiated,
+                "Refit Simulator Bypass: Simulator leaves Allies/Opponents UI & Warroom 100% default and instantiates 0 divisions",
+                String.format(Locale.ROOT,
+                        "simDetected=%b, missionSimDetected=%b, playerGroupNull=%b, hooksAdded=%d, zeroDivs=%b",
+                        simDetected, missionSimDetected, noBattleGroupsInitialized, layeredHooksAdded[0], zeroDivisionsInstantiated));
     }
 }
