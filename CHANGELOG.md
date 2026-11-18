@@ -4,6 +4,40 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.2.0] — 2026-11-18 (Starsector `0.98.5a-RC7` & `0.98a-RC8`)
+
+### Added
+- **Conduct of Battle System, Pre-Battle Fighting Style Strip & Naval Pennant Art (`FightingStyleModalDialog`, `FleetCommandPanel`, `FleetDoctrineDialog`):**
+  - Added a new fleet-level **Conduct of Battle** operational posture with custom cel-shaded naval pennant icons (monocolor shaded in-game ship and strike-craft sprites over silver tactical geometry):
+    - **Light Forces and Strike Warfare** (`Open Flotilla` / `Active Contest` / `Torpedo & Strike Runs` / `Skirmish & Withdraw`)
+    - **Linear Warfare** (`Battle Line` / `Light Forces Only` / `Surface Gunfire` / `Line Cohesion`)
+    - **Carrier-Centric Operations** (`Carrier Screen` / `Fleet Axis Only` / `Carrier Strike` / `Close Screen`)
+    - **Custom Conduct of Battle** via a 4-axis **Customize** modal (`Operational Anchor`, `Objective Capture Policy`, `Decisive Arm`, `Engagement Discipline`)
+  - Combined **Command Style**, **Conduct of Battle**, **Fleet Formation**, and **Multi-Division Setpiece** into a streamlined pre-battle Deployment Screen **Fighting Style** strip with **strict battle-scoped doctrine isolation** (pre-battle tweaks persist across reinforcement waves for that encounter and stay cleanly isolated from Allied AI fleets without overwriting your saved Campaign Fleet Doctrine).
+  - **Dynamic Hybrid NPC Conduct of Battle:** Enemy and Allied AI commanders dynamically adapt their Conduct of Battle to the hulls actually deployed on the field when their doctrinal battleline or carrier core is absent.
+- **6 New Specialist Division Archetypes (22 Active Division Types Total) & Faction Library Expansion:**
+  - Expanded division types from 16 to 22: **Battlecruiser Division**, **Battlecarrier Division** (with doctrinal faction-specific folding into Battle Line or Carrier Wing where appropriate), **Phase Cruiser Division**, **Strike Destroyer Division**, **Strike Frigate Division**, and **Missile Phase Division** (including dedicated Missile Autoforge phase-salvo and reload-retreat AI).
+  - Expanded `division_faction_library.json` and `division_faction_doctrines.json` to **38 faction groups**, adding native cultural nomenclature and doctrines for **Symbiotic Void Creatures** (`vwl` Void Wildlife, `svc` Symbiotic Void Creatures, `bugmaster` Bugmaster, `mmm` Mind Metamorphosis) plus **Asteroid Mining** compatibility (`neutral` / inert mining asteroid & non-combat entity exclusion).
+- **3-State Player Fighter Posture Cycle (`Z` Key) & Carrier Flight-Deck Upgrades:**
+  - When personally piloting a ship assigned to a division, pressing **`Z`** now cycles cleanly through **3 postures**: `Regroup`, `Engage`, and `Division Control` (delegating your wings to your Division Commander / Voidstrike Coordinator while retaining manual helm of your ship), with clean handoff on Autopilot (`U`) and Ship Transfer (`X`); unassigned player ships remain strictly 2-state vanilla.
+  - Preserved carrier **Zero-Flux Boost** while maneuvering out of combat and added native support for `0u`/DTA and ranged Support LPCs.
+- **Starsector `0.98.5a-RC7` & `0.98a-RC8` Dual Compatibility + Native `1280x720` & High-DPI UI Layout:**
+  - Verified single-JAR zero-dependency compatibility across **Starsector `0.98.5a-RC7` and `0.98a-RC8`** (Windows, macOS, and Linux), and added responsive `1280x720` and High-DPI layout scaling across `FleetDoctrineDialog`, `DivisionConfigureSubscreen`, `DivisionEditorDialog`, `DivisionFleetTabInjector`, and `DivisionDeploymentDialogOrganizer`.
+
+### Changed & Improved
+- **Time-Space-Force Convergence (TSFC), Lanchester Overmatch & Constituent-Ship Tactical AI:**
+  - Completed a domain-physics TSFC pass with generic Lanchester force-overmatch scoring (`localForceRatio`), orthogonal crossfire & seam targeting, reachability gating, and Human C2 target/line discipline.
+  - Added **Run the Gauntlet** bow-first breakout and **Reinforcement Corridor** protection with rally hysteresis so cut-off or reinforcing divisions punch back to the friendly main body instead of trickling in piecemeal; improved 4+ ship single-outlier retention, **Safety Overrides** standoff clamping, capital **death-blast clearance**, **Open Flotilla** spacing, CAP hysteresis, flux/vent discipline, and objective capture discipline.
+  - Overhauled Warroom (`Tab`) division and Voidstrike tactical envelopes to TSFC visual parity with fast `O(N)` concave scanline striping, and decomposed monolithic C2 entry points into focused phase helpers.
+
+### Performance & Fixed
+- **`O(1)` Mega-Modded Campaign Scalability, Zero-Stutter Combat & 100% Save-Removal Safety:**
+  - Overhauled campaign faction division indexing (`FactionFleetDoctrines`) to `O(1)` for mega-modded / Nexerelin sectors and enforced strict plain-JDK persistence (`HashMap`, `ArrayList`, primitives/Strings) verified before save so the mod remains 100% safe to remove mid-save at any time.
+  - Fixed the `~100x/sec` Pirate/low-organization battle stutter by recording intentionally independent hulls once per battle (`BattleGroupState.checkedUnassignedShipIds`), deduplicating `sourceFleet` lookups per wave (`specsBySourceFleet`), and replacing `DivisionNomenclature.migrateLegacyDivisionName`'s nested loop (`47,520` String allocations/call) with an `O(1)` `HashMap` lookup.
+  - Added `O(1)` ship/division sensor caches, eliminated per-frame combat list/string allocations, guarded vanilla's Warroom UI against NPE crashes when inspecting wiped-out fighter wings, fixed station C2 sync/haul-out edge cases, and cached live DP battle summaries across post-combat teardown.
+
+---
+
 ## [v1.1.2c] — 2026-11-13 (Starsector `0.98.5a-RC5` & `0.98a-RC8`)
 
 ### Compatibility, Changed & Added

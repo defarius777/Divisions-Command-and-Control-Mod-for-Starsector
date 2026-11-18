@@ -4,9 +4,9 @@
     "modThreadId": 36246,
     "modVersion": {
         "major": 1,
-        "minor": 1,
-        "patch": "2c"
+        "minor": 2,
+        "patch": 0
     },
-    "starsectorVersion": "0.98.5a-RC5",
+    "starsectorVersion": "0.98.5a-RC7",
     "directDownloadURL": "https://github.com/defarius777/Divisions-Command-and-Control-Mod-for-Starsector/releases/latest/download/DivisionAI.zip"
 }
