@@ -68,26 +68,65 @@ public class PermanentDivisionManager {
     public static final int MAX_OPENING_DURATION_SEC = 60;
 
     public static int getEffectiveMaxStationSpacingUnits() {
-        float wScale = CombatPhysicsProfile.getGlobalWeaponRangeScale();
-        if (wScale <= 1.15f) return MAX_STATION_SPACING_UNITS;
-        int scaled = Math.round((MAX_STATION_SPACING_UNITS * (float) Math.sqrt(wScale)) / 50f) * 50;
-        return Math.max(MAX_STATION_SPACING_UNITS, Math.min(3600, scaled));
+        float sMult = CombatPhysicsProfile.getGlobalStationSpacingMult();
+        if (sMult <= 1.05f) return MAX_STATION_SPACING_UNITS;
+        int scaled = Math.round((MAX_STATION_SPACING_UNITS * sMult) / 50f) * 50;
+        return Math.max(MAX_STATION_SPACING_UNITS, Math.min(4800, scaled));
     }
 
     public static int getEffectiveMaxDivisionIntervalUnits() {
-        float wScale = CombatPhysicsProfile.getGlobalWeaponRangeScale();
-        if (wScale <= 1.15f) return MAX_DIVISION_INTERVAL_UNITS;
-        int scaled = Math.round((MAX_DIVISION_INTERVAL_UNITS * (0.45f + 0.55f * wScale)) / 100f) * 100;
-        return Math.max(MAX_DIVISION_INTERVAL_UNITS, Math.min(6000, scaled));
+        float iMult = CombatPhysicsProfile.getGlobalDivisionIntervalMult();
+        if (iMult <= 1.05f) return MAX_DIVISION_INTERVAL_UNITS;
+        int scaled = Math.round((MAX_DIVISION_INTERVAL_UNITS * iMult) / 100f) * 100;
+        return Math.max(MAX_DIVISION_INTERVAL_UNITS, Math.min(9600, scaled));
     }
 
     public static int getEffectiveMaxStandoffRangeUnits() {
         float scale = Math.max(
                 CombatPhysicsProfile.getGlobalWeaponRangeScale(),
-                CombatPhysicsProfile.getGlobalFighterRangeScale() * 0.65f);
+                Math.max(CombatPhysicsProfile.getGlobalMissileRangeScale(),
+                        CombatPhysicsProfile.getGlobalFighterRangeScale() * 0.85f));
         if (scale <= 1.15f) return MAX_STANDOFF_RANGE_UNITS;
         int scaled = Math.round((MAX_STANDOFF_RANGE_UNITS * scale) / 100f) * 100;
-        return Math.max(MAX_STANDOFF_RANGE_UNITS, Math.min(9600, scaled));
+        return Math.max(MAX_STANDOFF_RANGE_UNITS, Math.min(16000, scaled));
+    }
+
+    public static int scaleVanillaStationSpacing(int vanillaUnits) {
+        float mult = CombatPhysicsProfile.getGlobalStationSpacingMult();
+        if (mult <= 1.01f) return vanillaUnits;
+        int scaled = Math.round((vanillaUnits * mult) / 25f) * 25;
+        return Math.max(MIN_STATION_SPACING_UNITS, Math.min(getEffectiveMaxStationSpacingUnits(), scaled));
+    }
+
+    public static int scaleVanillaDivisionInterval(int vanillaUnits) {
+        float mult = CombatPhysicsProfile.getGlobalDivisionIntervalMult();
+        if (mult <= 1.01f) return vanillaUnits;
+        int scaled = Math.round((vanillaUnits * mult) / 50f) * 50;
+        return Math.max(MIN_DIVISION_INTERVAL_UNITS, Math.min(getEffectiveMaxDivisionIntervalUnits(), scaled));
+    }
+
+    public static int scaleVanillaStandoffRange(DoctrineDivisionType dt, int vanillaUnits) {
+        boolean isCarrier = dt != null && dt.isCarrierType();
+        boolean isMissile = dt != null && dt.primaryArchetype != null && dt.primaryArchetype.isMissileArchetype();
+        float mult = CombatPhysicsProfile.getGlobalStandoffMult(isCarrier, isMissile);
+        if (mult <= 1.01f) return vanillaUnits;
+        int scaled = Math.round((vanillaUnits * mult) / 50f) * 50;
+        return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(getEffectiveMaxStandoffRangeUnits(), scaled));
+    }
+
+    public static int getEffectiveDefaultStationSpacingUnits(DoctrineDivisionType dt) {
+        if (dt == null) return scaleVanillaStationSpacing(450);
+        return scaleVanillaStationSpacing(dt.defaultStationSpacingUnits);
+    }
+
+    public static int getEffectiveDefaultDivisionIntervalUnits(DoctrineDivisionType dt) {
+        if (dt == null) return scaleVanillaDivisionInterval(950);
+        return scaleVanillaDivisionInterval(dt.defaultDivisionIntervalUnits);
+    }
+
+    public static int getEffectiveDefaultStandoffRangeUnits(DoctrineDivisionType dt) {
+        if (dt == null) return scaleVanillaStandoffRange(null, 850);
+        return scaleVanillaStandoffRange(dt, dt.defaultStandoffRangeUnits);
     }
 
     /**
@@ -106,23 +145,41 @@ public class PermanentDivisionManager {
         float wScale = CombatPhysicsProfile.getWeaponRangeScale(null);
         float fScale = CombatPhysicsProfile.getFighterRangeScale(null);
         boolean carrierArch = div.archetype != null && div.archetype.isCarrierArchetype();
+        boolean missileArch = div.archetype != null && div.archetype.isMissileArchetype();
         boolean scaledEnv = (wScale > 1.25f)
                 || (carrierArch && fScale > 1.25f)
                 || (div.avgEngageRange > 1650f);
         if (!scaledEnv) {
             return configuredStandoff; // Exact 1:1 vanilla identity
         }
-        float baseDefault = (dt != null && dt.defaultStandoffRangeUnits > 0)
+        float vanillaDefault = (dt != null && dt.defaultStandoffRangeUnits > 0)
                 ? dt.defaultStandoffRangeUnits
                 : 950f;
-        float postureMult = Math.max(0.55f, Math.min(1.45f, configuredStandoff / baseDefault));
+        float effDefault = getEffectiveDefaultStandoffRangeUnits(dt);
+        // If configuredStandoff was already scaled globally (e.g. Better Combat FleetDoctrineConfig), measure postureMult
+        // relative to effDefault so we never double-multiply; if configuredStandoff is still in 1.0x vanilla range
+        // (e.g. standalone SimArena battle without global SettingsAPI specs), measure relative to vanillaDefault.
+        float refDefault = (CombatPhysicsProfile.isGlobalScaledEnvironment() && configuredStandoff > vanillaDefault * 1.45f)
+                ? Math.max(300f, effDefault)
+                : vanillaDefault;
+        float postureMult = Math.max(0.55f, Math.min(1.45f, configuredStandoff / refDefault));
         float liveRangeScaleCap = (div.avgEngageRange > 1650f) ? (div.avgEngageRange * 1.15f) : 0f;
-        float maxCap = Math.min(12000f, Math.max(
+        float maxCap = Math.min(16000f, Math.max(
                 Math.max(getEffectiveMaxStandoffRangeUnits(), liveRangeScaleCap),
-                Math.round(MAX_STANDOFF_RANGE_UNITS * Math.max(wScale, carrierArch ? fScale * 0.70f : 1f))));
+                Math.round(MAX_STANDOFF_RANGE_UNITS * Math.max(wScale, carrierArch ? fScale * 0.85f : 1f))));
         if (carrierArch) {
-            float effCarrierRef = Math.max(div.avgEngageRange, 1650f * Math.max(wScale, fScale * 0.65f));
+            float effCarrierRef = Math.max(
+                    Math.max(div.avgEngageRange, CombatPhysicsProfile.isGlobalScaledEnvironment() ? effDefault : 0f),
+                    vanillaDefault * Math.max(wScale * 1.10f, fScale * 0.80f));
             return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, effCarrierRef * postureMult));
+        }
+        if (missileArch) {
+            float mScale = CombatPhysicsProfile.getMissileRangeScale(null);
+            float missileTarget = vanillaDefault * Math.max(wScale, mScale) * postureMult;
+            if (div.avgEngageRange > 350f) {
+                missileTarget = Math.max(missileTarget, div.avgEngageRange * 0.92f * postureMult);
+            }
+            return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, Math.max(configuredStandoff, missileTarget)));
         }
         if (div.avgEngageRange > 350f) {
             // Preserve hull-role standoff fraction relative to live weapon reach (never exceeding 94% of own gun range!)
@@ -130,9 +187,13 @@ public class PermanentDivisionManager {
                     ? 0.84f
                     : 0.88f;
             float liveTarget = Math.min(div.avgEngageRange * 0.94f, div.avgEngageRange * roleFrac * postureMult);
-            return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, Math.max(configuredStandoff, liveTarget)));
+            float floorTarget = Math.min(div.avgEngageRange * 0.94f, configuredStandoff);
+            return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, Math.max(floorTarget, liveTarget)));
         }
-        return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, configuredStandoff * wScale));
+        float fallbackScaled = (CombatPhysicsProfile.isGlobalScaledEnvironment() && configuredStandoff > vanillaDefault * 1.45f)
+                ? configuredStandoff
+                : (configuredStandoff * wScale);
+        return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, fallbackScaled));
     }
 
     /**
@@ -640,6 +701,49 @@ public class PermanentDivisionManager {
             if (id == null) return fallback;
             try {
                 return DivisionRammingTargetScope.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Doctrinal proportion of non-bomber squadrons held back on Adaptive Umbrella Combat Space Patrol (CSP)
+     * while the division's remaining strike package executes offensive Voidstrike / Search & Destroy / Recon missions.
+     * Never holds pure Bomber wings (`WingRole.BOMBER` / `spec.isBomber()`) on CAP.
+     */
+    public enum StrikeCraftCapReserve {
+        NONE(
+                "None",
+                "None",
+                "Commit all non-support wings to strike missions."),
+        LIGHT_25(
+                "25% Reserve",
+                "25%",
+                "Hold 25% of non-bomber wings on CAP umbrella."),
+        BALANCED_50(
+                "50% Reserve",
+                "50%",
+                "Hold 50% of non-bomber wings on CAP umbrella."),
+        ALL_INTERCEPTORS(
+                "Interceptors",
+                "Int. Only",
+                "Hold all Interceptor wings on CAP; never Bombers.");
+
+        public final String displayName;
+        public final String shortName;
+        public final String summary;
+
+        StrikeCraftCapReserve(String displayName, String shortName, String summary) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.summary = summary;
+        }
+
+        public static StrikeCraftCapReserve fromId(String id, StrikeCraftCapReserve fallback) {
+            if (id == null) return fallback;
+            try {
+                return StrikeCraftCapReserve.valueOf(id.trim().toUpperCase());
             } catch (IllegalArgumentException e) {
                 return fallback;
             }
@@ -1167,6 +1271,10 @@ public class PermanentDivisionManager {
                 "Armed Recon",
                 "Armed Recon",
                 "Squadrons scout ahead and strike targets of opportunity."),
+        SEARCH_AND_DESTROY(
+                "Search & Destroy",
+                "S&D Strike",
+                "Send max strike package to enemy center to find and destroy."),
         SPACE_SUPERIORITY(
                 "Space Superiority",
                 "Space Sup.",
@@ -2141,6 +2249,7 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, DivisionMissionType> mainMissionByType = new LinkedHashMap<>();
         private Map<DoctrineDivisionType, StrikeCraftMissionType> strikeCraftOpeningMissionByType = new LinkedHashMap<>();
         private Map<DoctrineDivisionType, StrikeCraftMissionType> strikeCraftMainMissionByType = new LinkedHashMap<>();
+        private Map<DoctrineDivisionType, StrikeCraftCapReserve> strikeCraftCapReserveByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, LineStation> lineStationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionFormation> formationByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, VoidstrikeTargetingBias> voidstrikeTargetingBiasByType = new LinkedHashMap<>();
@@ -2212,14 +2321,15 @@ public class PermanentDivisionManager {
                 maxByCat.put(cat, cat.defaultMax);
             }
             for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
-                stationSpacingByType.put(dt, dt.defaultStationSpacingUnits);
-                divisionIntervalByType.put(dt, dt.defaultDivisionIntervalUnits);
-                standoffRangeByType.put(dt, dt.defaultStandoffRangeUnits);
+                stationSpacingByType.put(dt, getEffectiveDefaultStationSpacingUnits(dt));
+                divisionIntervalByType.put(dt, getEffectiveDefaultDivisionIntervalUnits(dt));
+                standoffRangeByType.put(dt, getEffectiveDefaultStandoffRangeUnits(dt));
                 stationKeepingByType.put(dt, dt.defaultStationKeepingMult);
                 openingMissionByType.put(dt, dt.defaultOpeningMission);
                 mainMissionByType.put(dt, dt.defaultMainMission);
                 strikeCraftOpeningMissionByType.put(dt, defaultStrikeCraftOpeningMissionFor(dt));
                 strikeCraftMainMissionByType.put(dt, defaultStrikeCraftMainMissionFor(dt));
+                strikeCraftCapReserveByType.put(dt, defaultStrikeCraftCapReserveFor(dt));
                 lineStationByType.put(dt, dt.defaultLineStation);
                 formationByType.put(dt, dt.defaultFormation);
                 voidstrikeTargetingBiasByType.put(dt, defaultVoidstrikeTargetingBiasFor(dt));
@@ -2637,6 +2747,27 @@ public class PermanentDivisionManager {
             return 4;
         }
 
+        public static StrikeCraftCapReserve defaultStrikeCraftCapReserveFor(DoctrineDivisionType dt) {
+            return StrikeCraftCapReserve.NONE;
+        }
+
+        public StrikeCraftCapReserve getStrikeCraftCapReserve(DoctrineDivisionType dt) {
+            if (dt == null) return StrikeCraftCapReserve.NONE;
+            if (strikeCraftCapReserveByType == null) {
+                strikeCraftCapReserveByType = new LinkedHashMap<>();
+            }
+            StrikeCraftCapReserve v = strikeCraftCapReserveByType.get(dt);
+            return v != null ? v : defaultStrikeCraftCapReserveFor(dt);
+        }
+
+        public void setStrikeCraftCapReserve(DoctrineDivisionType dt, StrikeCraftCapReserve reserve) {
+            if (dt == null || reserve == null) return;
+            if (strikeCraftCapReserveByType == null) {
+                strikeCraftCapReserveByType = new LinkedHashMap<>();
+            }
+            strikeCraftCapReserveByType.put(dt, reserve);
+        }
+
         public VoidstrikeTargetingBias getVoidstrikeTargetingBias(DoctrineDivisionType dt) {
             if (dt == null) return VoidstrikeTargetingBias.FREE_SELECTION;
             VoidstrikeTargetingBias v = voidstrikeTargetingBiasByType.get(dt);
@@ -2858,9 +2989,9 @@ public class PermanentDivisionManager {
         }
 
         public int getStationSpacing(DoctrineDivisionType dt) {
-            if (dt == null) return 450;
+            if (dt == null) return getEffectiveDefaultStationSpacingUnits(null);
             Integer v = stationSpacingByType.get(dt);
-            int raw = v != null ? v : dt.defaultStationSpacingUnits;
+            int raw = v != null ? v : getEffectiveDefaultStationSpacingUnits(dt);
             return Math.max(MIN_STATION_SPACING_UNITS, Math.min(getEffectiveMaxStationSpacingUnits(), raw));
         }
 
@@ -2871,9 +3002,9 @@ public class PermanentDivisionManager {
         }
 
         public int getDivisionInterval(DoctrineDivisionType dt) {
-            if (dt == null) return 950;
+            if (dt == null) return getEffectiveDefaultDivisionIntervalUnits(null);
             Integer v = divisionIntervalByType.get(dt);
-            int raw = v != null ? v : dt.defaultDivisionIntervalUnits;
+            int raw = v != null ? v : getEffectiveDefaultDivisionIntervalUnits(dt);
             return Math.max(MIN_DIVISION_INTERVAL_UNITS, Math.min(getEffectiveMaxDivisionIntervalUnits(), raw));
         }
 
@@ -2884,9 +3015,9 @@ public class PermanentDivisionManager {
         }
 
         public int getStandoffRange(DoctrineDivisionType dt) {
-            if (dt == null) return 850;
+            if (dt == null) return getEffectiveDefaultStandoffRangeUnits(null);
             Integer v = standoffRangeByType.get(dt);
-            int raw = v != null ? v : dt.defaultStandoffRangeUnits;
+            int raw = v != null ? v : getEffectiveDefaultStandoffRangeUnits(dt);
             return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(getEffectiveMaxStandoffRangeUnits(), raw));
         }
 
@@ -3146,13 +3277,25 @@ public class PermanentDivisionManager {
                 Object psObj = getWithLegacyKey(map, "pref_space_", dt.name(), dt.legacyName());
                 Object fmObj = getWithLegacyKey(map, "formation_", dt.name(), dt.legacyName());
                 if (spObj instanceof Number) {
-                    cfg.setStationSpacing(dt, ((Number) spObj).intValue());
+                    int spVal = ((Number) spObj).intValue();
+                    if (CombatPhysicsProfile.isGlobalScaledEnvironment() && spVal == dt.defaultStationSpacingUnits) {
+                        spVal = getEffectiveDefaultStationSpacingUnits(dt);
+                    }
+                    cfg.setStationSpacing(dt, spVal);
                 }
                 if (ispObj instanceof Number) {
-                    cfg.setDivisionInterval(dt, ((Number) ispObj).intValue());
+                    int ispVal = ((Number) ispObj).intValue();
+                    if (CombatPhysicsProfile.isGlobalScaledEnvironment() && ispVal == dt.defaultDivisionIntervalUnits) {
+                        ispVal = getEffectiveDefaultDivisionIntervalUnits(dt);
+                    }
+                    cfg.setDivisionInterval(dt, ispVal);
                 }
                 if (stObj instanceof Number) {
-                    cfg.setStandoffRange(dt, ((Number) stObj).intValue());
+                    int stVal = ((Number) stObj).intValue();
+                    if (CombatPhysicsProfile.isGlobalScaledEnvironment() && stVal == dt.defaultStandoffRangeUnits) {
+                        stVal = getEffectiveDefaultStandoffRangeUnits(dt);
+                    }
+                    cfg.setStandoffRange(dt, stVal);
                 }
                 if (lsObj instanceof Number) {
                     cfg.setStationKeepingMult(dt, ((Number) lsObj).floatValue());
@@ -3168,6 +3311,11 @@ public class PermanentDivisionManager {
                 }
                 if (fmObj instanceof String) {
                     cfg.setFormation(dt, DivisionFormation.fromId((String) fmObj, dt.defaultFormation));
+                }
+                Object scCapResObj = map.get("sc_cap_res_" + dt.name());
+                if (scCapResObj instanceof String) {
+                    cfg.setStrikeCraftCapReserve(dt, StrikeCraftCapReserve.fromId(
+                            (String) scCapResObj, FleetDoctrineConfig.defaultStrikeCraftCapReserveFor(dt)));
                 }
                 Object vsBiasObj = map.get("vs_bias_" + dt.name());
                 Object vsCvFocusObj = map.get("vs_cv_focus_" + dt.name());
@@ -3316,6 +3464,7 @@ public class PermanentDivisionManager {
             serialized.put("main_mission_" + dt.name(), cfg.getMainMission(dt).name());
             serialized.put("pref_space_" + dt.name(), cfg.getLineStation(dt).name());
             serialized.put("formation_" + dt.name(), cfg.getFormation(dt).name());
+            serialized.put("sc_cap_res_" + dt.name(), cfg.getStrikeCraftCapReserve(dt).name());
             serialized.put("vs_bias_" + dt.name(), cfg.getVoidstrikeTargetingBias(dt).name());
             serialized.put("vs_cv_focus_" + dt.name(), Boolean.valueOf(cfg.isVoidstrikeFocusCarriers(dt)));
             serialized.put("vs_obs_" + dt.name(), cfg.getVoidstrikeObservance(dt).name());
@@ -3460,6 +3609,15 @@ public class PermanentDivisionManager {
         if (dt == null || stickiness == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setMovementStickiness(dt, stickiness);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeStrikeCraftCapReserve(
+            DoctrineDivisionType dt,
+            StrikeCraftCapReserve reserve) {
+        if (dt == null || reserve == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setStrikeCraftCapReserve(dt, reserve);
         saveFleetDoctrine(cfg);
     }
 
@@ -3784,6 +3942,7 @@ public class PermanentDivisionManager {
         public DivisionMissionType customMainMission = null;
         public StrikeCraftMissionType customStrikeCraftOpeningMission = null;
         public StrikeCraftMissionType customStrikeCraftMainMission = null;
+        public StrikeCraftCapReserve customStrikeCraftCapReserve = null;
         public LineStation customLineStation = null;
         public DivisionFormation customFormation = null;
         public DivisionMovementStickiness customMovementStickiness = null;
@@ -3871,6 +4030,16 @@ public class PermanentDivisionManager {
         }
         String n = trimmed.toLowerCase();
         return n + "|" + base.toLowerCase();
+    }
+
+    public static StrikeCraftCapReserve resolveEffectiveStrikeCraftCapReserve(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customStrikeCraftCapReserve != null) {
+            return spec.customStrikeCraftCapReserve;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getStrikeCraftCapReserve(dt) : FleetDoctrineConfig.defaultStrikeCraftCapReserveFor(dt);
     }
 
     public static VoidstrikeTargetingBias resolveEffectiveVoidstrikeTargetingBias(
@@ -4134,7 +4303,7 @@ public class PermanentDivisionManager {
             return Math.max(MIN_STATION_SPACING_UNITS, Math.min(getEffectiveMaxStationSpacingUnits(), spec.customStationSpacing));
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
-        return cfg != null ? cfg.getStationSpacing(dt) : dt.defaultStationSpacingUnits;
+        return cfg != null ? cfg.getStationSpacing(dt) : getEffectiveDefaultStationSpacingUnits(dt);
     }
 
     public static int resolveEffectiveDivisionInterval(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
@@ -4142,7 +4311,7 @@ public class PermanentDivisionManager {
             return Math.max(MIN_DIVISION_INTERVAL_UNITS, Math.min(getEffectiveMaxDivisionIntervalUnits(), spec.customDivisionInterval));
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
-        return cfg != null ? cfg.getDivisionInterval(dt) : dt.defaultDivisionIntervalUnits;
+        return cfg != null ? cfg.getDivisionInterval(dt) : getEffectiveDefaultDivisionIntervalUnits(dt);
     }
 
     public static int resolveEffectiveStandoffRange(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
@@ -4150,7 +4319,7 @@ public class PermanentDivisionManager {
             return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(getEffectiveMaxStandoffRangeUnits(), spec.customStandoffRange));
         }
         DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
-        return cfg != null ? cfg.getStandoffRange(dt) : dt.defaultStandoffRangeUnits;
+        return cfg != null ? cfg.getStandoffRange(dt) : getEffectiveDefaultStandoffRangeUnits(dt);
     }
 
     public static DivisionMissionType resolveEffectiveOpeningMission(PermanentDivisionSpec spec, FleetDoctrineConfig cfg) {
@@ -4290,7 +4459,7 @@ public class PermanentDivisionManager {
                     float effWingRange = m.getStats().getFighterWingRange().computeEffective(wingSpec.getRange());
                     if (effWingRange > maxRange) {
                         int effMaxStandoff = getEffectiveMaxStandoffRangeUnits();
-                        float wingCap = 1800f * Math.max(1f, CombatPhysicsProfile.getGlobalFighterRangeScale() * 0.65f);
+                        float wingCap = 1800f * Math.max(1f, CombatPhysicsProfile.getGlobalFighterRangeScale() * 0.80f);
                         maxRange = Math.min(effMaxStandoff, Math.max(maxRange, Math.min(wingCap, effWingRange)));
                     }
                 }
@@ -4385,6 +4554,105 @@ public class PermanentDivisionManager {
         if (migrated > 0) {
             LOG.info("[DivisionAI] Recalculated auto Line Standoff from gun range (missiles excluded) for " + migrated + " divisions.");
         }
+    }
+
+    private static final String PERSISTENT_PHYSICS_SCALE_STAMP_KEY = "divisionai_physics_scale_stamp_v1";
+
+    /**
+     * Synchronizes persistent player {@link FleetDoctrineConfig} defaults and auto-calculated division standoffs
+     * whenever the active combat-physics scale changes (e.g. adding/updating/removing Better Combat on an existing save).
+     */
+    public static void syncDoctrineAndDivisionDefaultsWithPhysicsScale() {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || sector.getPersistentData() == null) return;
+        Map<String, Object> pdata = sector.getPersistentData();
+        float currGunScale = CombatPhysicsProfile.getGlobalWeaponRangeScale();
+        float currSpacingMult = CombatPhysicsProfile.getGlobalStationSpacingMult();
+        float currIntervalMult = CombatPhysicsProfile.getGlobalDivisionIntervalMult();
+
+        float prevGunScale = 1.0f;
+        Object prevObj = pdata.get(PERSISTENT_PHYSICS_SCALE_STAMP_KEY);
+        if (prevObj instanceof Number) {
+            prevGunScale = Math.max(1.0f, ((Number) prevObj).floatValue());
+        }
+        boolean scaleChanged = (prevObj == null && CombatPhysicsProfile.isGlobalScaledEnvironment())
+                || (prevObj != null && Math.abs(currGunScale - prevGunScale) > 0.15f);
+        pdata.put(PERSISTENT_PHYSICS_SCALE_STAMP_KEY, currGunScale);
+        if (!scaleChanged) {
+            return;
+        }
+
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        if (cfg != null) {
+            float ratio = currGunScale / Math.max(1.0f, prevGunScale);
+            for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
+                int newDefSp = getEffectiveDefaultStationSpacingUnits(dt);
+                int newDefInt = getEffectiveDefaultDivisionIntervalUnits(dt);
+                int newDefSt = getEffectiveDefaultStandoffRangeUnits(dt);
+
+                int curSp = cfg.getStationSpacing(dt);
+                if (curSp == dt.defaultStationSpacingUnits
+                        || (currSpacingMult <= 1.02f && curSp > MAX_STATION_SPACING_UNITS)
+                        || Math.abs(curSp - Math.round((newDefSp / Math.max(1.0f, ratio)) / 25f) * 25) <= 50) {
+                    cfg.setStationSpacing(dt, newDefSp);
+                } else {
+                    cfg.setStationSpacing(dt, Math.round((curSp * ratio) / 25f) * 25);
+                }
+
+                int curInt = cfg.getDivisionInterval(dt);
+                if (curInt == dt.defaultDivisionIntervalUnits
+                        || (currIntervalMult <= 1.02f && curInt > MAX_DIVISION_INTERVAL_UNITS)
+                        || Math.abs(curInt - Math.round((newDefInt / Math.max(1.0f, ratio)) / 50f) * 50) <= 100) {
+                    cfg.setDivisionInterval(dt, newDefInt);
+                } else {
+                    cfg.setDivisionInterval(dt, Math.round((curInt * ratio) / 50f) * 50);
+                }
+
+                int curSt = cfg.getStandoffRange(dt);
+                if (curSt == dt.defaultStandoffRangeUnits
+                        || (currGunScale <= 1.05f && curSt > MAX_STANDOFF_RANGE_UNITS)
+                        || Math.abs(curSt - Math.round((newDefSt / Math.max(1.0f, ratio)) / 50f) * 50) <= 100) {
+                    cfg.setStandoffRange(dt, newDefSt);
+                } else {
+                    cfg.setStandoffRange(dt, Math.round((curSt * ratio) / 50f) * 50);
+                }
+            }
+            saveFleetDoctrine(cfg);
+        }
+
+        CampaignFleetAPI fleet = sector.getPlayerFleet();
+        if (fleet != null) {
+            List<PermanentDivisionSpec> specs = ensureInitializedForPlayerFleet();
+            boolean specsUpdated = false;
+            for (PermanentDivisionSpec spec : specs) {
+                if (spec == null) continue;
+                DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec.archetype);
+                if (spec.customStationSpacing != null && spec.customStationSpacing == dt.defaultStationSpacingUnits
+                        && CombatPhysicsProfile.isGlobalScaledEnvironment()) {
+                    spec.customStationSpacing = getEffectiveDefaultStationSpacingUnits(dt);
+                    specsUpdated = true;
+                }
+                if (spec.customDivisionInterval != null && spec.customDivisionInterval == dt.defaultDivisionIntervalUnits
+                        && CombatPhysicsProfile.isGlobalScaledEnvironment()) {
+                    spec.customDivisionInterval = getEffectiveDefaultDivisionIntervalUnits(dt);
+                    specsUpdated = true;
+                }
+                if (spec.customStandoffRange != null) {
+                    int liveGun = computeDivisionLongestGunRange(spec, fleet);
+                    if (liveGun > 0 && ((currGunScale > 1.25f && spec.customStandoffRange < liveGun * 0.65f)
+                            || (currGunScale <= 1.05f && spec.customStandoffRange > MAX_STANDOFF_RANGE_UNITS))) {
+                        spec.customStandoffRange = liveGun;
+                        specsUpdated = true;
+                    }
+                }
+            }
+            if (specsUpdated) {
+                saveSpecsToPersistentData(pdata, specs);
+            }
+        }
+        LOG.info(String.format(java.util.Locale.ROOT,
+                "[DivisionAI] Synchronized division & doctrine defaults to combat physics scale (gun=%.2fx, spacing=%.2fx, interval=%.2fx).",
+                currGunScale, currSpacingMult, currIntervalMult));
     }
 
     /**
@@ -4575,6 +4843,17 @@ public class PermanentDivisionManager {
                         spec.customMainMission = DivisionMissionType.CARRIER_STANDOFF;
                     }
                 }
+            }
+        });
+    }
+
+    public static void updateIndividualDivisionStrikeCraftCapReserve(
+            String divisionId,
+            final StrikeCraftCapReserve reserve) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                spec.customStrikeCraftCapReserve = reserve;
             }
         });
     }
@@ -6097,6 +6376,9 @@ public class PermanentDivisionManager {
         div.strikeCraftMainMission = (optionalSpec != null)
                 ? resolveEffectiveStrikeCraftMainMission(optionalSpec, cfg)
                 : cfg.getStrikeCraftMainMission(dt);
+        div.strikeCraftCapReserve = (optionalSpec != null)
+                ? resolveEffectiveStrikeCraftCapReserve(optionalSpec, cfg)
+                : cfg.getStrikeCraftCapReserve(dt);
         div.lineStation = (optionalSpec != null)
                 ? resolveEffectiveLineStation(optionalSpec, cfg)
                 : cfg.getLineStation(dt);
@@ -7082,6 +7364,10 @@ public class PermanentDivisionManager {
         Object cPrefSpace = map.get("customPreferredSpace");
         Object cForm = map.get("customFormation");
         Object cSticky = map.get("customMovementStickiness");
+        Object cScCapRes = map.get("customStrikeCraftCapReserve");
+        if (cScCapRes instanceof String) {
+            spec.customStrikeCraftCapReserve = StrikeCraftCapReserve.fromId((String) cScCapRes, null);
+        }
         Object cVsBias = map.get("customVoidstrikeTargetingBias");
         Object cVsCvFocus = map.get("customVoidstrikeFocusCarriers");
         if (cVsBias instanceof String) {
@@ -7235,6 +7521,9 @@ public class PermanentDivisionManager {
         }
         if (spec.customStrikeCraftMainMission != null) {
             map.put("customStrikeCraftMainMission", spec.customStrikeCraftMainMission.name());
+        }
+        if (spec.customStrikeCraftCapReserve != null) {
+            map.put("customStrikeCraftCapReserve", spec.customStrikeCraftCapReserve.name());
         }
         if (spec.customLineStation != null) map.put("customPreferredSpace", spec.customLineStation.name());
         if (spec.customFormation != null) map.put("customFormation", spec.customFormation.name());

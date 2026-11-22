@@ -739,20 +739,21 @@ public final class ShipSystemCoordinator {
 
         // Whole-division synchronized ram charges are triggered when the division is configured/ordered for Lance Charge
         // (SYNCHRONIZED_LANCE or LANCE_CHARGE setpiece, or explicit OTC strike order) and the localized space is conducive.
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         boolean wantRamCharge = hasRamPack
                 && div.rammingMode != DivisionRammingMode.OFF
                 && anvilSupportReady
                 && div.avgFluxLevel < 0.62f
                 && distToTarget >= 280f
-                && distToTarget <= 2150f
+                && distToTarget <= 2150f * wScale
                 && (div.readySkillMemberRatio >= 0.50f || div.hasActiveLinearSkillBurn)
                 && (explicitLanceRamOrder || (otcStrikeOrder && alive.size() == 1));
 
         float desiredStopDist = Math.max(580f, div.standoffRange * 0.92f);
         boolean wantLinearGapClose = (hasLinearThrustPack || (hasRamPack && !wantRamCharge))
                 && div.avgFluxLevel < 0.58f
-                && distToTarget >= desiredStopDist + 420f
-                && distToTarget <= 2650f
+                && distToTarget >= desiredStopDist + 420f * wScale
+                && distToTarget <= Math.max(desiredStopDist + 1400f * wScale, 2650f * wScale)
                 && (div.readySkillMemberRatio >= 0.50f || div.hasActiveLinearSkillBurn)
                 && (positiveControlOtc
                 || otcStrikeOrder
@@ -762,7 +763,7 @@ public final class ShipSystemCoordinator {
                 || div.currentIntent == DivisionIntentType.WORK_FLANK
                 || div.currentIntent == DivisionIntentType.REINFORCE_DIVISION);
 
-        float effGunRange = Math.min(1250f, Math.max(700f, div.avgEngageRange * 0.92f));
+        float effGunRange = Math.min(1250f * wScale, Math.max(700f, div.avgEngageRange * 0.92f));
         boolean wantOffensiveAmpVolley = hasOffensiveAmpPack
                 && div.avgFluxLevel < 0.55f
                 && distToTarget <= effGunRange
@@ -963,12 +964,15 @@ public final class ShipSystemCoordinator {
             boolean stage2SyncCharge = syncSkills && div.synchronizedSkillManeuverActive && div.synchronizedSkillStage == 2;
             boolean stage1Marshaling = syncSkills && ((div.synchronizedSkillManeuverActive && div.synchronizedSkillStage == 1)
                     || (!div.synchronizedSkillManeuverActive && div.activeSetpieceAttack != DivisionSetpieceAttack.NONE && div.setpieceStage == 1));
+            ShipAPI leadRef = (div.flagship != null) ? div.flagship : (!alive.isEmpty() ? alive.get(0) : null);
+            float dynObjMarchHorizon = Math.max(1350f,
+                    (leadRef != null ? CombatPhysicsProfile.computeShipMaxStoppingDistance(leadRef) * 1.45f + 420f : 1350f));
             boolean directObjectiveMarch = div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
                     && div.targetObjective != null
                     && div.targetObjective.getLocation() != null
                     && div.targetObjective.getOwner() != div.side
                     && (div.underDirectObjectiveOrder
-                    || DivisionCommanderAI.distance(div.centroid, div.targetObjective.getLocation()) <= 1350f);
+                    || DivisionCommanderAI.distance(div.centroid, div.targetObjective.getLocation()) <= dynObjMarchHorizon);
             if (directObjectiveMarch
                     && div.underDirectObjectiveOrder
                     && DivisionCommanderAI.distance(div.centroid, div.targetObjective.getLocation()) > 850f) {
@@ -2123,70 +2127,7 @@ public final class ShipSystemCoordinator {
             Vector2f helmGoal,
             float distToGoal,
             float distToObj) {
-        if (ship == null || helmGoal == null || ship.getLocation() == null) return;
-        if (ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting()) return;
-        Vector2f sLoc = ship.getLocation();
-        Vector2f vel = ship.getVelocity();
-        float vx = (vel != null) ? vel.x : 0f;
-        float vy = (vel != null) ? vel.y : 0f;
-        float spd = (float) Math.sqrt(vx * vx + vy * vy);
-
-        // Once inside the Control Point capture circle (<= 340u from objective center and <= 200u from slot),
-        // brake if carrying excess speed so the ship settles inside the capture ring instead of coasting through.
-        if (distToObj <= 340f && distToGoal <= 200f) {
-            if (spd > 32f) {
-                ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
-                ship.giveCommand(ShipCommand.DECELERATE, null, 0);
-            }
-            return;
-        }
-
-        // Between 340u and 420u of the objective center, allow weapons to bear on contesting enemies unless the ship
-        // is drifting outward or still > 240u from its capture slot.
-        if (distToObj <= 420f && distToGoal <= 240f) {
-            float toGoalX = helmGoal.x - sLoc.x;
-            float toGoalY = helmGoal.y - sLoc.y;
-            float inVel = (distToGoal > 1f) ? ((toGoalX * vx + toGoalY * vy) / distToGoal) : 0f;
-            if (inVel >= -8f && spd <= 45f) {
-                return;
-            }
-        }
-
-        float dx = helmGoal.x - sLoc.x;
-        float dy = helmGoal.y - sLoc.y;
-        if (dx * dx + dy * dy < 25f) return;
-        float desiredAng = (float) Math.toDegrees(Math.atan2(dy, dx));
-        float diff = shortestAngleDiff(ship.getFacing(), desiredAng);
-        if (diff > 2.2f) {
-            ship.blockCommandForOneFrame(ShipCommand.TURN_RIGHT);
-            ship.giveCommand(ShipCommand.TURN_LEFT, null, 0);
-        } else if (diff < -2.2f) {
-            ship.blockCommandForOneFrame(ShipCommand.TURN_LEFT);
-            ship.giveCommand(ShipCommand.TURN_RIGHT, null, 0);
-        }
-
-        ship.blockCommandForOneFrame(ShipCommand.ACCELERATE_BACKWARDS);
-        if (Math.abs(diff) <= 65f) {
-            if (distToObj <= 460f && distToGoal <= 240f && spd > 55f) {
-                ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
-                ship.giveCommand(ShipCommand.DECELERATE, null, 0);
-            } else {
-                ship.blockCommandForOneFrame(ShipCommand.DECELERATE);
-                ship.blockCommandForOneFrame(ShipCommand.STRAFE_LEFT);
-                ship.blockCommandForOneFrame(ShipCommand.STRAFE_RIGHT);
-                ship.giveCommand(ShipCommand.ACCELERATE, null, 0);
-            }
-        } else {
-            // While swinging the bow around from an enemy toward the Control Point, strafe toward the Control Point!
-            ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
-            if (diff > 0f) {
-                ship.blockCommandForOneFrame(ShipCommand.STRAFE_RIGHT);
-                ship.giveCommand(ShipCommand.STRAFE_LEFT, null, 0);
-            } else {
-                ship.blockCommandForOneFrame(ShipCommand.STRAFE_LEFT);
-                ship.giveCommand(ShipCommand.STRAFE_RIGHT, null, 0);
-            }
-        }
+        ShipCaptainAI.steerShipHelmOntoObjectivePoint(ship, helmGoal, distToGoal, distToObj);
     }
 
     /**
@@ -2565,6 +2506,9 @@ public final class ShipSystemCoordinator {
             boolean directObjectiveMarch) {
         if (ship == null || ship.getLocation() == null || !ship.isAlive() || ship.isHulk()) return;
         if (ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting()) return;
+        if (engine != null && ShipCaptainAI.didCaptainConnRunThisFrame(ship, engine.getTotalElapsedTime(false))) {
+            return; // Already executed same-frame inside ShipCaptainAI.advance right before Ship.advance!
+        }
 
         boolean extremeInertia = CombatPhysicsProfile.hasExtremeInertia(ship);
         boolean doNotUseFlux = flags != null && flags.hasFlag(AIFlags.DO_NOT_USE_FLUX);
@@ -2579,9 +2523,8 @@ public final class ShipSystemCoordinator {
             float vx = vel != null ? vel.x : 0f;
             float vy = vel != null ? vel.y : 0f;
             float decel = Math.max(8f, ship.getDeceleration());
-            double bowRad = Math.toRadians(ship.getFacing());
-            float bowX = (float) Math.cos(bowRad);
-            float bowY = (float) Math.sin(bowRad);
+            float bowX = CombatPhysicsProfile.fastCosDeg(ship.getFacing());
+            float bowY = CombatPhysicsProfile.fastSinDeg(ship.getFacing());
 
             if (!rammingCommitted && !gauntletCharge) {
                 Object campObj = flags.getCustom(AIFlags.CAMP_LOCATION);

@@ -6,6 +6,7 @@ import com.fs.starfarer.api.combat.AutofireAIPlugin;
 import com.fs.starfarer.api.combat.CombatEngineAPI;
 import com.fs.starfarer.api.combat.DamageType;
 import com.fs.starfarer.api.combat.FighterWingAPI;
+import com.fs.starfarer.api.combat.MissileAPI;
 import com.fs.starfarer.api.combat.MutableShipStatsAPI;
 import com.fs.starfarer.api.combat.ShieldAPI;
 import com.fs.starfarer.api.combat.ShipAPI;
@@ -50,11 +51,15 @@ public final class CombatPhysicsProfile {
     public static final float VANILLA_MAX_STOPPING_DIST_THRESHOLD = 420f;
     public static final float VANILLA_MAX_STOPPING_TIME_THRESHOLD = 4.2f;
 
-    // Global spec-environment cache (computed lazily from SettingsAPI specs)
+    // Global spec-environment cache (computed lazily from SettingsAPI specs + bcomSettings.json / LunaSettings)
     private static boolean globalSpecInitialized = false;
     private static SettingsAPI cachedSettingsRef = null;
     private static float cachedGlobalGunRangeScale = 1.0f;
+    private static float cachedGlobalMissileRangeScale = 1.0f;
     private static float cachedGlobalFighterRangeScale = 1.0f;
+    private static float cachedGlobalShipBoundsScale = 1.0f;
+    private static float cachedGlobalSightScale = 1.0f;
+    private static float cachedGlobalMapScale = 1.0f;
     private static float cachedGlobalShortGunCeiling = 650f;
     private static float cachedGlobalHybridCloseCeiling = 700f;
     private static float cachedGlobalLongGunFloor = 900f;
@@ -62,6 +67,14 @@ public final class CombatPhysicsProfile {
     private static float cachedBeamDropoffOffset = 0.30f;
     private static float cachedBeamDropoffExp = 1.20f;
     private static float cachedBeamDropoffMult = 1.00f;
+
+    // Deterministic global-multiplier test override for headless unit tests
+    private static boolean testGlobalScaleOverrideActive = false;
+    private static float testGlobalGunScale = 1.0f;
+    private static float testGlobalMissileScale = 1.0f;
+    private static float testGlobalFighterScale = 1.0f;
+    private static float testGlobalBoundsScale = 1.0f;
+    private static float testGlobalMapScale = 1.0f;
 
     // Live per-battle scale cache (updated O(N) at most once per C2 tick)
     private static CombatEngineAPI cachedCombatEngine = null;
@@ -72,8 +85,9 @@ public final class CombatPhysicsProfile {
     private static float cachedLiveMapScale = 1.0f;
     private static float cachedLiveMaxFighterSpeedCeiling = 320f;
 
-    // Per-ship listener inspection cache (cleared automatically by WeakHashMap)
+    // Per-ship listener & weapon-reach caches (cleared automatically by WeakHashMap)
     private static final WeakHashMap<ShipAPI, Boolean> SHIP_BEAM_DROPOFF_LISTENER_CACHE = new WeakHashMap<>();
+    private static final WeakHashMap<ShipAPI, float[]> SHIP_MAX_GUN_REACH_CACHE = new WeakHashMap<>();
 
     // Deterministic test override for headless unit tests
     private static Boolean testBeamDropoffOverride = null;
@@ -91,12 +105,26 @@ public final class CombatPhysicsProfile {
     private static ShipAPI[] obsParents = new ShipAPI[128];
     private static int[] obsOwners = new int[128];
     private static boolean[] obsIsHulk = new boolean[128];
+    private static boolean[] obsOverloadedOrVenting = new boolean[128];
     private static float[] obsX = new float[128];
     private static float[] obsY = new float[128];
     private static float[] obsVx = new float[128];
     private static float[] obsVy = new float[128];
     private static float[] obsHullR = new float[128];
     private static float[] obsShieldR = new float[128];
+    private static float[] obsMaxGunReach = new float[128];
+
+    // Per-frame flat primitive armed-missile snapshot (for O(missiles) ShipCaptainAI incoming-salvo defense)
+    private static CombatEngineAPI lastMisEngine = null;
+    private static float lastMisElapsed = -999f;
+    private static int misCount = 0;
+    private static int[] misOwners = new int[256];
+    private static boolean[] misGuided = new boolean[256];
+    private static float[] misX = new float[256];
+    private static float[] misY = new float[256];
+    private static float[] misVx = new float[256];
+    private static float[] misVy = new float[256];
+    private static float[] misDmg = new float[256];
 
     // 4096-entry fast degree trig & 257-entry unit power LUTs:
     // Eliminates HotSpot C2 CallLeafNoFP -> ProjNode -> ConvD2FNode graphs (Math.sin/cos/atan2/pow)
@@ -138,12 +166,12 @@ public final class CombatPhysicsProfile {
         return UNIT_POW_LUT[idx] + (UNIT_POW_LUT[idx + 1] - UNIT_POW_LUT[idx]) * frac;
     }
 
-    private static float fastSinDeg(float deg) {
+    public static float fastSinDeg(float deg) {
         int idx = Math.round(deg * DEG_TO_INDEX) & TRIG_MASK;
         return SIN_TABLE[idx];
     }
 
-    private static float fastCosDeg(float deg) {
+    public static float fastCosDeg(float deg) {
         int idx = (Math.round(deg * DEG_TO_INDEX) + (1 << (TRIG_BITS - 2))) & TRIG_MASK;
         return SIN_TABLE[idx];
     }
@@ -160,7 +188,15 @@ public final class CombatPhysicsProfile {
         cachedLiveMapScale = 1.0f;
         cachedLiveMaxFighterSpeedCeiling = 320f;
         SHIP_BEAM_DROPOFF_LISTENER_CACHE.clear();
+        SHIP_MAX_GUN_REACH_CACHE.clear();
         clearObstacleSnapshot();
+        clearMissileSnapshot();
+    }
+
+    private static void clearMissileSnapshot() {
+        misCount = 0;
+        lastMisEngine = null;
+        lastMisElapsed = -999f;
     }
 
     private static void clearObstacleSnapshot() {
@@ -188,6 +224,22 @@ public final class CombatPhysicsProfile {
         SHIP_BEAM_DROPOFF_LISTENER_CACHE.clear();
     }
 
+    public static void setTestGlobalMultipliersOverride(
+            boolean active,
+            float gunScale,
+            float missileScale,
+            float fighterScale,
+            float boundsScale,
+            float mapScale) {
+        testGlobalScaleOverrideActive = active;
+        testGlobalGunScale = Math.max(1.0f, gunScale);
+        testGlobalMissileScale = Math.max(1.0f, missileScale);
+        testGlobalFighterScale = Math.max(1.0f, fighterScale);
+        testGlobalBoundsScale = Math.max(1.0f, boundsScale);
+        testGlobalMapScale = Math.max(1.0f, mapScale);
+        resetForNewBattle();
+    }
+
     // =========================================================================
     // 1. GLOBAL SPEC-ENVIRONMENT SCALING (Campaign UI, Auto-Assigner & Defaults)
     // =========================================================================
@@ -204,7 +256,11 @@ public final class CombatPhysicsProfile {
         globalSpecInitialized = true;
         cachedSettingsRef = settings;
         cachedGlobalGunRangeScale = 1.0f;
+        cachedGlobalMissileRangeScale = 1.0f;
         cachedGlobalFighterRangeScale = 1.0f;
+        cachedGlobalShipBoundsScale = 1.0f;
+        cachedGlobalSightScale = 1.0f;
+        cachedGlobalMapScale = 1.0f;
         cachedGlobalShortGunCeiling = 650f;
         cachedGlobalHybridCloseCeiling = 700f;
         cachedGlobalLongGunFloor = 900f;
@@ -217,24 +273,32 @@ public final class CombatPhysicsProfile {
             return;
         }
 
-        // 1a. Measure loaded non-PD ballistic/energy WeaponSpec range distribution
+        // 1a. Measure loaded non-PD ballistic/energy & missile WeaponSpec range distributions
         try {
             List<WeaponSpecAPI> allWeapons = settings.getAllWeaponSpecs();
             if (allWeapons != null && allWeapons.size() >= 12) {
                 List<Float> directGunRanges = new ArrayList<>(allWeapons.size());
+                List<Float> missileRanges = new ArrayList<>(allWeapons.size() / 2);
                 for (int i = 0, n = allWeapons.size(); i < n; i++) {
                     WeaponSpecAPI ws = allWeapons.get(i);
                     if (ws == null) continue;
                     WeaponType wt = ws.getType();
-                    if (wt != WeaponType.BALLISTIC && wt != WeaponType.ENERGY) continue;
                     float r = ws.getMaxRange();
-                    if (r <= 150f || r > 25000f) continue;
+                    if (r <= 150f || r > 40000f) continue;
                     Set<AIHints> hints = ws.getAIHints();
                     if (hints != null && (hints.contains(AIHints.PD_ONLY)
                             || (hints.contains(AIHints.PD) && !hints.contains(AIHints.PD_ALSO)))) {
                         continue;
                     }
-                    directGunRanges.add(r);
+                    if (wt == WeaponType.BALLISTIC || wt == WeaponType.ENERGY) {
+                        if (r <= 25000f) {
+                            directGunRanges.add(r);
+                        }
+                    } else if (wt == WeaponType.MISSILE) {
+                        if (hints == null || !hints.contains(AIHints.BOMB)) {
+                            missileRanges.add(r);
+                        }
+                    }
                 }
                 if (directGunRanges.size() >= 10) {
                     Collections.sort(directGunRanges);
@@ -248,6 +312,14 @@ public final class CombatPhysicsProfile {
                         cachedGlobalShortGunCeiling = Math.max(650f, p25);
                         cachedGlobalHybridCloseCeiling = Math.max(700f, p25 * 1.05f);
                         cachedGlobalLongGunFloor = Math.max(cachedGlobalShortGunCeiling + 180f, Math.max(900f, p68));
+                    }
+                }
+                if (missileRanges.size() >= 8) {
+                    Collections.sort(missileRanges);
+                    float m50 = missileRanges.get(missileRanges.size() / 2);
+                    float rawMisScale = m50 / 1500f;
+                    if (rawMisScale > 1.28f) {
+                        cachedGlobalMissileRangeScale = clamp(rawMisScale, 1.0f, 6.0f);
                     }
                 }
             }
@@ -279,20 +351,64 @@ public final class CombatPhysicsProfile {
         } catch (Throwable ignored) {
         }
 
-        // 1c. Detect configured beam distance-dropoff curve if active (e.g. bcomSettings.json)
+        // 1c. Read Better Combat (bcomSettings.json + optional LunaLib override) multipliers & beam dropoff curve
         try {
             if (settings.getModManager() != null && settings.getModManager().isModEnabled("bcom")) {
                 Object bcomJson = JsonReflectBridge.loadMergedModJson("data/config/bcomSettings.json", "bcom");
-                if (bcomJson != null) {
-                    boolean dropFeat = JsonReflectBridge.optBoolean(bcomJson, "beamDamageDropoffFeature", false);
+                boolean useLuna = false;
+                try {
+                    if (settings.getModManager().isModEnabled("lunalib")) {
+                        Boolean lEn = lunalib.lunaSettings.LunaSettings.getBoolean("bcom", "LUNALIB_SETTINGS_ENABLED");
+                        useLuna = Boolean.TRUE.equals(lEn);
+                    }
+                } catch (Throwable ignored) {
+                }
+                if (bcomJson != null || useLuna) {
+                    boolean dropFeat = readBcomBool(bcomJson, useLuna, "beamDamageDropoffFeature", "ENABLE_BEAM_DROPOFF", false);
                     if (dropFeat) {
                         cachedGlobalBeamDropoffEnabled = true;
                         cachedBeamDropoffOffset = clamp(
-                                JsonReflectBridge.optFloat(bcomJson, "beamDropoffOffset", 0.30f), 0.0f, 0.95f);
+                                readBcomFloat(bcomJson, useLuna, "beamDropoffOffset", "BEAM_DROPOFF_OFFSET", 0.30f), 0.0f, 0.95f);
                         cachedBeamDropoffExp = clamp(
-                                JsonReflectBridge.optFloat(bcomJson, "beamDropoffExp", 1.20f), 0.1f, 5.0f);
+                                readBcomFloat(bcomJson, useLuna, "beamDropoffExp", "BEAM_DROPOFF_EXP", 1.20f), 0.1f, 5.0f);
                         cachedBeamDropoffMult = clamp(
-                                JsonReflectBridge.optFloat(bcomJson, "beamDropoffMult", 1.00f), 0.05f, 4.0f);
+                                readBcomFloat(bcomJson, useLuna, "beamDropoffMult", "BEAM_DROPOFF_MULT", 1.00f), 0.05f, 4.0f);
+                    }
+                    if (readBcomBool(bcomJson, useLuna, "weaponRangeFeature", "ENABLE_WEAPON_RANGE", false)) {
+                        float wExp = readBcomFloat(bcomJson, useLuna, "weaponRangeExponent", "WEAPON_RANGE_EXPONENT", 1.0f);
+                        float wMult = readBcomFloat(bcomJson, useLuna, "weaponRangeMultiplier", "WEAPON_RANGE_MULT", 1.0f);
+                        float wAdd = readBcomFloat(bcomJson, useLuna, "weaponRangeAddition", "WEAPON_RANGE_ADDITION", 0.0f);
+                        float bcomMed = ((float) StrictMath.pow(VANILLA_DIRECT_GUN_MEDIAN_RANGE, wExp)) * wMult + wAdd;
+                        float bcomGunScale = clamp(bcomMed / VANILLA_DIRECT_GUN_MEDIAN_RANGE, 1.0f, 6.0f);
+                        if (bcomGunScale > cachedGlobalGunRangeScale) {
+                            cachedGlobalGunRangeScale = bcomGunScale;
+                            float bcomP25 = ((float) StrictMath.pow(550f, wExp)) * wMult + wAdd;
+                            float bcomP68 = ((float) StrictMath.pow(850f, wExp)) * wMult + wAdd;
+                            cachedGlobalShortGunCeiling = Math.max(cachedGlobalShortGunCeiling, bcomP25);
+                            cachedGlobalHybridCloseCeiling = Math.max(cachedGlobalHybridCloseCeiling, bcomP25 * 1.05f);
+                            cachedGlobalLongGunFloor = Math.max(cachedGlobalShortGunCeiling + 180f,
+                                    Math.max(cachedGlobalLongGunFloor, bcomP68));
+                        }
+                    }
+                    if (readBcomBool(bcomJson, useLuna, "missileRangeFeature", "ENABLE_MISSILE_RANGE", false)) {
+                        float mMult = readBcomFloat(bcomJson, useLuna, "missileRangeMultiplierStat", "MISSILE_RANGE_MULT_STAT", 1.0f);
+                        cachedGlobalMissileRangeScale = Math.max(cachedGlobalMissileRangeScale, clamp(mMult, 1.0f, 6.0f));
+                    }
+                    if (readBcomBool(bcomJson, useLuna, "fighterRangeFeature", "ENABLE_FIGHTER_RANGE", false)) {
+                        float fMult = readBcomFloat(bcomJson, useLuna, "fighterRangeMultiplier", "FIGHTER_RANGE_MULT", 1.0f);
+                        cachedGlobalFighterRangeScale = Math.max(cachedGlobalFighterRangeScale, clamp(fMult, 1.0f, 8.0f));
+                    }
+                    if (readBcomBool(bcomJson, useLuna, "shipBoundsFeature", "ENABLE_SHIP_BOUNDS", false)) {
+                        float bMult = readBcomFloat(bcomJson, useLuna, "shipBoundsMultiplier", "SHIP_BOUNDS_MULT", 1.0f);
+                        cachedGlobalShipBoundsScale = Math.max(cachedGlobalShipBoundsScale, clamp(bMult, 1.0f, 5.0f));
+                    }
+                    if (readBcomBool(bcomJson, useLuna, "sightFeature", "ENABLE_SIGHT", false)) {
+                        float sMult = readBcomFloat(bcomJson, useLuna, "sightMult", "SIGHT_MULT", 1.0f);
+                        cachedGlobalSightScale = Math.max(cachedGlobalSightScale, clamp(sMult, 1.0f, 6.0f));
+                    }
+                    if (readBcomBool(bcomJson, useLuna, "mapFeature", "ENABLE_MAP", false)) {
+                        float mapMult = readBcomFloat(bcomJson, useLuna, "mapSizeFactor", "MAP_SIZE_FACTOR", 1.0f);
+                        cachedGlobalMapScale = Math.max(cachedGlobalMapScale, clamp(mapMult, 1.0f, 6.0f));
                     }
                 }
             }
@@ -300,20 +416,128 @@ public final class CombatPhysicsProfile {
         }
     }
 
+    private static boolean readBcomBool(Object bcomJson, boolean useLuna, String jsonKey, String lunaKey, boolean defVal) throws Throwable {
+        if (useLuna) {
+            try {
+                Boolean b = lunalib.lunaSettings.LunaSettings.getBoolean("bcom", lunaKey);
+                if (b != null) return b;
+            } catch (Throwable ignored) {
+            }
+        }
+        return bcomJson != null ? JsonReflectBridge.optBoolean(bcomJson, jsonKey, defVal) : defVal;
+    }
+
+    private static float readBcomFloat(Object bcomJson, boolean useLuna, String jsonKey, String lunaKey, float defVal) throws Throwable {
+        if (useLuna) {
+            try {
+                Double d = lunalib.lunaSettings.LunaSettings.getDouble("bcom", lunaKey);
+                if (d != null) return d.floatValue();
+            } catch (Throwable ignored) {
+            }
+        }
+        return bcomJson != null ? JsonReflectBridge.optFloat(bcomJson, jsonKey, defVal) : defVal;
+    }
+
     public static float getGlobalWeaponRangeScale() {
+        if (testGlobalScaleOverrideActive) return testGlobalGunScale;
         ensureGlobalSpecsEvaluated();
         return cachedGlobalGunRangeScale;
     }
 
+    public static float getGlobalMissileRangeScale() {
+        if (testGlobalScaleOverrideActive) return testGlobalMissileScale;
+        ensureGlobalSpecsEvaluated();
+        return cachedGlobalMissileRangeScale;
+    }
+
     public static float getGlobalFighterRangeScale() {
+        if (testGlobalScaleOverrideActive) return testGlobalFighterScale;
         ensureGlobalSpecsEvaluated();
         return cachedGlobalFighterRangeScale;
     }
 
-    public static float getShortWeaponRangeCeiling(float shipAvgWeaponRangeHint) {
+    public static float getGlobalShipBoundsScale() {
+        if (testGlobalScaleOverrideActive) return testGlobalBoundsScale;
         ensureGlobalSpecsEvaluated();
-        if (cachedGlobalGunRangeScale > 1.01f) {
-            return cachedGlobalShortGunCeiling;
+        return cachedGlobalShipBoundsScale;
+    }
+
+    public static float getGlobalSightScale() {
+        if (testGlobalScaleOverrideActive) return Math.max(1.0f, testGlobalGunScale * 0.85f);
+        ensureGlobalSpecsEvaluated();
+        return cachedGlobalSightScale;
+    }
+
+    public static float getGlobalMapScale() {
+        if (testGlobalScaleOverrideActive) return testGlobalMapScale;
+        ensureGlobalSpecsEvaluated();
+        return cachedGlobalMapScale;
+    }
+
+    public static boolean isGlobalScaledEnvironment() {
+        return getGlobalWeaponRangeScale() > 1.18f
+                || getGlobalShipBoundsScale() > 1.18f
+                || getGlobalFighterRangeScale() > 1.22f;
+    }
+
+    /**
+     * Multiplicative factor applied to vanilla intra-division {@code stationSpacing} defaults ({@code 1.0f} in vanilla).
+     * Accounts for both inflated flocking/broadphase bounds (e.g. Better Combat {@code shipBoundsMultiplier = 3})
+     * and expanded weapon envelopes so ships hold clean, repulsion-free spacing out of the box.
+     */
+    public static float getGlobalStationSpacingMult() {
+        float wScale = getGlobalWeaponRangeScale();
+        float bScale = getGlobalShipBoundsScale();
+        if (wScale <= 1.18f && bScale <= 1.18f) {
+            return 1.0f;
+        }
+        return clamp(Math.max(bScale * 0.85f, 0.45f + 0.55f * wScale), 1.0f, 4.0f);
+    }
+
+    /**
+     * Multiplicative factor applied to vanilla inter-division {@code divisionInterval} defaults ({@code 1.0f} in vanilla).
+     */
+    public static float getGlobalDivisionIntervalMult() {
+        float wScale = getGlobalWeaponRangeScale();
+        float bScale = getGlobalShipBoundsScale();
+        if (wScale <= 1.18f && bScale <= 1.18f) {
+            return 1.0f;
+        }
+        return clamp(Math.max(bScale * 0.95f, 0.30f + 0.70f * wScale), 1.0f, 4.5f);
+    }
+
+    /**
+     * Multiplicative factor applied to vanilla doctrinal {@code standoffRange} defaults ({@code 1.0f} in vanilla).
+     */
+    public static float getGlobalStandoffMult(boolean carrierType, boolean missileType) {
+        float wScale = getGlobalWeaponRangeScale();
+        float mScale = getGlobalMissileRangeScale();
+        float fScale = getGlobalFighterRangeScale();
+        if (wScale <= 1.18f && mScale <= 1.18f && (!carrierType || fScale <= 1.22f)) {
+            return 1.0f;
+        }
+        if (carrierType) {
+            return clamp(Math.max(wScale * 1.10f, fScale * 0.80f), 1.0f, 6.0f);
+        }
+        if (missileType) {
+            return clamp(Math.max(wScale, mScale), 1.0f, 5.5f);
+        }
+        return clamp(wScale, 1.0f, 5.5f);
+    }
+
+    public static float getMissileRangeScale(CombatEngineAPI engine) {
+        float wScale = getWeaponRangeScale(engine);
+        float mScale = getGlobalMissileRangeScale();
+        if (wScale <= 1.18f && mScale <= 1.18f) {
+            return 1.0f;
+        }
+        return clamp(Math.max(mScale, wScale * 0.85f), 1.0f, 6.0f);
+    }
+
+    public static float getShortWeaponRangeCeiling(float shipAvgWeaponRangeHint) {
+        float gScale = getGlobalWeaponRangeScale();
+        if (gScale > 1.01f) {
+            return testGlobalScaleOverrideActive ? (650f * gScale * 0.90f) : cachedGlobalShortGunCeiling;
         }
         // Fallback for standalone unit/sim harnesses with scaled ship weapons without global SettingsAPI specs
         if (shipAvgWeaponRangeHint > 1650f) {
@@ -324,9 +548,9 @@ public final class CombatPhysicsProfile {
     }
 
     public static float getHybridCloseWeaponRangeCeiling(float shipAvgWeaponRangeHint) {
-        ensureGlobalSpecsEvaluated();
-        if (cachedGlobalGunRangeScale > 1.01f) {
-            return cachedGlobalHybridCloseCeiling;
+        float gScale = getGlobalWeaponRangeScale();
+        if (gScale > 1.01f) {
+            return testGlobalScaleOverrideActive ? (700f * gScale * 0.90f) : cachedGlobalHybridCloseCeiling;
         }
         if (shipAvgWeaponRangeHint > 1650f) {
             float estScale = clamp(shipAvgWeaponRangeHint / 900f, 1.0f, 5.5f);
@@ -336,9 +560,9 @@ public final class CombatPhysicsProfile {
     }
 
     public static float getLongWeaponRangeFloor(float shipAvgWeaponRangeHint) {
-        ensureGlobalSpecsEvaluated();
-        if (cachedGlobalGunRangeScale > 1.01f) {
-            return cachedGlobalLongGunFloor;
+        float gScale = getGlobalWeaponRangeScale();
+        if (gScale > 1.01f) {
+            return testGlobalScaleOverrideActive ? (900f * gScale * 0.95f) : cachedGlobalLongGunFloor;
         }
         if (shipAvgWeaponRangeHint > 1650f) {
             float estScale = clamp(shipAvgWeaponRangeHint / 900f, 1.0f, 5.5f);
@@ -357,6 +581,9 @@ public final class CombatPhysicsProfile {
             return;
         }
         float now = engine.getTotalElapsedTime(false);
+        if (engine == cachedCombatEngine && now > 0f && Math.abs(now - cachedCombatEvalTime) < 0.45f) {
+            return;
+        }
         List<ShipAPI> ships = engine.getShips();
         int shipCount = (ships != null) ? ships.size() : 0;
         if (engine == cachedCombatEngine
@@ -443,12 +670,14 @@ public final class CombatPhysicsProfile {
                 liveGunScale = clamp(avgBestGun / 1050f, 1.0f, 6.0f);
             }
         }
-        cachedLiveWeaponRangeScale = Math.max(cachedGlobalGunRangeScale, liveGunScale);
+        float gGunScale = getGlobalWeaponRangeScale();
+        float gFighterScale = getGlobalFighterRangeScale();
+        cachedLiveWeaponRangeScale = Math.max(gGunScale, liveGunScale);
 
         float liveWingScale = (maxFighterEngageSeen > 5200f)
                 ? clamp(maxFighterEngageSeen / VANILLA_FIGHTER_ENGAGE_RANGE, 1.0f, 8.0f)
                 : 1.0f;
-        cachedLiveFighterRangeScale = Math.max(cachedGlobalFighterRangeScale, liveWingScale);
+        cachedLiveFighterRangeScale = Math.max(gFighterScale, liveWingScale);
         cachedLiveMaxFighterSpeedCeiling = Math.max(320f, maxFighterSpeedSeen * 1.08f);
     }
 
@@ -460,7 +689,7 @@ public final class CombatPhysicsProfile {
             }
         }
         ensureLiveCombatEvaluated(engine);
-        return (engine != null) ? cachedLiveWeaponRangeScale : cachedGlobalGunRangeScale;
+        return (engine != null) ? Math.max(getGlobalWeaponRangeScale(), cachedLiveWeaponRangeScale) : getGlobalWeaponRangeScale();
     }
 
     public static float getFighterRangeScale(CombatEngineAPI engine) {
@@ -471,7 +700,7 @@ public final class CombatPhysicsProfile {
             }
         }
         ensureLiveCombatEvaluated(engine);
-        return (engine != null) ? cachedLiveFighterRangeScale : cachedGlobalFighterRangeScale;
+        return (engine != null) ? Math.max(getGlobalFighterRangeScale(), cachedLiveFighterRangeScale) : getGlobalFighterRangeScale();
     }
 
     public static float getMapScale(CombatEngineAPI engine) {
@@ -482,7 +711,7 @@ public final class CombatPhysicsProfile {
             }
         }
         ensureLiveCombatEvaluated(engine);
-        return (engine != null) ? cachedLiveMapScale : 1.0f;
+        return (engine != null) ? cachedLiveMapScale : getGlobalMapScale();
     }
 
     public static float getFighterPackageSpeedCeiling(CombatEngineAPI engine) {
@@ -708,12 +937,13 @@ public final class CombatPhysicsProfile {
         if (inflation <= 1.35f && !beamDrop) {
             return; // 0% touch on vanilla Starsector
         }
+        ensureFrameObstacleSnapshot(engine);
+        if (!hasEnemyWithinShipEngagementHorizon(engine, ship)) {
+            return; // Zero weapon-group list allocations when no enemy warship is near gun range
+        }
         List<WeaponGroupAPI> groups = ship.getWeaponGroupsCopy();
         if (groups == null || groups.isEmpty()) {
             return;
-        }
-        if (inflation > 1.35f) {
-            ensureFrameObstacleSnapshot(engine);
         }
         float fluxLevel = ship.getFluxLevel();
         boolean holdFire = ship.isHoldFire() || doNotUseFlux;
@@ -853,16 +1083,20 @@ public final class CombatPhysicsProfile {
     }
 
     private static void ensureFrameObstacleSnapshot(CombatEngineAPI engine) {
+        if (engine == null) {
+            clearObstacleSnapshot();
+            return;
+        }
+        float elapsed = engine.getTotalElapsedTime(false);
+        if (elapsed > 0f && engine == lastObsEngine && elapsed == lastObsElapsed) {
+            return;
+        }
         List<ShipAPI> ships = engine.getShips();
         if (ships == null || ships.isEmpty()) {
             clearObstacleSnapshot();
             return;
         }
-        float elapsed = engine.getTotalElapsedTime(false);
         int rawSize = ships.size();
-        if (elapsed > 0f && engine == lastObsEngine && elapsed == lastObsElapsed && rawSize == lastObsRawListSize) {
-            return;
-        }
         growObstacleSnapshotCapacity(rawSize);
         int out = 0;
         for (int i = 0; i < rawSize; i++) {
@@ -877,12 +1111,15 @@ public final class CombatPhysicsProfile {
             obsParents[out] = s.getParentStation();
             obsOwners[out] = s.getOwner();
             obsIsHulk[out] = hulk;
+            obsOverloadedOrVenting[out] = hulk
+                    || (s.getFluxTracker() != null && s.getFluxTracker().isOverloadedOrVenting());
             obsX[out] = loc.x;
             obsY[out] = loc.y;
             obsVx[out] = (vel != null) ? vel.x : 0f;
             obsVy[out] = (vel != null) ? vel.y : 0f;
             obsHullR[out] = resolvePhysicalHullRadius(s);
             obsShieldR[out] = hulk ? obsHullR[out] : resolvePhysicalShieldOrHullRadius(s);
+            obsMaxGunReach[out] = hulk ? 0f : resolveCachedMaxNonMissileReach(s, elapsed);
             out++;
         }
         for (int k = out; k < obsCount; k++) {
@@ -893,6 +1130,124 @@ public final class CombatPhysicsProfile {
         lastObsEngine = engine;
         lastObsElapsed = elapsed;
         lastObsRawListSize = rawSize;
+    }
+
+    private static float resolveCachedMaxNonMissileReach(ShipAPI ship, float elapsed) {
+        float[] slot = SHIP_MAX_GUN_REACH_CACHE.get(ship);
+        if (slot != null && elapsed > 0f && Math.abs(elapsed - slot[1]) < 1.5f) {
+            return slot[0];
+        }
+        float best = 0f;
+        List<WeaponAPI> weapons = ship.getAllWeapons();
+        if (weapons != null) {
+            for (int i = 0, n = weapons.size(); i < n; i++) {
+                WeaponAPI w = weapons.get(i);
+                if (w == null || w.isDisabled() || w.isDecorative() || w.getType() == WeaponType.MISSILE) continue;
+                float r = w.isBeam() ? resolveEffectiveTacticalBeamRange(ship, w) : w.getRange();
+                if (r > best) {
+                    best = r;
+                }
+            }
+        }
+        if (slot == null) {
+            slot = new float[]{best, elapsed};
+            SHIP_MAX_GUN_REACH_CACHE.put(ship, slot);
+        } else {
+            slot[0] = best;
+            slot[1] = elapsed;
+        }
+        return best;
+    }
+
+    private static boolean hasEnemyWithinShipEngagementHorizon(CombatEngineAPI engine, ShipAPI ship) {
+        int n = obsCount;
+        if (n <= 0 || ship.getLocation() == null) {
+            return false;
+        }
+        float myReach = resolveCachedMaxNonMissileReach(ship, engine.getTotalElapsedTime(false));
+        if (myReach <= 50f) {
+            // In minimal unit-test mocks where getAllWeapons() is empty (only getWeaponGroupsCopy() mocked), allow scan
+            ShipAPI directTgt = ship.getShipTarget();
+            if (directTgt != null && directTgt.isAlive()) {
+                return true;
+            }
+            myReach = 4500f;
+        }
+        float horizon = myReach + 650f;
+        float horizonSq = horizon * horizon;
+        float mx = ship.getLocation().x;
+        float my = ship.getLocation().y;
+        int myOwner = ship.getOwner();
+        for (int i = 0; i < n; i++) {
+            if (obsIsHulk[i] || obsOwners[i] == myOwner || obsOwners[i] == 100) continue;
+            float dx = obsX[i] - mx;
+            float dy = obsY[i] - my;
+            if (dx * dx + dy * dy <= horizonSq) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Fast O(warships) flat-array nearest enemy warship lookup (avoids calling {@code engine.getShips()} or scanning fighters).
+     */
+    public static ShipAPI findNearestEnemyWarship(CombatEngineAPI engine, ShipAPI ship, float maxDist) {
+        if (engine == null || ship == null || ship.getLocation() == null) {
+            return null;
+        }
+        ensureFrameObstacleSnapshot(engine);
+        int n = obsCount;
+        if (n <= 0) return null;
+        float mx = ship.getLocation().x;
+        float my = ship.getLocation().y;
+        int myOwner = ship.getOwner();
+        ShipAPI best = null;
+        float bestDistSq = maxDist * maxDist;
+        for (int i = 0; i < n; i++) {
+            if (obsIsHulk[i]) continue;
+            int owner = obsOwners[i];
+            if (owner == myOwner || owner == 100) continue;
+            float dx = obsX[i] - mx;
+            float dy = obsY[i] - my;
+            float dSq = dx * dx + dy * dy;
+            if (dSq < bestDistSq) {
+                bestDistSq = dSq;
+                best = obsShips[i];
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Fast O(warships) flat-array check for whether any non-overloaded enemy warship currently holds {@code ship}
+     * inside its live non-missile gun envelope (zero {@code getShips()} or {@code getAllWeapons()} calls per query).
+     */
+    public static boolean isInsideLiveEnemyGunEnvelope(CombatEngineAPI engine, ShipAPI ship) {
+        if (engine == null || ship == null || ship.getLocation() == null) {
+            return false;
+        }
+        ensureFrameObstacleSnapshot(engine);
+        int n = obsCount;
+        if (n <= 0) return false;
+        float mx = ship.getLocation().x;
+        float my = ship.getLocation().y;
+        int myOwner = ship.getOwner();
+        float myRad = resolvePhysicalShieldOrHullRadius(ship);
+        for (int i = 0; i < n; i++) {
+            if (obsIsHulk[i] || obsOverloadedOrVenting[i]) continue;
+            int owner = obsOwners[i];
+            if (owner == myOwner || owner == 100) continue;
+            float maxEnemyGun = obsMaxGunReach[i];
+            if (maxEnemyGun <= 400f) continue;
+            float limit = maxEnemyGun * 0.96f + myRad;
+            float dx = obsX[i] - mx;
+            float dy = obsY[i] - my;
+            if (dx * dx + dy * dy <= limit * limit) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void growObstacleSnapshotCapacity(int needed) {
@@ -907,13 +1262,174 @@ public final class CombatPhysicsProfile {
         obsParents = new ShipAPI[cap];
         obsOwners = new int[cap];
         obsIsHulk = new boolean[cap];
+        obsOverloadedOrVenting = new boolean[cap];
         obsX = new float[cap];
         obsY = new float[cap];
         obsVx = new float[cap];
         obsVy = new float[cap];
         obsHullR = new float[cap];
         obsShieldR = new float[cap];
+        obsMaxGunReach = new float[cap];
         obsCount = 0;
+    }
+
+    // =========================================================================
+    // 7. FLAT ARMED-MISSILE SALVO SNAPSHOT (60 Hz Incoming-Ordnance Defense)
+    // =========================================================================
+
+    private static void ensureFrameMissileSnapshot(CombatEngineAPI engine) {
+        if (engine == null) {
+            clearMissileSnapshot();
+            return;
+        }
+        float elapsed = engine.getTotalElapsedTime(false);
+        if (elapsed > 0f && engine == lastMisEngine && elapsed == lastMisElapsed) {
+            return;
+        }
+        List<MissileAPI> missiles = engine.getMissiles();
+        if (missiles == null || missiles.isEmpty()) {
+            misCount = 0;
+            lastMisEngine = engine;
+            lastMisElapsed = elapsed;
+            return;
+        }
+        int rawSize = missiles.size();
+        growMissileSnapshotCapacity(rawSize);
+        int out = 0;
+        for (int i = 0; i < rawSize; i++) {
+            MissileAPI m = missiles.get(i);
+            if (m == null || m.isFizzling() || m.isFlare() || m.isExpired()) continue;
+            float dmg = m.getDamageAmount();
+            if (dmg < 260f) continue;
+            Vector2f loc = m.getLocation();
+            Vector2f vel = m.getVelocity();
+            if (loc == null || vel == null) continue;
+            misOwners[out] = m.getOwner();
+            misGuided[out] = m.isGuided();
+            misX[out] = loc.x;
+            misY[out] = loc.y;
+            misVx[out] = vel.x;
+            misVy[out] = vel.y;
+            misDmg[out] = dmg;
+            out++;
+        }
+        misCount = out;
+        lastMisEngine = engine;
+        lastMisElapsed = elapsed;
+    }
+
+    private static void growMissileSnapshotCapacity(int needed) {
+        if (needed <= misOwners.length) {
+            return;
+        }
+        int cap = misOwners.length;
+        while (cap < needed) {
+            cap <<= 1;
+        }
+        misOwners = new int[cap];
+        misGuided = new boolean[cap];
+        misX = new float[cap];
+        misY = new float[cap];
+        misVx = new float[cap];
+        misVy = new float[cap];
+        misDmg = new float[cap];
+        misCount = 0;
+    }
+
+    /**
+     * Evaluates incoming high-damage enemy missiles/torpedoes closing on {@code ship} within {@code maxTtiSeconds}
+     * using contiguous primitive arrays (zero allocations, zero C2-unsafe trig).
+     *
+     * @param outSummary length >= 5:
+     *                   [0] totalInboundDamage,
+     *                   [1] minTimeToImpact,
+     *                   [2] unitThreatDirX (from ship toward incoming salvo),
+     *                   [3] unitThreatDirY,
+     *                   [4] lateralMissSign (+1 or -1 perpendicular to threat vector for evasive strafe)
+     */
+    public static boolean evaluateInboundMissileSalvo(
+            CombatEngineAPI engine,
+            ShipAPI ship,
+            float maxTtiSeconds,
+            float[] outSummary) {
+        if (engine == null || ship == null || ship.getLocation() == null || outSummary == null || outSummary.length < 5) {
+            return false;
+        }
+        ensureFrameMissileSnapshot(engine);
+        int n = misCount;
+        if (n <= 0) {
+            return false;
+        }
+        Vector2f sLoc = ship.getLocation();
+        Vector2f sVel = ship.getVelocity();
+        float sx = sLoc.x;
+        float sy = sLoc.y;
+        float svx = (sVel != null) ? sVel.x : 0f;
+        float svy = (sVel != null) ? sVel.y : 0f;
+        int myOwner = ship.getOwner();
+        float hitRad = resolvePhysicalShieldOrHullRadius(ship);
+
+        float totalDmg = 0f;
+        float minTti = maxTtiSeconds + 1f;
+        float sumTx = 0f;
+        float sumTy = 0f;
+        float sumLatSign = 0f;
+
+        for (int i = 0; i < n; i++) {
+            int mOwner = misOwners[i];
+            if (mOwner == myOwner || mOwner == 100) continue;
+            // Vector from missile -> ship
+            float rx = sx - misX[i];
+            float ry = sy - misY[i];
+            float distSq = rx * rx + ry * ry;
+            if (distSq < 4f || distSq > 4200f * 4200f) continue;
+
+            // Relative velocity of missile toward ship
+            float rvx = misVx[i] - svx;
+            float rvy = misVy[i] - svy;
+            float relSpdSq = rvx * rvx + rvy * rvy;
+            if (relSpdSq < 140f * 140f) continue;
+
+            float dist = (float) Math.sqrt(distSq);
+            float invDist = 1.0f / dist;
+            float ux = rx * invDist;
+            float uy = ry * invDist;
+            float closingSpd = rvx * ux + rvy * uy;
+            if (closingSpd <= 120f) continue;
+
+            float effDist = Math.max(1f, dist - hitRad);
+            float tti = effDist / closingSpd;
+            if (tti > maxTtiSeconds) continue;
+
+            // Closest-approach perpendicular miss distance
+            float relSpd = (float) Math.sqrt(relSpdSq);
+            float mvx = rvx / relSpd;
+            float mvy = rvy / relSpd;
+            float signedPerp = rx * (-mvy) + ry * mvx;
+            float allowMiss = hitRad + (misGuided[i] ? 240f : 95f);
+            if (Math.abs(signedPerp) > allowMiss) continue;
+
+            float w = misDmg[i];
+            totalDmg += w;
+            if (tti < minTti) {
+                minTti = tti;
+            }
+            // Direction from ship TOWARD incoming missile (`-ux, -uy`)
+            sumTx += (-ux) * w;
+            sumTy += (-uy) * w;
+            sumLatSign += (signedPerp >= 0f ? 1f : -1f) * w;
+        }
+
+        if (totalDmg <= 0f) {
+            return false;
+        }
+        float tLen = (float) Math.sqrt(sumTx * sumTx + sumTy * sumTy);
+        outSummary[0] = totalDmg;
+        outSummary[1] = minTti;
+        outSummary[2] = (tLen > 1e-4f) ? (sumTx / tLen) : 0f;
+        outSummary[3] = (tLen > 1e-4f) ? (sumTy / tLen) : 1f;
+        outSummary[4] = (sumLatSign >= 0f) ? 1f : -1f;
+        return true;
     }
 
     private static boolean isSnapshotLineOfFireClear(

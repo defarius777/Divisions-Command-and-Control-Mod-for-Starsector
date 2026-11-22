@@ -776,6 +776,7 @@ public class DivisionAutoFormer {
             div.mainMission = docCfg.getMainMission(docType);
             div.strikeCraftOpeningMission = docCfg.getStrikeCraftOpeningMission(docType);
             div.strikeCraftMainMission = docCfg.getStrikeCraftMainMission(docType);
+            div.strikeCraftCapReserve = docCfg.getStrikeCraftCapReserve(docType);
             div.lineStation = docCfg.getLineStation(docType);
             div.doctrinalFormation = docCfg.getFormation(docType);
         } else {
@@ -791,6 +792,8 @@ public class DivisionAutoFormer {
                     PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftOpeningMissionFor(docType);
             div.strikeCraftMainMission =
                     PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftMainMissionFor(docType);
+            div.strikeCraftCapReserve =
+                    PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftCapReserveFor(docType);
             div.lineStation = docType.defaultLineStation;
             div.doctrinalFormation = docType.defaultFormation;
         }
@@ -916,9 +919,11 @@ public class DivisionAutoFormer {
             int rank = (i + 1) / 2;
             rankSqSum += (rank * rank) * 1.0256f; // includes 0.16x depth offset squared
         }
+        float spScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalStationSpacingMult());
+        float scaledBaseRadius = baseRadius * spScale;
         float slotRms = stationSpacing * (float) Math.sqrt(rankSqSum / n);
-        float spacingBasedRadius = slotRms + Math.max(380f, stationSpacing * 0.75f);
-        return (Math.max(baseRadius, spacingBasedRadius) * Math.max(0.75f, stationKeepingMult))
+        float spacingBasedRadius = slotRms + Math.max(380f * spScale, stationSpacing * 0.75f);
+        return (Math.max(scaledBaseRadius, spacingBasedRadius) * Math.max(0.75f, stationKeepingMult))
                 / Math.max(0.75f, Math.min(1.18f, strictness));
     }
 
@@ -978,7 +983,9 @@ public class DivisionAutoFormer {
             // of that division's centroid; otherwise form a new reinforcement division so a ship spawning 4000u
             // away at the map edge doesn't spike the frontline division's spreadRadius and force CLOSE_UP!
             if (prof.ship != null && prof.ship.getLocation() != null && (div.centroid.x != 0f || div.centroid.y != 0f)) {
-                float reinfMaxDist = 2200f * CombatPhysicsProfile.getMapScale(activeCombatEngine);
+                float reinfMaxDist = 2200f * Math.max(
+                        CombatPhysicsProfile.getMapScale(activeCombatEngine),
+                        CombatPhysicsProfile.getWeaponRangeScale(activeCombatEngine));
                 float dx = prof.ship.getLocation().x - div.centroid.x;
                 float dy = prof.ship.getLocation().y - div.centroid.y;
                 if ((dx * dx + dy * dy) > (reinfMaxDist * reinfMaxDist)) continue;

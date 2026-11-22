@@ -213,6 +213,7 @@ public class DivisionModel {
         HOLD_IN_RESERVE("hold in reserve, awaiting orders", "holding in reserve", "Reserve"),
         TAKE_AND_HOLD("take and hold", "seizing", "Capture ->"),
         FLY_ARMED_RECONNAISSANCE("fly armed reconnaissance toward", "flying armed recon toward", "Recon ->"),
+        LAUNCH_SEARCH_AND_DESTROY("launch a search and destroy strike toward", "searching and destroying toward", "S&D ->"),
         FLY_FIGHTER_SWEEP("fly fighter sweeps for space superiority against", "flying fighter sweep on", "Sweep ->"),
         FLY_COMBAT_SPACE_PATROL("fly combat space patrol over", "patrolling over", "CAP ->"),
         FLY_CYCLIC_STRIKES("fly cyclic strikes against", "cycling strikes on", "Strike ->"),
@@ -506,6 +507,8 @@ public class DivisionModel {
                 PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION;
         public PermanentDivisionManager.StrikeCraftMissionType strikeCraftOpeningMission = null;
         public PermanentDivisionManager.StrikeCraftMissionType strikeCraftMainMission = null;
+        public PermanentDivisionManager.StrikeCraftCapReserve strikeCraftCapReserve =
+                PermanentDivisionManager.StrikeCraftCapReserve.NONE;
         public DivisionIntentType currentStrikeCraftIntent = null;
         public DivisionState strikeCraftTargetEnemyDivision = null;
         public DivisionState strikeCraftTargetFriendlyDivision = null;
@@ -551,6 +554,12 @@ public class DivisionModel {
         public int consentedWingSide = 0; // Persistent wing side (-1 port, 0 center, +1 starboard) under OTC/Grand Formation Consent
         public int pursuitSpawnZone = 0;  // -1 = deployed Left (port flank), 0 = Center/Regular, +1 = deployed Right (starboard flank)
         public boolean initialDeploymentMarshalled = false;
+        // Persistent Doubling / flank-side memory so brief strike/vent/reinforce tasks never flip port <-> starboard on the same enemy division
+        public float lastCommittedFlankSide = 0f;
+        public String lastCommittedFlankTargetId = null;
+        public float lastCommittedFlankTimestamp = -999f;
+        public float lastReinforceAssignedTimestamp = -999f;
+        public String lastReinforceTargetId = null;
 
         // OTC Force-Distribution Overkill & Combat Threat Weight telemetry
         public float combatThreatWeight = 1.0f; // [0.25..1.0] discounts stray freighters/auxiliaries relative to warships
@@ -1077,6 +1086,7 @@ public class DivisionModel {
         public float phaseEnteredTime = 0f;
         public DivisionState crisisDivision;
         public DivisionState reinforcingDivision;
+        public float lastReinforceSwitchTime = -999f;
         public boolean reserveCommitted = false;
         public StrikePlan strikePlan;
         public float lastStrikePlanEndTime = -100f;

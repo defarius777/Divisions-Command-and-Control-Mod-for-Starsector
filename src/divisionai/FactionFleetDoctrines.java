@@ -890,13 +890,16 @@ public final class FactionFleetDoctrines {
                 Object dtJson = JsonReflectBridge.optJSONObject(divTypesJson, dt.name());
                 if (dtJson == null) continue;
                 if (JsonReflectBridge.has(dtJson, "stationSpacing")) {
-                    cfg.setStationSpacing(dt, JsonReflectBridge.optInt(dtJson, "stationSpacing", cfg.getStationSpacing(dt)));
+                    int rawSp = JsonReflectBridge.optInt(dtJson, "stationSpacing", dt.defaultStationSpacingUnits);
+                    cfg.setStationSpacing(dt, PermanentDivisionManager.scaleVanillaStationSpacing(rawSp));
                 }
                 if (JsonReflectBridge.has(dtJson, "divisionInterval")) {
-                    cfg.setDivisionInterval(dt, JsonReflectBridge.optInt(dtJson, "divisionInterval", cfg.getDivisionInterval(dt)));
+                    int rawInt = JsonReflectBridge.optInt(dtJson, "divisionInterval", dt.defaultDivisionIntervalUnits);
+                    cfg.setDivisionInterval(dt, PermanentDivisionManager.scaleVanillaDivisionInterval(rawInt));
                 }
                 if (JsonReflectBridge.has(dtJson, "standoffRange")) {
-                    cfg.setStandoffRange(dt, JsonReflectBridge.optInt(dtJson, "standoffRange", cfg.getStandoffRange(dt)));
+                    int rawSt = JsonReflectBridge.optInt(dtJson, "standoffRange", dt.defaultStandoffRangeUnits);
+                    cfg.setStandoffRange(dt, PermanentDivisionManager.scaleVanillaStandoffRange(dt, rawSt));
                 }
                 if (JsonReflectBridge.has(dtJson, "stationKeepingMult")) {
                     cfg.setStationKeepingMult(dt, JsonReflectBridge.optFloat(dtJson, "stationKeepingMult", cfg.getStationKeepingMult(dt)));
@@ -939,6 +942,11 @@ public final class FactionFleetDoctrines {
                 if (JsonReflectBridge.has(dtJson, "maxRammingSlots")) {
                     cfg.setMaxRammingSlots(dt, JsonReflectBridge.optInt(
                             dtJson, "maxRammingSlots", cfg.getMaxRammingSlots(dt)));
+                }
+                String scCapRes = JsonReflectBridge.optString(dtJson, "strikeCraftCapReserve", null);
+                if (scCapRes != null && !scCapRes.isEmpty()) {
+                    cfg.setStrikeCraftCapReserve(dt, PermanentDivisionManager.StrikeCraftCapReserve.fromId(
+                            scCapRes, cfg.getStrikeCraftCapReserve(dt)));
                 }
                 String vsBias = JsonReflectBridge.optString(dtJson, "voidstrikeTargetingBias", null);
                 if (vsBias != null && !vsBias.isEmpty()) {
@@ -2616,6 +2624,50 @@ public final class FactionFleetDoctrines {
             return ((Collection<?>) rawIndep).contains(memberId);
         }
         return false;
+    }
+
+    /**
+     * Resolves a deduplicated map of {@code FleetMemberAPI.getId() -> PermanentDivisionSpec} (with
+     * fleet-scoped unique spec IDs) across all NPC {@link CampaignFleetAPI}s represented in {@code members}.
+     * Used by {@link DivisionDeploymentPlanner} so DP-capped AI fleets deploy intact divisions rather than
+     * random 1-ship skeleton fragments.
+     */
+    static Map<String, PermanentDivisionSpec> buildCampaignDivisionMapForMembers(Collection<FleetMemberAPI> members) {
+        Map<String, PermanentDivisionSpec> memberToSpec = new HashMap<>();
+        if (members == null || members.isEmpty()) {
+            return memberToSpec;
+        }
+        Map<CampaignFleetAPI, List<PermanentDivisionSpec>> specsBySourceFleet =
+                new java.util.IdentityHashMap<CampaignFleetAPI, List<PermanentDivisionSpec>>();
+        for (FleetMemberAPI fm : members) {
+            if (fm == null || fm.getId() == null) continue;
+            CampaignFleetAPI sourceFleet = resolveTrueCampaignSourceFleet(fm);
+            if (sourceFleet == null || sourceFleet.isPlayerFleet() || sourceFleet.isStationMode()) continue;
+
+            List<PermanentDivisionSpec> fleetSpecs = specsBySourceFleet.get(sourceFleet);
+            if (fleetSpecs == null) {
+                fleetSpecs = ensureFleetDivisionsSorted(sourceFleet);
+                specsBySourceFleet.put(sourceFleet, fleetSpecs);
+                if (fleetSpecs != null) {
+                    String fleetPrefix = "f" + System.identityHashCode(sourceFleet) + "_";
+                    for (PermanentDivisionSpec spec : fleetSpecs) {
+                        if (spec == null || spec.memberIds == null) continue;
+                        String uniqueSpecId = fleetPrefix + spec.id;
+                        PermanentDivisionSpec copy = new PermanentDivisionSpec(uniqueSpecId, spec.name, spec.archetype);
+                        copy.flagshipMemberId = spec.flagshipMemberId;
+                        copy.memberIds.addAll(spec.memberIds);
+                        copy.doctrine = spec.doctrine;
+                        copyCustomSpecFields(copy, spec);
+                        for (String mId : spec.memberIds) {
+                            if (mId != null && !memberToSpec.containsKey(mId)) {
+                                memberToSpec.put(mId, copy);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return memberToSpec;
     }
 
     public static List<ShipCapabilityProfile> applyCampaignNpcDivisionsInCombat(

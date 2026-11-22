@@ -75,12 +75,25 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     private int c2PerfTickCount = 0;
     private long c2PerfTotalSumNs = 0L;
     private long c2PerfMaxMs = 0L;
+    private long c2PerfMaxStageFrameMs = 0L;
     private long c2PerfSyncSumNs = 0L;
     private long c2PerfTelSumNs = 0L;
     private long c2PerfViewSumNs = 0L;
     private long c2PerfOtcSumNs = 0L;
     private long c2PerfDivSumNs = 0L;
     private long c2PerfVoidSumNs = 0L;
+    // 3-frame staggered C2 pipeline state (active in live combat after t=1.5s to split ~10ms C2 ticks into ~3ms sub-frames)
+    private int c2StaggerStage = 0;
+    private float c2StaggerCycleNow = 0f;
+    private boolean c2StaggerRunOtc = false;
+    private long c2StageSyncNs = 0L;
+    private long c2StageTelNs = 0L;
+    private long c2StageViewNs = 0L;
+    private long c2StageOtcNs = 0L;
+    private long c2StageDivNs = 0L;
+    private long c2StageMaxFrameNs = 0L;
+    private int lastCaptainSyncHullCount = -1;
+    private float captainSyncReverifyTimer = 0f;
     private final java.util.Set<String> loggedObfuscatedHookFailures = new java.util.HashSet<>();
     // Live DP snapshot [pSurv, pLost, pRet, eSurv, eLost, eRet] preserved across Starsector's post-combat teardown
     private final float[] cachedSummaryDp = new float[6];
@@ -131,12 +144,20 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         this.c2PerfTickCount = 0;
         this.c2PerfTotalSumNs = 0L;
         this.c2PerfMaxMs = 0L;
+        this.c2PerfMaxStageFrameMs = 0L;
         this.c2PerfSyncSumNs = 0L;
         this.c2PerfTelSumNs = 0L;
         this.c2PerfViewSumNs = 0L;
         this.c2PerfOtcSumNs = 0L;
         this.c2PerfDivSumNs = 0L;
         this.c2PerfVoidSumNs = 0L;
+        this.c2StaggerStage = 0;
+        this.c2StaggerCycleNow = 0f;
+        this.c2StaggerRunOtc = false;
+        this.c2StageMaxFrameNs = 0L;
+        this.lastCaptainSyncHullCount = -1;
+        this.captainSyncReverifyTimer = 0f;
+        KNOWN_VALID_WING_LEADERS.clear();
         this.lastConvStateSyncShipsCount = -1;
         this.loggedPlayerOtcInit = false;
         this.loggedAlliedAiOtcInit = false;
@@ -156,6 +177,8 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         BattlefieldFirepowerEvaluator.resetForNewBattle();
         DivisionOtcCommandManager.resetForNewBattle();
         VoidstrikeCoordinator.resetForNewBattle();
+        DivisionDeploymentPlanner.resetForNewBattle();
+        ShipCaptainAI.resetForNewBattle();
         DivisionAutoFormer.setActiveCombatEngine(engine);
         if (engine != null && engine.getCustomData() != null) {
             engine.getCustomData().put(ENGINE_CUSTOM_DATA_KEY, this);
@@ -462,6 +485,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         // Organize the Deployment Window even while the combat engine is paused during deployment
         deploymentOrganizer.setBattleContext(playerGroup, enemyGroup, musicController);
         deploymentOrganizer.advance(engine);
+        DivisionDeploymentPlanner.ensureAttached(engine);
 
         if (initializedBattle) {
             tacticalOverlay.setBattleGroups(playerGroup, alliedAiGroup, enemyGroup);
@@ -494,6 +518,15 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         // Immediately intercept newly deployed ship waves on their first frame (even while paused right after closing
         // the deployment dialog) so they form divisions and zoom into battle in formation immediately
         interceptNewlyDeployedWaves(now);
+        if (initializedBattle) {
+            int curShipsSize = (engine.getShips() != null) ? engine.getShips().size() : 0;
+            captainSyncReverifyTimer += amount;
+            if (curShipsSize != lastCaptainSyncHullCount || captainSyncReverifyTimer >= 0.20f) {
+                lastCaptainSyncHullCount = curShipsSize;
+                captainSyncReverifyTimer = 0f;
+                ShipCaptainAI.syncBattleContextAndInstall(engine, playerGroup, alliedAiGroup, enemyGroup);
+            }
+        }
 
         if (tacticalOverlay != null) {
             tacticalOverlay.pruneLeakedWarroomOrderArrows();
@@ -516,11 +549,21 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         otcTimer += amount;
         tsfcTimer += amount;
 
-        if (divisionTimer >= DIVISION_EVAL_INTERVAL) {
+        boolean ranC2SubStageThisFrame = false;
+        if (c2StaggerStage == 1) {
+            runStaggeredC2Stage1(now);
+            ranC2SubStageThisFrame = true;
+        } else if (c2StaggerStage == 2) {
+            runStaggeredC2Stage2(now);
+            ranC2SubStageThisFrame = true;
+        } else if (divisionTimer >= DIVISION_EVAL_INTERVAL) {
             divisionTimer = 0f;
             tsfcTimer = 0f;
-            runPeriodicC2EvaluationTick(now);
-        } else if (tsfcTimer >= TSFC_EVAL_INTERVAL) {
+            boolean allowStagger = BattlefieldFirepowerEvaluator.isRealCombatEngine(engine) && now >= 1.5f;
+            runPeriodicC2EvaluationTick(now, allowStagger);
+            ranC2SubStageThisFrame = true;
+        }
+        if (!ranC2SubStageThisFrame && tsfcTimer >= TSFC_EVAL_INTERVAL) {
             tsfcTimer = 0f;
             BattlefieldFirepowerEvaluator.updateTsfcKeyframeTick(
                     engine, now, playerGroup, alliedAiGroup, enemyGroup, side1OpposingView, side0OpposingView);
@@ -534,9 +577,6 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         // Ensure every active FighterWing has a non-null leader and non-null leaderFlockingAI so vanilla
         // FighterAI.advance never throws a NullPointerException when a wing leader is killed while returning
         ensureAllFighterWingsHaveValidLeaders(engine);
-        if (tacticalOverlay != null) {
-            tacticalOverlay.sanitizeWarroomStaleFighterWingMenus();
-        }
         advanceMusicController(amount);
         maintainPlayerHudStatus();
     }
@@ -592,6 +632,10 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
     }
 
     private void runPeriodicC2EvaluationTick(float now) {
+        runPeriodicC2EvaluationTick(now, false);
+    }
+
+    private void runPeriodicC2EvaluationTick(float now, boolean allowMultiFrameStagger) {
         long tickStartNs = System.nanoTime();
 
         List<ShipAPI> playerHulls = new ArrayList<>();
@@ -616,6 +660,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                 engine, alliedAiGroup, alliedAiHulls);
         List<DivisionState> newEnemyDivs = DivisionAutoFormer.syncDivisionsForSide(
                 engine, enemyGroup, enemyHulls);
+        if (!newPlayerDivs.isEmpty() || !newAlliedAiDivs.isEmpty() || !newEnemyDivs.isEmpty()) {
+            ShipCaptainAI.syncBattleContextAndInstall(engine, playerGroup, alliedAiGroup, enemyGroup);
+        }
 
         long markSyncNs = System.nanoTime();
         boolean playerHasDivisions = !playerGroup.divisions.isEmpty();
@@ -677,10 +724,29 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
         BattlefieldFirepowerEvaluator.evaluateAllGroupsTimeSpaceConvergenceOncePerTick(
                 engine, now, playerGroup, alliedAiGroup, enemyGroup, side1OpposingView, side0OpposingView);
+        long markAfterTsfcNs = System.nanoTime();
 
         boolean anyNewDivs = !newPlayerDivs.isEmpty() || !newAlliedAiDivs.isEmpty() || !newEnemyDivs.isEmpty();
-        if (otcTimer >= OTC_EVAL_INTERVAL || anyNewDivs) {
+        boolean runOtc = (otcTimer >= OTC_EVAL_INTERVAL || anyNewDivs);
+        if (runOtc) {
             otcTimer = 0f;
+        }
+
+        if (allowMultiFrameStagger && !anyNewDivs) {
+            this.c2StaggerCycleNow = now;
+            this.c2StaggerRunOtc = runOtc;
+            this.c2StageSyncNs = markSyncNs - tickStartNs;
+            this.c2StageTelNs = markTelemetryNs - markSyncNs;
+            this.c2StageViewNs = markAfterTsfcNs - markTelemetryNs;
+            this.c2StageOtcNs = 0L;
+            this.c2StageDivNs = 0L;
+            this.c2StageMaxFrameNs = markAfterTsfcNs - tickStartNs;
+            this.c2StaggerStage = 1;
+            return;
+        }
+
+        long markBeforeOtcNs = System.nanoTime();
+        if (runOtc) {
             if (playerHasDivisions) {
                 OtcAI.evaluateOtcStrategy(engine, playerGroup, side1OpposingView, now);
             }
@@ -709,8 +775,80 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         VoidstrikeCoordinator.updateVoidstrikes(engine, playerGroup, alliedAiGroup, enemyGroup, now);
         long markVoidNs = System.nanoTime();
 
-        recordC2TickPerformance(
-                now, tickStartNs, markSyncNs, markTelemetryNs, markViewNs, markOtcNs, markDivNs, markVoidNs);
+        long fullFrameNs = markVoidNs - tickStartNs;
+        recordC2TickPerformanceDurations(
+                now,
+                markSyncNs - tickStartNs,
+                markTelemetryNs - markSyncNs,
+                markBeforeOtcNs - markTelemetryNs,
+                markOtcNs - markBeforeOtcNs,
+                markDivNs - markOtcNs,
+                markVoidNs - markDivNs,
+                fullFrameNs);
+        updateCachedBattleSummaryDp(engine);
+    }
+
+    private void runStaggeredC2Stage1(float now) {
+        long t0 = System.nanoTime();
+        boolean playerHasDivisions = !playerGroup.divisions.isEmpty();
+        boolean alliedAiHasDivisions = !alliedAiGroup.divisions.isEmpty();
+        boolean enemyHasDivisions = !enemyGroup.divisions.isEmpty();
+        if (c2StaggerRunOtc) {
+            if (playerHasDivisions && side1OpposingView != null) {
+                OtcAI.evaluateOtcStrategy(engine, playerGroup, side1OpposingView, now);
+            }
+            if (alliedAiHasDivisions && side1OpposingView != null) {
+                OtcAI.evaluateOtcStrategy(engine, alliedAiGroup, side1OpposingView, now);
+            }
+            if (enemyHasDivisions && !enemyGroup.isPassiveOpposingView && side0OpposingView != null) {
+                OtcAI.evaluateOtcStrategy(engine, enemyGroup, side0OpposingView, now);
+            }
+        }
+        long tOtc = System.nanoTime();
+        if (playerHasDivisions && side1OpposingView != null) {
+            DivisionCommanderAI.evaluateAndExecuteDivisions(engine, playerGroup, side1OpposingView, now);
+        }
+        if (alliedAiHasDivisions && side1OpposingView != null) {
+            DivisionCommanderAI.evaluateAndExecuteDivisions(engine, alliedAiGroup, side1OpposingView, now);
+        }
+        long tEnd = System.nanoTime();
+        this.c2StageOtcNs = tOtc - t0;
+        this.c2StageDivNs = tEnd - tOtc;
+        long frameNs = tEnd - t0;
+        if (frameNs > this.c2StageMaxFrameNs) {
+            this.c2StageMaxFrameNs = frameNs;
+        }
+        this.c2StaggerStage = 2;
+    }
+
+    private void runStaggeredC2Stage2(float now) {
+        long t0 = System.nanoTime();
+        boolean enemyHasDivisions = !enemyGroup.divisions.isEmpty();
+        if (enemyHasDivisions && side0OpposingView != null && !side0OpposingView.divisions.isEmpty()) {
+            DivisionCommanderAI.evaluateAndExecuteDivisions(engine, enemyGroup, side0OpposingView, now);
+        }
+        BattlefieldFirepowerEvaluator.refreshConvergenceTargetsAndWatermarksAfterC2(
+                engine, now, playerGroup, alliedAiGroup, enemyGroup);
+        long tDiv = System.nanoTime();
+        VoidstrikeCoordinator.updateVoidstrikes(engine, playerGroup, alliedAiGroup, enemyGroup, now);
+        long tEnd = System.nanoTime();
+
+        long stage2DivNs = tDiv - t0;
+        long stage2VoidNs = tEnd - tDiv;
+        long frameNs = tEnd - t0;
+        if (frameNs > this.c2StageMaxFrameNs) {
+            this.c2StageMaxFrameNs = frameNs;
+        }
+        this.c2StaggerStage = 0;
+        recordC2TickPerformanceDurations(
+                c2StaggerCycleNow > 0f ? c2StaggerCycleNow : now,
+                c2StageSyncNs,
+                c2StageTelNs,
+                c2StageViewNs,
+                c2StageOtcNs,
+                c2StageDivNs + stage2DivNs,
+                stage2VoidNs,
+                c2StageMaxFrameNs);
         updateCachedBattleSummaryDp(engine);
     }
 
@@ -743,38 +881,40 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         }
     }
 
-    private void recordC2TickPerformance(
+    private void recordC2TickPerformanceDurations(
             float now,
-            long tickStartNs,
-            long markSyncNs,
-            long markTelemetryNs,
-            long markViewNs,
-            long markOtcNs,
-            long markDivNs,
-            long markVoidNs) {
-        long totalNs = markVoidNs - tickStartNs;
+            long syncNs,
+            long telNs,
+            long viewNs,
+            long otcNs,
+            long divNs,
+            long voidNs,
+            long maxSingleFrameNs) {
+        long totalNs = syncNs + telNs + viewNs + otcNs + divNs + voidNs;
         long totalMs = totalNs / 1000000L;
+        long maxStageFrameMs = maxSingleFrameNs / 1000000L;
         c2PerfTickCount++;
         c2PerfTotalSumNs += totalNs;
         if (totalMs > c2PerfMaxMs) c2PerfMaxMs = totalMs;
-        c2PerfSyncSumNs += (markSyncNs - tickStartNs);
-        c2PerfTelSumNs += (markTelemetryNs - markSyncNs);
-        c2PerfViewSumNs += (markViewNs - markTelemetryNs);
-        c2PerfOtcSumNs += (markOtcNs - markViewNs);
-        c2PerfDivSumNs += (markDivNs - markOtcNs);
-        c2PerfVoidSumNs += (markVoidNs - markDivNs);
+        if (maxStageFrameMs > c2PerfMaxStageFrameMs) c2PerfMaxStageFrameMs = maxStageFrameMs;
+        c2PerfSyncSumNs += syncNs;
+        c2PerfTelSumNs += telNs;
+        c2PerfViewSumNs += viewNs;
+        c2PerfOtcSumNs += otcNs;
+        c2PerfDivSumNs += divNs;
+        c2PerfVoidSumNs += voidNs;
         int shipCount = engine.getShips() != null ? engine.getShips().size() : 0;
-        if (totalMs >= 18L) {
+        if (maxStageFrameMs >= 16L) {
             LOG.info(String.format(
                     java.util.Locale.ROOT,
-                    "[DivisionAI] C2 tick %d ms (now=%.2fs): sync=%.1fms telemetry=%.1fms views=%.1fms otc=%.1fms divisions=%.1fms voidstrikes=%.1fms | divs=%d/%d/%d ships=%d roses=%d",
-                    totalMs, now,
-                    (markSyncNs - tickStartNs) / 1e6f,
-                    (markTelemetryNs - markSyncNs) / 1e6f,
-                    (markViewNs - markTelemetryNs) / 1e6f,
-                    (markOtcNs - markViewNs) / 1e6f,
-                    (markDivNs - markOtcNs) / 1e6f,
-                    (markVoidNs - markDivNs) / 1e6f,
+                    "[DivisionAI] C2 tick %d ms (maxFrame=%dms, now=%.2fs): sync=%.1fms telemetry=%.1fms views=%.1fms otc=%.1fms divisions=%.1fms voidstrikes=%.1fms | divs=%d/%d/%d ships=%d roses=%d",
+                    totalMs, maxStageFrameMs, now,
+                    syncNs / 1e6f,
+                    telNs / 1e6f,
+                    viewNs / 1e6f,
+                    otcNs / 1e6f,
+                    divNs / 1e6f,
+                    voidNs / 1e6f,
                     playerGroup.divisions.size(), alliedAiGroup.divisions.size(), enemyGroup.divisions.size(),
                     shipCount, BattlefieldFirepowerEvaluator.getRoseCount()));
         }
@@ -782,9 +922,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             float inv = 1.0f / (c2PerfTickCount * 1e6f);
             LOG.info(String.format(
                     java.util.Locale.ROOT,
-                    "[DivisionAI] C2 perf (%d ticks, now=%.1fs): avg=%.2fms max=%dms | sync=%.2fms telemetry=%.2fms views=%.2fms otc=%.2fms divisions=%.2fms voidstrikes=%.2fms | divs=%d/%d/%d ships=%d roses=%d",
+                    "[DivisionAI] C2 perf (%d ticks, now=%.1fs): avg=%.2fms max=%dms maxFrame=%dms | sync=%.2fms telemetry=%.2fms views=%.2fms otc=%.2fms divisions=%.2fms voidstrikes=%.2fms | divs=%d/%d/%d ships=%d roses=%d",
                     c2PerfTickCount, now,
-                    c2PerfTotalSumNs * inv, c2PerfMaxMs,
+                    c2PerfTotalSumNs * inv, c2PerfMaxMs, c2PerfMaxStageFrameMs,
                     c2PerfSyncSumNs * inv, c2PerfTelSumNs * inv, c2PerfViewSumNs * inv,
                     c2PerfOtcSumNs * inv, c2PerfDivSumNs * inv, c2PerfVoidSumNs * inv,
                     playerGroup.divisions.size(), alliedAiGroup.divisions.size(), enemyGroup.divisions.size(),
@@ -792,6 +932,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             c2PerfTickCount = 0;
             c2PerfTotalSumNs = 0L;
             c2PerfMaxMs = 0L;
+            c2PerfMaxStageFrameMs = 0L;
             c2PerfSyncSumNs = 0L;
             c2PerfTelSumNs = 0L;
             c2PerfViewSumNs = 0L;
@@ -800,6 +941,9 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             c2PerfVoidSumNs = 0L;
         }
     }
+
+    private static final java.util.WeakHashMap<com.fs.starfarer.api.combat.FighterWingAPI, ShipAPI> KNOWN_VALID_WING_LEADERS =
+            new java.util.WeakHashMap<>();
 
     private static MethodHandle mhWingSetLeader;
     private static MethodHandle mhWingGetLeaderFlockingAI;
@@ -864,10 +1008,15 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
 
     public static ShipAPI ensureFighterWingLeaderAndFlockingAI(com.fs.starfarer.api.combat.FighterWingAPI wing) {
         if (wing == null) return null;
+        ShipAPI leader = wing.getLeader();
+        boolean isRealCombatWing = wing.getClass().getName().startsWith("com.fs.starfarer.combat.");
+        if (isRealCombatWing && leader != null && leader.isAlive() && !leader.isHulk()
+                && KNOWN_VALID_WING_LEADERS.get(wing) == leader) {
+            return leader;
+        }
         List<ShipAPI> members = wing.getWingMembers();
         if (members == null || members.isEmpty()) return null;
 
-        ShipAPI leader = wing.getLeader();
         if (leader == null || !leader.isAlive() || leader.isHulk()) {
             ShipAPI fallback = null;
             for (int i = 0, n = members.size(); i < n; i++) {
@@ -903,13 +1052,19 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
                             Object flockAi = mhFighterAIGetFlockingAI.invoke(shipAi);
                             if (flockAi != null) {
                                 mhWingSetLeaderFlockingAI.invoke(wing, flockAi);
+                                leaderFlocking = flockAi;
                                 break;
                             }
                         }
                     }
                 }
+                if (isRealCombatWing && leaderFlocking != null && leader != null && leader.isAlive() && !leader.isHulk()) {
+                    KNOWN_VALID_WING_LEADERS.put(wing, leader);
+                }
             } catch (Throwable ignored) {
             }
+        } else if (isRealCombatWing && leader != null && leader.isAlive() && !leader.isHulk()) {
+            KNOWN_VALID_WING_LEADERS.put(wing, leader);
         }
         return leader;
     }
@@ -1246,25 +1401,45 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         List<DivisionArchetype> builtArchs = new ArrayList<>();
 
         while (!remaining.isEmpty()) {
-            // Seed cluster with the heaviest remaining ship
-            int bestSeedIdx = 0;
-            float bestFp = -1f;
-            for (int i = 0; i < remaining.size(); i++) {
-                ShipAPI s = remaining.get(i);
-                float fp = ShipCapabilityProfile.resolveShipFpStrength(s);
-                if (fp > bestFp) {
-                    bestFp = fp;
-                    bestSeedIdx = i;
+            // Seed cluster with an existing pool flagship first so "Independent Contact 1" stays anchored to the
+            // same ship/cluster across Fog-of-War flickers instead of teleporting whenever a heavier ship appears!
+            int bestSeedIdx = -1;
+            if (pool != null && !pool.isEmpty()) {
+                for (int pIdx = 0, pLen = pool.size(); pIdx < pLen && bestSeedIdx < 0; pIdx++) {
+                    DivisionState existing = pool.get(pIdx);
+                    if (existing == null || existing.flagship == null) continue;
+                    String prevLeadId = existing.flagship.getId();
+                    if (prevLeadId == null) continue;
+                    for (int i = 0; i < remaining.size(); i++) {
+                        ShipAPI s = remaining.get(i);
+                        if (s != null && prevLeadId.equals(s.getId())) {
+                            bestSeedIdx = i;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (bestSeedIdx < 0) {
+                bestSeedIdx = 0;
+                float bestFp = -1f;
+                for (int i = 0; i < remaining.size(); i++) {
+                    ShipAPI s = remaining.get(i);
+                    float fp = ShipCapabilityProfile.resolveShipFpStrength(s);
+                    if (fp > bestFp) {
+                        bestFp = fp;
+                        bestSeedIdx = i;
+                    }
                 }
             }
             ShipAPI lead = remaining.remove(bestSeedIdx);
             List<ShipAPI> cluster = new ArrayList<>();
             cluster.add(lead);
 
-            // Greedily add up to 4 nearest unassigned ships within 1200u of the seed ship
+            // Greedily add up to 4 nearest unassigned ships within 1200u * wScale of the seed ship
+            float clusterMergeRadius = 1200f * CombatPhysicsProfile.getWeaponRangeScale(null);
             while (cluster.size() < 5 && !remaining.isEmpty()) {
                 int nearestIdx = -1;
-                float nearestDist = 1200f;
+                float nearestDist = clusterMergeRadius;
                 for (int i = 0; i < remaining.size(); i++) {
                     ShipAPI cand = remaining.get(i);
                     float dx = cand.getLocation().x - lead.getLocation().x;

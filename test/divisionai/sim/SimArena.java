@@ -743,6 +743,12 @@ public class SimArena {
                         if ("getAllWings".equals(n)) return wings;
                         if ("getWing".equals(n)) return wing;
                         if ("getShipAI".equals(n)) return shipAI;
+                        if ("setShipAI".equals(n)) {
+                            shipAI = (a != null && a.length > 0 && a[0] instanceof com.fs.starfarer.api.combat.ShipAIPlugin)
+                                    ? (com.fs.starfarer.api.combat.ShipAIPlugin) a[0]
+                                    : null;
+                            return null;
+                        }
                         if ("getCustomData".equals(n)) return customData;
                         if ("isPullBackFighters".equals(n)) return pullBackFighters;
                         if ("setPullBackFighters".equals(n)) {
@@ -898,6 +904,7 @@ public class SimArena {
     public float mapHeight = 18000f;
     public final List<SimShipState> ships = new ArrayList<>();
     public final List<BattleObjectiveAPI> objectives = new ArrayList<>();
+    public final List<com.fs.starfarer.api.combat.MissileAPI> missiles = new ArrayList<>();
     public final List<CombatFleetManagerAPI.AssignmentInfo> playerAssignments = new ArrayList<>();
     public final List<com.fs.starfarer.api.fleet.FleetMemberAPI> reservesSide0 = new ArrayList<>();
     public final List<com.fs.starfarer.api.fleet.FleetMemberAPI> reservesSide1 = new ArrayList<>();
@@ -1129,6 +1136,7 @@ public class SimArena {
                         return (side == 1) ? fogProxy1 : fogProxy0;
                     }
                     if ("getObjectives".equals(n)) return objectives;
+                    if ("getMissiles".equals(n)) return missiles;
                     if ("getPlayerShip".equals(n)) return playerShip;
                     if ("isUIAutopilotOn".equals(n)) return uiAutopilotOn;
                     if ("isPaused".equals(n)) return paused;

@@ -34,11 +34,13 @@ public class DivisionAIModPlugin extends BaseModPlugin {
 
     @Override
     public void onGameLoad(boolean newGame) {
+        CombatPhysicsProfile.invalidateGlobalSpecCache();
         DivisionAISettings.applyFleetAndBattleSizeOverrides();
         SectorAPI sector = Global.getSector();
         if (sector != null) {
             PermanentDivisionManager.ensureInitializedForPlayerFleet();
             PermanentDivisionManager.migrateAutoStandoffToGunRange();
+            PermanentDivisionManager.syncDoctrineAndDivisionDefaultsWithPhysicsScale();
             PermanentDivisionManager.migrateDivisionNamesToNavalTerms();
             PermanentDivisionManager.migrateFleetWideFormationDefaultToAuto();
             DivisionNomenclature.sanitizePersistentNamingData(sector);

@@ -2289,12 +2289,14 @@ public class BattlefieldFirepowerEvaluator {
             myGroup.enemyReinforcementHazard = 0f;
             return;
         }
+        float mScale = CombatPhysicsProfile.getMapScale(engine);
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         float halfH = (engine.getMapHeight() > 2000f) ? (engine.getMapHeight() * 0.5f) : 9000f;
         float halfW = (engine.getMapWidth() > 2000f) ? (engine.getMapWidth() * 0.5f) : 9000f;
-        float enemyEdgeY = (myGroup.side == 0) ? (halfH - 550f) : (-halfH + 550f);
+        float enemyEdgeY = (myGroup.side == 0) ? (halfH - 550f * mScale) : (-halfH + 550f * mScale);
         myGroup.enemySpawnGateCenter.set(0f, enemyEdgeY);
-        myGroup.enemySpawnCorridorHalfWidth = Math.min(2350f, halfW * 0.34f);
-        myGroup.enemySpawnCorridorDepth = Math.min(3200f, halfH * 0.38f);
+        myGroup.enemySpawnCorridorHalfWidth = Math.min(2350f * Math.max(mScale, wScale * 0.85f), halfW * 0.34f);
+        myGroup.enemySpawnCorridorDepth = Math.min(3200f * Math.max(mScale, wScale * 0.85f), halfH * 0.38f);
 
         int enemyOwner = 1 - myGroup.side;
         com.fs.starfarer.api.combat.CombatFleetManagerAPI enemyFm = engine.getFleetManager(enemyOwner);
@@ -2989,10 +2991,11 @@ public class BattlefieldFirepowerEvaluator {
             threatCenter = OtcAI.getVisibleCentroidForSide(engine, div.side, myGroup.primaryThreatEnemyDivision);
             enemyRange = Math.max(750f, myGroup.primaryThreatEnemyDivision.avgEngageRange);
         }
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         float retreatDirY = OtcAI.getBattleGroupRetreatDirY(myGroup);
         boolean isRearguardEscape = (myGroup != null && myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
         if (threatCenter == null) {
-            outOffset.set(0f, retreatDirY * 420f);
+            outOffset.set(0f, retreatDirY * 420f * wScale);
             return;
         }
 
@@ -3019,9 +3022,9 @@ public class BattlefieldFirepowerEvaluator {
         float latY = awayX;
 
         // Target distance: step back to the outer band of our own gun envelope (or just outside short-range enemy alpha)
-        float myRange = Math.max(780f, div.avgEngageRange > 250f ? div.avgEngageRange : div.standoffRange);
+        float myRange = Math.max(780f * wScale, div.avgEngageRange > 250f ? div.avgEngageRange : div.standoffRange);
         float desiredKiteDist = Math.max(myRange * 0.96f, Math.min(myRange * 1.06f, enemyRange * 0.98f));
-        float radialStep = clampVal(desiredKiteDist - dist + 280f, 240f, 640f);
+        float radialStep = clampVal(desiredKiteDist - dist + 280f * wScale, 240f * wScale, 640f * wScale);
 
         // Check rear and lateral boundary clearance so we never back straight into a map corner;
         // if rear clearance is tight or we are in a crossfire cordon, slide laterally toward the open side!
@@ -3546,7 +3549,8 @@ public class BattlefieldFirepowerEvaluator {
                     }
                     wingSpeedAccum += fSpd;
                     float wr = VoidstrikeCoordinator.resolveEffectiveWingEngagementRange(s, wing);
-                    wingRangeAccum += clampVal(wr, 1200f, 3400f);
+                    float fScale = CombatPhysicsProfile.getFighterRangeScale(null);
+                    wingRangeAccum += clampVal(wr, 1200f, 3400f * Math.max(1.0f, fScale * 0.75f));
                     // Strike craft project fast sortie Time speed for their carrier division
                     float wingTimeWeight = 5.5f;
                     weightedSpeedSum += (fSpd * 0.72f) * wingTimeWeight;
@@ -3554,9 +3558,10 @@ public class BattlefieldFirepowerEvaluator {
                 }
             } else if (s.getNumFighterBays() > 0 && !VoidstrikeCoordinator.isCarrierFighterRangeZeroedByHullmod(s)) {
                 int bays = s.getNumFighterBays();
+                float fScale = CombatPhysicsProfile.getFighterRangeScale(null);
                 totalFighterWings += bays;
                 wingSpeedAccum += 235f * bays;
-                wingRangeAccum += 2200f * bays;
+                wingRangeAccum += 2200f * Math.max(1.0f, fScale * 0.75f) * bays;
                 float wingTimeWeight = 5.0f * bays;
                 weightedSpeedSum += (235f * 0.72f) * wingTimeWeight;
                 weightSum += wingTimeWeight;
@@ -3640,17 +3645,19 @@ public class BattlefieldFirepowerEvaluator {
         // ship-to-ship hull collision blocking). Therefore, strike craft do NOT inflate Zone 1 (spaceInnerRadius),
         // which is strictly anchored by the division's solid warship hulls and direct hull weapon reach!
         // Strike craft instead project permeable sortie Space into Zone 2 (spaceDominatedRadius) and Zone 3 (spacePotentialRadius).
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(null);
+        float fScale = CombatPhysicsProfile.getFighterRangeScale(null);
         float wingInnerBonus = 0f;
-        float wingDomBonus = Math.min(340f, totalFighterWings * 60f * readiness);
+        float wingDomBonus = Math.min(340f * Math.max(1.0f, fScale * 0.60f), totalFighterWings * 60f * readiness);
         float minInnerFloor = (isIndepOrUnassigned && div.totalFpStrength < 20f) ? 240f : 380f;
         div.spaceInnerRadius = clampVal(
-                (div.spreadRadius * 0.55f + Math.min(900f, coreHullEngageRange * 0.50f)) * ehpRadiusFactor + wingInnerBonus,
+                (div.spreadRadius * 0.55f + Math.min(900f * wScale, coreHullEngageRange * 0.50f)) * ehpRadiusFactor + wingInnerBonus,
                 minInnerFloor,
-                1520f);
+                1520f * wScale);
         div.spaceDominatedRadius = clampVal(
                 (div.spreadRadius * 0.72f + effRange * (0.84f + 0.22f * readiness)) * ehpRadiusFactor + wingDomBonus,
                 div.spaceInnerRadius + 220f,
-                2680f);
+                2680f * Math.max(wScale, fScale * 0.70f));
         float effectiveSpaceMass = 0.38f * div.totalFpStrength + 0.62f * ehpEquivalentStrength;
         float unableDiscount = div.isUnableDivision
                 ? 0.22f

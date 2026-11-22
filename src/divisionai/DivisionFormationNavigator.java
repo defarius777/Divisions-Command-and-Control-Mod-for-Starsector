@@ -302,7 +302,8 @@ public class DivisionFormationNavigator {
             float marchDist,
             float marchDirX,
             float marchDirY) {
-        float desiredInter = Math.max(400f, div.divisionInterval);
+        float iScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalDivisionIntervalMult());
+        float desiredInter = Math.max(400f * iScale, div.divisionInterval);
         for (DivisionState peerDiv : myGroup.divisions) {
             if (peerDiv == null || peerDiv == div || !peerDiv.isCombatEffective()) continue;
             if (peerDiv == div.targetFriendlyDivision) continue;
@@ -311,7 +312,7 @@ public class DivisionFormationNavigator {
             float idy = div.centroid.y - peerDiv.centroid.y;
             float iDist = (float) Math.sqrt(idx * idx + idy * idy);
             if (iDist > 1f && iDist < minInter) {
-                float push = Math.min(420f, (minInter - iDist) * 0.55f);
+                float push = Math.min(420f * iScale, (minInter - iDist) * 0.55f);
                 float px = (idx / iDist) * push;
                 float py = (idy / iDist) * push;
                 if (marchDist > 180f) {
@@ -1426,7 +1427,8 @@ public class DivisionFormationNavigator {
             dy = dy * 0.65f + (myGroup.reserveStation.y - friend.centroid.y) * 0.35f;
         }
         float len = (float) Math.sqrt(dx * dx + dy * dy);
-        float supportDist = Math.max(420f, Math.min(680f, reinforcer.stationSpacing * 1.15f));
+        float sScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalStationSpacingMult());
+        float supportDist = Math.max(420f * sScale, Math.min(680f * sScale, reinforcer.stationSpacing * 1.15f));
         if (len > 1f) {
             outStation.set(
                     friend.centroid.x + (dx / len) * supportDist,
@@ -1440,7 +1442,7 @@ public class DivisionFormationNavigator {
         clampToMapBounds(engine, outStation, 650f);
     }
 
-    static void computeScreeningStation(
+    public static void computeScreeningStation(
             CombatEngineAPI engine,
             DivisionState screenDiv,
             DivisionState protectedDiv,
@@ -1448,9 +1450,17 @@ public class DivisionFormationNavigator {
             Vector2f outStation,
             int side) {
         if (protectedDiv == null) return;
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         float standoff = (screenDiv != null) ? Math.max(550f, screenDiv.standoffRange) : 750f;
+
+        // Zero-Bearing-Rate Aegis Picket: if ONLY ONE division is screening protectedDiv, center it directly on the
+        // threat line-of-bearing (`lateralOffset = 0`) so 4x-speed missiles and fast bombers fly straight down the
+        // throats of its forward PD arcs (~0 deg/s crossing angular rate) instead of streaking past a side-parked screen!
+        boolean multipleScreensOnSameAnchor = ShipCaptainAI.hasSiblingScreenOnSameAnchor(screenDiv, protectedDiv, side);
         float flankSign = (screenDiv != null && screenDiv.divisionNumber % 2 == 0) ? -1f : 1f;
-        float lateralOffset = (screenDiv != null) ? Math.max(320f, screenDiv.stationSpacing * 0.85f) * flankSign : 0f;
+        float lateralOffset = (multipleScreensOnSameAnchor && screenDiv != null)
+                ? Math.max(320f, screenDiv.stationSpacing * 0.75f) * flankSign
+                : 0f;
 
         if (enemyDiv != null) {
             Vector2f visEnemyPos = OtcAI.getVisibleCentroidForSide(engine, side, enemyDiv);
@@ -1462,8 +1472,12 @@ public class DivisionFormationNavigator {
                 float fwdY = dy / len;
                 float latX = -fwdY;
                 float latY = fwdX;
-                float minEnemyClearance = Math.max(780f, (screenDiv != null && screenDiv.avgEngageRange > 250f) ? screenDiv.avgEngageRange * 0.85f : standoff);
-                float fwdAdvance = Math.min(standoff * 0.65f, Math.max(120f, len - minEnemyClearance));
+                float minEnemyClearance = Math.max(780f * Math.min(2.2f, wScale),
+                        (screenDiv != null && screenDiv.avgEngageRange > 250f) ? screenDiv.avgEngageRange * 0.85f : standoff);
+                float desiredPicketLead = (wScale > 1.25f)
+                        ? Math.max(standoff * 0.78f, Math.min(2100f, 620f * wScale))
+                        : standoff * 0.65f;
+                float fwdAdvance = Math.min(desiredPicketLead, Math.max(160f * Math.min(2.0f, wScale), len - minEnemyClearance));
                 outStation.set(
                         protectedDiv.centroid.x + fwdX * fwdAdvance + latX * lateralOffset,
                         protectedDiv.centroid.y + fwdY * fwdAdvance + latY * lateralOffset);
@@ -1521,8 +1535,10 @@ public class DivisionFormationNavigator {
                 float relY = flankerDiv.centroid.y - visEnemyPos.y;
                 float relLen = (float) Math.sqrt(relX * relX + relY * relY);
                 float forwardDot = (relLen > 1f) ? ((relX * fwdX + relY * fwdY) / relLen) : -1f;
-                float lateralMult = (forwardDot < -0.15f && !targetCorneredOrWeak) ? 1.28f : 1.0f;
-                float depthMult = (forwardDot < -0.15f) ? 0.15f : 0.32f;
+                // Smoothly ramp lateral/depth flank offsets across forwardDot in [-0.35, +0.05] to prevent ~1,100u step jumps!
+                float frontBlend = Math.max(0f, Math.min(1f, (-0.05f - forwardDot) / 0.30f));
+                float lateralMult = targetCorneredOrWeak ? 1.0f : (1.0f + 0.28f * frontBlend);
+                float depthMult = 0.32f - 0.17f * frontBlend;
                 outStation.set(
                         visEnemyPos.x + perpX * flankRadius * lateralMult * assignedSide + fwdX * flankRadius * depthMult,
                         visEnemyPos.y + perpY * flankRadius * lateralMult * assignedSide + fwdY * flankRadius * depthMult);
@@ -1673,7 +1689,7 @@ public class DivisionFormationNavigator {
         div.hasRouteWaypoint = DivisionCommanderAI.distance(div.routeWaypoint, div.stationPoint) > 220f;
     }
 
-    static Vector2f computeOutOfContactRoutePoint(
+    public static Vector2f computeOutOfContactRoutePoint(
             CombatEngineAPI engine,
             int side,
             Vector2f startPos,
@@ -1742,20 +1758,21 @@ public class DivisionFormationNavigator {
             float distStartToEnemy = DivisionCommanderAI.distance(startPos, eCenter);
 
             // Threat avoidance radius: enemy engagement range + spread + out-of-contact buffer
-            float threatRadius = Math.max(1150f, eDiv.avgEngageRange * 1.10f)
-                    + Math.min(700f, eDiv.spreadRadius * 0.70f)
-                    + 320f;
+            float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
+            float threatRadius = Math.max(1150f * rScale, eDiv.avgEngageRange * 1.10f)
+                    + Math.min(700f * rScale, eDiv.spreadRadius * 0.70f)
+                    + 320f * rScale;
             if (eDiv == flankTargetDiv) {
                 // For the enemy division being flanked, keep the avoidance disc just inside the flank station radius
                 // so the flanker sweeps around its front/beam out of contact rather than cutting across its nose.
-                threatRadius = Math.min(threatRadius, Math.max(850f, distGoalToEnemy * 0.88f));
-            } else if (distGoalToEnemy < 950f) {
+                threatRadius = Math.min(threatRadius, Math.max(850f * rScale, distGoalToEnemy * 0.88f));
+            } else if (distGoalToEnemy < 950f * rScale) {
                 // If goalPos itself (e.g. a contested Control Point) sits inside or right next to this enemy division,
                 // do not detour around goalPos itself — the division must enter goalPos directly!
                 continue;
-            } else if (distGoalToEnemy < threatRadius + 140f) {
+            } else if (distGoalToEnemy < threatRadius + 140f * rScale) {
                 // If goalPos sits near the edge of this enemy division, shrink avoidance radius so goalPos remains reachable
-                threatRadius = Math.max(700f, distGoalToEnemy - 140f);
+                threatRadius = Math.max(700f * rScale, distGoalToEnemy - 140f * rScale);
             }
 
             // Project eCenter onto segment A -> B
@@ -1792,13 +1809,14 @@ public class DivisionFormationNavigator {
         float clusterX = blockingCenter.x * blockingDiv.totalFpStrength;
         float clusterY = blockingCenter.y * blockingDiv.totalFpStrength;
         float clusterWeight = Math.max(1f, blockingDiv.totalFpStrength);
+        float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         for (DivisionState otherE : enemyGroup.divisions) {
             if (otherE == null || otherE == blockingDiv || !otherE.isCombatEffective()) continue;
             if (!OtcAI.isDivisionVisibleToSide(engine, side, otherE)) continue;
             if (otherE == ignoreDirectAttackTarget) continue;
             Vector2f oPos = OtcAI.getVisibleCentroidForSide(engine, side, otherE);
             float dBetween = DivisionCommanderAI.distance(blockingCenter, oPos);
-            if (dBetween < 1850f) {
+            if (dBetween < 1850f * rScale) {
                 // Project onto A -> B as well
                 float oProj = (oPos.x - startPos.x) * dirX + (oPos.y - startPos.y) * dirY;
                 if (oProj > 0f && oProj < chordLen) {
@@ -1811,7 +1829,7 @@ public class DivisionFormationNavigator {
         }
         Vector2f obsCenter = new Vector2f(clusterX / clusterWeight, clusterY / clusterWeight);
         float extraClusterSpan = DivisionCommanderAI.distance(obsCenter, blockingCenter);
-        float skirtRadius = Math.min(2850f, blockingRadius + extraClusterSpan * 0.65f + 240f);
+        float skirtRadius = Math.min(2850f * rScale, blockingRadius + extraClusterSpan * 0.65f + 240f * rScale);
 
         // Two candidate normals perpendicular to A -> B: +1 (Port / Left of chord) and -1 (Starboard / Right of chord)
         float normX = -dirY;

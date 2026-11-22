@@ -290,6 +290,10 @@ final class DivisionConfigureSubscreen {
                 positive,
                 gray);
 
+        boolean scaledUi = CombatPhysicsProfile.isGlobalScaledEnvironment();
+        int spacingStep = scaledUi ? 100 : 50;
+        int intervalStep = scaledUi ? 250 : 100;
+
         // 1. Intra-division spacing row
         addDivisionSpacingRow(
                 dialog,
@@ -297,7 +301,7 @@ final class DivisionConfigureSubscreen {
                 colWidth - 16f,
                 String.format(Locale.ROOT, "Ship Spacing: %du", effIntra),
                 effIntra,
-                50,
+                spacingStep,
                 PermanentDivisionManager.MIN_STATION_SPACING_UNITS,
                 PermanentDivisionManager.getEffectiveMaxStationSpacingUnits(),
                 "DIV_STATION_SPACING:",
@@ -313,7 +317,7 @@ final class DivisionConfigureSubscreen {
                 colWidth - 16f,
                 String.format(Locale.ROOT, "Division Interval: %du", effInter),
                 effInter,
-                100,
+                intervalStep,
                 PermanentDivisionManager.MIN_DIVISION_INTERVAL_UNITS,
                 PermanentDivisionManager.getEffectiveMaxDivisionIntervalUnits(),
                 "DIV_DIVISION_INTERVAL:",
@@ -489,6 +493,8 @@ final class DivisionConfigureSubscreen {
                 PermanentDivisionManager.resolveEffectiveStrikeCraftOpeningMission(spec, doctrineCfg);
         StrikeCraftMissionType effScMainMis =
                 PermanentDivisionManager.resolveEffectiveStrikeCraftMainMission(spec, doctrineCfg);
+        PermanentDivisionManager.StrikeCraftCapReserve effScCapRes =
+                PermanentDivisionManager.resolveEffectiveStrikeCraftCapReserve(spec, doctrineCfg);
         VoidstrikeTargetingBias effVsBias =
                 PermanentDivisionManager.resolveEffectiveVoidstrikeTargetingBias(spec, doctrineCfg);
         boolean effVsFocusCv =
@@ -563,6 +569,17 @@ final class DivisionConfigureSubscreen {
                     darkColor,
                     highlight,
                     gray);
+
+            addDivisionStrikeCraftCapReserveRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effScCapRes,
+                    spec.customStrikeCraftCapReserve != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
 
             addDivisionVoidstrikeTargetingBiasRow(
                     dialog,
@@ -910,15 +927,16 @@ final class DivisionConfigureSubscreen {
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) stLbl, "Standoff Range:");
 
         float x = CONTROL_COL_X;
-        String decAct = "DIV_STANDOFF_RANGE:" + Math.max(PermanentDivisionManager.MIN_STANDOFF_RANGE_UNITS, effStandoff - 100);
+        int stStep = CombatPhysicsProfile.isGlobalScaledEnvironment() ? 250 : 100;
+        String decAct = "DIV_STANDOFF_RANGE:" + Math.max(PermanentDivisionManager.MIN_STANDOFF_RANGE_UNITS, effStandoff - stStep);
         ButtonAPI bDec = dialog.registerButton(
-                rowUi.addButton("-100u", decAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
+                rowUi.addButton("-" + stStep + "u", decAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
                 decAct);
         bDec.getPosition().inTL(x, 3f);
 
-        String incAct = "DIV_STANDOFF_RANGE:" + Math.min(PermanentDivisionManager.getEffectiveMaxStandoffRangeUnits(), effStandoff + 100);
+        String incAct = "DIV_STANDOFF_RANGE:" + Math.min(PermanentDivisionManager.getEffectiveMaxStandoffRangeUnits(), effStandoff + stStep);
         ButtonAPI bInc = dialog.registerButton(
-                rowUi.addButton("+100u", incAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
+                rowUi.addButton("+" + stStep + "u", incAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
                 incAct);
         bInc.getPosition().inTL(x + 62f, 3f);
 
@@ -1299,6 +1317,34 @@ final class DivisionConfigureSubscreen {
                 labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
                 labels, acts, sel, 94f, 20f, 98f, baseColor, darkColor, isCustom ? highlight : activeColor,
                 "DIV_VS_BIAS:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
+    }
+
+    private static void addDivisionStrikeCraftCapReserveRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            PermanentDivisionManager.StrikeCraftCapReserve effRes,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color activeColor) {
+        PermanentDivisionManager.StrikeCraftCapReserve[] opts =
+                PermanentDivisionManager.StrikeCraftCapReserve.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].shortName;
+            acts[i] = "DIV_SC_CAP_RES:" + opts[i].name();
+            if (opts[i] == effRes) sel = i;
+        }
+        String labelText = "CAP Reserve: " + effRes.displayName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? highlight : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 70f, 20f, 73f, baseColor, darkColor, isCustom ? highlight : activeColor,
+                "DIV_SC_CAP_RES:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
     }
 
     private static void addDivisionVoidstrikeFocusCarriersRow(
@@ -1902,6 +1948,15 @@ final class DivisionConfigureSubscreen {
             VoidstrikeTargetingBias bias =
                     "INHERIT".equals(arg) ? null : VoidstrikeTargetingBias.valueOf(arg);
             PermanentDivisionManager.updateIndividualDivisionVoidstrikeTargetingBias(activeDivisionId, bias);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_SC_CAP_RES:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_SC_CAP_RES:".length());
+            PermanentDivisionManager.StrikeCraftCapReserve res =
+                    "INHERIT".equals(arg) ? null : PermanentDivisionManager.StrikeCraftCapReserve.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionStrikeCraftCapReserve(activeDivisionId, res);
             dialog.rebuildContent();
             return true;
         }

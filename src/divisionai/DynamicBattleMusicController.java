@@ -638,6 +638,7 @@ public class DynamicBattleMusicController {
             case FLY_CYCLIC_STRIKES:
             case LAUNCH_DECKLOAD_STRIKE:
             case LAUNCH_ALPHA_STRIKE:
+            case LAUNCH_SEARCH_AND_DESTROY:
             case GIVE_GENERAL_CHASE:
                 return true;
             default:

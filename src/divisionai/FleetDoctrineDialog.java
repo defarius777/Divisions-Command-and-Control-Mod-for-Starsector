@@ -110,6 +110,35 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
     private static final int[] STATION_SPACING_PRESETS = {200, 300, 400, 500, 600, 750, 900, 1100};
     private static final int[] DIVISION_INTERVAL_PRESETS = {500, 700, 900, 1100, 1300, 1500, 1800, 2100};
     private static final int[] STANDOFF_RANGE_PRESETS = {450, 650, 800, 950, 1150, 1400, 1700, 2000};
+
+    private static int[] getEffectiveStationSpacingPresets() {
+        if (CombatPhysicsProfile.getGlobalStationSpacingMult() <= 1.05f) return STATION_SPACING_PRESETS;
+        int[] out = new int[STATION_SPACING_PRESETS.length];
+        for (int i = 0; i < STATION_SPACING_PRESETS.length; i++) {
+            out[i] = PermanentDivisionManager.scaleVanillaStationSpacing(STATION_SPACING_PRESETS[i]);
+        }
+        return out;
+    }
+
+    private static int[] getEffectiveDivisionIntervalPresets() {
+        if (CombatPhysicsProfile.getGlobalDivisionIntervalMult() <= 1.05f) return DIVISION_INTERVAL_PRESETS;
+        int[] out = new int[DIVISION_INTERVAL_PRESETS.length];
+        for (int i = 0; i < DIVISION_INTERVAL_PRESETS.length; i++) {
+            out[i] = PermanentDivisionManager.scaleVanillaDivisionInterval(DIVISION_INTERVAL_PRESETS[i]);
+        }
+        return out;
+    }
+
+    private static int[] getEffectiveStandoffRangePresets(DoctrineDivisionType dt) {
+        boolean isCarrier = dt != null && dt.isCarrierType();
+        boolean isMissile = dt != null && dt.primaryArchetype != null && dt.primaryArchetype.isMissileArchetype();
+        if (CombatPhysicsProfile.getGlobalStandoffMult(isCarrier, isMissile) <= 1.05f) return STANDOFF_RANGE_PRESETS;
+        int[] out = new int[STANDOFF_RANGE_PRESETS.length];
+        for (int i = 0; i < STANDOFF_RANGE_PRESETS.length; i++) {
+            out[i] = PermanentDivisionManager.scaleVanillaStandoffRange(dt, STANDOFF_RANGE_PRESETS[i]);
+        }
+        return out;
+    }
     private static final int[] OPENING_DURATION_PRESETS = {30, 35, 40, 45, 50, 55, 60};
 
     private enum ActiveTab {
@@ -699,16 +728,21 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         continue;
                     }
 
+                boolean scaledUi = CombatPhysicsProfile.isGlobalScaledEnvironment();
+                int spacingStep = scaledUi ? 100 : 50;
+                int intervalStep = scaledUi ? 250 : 100;
+                int standoffStep = scaledUi ? 250 : 100;
+
                 // Row 1: Intra-division spacing (in units)
                 addUnitModifierRow(
                         body,
                         bodyWidth - 16f,
                         String.format(Locale.ROOT, "Ship Spacing: %du", currSpacing),
                         currSpacing,
-                        50,
+                        spacingStep,
                         PermanentDivisionManager.MIN_STATION_SPACING_UNITS,
                         PermanentDivisionManager.getEffectiveMaxStationSpacingUnits(),
-                        STATION_SPACING_PRESETS,
+                        getEffectiveStationSpacingPresets(),
                         "SET_STATION_SPACING:" + dt.name() + ":",
                         baseColor,
                         darkColor,
@@ -720,10 +754,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         bodyWidth - 16f,
                         String.format(Locale.ROOT, "Division Interval: %du", currInter),
                         currInter,
-                        100,
+                        intervalStep,
                         PermanentDivisionManager.MIN_DIVISION_INTERVAL_UNITS,
                         PermanentDivisionManager.getEffectiveMaxDivisionIntervalUnits(),
-                        DIVISION_INTERVAL_PRESETS,
+                        getEffectiveDivisionIntervalPresets(),
                         "SET_DIVISION_INTERVAL:" + dt.name() + ":",
                         baseColor,
                         darkColor,
@@ -735,10 +769,10 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         bodyWidth - 16f,
                         String.format(Locale.ROOT, "Standoff Range: %du", currStandoff),
                         currStandoff,
-                        100,
+                        standoffStep,
                         PermanentDivisionManager.MIN_STANDOFF_RANGE_UNITS,
                         PermanentDivisionManager.getEffectiveMaxStandoffRangeUnits(),
-                        STANDOFF_RANGE_PRESETS,
+                        getEffectiveStandoffRangePresets(dt),
                         "SET_STANDOFF_RANGE:" + dt.name() + ":",
                         baseColor,
                         darkColor,
@@ -901,6 +935,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 // Rows 7a-7g: Strike Craft & Wing Voidstrike Behavior Doctrine (collapsed under "Strike Craft Options")
                 StrikeCraftMissionType currScOpenMis = doctrine.getStrikeCraftOpeningMission(dt);
                 StrikeCraftMissionType currScMainMis = doctrine.getStrikeCraftMainMission(dt);
+                PermanentDivisionManager.StrikeCraftCapReserve currScCapRes = doctrine.getStrikeCraftCapReserve(dt);
                 VoidstrikeTargetingBias currVsBias = doctrine.getVoidstrikeTargetingBias(dt);
                 boolean currVsFocusCv = doctrine.isVoidstrikeFocusCarriers(dt);
                 VoidstrikeTargetObservance currVsObs = doctrine.getVoidstrikeObservance(dt);
@@ -961,6 +996,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                             baseColor,
                             darkColor,
                             highlight,
+                            gray);
+
+                    addStrikeCraftCapReserveRow(
+                            body,
+                            bodyWidth - 16f,
+                            "CAP Reserve: " + currScCapRes.displayName,
+                            currScCapRes,
+                            "SET_SC_CAP_RES:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            currScCapRes != PermanentDivisionManager.StrikeCraftCapReserve.NONE ? positive : highlight,
                             gray);
 
                     addVoidstrikeTargetingBiasRow(
@@ -3678,6 +3724,18 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             }
             return;
         }
+        if (cmd.startsWith("SET_SC_CAP_RES:")) {
+            String rest = cmd.substring("SET_SC_CAP_RES:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                PermanentDivisionManager.StrikeCraftCapReserve res =
+                        PermanentDivisionManager.StrikeCraftCapReserve.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeStrikeCraftCapReserve(dt, res);
+                rebuildContent();
+            }
+            return;
+        }
         if (cmd.startsWith("SET_VS_CV_FOCUS:")) {
             String rest = cmd.substring("SET_VS_CV_FOCUS:".length());
             int sep = rest.indexOf(':');
@@ -4269,6 +4327,34 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 labels, acts, sel, 136f, 22f, 142f, baseColor, darkColor, activeValueColor,
                 null, true, 0f, activeValueColor,
                 currentBias != null ? currentBias.summary : null, gray, 6f);
+    }
+
+    private void addStrikeCraftCapReserveRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            PermanentDivisionManager.StrikeCraftCapReserve currentReserve,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        PermanentDivisionManager.StrikeCraftCapReserve[] opts =
+                PermanentDivisionManager.StrikeCraftCapReserve.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].displayName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentReserve) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 98f, 22f, 104f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentReserve != null ? currentReserve.summary : null, gray, 6f);
     }
 
     private void addVoidstrikeFocusCarriersRow(

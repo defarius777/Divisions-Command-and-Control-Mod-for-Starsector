@@ -442,6 +442,7 @@ public class DivisionAISettings {
             case TOT_ALPHA_STRIKE:
             case LAUNCH_ALPHA_STRIKE:
             case LAUNCH_DECKLOAD_STRIKE:
+            case LAUNCH_SEARCH_AND_DESTROY:
             case REINFORCE_DIVISION:
             case HAUL_OUT_TO_VENT:
             case BREAK_OFF_AND_RETIRE:
@@ -529,6 +530,7 @@ public class DivisionAISettings {
             case FLY_COMBAT_SPACE_PATROL:
             case LAUNCH_DECKLOAD_STRIKE:
             case LAUNCH_ALPHA_STRIKE:
+            case LAUNCH_SEARCH_AND_DESTROY:
             case FORM_LINE_AND_FIX:
             case MARSHAL_FOR_STRIKE:
             case FEIGNED_RETREAT:

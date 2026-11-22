@@ -144,7 +144,9 @@ public class OtcAI {
         if (preSeedFriendlyFp > 1f && battleGroup.totalFriendlyStrength < 1f) {
             battleGroup.totalFriendlyStrength = preSeedFriendlyFp;
         }
-        BattlefieldFirepowerEvaluator.updateEnemyReinforcementCorridor(engine, battleGroup);
+        if (!battleGroup.isPassiveOpposingView) {
+            BattlefieldFirepowerEvaluator.updateEnemyReinforcementCorridor(engine, battleGroup);
+        }
 
         for (DivisionState div : battleGroup.divisions) {
             if (!battleGroup.isPassiveOpposingView || (div.id != null && div.id.startsWith("unassigned_"))) {
@@ -178,8 +180,16 @@ public class OtcAI {
         battleGroup.fleetLiveFirepower = sumFleetLiveFp;
         battleGroup.fleetInRangeFirepower = sumFleetInRangeFp;
         battleGroup.fleetFirepowerUptime = (sumFleetLiveFp > 1f)
-                ? Math.min(1f, sumFleetInRangeFp / sumFleetLiveFp)
+                ? Math.min(1f, sumFleetLiveFp > 0f ? sumFleetInRangeFp / sumFleetLiveFp : 0f)
                 : 0f;
+
+        if (battleGroup.isPassiveOpposingView) {
+            if (totalFriendlyFp > 1f) {
+                battleGroup.fleetCentroid.set(fleetWeightedX / totalFriendlyFp, fleetWeightedY / totalFriendlyFp);
+                battleGroup.totalFriendlyStrength = totalFriendlyFp;
+            }
+            return;
+        }
 
         updateIndependentShipsAndFleetCentroid(engine, battleGroup, fleetWeightedX, fleetWeightedY, totalFriendlyFp);
         DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(battleGroup);
@@ -576,20 +586,21 @@ public class OtcAI {
         boolean edgeBastionPosture = battleGroup.forceRatio < 0.82f
                 || battleGroup.currentPhase == DivisionModel.BattlePhase.FIGHTING_RETIREMENT
                 || battleGroup.activeFleetWideFormation == PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION;
+        float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         if (frontlineFp > 0f) {
             float fx = frontlineWeightedX / frontlineFp;
             float fy = frontlineWeightedY / frontlineFp;
-            float pullBackDist = isRearguardEscape ? 1150f : (edgeBastionPosture ? 740f : 620f);
+            float pullBackDist = (isRearguardEscape ? 1150f : (edgeBastionPosture ? 740f : 620f)) * rScale;
             float targetResY = Math.max(-maxEdgeY, Math.min(maxEdgeY, fy + retreatDirY * pullBackDist));
             battleGroup.reserveStation.set(fx, targetResY);
             battleGroup.fleetEngagementZoneCenter.set(fx, fy);
-            float corridorStep = isRearguardEscape ? 950f : 560f;
+            float corridorStep = (isRearguardEscape ? 950f : 560f) * rScale;
             battleGroup.fleetSafeCorridorCenter.set(fx, Math.max(-maxEdgeY, Math.min(maxEdgeY, fy + retreatDirY * corridorStep)));
         } else if (battleGroup.reserveStation.x == 0f && battleGroup.reserveStation.y == 0f) {
-            float pullBackDist = isRearguardEscape ? 1150f : 620f;
+            float pullBackDist = (isRearguardEscape ? 1150f : 620f) * rScale;
             battleGroup.reserveStation.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * pullBackDist);
             battleGroup.fleetEngagementZoneCenter.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y);
-            battleGroup.fleetSafeCorridorCenter.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * (isRearguardEscape ? 950f : 560f));
+            battleGroup.fleetSafeCorridorCenter.set(battleGroup.fleetCentroid.x, battleGroup.fleetCentroid.y + retreatDirY * ((isRearguardEscape ? 950f : 560f) * rScale));
         }
         if (isOrchestratedAdvanceActive(engine, battleGroup, null)
                 && battleGroup.reserveDivision != null
@@ -646,11 +657,15 @@ public class OtcAI {
             return;
         }
 
-        // 2,300u TSF local evaluation horizon (matching LOCAL_EVAL_DIAMETER * 0.5f) with symmetric distance-taper
-        // beyond 1,150u so close-quarters threats dominate while station bastions & mid-range support remain visible!
-        float evalRadius = LOCAL_EVAL_DIAMETER * 0.5f;
-        float evalDiam = LOCAL_EVAL_DIAMETER;
+        // Physics-scaled TSF local evaluation horizon (2,300u * rScale radius) with symmetric distance-taper
+        // beyond 1,150u * rScale so close-quarters threats dominate while Better Combat standoff gunfire remains visible!
+        float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
+        float evalDiam = LOCAL_EVAL_DIAMETER * rScale;
+        float evalRadius = evalDiam * 0.5f;
         float radiusSq = evalRadius * evalRadius;
+        float fullWeightDist = 1150f * rScale;
+        float taperSpan = 1850f * rScale;
+        float outrangeCheckDist = 1350f * rScale;
 
         float friendlyTsf = 0f;
         float enemyTsf = 0f;
@@ -671,16 +686,16 @@ public class OtcAI {
             float dist = (float) Math.sqrt(dSq);
 
             float shipTsf = BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(s);
-            float distWeight = (dist <= 1150f)
+            float distWeight = (dist <= fullWeightDist)
                     ? 1.0f
-                    : Math.max(0.38f, 1.0f - (dist - 1150f) / 1850f);
+                    : Math.max(0.38f, 1.0f - (dist - fullWeightDist) / taperSpan);
             if (s.getOwner() == div.side) {
                 boolean ownMember = div.members.contains(s);
                 friendlyTsf += shipTsf * (ownMember ? 1.0f : distWeight);
             } else if (isShipVisibleToSide(engine, div.side, s)) {
                 BattlefieldFirepowerEvaluator.ShipFirepowerRose rose = BattlefieldFirepowerEvaluator.getShipRose(s);
                 float bearingWeight = distWeight;
-                if (rose != null && rose.maxGeneralRange > 100f && dist <= 1350f) {
+                if (rose != null && rose.maxGeneralRange > 100f && dist <= outrangeCheckDist) {
                     float worldBearToUs = (float) Math.toDegrees(Math.atan2(-dy, -dx));
                     float relAng = ((worldBearToUs - s.getFacing()) % 360f + 360f) % 360f;
                     float sectorReach = BattlefieldFirepowerEvaluator.ShipFirepowerRose.sampleArrayAtRelAngle(rose.generalRange, relAng);
@@ -1481,17 +1496,22 @@ public class OtcAI {
             float perpX,
             float perpY) {
         int nCombat = combatDivs.size();
+        float iScale = Math.max(
+                CombatPhysicsProfile.getGlobalDivisionIntervalMult(),
+                CombatPhysicsProfile.getWeaponRangeScale(engine) > 1.25f
+                        ? (0.30f + 0.70f * CombatPhysicsProfile.getWeaponRangeScale(engine))
+                        : 1.0f);
         float maxSpanHalf = (engine != null && engine.getMapWidth() > 0f)
                 ? (engine.getMapWidth() * 0.36f)
-                : 4200f;
+                : (4200f * iScale);
         float maxRanks = Math.max(1f, (nCombat + 1) * 0.5f);
         for (int i = 0; i < nCombat; i++) {
             DivisionState d = combatDivs.get(i);
             int shipCount = (d.members != null && !d.members.isEmpty()) ? d.members.size() : 3;
-            float divFootprint = Math.min(5, Math.max(2, shipCount)) * Math.max(200f, d.stationSpacing * 0.85f) + 160f;
-            float rawInterval = Math.max(680f, Math.min(920f, Math.max(d.divisionInterval * 0.82f, divFootprint)));
+            float divFootprint = Math.min(5, Math.max(2, shipCount)) * Math.max(200f * iScale, d.stationSpacing * 0.85f) + 160f * iScale;
+            float rawInterval = Math.max(680f * iScale, Math.min(920f * iScale, Math.max(d.divisionInterval * 0.82f, divFootprint)));
             float interval = (nCombat >= 4)
-                    ? Math.max(640f, Math.min(rawInterval, Math.min(820f, maxSpanHalf / maxRanks)))
+                    ? Math.max(640f * iScale, Math.min(rawInterval, Math.min(820f * iScale, maxSpanHalf / maxRanks)))
                     : rawInterval;
             float fwd = 0f;
             float lat = 0f;
@@ -1499,22 +1519,22 @@ public class OtcAI {
             int wingSide = 0;
             switch (resolved) {
                 case GRAND_COLUMN_IN_DEPTH: {
-                    fwd = ((nCombat - 1) * 0.5f - i) * 650f;
-                    lat = (i == 0) ? 0f : ((i % 2 == 1) ? -160f : 160f);
+                    fwd = ((nCombat - 1) * 0.5f - i) * 650f * iScale;
+                    lat = (i == 0) ? 0f : ((i % 2 == 1) ? -160f * iScale : 160f * iScale);
                     rankIdx = i;
                     wingSide = (i == 0) ? 0 : ((i % 2 == 1) ? -1 : 1);
                     break;
                 }
                 case GRAND_WEDGE_SPEARHEAD: {
                     if (i == 0) {
-                        fwd = 420f;
+                        fwd = 420f * iScale;
                         lat = 0f;
                         rankIdx = 0;
                         wingSide = 0;
                     } else {
                         int wingRank = (i + 1) / 2;
                         int side = (i % 2 == 1) ? -1 : 1;
-                        fwd = 420f - wingRank * 480f;
+                        fwd = (420f - wingRank * 480f) * iScale;
                         lat = side * wingRank * interval * 0.88f;
                         rankIdx = wingRank;
                         wingSide = side;
@@ -1523,14 +1543,14 @@ public class OtcAI {
                 }
                 case REVERSE_WEDGE: {
                     if (i == 0) {
-                        fwd = -280f;
+                        fwd = -280f * iScale;
                         lat = 0f;
                         rankIdx = 0;
                         wingSide = 0;
                     } else {
                         int wingRank = (i + 1) / 2;
                         int side = (i % 2 == 1) ? -1 : 1;
-                        fwd = -280f + wingRank * 440f;
+                        fwd = (-280f + wingRank * 440f) * iScale;
                         lat = side * wingRank * interval * 0.86f;
                         rankIdx = wingRank;
                         wingSide = side;
@@ -1540,7 +1560,7 @@ public class OtcAI {
                 case REFUSED_FLANK_OBLIQUE: {
                     float centered = i - (nCombat - 1) * 0.5f;
                     lat = centered * interval * 0.85f;
-                    fwd = 360f - i * 340f;
+                    fwd = (360f - i * 340f) * iScale;
                     rankIdx = i;
                     wingSide = (i == 0) ? 0 : 1;
                     break;
@@ -1548,21 +1568,21 @@ public class OtcAI {
                 case REFUSED_FLANK_LEFT: {
                     float centered = (nCombat - 1) * 0.5f - i;
                     lat = centered * interval * 0.85f;
-                    fwd = 360f - i * 340f;
+                    fwd = (360f - i * 340f) * iScale;
                     rankIdx = i;
                     wingSide = (i == 0) ? 0 : -1;
                     break;
                 }
                 case CRESCENT_HORNS: {
                     if (i == 0) {
-                        fwd = -80f;
+                        fwd = -80f * iScale;
                         lat = 0f;
                         rankIdx = 0;
                         wingSide = 0;
                     } else {
                         int wingRank = (i + 1) / 2;
                         int side = (i % 2 == 1) ? -1 : 1;
-                        fwd = -60f + Math.min(260f, wingRank * 110f);
+                        fwd = (-60f + Math.min(260f, wingRank * 110f)) * iScale;
                         lat = side * wingRank * interval * 0.82f;
                         rankIdx = wingRank;
                         wingSide = side;
@@ -1571,14 +1591,14 @@ public class OtcAI {
                 }
                 case REVERSE_CRESCENT: {
                     if (i == 0) {
-                        fwd = 260f;
+                        fwd = 260f * iScale;
                         lat = 0f;
                         rankIdx = 0;
                         wingSide = 0;
                     } else {
                         int wingRank = (i + 1) / 2;
                         int side = (i % 2 == 1) ? -1 : 1;
-                        fwd = 260f - Math.min(480f, wingRank * 210f);
+                        fwd = (260f - Math.min(480f, wingRank * 210f)) * iScale;
                         lat = side * wingRank * interval * 0.84f;
                         rankIdx = wingRank;
                         wingSide = side;
@@ -1588,7 +1608,7 @@ public class OtcAI {
                 case CHECKERBOARD_QUINCUNX: {
                     int rank = i % 2;
                     float centered = i - (nCombat - 1) * 0.5f;
-                    fwd = (rank == 0) ? 240f : -380f;
+                    fwd = ((rank == 0) ? 240f : -380f) * iScale;
                     lat = centered * interval * 0.78f;
                     rankIdx = rank;
                     wingSide = (centered < -0.05f) ? -1 : ((centered > 0.05f) ? 1 : 0);
@@ -1598,7 +1618,7 @@ public class OtcAI {
                     double angle = (nCombat == 1)
                             ? 0.0
                             : (-Math.PI * 0.42 + (Math.PI * 0.84 * i) / (nCombat - 1));
-                    float radius = Math.max(780f, interval * 0.82f);
+                    float radius = Math.max(780f * iScale, interval * 0.82f);
                     fwd = (float) Math.cos(angle) * radius;
                     lat = (float) Math.sin(angle) * radius;
                     rankIdx = 0;
@@ -1620,7 +1640,7 @@ public class OtcAI {
                         rankIdx = wingRank;
                         wingSide = side;
                     }
-                    fwd = (i == 0) ? 90f : 0f;
+                    fwd = (i == 0) ? 90f * iScale : 0f;
                     lat = centered * interval * 0.90f;
                     break;
                 }
@@ -1646,13 +1666,14 @@ public class OtcAI {
             float perpX,
             float perpY) {
         int nSupport = supportDivs.size();
+        float iScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalDivisionIntervalMult());
         for (int i = 0; i < nSupport; i++) {
             DivisionState d = supportDivs.get(i);
-            float interval = Math.max(850f, d.divisionInterval);
+            float interval = Math.max(850f * iScale, d.divisionInterval);
             float centered = i - (nSupport - 1) * 0.5f;
-            float fwd = (resolved == PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION)
+            float fwd = ((resolved == PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION)
                     ? -120f
-                    : -880f;
+                    : -880f) * iScale;
             float lat = centered * interval * 0.75f;
             d.fleetFormationRank = 2;
             d.fleetFormationWingSide = (centered < -0.05f) ? -1 : ((centered > 0.05f) ? 1 : 0);
@@ -1701,8 +1722,9 @@ public class OtcAI {
         DivisionState bestReserve = selectConsentedReserveCandidate(
                 engine, myGroup, enemyGroup, strongestLineDiv, activeDivCount, now);
         boolean reservePlay = myGroup.isPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE) && myGroup.authority.allowsRetasking();
+        float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         float minContactDist = (enemyGroup != null) ? minDistanceBetweenFleets(engine, myGroup, enemyGroup) : Float.MAX_VALUE;
-        boolean frontlineInCloseFight = (minContactDist < 1850f || myGroup.fleetEngagementLevel >= 0.26f)
+        boolean frontlineInCloseFight = (minContactDist < 1850f * rScale || myGroup.fleetEngagementLevel >= 0.26f)
                 && (myGroup.forceRatio <= 1.18f || myGroup.fleetEngagementLevel >= 0.38f);
         boolean isPursuit = isPursuitBattle(engine, myGroup);
         boolean holdReserve = !isPursuit && (reservePlay
@@ -1725,16 +1747,35 @@ public class OtcAI {
     private static float computeMainEffortCandidateScore(BattleGroupState myGroup, DivisionState div, float now) {
         float mainScore = div.totalFpStrength * (1.2f - 0.5f * div.avgFluxLevel);
         DivisionArchetype arch = div.archetype;
+        boolean hasAbleNonCarrierCombatDiv = false;
+        if (myGroup != null && myGroup.divisions != null) {
+            for (int i = 0, n = myGroup.divisions.size(); i < n; i++) {
+                DivisionState other = myGroup.divisions.get(i);
+                if (other == null || !other.isAbleCombatEffective()) continue;
+                if (other.archetype != null
+                        && !other.archetype.isCarrierArchetype()
+                        && other.archetype != DivisionArchetype.SERVICE_GROUP) {
+                    hasAbleNonCarrierCombatDiv = true;
+                    break;
+                }
+            }
+        }
         if (arch != null && arch.isBattleshipArchetype()) {
             mainScore = mainScore * 2.05f + 25f;
         } else if (arch != null && arch.isCruiserArchetype() && !arch.isPhaseArchetype()) {
             mainScore *= 1.35f;
         } else if (arch != null && arch.isPhaseArchetype()) {
             mainScore *= 0.48f;
-        } else if (arch == DivisionArchetype.CARRIER_GROUP) {
-            mainScore *= 0.35f;
         } else if (arch != null && arch.isCarrierArchetype()) {
-            mainScore *= 0.12f;
+            // Pure carriers / carrier standoff divisions must NEVER become the G. Wedge vanguard spearhead
+            // while any non-carrier warship division (Destroyer/Frigate/Cruiser/Battleship) is combat-effective!
+            if (hasAbleNonCarrierCombatDiv && DivisionCommanderAI.isCarrierStandoffPosture(div, now)) {
+                mainScore = mainScore * 0.03f - 50f;
+            } else if (arch == DivisionArchetype.CARRIER_GROUP) {
+                mainScore *= (hasAbleNonCarrierCombatDiv ? 0.08f : 0.35f);
+            } else {
+                mainScore *= (hasAbleNonCarrierCombatDiv ? 0.05f : 0.12f);
+            }
         }
         DivisionMissionType mission = DivisionCommanderAI.resolveActiveMission(div, now);
         if (mission == DivisionMissionType.ENVELOPMENT
@@ -3273,20 +3314,22 @@ public class OtcAI {
             }
             // Deprioritize unorganized "Independent Contact" spatial clusters for Main Effort while cohesive enemy
             // combat divisions remain active, unless the cluster holds capital-grade mass or is right in our heavy line's face!
+            float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
             float unassignedStragglerPenalty = 0f;
             if (!isPursuitInterception && anyOrganizedCombatEnemy && isUnassignedContact) {
                 if (eDiv.members.size() <= 1 && rawVisFp <= 14f) {
                     unassignedStragglerPenalty = -580f;
                 } else if (rawVisFp < 48f) {
-                    float distFade = Math.max(0.32f, Math.min(1.0f, (minDivDist - 620f) / 680f));
+                    float distFade = Math.max(0.32f, Math.min(1.0f, (minDivDist - 620f * rScale) / (680f * rScale)));
                     unassignedStragglerPenalty = -380f * distFade;
                 }
             }
-            float frontlineContactBonus = (minDivDist <= 1450f ? (1450f - minDivDist) * 0.32f : 0f)
+            float frontlineDistCap = 1450f * rScale;
+            float frontlineContactBonus = (minDivDist <= frontlineDistCap ? ((frontlineDistCap - minDivDist) / rScale) * 0.32f : 0f)
                     + (eDiv.inRangeFirepowerScore > 25f ? 180f * threatWeight : 0f);
-            // While able mobile enemy combat divisions are actively screening in front of an orbital station (> 1550u away),
-            // defeat the mobile garrison first; once within 1550u of the station or the garrison is cleared, focus the station!
-            float stationBehindScreenPenalty = (isStationBastion && anyAbleVisibleMobileCombatEnemy && minDivDist > 1550f)
+            // While able mobile enemy combat divisions are actively screening in front of an orbital station (> 1550u * rScale away),
+            // defeat the mobile garrison first; once within 1550u * rScale of the station or the garrison is cleared, focus the station!
+            float stationBehindScreenPenalty = (isStationBastion && anyAbleVisibleMobileCombatEnemy && minDivDist > 1550f * rScale)
                     ? -420f
                     : 0f;
             // Similarly, when a rear-echelon enemy Carrier division sits >= 750u behind an able enemy warship line

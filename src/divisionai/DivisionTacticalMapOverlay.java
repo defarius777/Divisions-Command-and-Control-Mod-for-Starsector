@@ -593,11 +593,11 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     public void invalidateGeometryCache() {
-        clearCachedPolygonsOnMapHidden();
+        clearCachedPolygonsHard();
         this.regularCommandSpritesSuppressed = false;
     }
 
-    private void clearCachedPolygonsOnMapHidden() {
+    private void clearCachedPolygonsHard() {
         this.cachedPolyNow = -1000f;
         this.cachedPolyPaused = false;
         this.cachedPolySignature = 0;
@@ -605,6 +605,19 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         this.lastStripeRebuildSimTime = -1000f;
         this.perDivisionGeometryCache.clear();
         this.perDivisionStrikeCraftCache.clear();
+        this.cachedRenderedPolys.clear();
+        this.cachedStrikeCraftPolys.clear();
+        this.cachedOverlapStripeBands.clear();
+    }
+
+    /**
+     * Soft reset when the Command UI is closed or faded out during the SAME battle: clears transient per-frame lists
+     * while preserving {@code perDivisionGeometryCache} & {@code perDivisionStrikeCraftCache} so re-opening Tab uses
+     * warm LBS-skinned SDF geometry instead of triggering a 15ms 256-division cold rebuild spike!
+     */
+    private void clearCachedPolygonsOnMapHidden() {
+        this.cachedPolyPaused = false;
+        this.cachedPolySignature = 0;
         this.cachedRenderedPolys.clear();
         this.cachedStrikeCraftPolys.clear();
         this.cachedOverlapStripeBands.clear();
@@ -1581,9 +1594,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             renderedPolys.clear();
             strikeCraftPolys.clear();
             // Spread Marching-Squares SDF contour rebuilds to at most 2 divisions per unpaused frame (~0.6ms max)
-            // and 4 divisions on pause transition (eliminating 24ms Spacebar spikes) while 60 FPS multi-ship LBS
-            // skinning keeps every ship lobe tracking live hulls continuously between rebuilds.
-            int[] rebuildBudget = new int[] { coldBuild ? 256 : (paused ? 4 : 2) };
+            // and 4 divisions on pause transition (or 6 on initial unpaused cold open, eliminating 15-24ms Tab spikes)
+            // while 60 FPS multi-ship LBS skinning keeps every ship lobe tracking live hulls continuously between rebuilds.
+            int[] rebuildBudget = new int[] { coldBuild ? (paused ? 256 : 6) : (paused ? 4 : 2) };
 
             if (playerGroup != null && !playerGroup.divisions.isEmpty()) {
                 divisionsRebuiltThisFrame += collectDivisionPolygonsCached(
@@ -1599,16 +1612,16 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             }
 
             // Collect squadron-aware & Voidstrike-unified Strike Craft envelopes per side (player, allied, enemy),
-            // including standalone/unassigned carriers when Voidstrikes are active.
-            collectStrikeCraftSidePolygonsCached(
+            // sharing rebuildBudget so multi-squadron Strike-Craft SDF rebuilds never stack onto heavy ship SDF frames!
+            divisionsRebuiltThisFrame += collectStrikeCraftSidePolygonsCached(
                     playerGroup, VoidstrikeCoordinator.VOIDSTRIKE_SIDE_PLAYER, false, false, null,
-                    now, paused, scale, offsetX, offsetY, strikeCraftPolys);
-            collectStrikeCraftSidePolygonsCached(
+                    now, paused, scale, offsetX, offsetY, rebuildBudget, strikeCraftPolys);
+            divisionsRebuiltThisFrame += collectStrikeCraftSidePolygonsCached(
                     alliedAiGroup, VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ALLIED, false, true, null,
-                    now, paused, scale, offsetX, offsetY, strikeCraftPolys);
-            collectStrikeCraftSidePolygonsCached(
+                    now, paused, scale, offsetX, offsetY, rebuildBudget, strikeCraftPolys);
+            divisionsRebuiltThisFrame += collectStrikeCraftSidePolygonsCached(
                     enemyGroup, VoidstrikeCoordinator.VOIDSTRIKE_SIDE_ENEMY, true, false, playerFog,
-                    now, paused, scale, offsetX, offsetY, strikeCraftPolys);
+                    now, paused, scale, offsetX, offsetY, rebuildBudget, strikeCraftPolys);
 
             // Never stack overlap-stripe Sutherland-Hodgman clipping onto the same unpaused frame that just rebuilt a division SDF
             boolean rebuildStripesAndFlags = lastStripeRebuildSimTime < -500f
@@ -2112,7 +2125,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
     }
 
-    private void collectStrikeCraftSidePolygonsCached(
+    private int collectStrikeCraftSidePolygonsCached(
             BattleGroupState battleGroup,
             int voidstrikeSide,
             boolean isEnemy,
@@ -2123,6 +2136,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
             float scale,
             float offsetX,
             float offsetY,
+            int[] rebuildBudget,
             List<RenderedDivisionPolygon> outStrikeList) {
         String groupKey = isEnemy ? "SC_E" : (isAlliedAi ? "SC_A" : "SC_P");
         CachedDivisionGeometry entry = perDivisionStrikeCraftCache.get(groupKey);
@@ -2131,8 +2145,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         float simAge = (entry != null) ? Math.abs(now - entry.builtAtSimTime) : Float.MAX_VALUE;
         boolean withinTimeWindow = (entry != null) && (paused
                 ? (entry.positionSignature == strikePosSig && simAge < 0.22f)
-                : (simAge < 0.16f));
-        if (entry != null && entry.signature == strikeSig && withinTimeWindow) {
+                : (simAge < 0.22f));
+        boolean deferForFrameBudget = !paused
+                && entry != null
+                && entry.signature == strikeSig
+                && simAge < 0.65f
+                && rebuildBudget != null
+                && rebuildBudget[0] <= 0;
+        if (entry != null && entry.signature == strikeSig && (withinTimeWindow || deferForFrameBudget)) {
             if (!entry.droplets.isEmpty()) {
                 if (Float.compare(entry.scale, scale) != 0
                         || Float.compare(entry.offsetX, offsetX) != 0
@@ -2150,7 +2170,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 }
                 outStrikeList.addAll(entry.droplets);
             }
-            return;
+            return 0;
         }
         if (entry == null) {
             entry = new CachedDivisionGeometry();
@@ -2169,7 +2189,12 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         entry.offsetY = offsetY;
         if (!entry.droplets.isEmpty()) {
             outStrikeList.addAll(entry.droplets);
+            if (rebuildBudget != null && rebuildBudget[0] > 0) {
+                rebuildBudget[0]--;
+            }
+            return 1;
         }
+        return 0;
     }
 
     private int computeStrikeCraftSideSignature(
@@ -5930,6 +5955,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 && intent != DivisionIntentType.TOT_ALPHA_STRIKE
                 && intent != DivisionIntentType.LAUNCH_DECKLOAD_STRIKE
                 && intent != DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                && intent != DivisionIntentType.LAUNCH_SEARCH_AND_DESTROY
                 && intent != DivisionIntentType.HARASSING_MISSILE_ATTACK
                 && intent != DivisionIntentType.GIVE_GENERAL_CHASE) {
             return false;
@@ -6660,6 +6686,9 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                 break;
             case FLY_ARMED_RECONNAISSANCE:
                 intentShort = "RECON";
+                break;
+            case LAUNCH_SEARCH_AND_DESTROY:
+                intentShort = "S&D STRIKE";
                 break;
             case FLY_FIGHTER_SWEEP:
                 intentShort = "FIGHTER SWEEP";

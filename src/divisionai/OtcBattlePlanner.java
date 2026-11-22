@@ -346,10 +346,11 @@ public class OtcBattlePlanner {
                     plan.participantFormations.put(replacementAnvil.id, DivisionFormation.LINE_ABREAST);
                     Vector2f tPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, plan.target);
                     if (tPos != null && replacementAnvil.centroid != null) {
+                        float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
                         float rdx = replacementAnvil.centroid.x - tPos.x;
                         float rdy = replacementAnvil.centroid.y - tPos.y;
                         float rlen = (float) Math.sqrt(rdx * rdx + rdy * rdy);
-                        float hold = Math.max(850f, Math.min(1250f, replacementAnvil.standoffRange));
+                        float hold = Math.max(850f * rScale, Math.min(1250f * rScale, replacementAnvil.standoffRange));
                         if (rlen > 1f) {
                             plan.marshalOffsets.put(replacementAnvil.id, new Vector2f((rdx / rlen) * hold, (rdy / rlen) * hold));
                         }
@@ -486,10 +487,11 @@ public class OtcBattlePlanner {
                 continue;
             }
             if (cand.avgFluxLevel >= 0.68f || cand.effectiveHpRatio < 0.45f) continue;
+            float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
             float dist = DivisionUiWidgets.distance(cand.centroid, tPos);
-            if (dist > 1750f) continue;
+            if (dist > 1750f * rScale) continue;
 
-            float score = -dist + (1f - cand.avgFluxLevel) * 420f + cand.effectiveHpRatio * 280f;
+            float score = -(dist / rScale) + (1f - cand.avgFluxLevel) * 420f + cand.effectiveHpRatio * 280f;
             if (cand.archetype == DivisionArchetype.BATTLESHIP_DIVISION) score += 450f;
             else if (cand.archetype == DivisionArchetype.CRUISER_DIVISION) score += 300f;
             if (score > bestScore) {
@@ -553,9 +555,10 @@ public class OtcBattlePlanner {
                 }
             }
         }
+        float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         boolean mainEffortCanFix = myGroup.mainEffortDivision != null
                 && myGroup.mainEffortDivision.isCombatEffective()
-                && DivisionUiWidgets.distance(myGroup.mainEffortDivision.centroid, targetPos) < 4000f;
+                && DivisionUiWidgets.distance(myGroup.mainEffortDivision.centroid, targetPos) < 4000f * rScale;
 
         // Scope Item 2: If Multi-Division Setpiece Doctrine is enabled and we have >= 2 combat-ready divisions
         // within reach of the target, allow non-missile maneuver divisions to join a coordinated Multi-Division Setpiece!
@@ -583,7 +586,7 @@ public class OtcBattlePlanner {
                 if (d.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                         || d.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE) continue;
                 if (d.avgFluxLevel >= 0.48f || d.effectiveHpRatio < 0.55f) continue;
-                if (DivisionUiWidgets.distance(d.centroid, targetPos) <= 3400f) {
+                if (DivisionUiWidgets.distance(d.centroid, targetPos) <= 3400f * rScale) {
                     strikers.add(d);
                 }
             }
@@ -662,13 +665,14 @@ public class OtcBattlePlanner {
             }
             boolean missileStandoffMarshal = (d.archetype != null && d.archetype.isMissileArchetype())
                     || d.primaryMissileLoadoutRatio >= 0.55f;
+            float mScale = CombatPhysicsProfile.getMissileRangeScale(engine);
             float marshalDist = d.archetype.isCarrierArchetype()
-                    ? Math.max(2000f, d.standoffRange)
+                    ? Math.max(2000f * rScale, d.standoffRange)
                     : (missileStandoffMarshal
-                    ? Math.max(1250f, Math.min(1650f, Math.max(d.standoffRange, d.avgEngageRange) * 1.05f))
+                    ? Math.max(1250f * mScale, Math.min(1650f * mScale, Math.max(d.standoffRange, d.avgEngageRange) * 1.05f))
                     : (DivisionCommanderAI.resolveActiveMission(d, now) == DivisionMissionType.TOT_ALPHA_STRIKE
-                    ? Math.min(1150f, Math.max(800f, d.avgEngageRange * 1.05f))
-                    : Math.max(850f, Math.min(1250f, d.avgEngageRange > 100f ? d.avgEngageRange * 1.05f : d.standoffRange))));
+                    ? Math.min(1150f * rScale, Math.max(800f * rScale, d.avgEngageRange * 1.05f))
+                    : Math.max(850f * rScale, Math.min(1250f * rScale, d.avgEngageRange > 100f ? d.avgEngageRange * 1.05f : d.standoffRange))));
 
             DivisionSetpieceAttack spAtk = DivisionSetpieceAttack.WALL_SALVO_PASS;
             DivisionFormation spForm = DivisionFormation.LINE_ABREAST;
@@ -908,6 +912,30 @@ public class OtcBattlePlanner {
             myGroup.reinforcingDivision = null;
             return;
         }
+        // Reinforcement hysteresis: prevent detaching a new flanker across the battleline every 10s for minor
+        // frigate-pack fluctuations while an active reinforcer is already committed (< 15s) or when the candidate
+        // is already delivering active in-range gunfire against a viable flank target!
+        DivisionState existingReinf = myGroup.reinforcingDivision;
+        if (!majorCrisis
+                && existingReinf != null
+                && existingReinf.isAbleCombatEffective()
+                && !tasked.contains(existingReinf)
+                && existingReinf.otcOrder.type == OtcOrderType.REINFORCE
+                && existingReinf.otcOrder.targetFriendly != null
+                && existingReinf.otcOrder.targetFriendly.isAbleCombatEffective()
+                && existingReinf.otcOrder.targetFriendly.localEnemyStrength > 6f
+                && existingReinf.otcOrder.targetFriendly.localForceRatio < 0.88f
+                && (now - myGroup.lastReinforceSwitchTime) < 15.0f) {
+            crisis = existingReinf.otcOrder.targetFriendly;
+        }
+        if (!majorCrisis
+                && crisis.totalFpStrength < 18f
+                && crisis.avgHullLevel >= 0.72f
+                && crisis.avgFluxLevel < 0.58f
+                && !crisis.hasShipNeedingHelp) {
+            return;
+        }
+
         boolean linePlay = myGroup.isPlayEnabled(OtcPlay.LINE_AND_FIRE_DISTRIBUTION);
         DivisionState best = null;
         float bestScore = -Float.MAX_VALUE;
@@ -921,12 +949,19 @@ public class OtcBattlePlanner {
             if (d.avgFluxLevel >= maxReliefFlux) continue;
             boolean selfEngaged = d.localEnemyStrength >= 12f && d.localForceRatio < 1.0f;
             if (selfEngaged) continue;
+            // Do not yank a division out of an active favorable gunfight for a minor non-crisis skirmish
+            if (!majorCrisis && d != myGroup.reinforcingDivision
+                    && d.inRangeFirepowerScore > 12f && d.localForceRatio >= 0.85f
+                    && (d.otcOrder.targetEnemy == null || !d.otcOrder.targetEnemy.isOverkilled)) {
+                continue;
+            }
+            float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
             float dist = DivisionUiWidgets.distance(d.centroid, crisis.centroid);
             if (dist > maxDist) continue;
             boolean isHeavyLineReinforcer = d.archetype != null && d.archetype.isHeavyLineArchetype();
             boolean isLightFlankerCrisis = (crisis.archetype != null && crisis.archetype.isFrigateArchetype())
                     || crisis.totalFpStrength < 16f;
-            if (isHeavyLineReinforcer && isLightFlankerCrisis && dist > 1650f) {
+            if (isHeavyLineReinforcer && isLightFlankerCrisis && dist > 1650f * rScale) {
                 continue;
             }
 
@@ -985,7 +1020,12 @@ public class OtcBattlePlanner {
                 String.format("OTC: reinforce \"%s\" (local ratio %.2f)", crisis.displayName, crisis.localForceRatio));
         tasked.add(best);
 
-        if (best != previousReinforcement) {
+        boolean changedPair = (best != previousReinforcement)
+                || (crisis.id != null && !crisis.id.equals(best.lastReinforceTargetId));
+        if (changedPair) {
+            myGroup.lastReinforceSwitchTime = now;
+            best.lastReinforceAssignedTimestamp = now;
+            best.lastReinforceTargetId = crisis.id;
             boolean fromReserve = (best == myGroup.reserveDivision);
             if (fromReserve) {
                 myGroup.reserveCommitted = true;
@@ -1013,8 +1053,23 @@ public class OtcBattlePlanner {
         boolean isPursuitInterception = (myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
         float effChaseLeash = getEffectiveChaseLeash(engine);
         float maxChaseLeash = isPursuitInterception ? Math.max(16000f, effChaseLeash * 3.5f) : effChaseLeash;
+        boolean anyOrganizedEnemyVisible = false;
+        for (DivisionState e : visibleEnemies) {
+            if (e != null && e.isAbleCombatEffective()
+                    && (e.id == null || !e.id.startsWith("unassigned_"))
+                    && e.archetype != DivisionArchetype.SERVICE_GROUP) {
+                anyOrganizedEnemyVisible = true;
+                break;
+            }
+        }
         List<DivisionState> broken = new ArrayList<>();
         for (DivisionState e : visibleEnemies) {
+            if (!isPursuitInterception
+                    && anyOrganizedEnemyVisible
+                    && e.id != null
+                    && e.id.startsWith("unassigned_")) {
+                continue;
+            }
             if ((isPursuitInterception || isVisiblyBroken(engine, myGroup.side, e))
                     && DivisionUiWidgets.distance(myGroup.fleetCentroid, OtcAI.getVisibleCentroidForSide(engine, myGroup.side, e)) < maxChaseLeash) {
                 broken.add(e);
@@ -1022,9 +1077,10 @@ public class OtcBattlePlanner {
         }
         if (broken.isEmpty()) return;
 
+        float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         int chasers = 0;
         int maxChasers = isPursuitInterception ? Math.max(4, active.size()) : 2;
-        float maxNearestDist = isPursuitInterception ? 12000f : 4000f;
+        float maxNearestDist = (isPursuitInterception ? 12000f : 4000f) * rScale;
         Map<DivisionState, Float> chaseFpByTarget = new HashMap<>();
         for (DivisionState e : broken) {
             chaseFpByTarget.put(e, e.committedFriendlyFpAgainst);
@@ -1057,8 +1113,11 @@ public class OtcBattlePlanner {
                     // Do not chase into an active North/South-Center Enemy Reinforcement Gate or into TSF overmatch!
                     float gateDanger = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, ePos);
                     if (gateDanger >= 0.32f) continue;
+                    boolean alreadyChasingThis = d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e;
+                    float minTsfToHold = alreadyChasingThis ? 0.54f : 0.72f;
+                    float minEnemyFluxToOverride = alreadyChasingThis ? 0.40f : 0.65f;
                     float tsfRatio = BattlefieldFirepowerEvaluator.evaluateTsfEngagementRatio(engine, d, e, myGroup);
-                    if (tsfRatio < 0.72f && e.avgFluxLevel < 0.65f && !e.isUnableDivision) continue;
+                    if (tsfRatio < minTsfToHold && e.avgFluxLevel < minEnemyFluxToOverride && !e.isUnableDivision) continue;
                 }
                 float dist = DivisionUiWidgets.distance(d.centroid, ePos);
                 if (d.otcOrder.type == OtcOrderType.GENERAL_CHASE && d.otcOrder.targetEnemy == e) {
@@ -1431,13 +1490,15 @@ public class OtcBattlePlanner {
             float visFp = rawVisFp * threatW;
             boolean targetOverkilled = anyOtherUnderCap && (have >= need || e.isOverkilled);
 
-            float score = -dist * (dist > 1500f ? 0.62f : 0.48f);
-            if (e == previous && dist <= 2200f && !targetOverkilled) score += 260f;
-            if (e == primary) score += (dist <= 2400f) ? 720f : 460f;
+            float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
+            float normDist = dist / rScale;
+            float score = -normDist * (normDist > 1500f ? 0.62f : 0.48f);
+            if (e == previous && dist <= 2200f * rScale && !targetOverkilled) score += 260f;
+            if (e == primary) score += (dist <= 2400f * rScale) ? 720f : 460f;
             if (e.archetype == DivisionArchetype.SERVICE_GROUP || threatW <= 0.55f) score -= 480f;
 
             if (myGroup.hasEnemyCenterOfGravity && visibleEnemies.size() >= 2) {
-                float distToCog = DivisionUiWidgets.distance(ePos, myGroup.enemyCenterOfGravity);
+                float distToCog = DivisionUiWidgets.distance(ePos, myGroup.enemyCenterOfGravity) / rScale;
                 score += Math.max(-340f, 180f - distToCog * 0.14f);
             }
             for (DivisionState friendDiv : active) {
@@ -1445,7 +1506,7 @@ public class OtcBattlePlanner {
                 if (friendDiv.totalFpStrength >= 18f
                         && friendDiv.localEnemyStrength >= 12f
                         && friendDiv.localForceRatio < 0.90f) {
-                    float dFriend = DivisionUiWidgets.distance(friendDiv.centroid, ePos);
+                    float dFriend = DivisionUiWidgets.distance(friendDiv.centroid, ePos) / rScale;
                     if (dFriend <= 2050f) {
                         float urgency = Math.min(1.6f, Math.max(0.4f, 1.15f - friendDiv.localForceRatio));
                         score += (2050f - dFriend) * 0.32f * urgency;
@@ -1637,6 +1698,13 @@ public class OtcBattlePlanner {
                 }
             }
             if (target == null || !target.isCombatEffective()) continue;
+            // Never peel flanking divisions off onto an unorganized "Independent Contact" cluster while our primary
+            // threat is an active organized enemy combat division!
+            if (target.id != null && target.id.startsWith("unassigned_")
+                    && primary != null && primary != target && primary.isCombatEffective()
+                    && (primary.id == null || !primary.id.startsWith("unassigned_"))) {
+                target = primary;
+            }
             // Do not wrap flankers around an enemy division parked directly inside its own active North/South-Center
             // reinforcement gate, or light forces will be caught in the jaws of incoming 600 su/s enemy waves!
             Vector2f candTargetPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, target);
@@ -1707,34 +1775,53 @@ public class OtcBattlePlanner {
                 }
             });
 
-            // Count already-committed flank sides first so existing flankers don't flip port <-> starboard
+            // Count already-committed flank sides first (including persistent 45s flank memory across brief ToT/vent/reinforce orders)
+            // so existing flankers never flip port <-> starboard across the battleline!
             int left = 0;
             int right = 0;
             for (DivisionState d : flankers) {
+                float committed = 0f;
                 if (d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target && d.otcOrder.flankSide != 0f) {
-                    if (d.otcOrder.flankSide > 0f) right++;
-                    else left++;
+                    committed = d.otcOrder.flankSide;
+                } else if (target.id != null
+                        && target.id.equals(d.lastCommittedFlankTargetId)
+                        && d.lastCommittedFlankSide != 0f
+                        && (now - d.lastCommittedFlankTimestamp) <= 45.0f) {
+                    committed = d.lastCommittedFlankSide;
                 }
+                if (committed > 0f) right++;
+                else if (committed < 0f) left++;
             }
 
             // Item D: Check map-edge clearance on port (+perp) vs starboard (-perp) of the target division.
             // If one flank of the enemy division is pinched against a map edge (< 1050u clearance), avoid sending
             // flankers into the pinched wall gap; instead swing on the open flank to pin the enemy against the map edge!
+            float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
             float portClearance = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
                     engine, tPos, perpX, perpY, 200f);
             float starboardClearance = BattlefieldFirepowerEvaluator.computeDirectionalBoundaryClearance(
                     engine, tPos, -perpX, -perpY, 200f);
-            Vector2f portFlankSample = new Vector2f(tPos.x + perpX * 1350f, tPos.y + perpY * 1350f);
-            Vector2f stbdFlankSample = new Vector2f(tPos.x - perpX * 1350f, tPos.y - perpY * 1350f);
+            float flankSampleDist = 1350f * rScale;
+            Vector2f portFlankSample = new Vector2f(tPos.x + perpX * flankSampleDist, tPos.y + perpY * flankSampleDist);
+            Vector2f stbdFlankSample = new Vector2f(tPos.x - perpX * flankSampleDist, tPos.y - perpY * flankSampleDist);
             float portGateDanger = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, portFlankSample);
             float stbdGateDanger = BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, stbdFlankSample);
-            boolean portPinchedByWall = (portClearance < 1050f && starboardClearance > portClearance + 450f)
+            boolean portPinchedByWall = (portClearance < 1050f * rScale && starboardClearance > portClearance + 450f * rScale)
                     || (portGateDanger >= 0.28f && portGateDanger > stbdGateDanger + 0.16f);
-            boolean starboardPinchedByWall = (starboardClearance < 1050f && portClearance > starboardClearance + 450f)
+            boolean starboardPinchedByWall = (starboardClearance < 1050f * rScale && portClearance > starboardClearance + 450f * rScale)
                     || (stbdGateDanger >= 0.28f && stbdGateDanger > portGateDanger + 0.16f);
 
             for (DivisionState d : flankers) {
-                float previous = (d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target) ? d.otcOrder.flankSide : 0f;
+                float previous = 0f;
+                if (d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target && d.otcOrder.flankSide != 0f) {
+                    previous = d.otcOrder.flankSide;
+                } else if (target.id != null
+                        && target.id.equals(d.lastCommittedFlankTargetId)
+                        && d.lastCommittedFlankSide != 0f
+                        && (now - d.lastCommittedFlankTimestamp) <= 45.0f) {
+                    previous = d.lastCommittedFlankSide;
+                }
+                float lateralOffset = (d.centroid.x - tPos.x) * perpX + (d.centroid.y - tPos.y) * perpY;
                 float side;
                 if (portPinchedByWall) {
                     side = -1f; // port is pinched against map wall -> envelop from starboard to pin enemy into port wall
@@ -1742,6 +1829,12 @@ public class OtcBattlePlanner {
                     side = 1f;  // starboard is pinched against map wall -> envelop from port to pin enemy into starboard wall
                 } else if (previous != 0f) {
                     side = previous;
+                } else if (Math.abs(lateralOffset) >= 420f) {
+                    // Already physically established >420u on one flank of this enemy division: stay on our current side
+                    // instead of cutting diagonally across the gun line!
+                    side = Math.signum(lateralOffset);
+                    if (side > 0f) right++;
+                    else left++;
                 } else {
                     // Consent: prefer the division's consented Grand Formation wing side so Port Wing flankers
                     // envelop the port flank (+1) and Starboard Wing flankers envelop the starboard flank (-1)
@@ -1750,7 +1843,7 @@ public class OtcBattlePlanner {
                     if (d.consentedWingSide != 0) {
                         natural = (d.consentedWingSide < 0) ? 1f : -1f;
                     } else {
-                        natural = Math.signum((d.centroid.x - tPos.x) * perpX + (d.centroid.y - tPos.y) * perpY);
+                        natural = Math.signum(lateralOffset);
                     }
                     if (natural == 0f) natural = 1f;
                     side = natural;
@@ -1760,6 +1853,9 @@ public class OtcBattlePlanner {
                     if (side > 0f) right++;
                     else left++;
                 }
+                d.lastCommittedFlankSide = side;
+                d.lastCommittedFlankTargetId = target.id;
+                d.lastCommittedFlankTimestamp = now;
 
                 boolean newOrder = !(d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target
                         && Math.signum(d.otcOrder.flankSide) == Math.signum(side));

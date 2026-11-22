@@ -1433,6 +1433,15 @@ public final class DivisionUiWidgets {
                 };
             }
         }
+        if (actionId.startsWith("SET_SC_CAP_RES:") || actionId.startsWith("DIV_SC_CAP_RES:")) {
+            String tok = extractTrailingToken(actionId);
+            if ("INHERIT".equals(tok)) return inheritTooltipSpec("CAP Reserve");
+            PermanentDivisionManager.StrikeCraftCapReserve res =
+                    PermanentDivisionManager.StrikeCraftCapReserve.fromId(tok, null);
+            if (res != null) {
+                return new String[]{"CAP Reserve: " + res.displayName, res.summary};
+            }
+        }
         if (actionId.startsWith("SET_VS_BIAS:") || actionId.startsWith("DIV_VS_BIAS:")) {
             String tok = extractTrailingToken(actionId);
             if ("INHERIT".equals(tok)) return inheritTooltipSpec("Target Bias");
@@ -1783,6 +1792,12 @@ public final class DivisionUiWidgets {
             return new String[]{
                     "Main Strike Craft Mission",
                     "Mission flown by this division's fighter/bomber squadrons after the opening window, allowing Converted Hangar surface divisions and battlecarriers to brawl up close while their air wings fly CAP or Voidstrikes."
+            };
+        }
+        if (lower.startsWith("cap reserve")) {
+            return new String[]{
+                    "Strike Craft CAP Reserve",
+                    "Holds a role-smart proportion of non-bomber squadrons (Interceptors first, then Multirole Fighters; never Bombers) on an Adaptive Umbrella Combat Space Patrol over threatened friendly divisions while remaining strike wings attack downrange."
             };
         }
         if (lower.startsWith("target bias")) {
