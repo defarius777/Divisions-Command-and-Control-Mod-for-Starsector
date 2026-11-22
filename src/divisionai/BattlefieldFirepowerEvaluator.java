@@ -524,6 +524,7 @@ public class BattlefieldFirepowerEvaluator {
     }
 
     public static void resetForNewBattle() {
+        CombatPhysicsProfile.resetForNewBattle();
         TsfcWarroomRenderer.resetForNewBattle();
         VoidstrikeCoordinator.resetForNewBattle();
         DivisionOtcCommandManager.resetAlphaCoreAndFlagshipStateForNewBattle();
@@ -1380,14 +1381,20 @@ public class BattlefieldFirepowerEvaluator {
                         : (0.5f * (1.0f + (float) Math.cos(((angDist - halfArc) / shoulderWidth) * Math.PI)));
 
                 if (genFrac > 0f) {
+                    float beamMidMult = (isBeam && CombatPhysicsProfile.isBeamDropoffActive(ship))
+                            ? (0.35f + 0.65f * CombatPhysicsProfile.evaluateBeamDamageMultiplier(ship, w, range * 0.62f))
+                            : 1.0f;
+                    float tacticalRange = (isBeam && CombatPhysicsProfile.isBeamDropoffActive(ship))
+                            ? CombatPhysicsProfile.resolveEffectiveTacticalBeamRange(ship, w)
+                            : range;
                     float gw = angularWeight * genFrac * readiness;
-                    float aContrib = wAlpha * gw;
-                    float shContrib = wShortDot * gw;
-                    float suContrib = wSustainedDot * gw;
+                    float aContrib = wAlpha * gw * beamMidMult;
+                    float shContrib = wShortDot * gw * beamMidMult;
+                    float suContrib = wSustainedDot * gw * beamMidMult;
                     rawAlpha[s] += aContrib;
                     rawShort[s] += shContrib;
                     rawSustained[s] += suContrib;
-                    float effRange = range * (0.72f + 0.28f * angularWeight);
+                    float effRange = tacticalRange * (0.72f + 0.28f * angularWeight);
                     rawAlphaRangeWeightedSum[s] += aContrib * effRange;
                     rawShortRangeWeightedSum[s] += shContrib * effRange;
                     rawSustRangeWeightedSum[s] += suContrib * effRange;
@@ -1504,9 +1511,10 @@ public class BattlefieldFirepowerEvaluator {
                     float wingLiveRatio = clampVal((float) aliveFighters / maxFighters, 0.20f, 1.0f) * readiness;
                     boolean wingTetheredZero = VoidstrikeCoordinator.isWingTetheredZeroRange(ship, wing);
                     float effWingEngage = VoidstrikeCoordinator.resolveEffectiveWingEngagementRange(ship, wing);
+                    float fScale = CombatPhysicsProfile.getFighterRangeScale(null);
                     float wingRange = wingTetheredZero
-                            ? Math.max(420f, ship.getCollisionRadius() + 300f)
-                            : clampVal(effWingEngage * 0.72f, 1100f, 2400f);
+                            ? Math.max(420f, CombatPhysicsProfile.resolvePhysicalHullRadius(ship) + 300f)
+                            : clampVal(effWingEngage * 0.72f, 1100f, 2400f * fScale);
 
                     float wingAlpha = (isBomberOrAssault ? 360f : 140f) * wingLiveRatio;
                     float wingShort = (isBomberOrAssault ? 220f : 135f) * wingLiveRatio;
@@ -2504,14 +2512,21 @@ public class BattlefieldFirepowerEvaluator {
         boolean isPhaseShip = ShipCapabilityProfile.hasTruePhaseCloak(attacker);
         float dist = distance(attacker.getLocation(), target.getLocation());
         int attackerBays = attacker.getNumFighterBays();
+        float fScale = CombatPhysicsProfile.getFighterRangeScale(null);
+        float bayEngageReach = 3200f * fScale;
         ShipFirepowerRose attackerRose = rosesByShipId.get(attacker.getId());
-        if (attackerBays <= 0 && attackerRose != null && attackerRose.initialized) {
+        if (attackerRose != null && attackerRose.initialized) {
             float maxR = Math.max(attackerRose.maxGeneralRange, attackerRose.maxPdRange);
-            if (dist > maxR * 1.08f + 50f) {
+            float maxCarrierOrGunR = (attackerBays > 0) ? Math.max(maxR, bayEngageReach) : maxR;
+            if (dist > maxCarrierOrGunR * 1.08f + 50f) {
                 return 0f;
             }
-        } else if (dist > 3400f) {
-            return 0f;
+        } else {
+            float fallbackReach = Math.max(3400f * CombatPhysicsProfile.getWeaponRangeScale(null),
+                    attackerBays > 0 ? bayEngageReach + 200f : 3400f);
+            if (dist > fallbackReach) {
+                return 0f;
+            }
         }
         float bearing = normalizeAngle360((float) Math.toDegrees(Math.atan2(
                 target.getLocation().y - attacker.getLocation().y,
@@ -2538,12 +2553,15 @@ public class BattlefieldFirepowerEvaluator {
                 float offAxis = Math.abs(shortestAngleDiffDeg(mountWorldFacing, bearing));
                 if (offAxis > rawArc * 0.5f + 22f) continue;
 
-                if (w.hasAIHint(AIHints.STRIKE) && dist > 1300f) continue;
+                if (w.hasAIHint(AIHints.STRIKE) && dist > Math.max(1300f, range * 0.92f)) continue;
                 DamageType dt = w.getDamageType();
                 float defenseMatchMult = (dt == DamageType.KINETIC)
                         ? (targetShieldsActive ? 1.20f : 0.80f)
                         : (dt == DamageType.HIGH_EXPLOSIVE ? (targetShieldsActive ? 0.84f : 1.30f) : 1.0f);
                 float wScore = computeWeaponBaseAntiShipScore(w) * defenseMatchMult;
+                if (w.isBeam()) {
+                    wScore *= CombatPhysicsProfile.evaluateBeamDamageMultiplier(attacker, w, dist);
+                }
                 if (!isPhaseShip) {
                     float cdRem = w.getCooldownRemaining();
                     if (cdRem > 0.20f) {
@@ -2554,7 +2572,7 @@ public class BattlefieldFirepowerEvaluator {
             }
         }
         int bays = attacker.getNumFighterBays();
-        if (bays > 0 && dist <= 3200f) {
+        if (bays > 0 && dist <= bayEngageReach) {
             inRangeScore += bays * 125f;
         }
         return inRangeScore;
@@ -3810,9 +3828,10 @@ public class BattlefieldFirepowerEvaluator {
             bastion.effectiveHpRatio = (combatModCount > 0)
                     ? (combatModHullSum / combatModCount)
                     : ((count > 0) ? (hullSum / count) : 1f);
+            float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
             bastion.avgEngageRange = (rangeWeightSum > 0f)
-                    ? clampVal(rangeWeightedSum / rangeWeightSum, 650f, 2400f)
-                    : 1150f;
+                    ? clampVal(rangeWeightedSum / rangeWeightSum, 650f, 2400f * wScale)
+                    : 1150f * wScale;
             bastion.avgFluxLevel = (combatModCount > 0)
                     ? (combatModFluxSum / combatModCount)
                     : ((count > 0) ? (fluxSum / count) : 0f);
@@ -3824,7 +3843,8 @@ public class BattlefieldFirepowerEvaluator {
             bastion.isUnableDivision = false;
             bastion.retreatingFraction = 0f;
 
-            PointFirepowerEval eval = evaluatePoint(engine, group.side, stLoc, Math.max(250f, st.getCollisionRadius()));
+            PointFirepowerEval eval = evaluatePoint(engine, group.side, stLoc,
+                    Math.max(250f, CombatPhysicsProfile.resolvePhysicalHullRadius(st)));
             bastion.incomingShortDotThreat = eval.incomingShortDot;
             bastion.crossfireCordonIndex = eval.cordonIndex;
 
@@ -3944,7 +3964,9 @@ public class BattlefieldFirepowerEvaluator {
             unit.formationHeadingY = (float) Math.sin(hRad);
             unit.formationHeadingInitialized = true;
 
-            unit.spreadRadius = Math.max(35f, s.getCollisionRadius() * 0.45f);
+            float physColRad = CombatPhysicsProfile.resolvePhysicalHullRadius(s);
+            float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
+            unit.spreadRadius = Math.max(35f, physColRad * 0.45f);
             unit.totalFpStrength = Math.max(4f, ShipCapabilityProfile.resolveShipFpStrength(s));
             unit.totalEffectiveHp = Math.max(200f, computeShipEffectiveHp(s));
             unit.maxEffectiveHp = Math.max(unit.totalEffectiveHp, computeShipMaxEffectiveHp(s));
@@ -3952,7 +3974,7 @@ public class BattlefieldFirepowerEvaluator {
 
             ShipFirepowerRose rose = rosesByShipId.get(shipId);
             if (rose != null && rose.maxGeneralRange > 150f) {
-                unit.avgEngageRange = clampVal(rose.maxGeneralRange * 0.85f, 450f, 2200f);
+                unit.avgEngageRange = clampVal(rose.maxGeneralRange * 0.85f, 450f, 2200f * wScale);
             } else if (unit.avgEngageRange <= 100f) {
                 float rangeWeightedSum = 0f;
                 float rangeWeightSum = 0f;
@@ -3969,8 +3991,8 @@ public class BattlefieldFirepowerEvaluator {
                     }
                 }
                 unit.avgEngageRange = (rangeWeightSum > 0f)
-                        ? clampVal(rangeWeightedSum / rangeWeightSum, 450f, 2200f)
-                        : 750f;
+                        ? clampVal(rangeWeightedSum / rangeWeightSum, 450f, 2200f * wScale)
+                        : 750f * wScale;
             }
 
             unit.avgFluxLevel = (s.getFluxTracker() != null)
@@ -3983,7 +4005,7 @@ public class BattlefieldFirepowerEvaluator {
             unit.isUnableDivision = unable;
             unit.retreatingFraction = s.isRetreating() ? 1.0f : 0.0f;
 
-            PointFirepowerEval eval = evaluatePoint(engine, group.side, sLoc, Math.max(110f, s.getCollisionRadius()));
+            PointFirepowerEval eval = evaluatePoint(engine, group.side, sLoc, Math.max(110f, physColRad));
             unit.incomingShortDotThreat = eval.incomingShortDot;
             unit.crossfireCordonIndex = eval.cordonIndex;
 

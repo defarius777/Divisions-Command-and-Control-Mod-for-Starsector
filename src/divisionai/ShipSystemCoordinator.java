@@ -985,6 +985,9 @@ public final class ShipSystemCoordinator {
                 }
 
                 ShipSkillProfile prof = getSkillProfile(ship);
+                applyVariablePhysicsShipAiAssist(
+                        engine, div, ship, flags, focusEnemy, prof, ramMode, directObjectiveMarch);
+
                 if (prof.category == ShipSkillCategory.NONE) continue;
 
                 ShipSystemAPI sys = ship.getSystem();
@@ -1294,16 +1297,21 @@ public final class ShipSystemCoordinator {
             }
             if (escGoal != null) {
                 float distGoal = DivisionCommanderAI.distance(ship.getLocation(), escGoal);
-                if (distGoal <= Math.max(220f, Math.min(400f, brakeDist * 0.65f))) {
+                float maxExtractBrake = CombatPhysicsProfile.hasExtremeInertia(ship) ? 4500f : 400f;
+                float extractMult = CombatPhysicsProfile.hasExtremeInertia(ship) ? 0.85f : 0.65f;
+                if (distGoal <= Math.max(220f, Math.min(maxExtractBrake, brakeDist * extractMult))) {
                     shouldCutToggle = true;
                 }
             }
         } else if (prof.isDesignedToRam && effTarget != null) {
             if (ramMode == DivisionRammingMode.OFF || isStationOrStationModule(effTarget)) {
                 float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
+                float brakeLead = CombatPhysicsProfile.hasExtremeInertia(ship)
+                        ? Math.min(5200f, brakeDist * 0.92f)
+                        : Math.min(340f, brakeDist * 0.55f);
                 float stopBand = isStationOrStationModule(effTarget)
-                        ? 900f
-                        : (Math.max(540f, div.standoffRange * 0.88f) + Math.min(340f, brakeDist * 0.55f));
+                        ? Math.max(900f, 520f + brakeLead)
+                        : (Math.max(540f, div.standoffRange * 0.88f) + brakeLead);
                 if (distE <= stopBand) {
                     shouldCutToggle = true;
                 }
@@ -1311,8 +1319,8 @@ public final class ShipSystemCoordinator {
                 float toEx = effTarget.getLocation().x - ship.getLocation().x;
                 float toEy = effTarget.getLocation().y - ship.getLocation().y;
                 float distE = (float) Math.sqrt(toEx * toEx + toEy * toEy);
-                float sRad = Math.max(35f, ship.getCollisionRadius());
-                float tRad = Math.max(45f, effTarget.getCollisionRadius());
+                float sRad = Math.max(35f, CombatPhysicsProfile.resolvePhysicalHullRadius(ship));
+                float tRad = Math.max(45f, CombatPhysicsProfile.resolvePhysicalHullRadius(effTarget));
                 float deepHullContactDist = (sRad + tRad) * 0.58f;
                 double rad = Math.toRadians(ship.getFacing());
                 float hdgX = (float) Math.cos(rad);
@@ -1326,7 +1334,10 @@ public final class ShipSystemCoordinator {
             }
         } else if (!prof.isDesignedToRam && effTarget != null) {
             float distE = DivisionCommanderAI.distance(ship.getLocation(), effTarget.getLocation());
-            float stopBand = Math.max(540f, div.standoffRange * 0.88f) + Math.min(340f, brakeDist * 0.55f);
+            float brakeLead = CombatPhysicsProfile.hasExtremeInertia(ship)
+                    ? Math.min(5200f, brakeDist * 0.92f)
+                    : Math.min(340f, brakeDist * 0.55f);
+            float stopBand = Math.max(540f, div.standoffRange * 0.88f) + brakeLead;
             if (distE <= stopBand) {
                 shouldCutToggle = true;
             }
@@ -1334,7 +1345,10 @@ public final class ShipSystemCoordinator {
 
         if (!stage2SyncCharge && !prof.isDesignedToRam && campLoc != null) {
             float distSlot = DivisionCommanderAI.distance(ship.getLocation(), campLoc);
-            if (distSlot <= Math.max(180f, Math.min(360f, brakeDist * 0.65f))) {
+            float slotBrakeCut = CombatPhysicsProfile.hasExtremeInertia(ship)
+                    ? Math.max(220f, Math.min(4800f, brakeDist * 0.90f))
+                    : Math.max(180f, Math.min(360f, brakeDist * 0.65f));
+            if (distSlot <= slotBrakeCut) {
                 shouldCutToggle = true;
             }
         } else if (!stage2SyncCharge && prof.isDesignedToRam && campLoc != null
@@ -2066,7 +2080,7 @@ public final class ShipSystemCoordinator {
             // (not merely a side-by-side ship in the same enemy rank!)
             if (dist - proj < 135f) continue;
             float perp = Math.abs(ox * (-uy) + oy * ux);
-            float blockRadius = Math.max(55f, other.getCollisionRadius() * 0.72f);
+            float blockRadius = Math.max(55f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(other) * 0.72f);
             if (perp < blockRadius) {
                 return true;
             }
@@ -2275,8 +2289,8 @@ public final class ShipSystemCoordinator {
         float tieBreaker = (shipIdx % 2 == 0) ? 0.18f : -0.18f;
         float sideSign = (headingBias + openSpaceBias + tieBreaker >= 0f) ? 1f : -1f;
 
-        float tRad = Math.max(45f, target.getCollisionRadius());
-        float sRad = Math.max(35f, ship.getCollisionRadius());
+        float tRad = Math.max(45f, CombatPhysicsProfile.resolvePhysicalHullRadius(target));
+        float sRad = Math.max(35f, CombatPhysicsProfile.resolvePhysicalHullRadius(ship));
         float combinedRad = tRad + sRad;
         // Aim inside the target's physical hull shoulder (0.24x target collision radius) until physical hull contact
         // occurs (dist <= 0.58x combinedRad), then flare outward so the ship deflects past after striking!
@@ -2362,7 +2376,7 @@ public final class ShipSystemCoordinator {
         double rad = Math.toRadians(ship.getFacing());
         float fx = (float) Math.cos(rad);
         float fy = (float) Math.sin(rad);
-        float myR = Math.max(40f, ship.getCollisionRadius());
+        float myR = Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(ship));
         float myVx = (ship.getVelocity() != null) ? ship.getVelocity().x : (fx * ship.getMaxSpeed());
         float myVy = (ship.getVelocity() != null) ? ship.getVelocity().y : (fy * ship.getMaxSpeed());
         // Include forward boost projection along bow
@@ -2424,7 +2438,7 @@ public final class ShipSystemCoordinator {
         if (distSq > maxCheck * maxCheck) return false;
         float dist = (float) Math.sqrt(distSq);
 
-        float otherR = Math.max(40f, other.getCollisionRadius());
+        float otherR = Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(other));
         // Same-division wingmen dress in parallel lanes (160u-240u apart), so only flag a same-division peer if it lies
         // genuinely within our physical hull beam (0.48x combined radius) inside a narrow forward cone (fwdProj > 0.84*dist).
         // Cross-division ships use a wider 0.74x combined radius (+15u) corridor so divisions thread cleanly around each other.
@@ -2479,7 +2493,8 @@ public final class ShipSystemCoordinator {
         float hdgX = (float) Math.cos(rad);
         float hdgY = (float) Math.sin(rad);
         float sideSign = (hdgX * perpX + hdgY * perpY >= 0f) ? 1f : -1f;
-        float offset = (ship.getCollisionRadius() + obstacle.getCollisionRadius()) * 1.35f + 120f;
+        float offset = (CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(ship)
+                + CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(obstacle)) * 1.35f + 120f;
         return new Vector2f(
                 ship.getLocation().x + perpX * sideSign * offset - nx * 80f,
                 ship.getLocation().y + perpY * sideSign * offset - ny * 80f);
@@ -2500,7 +2515,7 @@ public final class ShipSystemCoordinator {
         double rad = Math.toRadians(ship.getFacing());
         float fx = (float) Math.cos(rad);
         float fy = (float) Math.sin(rad);
-        float myR = Math.max(40f, ship.getCollisionRadius());
+        float myR = Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(ship));
         for (int dIdx = 0; dIdx < effEnemyDivs.size(); dIdx++) {
             DivisionState eDiv = effEnemyDivs.get(dIdx);
             if (eDiv == null) continue;
@@ -2514,13 +2529,119 @@ public final class ShipSystemCoordinator {
                 float fwdProj = dx * fx + dy * fy;
                 if (fwdProj <= 0f || fwdProj > checkDist) continue;
                 float latDist = Math.abs(dx * (-fy) + dy * fx);
-                float clearance = (myR + Math.max(45f, es.getCollisionRadius())) * 1.15f + 50f;
+                float clearance = (myR + Math.max(45f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(es))) * 1.15f + 50f;
                 if (latDist < clearance) {
                     return false;
                 }
             }
         }
         return true;
+    }
+
+    /**
+     * Generic 60 Hz ship-AI physics & gunnery assist for non-vanilla physics environments:
+     * <ol>
+     *   <li><b>High-Inertia Newtonian Braking</b>: When {@link CombatPhysicsProfile#hasExtremeInertia(ShipAPI)} is true
+     *       (e.g., high cruise speed coupled with low deceleration), vanilla {@code BasicEngineAI} brakes far too late
+     *       and overshoots {@code CAMP_LOCATION} slots and battleline standoff ranges by 1,500–3,000u+. Applies exact
+     *       {@code v^2 / (2 * decel)} stopping-distance lookahead along the approach vector.</li>
+     *   <li><b>Inflated-Broadphase Autofire Rescue</b>: When {@link CombatPhysicsProfile#hasInflatedCollisionRadius(ShipAPI)}
+     *       is true (e.g., 3x {@code collisionRadius}), vanilla {@code AutofireAIPlugin} holds fire whenever an oversized
+     *       friendly broadphase sphere overlaps the firing cone even though the friendly's physical hull and shield are
+     *       well clear. Triggers {@link com.fs.starfarer.api.combat.WeaponAPI#setForceFireOneFrame(boolean)} per-weapon
+     *       only when the turret is already tracked onto a visible in-range target and the true physical hull/shield ray
+     *       is completely clear of friendlies.</li>
+     * </ol>
+     * Both branches short-circuit immediately in vanilla physics (zero behavioral delta at 1.0x scale).
+     */
+    private static void applyVariablePhysicsShipAiAssist(
+            CombatEngineAPI engine,
+            DivisionState div,
+            ShipAPI ship,
+            ShipwideAIFlags flags,
+            ShipAPI focusEnemy,
+            ShipSkillProfile prof,
+            DivisionRammingMode ramMode,
+            boolean directObjectiveMarch) {
+        if (ship == null || ship.getLocation() == null || !ship.isAlive() || ship.isHulk()) return;
+        if (ship.getFluxTracker() != null && ship.getFluxTracker().isOverloadedOrVenting()) return;
+
+        boolean extremeInertia = CombatPhysicsProfile.hasExtremeInertia(ship);
+        boolean doNotUseFlux = flags != null && flags.hasFlag(AIFlags.DO_NOT_USE_FLUX);
+        CombatPhysicsProfile.applyAutofireBoundsAndBeamAssist(engine, ship, doNotUseFlux);
+        if (!extremeInertia) return;
+
+        // High-Inertia Newtonian Braking Assist (v^2 / 2a)
+        if (flags != null && !directObjectiveMarch) {
+            boolean rammingCommitted = prof != null && prof.isDesignedToRam && ramMode != DivisionRammingMode.OFF;
+            boolean gauntletCharge = div.currentIntent == DivisionIntentType.RUN_THE_GAUNTLET;
+            Vector2f vel = ship.getVelocity();
+            float vx = vel != null ? vel.x : 0f;
+            float vy = vel != null ? vel.y : 0f;
+            float decel = Math.max(8f, ship.getDeceleration());
+            double bowRad = Math.toRadians(ship.getFacing());
+            float bowX = (float) Math.cos(bowRad);
+            float bowY = (float) Math.sin(bowRad);
+
+            if (!rammingCommitted && !gauntletCharge) {
+                Object campObj = flags.getCustom(AIFlags.CAMP_LOCATION);
+                if (campObj instanceof Vector2f && !flags.hasFlag(AIFlags.RUN_QUICKLY)) {
+                    Vector2f camp = (Vector2f) campObj;
+                    float dx = camp.x - ship.getLocation().x;
+                    float dy = camp.y - ship.getLocation().y;
+                    float distToSlot = (float) Math.sqrt(dx * dx + dy * dy);
+                    if (distToSlot > 85f) {
+                        float ux = dx / distToSlot;
+                        float uy = dy / distToSlot;
+                        float vAlong = vx * ux + vy * uy;
+                        if (vAlong > 50f) {
+                            float stopDist = CombatPhysicsProfile.computeStoppingDistance(vAlong, decel);
+                            if (distToSlot <= stopDist * 1.06f + 75f) {
+                                ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
+                                if (distToSlot <= stopDist * 0.92f + 45f && (bowX * ux + bowY * uy) > 0.25f) {
+                                    ship.giveCommand(ShipCommand.DECELERATE, null, 0);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ShipAPI brakeRefEnemy = focusEnemy;
+                if (brakeRefEnemy == null && flags.getCustom(AIFlags.MANEUVER_TARGET) instanceof ShipAPI) {
+                    brakeRefEnemy = (ShipAPI) flags.getCustom(AIFlags.MANEUVER_TARGET);
+                }
+                if (brakeRefEnemy != null && brakeRefEnemy.isAlive() && brakeRefEnemy.getLocation() != null) {
+                    boolean holdStandoff = flags.hasFlag(AIFlags.DO_NOT_PURSUE)
+                            || div.currentIntent == DivisionIntentType.FORM_LINE_AND_FIX
+                            || div.currentIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME;
+                    boolean disciplinedLine = holdStandoff || div.currentIntent == DivisionIntentType.CLOSE_AND_ENGAGE;
+                    if (disciplinedLine) {
+                        float ex = brakeRefEnemy.getLocation().x - ship.getLocation().x;
+                        float ey = brakeRefEnemy.getLocation().y - ship.getLocation().y;
+                        float distE = (float) Math.sqrt(ex * ex + ey * ey);
+                        if (distE > 120f) {
+                            float ux = ex / distE;
+                            float uy = ey / distE;
+                            Vector2f eVel = brakeRefEnemy.getVelocity();
+                            float evx = eVel != null ? eVel.x : 0f;
+                            float evy = eVel != null ? eVel.y : 0f;
+                            float vClosing = (vx - evx) * ux + (vy - evy) * uy;
+                            float desiredFloor = Math.max(540f, div.standoffRange * (holdStandoff ? 0.86f : 0.72f));
+                            float remainingMargin = distE - desiredFloor;
+                            if (vClosing > 55f) {
+                                float stopDist = CombatPhysicsProfile.computeStoppingDistance(vClosing, decel);
+                                if (remainingMargin <= stopDist * 1.04f) {
+                                    ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
+                                    if (remainingMargin <= stopDist * 0.88f && (bowX * ux + bowY * uy) > 0.30f) {
+                                        ship.giveCommand(ShipCommand.DECELERATE, null, 0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private static float shortestAngleDiff(float fromDeg, float toDeg) {

@@ -1061,7 +1061,9 @@ public class DivisionCommanderAI {
         boolean enterCloseUp = div.stationKeepingRatio > 1.48f && !carrierHasStrikeTarget && !linearSkillBurnInFlight;
         boolean stayClosingUp = (prevIntent == DivisionIntentType.CLOSE_UP) && div.stationKeepingRatio > 1.08f
                 && !carrierHasStrikeTarget && !linearSkillBurnInFlight;
-        boolean outOfEnemyContact = div.localEnemyStrength < 8f && distToVisibleEnemy >= 2100f;
+        float closeUpSafeClearance = Math.max(2100f,
+                Math.max(div.avgEngageRange, nearestEnemyDiv != null ? nearestEnemyDiv.avgEngageRange : 0f) * 1.25f);
+        boolean outOfEnemyContact = div.localEnemyStrength < 8f && distToVisibleEnemy >= closeUpSafeClearance;
         if ((enterCloseUp || stayClosingUp) && div.coreMemberCount >= 2 && outOfEnemyContact) {
             if (div.flagship != null && div.flagship.isAlive() && !div.flagship.isHulk()
                     && !div.detachedStragglerIds.contains(div.flagship.getId())) {
@@ -4125,7 +4127,8 @@ public class DivisionCommanderAI {
 
             case MARSHAL_FOR_STRIKE:
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
-                if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) <= 1850f) {
+                if (focusEnemyShip != null
+                        && distance(ship.getLocation(), focusEnemyShip.getLocation()) <= Math.max(1850f, div.avgEngageRange * 1.22f)) {
                     directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
                 }
                 if ((focusEnemyShip == null || distance(ship.getLocation(), focusEnemyShip.getLocation()) > Math.max(1100f, div.avgEngageRange * 1.12f))
@@ -4179,17 +4182,19 @@ public class DivisionCommanderAI {
 
             case TAKE_SCREENING_STATION:
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
-                if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 1650f) {
+                if (focusEnemyShip != null
+                        && distance(ship.getLocation(), focusEnemyShip.getLocation()) < Math.max(1650f, div.avgEngageRange * 1.25f)) {
                     directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
                 }
                 if (distance(ship.getLocation(), slotPos) > (structuredFormation ? dressTol : Math.max(260f, div.stationSpacing * 0.55f))
-                        || (!structuredFormation && crowdedByPeer && (focusEnemyShip == null || distance(ship.getLocation(), focusEnemyShip.getLocation()) > 1400f))) {
+                        || (!structuredFormation && crowdedByPeer && (focusEnemyShip == null || distance(ship.getLocation(), focusEnemyShip.getLocation()) > 1300f))) {
                     flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
                 }
                 break;
 
             case REINFORCE_DIVISION:
-                if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) < 1750f) {
+                if (focusEnemyShip != null
+                        && distance(ship.getLocation(), focusEnemyShip.getLocation()) < Math.max(1750f, div.avgEngageRange * 1.25f)) {
                     directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
                 }
                 if (div.targetFriendlyDivision != null && div.targetFriendlyDivision.shipNeedingHelp != null
@@ -4283,9 +4288,10 @@ public class DivisionCommanderAI {
             return false;
         }
         boolean enemyCap = focusEnemyShip.isCapital() || focusEnemyShip.getHullSize() == ShipAPI.HullSize.CAPITAL_SHIP;
+        float blastMult = CombatPhysicsProfile.resolveExplosionRadiusMult(focusEnemyShip);
         float blastSafeDist = DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(focusEnemyShip)
                 + DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(ship)
-                + (enemyCap ? 480f : 310f);
+                + (enemyCap ? 480f : 310f) * blastMult;
         if (distance(ship.getLocation(), focusEnemyShip.getLocation()) >= blastSafeDist) {
             return false;
         }
@@ -4586,8 +4592,9 @@ public class DivisionCommanderAI {
             float dx = ship.getLocation().x - myGroup.fleetCentroid.x;
             float dy = ship.getLocation().y - myGroup.fleetCentroid.y;
             float fromFleet = (float) Math.sqrt(dx * dx + dy * dy);
-            if (fromFleet > OtcBattlePlanner.CHASE_LEASH) {
-                float k = (OtcBattlePlanner.CHASE_LEASH * 0.8f) / Math.max(1f, fromFleet);
+            float effChaseLeash = OtcBattlePlanner.getEffectiveChaseLeash(null);
+            if (fromFleet > effChaseLeash) {
+                float k = (effChaseLeash * 0.8f) / Math.max(1f, fromFleet);
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                 flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL,
                         new Vector2f(myGroup.fleetCentroid.x + dx * k, myGroup.fleetCentroid.y + dy * k));
@@ -4626,7 +4633,8 @@ public class DivisionCommanderAI {
                 && myGroup.mainEffortDivision.localEnemyStrength < 10f;
         if (waitingForMainLine) {
             flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
-            if (focusEnemyShip != null && distance(ship.getLocation(), focusEnemyShip.getLocation()) <= 1650f) {
+            if (focusEnemyShip != null
+                    && distance(ship.getLocation(), focusEnemyShip.getLocation()) <= Math.max(1650f, div.avgEngageRange * 1.25f)) {
                 directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
             }
             if (distance(ship.getLocation(), slotPos) > 200f) {
@@ -4648,14 +4656,16 @@ public class DivisionCommanderAI {
         if (focusEnemyShip != null) {
             directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
             float dEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
+            float wScale = CombatPhysicsProfile.getWeaponRangeScale(null);
             float minSafeStrikeDist = isPhaseMissileBoat
-                    ? Math.max(980f, Math.min(1320f, div.standoffRange * 0.90f))
+                    ? Math.max(980f, Math.min(1320f * wScale, div.standoffRange * 0.90f))
                     : Math.max(680f, div.avgEngageRange * 0.80f);
             if (dEnemy < minSafeStrikeDist && (isPhaseMissileBoat || ship.getFluxLevel() >= 0.35f)) {
                 flags.unsetFlag(AIFlags.HARASS_MOVE_IN);
                 flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
                 flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
-            } else if (dEnemy > 2100f || (structuredFormation && distance(ship.getLocation(), slotPos) > combatSlotLeash * 1.35f)) {
+            } else if (dEnemy > Math.max(2100f, div.avgEngageRange * 1.25f)
+                    || (structuredFormation && distance(ship.getLocation(), slotPos) > combatSlotLeash * 1.35f)) {
                 flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
             }
         } else if (div.targetEnemyDivision != null) {
@@ -4789,16 +4799,17 @@ public class DivisionCommanderAI {
             DivisionState div,
             float dressTol) {
         boolean flakDanger = isEnemyShipFlakLethalToLightHull(ship, focusEnemyShip);
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(null);
         if (flakDanger) {
             flags.setFlag(AIFlags.DO_NOT_PURSUE, FLAG_TTL);
             flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL * 1.4f);
             if (focusEnemyShip != null) {
                 directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
                 float distToEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
-                float safeFlakFloor = ship.isFrigate() ? 820f : 760f;
+                float safeFlakFloor = resolveDynamicSafeFlakFloor(ship, focusEnemyShip, div);
                 if (distToEnemy < safeFlakFloor) {
                     flags.setFlag(AIFlags.BACK_OFF, FLAG_TTL);
-                } else if (distToEnemy > 1500f) {
+                } else if (distToEnemy > Math.max(1500f, div.avgEngageRange * 1.15f)) {
                     flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
                 }
             }
@@ -4821,7 +4832,7 @@ public class DivisionCommanderAI {
         if (focusEnemyShip != null) {
             directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
             float distToEnemy = distance(ship.getLocation(), focusEnemyShip.getLocation());
-            float allGunsCloseRange = Math.max(640f, Math.min(840f, div.avgEngageRange * 0.78f));
+            float allGunsCloseRange = Math.max(640f, Math.min(840f * wScale, div.avgEngageRange * 0.78f));
             if (distToEnemy > allGunsCloseRange && lowFluxForAlphaPush) {
                 Vector2f eLoc = focusEnemyShip.getLocation();
                 float sdx = ship.getLocation().x - eLoc.x;
@@ -4836,7 +4847,7 @@ public class DivisionCommanderAI {
                     flags.setFlag(AIFlags.MOVEMENT_DEST, FLAG_TTL, eLoc);
                 }
             }
-            if (distToEnemy > 1650f && distance(ship.getLocation(), slotPos) > dressTol * 1.25f) {
+            if (distToEnemy > Math.max(1650f, div.avgEngageRange * 1.18f) && distance(ship.getLocation(), slotPos) > dressTol * 1.25f) {
                 flags.setFlag(AIFlags.CAMP_LOCATION, FLAG_TTL, slotPos);
             }
         } else if (div.targetEnemyDivision != null) {
@@ -4939,12 +4950,13 @@ public class DivisionCommanderAI {
             }
         }
         if (enemyGroup != null) {
+            float scanHorizon = 2600f * CombatPhysicsProfile.getWeaponRangeScale(engine);
             List<DivisionState> effEnemyDivs = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
             for (int dIdx = 0; dIdx < effEnemyDivs.size(); dIdx++) {
                 DivisionState eDiv = effEnemyDivs.get(dIdx);
                 if (eDiv == null || eDiv == targetEnemyDiv || !eDiv.isCombatEffective() || eDiv.centroid == null) continue;
                 if (eDiv.coreMemberCount < 2 && !BattlefieldFirepowerEvaluator.isStationBastionDivision(eDiv)) continue;
-                if (distance(shipLoc, eDiv.centroid) > 2600f) continue;
+                if (distance(shipLoc, eDiv.centroid) > scanHorizon) continue;
                 List<ShipAPI> eMembers = eDiv.getAliveMembers();
                 for (int i = 0; i < eMembers.size(); i++) {
                     ShipAPI es = eMembers.get(i);
@@ -4986,7 +4998,8 @@ public class DivisionCommanderAI {
                 || DivisionState.isDivisionEscapingInPursuit(com.fs.starfarer.api.Global.getCombatEngine(), div.targetEnemyDivision)
                 || div.targetEnemyDivision.combatThreatWeight <= 0.62f
                 || enemyIsLightOrFlanking);
-        if (focusEnemyShip != null && distToFocus < 2200f) {
+        float flankAcquireHorizon = Math.max(2200f, div.avgEngageRange * 1.28f);
+        if (focusEnemyShip != null && distToFocus < flankAcquireHorizon) {
             directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
             if (targetCorneredOrWeak && !div.hasRouteWaypoint && ship.getFluxLevel() < 0.56f) {
                 flags.setFlag(AIFlags.HARASS_MOVE_IN, FLAG_TTL);
@@ -5058,7 +5071,7 @@ public class DivisionCommanderAI {
                         || div.voidstrikeStage == 2) {
                     directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
                 }
-            } else if (distToEnemy < 2200f) {
+            } else if (distToEnemy < Math.max(2200f, div.avgEngageRange * 1.25f)) {
                 directShipAndFightersOntoTarget(ship, flags, focusEnemyShip, div);
             }
         } else {
@@ -5142,11 +5155,12 @@ public class DivisionCommanderAI {
                 || (div.targetEnemyDivision != null
                 && div.targetEnemyDivision.totalEffectiveHp > div.totalEffectiveHp * 1.35f
                 && div.totalEffectiveHp > 100f));
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(null);
         float enemyRangeRef = (div.targetEnemyDivision != null)
                 ? div.targetEnemyDivision.avgEngageRange
                 : div.standoffRange;
         float effectiveStandoff = outmatchedInEhp
-                ? Math.max(div.standoffRange * 1.15f, Math.max(960f, Math.min(1250f, enemyRangeRef * 1.06f)))
+                ? Math.max(div.standoffRange * 1.15f, Math.max(960f, Math.min(1250f * wScale, enemyRangeRef * 1.06f)))
                 : div.standoffRange;
         boolean isLoneOrOutnumberedFrigOrDd = (ship.isFrigate() || ship.isDestroyer())
                 && (divAliveCount == 1 || outmatchedInEhp);
@@ -5159,10 +5173,11 @@ public class DivisionCommanderAI {
                 + DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(ship) + 195f)
                 : 0f;
         boolean deathBlastHazard = isEnemyShipNearLethalDeathBlast(ship, div, focusEnemyShip);
+        float blastMult = CombatPhysicsProfile.resolveExplosionRadiusMult(focusEnemyShip);
         float deathBlastSafeDist = deathBlastHazard && focusEnemyShip != null
                 ? (DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(focusEnemyShip)
                 + DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(ship)
-                + (focusEnemyShip.isCapital() ? 480f : 310f))
+                + (focusEnemyShip.isCapital() ? 480f : 310f) * blastMult)
                 : 0f;
         float backOffThreshold = Math.max(
                 Math.max(hullContactClearance, deathBlastSafeDist),
@@ -5236,10 +5251,11 @@ public class DivisionCommanderAI {
         float contactDist = Math.min(distToFocus, nearestEnemyDist);
         float distToSlot = distance(ship.getLocation(), slotPos);
         boolean isWingman = (div.flagship != null && ship != div.flagship) || (div.flagship == null && shipIdx > 0);
-        float safeFlakFloor = ship.isFrigate() ? 820f : 760f;
+        float safeFlakFloor = resolveDynamicSafeFlakFloor(ship, focusEnemyShip, div);
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(null);
 
         float effectiveStandoff = Math.max(540f,
-                (div.avgEngageRange > 250f && div.standoffRange <= 1050f)
+                (div.avgEngageRange > 250f && div.standoffRange <= 1050f * wScale)
                         ? Math.min(div.standoffRange, Math.max(540f, div.avgEngageRange * 0.88f))
                         : div.standoffRange);
         boolean isLightHull = ship.isFrigate() || ship.isDestroyer();
@@ -5250,16 +5266,17 @@ public class DivisionCommanderAI {
                 + DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(ship) + 195f)
                 : 0f;
         boolean deathBlastHazard = isEnemyShipNearLethalDeathBlast(ship, div, focusEnemyShip);
+        float blastMult = CombatPhysicsProfile.resolveExplosionRadiusMult(focusEnemyShip);
         float deathBlastSafeDist = deathBlastHazard && focusEnemyShip != null
                 ? (DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(focusEnemyShip)
                 + DivisionFormationNavigator.resolveEffectiveHullCollisionRadius(ship)
-                + (focusEnemyShip.isCapital() ? 480f : 310f))
+                + (focusEnemyShip.isCapital() ? 480f : 310f) * blastMult)
                 : 0f;
         float minContactFloor = Math.max(
                 hullContactClearance,
                 isLightHull
-                        ? Math.max(560f, Math.min(860f, effectiveStandoff * 0.82f))
-                        : Math.max(520f, Math.min(820f, effectiveStandoff * 0.75f)));
+                        ? Math.max(560f, Math.min(860f * wScale, effectiveStandoff * 0.82f))
+                        : Math.max(520f, Math.min(820f * wScale, effectiveStandoff * 0.75f)));
 
         boolean enemyCollapsed = focusEnemyShip != null
                 && ((focusEnemyShip.getFluxTracker() != null && focusEnemyShip.getFluxTracker().isOverloadedOrVenting())
@@ -5474,6 +5491,19 @@ public class DivisionCommanderAI {
         if (enemyShip.getFluxTracker() != null && enemyShip.getFluxTracker().isOverloadedOrVenting()) return false;
         if (enemyShip.getFluxLevel() >= 0.80f) return false;
         return BattlefieldFirepowerEvaluator.getShipHybridFirepower(enemyShip) >= 110f;
+    }
+
+    static float resolveDynamicSafeFlakFloor(ShipAPI ship, ShipAPI enemyShip, DivisionState div) {
+        float baseFloor = (ship != null && ship.isFrigate()) ? 820f : 760f;
+        if (enemyShip == null) return baseFloor;
+        BattlefieldFirepowerEvaluator.ShipFirepowerRose eRose = BattlefieldFirepowerEvaluator.getShipRose(enemyShip);
+        if (eRose != null && eRose.maxPdRange > 950f) {
+            float ownGunCap = (div != null && div.avgEngageRange > 350f)
+                    ? (div.avgEngageRange * 0.90f)
+                    : (eRose.maxPdRange * 0.92f);
+            return Math.max(baseFloor, Math.min(ownGunCap, eRose.maxPdRange * 0.92f));
+        }
+        return baseFloor;
     }
 
     /**
@@ -7057,7 +7087,8 @@ public class DivisionCommanderAI {
         float oVx = (obstacle.getVelocity() != null) ? obstacle.getVelocity().x : 0f;
         float oVy = (obstacle.getVelocity() != null) ? obstacle.getVelocity().y : 0f;
         float closingSpd = (vx - oVx) * nx + (vy - oVy) * ny;
-        float combinedR = Math.max(40f, ship.getCollisionRadius()) + Math.max(40f, obstacle.getCollisionRadius());
+        float combinedR = Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(ship))
+                + Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(obstacle));
 
         if (closingSpd > 15f && dist <= combinedR * 1.45f + 130f) {
             ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);

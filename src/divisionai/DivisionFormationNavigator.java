@@ -53,8 +53,8 @@ public class DivisionFormationNavigator {
         boolean uncapturedObjectiveMarch = (div.currentIntent == DivisionIntentType.TAKE_AND_HOLD
                 && div.targetObjective != null
                 && div.targetObjective.getOwner() != div.side);
-        float baseSpacing = Math.max(150f, div.stationSpacing);
-        float effectiveSlotSpacing = closingUp ? Math.max(140f, baseSpacing * 0.60f) : baseSpacing;
+        float baseSpacing = Math.max(150f, DivisionAutoFormer.resolvePhysicsAwareStationSpacing(div));
+        float effectiveSlotSpacing = closingUp ? Math.max(140f, baseSpacing * 0.72f) : baseSpacing;
 
         Vector2f rawCenter;
         if (closingUp) {
@@ -842,7 +842,7 @@ public class DivisionFormationNavigator {
         }
         float sx = ship.getLocation().x;
         float sy = ship.getLocation().y;
-        float myR = Math.max(40f, ship.getCollisionRadius());
+        float myR = Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(ship));
         float toSlotX = slotX - sx;
         float toSlotY = slotY - sy;
         float distToSlot = (float) Math.sqrt(toSlotX * toSlotX + toSlotY * toSlotY);
@@ -853,6 +853,10 @@ public class DivisionFormationNavigator {
 
         float vx = (ship.getVelocity() != null) ? ship.getVelocity().x : 0f;
         float vy = (ship.getVelocity() != null) ? ship.getVelocity().y : 0f;
+        float mySpd = (float) Math.sqrt(vx * vx + vy * vy);
+        float cpaHorizonSec = CombatPhysicsProfile.hasExtremeInertia(ship)
+                ? Math.max(2.6f, Math.min(5.8f, CombatPhysicsProfile.computeStoppingTime(mySpd, ship.getDeceleration()) * 0.45f))
+                : 2.6f;
 
         if (myGroup != null && myGroup.divisions != null) {
             for (int dIdx = 0; dIdx < myGroup.divisions.size(); dIdx++) {
@@ -865,7 +869,7 @@ public class DivisionFormationNavigator {
                         continue;
                     }
                     boolean sameDiv = (otherDiv == div);
-                    float otherR = Math.max(40f, other.getCollisionRadius());
+                    float otherR = Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(other));
                     float combinedR = myR + otherR;
                     float ox = other.getLocation().x;
                     float oy = other.getLocation().y;
@@ -906,7 +910,7 @@ public class DivisionFormationNavigator {
                         float relOx = ox - sx;
                         float relOy = oy - sy;
                         float tca = (relOx * rvx + relOy * rvy) / relSpdSq;
-                        if (tca > 0f && tca < 2.6f) {
+                        if (tca > 0f && tca < cpaHorizonSec) {
                             float cpaX = relOx - rvx * tca;
                             float cpaY = relOy - rvy * tca;
                             float cpaDist = (float) Math.sqrt(cpaX * cpaX + cpaY * cpaY);
@@ -1234,7 +1238,7 @@ public class DivisionFormationNavigator {
         if (hs == ShipAPI.HullSize.CAPITAL_SHIP) floor = 210f;
         else if (hs == ShipAPI.HullSize.CRUISER) floor = 130f;
         else if (hs == ShipAPI.HullSize.DESTROYER) floor = 85f;
-        return Math.max(floor, s.getCollisionRadius());
+        return Math.max(floor, CombatPhysicsProfile.resolvePhysicalHullRadius(s));
     }
 
     public static void computeStandoffStation(
@@ -1252,12 +1256,13 @@ public class DivisionFormationNavigator {
         float len = (float) Math.sqrt(dx * dx + dy * dy);
         float standoff = Math.max(400f, div.standoffRange);
         boolean enemyIsStation = BattlefieldFirepowerEvaluator.isStationBastionDivision(enemyDiv);
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         if (!div.archetype.isCarrierArchetype() && div.avgEngageRange > 250f) {
             if (enemyIsStation) {
                 // Against a stationary orbital station (which never closes onto our line), clamp non-carrier gun
                 // divisions to their actual primary gun envelope so high custom standoff values don't park ships out of range!
                 standoff = Math.min(standoff, Math.max(540f, div.avgEngageRange * 0.86f));
-            } else if (div.standoffRange <= 1050f) {
+            } else if (div.standoffRange <= 1050f * wScale) {
                 standoff = Math.min(standoff, Math.max(540f, div.avgEngageRange * 0.88f));
             }
         }
@@ -1282,10 +1287,10 @@ public class DivisionFormationNavigator {
                 || enemyDiv.combatThreatWeight <= 0.60f);
         if (targetCorneredOrAuxiliary) {
             float refWeaponRange = (div.avgEngageRange > 250f) ? div.avgEngageRange : div.standoffRange;
-            standoff = Math.max(480f, Math.min(760f, refWeaponRange * 0.75f));
+            standoff = Math.max(480f, Math.min(760f * wScale, refWeaponRange * 0.75f));
         } else if (outmatchedOrFragile && div.avgEngageRange > 250f) {
             // Kite near the outer edge of our own gun envelope (never outside our own weapons!)
-            standoff = Math.max(standoff, Math.min(1080f, div.avgEngageRange * 0.92f));
+            standoff = Math.max(standoff, Math.min(1080f * wScale, div.avgEngageRange * 0.92f));
         } else if (lineStation == LineStation.REAR && !enemyIsStation) {
             standoff = standoff * 1.12f;
         }
@@ -1485,9 +1490,10 @@ public class DivisionFormationNavigator {
                 || DivisionState.isDivisionEscapingInPursuit(engine, enemyDiv)
                 || enemyDiv.combatThreatWeight <= 0.62f
                 || enemyIsLightOrFlanking;
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         float flankRadius = targetCorneredOrWeak
-                ? Math.max(540f, Math.min(840f, weaponRange * 0.78f))
-                : Math.max(1250f, flankerDiv.standoffRange + enemyDiv.spreadRadius * 0.55f + flankerDiv.stationSpacing * 0.65f);
+                ? Math.max(540f, Math.min(840f * wScale, weaponRange * 0.78f))
+                : Math.max(1250f * wScale, flankerDiv.standoffRange + enemyDiv.spreadRadius * 0.55f + flankerDiv.stationSpacing * 0.65f);
         float mapClampMargin = (enemyDiv.edgeProximityPinch >= 0.22f) ? 360f : 650f;
 
         // Pincer: an OTC-assigned flank side is measured on the battlegroup's attack axis (fleet centre -> target),

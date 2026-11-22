@@ -5245,7 +5245,7 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
         }
         float zoom = clamp(scale * 1000f / 75f, 0.65f, 1.65f);
         if (iconRadiusPx <= 2f) {
-            iconRadiusPx = Math.max(12f * zoom, ship.getCollisionRadius() * 1.1f * scale + 75f * scale);
+            iconRadiusPx = Math.max(12f * zoom, CombatPhysicsProfile.resolvePhysicalHullRadius(ship) * 1.1f * scale + 75f * scale);
         }
 
         float sx = ship.getLocation().x * scale + (float) ((int) offsetX);

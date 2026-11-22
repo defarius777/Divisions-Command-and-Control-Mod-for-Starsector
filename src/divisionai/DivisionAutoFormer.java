@@ -767,7 +767,9 @@ public class DivisionAutoFormer {
             PermanentDivisionManager.FleetDoctrineConfig docCfg = PermanentDivisionManager.getFleetDoctrine();
             div.stationSpacing = docCfg.getStationSpacing(docType);
             div.divisionInterval = docCfg.getDivisionInterval(docType);
-            div.standoffRange = docCfg.getStandoffRange(docType);
+            int cfgStandoff = docCfg.getStandoffRange(docType);
+            div.standoffRange = PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
+                    div, docType, cfgStandoff, cfgStandoff != docType.defaultStandoffRangeUnits);
             div.stationKeepingMult = docCfg.getStationKeepingMult(docType);
             div.openingPhaseDurationSeconds = docCfg.getOpeningDurationSeconds();
             div.openingMission = docCfg.getOpeningMission(docType);
@@ -779,7 +781,8 @@ public class DivisionAutoFormer {
         } else {
             div.stationSpacing = docType.defaultStationSpacingUnits;
             div.divisionInterval = docType.defaultDivisionIntervalUnits;
-            div.standoffRange = docType.defaultStandoffRangeUnits;
+            div.standoffRange = PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
+                    div, docType, docType.defaultStandoffRangeUnits, false);
             div.stationKeepingMult = docType.defaultStationKeepingMult;
             div.openingPhaseDurationSeconds = 45f;
             div.openingMission = docType.defaultOpeningMission;
@@ -826,9 +829,37 @@ public class DivisionAutoFormer {
         div.stationKeepingRadius = computeStationKeepingRadius(
                 div.archetype,
                 count,
-                div.stationSpacing,
+                resolvePhysicsAwareStationSpacing(div),
                 div.stationKeepingMult,
                 div.commander.stationKeepingStrictness);
+    }
+
+    /**
+     * Returns {@code div.stationSpacing} unchanged in vanilla physics ({@code inflation <= 1.35f}), or expands slot
+     * spacing when a combat mod inflates {@link ShipAPI#getCollisionRadius()} (e.g. {@code 3x}), because vanilla
+     * {@code BasicShipAI} flocking repulsion refuses to settle two friendly ships closer than {@code ~2.0 * collisionRadius}.
+     */
+    public static float resolvePhysicsAwareStationSpacing(DivisionState div) {
+        if (div == null) return 300f;
+        float base = div.stationSpacing;
+        List<ShipAPI> members = div.getAliveMembers();
+        if (members == null || members.size() < 2) return base;
+        float colSum = 0f;
+        float maxInf = 1.0f;
+        int n = 0;
+        for (int i = 0; i < members.size(); i++) {
+            ShipAPI s = members.get(i);
+            if (s == null || !s.isAlive() || s.isFighter()) continue;
+            float inf = CombatPhysicsProfile.resolveCollisionRadiusInflation(s);
+            if (inf > maxInf) maxInf = inf;
+            colSum += Math.max(40f, s.getCollisionRadius());
+            n++;
+        }
+        if (n < 2 || maxInf <= 1.35f) {
+            return base;
+        }
+        float avgLiveCol = colSum / n;
+        return Math.max(base, avgLiveCol * 2.08f);
     }
 
     /**
@@ -947,9 +978,10 @@ public class DivisionAutoFormer {
             // of that division's centroid; otherwise form a new reinforcement division so a ship spawning 4000u
             // away at the map edge doesn't spike the frontline division's spreadRadius and force CLOSE_UP!
             if (prof.ship != null && prof.ship.getLocation() != null && (div.centroid.x != 0f || div.centroid.y != 0f)) {
+                float reinfMaxDist = 2200f * CombatPhysicsProfile.getMapScale(activeCombatEngine);
                 float dx = prof.ship.getLocation().x - div.centroid.x;
                 float dy = prof.ship.getLocation().y - div.centroid.y;
-                if ((dx * dx + dy * dy) > (2200f * 2200f)) continue;
+                if ((dx * dx + dy * dy) > (reinfMaxDist * reinfMaxDist)) continue;
             }
 
             if (prof.primaryTag == TacticalTag.CIVILIAN_AUX && div.archetype == DivisionArchetype.SERVICE_GROUP) {

@@ -172,7 +172,8 @@ public class ShipCapabilityProfile {
                     interceptors++;
                 }
                 float wr = VoidstrikeCoordinator.resolveEffectiveWingEngagementRange(ship, wing);
-                wingRangeSum += Math.max(1200f, Math.min(3400f, wr));
+                float fScale = CombatPhysicsProfile.getFighterRangeScale(null);
+                wingRangeSum += Math.max(1200f, Math.min(3400f * fScale, wr));
                 float fSpd = 235f;
                 if (wing.getWingMembers() != null && !wing.getWingMembers().isEmpty()) {
                     ShipAPI f0 = wing.getWingMembers().get(0);
@@ -203,7 +204,8 @@ public class ShipCapabilityProfile {
         // Include Strike Craft (FighterWingAPI) in weapon range, strike weight, PD weight, and long-range reach
         if (validWingCount > 0) {
             float avgWingRange = wingRangeSum / validWingCount;
-            float tacticalWingRange = Math.max(1350f, Math.min(2400f, avgWingRange * 0.75f));
+            float fScale = CombatPhysicsProfile.getFighterRangeScale(null);
+            float tacticalWingRange = Math.max(1350f, Math.min(2400f * fScale, avgWingRange * 0.75f));
             for (int i = 0; i < validWingCount; i++) {
                 float wingOpWeight = 6.5f;
                 opSum += wingOpWeight;
@@ -242,6 +244,11 @@ public class ShipCapabilityProfile {
                 : "";
         this.hasMissileAutoforge = hasMissileReloadOrAutoforgeSystem(ship);
 
+        float longGunFloor = CombatPhysicsProfile.getLongWeaponRangeFloor(0f);
+        float shortGunCeil = CombatPhysicsProfile.getShortWeaponRangeCeiling(0f);
+        float hybridCloseCeil = CombatPhysicsProfile.getHybridCloseWeaponRangeCeiling(0f);
+        float wRangeScale = CombatPhysicsProfile.getGlobalWeaponRangeScale();
+
         List<WeaponAPI> weapons = ship.getAllWeapons();
         if (weapons != null) {
             for (WeaponAPI w : weapons) {
@@ -257,8 +264,11 @@ public class ShipCapabilityProfile {
                 opSum += weight;
                 weaponOnlyOpSum += weight;
 
+                float rawWepRange = (w.isBeam() && CombatPhysicsProfile.isBeamDropoffActive(ship))
+                        ? CombatPhysicsProfile.resolveEffectiveTacticalBeamRange(ship, w)
+                        : w.getRange();
                 float range = PermanentDivisionManager.applyShipWeaponRangeThreshold(
-                        ship.getMutableStats(), ship.getVariant(), type, w.getRange());
+                        ship.getMutableStats(), ship.getVariant(), type, rawWepRange);
                 weightedRangeSum += range * weight;
 
                 boolean isStrike = w.hasAIHint(AIHints.STRIKE);
@@ -273,7 +283,8 @@ public class ShipCapabilityProfile {
                     }
                     if (fireClass != BattlefieldFirepowerEvaluator.FireClassification.POINT_DEFENSE) {
                         antiShipMissileWeight += weight;
-                        antiShipMissileRangeWeightedSum += Math.max(900f, Math.min(1850f, range)) * weight;
+                        float mslCeil = 1850f * Math.max(wRangeScale, range > 2200f ? Math.min(4f, range / 1600f) : 1f);
+                        antiShipMissileRangeWeightedSum += Math.max(900f, Math.min(mslCeil, range)) * weight;
                     }
                 }
 
@@ -284,15 +295,15 @@ public class ShipCapabilityProfile {
                     // Hybrid weapons (Large/Medium Flak, Devastators, Dual Flak, HMG, Paladin PD, PD_ALSO)
                     // count toward BOTH Point Defense AND anti-ship close/mid-range combat weight!
                     pdSum += weight * 0.90f;
-                    if (range >= 900f) {
+                    if (range >= longGunFloor) {
                         longSum += weight * 0.85f;
-                    } else if (range <= 700f) {
+                    } else if (range <= hybridCloseCeil) {
                         closeSum += weight * 0.85f;
                     }
                 } else {
-                    if (range >= 900f) {
+                    if (range >= longGunFloor) {
                         longSum += weight;
-                    } else if (range <= 650f) {
+                    } else if (range <= shortGunCeil) {
                         closeSum += weight;
                     }
                 }
@@ -323,7 +334,8 @@ public class ShipCapabilityProfile {
         float rawAvgRange = opSum > 0f ? (weightedRangeSum / opSum) : 700f;
         if (this.isPrimaryMissileBoat && antiShipMissileWeight > 0f) {
             float mslRange = antiShipMissileRangeWeightedSum / antiShipMissileWeight;
-            this.avgWeaponRange = Math.max(980f, Math.min(1650f, mslRange));
+            float mslStandCap = 1650f * Math.max(wRangeScale, mslRange > 2000f ? Math.min(4f, mslRange / 1500f) : 1f);
+            this.avgWeaponRange = Math.max(980f, Math.min(mslStandCap, mslRange));
         } else {
             this.avgWeaponRange = rawAvgRange;
         }
@@ -343,7 +355,8 @@ public class ShipCapabilityProfile {
         this.isPdScreenCapable = (pdSum / this.totalWeaponOP) >= 0.32f
                 || (interceptorSupportWings >= 1 && pdSum >= 2.0f);
 
-        this.isLongRangeStandoff = this.avgWeaponRange >= 850f || (longSum / this.totalWeaponOP) >= 0.50f;
+        float longStandThreshold = 850f * wRangeScale;
+        this.isLongRangeStandoff = this.avgWeaponRange >= longStandThreshold || (longSum / this.totalWeaponOP) >= 0.50f;
         this.primaryTag = classifyPrimaryTag();
     }
 

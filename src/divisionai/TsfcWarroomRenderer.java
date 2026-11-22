@@ -1404,7 +1404,8 @@ public class TsfcWarroomRenderer {
                         : 0f);
         float cx = offsetX + unitWorldLoc.x * scale;
         float cy = offsetY + unitWorldLoc.y * scale;
-        float baseShipRadWorld = Math.max(80f, ship.getCollisionRadius() * 0.55f + squadronSpreadWorld * 0.85f);
+        float physHullRad = CombatPhysicsProfile.resolvePhysicalHullRadius(ship);
+        float baseShipRadWorld = Math.max(80f, physHullRad * 0.55f + squadronSpreadWorld * 0.85f);
         float baseShipRadPx = Math.max(4f, baseShipRadWorld * scale);
 
         // Color palette by side & horizon:
@@ -1577,7 +1578,7 @@ public class TsfcWarroomRenderer {
 
             // Smooth continuous ramps from 0 so low-intensity sectors never jump off a cliff at 0.03 / 0.04 / 0.05,
             // and active weapon sectors always extend outside the ship hull sprite (which renders on top of TSFC).
-            float activeHullClearWorld = Math.max(baseShipRadWorld, ship.getCollisionRadius() * 0.78f);
+            float activeHullClearWorld = Math.max(baseShipRadWorld, physHullRad * 0.78f);
             float effSustReachWorld = sustReachWorld * 0.75f + genReachWorld * 0.25f;
             float sustRamp = BattlefieldFirepowerEvaluator.clampVal(sustIntensity / 0.04f, 0f, 1f);
             float sustFactor = sustRamp * (0.48f + 0.52f * (float) Math.sqrt(Math.min(1f, sustIntensity)));
@@ -1864,7 +1865,7 @@ public class TsfcWarroomRenderer {
 
     private static float computeHulkPieceDominanceScore(ShipAPI s) {
         float rootBonus = (s.getParentPieceId() == null) ? 1.0e6f : 0f;
-        float colRad = Math.max(0f, s.getCollisionRadius());
+        float colRad = Math.max(0f, CombatPhysicsProfile.resolvePhysicalHullRadius(s));
         float mass = Math.max(0f, s.getMass());
         return rootBonus + colRad * 100f + mass * 0.1f;
     }
@@ -1887,7 +1888,7 @@ public class TsfcWarroomRenderer {
 
         float sx = offsetX + loc.x * scale;
         float sy = offsetY + loc.y * scale;
-        float colRadPx = Math.max(8f, s.getCollisionRadius() * scale);
+        float colRadPx = Math.max(8f, CombatPhysicsProfile.resolvePhysicalHullRadius(s) * scale);
         if (!isCircleVisibleOnScreen(sx, sy, colRadPx + 12f, screenW, screenH)) {
             return;
         }

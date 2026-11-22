@@ -299,7 +299,7 @@ final class DivisionConfigureSubscreen {
                 effIntra,
                 50,
                 PermanentDivisionManager.MIN_STATION_SPACING_UNITS,
-                PermanentDivisionManager.MAX_STATION_SPACING_UNITS,
+                PermanentDivisionManager.getEffectiveMaxStationSpacingUnits(),
                 "DIV_STATION_SPACING:",
                 spec.customStationSpacing != null,
                 baseColor,
@@ -315,7 +315,7 @@ final class DivisionConfigureSubscreen {
                 effInter,
                 100,
                 PermanentDivisionManager.MIN_DIVISION_INTERVAL_UNITS,
-                PermanentDivisionManager.MAX_DIVISION_INTERVAL_UNITS,
+                PermanentDivisionManager.getEffectiveMaxDivisionIntervalUnits(),
                 "DIV_DIVISION_INTERVAL:",
                 spec.customDivisionInterval != null,
                 baseColor,
@@ -916,7 +916,7 @@ final class DivisionConfigureSubscreen {
                 decAct);
         bDec.getPosition().inTL(x, 3f);
 
-        String incAct = "DIV_STANDOFF_RANGE:" + Math.min(PermanentDivisionManager.MAX_STANDOFF_RANGE_UNITS, effStandoff + 100);
+        String incAct = "DIV_STANDOFF_RANGE:" + Math.min(PermanentDivisionManager.getEffectiveMaxStandoffRangeUnits(), effStandoff + 100);
         ButtonAPI bInc = dialog.registerButton(
                 rowUi.addButton("+100u", incAct, baseColor, darkColor, Alignment.MID, CutStyle.ALL, 56f, 20f, 0f),
                 incAct);

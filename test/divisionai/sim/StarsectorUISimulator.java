@@ -2065,15 +2065,20 @@ public class StarsectorUISimulator {
 
         Method iconGetStateM = null;
         Object probeIcon = reservesGrid.getIconForMember(mLasher1);
+        List<Method> initMinusOneMethods = new ArrayList<>();
         for (Method candM : probeIcon.getClass().getDeclaredMethods()) {
             if (candM.getParameterCount() == 0 && candM.getReturnType() == int.class) {
                 candM.setAccessible(true);
-                if ((int) candM.invoke(probeIcon) == -1) { iconGetStateM = candM; break; }
+                if ((int) candM.invoke(probeIcon) == -1) initMinusOneMethods.add(candM);
             }
         }
 
         // 1. Div 3 (Frigates): Click [L] -> state 2; Click [R] -> state 3; Click [R] again -> state -1 (clean deselect!)
         p2.buttonPressed("DEPLOY_LEFT_ROW");
+        for (Method candM : initMinusOneMethods) {
+            if ((int) candM.invoke(probeIcon) == 2) { iconGetStateM = candM; break; }
+        }
+        if (iconGetStateM == null && !initMinusOneMethods.isEmpty()) iconGetStateM = initMinusOneMethods.get(0);
         if ((int) iconGetStateM.invoke(reservesGrid.getIconForMember(mLasher1)) != 2
                 || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mLasher2)) != 2
                 || (int) iconGetStateM.invoke(reservesGrid.getIconForMember(mCenturion)) != 2) {

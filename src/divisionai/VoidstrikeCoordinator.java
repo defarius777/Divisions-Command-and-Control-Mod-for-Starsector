@@ -1915,7 +1915,7 @@ public class VoidstrikeCoordinator {
             double capAng = (totalDivWings > 1)
                     ? (((globalSqdnIdx / (double) Math.max(1, totalDivWings - 1)) - 0.5) * (Math.PI * 0.75))
                     : 0.0;
-            float capRad = Math.max(250f, escortAnchor.getCollisionRadius() + 185f);
+            float capRad = Math.max(250f, CombatPhysicsProfile.resolvePhysicalHullRadius(escortAnchor) + 185f);
             float localCapFwd = (float) Math.cos(capAng) * capRad;
             float localCapRight = (float) Math.sin(capAng) * capRad;
             float capArcOffsetX = fwdX * localCapFwd + rightX * localCapRight;
@@ -1952,7 +1952,7 @@ public class VoidstrikeCoordinator {
         fFlags.setFlag(AIFlags.DO_NOT_PURSUE, DivisionCommanderAI.FLAG_TTL);
         if (div.voidstrikeStage == 0) {
             double orbitAng = (now * 1.15) + (wIdx * 1.57);
-            float orbitRad = Math.max(210f, carrier.getCollisionRadius() + 135f);
+            float orbitRad = Math.max(210f, CombatPhysicsProfile.resolvePhysicalHullRadius(carrier) + 135f);
             Vector2f orbitPt = new Vector2f(
                     carrier.getLocation().x + (float) Math.cos(orbitAng) * orbitRad,
                     carrier.getLocation().y + (float) Math.sin(orbitAng) * orbitRad);
@@ -2131,7 +2131,7 @@ public class VoidstrikeCoordinator {
         fFlags.unsetFlag(AIFlags.DO_NOT_BACK_OFF);
         fFlags.setFlag(AIFlags.BACK_OFF, DivisionCommanderAI.FLAG_TTL);
         float dCarrier = DivisionUiWidgets.distance(fighter.getLocation(), carrier.getLocation());
-        float landingHandOffDist = Math.max(520f, carrier.getCollisionRadius() + 340f);
+        float landingHandOffDist = Math.max(520f, CombatPhysicsProfile.resolvePhysicalHullRadius(carrier) + 340f);
         if (!fighter.isLanding() && dCarrier > landingHandOffDist) {
             Vector2f safeReturnPt = computeAntiAaEvasionWaypoint(
                     fighter, null, carrier.getLocation(), wIdx, 0, now);
@@ -2308,7 +2308,7 @@ public class VoidstrikeCoordinator {
                 }
                 return true;
             }
-            float targetRad = Math.max(45f, attackTarget.getCollisionRadius());
+            float targetRad = Math.max(45f, CombatPhysicsProfile.resolvePhysicalHullRadius(attackTarget));
             float standoffGoalDist = Math.max(targetRad + 195f, 360f);
             Vector2f craftGoal = new Vector2f(
                     attackTarget.getLocation().x - legFwdX * standoffGoalDist,
@@ -2320,7 +2320,7 @@ public class VoidstrikeCoordinator {
             return false;
         }
 
-        float targetRad = Math.max(45f, attackTarget.getCollisionRadius());
+        float targetRad = Math.max(45f, CombatPhysicsProfile.resolvePhysicalHullRadius(attackTarget));
         float standoffGoalDist = Math.max(targetRad + 195f, 360f);
         Vector2f rawDirectGoal = new Vector2f(
                 attackTarget.getLocation().x - legFwdX * standoffGoalDist,
@@ -2864,7 +2864,8 @@ public class VoidstrikeCoordinator {
         float effSpeed = (bomberMassSum > 0f)
                 ? (0.70f * bomberAvgSpeed + 0.30f * pkgAvgSpeed)
                 : pkgAvgSpeed;
-        profile.effectivePackageSpeed = Math.max(85f, Math.min(320f, effSpeed));
+        float speedCeiling = Math.max(320f, Math.min(950f, effSpeed * 1.05f));
+        profile.effectivePackageSpeed = Math.max(85f, Math.min(speedCeiling, effSpeed));
         profile.slowestBomberSpeed = (slowestBomberSpd < Float.MAX_VALUE)
                 ? Math.max(80f, slowestBomberSpd)
                 : profile.effectivePackageSpeed;
@@ -3510,7 +3511,7 @@ public class VoidstrikeCoordinator {
         if (target == null || target.getLocation() == null) {
             return out;
         }
-        float rawRadius = target.getCollisionRadius();
+        float rawRadius = CombatPhysicsProfile.resolvePhysicalHullRadius(target);
         if (rawRadius <= 1f && target.getHullSize() != null) {
             switch (target.getHullSize()) {
                 case CAPITAL_SHIP:
@@ -3775,7 +3776,8 @@ public class VoidstrikeCoordinator {
         float desiredFacing = (float) Math.toDegrees(Math.atan2(aimDirY, aimDirX));
         if (desiredFacing < 0f) desiredFacing += 360f;
 
-        float targetRad = (target != null && target.getCollisionRadius() > 0f) ? target.getCollisionRadius() : 90f;
+        float rawTgtRad = (target != null) ? CombatPhysicsProfile.resolvePhysicalHullRadius(target) : 0f;
+        float targetRad = (rawTgtRad > 1f) ? rawTgtRad : 90f;
         float maxWepRange = computeMaxStrikeWeaponRange(fighter);
         float minStandoffFloor = Math.max(targetRad + 185f, 340f);
         float minInnerDiveFloor = Math.max(targetRad + 95f, 235f);
@@ -3850,7 +3852,7 @@ public class VoidstrikeCoordinator {
                     skirtSign = ((parityKey.hashCode() & 1) == 0) ? -1f : 1f;
                 }
                 boolean driftBomb = hasDriftBombOrdnance(fighter);
-                float allyRad = Math.max(40f, blockingAlly.getCollisionRadius());
+                float allyRad = Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(blockingAlly));
                 float clearDist = allyRad + (driftBomb ? 135f : 105f);
                 Vector2f clearLaneGoal = new Vector2f(
                         blockingAlly.getLocation().x + rightX * skirtSign * clearDist + aimDirX * 150f,
@@ -3974,9 +3976,8 @@ public class VoidstrikeCoordinator {
         float dTargetCenter = (target != null && target.getLocation() != null)
                 ? DivisionUiWidgets.distance(p0, target.getLocation())
                 : distAim;
-        float targetRad = (target != null && target.getCollisionRadius() > 0f)
-                ? target.getCollisionRadius()
-                : 85f;
+        float rawTgtRad = (target != null) ? CombatPhysicsProfile.resolvePhysicalHullRadius(target) : 0f;
+        float targetRad = (rawTgtRad > 1f) ? rawTgtRad : 85f;
         boolean isDriftBomb = hasDriftBombOrdnance(fighter);
         boolean isUnguided = isDriftBomb || hasUnguidedStrikeMunitions(fighter);
         float maxBlockProj = Math.max(85f, dTargetCenter - targetRad * (isDriftBomb ? 0.12f : 0.45f));
@@ -4015,7 +4016,7 @@ public class VoidstrikeCoordinator {
             float projAim = relX * aimDirX + relY * aimDirY;
             if (ally == parentCarrier && projAim <= 35f) continue;
 
-            float rawColRad = Math.max(35f, ally.getCollisionRadius());
+            float rawColRad = Math.max(35f, CombatPhysicsProfile.resolvePhysicalHullRadius(ally));
             ShieldAPI sh = ally.getShield();
             float allyBaseRad = (sh != null && sh.isOn())
                     ? Math.max(rawColRad * 0.85f, sh.getRadius())
@@ -4705,9 +4706,11 @@ public class VoidstrikeCoordinator {
                     existingForSide, existingUsed, clusterWingKeys, clusterDivIds, primaryTargetKey, clusterCenter, now);
 
             boolean hasSplitWingsOrMultiAxis = hasSplitWingsOrMultiAxisGeometry(clusterDivs);
+            float cohScale = Math.max(1f, CombatPhysicsProfile.getFighterRangeScale(null) * 0.55f);
+            float baseCohRad = SORTIE_COHESION_RADIUS * cohScale;
             float effectiveCohesionRadius = hasSplitWingsOrMultiAxis
-                    ? (SORTIE_COHESION_RADIUS * 1.85f + Math.max(0, clusterDivs.size() - 1) * 520f)
-                    : SORTIE_COHESION_RADIUS;
+                    ? (baseCohRad * 1.85f + Math.max(0, clusterDivs.size() - 1) * 520f * cohScale)
+                    : baseCohRad;
 
             if (matched == null) {
                 if (clusterWingKeys.size() < 2 && clusterFighters.size() < 2) continue;
@@ -5236,7 +5239,10 @@ public class VoidstrikeCoordinator {
                 && (now - matched.reachedTargetTime) >= 8.0f
                 && !activelyClosingOnTarget) {
             float minDistToTarget = computeMinDistToTargetEntity(clusterCenter, primaryTargetPos, primaryTargetDiv, null);
-            float escapeThreshold = Math.max(TARGET_ESCAPE_DISTANCE, matched.executionDistanceToTarget * 1.35f);
+            float escScale = Math.max(
+                    CombatPhysicsProfile.getFighterRangeScale(null),
+                    CombatPhysicsProfile.getWeaponRangeScale(null));
+            float escapeThreshold = Math.max(TARGET_ESCAPE_DISTANCE * escScale, matched.executionDistanceToTarget * 1.35f);
             targetEscaped = minDistToTarget > escapeThreshold;
         }
 
@@ -5407,7 +5413,8 @@ public class VoidstrikeCoordinator {
             float effSpeed = (bomberMassSum > 0f)
                     ? (0.70f * bomberAvgSpeed + 0.30f * pkgAvgSpeed)
                     : pkgAvgSpeed;
-            rec.effectivePackageSpeed = Math.max(85f, Math.min(320f, effSpeed));
+            float speedCeiling = Math.max(320f, Math.min(950f, effSpeed * 1.05f));
+            rec.effectivePackageSpeed = Math.max(85f, Math.min(speedCeiling, effSpeed));
             rec.slowestBomberSpeed = (slowestBomberSpd < Float.MAX_VALUE)
                     ? Math.max(80f, slowestBomberSpd)
                     : rec.effectivePackageSpeed;

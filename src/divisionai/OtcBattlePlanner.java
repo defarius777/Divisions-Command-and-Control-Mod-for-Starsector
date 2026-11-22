@@ -57,6 +57,35 @@ public class OtcBattlePlanner {
     private static final float CLOSE_REINFORCE_MAX_DIST = 2500f;
     private static final float ORDER_LOG_INTERVAL = 20f;
 
+    public static float getEffectiveChaseLeash(CombatEngineAPI engine) {
+        float scale = Math.max(
+                CombatPhysicsProfile.getMapScale(engine),
+                CombatPhysicsProfile.getWeaponRangeScale(engine));
+        return CHASE_LEASH * scale;
+    }
+
+    static float getEffectiveStrikeMaxRange(CombatEngineAPI engine) {
+        float scale = Math.max(
+                CombatPhysicsProfile.getMapScale(engine),
+                Math.max(CombatPhysicsProfile.getWeaponRangeScale(engine),
+                        CombatPhysicsProfile.getFighterRangeScale(engine)));
+        return STRIKE_MAX_RANGE * scale;
+    }
+
+    static float getEffectiveReinforceMaxDist(CombatEngineAPI engine) {
+        float scale = Math.max(
+                CombatPhysicsProfile.getMapScale(engine),
+                CombatPhysicsProfile.getWeaponRangeScale(engine));
+        return REINFORCE_MAX_DIST * scale;
+    }
+
+    static float getEffectiveCloseReinforceMaxDist(CombatEngineAPI engine) {
+        float scale = Math.max(
+                CombatPhysicsProfile.getMapScale(engine),
+                CombatPhysicsProfile.getWeaponRangeScale(engine));
+        return CLOSE_REINFORCE_MAX_DIST * scale;
+    }
+
     /**
      * @param endangeredDiv the significant division whose trouble drives Stabilize & Relieve (may be null)
      * @param minorEndangeredDiv the worst-off division of any size, relieved locally when there is no major crisis
@@ -157,9 +186,9 @@ public class OtcBattlePlanner {
         //    division from across the field; a minor one (a small division in trouble) only gets a close neighbour.
         myGroup.crisisDivision = (myGroup.currentPhase == BattlePhase.REINFORCE_THE_LINE) ? endangeredDiv : null;
         if (reservePlay && myGroup.crisisDivision != null) {
-            assignReinforcement(engine, myGroup, myGroup.crisisDivision, REINFORCE_MAX_DIST, true, active, now, expires, tasked);
+            assignReinforcement(engine, myGroup, myGroup.crisisDivision, getEffectiveReinforceMaxDist(engine), true, active, now, expires, tasked);
         } else if (reservePlay && minorEndangeredDiv != null && minorEndangeredDiv.isCombatEffective()) {
-            assignReinforcement(engine, myGroup, minorEndangeredDiv, CLOSE_REINFORCE_MAX_DIST, false, active, now, expires, tasked);
+            assignReinforcement(engine, myGroup, minorEndangeredDiv, getEffectiveCloseReinforceMaxDist(engine), false, active, now, expires, tasked);
         } else {
             myGroup.reinforcingDivision = null;
         }
@@ -499,17 +528,18 @@ public class OtcBattlePlanner {
                     || (d.archetype != null && d.archetype.isCarrierArchetype()))) {
                 continue;
             }
+            float effStrikeMax = getEffectiveStrikeMaxRange(engine);
             if (DivisionCommanderAI.hasDivisionStrikeCraftCapability(d)
                     && DivisionCommanderAI.resolveActiveStrikeCraftMission(d, now) == StrikeCraftMissionType.ALPHA_STRIKE
                     && d.avgFluxLevel < 0.60f
-                    && DivisionUiWidgets.distance(d.centroid, targetPos) <= STRIKE_MAX_RANGE) {
+                    && DivisionUiWidgets.distance(d.centroid, targetPos) <= effStrikeMax) {
                 totalAlphaCarrierDivsInReach++;
                 if (d.voidstrikeEgressActive || d.voidstrikeStage == 2 || d.activeVoidstrikeSortieNumber > 0) {
                     sisterAlphaCarrierBusyOrRecovering = true;
                 }
             }
             if (!isStrikeCandidate(d, myGroup, now)) continue;
-            if (DivisionUiWidgets.distance(d.centroid, targetPos) > STRIKE_MAX_RANGE) continue;
+            if (DivisionUiWidgets.distance(d.centroid, targetPos) > effStrikeMax) continue;
             strikers.add(d);
         }
         // Keep multi-division Alpha Strike air wings unified: if another ALPHA_STRIKE carrier division is currently
@@ -981,7 +1011,8 @@ public class OtcBattlePlanner {
             Set<DivisionState> tasked) {
 
         boolean isPursuitInterception = (myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
-        float maxChaseLeash = isPursuitInterception ? 16000f : CHASE_LEASH;
+        float effChaseLeash = getEffectiveChaseLeash(engine);
+        float maxChaseLeash = isPursuitInterception ? Math.max(16000f, effChaseLeash * 3.5f) : effChaseLeash;
         List<DivisionState> broken = new ArrayList<>();
         for (DivisionState e : visibleEnemies) {
             if ((isPursuitInterception || isVisiblyBroken(engine, myGroup.side, e))
@@ -1056,7 +1087,7 @@ public class OtcBattlePlanner {
             chasers++;
             if (newOrder) {
                 logOrder(engine, myGroup, "pursue:" + d.id + ">" + nearest.id, String.format(
-                        "General chase: \"%s\" to pursue \"%s\" (leash %.0fu).", d.displayName, nearest.displayName, CHASE_LEASH), now);
+                        "General chase: \"%s\" to pursue \"%s\" (leash %.0fu).", d.displayName, nearest.displayName, effChaseLeash), now);
             }
         }
     }

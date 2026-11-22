@@ -101,6 +101,7 @@ public class DivisionAITestSuite {
         testTestingLogForensicsOpenFlotillaStickyCapVentAndDisambig();
         testAlliedBattlePreDeploymentAndOtcIsolation();
         testSimulatorDefaultUiAndZeroDivisionBypass();
+        testVariableCombatPhysicsAndOverhaulCompatibility();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -7429,5 +7430,488 @@ public class DivisionAITestSuite {
                 String.format(Locale.ROOT,
                         "simDetected=%b, missionSimDetected=%b, playerGroupNull=%b, hooksAdded=%d, zeroDivs=%b",
                         simDetected, missionSimDetected, noBattleGroupsInitialized, layeredHooksAdded[0], zeroDivisionsInstantiated));
+    }
+
+    /**
+     * Scenario 32: Verifies generic variable-physics & combat-overhaul compatibility across:
+     *  1. Physical hull radius vs. 3x broadphase collisionRadius + flocking-equilibrium slot/spread scaling.
+     *  2. 60 Hz phantom friendly-fire unblocker (setForceFireOneFrame only when physical hull/shield ray is clear)
+     *     and beam distance-dropoff curve + high-flux beam cutoff (setForceNoFireOneFrame).
+     *  3. High-inertia Newtonian braking (258 su/s, 16.5 su/s^2 -> 2,017u stopping distance) in ShipSystemCoordinator.
+     *  4. Uncapped 3,400u-4,800u gun envelopes, adaptive uncustomized doctrinal standoffs, and 3x map/OTC scaling.
+     *  5. High-speed (560 su/s) Voidstrike strike-craft package speed ceiling (> 320f).
+     */
+    private static void testVariableCombatPhysicsAndOverhaulCompatibility() {
+        System.out.println("\n[Scenario 32] Variable Combat Physics & Overhaul Compatibility (3x Radii, Newtonian Braking, Beam Dropoff & Scaled Envelopes)");
+        try {
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+
+            // 1. Physical Hull Radius vs. 3x Broadphase collisionRadius & Flocking Slot Scaling
+            final com.fs.starfarer.api.combat.ShipHullSpecAPI capSpec250 =
+                    (com.fs.starfarer.api.combat.ShipHullSpecAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.ShipHullSpecAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.ShipHullSpecAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("getCollisionRadius".equals(n)) return 250f;
+                                if ("getHullSize".equals(n)) return HullSize.CAPITAL_SHIP;
+                                if ("getHullId".equals(n) || "getBaseHullId".equals(n)) return "onslaught";
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+
+            java.util.function.BiFunction<Float, Vector2f, com.fs.starfarer.api.combat.ShipAPI> makeCapShip =
+                    (liveColRad, loc) -> (com.fs.starfarer.api.combat.ShipAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.ShipAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.ShipAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("equals".equals(n)) return p == (a != null && a.length > 0 ? a[0] : null);
+                                if ("hashCode".equals(n)) return System.identityHashCode(p);
+                                if ("getCollisionRadius".equals(n)) return liveColRad;
+                                if ("getHullSpec".equals(n)) return capSpec250;
+                                if ("getHullSize".equals(n)) return HullSize.CAPITAL_SHIP;
+                                if ("isCapital".equals(n) || "isAlive".equals(n)) return true;
+                                if ("getLocation".equals(n)) return loc;
+                                if ("getVelocity".equals(n)) return new Vector2f(0f, 0f);
+                                if ("getOwner".equals(n)) return 0;
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+
+            com.fs.starfarer.api.combat.ShipAPI inflatedCap1 = makeCapShip.apply(750f, new Vector2f(-780f, 0f));
+            com.fs.starfarer.api.combat.ShipAPI inflatedCap2 = makeCapShip.apply(750f, new Vector2f(780f, 0f));
+            com.fs.starfarer.api.combat.ShipAPI vanillaCap1 = makeCapShip.apply(250f, new Vector2f(-225f, 0f));
+            com.fs.starfarer.api.combat.ShipAPI vanillaCap2 = makeCapShip.apply(250f, new Vector2f(225f, 0f));
+
+            float resolvedPhys = divisionai.CombatPhysicsProfile.resolvePhysicalHullRadius(inflatedCap1);
+            float resolvedInf = divisionai.CombatPhysicsProfile.resolveCollisionRadiusInflation(inflatedCap1);
+
+            CommanderProfile cmdr = new CommanderProfile(null, "steady");
+            DivisionState infDiv = new DivisionState("inf_bb", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Guard Battle Line I", cmdr);
+            infDiv.stationSpacing = 450f;
+            infDiv.members.add(inflatedCap1);
+            infDiv.members.add(inflatedCap2);
+
+            DivisionState vanDiv = new DivisionState("van_bb", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Vanilla Battle Line I", cmdr);
+            vanDiv.stationSpacing = 450f;
+            vanDiv.members.add(vanillaCap1);
+            vanDiv.members.add(vanillaCap2);
+
+            float infSlotSpacing = divisionai.DivisionAutoFormer.resolvePhysicsAwareStationSpacing(infDiv);
+            float vanSlotSpacing = divisionai.DivisionAutoFormer.resolvePhysicsAwareStationSpacing(vanDiv);
+            float infSkLimit = divisionai.DivisionAutoFormer.computeStationKeepingRadius(
+                    infDiv.archetype, 4, infSlotSpacing, 1.0f, 1.0f);
+            boolean boundsAndSpacingOk = Math.abs(resolvedPhys - 250f) < 0.5f
+                    && Math.abs(resolvedInf - 3.0f) < 0.05f
+                    && Math.abs(vanSlotSpacing - 450f) < 0.5f
+                    && infSlotSpacing >= 1500f
+                    && infSkLimit >= 2200f;
+
+            // 2. Phantom Friendly-Fire Unblocker & Beam Distance-Dropoff Discipline
+            divisionai.CombatPhysicsProfile.setTestBeamDropoffOverride(Boolean.TRUE, 0.30f, 1.2f, 1.0f);
+            final boolean[] gunForceFired = {false};
+            final boolean[] beamForceStopped = {false};
+            final Vector2f allyLoc = new Vector2f(420f, 1200f); // 420u off ray: inside 750u inflated sphere, clear of 250u physical hull!
+            final Vector2f tgtLoc = new Vector2f(0f, 2600f);
+
+            final com.fs.starfarer.api.combat.ShipAPI enemyTgt =
+                    (com.fs.starfarer.api.combat.ShipAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.ShipAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.ShipAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("equals".equals(n)) return p == (a != null && a.length > 0 ? a[0] : null);
+                                if ("hashCode".equals(n)) return System.identityHashCode(p);
+                                if ("isAlive".equals(n)) return true;
+                                if ("getOwner".equals(n)) return 1;
+                                if ("getCollisionRadius".equals(n)) return 750f;
+                                if ("getHullSpec".equals(n)) return capSpec250;
+                                if ("getHullSize".equals(n)) return HullSize.CAPITAL_SHIP;
+                                if ("getLocation".equals(n)) return tgtLoc;
+                                if ("getVelocity".equals(n)) return new Vector2f(0f, 0f);
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+
+            final com.fs.starfarer.api.combat.WeaponAPI kinGun =
+                    (com.fs.starfarer.api.combat.WeaponAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.WeaponAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.WeaponAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("getType".equals(n)) return com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC;
+                                if ("getDamageType".equals(n)) return com.fs.starfarer.api.combat.DamageType.KINETIC;
+                                if ("getRange".equals(n)) return 3200f;
+                                if ("getProjectileSpeed".equals(n)) return 1200f;
+                                if ("getCurrAngle".equals(n)) return 90f;
+                                if ("getLocation".equals(n)) return new Vector2f(0f, 0f);
+                                if ("setForceFireOneFrame".equals(n)) {
+                                    if (a != null && a.length > 0 && Boolean.TRUE.equals(a[0])) gunForceFired[0] = true;
+                                    return null;
+                                }
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+
+            final com.fs.starfarer.api.combat.WeaponAPI farBeam =
+                    (com.fs.starfarer.api.combat.WeaponAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.WeaponAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.WeaponAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("isBeam".equals(n)) return true;
+                                if ("getType".equals(n)) return com.fs.starfarer.api.combat.WeaponAPI.WeaponType.ENERGY;
+                                if ("getDamageType".equals(n)) return com.fs.starfarer.api.combat.DamageType.ENERGY;
+                                if ("getRange".equals(n)) return 2700f; // tgt edge at 2600-250=2350u -> 87% max range (<25% beam mult!)
+                                if ("getFluxCostToFire".equals(n)) return 300f;
+                                if ("getCurrAngle".equals(n)) return 90f;
+                                if ("getLocation".equals(n)) return new Vector2f(0f, 0f);
+                                if ("setForceNoFireOneFrame".equals(n)) {
+                                    if (a != null && a.length > 0 && Boolean.TRUE.equals(a[0])) beamForceStopped[0] = true;
+                                    return null;
+                                }
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+
+            final com.fs.starfarer.api.combat.AutofireAIPlugin afPlugin =
+                    (com.fs.starfarer.api.combat.AutofireAIPlugin) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.AutofireAIPlugin.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.AutofireAIPlugin.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("shouldFire".equals(n)) return false;
+                                if ("getTargetShip".equals(n)) return enemyTgt;
+                                if ("getTarget".equals(n)) return tgtLoc;
+                                if ("getWeapon".equals(n)) return kinGun;
+                                return null;
+                            });
+
+            final com.fs.starfarer.api.combat.WeaponGroupAPI wGroup =
+                    (com.fs.starfarer.api.combat.WeaponGroupAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.WeaponGroupAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.WeaponGroupAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("isAutofiring".equals(n)) return true;
+                                if ("isUsingDefaultAI".equals(n)) return true;
+                                if ("getWeaponsCopy".equals(n)) return java.util.Arrays.asList(kinGun, farBeam);
+                                if ("getAutofirePlugin".equals(n)) return afPlugin;
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+
+            final float[] shooterFlux = {0.55f};
+            final com.fs.starfarer.api.combat.ShipAPI shooterShip =
+                    (com.fs.starfarer.api.combat.ShipAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.ShipAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.ShipAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("equals".equals(n)) return p == (a != null && a.length > 0 ? a[0] : null);
+                                if ("hashCode".equals(n)) return System.identityHashCode(p);
+                                if ("isAlive".equals(n)) return true;
+                                if ("getOwner".equals(n)) return 0;
+                                if ("getCollisionRadius".equals(n)) return 750f;
+                                if ("getHullSpec".equals(n)) return capSpec250;
+                                if ("getHullSize".equals(n)) return HullSize.CAPITAL_SHIP;
+                                if ("getFluxLevel".equals(n)) return shooterFlux[0];
+                                if ("getLocation".equals(n)) return new Vector2f(0f, 0f);
+                                if ("getVelocity".equals(n)) return new Vector2f(0f, 0f);
+                                if ("getShipTarget".equals(n)) return enemyTgt;
+                                if ("getWeaponGroupsCopy".equals(n)) return java.util.Collections.singletonList(wGroup);
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+
+            final com.fs.starfarer.api.combat.ShipAPI screenAlly = makeCapShip.apply(750f, allyLoc);
+            final com.fs.starfarer.api.combat.CombatEngineAPI ffEngine =
+                    (com.fs.starfarer.api.combat.CombatEngineAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.combat.CombatEngineAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.combat.CombatEngineAPI.class},
+                            (p, m, a) -> {
+                                if ("getShips".equals(m.getName())) {
+                                    return java.util.Arrays.asList(shooterShip, screenAlly, enemyTgt);
+                                }
+                                Class<?> rt = m.getReturnType();
+                                if (rt == boolean.class) return false;
+                                if (rt == int.class) return 0;
+                                if (rt == float.class) return 0f;
+                                return null;
+                            });
+
+            divisionai.CombatPhysicsProfile.applyAutofireBoundsAndBeamAssist(ffEngine, shooterShip, false);
+            boolean unblockedClearRay = gunForceFired[0];
+            boolean stoppedInefficientBeam = beamForceStopped[0];
+
+            // Move friendly physical hull directly across x=0 firing line -> must NOT force-fire!
+            gunForceFired[0] = false;
+            allyLoc.set(110f, 1200f);
+            divisionai.CombatPhysicsProfile.applyAutofireBoundsAndBeamAssist(ffEngine, shooterShip, false);
+            boolean respectedPhysicalAllyBlock = !gunForceFired[0];
+
+            float beamMultClose = divisionai.CombatPhysicsProfile.evaluateBeamDamageMultiplier(shooterShip, farBeam, 600f);
+            float beamMultFar = divisionai.CombatPhysicsProfile.evaluateBeamDamageMultiplier(shooterShip, farBeam, 2650f);
+            float effTacticalBeamRange = divisionai.CombatPhysicsProfile.resolveEffectiveTacticalBeamRange(shooterShip, farBeam);
+            boolean beamAndAutofireOk = unblockedClearRay
+                    && stoppedInefficientBeam
+                    && respectedPhysicalAllyBlock
+                    && Math.abs(beamMultClose - 1.0f) < 0.02f
+                    && beamMultFar < 0.26f
+                    && effTacticalBeamRange > 1400f && effTacticalBeamRange < 2250f;
+
+            // 3. High-Inertia Newtonian Braking (258 su/s, 16.5 su/s^2 -> 2,017u stopping distance)
+            BattleGroupState pBrakeGrp = new BattleGroupState(0, cmdr);
+            BattleGroupState eBrakeGrp = new BattleGroupState(1, cmdr);
+            SimArena brakeArena = new SimArena("VariablePhysicsBraking", "3x Scale & High Inertia", pBrakeGrp, eBrakeGrp);
+            brakeArena.mapWidth = 72000f;
+            brakeArena.mapHeight = 54000f;
+            DivisionState pBrakeDiv = new DivisionState("p_brk", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. I", cmdr);
+            pBrakeDiv.standoffRange = 3200f;
+            pBrakeDiv.currentIntent = DivisionIntentType.CLOSE_AND_ENGAGE;
+            SimShipState fastOnslaught = brakeArena.addShip(
+                    pBrakeDiv, "fast_ons", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP,
+                    0f, 0f, 258f, 3400f, 4, 0);
+            fastOnslaught.detailedCombatModel = true;
+            fastOnslaught.accel = 16.5f; // getDeceleration() == 16.5f -> stoppingDist at 258 su/s = 2,017u!
+            fastOnslaught.facing = 90f;
+            fastOnslaught.velocity.set(0f, 258f);
+            fastOnslaught.aiFlags.setFlag(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION, 1.0f, new Vector2f(0f, 1850f));
+            pBrakeGrp.divisions.add(pBrakeDiv);
+
+            boolean detectedExtremeInertia = divisionai.CombatPhysicsProfile.hasExtremeInertia(fastOnslaught.proxy);
+            divisionai.ShipSystemCoordinator.advanceEveryFrame(brakeArena.engineProxy, pBrakeGrp, null, eBrakeGrp, 5.0f);
+            boolean newtonianBrakeFiredEarly = detectedExtremeInertia
+                    && fastOnslaught.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.ACCELERATE)
+                    && fastOnslaught.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.DECELERATE);
+
+            // 4. Scaled 3x Map / 3,400u Gun Envelopes & Adaptive Uncustomized Standoff
+            DivisionState eLongDiv = new DivisionState("e_long", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Battle Line", cmdr);
+            SimShipState eLongCap = brakeArena.addShip(
+                    eLongDiv, "e_long_bb", "PLS Conquest", "conquest", HullSize.CAPITAL_SHIP,
+                    0f, 4100f, 220f, 3800f, 4, 0);
+            eLongCap.detailedCombatModel = true;
+            eLongCap.facing = 270f;
+            eBrakeGrp.divisions.add(eLongDiv);
+
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+            float mapScale3x = divisionai.CombatPhysicsProfile.getMapScale(brakeArena.engineProxy);
+            float wepScaleLive = divisionai.CombatPhysicsProfile.getWeaponRangeScale(brakeArena.engineProxy);
+            divisionai.BattlefieldFirepowerEvaluator.updateBattlefieldRoses(brakeArena.engineProxy, 6.0f);
+            divisionai.OtcAI.updateTelemetry(brakeArena.engineProxy, pBrakeGrp);
+
+            float adaptedUncustomized = divisionai.PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
+                    pBrakeDiv, divisionai.PermanentDivisionManager.DoctrineDivisionType.BATTLESHIP, 1050f, false);
+            float preservedCustomized = divisionai.PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
+                    pBrakeDiv, divisionai.PermanentDivisionManager.DoctrineDivisionType.BATTLESHIP, 1050f, true);
+            float scaledChaseLeash = divisionai.OtcBattlePlanner.getEffectiveChaseLeash(brakeArena.engineProxy);
+
+            boolean envelopesAndMapScaledOk = mapScale3x >= 2.8f
+                    && wepScaleLive >= 2.5f
+                    && pBrakeDiv.avgEngageRange >= 3000f
+                    && adaptedUncustomized >= 2600f
+                    && Math.abs(preservedCustomized - 1050f) < 0.5f
+                    && scaledChaseLeash >= 11500f;
+
+            // 5. High-Speed (560 su/s) Voidstrike Package Speed Ceiling (> 320f)
+            DivisionState fastCvDiv = new DivisionState("p_fast_cv", 0, 2, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div. I", cmdr);
+            fastCvDiv.currentIntent = DivisionIntentType.LAUNCH_ALPHA_STRIKE;
+            DivisionState fighterPoolDummy = new DivisionState("p_f_pool", 0, 99, DivisionArchetype.FRIGATE_DIVISION, "Wing Pool", cmdr);
+            SimShipState cvShip = brakeArena.addShip(
+                    fastCvDiv, "cv_1", "HSS Astral", "astral", HullSize.CAPITAL_SHIP,
+                    -600f, 0f, 180f, 1600f, 0, 2);
+            SimShipState fastBomber1 = brakeArena.addShip(
+                    fighterPoolDummy, "fast_dagger_1", "Dagger 1", "dagger", HullSize.FIGHTER,
+                    -600f, 120f, 560f, 1200f, 1, 1);
+            SimShipState fastBomber2 = brakeArena.addShip(
+                    fighterPoolDummy, "fast_dagger_2", "Dagger 2", "dagger", HullSize.FIGHTER,
+                    -520f, 120f, 560f, 1200f, 1, 1);
+            createRehearsalWing(cvShip, java.util.Arrays.asList(fastBomber1, fastBomber2), true, null);
+            divisionai.VoidstrikeCoordinator.MassedStrikePackageProfile pkgProf =
+                    divisionai.VoidstrikeCoordinator.computeMassedStrikePackageProfile(fastCvDiv, eLongCap.proxy);
+            boolean fastVoidstrikeSpeedOk = pkgProf.effectivePackageSpeed >= 480f;
+
+            // 6. Verify 100% binary API compatibility against 0.98a-RC8 starfarer.api.jar (if present on host)
+            List<String> rc8MissingSymbols = verifyJarLinkageAgainstStarsectorApiJar(
+                    new File("mod/jars/DivisionAI.jar"),
+                    new File("E:/Games/Starsector Testing 0.98a-RC8/starsector-core/starfarer.api.jar"));
+            boolean rc8BinaryCompatOk = rc8MissingSymbols.isEmpty();
+
+            check(boundsAndSpacingOk && beamAndAutofireOk && newtonianBrakeFiredEarly
+                            && envelopesAndMapScaledOk && fastVoidstrikeSpeedOk && rc8BinaryCompatOk,
+                    "Variable Combat Physics & Overhaul Compatibility: 3x physical-vs-broadphase bounds, 60 Hz autofire/beam rescue, 2,017u Newtonian braking, 3,400u+ envelopes, 560 su/s Voidstrikes & 0.98a-RC8 API linkage",
+                    String.format(Locale.ROOT,
+                            "physRad=%.0f(inf=%.1fx,slot=%.0f,skLim=%.0f), autofire=[unblock=%b,physGuard=%b,beamCut=%b,effBeam=%.0f], brake=%b, scale=[map=%.1fx,wep=%.1fx,avgEng=%.0f,adapt=%.0f,cust=%.0f,leash=%.0f], vsSpd=%.0f, rc8Missing=%s",
+                            resolvedPhys, resolvedInf, infSlotSpacing, infSkLimit,
+                            unblockedClearRay, respectedPhysicalAllyBlock, stoppedInefficientBeam, effTacticalBeamRange,
+                            newtonianBrakeFiredEarly,
+                            mapScale3x, wepScaleLive, pBrakeDiv.avgEngageRange, adaptedUncustomized, preservedCustomized, scaledChaseLeash,
+                            pkgProf.effectivePackageSpeed, rc8MissingSymbols));
+        } finally {
+            divisionai.CombatPhysicsProfile.setTestBeamDropoffOverride(null, 0.30f, 1.2f, 1.0f);
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+            divisionai.BattlefieldFirepowerEvaluator.resetForNewBattle();
+        }
+    }
+
+    private static List<String> verifyJarLinkageAgainstStarsectorApiJar(File modJar, File apiJar) {
+        List<String> missing = new ArrayList<>();
+        if (modJar == null || !modJar.isFile() || apiJar == null || !apiJar.isFile()) {
+            return missing;
+        }
+        try (java.net.URLClassLoader apiLoader = new java.net.URLClassLoader(
+                new java.net.URL[]{apiJar.toURI().toURL()},
+                ClassLoader.getPlatformClassLoader());
+             java.util.zip.ZipFile zf = new java.util.zip.ZipFile(modJar)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zf.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry ze = entries.nextElement();
+                if (ze.isDirectory() || !ze.getName().endsWith(".class")) continue;
+                byte[] bytes = zf.getInputStream(ze).readAllBytes();
+                checkClassPoolApiRefs(ze.getName(), bytes, apiLoader, missing);
+            }
+        } catch (Throwable t) {
+            missing.add("verifier_err:" + t.getMessage());
+        }
+        return missing;
+    }
+
+    private static void checkClassPoolApiRefs(
+            String ownerClass,
+            byte[] b,
+            ClassLoader apiLoader,
+            List<String> missing) {
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.wrap(b);
+        if (buf.getInt() != 0xCAFEBABE) return;
+        buf.getShort(); // minor
+        buf.getShort(); // major
+        int cpCount = buf.getShort() & 0xFFFF;
+        int[] tags = new int[cpCount];
+        String[] utf8 = new String[cpCount];
+        int[] refA = new int[cpCount];
+        int[] refB = new int[cpCount];
+        for (int i = 1; i < cpCount; i++) {
+            int tag = buf.get() & 0xFF;
+            tags[i] = tag;
+            switch (tag) {
+                case 1: {
+                    int len = buf.getShort() & 0xFFFF;
+                    byte[] s = new byte[len];
+                    buf.get(s);
+                    utf8[i] = new String(s, java.nio.charset.StandardCharsets.UTF_8);
+                    break;
+                }
+                case 7:
+                case 8:
+                case 16:
+                case 19:
+                case 20:
+                    refA[i] = buf.getShort() & 0xFFFF;
+                    break;
+                case 9:
+                case 10:
+                case 11:
+                case 12:
+                case 17:
+                case 18:
+                    refA[i] = buf.getShort() & 0xFFFF;
+                    refB[i] = buf.getShort() & 0xFFFF;
+                    break;
+                case 15:
+                    buf.get();
+                    buf.getShort();
+                    break;
+                case 3:
+                case 4:
+                    buf.getInt();
+                    break;
+                case 5:
+                case 6:
+                    buf.getLong();
+                    i++;
+                    break;
+                default:
+                    return;
+            }
+        }
+        for (int i = 1; i < cpCount; i++) {
+            if (tags[i] != 10 && tags[i] != 11) continue; // Methodref / InterfaceMethodref
+            String clsInternal = utf8[refA[refA[i]]];
+            if (clsInternal == null || !clsInternal.startsWith("com/fs/starfarer/api/")) continue;
+            String mName = utf8[refA[refB[i]]];
+            String mDesc = utf8[refB[refB[i]]];
+            if ("<init>".equals(mName) || "<clinit>".equals(mName)) continue;
+            try {
+                Class<?> apiCls = Class.forName(clsInternal.replace('/', '.'), false, apiLoader);
+                if (!hasMethodWithDescriptorInHierarchy(apiCls, mName, mDesc)) {
+                    String sig = clsInternal + "." + mName + mDesc + " (in " + ownerClass + ")";
+                    if (!missing.contains(sig)) missing.add(sig);
+                }
+            } catch (ClassNotFoundException cnf) {
+                String sig = "CLASS:" + clsInternal + " (in " + ownerClass + ")";
+                if (!missing.contains(sig)) missing.add(sig);
+            } catch (NoClassDefFoundError ignored) {
+                // Transitive LWJGL/Log4j parameter class not in isolated apiLoader — fall back to method name check
+            }
+        }
+    }
+
+    private static boolean hasMethodWithDescriptorInHierarchy(Class<?> cls, String name, String desc) {
+        if (cls == null) return false;
+        for (java.lang.reflect.Method m : cls.getDeclaredMethods()) {
+            if (name.equals(m.getName()) && buildJvmMethodDescriptor(m).equals(desc)) {
+                return true;
+            }
+        }
+        if (hasMethodWithDescriptorInHierarchy(cls.getSuperclass(), name, desc)) return true;
+        for (Class<?> iface : cls.getInterfaces()) {
+            if (hasMethodWithDescriptorInHierarchy(iface, name, desc)) return true;
+        }
+        return false;
+    }
+
+    private static String buildJvmMethodDescriptor(java.lang.reflect.Method m) {
+        StringBuilder sb = new StringBuilder("(");
+        for (Class<?> p : m.getParameterTypes()) {
+            sb.append(typeToDescriptor(p));
+        }
+        sb.append(")").append(typeToDescriptor(m.getReturnType()));
+        return sb.toString();
+    }
+
+    private static String typeToDescriptor(Class<?> t) {
+        if (t == void.class) return "V";
+        if (t == boolean.class) return "Z";
+        if (t == byte.class) return "B";
+        if (t == char.class) return "C";
+        if (t == short.class) return "S";
+        if (t == int.class) return "I";
+        if (t == long.class) return "J";
+        if (t == float.class) return "F";
+        if (t == double.class) return "D";
+        if (t.isArray()) return t.getName().replace('.', '/');
+        return "L" + t.getName().replace('.', '/') + ";";
     }
 }

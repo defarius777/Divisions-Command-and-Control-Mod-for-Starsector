@@ -237,7 +237,7 @@ public class OtcAI {
         div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(
                 div.archetype,
                 Math.max(1, ableCount > 0 ? ableCount : alive.size()),
-                div.stationSpacing,
+                DivisionAutoFormer.resolvePhysicsAwareStationSpacing(div),
                 div.stationKeepingMult,
                 div.commander.stationKeepingStrictness);
 
@@ -915,6 +915,9 @@ public class OtcAI {
                 && (minorEndangeredDiv.totalFpStrength >= Math.max(14f, myGroup.totalFriendlyStrength * 0.18f)
                 || myGroup.divisions.size() <= 2);
         boolean hasEndangeredMainOrWing = crisis || significantMinorCrisis;
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
+        float mapScale = CombatPhysicsProfile.getMapScale(engine);
+        float contactScale = Math.max(wScale, mapScale * 0.85f);
         boolean generalChase = isPursuitInterception
                 ? (anyEnemyVisible && !crisis)
                 : (!enemyBaitTrapSuspected
@@ -922,7 +925,7 @@ public class OtcAI {
                         && ((allVisibleEnemiesNonCombatant && myGroup.enemyReinforcementHazard < 0.25f && myGroup.forceRatio >= 1.15f)
                         || (myGroup.forceRatio >= chaseForceRatioReq
                         && myGroup.enemyUndeployedReserveFp <= myGroup.totalFriendlyStrength * 0.55f
-                        && visibleEnemyFp >= 30f && minContactDist < 3000f)));
+                        && visibleEnemyFp >= 30f && minContactDist < 3000f * contactScale)));
         boolean generalChasePersists = isPursuitInterception
                 ? (anyEnemyVisible && !crisis)
                 : (!enemyBaitTrapSuspected
@@ -931,7 +934,7 @@ public class OtcAI {
                         && ((allVisibleEnemiesNonCombatant && myGroup.enemyReinforcementHazard < 0.30f)
                         || (myGroup.forceRatio >= ((carrierStrikeArm ? 1.32f : 1.20f) + reserveCautionAdd * 0.70f)
                         && myGroup.enemyUndeployedReserveFp <= myGroup.totalFriendlyStrength * 0.65f
-                        && visibleEnemyFp >= 14f && minContactDist < 3600f)));
+                        && visibleEnemyFp >= 14f && minContactDist < 3600f * contactScale)));
         boolean strikeRunning = myGroup.strikePlan != null && myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES);
 
         boolean fullAssault = isFullAssaultActive(engine, myGroup);
@@ -950,12 +953,12 @@ public class OtcAI {
             nextPhase = BattlePhase.REINFORCE_THE_LINE;
         } else if (isPursuitInterception && anyEnemyVisible) {
             nextPhase = BattlePhase.GENERAL_CHASE;
-        } else if ((!anyEnemyVisible && now < 90f)
-                || (!fullAssault && minContactDist > 3300f && hasUncapturedObjectives && now < 75f && myGroup.fleetEngagementLevel < 0.22f)) {
+        } else if ((!anyEnemyVisible && now < 90f * mapScale)
+                || (!fullAssault && minContactDist > 3300f * contactScale && hasUncapturedObjectives && now < 75f * mapScale && myGroup.fleetEngagementLevel < 0.22f)) {
             nextPhase = BattlePhase.APPROACH;
         } else if (generalChase || generalChasePersists) {
             nextPhase = BattlePhase.GENERAL_CHASE;
-        } else if (strikeRunning || (hasMissileOrStrikeDivisionReady(myGroup) && minContactDist < (torpedoStrikeArm ? 4100f : 3400f))) {
+        } else if (strikeRunning || (hasMissileOrStrikeDivisionReady(myGroup) && minContactDist < (torpedoStrikeArm ? 4100f : 3400f) * contactScale)) {
             nextPhase = BattlePhase.COORDINATED_STRIKE;
         } else {
             nextPhase = BattlePhase.GENERAL_ENGAGEMENT;
@@ -967,7 +970,7 @@ public class OtcAI {
         boolean severeCrisis = endangeredDiv != null && worstLocalRatio < 0.45f;
         boolean approachContactEstablished = (current == BattlePhase.APPROACH)
                 && anyEnemyVisible
-                && (minContactDist < 3200f || isPursuitInterception);
+                && (minContactDist < 3200f * contactScale || isPursuitInterception);
         if (nextPhase != current && !dwellElapsed
                 && !fullAssault
                 && !approachContactEstablished
@@ -987,7 +990,7 @@ public class OtcAI {
         // so we never fight 4v5 outnumbered while 20% of the fleet watches from the rear.
         // In pursuit battles (INTERCEPTION or REARGUARD_ACTION), never hold an idle rear reserve!
         boolean reservePlay = myGroup.isPlayEnabled(OtcPlay.RESERVE_AND_GENERAL_CHASE) && myGroup.authority.allowsRetasking();
-        boolean frontlineInCloseFight = (minContactDist < 1850f || myGroup.fleetEngagementLevel >= 0.26f)
+        boolean frontlineInCloseFight = (minContactDist < 1850f * wScale || myGroup.fleetEngagementLevel >= 0.26f)
                 && (myGroup.forceRatio <= 1.18f || worstLocalRatio < 0.98f || myGroup.fleetEngagementLevel >= 0.38f);
         if ((frontlineInCloseFight || isPursuitInterception || isRearguardEscape) && myGroup.reserveDivision != null) {
             myGroup.reserveCommitted = true;
@@ -1787,7 +1790,8 @@ public class OtcAI {
             }
             float distToEnemy = (enemyGroup != null) ? distanceToNearestEnemyDivision(engine, div, enemyGroup) : 4000f;
             float distFactor = (distToEnemy < Float.MAX_VALUE * 0.5f) ? (distToEnemy * 0.001f) : 2.0f;
-            float timeFreedomBonus = div.timeFreedomFactor * 0.85f + (div.effectiveTimeRadius / 2400f) * 0.45f;
+            float timeRefRadius = 2400f * CombatPhysicsProfile.getWeaponRangeScale(engine);
+            float timeFreedomBonus = div.timeFreedomFactor * 0.85f + (div.effectiveTimeRadius / timeRefRadius) * 0.45f;
             float reserveScore = distFactor + (div.isFastFlanker ? 1.5f : 0.8f) + timeFreedomBonus - div.avgFluxLevel;
             if (divMission == DivisionMissionType.RESERVE) {
                 reserveScore += 5f;
@@ -2172,15 +2176,20 @@ public class OtcAI {
             } else {
                 entryBaseY = waveAverageY;
             }
+            float mapScale = CombatPhysicsProfile.getMapScale(engine);
+            float stopInset = Math.min(mapH * 0.22f, 2150f * mapScale);
             float vanillaStopLineY = (group.side == 0)
-                    ? (-mapH * 0.5f + 2150f)
-                    : (mapH * 0.5f - 2150f);
+                    ? (-mapH * 0.5f + stopInset)
+                    : (mapH * 0.5f - stopInset);
             float travelDistToStopLine = (group.side == 0)
                     ? (vanillaStopLineY - entryBaseY)
                     : (entryBaseY - vanillaStopLineY);
-            float baseWaveBurnDur = Math.max(1.30f, Math.min(4.20f, travelDistToStopLine / 600f));
+            float maxWaveBurnCap = 4.20f * Math.max(1f, (float) Math.sqrt(mapScale));
+            float maxSyncBurnCap = 4.50f * Math.max(1f, (float) Math.sqrt(mapScale));
+            float effBurnVel = 600f * Math.max(1f, mapScale * 0.55f);
+            float baseWaveBurnDur = Math.max(1.30f, Math.min(maxWaveBurnCap, travelDistToStopLine / effBurnVel));
             float otcBurnBonus = (otcAggression - 1.0f) * 0.35f;
-            float syncFleetBurnDur = Math.max(1.20f, Math.min(4.50f, baseWaveBurnDur + otcBurnBonus));
+            float syncFleetBurnDur = Math.max(1.20f, Math.min(maxSyncBurnCap, baseWaveBurnDur + otcBurnBonus));
 
             Set<ShipAPI> unplacedWaveShips = new HashSet<>();
             for (List<ShipAPI> divShips : waveShipsByDiv.values()) {
@@ -2750,7 +2759,7 @@ public class OtcAI {
         if (isDeploymentSlotClear(engine, movingShip, desiredX, desiredY, unplacedGroupShips)) {
             return new Vector2f(desiredX, desiredY);
         }
-        float step = Math.max(95f, movingShip.getCollisionRadius() * 1.15f);
+        float step = Math.max(95f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(movingShip) * 1.15f);
         for (int ring = 1; ring <= 6; ring++) {
             for (int k = 0; k < 8; k++) {
                 double ang = (Math.PI * 0.25) * k;
@@ -2907,11 +2916,11 @@ public class OtcAI {
             float y,
             Set<ShipAPI> unplacedGroupShips) {
         if (engine == null || engine.getShips() == null) return true;
-        float myRad = Math.max(40f, movingShip.getCollisionRadius());
+        float myRad = Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(movingShip));
         for (ShipAPI other : engine.getShips()) {
             if (other == null || other == movingShip || !other.isAlive() || other.isFighter()) continue;
             if (unplacedGroupShips != null && unplacedGroupShips.contains(other)) continue;
-            float minSep = (myRad + Math.max(40f, other.getCollisionRadius())) * 0.92f;
+            float minSep = (myRad + Math.max(40f, CombatPhysicsProfile.resolvePhysicalShieldOrHullRadius(other))) * 0.92f;
             float dx = other.getLocation().x - x;
             float dy = other.getLocation().y - y;
             if ((dx * dx + dy * dy) < minSep * minSep) {
