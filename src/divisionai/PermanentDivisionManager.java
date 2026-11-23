@@ -150,13 +150,6 @@ public class PermanentDivisionManager {
                 || (carrierArch && fScale > 1.25f)
                 || (div.avgEngageRange > 1650f);
         if (!scaledEnv) {
-            if (!carrierArch && !missileArch) {
-                float vanGunRef = (div.medianMainBatteryRange > 350f) ? div.medianMainBatteryRange : div.avgEngageRange;
-                float vanDef = (dt != null && dt.defaultStandoffRangeUnits > 0) ? dt.defaultStandoffRangeUnits : 800f;
-                if (vanGunRef > 350f && configuredStandoff > Math.max(vanDef * 1.35f, vanGunRef * 1.25f)) {
-                    return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.max(vanDef, vanGunRef * 0.92f));
-                }
-            }
             return configuredStandoff; // Exact 1:1 vanilla identity
         }
         float vanillaDefault = (dt != null && dt.defaultStandoffRangeUnits > 0)
@@ -4796,6 +4789,27 @@ public class PermanentDivisionManager {
             }
         }
         if (!scaleChanged) {
+            if (currGunScale <= 1.05f) {
+                CampaignFleetAPI vanFleet = sector.getPlayerFleet();
+                if (vanFleet != null) {
+                    List<PermanentDivisionSpec> vanSpecs = ensureInitializedForPlayerFleet();
+                    boolean vanHealed = false;
+                    for (PermanentDivisionSpec spec : vanSpecs) {
+                        if (spec == null || spec.customStandoffRange == null || spec.customStandoffManual) continue;
+                        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec.archetype);
+                        int liveGun = computeDivisionLongestGunRange(spec, vanFleet);
+                        if (liveGun > 0 && (spec.customStandoffRange > MAX_STANDOFF_RANGE_UNITS
+                                || (spec.customStandoffRange >= 2600
+                                        && spec.customStandoffRange > Math.max(liveGun * 1.25f, dt.defaultStandoffRangeUnits * 1.50f)))) {
+                            spec.customStandoffRange = liveGun;
+                            vanHealed = true;
+                        }
+                    }
+                    if (vanHealed) {
+                        saveSpecsToPersistentData(pdata, vanSpecs);
+                    }
+                }
+            }
             return;
         }
 
@@ -6604,6 +6618,34 @@ public class PermanentDivisionManager {
         float rawConfiguredStandoff = (optionalSpec != null)
                 ? resolveEffectiveStandoffRange(optionalSpec, cfg)
                 : cfg.getStandoffRange(dt);
+        if (!CombatPhysicsProfile.isGlobalScaledEnvironment()
+                && optionalSpec != null
+                && optionalSpec.customStandoffRange != null
+                && !optionalSpec.customStandoffManual
+                && optionalSpec.customStandoffRange >= 2600
+                && div.archetype != null
+                && !div.archetype.isCarrierArchetype()
+                && !div.archetype.isMissileArchetype()) {
+            float maxMemberGun = div.avgEngageRange;
+            if (div.profiles != null) {
+                for (int i = 0, n = div.profiles.size(); i < n; i++) {
+                    ShipCapabilityProfile p = div.profiles.get(i);
+                    if (p == null) continue;
+                    if (p.mainBatteryGunRange > maxMemberGun) maxMemberGun = p.mainBatteryGunRange;
+                    if (p.avgWeaponRange > maxMemberGun) maxMemberGun = p.avgWeaponRange;
+                    if (p.ship != null && p.ship.getAllWeapons() != null) {
+                        for (com.fs.starfarer.api.combat.WeaponAPI w : p.ship.getAllWeapons()) {
+                            if (w == null || w.isDecorative() || w.getType() == WeaponType.MISSILE) continue;
+                            if (w.hasAIHint(AIHints.PD_ONLY) || (w.hasAIHint(AIHints.PD) && !w.hasAIHint(AIHints.ANTI_FTR) && w.getRange() <= 550f)) continue;
+                            if (w.getRange() > maxMemberGun) maxMemberGun = w.getRange();
+                        }
+                    }
+                }
+            }
+            if (maxMemberGun > 350f && rawConfiguredStandoff > Math.max(cfg.getStandoffRange(dt) * 1.35f, maxMemberGun * 1.25f)) {
+                rawConfiguredStandoff = Math.max(cfg.getStandoffRange(dt), maxMemberGun);
+            }
+        }
         // Spec 01 C2-INV-07: Only an explicit manual player Line Standoff override (`customStandoffManual == true`)
         // bypasses mission-coupled CLOSE_ACTION / live-envelope standoff scaling; auto-calculated longest-gun values
         // (e.g. 5,275u from a single HIL on an escort in a CLOSE_ACTION Battle Division) must never hold the division in the rear!

@@ -12071,7 +12071,9 @@ public class DivisionAITestSuite {
                     new divisionai.PermanentDivisionManager.PermanentDivisionSpec("s45_fspec", "Frigate Div 2", DivisionArchetype.FRIGATE_DIVISION);
             staleBcFrigSpec.customStandoffRange = 3150;
             staleBcFrigSpec.customStandoffManual = false;
-            divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(vanFrig, staleBcFrigSpec, docCfg);
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig vanDocCfg =
+                    new divisionai.PermanentDivisionManager.FleetDoctrineConfig();
+            divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(vanFrig, staleBcFrigSpec, vanDocCfg);
             boolean vanillaDownMigrationClampOk = vanFrig.standoffRange <= 955f;
             allOk = allOk && vanillaDownMigrationClampOk;
             check(allOk,
