@@ -471,11 +471,11 @@ public class PermanentDivisionManager {
      *  - FLANK: Uncapped maximum burn and zero-flux speed boost.
      */
     public enum DivisionEngineTelegraph {
-        AUTO("Auto", "Auto", "C2 rings 1/3, 1/2, Full, or Flank by intent and hull inertia.", 1.00f, 99f),
-        ONE_THIRD("1/3 Ahead", "1/3", "Tight station crawl and gunline dress; stops heavy hulls cleanly.", 0.34f, 2.90f),
-        ONE_HALF("1/2 Ahead", "1/2", "Controlled battleline maneuver and kiting without overshoot.", 0.52f, 4.55f),
-        FULL("Full Ahead", "Full", "Brisk closing and flank transit; suppresses runaway boost.", 0.78f, 6.50f),
-        FLANK("Flank", "Flank", "Uncapped max burn and zero-flux speed boost.", 1.00f, 99f);
+        AUTO("Auto", "Auto", "Picks 1/3, 1/2, Full, or Flank automatically to keep ships in formation.", 1.00f, 99f),
+        ONE_THIRD("1/3 Ahead", "1/3", "Slow speed for holding the line and stopping heavy ships on station.", 0.34f, 2.90f),
+        ONE_HALF("1/2 Ahead", "1/2", "Steady combat speed for firing on the move without drifting out of line.", 0.52f, 4.55f),
+        FULL("Full Ahead", "Full", "Fast cruising speed for closing or flanking without zero-flux boost.", 0.78f, 6.50f),
+        FLANK("Flank", "Flank", "Full top speed, including zero-flux boost.", 1.00f, 99f);
 
         public final String displayName;
         public final String shortName;

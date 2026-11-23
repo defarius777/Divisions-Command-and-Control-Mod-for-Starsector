@@ -2588,15 +2588,15 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
         boolean bcEnv = CombatPhysicsProfile.isSpeedGoverningEnvironment();
         boolean govOn = doctrine.isSpeedGovernorEnabled();
         String[] govNames = bcEnv
-                ? new String[]{"On (BC Default)", "Off"}
-                : new String[]{"Off (Default)", "On (Vanilla Opt-In)"};
+                ? new String[]{"On (Default)", "Off"}
+                : new String[]{"Off (Default)", "On"};
         String[] govSums = bcEnv
                 ? new String[]{
-                        "Active for Better Combat: governs 1/3, 1/2, Full, Flank to tame runaway inertia.",
-                        "Disabled: ships run uncapped Better Combat speeds and zero-flux boost."}
+                        "Caps ship speed by engine order so divisions keep formation in Better Combat.",
+                        "No division speed limits; ships fly at full Better Combat speed."}
                 : new String[]{
-                        "Not needed in vanilla; ships brake cleanly. Built for Better Combat inertia.",
-                        "Note: built for Better Combat inertia; unnecessary in vanilla (throttles ship speed)."};
+                        "Off in vanilla, where ships already stop cleanly on their own.",
+                        "Meant for Better Combat inertia; in vanilla this only slows your ships down."};
         String[] govActs = bcEnv
                 ? new String[]{"SET_SPEED_GOVERNOR:DEFAULT", "SET_SPEED_GOVERNOR:OFF"}
                 : new String[]{"SET_SPEED_GOVERNOR:DEFAULT", "SET_SPEED_GOVERNOR:ON"};
