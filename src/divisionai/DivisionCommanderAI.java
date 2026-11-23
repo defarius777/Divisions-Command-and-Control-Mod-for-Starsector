@@ -972,11 +972,13 @@ public class DivisionCommanderAI {
             String reason,
             float now) {
         if (div != null && div.currentIntent != null && div.currentIntent != intent && now > 2.0f) {
-            boolean isEmergency = intent == DivisionIntentType.HAUL_OUT_TO_VENT
+            boolean isEmergencyOrPlayerCommand = intent == DivisionIntentType.HAUL_OUT_TO_VENT
                     || intent == DivisionIntentType.BREAK_OFF_AND_RETIRE
                     || intent == DivisionIntentType.RUN_THE_GAUNTLET
-                    || div.currentIntent == DivisionIntentType.HOLD_IN_RESERVE;
-            if (!isEmergency && div.lastIntentChangeTime > 0f && (now - div.lastIntentChangeTime) < 3.0f) {
+                    || div.currentIntent == DivisionIntentType.HOLD_IN_RESERVE
+                    || "Full Assault".equals(reason)
+                    || "under direct orders".equals(reason);
+            if (!isEmergencyOrPlayerCommand && div.lastIntentChangeTime > 0f && (now - div.lastIntentChangeTime) < 3.0f) {
                 div.rapidFlipAuditCount++;
             }
         }

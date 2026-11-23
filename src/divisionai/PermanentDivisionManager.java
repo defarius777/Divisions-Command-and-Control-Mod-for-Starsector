@@ -150,6 +150,13 @@ public class PermanentDivisionManager {
                 || (carrierArch && fScale > 1.25f)
                 || (div.avgEngageRange > 1650f);
         if (!scaledEnv) {
+            if (!carrierArch && !missileArch) {
+                float vanGunRef = (div.medianMainBatteryRange > 350f) ? div.medianMainBatteryRange : div.avgEngageRange;
+                float vanDef = (dt != null && dt.defaultStandoffRangeUnits > 0) ? dt.defaultStandoffRangeUnits : 800f;
+                if (vanGunRef > 350f && configuredStandoff > Math.max(vanDef * 1.35f, vanGunRef * 1.25f)) {
+                    return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.max(vanDef, vanGunRef * 0.92f));
+                }
+            }
             return configuredStandoff; // Exact 1:1 vanilla identity
         }
         float vanillaDefault = (dt != null && dt.defaultStandoffRangeUnits > 0)
@@ -4847,23 +4854,23 @@ public class PermanentDivisionManager {
                 int oldSpecDefSp = Math.round((dt.defaultStationSpacingUnits * prevSpacingMult) / 25f) * 25;
                 int oldSpecDefInt = Math.round((dt.defaultDivisionIntervalUnits * prevIntervalMult) / 50f) * 50;
                 if (spec.customStationSpacing != null
-                        && (spec.customStationSpacing == dt.defaultStationSpacingUnits
-                        || Math.abs(spec.customStationSpacing - oldSpecDefSp) <= 50)
-                        && CombatPhysicsProfile.isGlobalScaledEnvironment()) {
+                        && ((spec.customStationSpacing == dt.defaultStationSpacingUnits && CombatPhysicsProfile.isGlobalScaledEnvironment())
+                        || Math.abs(spec.customStationSpacing - oldSpecDefSp) <= 50)) {
                     spec.customStationSpacing = getEffectiveDefaultStationSpacingUnits(dt);
                     specsUpdated = true;
                 }
                 if (spec.customDivisionInterval != null
-                        && (spec.customDivisionInterval == dt.defaultDivisionIntervalUnits
-                        || Math.abs(spec.customDivisionInterval - oldSpecDefInt) <= 100)
-                        && CombatPhysicsProfile.isGlobalScaledEnvironment()) {
+                        && ((spec.customDivisionInterval == dt.defaultDivisionIntervalUnits && CombatPhysicsProfile.isGlobalScaledEnvironment())
+                        || Math.abs(spec.customDivisionInterval - oldSpecDefInt) <= 100)) {
                     spec.customDivisionInterval = getEffectiveDefaultDivisionIntervalUnits(dt);
                     specsUpdated = true;
                 }
-                if (spec.customStandoffRange != null) {
+                if (spec.customStandoffRange != null && !spec.customStandoffManual) {
                     int liveGun = computeDivisionLongestGunRange(spec, fleet);
                     if (liveGun > 0 && ((currGunScale > 1.25f && spec.customStandoffRange < liveGun * 0.65f)
-                            || (currGunScale <= 1.05f && spec.customStandoffRange > MAX_STANDOFF_RANGE_UNITS))) {
+                            || (currGunScale <= 1.05f
+                                    && (spec.customStandoffRange > MAX_STANDOFF_RANGE_UNITS
+                                            || spec.customStandoffRange > Math.max(liveGun * 1.25f, dt.defaultStandoffRangeUnits * 1.50f))))) {
                         spec.customStandoffRange = liveGun;
                         specsUpdated = true;
                     }

@@ -12059,6 +12059,21 @@ public class DivisionAITestSuite {
             }
 
             boolean allOk = linearBattleLineParityOk && manualOverrideHonoredOk && otcPrecedenceOk && carrierScaleAndMoveOk;
+            // Verify PHYS-INV-03: Stale Better Combat non-manual standoff <= 5000u (e.g. Frigate Div 3150u / Cruiser Div 4950u)
+            // clamps cleanly to 1.0x Vanilla gun/default envelope (950u for FRIGATE) when Better Combat is disabled!
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+            DivisionState vanFrig = new DivisionState("s45_vfrig", 0, 9, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 2", pCmdr);
+            SimArena vArena = new SimArena("Vanilla Down-Migration Standoff Clamp", "PHYS-INV-03", new BattleGroupState(0, pCmdr), new BattleGroupState(1, eCmdr));
+            vArena.addShip(vanFrig, "vf1", "RDS Centurion", "centurion", HullSize.FRIGATE, 0f, 0f, 150f, 750f, 0, 0);
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(vanFrig);
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec staleBcFrigSpec =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("s45_fspec", "Frigate Div 2", DivisionArchetype.FRIGATE_DIVISION);
+            staleBcFrigSpec.customStandoffRange = 3150;
+            staleBcFrigSpec.customStandoffManual = false;
+            divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(vanFrig, staleBcFrigSpec, docCfg);
+            boolean vanillaDownMigrationClampOk = vanFrig.standoffRange <= 955f;
+            allOk = allOk && vanillaDownMigrationClampOk;
             check(allOk,
                     "Linear Warfare Battle-Line Parity (C2-INV-07), Explicit Conquest OTC Precedence (C2-INV-06) & Main-Body Carrier Stations (SC-INV-04)",
                     String.format(Locale.ROOT,
