@@ -175,6 +175,17 @@ public class TsfcWarroomRenderer {
         convergenceOverlayVisible = !convergenceOverlayVisible;
     }
 
+    /**
+     * Spec 03 PERF-INV-02: True only when the Command View / Warroom is open AND at least one TSFC visual overlay
+     * layer (Time, Space, Firepower, or Convergence) is toggled on. Intermediate 10 Hz keyframe ticks sleep otherwise.
+     */
+    public static boolean isAnyTsfcOverlayActive(CombatEngineAPI engine) {
+        if (!overlayVisible && !spaceOverlayVisible && !timeOverlayVisible && !convergenceOverlayVisible) {
+            return false;
+        }
+        return BattlefieldFirepowerEvaluator.isCommandViewWindowActive(engine);
+    }
+
     public static float getOverlayButtonY(float screenH, int buttonIndex) {
         float centerMidY = screenH * BTN_Y_FRACTION;
         return Math.round(centerMidY + (1 - buttonIndex) * BTN_VERTICAL_STRIDE);

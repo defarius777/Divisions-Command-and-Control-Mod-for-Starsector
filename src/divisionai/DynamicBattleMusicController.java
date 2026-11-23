@@ -325,6 +325,8 @@ public class DynamicBattleMusicController {
     private FactionMusicProfile activeProfile = null;
     private final List<ActiveLayerRuntime> activeLayers = new ArrayList<>();
     private float currentBattleEngagementLevel = 0f;
+    private float peakBattleEngagementLevel = 0f;
+    private boolean anyCombatTrackTriggered = false;
     private final Random rng = new Random();
 
     static {
@@ -640,6 +642,11 @@ public class DynamicBattleMusicController {
             case LAUNCH_ALPHA_STRIKE:
             case LAUNCH_SEARCH_AND_DESTROY:
             case GIVE_GENERAL_CHASE:
+            case TRADE_SPACE_FOR_TIME:
+            case FEIGNED_RETREAT:
+            case TAKE_SCREENING_STATION:
+            case REINFORCE_DIVISION:
+            case TAKE_AND_HOLD:
                 return true;
             default:
                 return false;
@@ -990,6 +997,82 @@ public class DynamicBattleMusicController {
         return Math.max(0.016f, Math.min(0.10f, wallDt));
     }
 
+    public float getPeakBattleEngagementLevel() {
+        return peakBattleEngagementLevel;
+    }
+
+    public boolean hasAnyCombatTrackTriggered() {
+        if (anyCombatTrackTriggered) return true;
+        for (int i = 0; i < activeLayers.size(); i++) {
+            ActiveLayerRuntime layer = activeLayers.get(i);
+            if (layer != null && layer.triggered && layer.spec != null && !layer.spec.isAmbienceBottomLayer()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Combines player and allied-AI live battle-group engagement weighted by deployed combat FP mass, ignoring
+     * passive opposing views ({@code isPassiveOpposingView == true}) whose engagement telemetry is never populated.
+     */
+    public static float resolveLiveFriendlyEngagementLevel(
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState fallbackView) {
+        float weightedSum = 0f;
+        float weightTotal = 0f;
+        if (playerGroup != null && !playerGroup.isPassiveOpposingView && !playerGroup.divisions.isEmpty()) {
+            float w = Math.max(10f, playerGroup.totalFriendlyStrength);
+            weightedSum += playerGroup.smoothedEngagementLevel * w;
+            weightTotal += w;
+        }
+        if (alliedAiGroup != null && !alliedAiGroup.isPassiveOpposingView && !alliedAiGroup.divisions.isEmpty()) {
+            float w = Math.max(10f, alliedAiGroup.totalFriendlyStrength);
+            weightedSum += alliedAiGroup.smoothedEngagementLevel * w;
+            weightTotal += w;
+        }
+        if (weightTotal > 0f) {
+            return clamp01(weightedSum / weightTotal);
+        }
+        if (fallbackView != null && !fallbackView.isPassiveOpposingView && !fallbackView.divisions.isEmpty()) {
+            return clamp01(fallbackView.smoothedEngagementLevel);
+        }
+        return -1f;
+    }
+
+    /**
+     * Advances the dynamic battle music controller every frame during real combat using live player + allied-AI
+     * engagement telemetry (never passive opposing-view placeholders).
+     */
+    public void advance(
+            CombatEngineAPI engine,
+            BattleGroupState playerGroup,
+            BattleGroupState alliedAiGroup,
+            BattleGroupState enemyGroup,
+            float amount) {
+        BattleGroupState primaryPlayerSide = (playerGroup != null && !playerGroup.isPassiveOpposingView && !playerGroup.divisions.isEmpty())
+                ? playerGroup
+                : ((alliedAiGroup != null && !alliedAiGroup.isPassiveOpposingView && !alliedAiGroup.divisions.isEmpty())
+                ? alliedAiGroup
+                : null);
+        if (primaryPlayerSide != null && alliedAiGroup != null
+                && primaryPlayerSide != alliedAiGroup
+                && !alliedAiGroup.isPassiveOpposingView
+                && !alliedAiGroup.divisions.isEmpty()) {
+            // Temporarily blend allied fleet engagement into combined friendly engagement for multi-fleet battles
+            float savedSmoothed = primaryPlayerSide.smoothedEngagementLevel;
+            primaryPlayerSide.smoothedEngagementLevel = resolveLiveFriendlyEngagementLevel(playerGroup, alliedAiGroup, null);
+            try {
+                advance(engine, primaryPlayerSide, enemyGroup, amount);
+            } finally {
+                primaryPlayerSide.smoothedEngagementLevel = savedSmoothed;
+            }
+            return;
+        }
+        advance(engine, primaryPlayerSide, enemyGroup, amount);
+    }
+
     /**
      * Advances the dynamic battle music controller every frame during real combat (including while paused).
      */
@@ -1062,14 +1145,30 @@ public class DynamicBattleMusicController {
 
         boolean battlePaused = engine.isPaused();
 
-        // Effective engagement level is driven primarily by the player's fleet engagement level (weighted by player fleet mass)
+        // Effective engagement level is driven primarily by the player's fleet engagement level (weighted by player fleet mass).
+        // Spec 04 MUS-INV-01: Never read smoothedEngagementLevel from a passive opposing view (whose engagement telemetry is 0.0f).
         if (!battlePaused) {
-            float playerEngagement = (playerSideView != null) ? playerSideView.smoothedEngagementLevel : 0f;
-            float enemyEngagement = (enemyGroup != null) ? enemyGroup.smoothedEngagementLevel : 0f;
-            if (playerSideView != null && !playerSideView.divisions.isEmpty()) {
+            boolean validPlayerDivisions = playerSideView != null
+                    && !playerSideView.isPassiveOpposingView
+                    && !playerSideView.divisions.isEmpty();
+            float playerEngagement = validPlayerDivisions ? playerSideView.smoothedEngagementLevel : 0f;
+            float enemyEngagement = (enemyGroup != null && !enemyGroup.isPassiveOpposingView)
+                    ? enemyGroup.smoothedEngagementLevel
+                    : 0f;
+            if (validPlayerDivisions) {
                 currentBattleEngagementLevel = playerEngagement;
             } else {
                 currentBattleEngagementLevel = Math.max(playerEngagement, enemyEngagement);
+            }
+            if (currentBattleEngagementLevel > peakBattleEngagementLevel) {
+                peakBattleEngagementLevel = currentBattleEngagementLevel;
+            }
+            for (int i = 0; i < activeLayers.size(); i++) {
+                ActiveLayerRuntime layer = activeLayers.get(i);
+                if (layer != null && layer.triggered && layer.spec != null && !layer.spec.isAmbienceBottomLayer()) {
+                    anyCombatTrackTriggered = true;
+                    break;
+                }
             }
         }
 

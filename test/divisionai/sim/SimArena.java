@@ -259,6 +259,10 @@ public class SimArena {
         public com.fs.starfarer.api.combat.ShipAIPlugin shipAI = DEFAULT_SIM_SHIP_AI;
         public boolean isAlly = false;
         public com.fs.starfarer.api.fleet.FleetMemberAPI fleetMemberOverride = null;
+        public float collisionRadius = 0f;
+        public float shieldRadiusEvenIfNoShield = 0f;
+        public final List<com.fs.starfarer.api.combat.WeaponGroupAPI> weaponGroups = new ArrayList<>();
+        public int[] weaponGroupsCopyCounter = null;
         public ShipAPI proxy;
 
         public SimShipState(
@@ -916,17 +920,28 @@ public class SimArena {
                         if ("getAcceleration".equals(n)) return accel;
                         if ("getDeceleration".equals(n)) return accel * 0.85f;
                         if ("getCollisionRadius".equals(n)) {
+                            if (collisionRadius > 0f) return collisionRadius;
                             if (!detailedCombatModel && systemId == null) return 0f;
                             if (hullSize == HullSize.CAPITAL_SHIP) return 210f;
                             if (hullSize == HullSize.CRUISER) return 130f;
                             if (hullSize == HullSize.DESTROYER) return 85f;
                             return 55f;
                         }
+                        if ("getShieldRadiusEvenIfNoShield".equals(n)) {
+                            if (shieldRadiusEvenIfNoShield > 0f) return shieldRadiusEvenIfNoShield;
+                            return 0f;
+                        }
                         if ("getFighterTimeBeforeRefit".equals(n)) return 600f;
                         if ("getAIFlags".equals(n)) return aiFlags;
                         if ("getNumFighterBays".equals(n)) return fighterBays;
                         if ("getAllWeapons".equals(n)) return weapons;
                         if ("getWeaponGroupsCopy".equals(n)) {
+                            if (weaponGroupsCopyCounter != null && weaponGroupsCopyCounter.length > 0) {
+                                weaponGroupsCopyCounter[0]++;
+                            }
+                            if (!weaponGroups.isEmpty()) {
+                                return new ArrayList<>(weaponGroups);
+                            }
                             com.fs.starfarer.api.combat.WeaponGroupAPI grp = (com.fs.starfarer.api.combat.WeaponGroupAPI) Proxy.newProxyInstance(
                                     com.fs.starfarer.api.combat.WeaponGroupAPI.class.getClassLoader(),
                                     new Class<?>[]{com.fs.starfarer.api.combat.WeaponGroupAPI.class},

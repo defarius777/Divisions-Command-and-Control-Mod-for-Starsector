@@ -801,9 +801,12 @@ public class DivisionCommanderAI {
         boolean isLoneFrigateDiv = (div.getAliveMembers().size() == 1)
                 && (div.totalFpStrength <= 10f
                 || (div.archetype != null && div.archetype.isFrigateArchetype()));
+        boolean isPhaseDiv = div.archetype != null && div.archetype.isPhaseArchetype();
         // Protect lone frigates from getting turned into swiss cheese when outnumbered,
         // even under a Reckless commander (where vanilla AI's helpless-target overmatch would otherwise make them dive)!
+        // Spec 01 C2-INV-04: Phase divisions cloak rather than "vent behind line" at low (<42%) flux.
         boolean loneFrigateOvermatched = isLoneFrigateDiv
+                && (!isPhaseDiv || div.avgFluxLevel >= 0.42f)
                 && div.localEnemyStrength >= 10f
                 && div.localForceRatio < 0.65f
                 && (div.avgFluxLevel >= 0.35f
@@ -968,6 +971,15 @@ public class DivisionCommanderAI {
             String targetLabel,
             String reason,
             float now) {
+        if (div != null && div.currentIntent != null && div.currentIntent != intent && now > 2.0f) {
+            boolean isEmergency = intent == DivisionIntentType.HAUL_OUT_TO_VENT
+                    || intent == DivisionIntentType.BREAK_OFF_AND_RETIRE
+                    || intent == DivisionIntentType.RUN_THE_GAUNTLET
+                    || div.currentIntent == DivisionIntentType.HOLD_IN_RESERVE;
+            if (!isEmergency && div.lastIntentChangeTime > 0f && (now - div.lastIntentChangeTime) < 3.0f) {
+                div.rapidFlipAuditCount++;
+            }
+        }
         div.currentIntent = intent;
         div.lastIntentChangeTime = now;
         div.underDirectObjectiveOrder = (intent == DivisionIntentType.TAKE_AND_HOLD && "under direct orders".equals(reason));
@@ -1342,8 +1354,13 @@ public class DivisionCommanderAI {
         boolean frontRankReadyToReengage = div.inDoubleLineRelief
                 && div.crossfireCordonIndex < 0.30f
                 && div.avgFluxLevel < 0.48f;
+        // Spec 01 C2-INV-04: Release HAUL_OUT_TO_VENT once flux drops below 42% if locally overmatching (>= 1.35x).
+        boolean winningLocalRelease = div.avgFluxLevel < 0.42f
+                && div.maxMemberFluxLevel < 0.56f
+                && div.localForceRatio >= 1.35f;
         boolean stillRotating = prevIntent == DivisionIntentType.HAUL_OUT_TO_VENT
                 && !frontRankReadyToReengage
+                && !winningLocalRelease
                 && (div.avgFluxLevel >= div.commander.rotationFluxThreshold * 0.52f
                 || (div.avgFluxLevel >= 0.22f && div.maxMemberFluxLevel >= 0.48f && div.crossfireCordonIndex >= 0.34f)
                 || (div.crossfireCordonIndex >= 0.40f && div.avgFluxLevel >= 0.30f));
@@ -2484,6 +2501,12 @@ public class DivisionCommanderAI {
             } else {
                 intent = DivisionIntentType.CLOSE_AND_ENGAGE;
                 reason = "keeping the line";
+                if (div.otcOrder != null && div.otcOrder.isActive(now) && myGroup != null
+                        && myGroup.authority == OtcAuthority.POSITIVE_CONTROL
+                        && div.otcOrder.type == OtcOrderType.FLANK
+                        && Math.abs(now - div.otcOrder.issuedTime) < 0.05f) {
+                    myGroup.specOtcOrderVetoes++;
+                }
             }
             commitIntent(engine, div, intent, nearestEnemyDiv.displayName, reason, now);
         } else if (uncapturedObj != null

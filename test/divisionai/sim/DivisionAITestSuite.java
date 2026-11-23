@@ -113,6 +113,7 @@ public class DivisionAITestSuite {
         testBetterCombatThreatProfileAndCombatBearingDiscipline();
         testFrigateSpamDeSkewAndGenericMathNormalization();
         testC2ChainUntanglingAndUntetheredFirstStrike();
+        testSddPropertyFuzzMusicAnd60HzPerfSpecs();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -11486,5 +11487,331 @@ public class DivisionAITestSuite {
             divisionai.ShipCaptainAI.resetForNewBattle();
             divisionai.CombatPhysicsProfile.resetForNewBattle();
         }
+    }
+
+    /**
+     * Scenario 44: Spec-Driven Development (SDD) Property Fuzzing, Live Dynamic Battle Music Contract,
+     * and 60 Hz / 10 Hz Performance Budget Verification (Specs 01, 03, 04).
+     */
+    private static void testSddPropertyFuzzMusicAnd60HzPerfSpecs() {
+        System.out.println("--- Scenario 44: SDD Property Fuzz, Dynamic Battle Music Trigger & 60Hz/10Hz Perf Specs ---");
+        try {
+            // =========================================================================================
+            // PART A: Seeded Property-Based C2 Fuzz Suite (60 trials across 1.0x Vanilla & 3.64x BC)
+            //         Verifies Spec 01 C2-INV-01 (zero same-tick OTC->Division vetoes),
+            //         C2-INV-03 (zero light/missile meatshield line-passers), and C2-INV-04 (vent discipline).
+            // =========================================================================================
+            java.util.Random rng = new java.util.Random(44001L);
+            int totalSameTickVetoes = 0;
+            int totalMeatshieldViolations = 0;
+            divisionai.PermanentDivisionManager.OtcAuthority[] auths = new divisionai.PermanentDivisionManager.OtcAuthority[]{
+                    divisionai.PermanentDivisionManager.OtcAuthority.POSITIVE_CONTROL,
+                    divisionai.PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION,
+                    divisionai.PermanentDivisionManager.OtcAuthority.FIRE_DISTRIBUTION_ONLY
+            };
+            String[] personalities = new String[]{"cautious", "steady", "aggressive", "reckless"};
+
+            for (int trial = 0; trial < 60; trial++) {
+                boolean bcScale = (trial >= 30);
+                if (bcScale) {
+                    divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(true, 3.64f, 3.00f, 3.33f, 2.20f, 2.50f);
+                } else {
+                    divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+                }
+                CommanderProfile pCmdr = new CommanderProfile(null, personalities[rng.nextInt(personalities.length)]);
+                CommanderProfile eCmdr = new CommanderProfile(null, personalities[rng.nextInt(personalities.length)]);
+                BattleGroupState pGrp = new BattleGroupState(0, pCmdr);
+                BattleGroupState eGrp = new BattleGroupState(1, eCmdr);
+                pGrp.authority = auths[rng.nextInt(auths.length)];
+                SimArena fuzzArena = new SimArena("s44_fz_" + trial, "Fuzz " + trial, pGrp, eGrp);
+                fuzzArena.mapWidth = 36000f;
+                fuzzArena.mapHeight = 36000f;
+                float now = 15.0f + trial * 1.5f;
+                fuzzArena.elapsedTime = now;
+
+                float gunRange = bcScale ? 3200f : 900f;
+                DivisionState pLine = new DivisionState("fz_line_" + trial, 0, 1, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 1", pCmdr);
+                DivisionState pFlank = new DivisionState("fz_flk_" + trial, 0, 2, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 2", pCmdr);
+                DivisionState pFrig = new DivisionState("fz_frg_" + trial, 0, 3, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 3", pCmdr);
+                DivisionState pMis = new DivisionState("fz_mis_" + trial, 0, 4, DivisionArchetype.MISSILE_CRUISER_DIVISION, "Missile Cruiser Div 4", pCmdr);
+                pGrp.divisions.add(pLine);
+                pGrp.divisions.add(pFlank);
+                pGrp.divisions.add(pFrig);
+                pGrp.divisions.add(pMis);
+
+                DivisionState eMain = new DivisionState("fz_em1_" + trial, 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Cruiser Div 1", eCmdr);
+                DivisionState eWing = new DivisionState("fz_em2_" + trial, 1, 2, DivisionArchetype.DESTROYER_DIVISION, "Enemy Destroyer Div 2", eCmdr);
+                eGrp.divisions.add(eMain);
+                eGrp.divisions.add(eWing);
+
+                float py = -4000f + rng.nextFloat() * 5000f;
+                fuzzArena.addShip(pLine, "pl1_" + trial, "Eagle 1", "eagle", HullSize.CRUISER, -400f, py, 160f, gunRange, 0, 0).fluxLevel = 0.10f + rng.nextFloat() * 0.78f;
+                fuzzArena.addShip(pLine, "pl2_" + trial, "Eagle 2", "eagle", HullSize.CRUISER, 400f, py, 160f, gunRange, 0, 0).fluxLevel = 0.10f + rng.nextFloat() * 0.78f;
+                fuzzArena.addShip(pFlank, "pf1_" + trial, "Hammerhead 1", "hammerhead", HullSize.DESTROYER, -2600f + rng.nextFloat() * 5200f, py + 600f, 220f, gunRange, 0, 0).fluxLevel = 0.05f + rng.nextFloat() * 0.80f;
+                fuzzArena.addShip(pFrig, "pfr1_" + trial, "Lasher 1", "lasher", HullSize.FRIGATE, -1200f, py + 900f, 280f, gunRange * 0.75f, 0, 0).fluxLevel = rng.nextFloat() * 0.55f;
+                fuzzArena.addShip(pMis, "pm1_" + trial, "Gryphon 1", "gryphon", HullSize.CRUISER, 0f, py - 1200f, 150f, gunRange * 0.8f, 4, 0).fluxLevel = rng.nextFloat() * 0.45f;
+
+                float ey = 1500f + rng.nextFloat() * 14000f;
+                fuzzArena.addShip(eMain, "em1_" + trial, "Dominator 1", "dominator", HullSize.CRUISER, -300f, ey, 140f, gunRange, 0, 0);
+                fuzzArena.addShip(eMain, "em2_" + trial, "Dominator 2", "dominator", HullSize.CRUISER, 300f, ey, 140f, gunRange, 0, 0);
+                fuzzArena.addShip(eWing, "ew1_" + trial, "Enforcer 1", "enforcer", HullSize.DESTROYER, 2200f, ey + rng.nextFloat() * 2000f, 160f, gunRange, 0, 0);
+
+                for (DivisionState d : pGrp.divisions) divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(d);
+                for (DivisionState d : eGrp.divisions) divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(d);
+
+                divisionai.OtcAI.updateTelemetry(fuzzArena.engineProxy, pGrp);
+                divisionai.OtcAI.updateTelemetry(fuzzArena.engineProxy, eGrp);
+                pGrp.enemyReinforcementHazard = rng.nextFloat();
+                pGrp.enemySpawnGateCenter.set(0f, 18000f);
+
+                if (trial % 3 == 0) {
+                    pLine.currentIntent = divisionai.DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT;
+                }
+                divisionai.OtcAI.evaluateOtcStrategy(fuzzArena.engineProxy, pGrp, eGrp, now);
+                divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(fuzzArena.engineProxy, pGrp, eGrp, now);
+
+                totalSameTickVetoes += pGrp.specOtcOrderVetoes;
+                if (pFrig.isCoveringFriend || pMis.isCoveringFriend) {
+                    totalMeatshieldViolations++;
+                }
+            }
+
+            // Spec 01 C2-INV-04 Direct Checks:
+            // (1) Lone Phase Frigate at 16% flux & 68% hull must NOT enter HAUL_OUT_TO_VENT via loneFrigateOvermatched
+            // (2) Battleship division in HAUL_OUT_TO_VENT that has cooled to 38% flux with 2.6x local advantage MUST release HAUL_OUT_TO_VENT!
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(true, 3.64f, 3.00f, 3.33f, 2.20f, 2.50f);
+            CommanderProfile vCmdr = new CommanderProfile(null, "steady");
+            BattleGroupState pVentGrp = new BattleGroupState(0, vCmdr);
+            BattleGroupState eVentGrp = new BattleGroupState(1, vCmdr);
+            SimArena ventArena = new SimArena("s44_vent", "Vent Spec", pVentGrp, eVentGrp);
+            ventArena.mapWidth = 30000f;
+            ventArena.mapHeight = 30000f;
+            ventArena.elapsedTime = 60.0f;
+            DivisionState phaseDiv = new DivisionState("s44_phase", 0, 2, DivisionArchetype.PHASE_DIVISION, "Phase Div 2", vCmdr);
+            DivisionState bbDiv = new DivisionState("s44_bb", 0, 10, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. X", vCmdr);
+            DivisionState eLight = new DivisionState("s44_el", 1, 1, DivisionArchetype.DESTROYER_DIVISION, "Enemy DD Div 1", vCmdr);
+            pVentGrp.divisions.add(phaseDiv);
+            pVentGrp.divisions.add(bbDiv);
+            eVentGrp.divisions.add(eLight);
+            SimShipState shShade = ventArena.addShip(phaseDiv, "s44_shade", "Shade", "shade", HullSize.FRIGATE, -1200f, 0f, 350f, 1800f, 0, 0);
+            shShade.fluxLevel = 0.16f;
+            shShade.hullLevel = 0.68f;
+            SimShipState shOns1 = ventArena.addShip(bbDiv, "s44_ons1", "Onslaught 1", "onslaught", HullSize.CAPITAL_SHIP, 0f, -400f, 140f, 3600f, 0, 0);
+            SimShipState shOns2 = ventArena.addShip(bbDiv, "s44_ons2", "Onslaught 2", "onslaught", HullSize.CAPITAL_SHIP, 600f, -400f, 140f, 3600f, 0, 0);
+            shOns1.fluxLevel = 0.38f;
+            shOns2.fluxLevel = 0.36f;
+            ventArena.addShip(eLight, "s44_edd", "Enforcer", "enforcer", HullSize.DESTROYER, 0f, 2200f, 180f, 2600f, 0, 0);
+            for (DivisionState d : pVentGrp.divisions) divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(d);
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(eLight);
+            divisionai.OtcAI.updateTelemetry(ventArena.engineProxy, pVentGrp);
+            divisionai.OtcAI.updateTelemetry(ventArena.engineProxy, eVentGrp);
+            phaseDiv.localEnemyStrength = 20f;
+            phaseDiv.localForceRatio = 0.35f;
+            bbDiv.currentIntent = divisionai.DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT;
+            bbDiv.crossfireCordonIndex = 0.45f;
+            bbDiv.localForceRatio = 2.80f;
+            divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(ventArena.engineProxy, pVentGrp, eVentGrp, 60.0f);
+            boolean phaseNotForcedToVentAt16Pct = phaseDiv.currentIntent != divisionai.DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT;
+            boolean winningBbReleasedFromVent = bbDiv.currentIntent != divisionai.DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT;
+
+            // =========================================================================================
+            // PART B: Spec 04 Dynamic Battle Music Telemetry Contract (MUS-INV-01..03)
+            //         Reproduces the exact Hegemony 520.4s battle trap where side0OpposingView had
+            //         isPassiveOpposingView=true (smoothedEngagementLevel=0.0f) while playerGroup was fighting!
+            // =========================================================================================
+            BattleGroupState musicPlayerGrp = new BattleGroupState(0, vCmdr);
+            BattleGroupState musicAlliedGrp = new BattleGroupState(0, vCmdr);
+            musicAlliedGrp.isAlliedAi = true;
+            BattleGroupState passiveSide0View = new BattleGroupState(0, vCmdr);
+            passiveSide0View.isPassiveOpposingView = true;
+            BattleGroupState musicEnemyGrp = new BattleGroupState(1, vCmdr);
+            musicEnemyGrp.factionId = "hegemony";
+
+            DivisionState mPlayerBattle = new DivisionState("m_pb", 0, 8, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. VIII", vCmdr);
+            mPlayerBattle.totalFpStrength = 96f;
+            mPlayerBattle.currentIntent = divisionai.DivisionModel.DivisionIntentType.TRADE_SPACE_FOR_TIME;
+            mPlayerBattle.avgFluxLevel = 0.48f;
+            mPlayerBattle.maxMemberFluxLevel = 0.62f;
+            mPlayerBattle.incomingShortDotThreat = 42f;
+            SimShipState mShip = ventArena.addShip(mPlayerBattle, "m_ons", "ISS Invincible", "onslaught", HullSize.CAPITAL_SHIP, 0f, -1500f, 140f, 3600f, 0, 0);
+            mPlayerBattle.violentContactIntensity = divisionai.DynamicBattleMusicController.computeDivisionViolentContactIntensity(mPlayerBattle, 0.45f);
+            musicPlayerGrp.divisions.add(mPlayerBattle);
+            musicPlayerGrp.totalFriendlyStrength = 96f;
+
+            // Passive view contains the division mirror, and OtcAI.updateTelemetry leaves its smoothedEngagementLevel at 0.0f!
+            DivisionState passiveMirror = new DivisionState("m_pb_mirror", 0, 8, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. VIII", vCmdr);
+            passiveMirror.members.add(mShip.proxy);
+            passiveSide0View.divisions.add(passiveMirror);
+            divisionai.OtcAI.updateTelemetry(ventArena.engineProxy, passiveSide0View);
+            boolean passiveViewStaysZero = passiveSide0View.smoothedEngagementLevel == 0.0f;
+
+            for (int t = 0; t < 4; t++) {
+                divisionai.DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(musicPlayerGrp);
+            }
+            DivisionState mEnemyBattle = new DivisionState("m_eb", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. I", vCmdr);
+            mEnemyBattle.totalFpStrength = 120f;
+            musicEnemyGrp.divisions.add(mEnemyBattle);
+
+            divisionai.DynamicBattleMusicController musicCtrl = new divisionai.DynamicBattleMusicController();
+            for (int step = 0; step < 10; step++) {
+                musicCtrl.advance(ventArena.engineProxy, musicPlayerGrp, musicAlliedGrp, musicEnemyGrp, 0.15f);
+            }
+            boolean musicTriggeredOk = passiveViewStaysZero
+                    && mPlayerBattle.violentContactIntensity >= 0.45f
+                    && musicPlayerGrp.smoothedEngagementLevel >= 0.35f
+                    && musicCtrl.hasAnyCombatTrackTriggered()
+                    && musicCtrl.getPeakBattleEngagementLevel() >= 0.35f
+                    && musicCtrl.getBattleTrackLayerVolume() > 0.25f;
+
+            // Also verify 4-arg advance rejects accidental passive view and falls back to enemyGroup engagement
+            musicEnemyGrp.smoothedEngagementLevel = 0.65f;
+            divisionai.DynamicBattleMusicController musicFallbackCtrl = new divisionai.DynamicBattleMusicController();
+            for (int step = 0; step < 8; step++) {
+                musicFallbackCtrl.advance(ventArena.engineProxy, passiveSide0View, musicEnemyGrp, 0.15f);
+            }
+            boolean passiveGuardFallbackOk = musicFallbackCtrl.hasAnyCombatTrackTriggered()
+                    && musicFallbackCtrl.getPeakBattleEngagementLevel() >= 0.50f;
+            musicCtrl.switchControlToVanillaDefault();
+            musicFallbackCtrl.switchControlToVanillaDefault();
+
+            // =========================================================================================
+            // PART C: Spec 03 10Hz TSFC Idle Gate & 60Hz Zero-Copy / Frame-Budget Benchmark (PERF-INV-02)
+            // =========================================================================================
+            divisionai.TsfcWarroomRenderer.resetForNewBattle();
+            boolean tsfcSleepsWhenLayersOff = !divisionai.TsfcWarroomRenderer.isAnyTsfcOverlayActive(ventArena.engineProxy);
+
+            BattleGroupState perfP = new BattleGroupState(0, vCmdr);
+            BattleGroupState perfE = new BattleGroupState(1, vCmdr);
+            SimArena perfArena = new SimArena("s44_perf", "Perf Spec", perfP, perfE);
+            perfArena.mapWidth = 36000f;
+            perfArena.mapHeight = 36000f;
+            perfArena.elapsedTime = 25.0f;
+            DivisionState perfPDiv = new DivisionState("perf_p", 0, 1, DivisionArchetype.CRUISER_DIVISION, "Perf Player Div", vCmdr);
+            DivisionState perfEDiv = new DivisionState("perf_e", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Perf Enemy Div", vCmdr);
+            perfP.divisions.add(perfPDiv);
+            perfE.divisions.add(perfEDiv);
+            final int[] weaponGroupCopyCalls = new int[]{0};
+            List<com.fs.starfarer.api.combat.ShipAPI> perfShips = new java.util.ArrayList<>();
+            for (int i = 0; i < 50; i++) {
+                SimShipState ps = perfArena.addShip(perfPDiv, "pp_" + i, "Eagle " + i, "eagle", HullSize.CRUISER,
+                        -3000f + (i % 10) * 650f, -1400f - (i / 10) * 500f, 180f, 3200f, 0, 0);
+                ps.collisionRadius = 420f; // 3x inflated BC sphere -> activates autofire assist path!
+                ps.shieldRadiusEvenIfNoShield = 140f;
+                com.fs.starfarer.api.combat.WeaponAPI wMock = createAutofirePerfWeaponMock(ps, 3200f);
+                com.fs.starfarer.api.combat.WeaponGroupAPI wgMock = createAutofirePerfGroupMock(wMock);
+                ps.weaponGroups.add(wgMock);
+                ps.weaponGroupsCopyCounter = weaponGroupCopyCalls;
+                perfShips.add(ps.proxy);
+
+                SimShipState es = perfArena.addShip(perfEDiv, "pe_" + i, "Dominator " + i, "dominator", HullSize.CRUISER,
+                        -3000f + (i % 10) * 650f, 1400f + (i / 10) * 500f, 160f, 3200f, 0, 0);
+                es.collisionRadius = 450f;
+                es.shieldRadiusEvenIfNoShield = 150f;
+                com.fs.starfarer.api.combat.WeaponAPI ewMock = createAutofirePerfWeaponMock(es, 3200f);
+                com.fs.starfarer.api.combat.WeaponGroupAPI ewgMock = createAutofirePerfGroupMock(ewMock);
+                es.weaponGroups.add(ewgMock);
+                es.weaponGroupsCopyCounter = weaponGroupCopyCalls;
+                perfShips.add(es.proxy);
+            }
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+            divisionai.CombatPhysicsProfile.setTestBeamDropoffOverride(Boolean.TRUE, 0.30f, 1.20f, 1.00f);
+            float[] threatOut = new float[4];
+            // Warmup 2 frames, then time 60 frames of 100 ships (6,000 ship-frames, 12,000 bearing evals!)
+            for (int f = 0; f < 2; f++) {
+                perfArena.elapsedTime = 25.0f + f * (1f / 60f);
+                for (int s = 0; s < perfShips.size(); s++) {
+                    com.fs.starfarer.api.combat.ShipAPI sh = perfShips.get(s);
+                    divisionai.CombatPhysicsProfile.evaluateLiveDirectFireThreat(perfArena.engineProxy, sh, null, threatOut);
+                    divisionai.CombatPhysicsProfile.evaluateLiveDirectFireThreat(perfArena.engineProxy, sh, null, threatOut);
+                    divisionai.CombatPhysicsProfile.applyAutofireBoundsAndBeamAssist(perfArena.engineProxy, sh, false);
+                }
+            }
+            int callsAfterWarmup = weaponGroupCopyCalls[0];
+            long tBench0 = System.nanoTime();
+            for (int f = 2; f < 62; f++) {
+                perfArena.elapsedTime = 25.0f + f * (1f / 60f);
+                for (int s = 0; s < perfShips.size(); s++) {
+                    com.fs.starfarer.api.combat.ShipAPI sh = perfShips.get(s);
+                    // Simulate both pre-advance and post-advance bearing discipline on the same frame
+                    divisionai.CombatPhysicsProfile.evaluateLiveDirectFireThreat(perfArena.engineProxy, sh, null, threatOut);
+                    divisionai.CombatPhysicsProfile.evaluateLiveDirectFireThreat(perfArena.engineProxy, sh, null, threatOut);
+                    divisionai.CombatPhysicsProfile.applyAutofireBoundsAndBeamAssist(perfArena.engineProxy, sh, false);
+                }
+            }
+            long benchElapsedNs = System.nanoTime() - tBench0;
+            float avgFrameMs100Ships = benchElapsedNs / (60.0f * 1_000_000.0f);
+            int extraCopyCallsDuring60Frames = weaponGroupCopyCalls[0] - callsAfterWarmup;
+            boolean zeroCopyWeaponCacheOk = callsAfterWarmup > 0 && callsAfterWarmup <= 100 && extraCopyCallsDuring60Frames == 0;
+            boolean frameBudgetOk = avgFrameMs100Ships < 5.0f;
+
+            boolean sddAllOk = (totalSameTickVetoes == 0)
+                    && (totalMeatshieldViolations == 0)
+                    && phaseNotForcedToVentAt16Pct
+                    && winningBbReleasedFromVent
+                    && musicTriggeredOk
+                    && passiveGuardFallbackOk
+                    && tsfcSleepsWhenLayersOff
+                    && zeroCopyWeaponCacheOk
+                    && frameBudgetOk;
+            check(sddAllOk,
+                    "SDD Property Fuzz (60 Trials), Live Hegemony Battle Music Trigger & 60Hz/10Hz Zero-Copy Frame Budgets",
+                    String.format(Locale.ROOT,
+                            "fuzz=[vetoes=%d, meatshield=%d], vent=[phase16Ok=%s, bbReleaseOk=%s], music=[trig=%s, fallback=%s, pEng=%.2f], perf=[tsfcSleep=%s, copyCalls=%d+%d, avg100Ships=%.2fms]",
+                            totalSameTickVetoes, totalMeatshieldViolations,
+                            phaseNotForcedToVentAt16Pct, winningBbReleasedFromVent,
+                            musicTriggeredOk, passiveGuardFallbackOk, musicPlayerGrp.smoothedEngagementLevel,
+                            tsfcSleepsWhenLayersOff, callsAfterWarmup, extraCopyCallsDuring60Frames, avgFrameMs100Ships));
+        } finally {
+            divisionai.CombatPhysicsProfile.setTestBeamDropoffOverride(null, 0.30f, 1.20f, 1.00f);
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.VoidstrikeCoordinator.resetForNewBattle();
+            divisionai.ShipCaptainAI.resetForNewBattle();
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+            divisionai.TsfcWarroomRenderer.resetForNewBattle();
+        }
+    }
+
+    private static com.fs.starfarer.api.combat.WeaponAPI createAutofirePerfWeaponMock(final SimShipState owner, final float range) {
+        return (com.fs.starfarer.api.combat.WeaponAPI) java.lang.reflect.Proxy.newProxyInstance(
+                DivisionAITestSuite.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.WeaponAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getShip".equals(m)) return owner.proxy;
+                    if ("getRange".equals(m)) return range;
+                    if ("getLocation".equals(m)) return owner.location;
+                    if ("getCurrAngle".equals(m)) return owner.facing;
+                    if ("getArcFacing".equals(m)) return 0f;
+                    if ("getArc".equals(m)) return 180f;
+                    if ("getProjectileSpeed".equals(m)) return 1200f;
+                    if ("getType".equals(m)) return com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC;
+                    if ("isBeam".equals(m) || "isDisabled".equals(m) || "isPermanentlyDisabled".equals(m)
+                            || "isDecorative".equals(m) || "isFiring".equals(m) || "usesAmmo".equals(m)) {
+                        return Boolean.FALSE;
+                    }
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.combat.WeaponGroupAPI createAutofirePerfGroupMock(final com.fs.starfarer.api.combat.WeaponAPI w) {
+        final List<com.fs.starfarer.api.combat.WeaponAPI> list = java.util.Collections.singletonList(w);
+        return (com.fs.starfarer.api.combat.WeaponGroupAPI) java.lang.reflect.Proxy.newProxyInstance(
+                DivisionAITestSuite.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.WeaponGroupAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getWeaponsCopy".equals(m)) return new java.util.ArrayList<>(list);
+                    if ("isAutofiring".equals(m)) return Boolean.TRUE;
+                    if ("isUsingDefaultAI".equals(m)) return Boolean.TRUE;
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
     }
 }

@@ -848,6 +848,7 @@ public class DivisionModel {
         public boolean linePassActive = false;
         public float linePassUntil = -100f;
         public int fleetBattleSequenceStage = 0; // 0 = none, 1 = Trade Space for Time, 2 = Feigned Retreat lure, 3 = Alpha Strike counter
+        public int rapidFlipAuditCount = 0;
 
         public DivisionState(
                 String id,
@@ -1005,6 +1006,9 @@ public class DivisionModel {
         public float fleetLiveFirepower = 0f;
         public float fleetInRangeFirepower = 0f;
         public float fleetFirepowerUptime = 0f;
+        // SDD Runtime Spec-Compliance Audit Counters (emitted in BATTLE SUMMARY)
+        public int specOtcOrderVetoes = 0;
+        public int specRapidIntentFlips = 0;
 
         // Item D: Awareness of Friendly Independent Ships (disposition, centroid, velocity, FP, and org ratio)
         public final List<ShipAPI> friendlyIndependentShips = new ArrayList<>();

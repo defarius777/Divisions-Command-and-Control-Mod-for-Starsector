@@ -89,6 +89,20 @@ public final class CombatPhysicsProfile {
     private static final WeakHashMap<ShipAPI, Boolean> SHIP_BEAM_DROPOFF_LISTENER_CACHE = new WeakHashMap<>();
     private static final WeakHashMap<ShipAPI, float[]> SHIP_MAX_GUN_REACH_CACHE = new WeakHashMap<>();
     private static final WeakHashMap<ShipAPI, float[]> SHIP_COMBAT_BEARING_CACHE = new WeakHashMap<>();
+    private static final WeakHashMap<ShipAPI, float[]> SHIP_DIRECT_THREAT_CACHE = new WeakHashMap<>();
+    private static final WeakHashMap<ShipAPI, CachedShipWeaponGroups> SHIP_WEAPON_GROUPS_CACHE = new WeakHashMap<>();
+
+    private static final class CachedShipWeaponGroups {
+        final WeaponGroupAPI[] groups;
+        final WeaponAPI[][] groupWeapons;
+        float refreshTime;
+
+        CachedShipWeaponGroups(WeaponGroupAPI[] groups, WeaponAPI[][] groupWeapons, float refreshTime) {
+            this.groups = groups;
+            this.groupWeapons = groupWeapons;
+            this.refreshTime = refreshTime;
+        }
+    }
 
     // Deterministic test override for headless unit tests
     private static Boolean testBeamDropoffOverride = null;
@@ -191,6 +205,8 @@ public final class CombatPhysicsProfile {
         SHIP_BEAM_DROPOFF_LISTENER_CACHE.clear();
         SHIP_MAX_GUN_REACH_CACHE.clear();
         SHIP_COMBAT_BEARING_CACHE.clear();
+        SHIP_DIRECT_THREAT_CACHE.clear();
+        SHIP_WEAPON_GROUPS_CACHE.clear();
         clearObstacleSnapshot();
         clearMissileSnapshot();
     }
@@ -1018,34 +1034,66 @@ public final class CombatPhysicsProfile {
         if (!hasEnemyWithinShipEngagementHorizon(engine, ship)) {
             return; // Zero weapon-group list allocations when no enemy warship is near gun range
         }
-        List<WeaponGroupAPI> groups = ship.getWeaponGroupsCopy();
-        if (groups == null || groups.isEmpty()) {
+        float elapsed = engine.getTotalElapsedTime(false);
+        CachedShipWeaponGroups cached = resolveCachedShipWeaponGroups(ship, elapsed);
+        if (cached == null || cached.groups.length == 0) {
             return;
         }
         float fluxLevel = ship.getFluxLevel();
         boolean holdFire = ship.isHoldFire() || doNotUseFlux;
-        for (int gIdx = 0, gLen = groups.size(); gIdx < gLen; gIdx++) {
-            WeaponGroupAPI grp = groups.get(gIdx);
+        WeaponGroupAPI[] groups = cached.groups;
+        WeaponAPI[][] groupWeapons = cached.groupWeapons;
+        for (int gIdx = 0, gLen = groups.length; gIdx < gLen; gIdx++) {
+            WeaponGroupAPI grp = groups[gIdx];
             if (grp != null) {
-                assistWeaponGroup(ship, grp, inflation, beamDrop, holdFire, fluxLevel);
+                assistWeaponGroupCached(ship, grp, groupWeapons[gIdx], inflation, beamDrop, holdFire, fluxLevel);
             }
         }
     }
 
-    private static void assistWeaponGroup(
+    private static CachedShipWeaponGroups resolveCachedShipWeaponGroups(ShipAPI ship, float elapsed) {
+        CachedShipWeaponGroups cached = SHIP_WEAPON_GROUPS_CACHE.get(ship);
+        if (cached != null && elapsed > 0f && Math.abs(elapsed - cached.refreshTime) < 2.5f) {
+            return cached;
+        }
+        List<WeaponGroupAPI> rawGroups = ship.getWeaponGroupsCopy();
+        if (rawGroups == null || rawGroups.isEmpty()) {
+            return null;
+        }
+        int gLen = rawGroups.size();
+        WeaponGroupAPI[] gArr = new WeaponGroupAPI[gLen];
+        WeaponAPI[][] wMatrix = new WeaponAPI[gLen][];
+        for (int i = 0; i < gLen; i++) {
+            WeaponGroupAPI g = rawGroups.get(i);
+            gArr[i] = g;
+            if (g != null) {
+                List<WeaponAPI> wList = g.getWeaponsCopy();
+                wMatrix[i] = (wList != null && !wList.isEmpty())
+                        ? wList.toArray(new WeaponAPI[0])
+                        : new WeaponAPI[0];
+            } else {
+                wMatrix[i] = new WeaponAPI[0];
+            }
+        }
+        CachedShipWeaponGroups built = new CachedShipWeaponGroups(gArr, wMatrix, elapsed);
+        SHIP_WEAPON_GROUPS_CACHE.put(ship, built);
+        return built;
+    }
+
+    private static void assistWeaponGroupCached(
             ShipAPI ship,
             WeaponGroupAPI grp,
+            WeaponAPI[] weapons,
             float inflation,
             boolean beamDrop,
             boolean holdFire,
             float fluxLevel) {
-        List<WeaponAPI> weapons = grp.getWeaponsCopy();
-        if (weapons == null || weapons.isEmpty()) {
+        if (weapons == null || weapons.length == 0) {
             return;
         }
         boolean groupAutofiring = grp.isAutofiring();
-        for (int wIdx = 0, wLen = weapons.size(); wIdx < wLen; wIdx++) {
-            WeaponAPI w = weapons.get(wIdx);
+        for (int wIdx = 0, wLen = weapons.length; wIdx < wLen; wIdx++) {
+            WeaponAPI w = weapons[wIdx];
             if (w != null && !w.isDisabled() && !w.isPermanentlyDisabled() && !w.isDecorative()) {
                 assistSingleWeapon(ship, grp, w, groupAutofiring, inflation, beamDrop, holdFire, fluxLevel);
             }
@@ -1790,6 +1838,22 @@ public final class CombatPhysicsProfile {
             return false;
         }
         float elapsed = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
+        // Spec 03 PERF-INV-02: Reuse per-ship threat vector across pre-advance & post-advance calls on the same frame
+        // (and across a 2-frame / 30ms window in real live combat), cutting 60Hz O(N^2) bearing scans by up to 75%.
+        float cacheTtl = (engine != null && elapsed > 0f && BattlefieldFirepowerEvaluator.isRealCombatEngine(engine))
+                ? 0.030f
+                : 1e-4f;
+        float[] cachedSlot = (engine != null && elapsed > 0f) ? SHIP_DIRECT_THREAT_CACHE.get(ship) : null;
+        if (cachedSlot != null && Math.abs(elapsed - cachedSlot[5]) < cacheTtl) {
+            boolean hit = cachedSlot[4] > 0.5f;
+            if (outThreat != null && outThreat.length >= 4) {
+                outThreat[0] = cachedSlot[0];
+                outThreat[1] = hit ? cachedSlot[1] : ship.getFacing();
+                outThreat[2] = cachedSlot[2];
+                outThreat[3] = cachedSlot[3];
+            }
+            return hit;
+        }
         float sx = ship.getLocation().x;
         float sy = ship.getLocation().y;
         int myOwner = ship.getOwner();
@@ -1851,9 +1915,23 @@ public final class CombatPhysicsProfile {
             }
         }
 
+        float resolvedBearing = anyLiveDirectThreat ? fastAtan2Deg(bestDy, bestDx) : ship.getFacing();
+        if (engine != null && elapsed > 0f) {
+            if (cachedSlot == null) {
+                cachedSlot = new float[]{bestDist, resolvedBearing, maxHostileReachInEnvelope, ownGunReach, anyLiveDirectThreat ? 1f : 0f, elapsed};
+                SHIP_DIRECT_THREAT_CACHE.put(ship, cachedSlot);
+            } else {
+                cachedSlot[0] = bestDist;
+                cachedSlot[1] = resolvedBearing;
+                cachedSlot[2] = maxHostileReachInEnvelope;
+                cachedSlot[3] = ownGunReach;
+                cachedSlot[4] = anyLiveDirectThreat ? 1f : 0f;
+                cachedSlot[5] = elapsed;
+            }
+        }
         if (outThreat != null && outThreat.length >= 4) {
             outThreat[0] = bestDist;
-            outThreat[1] = anyLiveDirectThreat ? fastAtan2Deg(bestDy, bestDx) : ship.getFacing();
+            outThreat[1] = resolvedBearing;
             outThreat[2] = maxHostileReachInEnvelope;
             outThreat[3] = ownGunReach;
         }

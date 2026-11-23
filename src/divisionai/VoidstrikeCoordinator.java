@@ -198,6 +198,8 @@ public class VoidstrikeCoordinator {
     private static PlayerFighterControlMode playerFighterMode = PlayerFighterControlMode.REGROUP;
     private static boolean visitedOppositeManualMode = false;
     private static boolean expectedPlayerPullBack = true;
+    private static final java.util.WeakHashMap<ShipAPI, CarrierBayComposition> CARRIER_BAY_COMP_CACHE =
+            new java.util.WeakHashMap<>();
 
     public static void resetForNewBattle() {
         activeVoidstrikes.clear();
@@ -205,6 +207,7 @@ public class VoidstrikeCoordinator {
         cachedAliveFighters.clear();
         flankingGateClearedTargetByFighter.clear();
         latchedFlankSignByTarget.clear();
+        CARRIER_BAY_COMP_CACHE.clear();
         nextVoidstrikeNumberBySide[0] = 1;
         nextVoidstrikeNumberBySide[1] = 1;
         nextVoidstrikeNumberBySide[2] = 1;
@@ -1059,10 +1062,14 @@ public class VoidstrikeCoordinator {
     }
 
     public static CarrierBayComposition analyzeCarrierBayComposition(ShipAPI carrier) {
-        CarrierBayComposition comp = new CarrierBayComposition();
-        if (carrier == null) return comp;
+        if (carrier == null) return new CarrierBayComposition();
         List<com.fs.starfarer.api.combat.FighterWingAPI> wings = carrier.getAllWings();
-        if (wings == null || wings.isEmpty()) return comp;
+        if (wings == null || wings.isEmpty()) return new CarrierBayComposition();
+        CarrierBayComposition cached = CARRIER_BAY_COMP_CACHE.get(carrier);
+        if (cached != null && cached.totalWings == wings.size()) {
+            return cached;
+        }
+        CarrierBayComposition comp = new CarrierBayComposition();
         for (com.fs.starfarer.api.combat.FighterWingAPI w : wings) {
             if (w == null) continue;
             comp.totalWings++;
@@ -1082,6 +1089,7 @@ public class VoidstrikeCoordinator {
                 }
             }
         }
+        CARRIER_BAY_COMP_CACHE.put(carrier, comp);
         return comp;
     }
 
@@ -2895,7 +2903,9 @@ public class VoidstrikeCoordinator {
                     }
                 }
             }
-            Vector2f gateWaypoint = computeAntiAaEvasionWaypoint(fighter, attackTarget, activeGate, wIdx, 0, now);
+            Vector2f gateWaypoint = isWingLeader
+                    ? computeAntiAaEvasionWaypoint(fighter, attackTarget, activeGate, wIdx, 0, now)
+                    : activeGate;
 
             boolean fighterUnderAaFire = isFighterUnderAaFire(fighter);
             float toTgtX = attackTarget.getLocation().x - fighter.getLocation().x;
@@ -2965,7 +2975,7 @@ public class VoidstrikeCoordinator {
                 attackTarget.getLocation().y - legFwdY * standoffGoalDist);
         Vector2f craftGoal = rawDirectGoal;
         boolean deviatedAroundObstacle = false;
-        if (dEnemy > terminalStartRange || dEnemy > 520f) {
+        if (isWingLeader && (dEnemy > terminalStartRange || dEnemy > 520f)) {
             craftGoal = computeAntiAaEvasionWaypoint(fighter, attackTarget, rawDirectGoal, wIdx, 0, now);
             deviatedAroundObstacle = DivisionUiWidgets.distance(craftGoal, rawDirectGoal) >= 24f;
         }
