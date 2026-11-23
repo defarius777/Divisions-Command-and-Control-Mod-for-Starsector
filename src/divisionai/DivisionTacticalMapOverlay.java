@@ -2335,15 +2335,17 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         if (isEnemy && !hasAnyVisibleFighterInWing(wing, playerFog)) continue;
                         claimedWings.add(wing);
                         Vector2f sqCenter = resolveVisibleSquadronCentroid(wing, wLead, isEnemy, playerFog, scratchCentroid);
+                        float sqScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalStationSpacingMult());
                         float sqSpread = computeTrimmedSquadronSpreadRadius(wing, sqCenter);
-                        float sqWorldR = clamp(150f + sqSpread * 1.02f, 175f, 335f);
+                        float sqWorldR = clamp(150f * sqScale + sqSpread * 1.02f, 175f * sqScale, 335f * sqScale);
                         vsUnits.add(new SquadronEnvelopeUnit(wing, wLead, sqCenter, sqWorldR, vs.voidstrikeNumber));
                     } else {
                         if (claimedStandaloneFighters.contains(fm)) continue;
                         if (isEnemy && !isEnemyShipVisibleOnCommandMap(this.engine, fm, playerFog)) continue;
                         claimedStandaloneFighters.add(fm);
                         if (fm.getLocation() != null) {
-                            vsUnits.add(new SquadronEnvelopeUnit(null, fm, fm.getLocation(), 190f, vs.voidstrikeNumber));
+                            float sqScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalStationSpacingMult());
+                            vsUnits.add(new SquadronEnvelopeUnit(null, fm, fm.getLocation(), 190f * sqScale, vs.voidstrikeNumber));
                         }
                     }
                 }
@@ -2395,13 +2397,14 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
                         if (isEnemy && !hasAnyVisibleFighterInWing(wing, playerFog)) continue;
                         Vector2f sqCenter = resolveVisibleSquadronCentroid(wing, wLead, isEnemy, playerFog, scratchCentroid);
                         // Suppress parked carrier-deck / inner-hull orbit wings so idle CAP doesn't double-ring the carrier
+                        float sqScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalStationSpacingMult());
                         if (carrier.getLocation() != null
-                                && DivisionUiWidgets.distance(sqCenter, carrier.getLocation()) <= 235f) {
+                                && DivisionUiWidgets.distance(sqCenter, carrier.getLocation()) <= 235f * sqScale) {
                             continue;
                         }
                         claimedWings.add(wing);
                         float sqSpread = computeTrimmedSquadronSpreadRadius(wing, sqCenter);
-                        float sqWorldR = clamp(150f + sqSpread * 1.02f, 175f, 325f);
+                        float sqWorldR = clamp(150f * sqScale + sqSpread * 1.02f, 175f * sqScale, 325f * sqScale);
                         capUnits.add(new SquadronEnvelopeUnit(wing, wLead, sqCenter, sqWorldR, 0));
                         primaryCapDiv = div;
                     }
@@ -6730,20 +6733,23 @@ public class DivisionTacticalMapOverlay extends BaseCustomUIPanelPlugin {
     }
 
     private static float getMemberFootprintRadiusWorld(ShipAPI ship) {
+        float bScale = CombatPhysicsProfile.getGlobalShipBoundsScale();
+        float spScale = Math.max(1.0f,
+                Math.max(CombatPhysicsProfile.getGlobalStationSpacingMult(), bScale > 1.18f ? bScale * 0.78f : 1.0f));
         HullSize size = ship != null ? ship.getHullSize() : HullSize.DESTROYER;
-        if (size == null) return 440f;
+        if (size == null) return 440f * spScale;
         switch (size) {
             case CAPITAL_SHIP:
-                return 600f;
+                return 600f * spScale;
             case CRUISER:
-                return 510f;
+                return 510f * spScale;
             case DESTROYER:
-                return 430f;
+                return 430f * spScale;
             case FIGHTER:
-                return 260f;
+                return 260f * spScale;
             case FRIGATE:
             default:
-                return 360f;
+                return 360f * spScale;
         }
     }
 

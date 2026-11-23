@@ -931,7 +931,9 @@ public class BattlefieldFirepowerEvaluator {
             }
         } else if (engine.getAiGridShips() != null) {
             lastRoseUpdateShipCount = -1;
-            Iterator<Object> iter = engine.getAiGridShips().getCheckIterator(new Vector2f(0f, 0f), 40000f, 40000f);
+            float gridW = Math.max(40000f, engine.getMapWidth() + 4000f);
+            float gridH = Math.max(40000f, engine.getMapHeight() + 4000f);
+            Iterator<Object> iter = engine.getAiGridShips().getCheckIterator(new Vector2f(0f, 0f), gridW, gridH);
             while (iter != null && iter.hasNext()) {
                 Object obj = iter.next();
                 if (!(obj instanceof ShipAPI)) continue;
@@ -1549,7 +1551,7 @@ public class BattlefieldFirepowerEvaluator {
                         }
                         if (wingPd > 0f) {
                             rawPd[s] += wingPd * dirBoost;
-                            float pdR = Math.min(1350f, wingRange * 0.65f);
+                            float pdR = Math.min(1350f * fScale, wingRange * 0.65f);
                             if (pdR > rawPdRange[s]) {
                                 rawPdRange[s] = pdR;
                             }
@@ -1557,7 +1559,9 @@ public class BattlefieldFirepowerEvaluator {
                     }
                 }
             } else if (bays > 0) {
-                float wingRange = 1750f;
+                float fScale = CombatPhysicsProfile.getFighterRangeScale(null);
+                float wingRange = 1750f * fScale;
+                float bayPdRange = 1100f * Math.max(1.0f, fScale * 0.70f);
                 for (int s = 0; s < NUM_SECTORS; s++) {
                     float aAdd = bays * 210f * readiness;
                     float shAdd = bays * 145f * readiness;
@@ -1570,7 +1574,7 @@ public class BattlefieldFirepowerEvaluator {
                     rawShortRangeWeightedSum[s] += shAdd * wingRange;
                     rawSustRangeWeightedSum[s] += suAdd * wingRange;
                     if (wingRange > rawGenRange[s]) rawGenRange[s] = wingRange;
-                    if (1100f > rawPdRange[s]) rawPdRange[s] = 1100f;
+                    if (bayPdRange > rawPdRange[s]) rawPdRange[s] = bayPdRange;
                 }
             }
         }
@@ -1959,18 +1963,20 @@ public class BattlefieldFirepowerEvaluator {
                 : Math.max(baselineFirepowerFp, measuredFirepowerFp * 0.50f);
 
         // Space reach factor from cached ShipFirepowerRose max sector range
-        float maxReach = (rose != null && rose.maxGeneralRange > 100f) ? rose.maxGeneralRange : 850f;
-        float spaceReachFactor = clampVal(0.84f + maxReach / 3600f, 0.84f, 1.24f);
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(null);
+        float maxReach = (rose != null && rose.maxGeneralRange > 100f) ? rose.maxGeneralRange : 850f * wScale;
+        float spaceReachFactor = clampVal(0.84f + maxReach / (3600f * wScale), 0.84f, 1.24f);
         float spaceTerm = Math.max(0.35f, ehpStrength * spaceReachFactor);
 
         // Time mobility / initiative factor
         FluxTrackerAPI ft = ship.getFluxTracker();
         boolean overloadedOrVenting = ft != null && ft.isOverloadedOrVenting();
         boolean enginesFlamedOut = ship.getEngineController() != null && ship.getEngineController().isFlamedOut();
-        float rawSpd = Math.max(20f, ship.getMaxSpeed());
+        float rawSpd = Math.max(20f, ShipCaptainAI.resolveUngovernedMaxSpeed(ship));
+        float spdNormDenom = 560f * Math.max(1.0f, CombatPhysicsProfile.getGlobalWeaponRangeScale() * 0.58f);
         float timeMult = (overloadedOrVenting || enginesFlamedOut)
                 ? 0.58f
-                : clampVal(0.86f + rawSpd / 560f, 0.80f, 1.18f);
+                : clampVal(0.86f + rawSpd / spdNormDenom, 0.80f, 1.18f);
         boolean crippled = (rose != null && rose.shipFlagsInitialized)
                 ? rose.cachedCrippledOrExhausted
                 : computeShipCrippledOrPeakExhaustedUncached(ship, wList);
@@ -2180,13 +2186,14 @@ public class BattlefieldFirepowerEvaluator {
                 boolean targetingSame = (sib.targetEnemyDivision == enemyDiv)
                         || (sib.otcOrder != null && sib.otcOrder.targetEnemy == enemyDiv)
                         || sib == myGroup.mainEffortDivision;
-                float sibEngageReach = Math.max(1250f, sib.spaceDominatedRadius + 350f);
+                float wScaleSib = CombatPhysicsProfile.getWeaponRangeScale(engine);
+                float sibEngageReach = Math.max(1250f * wScaleSib, sib.spaceDominatedRadius + 350f * wScaleSib);
                 boolean myDivIsFragileFrigate = myDiv.archetype != null && myDiv.archetype.isFrigateArchetype();
                 boolean distantSupportCounts = !myDivIsFragileFrigate
                         || enemyDiv.engagementLevel >= 0.12f
                         || sib.engagementLevel >= 0.12f;
-                if (dSib <= sibEngageReach || (targetingSame && distantSupportCounts && dSib <= 3250f)) {
-                    float w = (dSib <= sibEngageReach) ? 0.90f : (dSib <= 2200f ? 0.68f : 0.50f);
+                if (dSib <= sibEngageReach || (targetingSame && distantSupportCounts && dSib <= 3250f * wScaleSib)) {
+                    float w = (dSib <= sibEngageReach) ? 0.90f : (dSib <= 2200f * wScaleSib ? 0.68f : 0.50f);
                     float sibPower = sib.tsfCombatPower > 0.5f ? sib.tsfCombatPower : sib.totalFpStrength;
                     siblingCommittedTsf += sibPower * w;
                     if (dSib <= sibEngageReach) fixingSiblings++;
@@ -2331,17 +2338,20 @@ public class BattlefieldFirepowerEvaluator {
         float halfW = Math.max(800f, myGroup.enemySpawnCorridorHalfWidth);
         if (dx >= halfW) return 0f;
 
-        // Depth measured inward from enemy edge toward map center
+        // Depth measured inward from enemy edge toward map center (using scaled 550f * mScale inset matching updateEnemyReinforcementCorridor)
+        float mScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalMapScale());
+        float edgeInset = 550f * mScale;
         float inwardDist = (myGroup.side == 0)
-                ? (myGroup.enemySpawnGateCenter.y + 550f - pt.y)
-                : (pt.y - (myGroup.enemySpawnGateCenter.y - 550f));
+                ? (myGroup.enemySpawnGateCenter.y + edgeInset - pt.y)
+                : (pt.y - (myGroup.enemySpawnGateCenter.y - edgeInset));
         float maxDepth = Math.max(1200f, myGroup.enemySpawnCorridorDepth);
-        if (inwardDist < -400f || inwardDist >= maxDepth) return 0f;
+        if (inwardDist < -400f * mScale || inwardDist >= maxDepth) return 0f;
 
         float latFactor = 1.0f - (dx / halfW);
-        float depthFactor = (inwardDist <= 900f)
+        float fullThroatDepth = Math.max(900f, maxDepth * 0.28f);
+        float depthFactor = (inwardDist <= fullThroatDepth)
                 ? 1.0f
-                : Math.max(0f, 1.0f - ((inwardDist - 900f) / Math.max(400f, maxDepth - 900f)));
+                : Math.max(0f, 1.0f - ((inwardDist - fullThroatDepth) / Math.max(400f, maxDepth - fullThroatDepth)));
         return myGroup.enemyReinforcementHazard * latFactor * depthFactor;
     }
 
@@ -2649,7 +2659,9 @@ public class BattlefieldFirepowerEvaluator {
         if (grid == null) return;
 
         List<ShipAPI> nearbyEnemies = new ArrayList<>();
-        Iterator<Object> iter = grid.getCheckIterator(div.centroid, 6800f, 6800f);
+        float inRangeGridSpan = Math.max(6800f,
+                6800f * Math.max(CombatPhysicsProfile.getWeaponRangeScale(engine), CombatPhysicsProfile.getMapScale(engine)));
+        Iterator<Object> iter = grid.getCheckIterator(div.centroid, inRangeGridSpan, inRangeGridSpan);
         while (iter != null && iter.hasNext()) {
             Object obj = iter.next();
             if (!(obj instanceof ShipAPI)) continue;
@@ -3597,11 +3609,17 @@ public class BattlefieldFirepowerEvaluator {
         }
 
         // Unencumbered Time radius over TIME_HORIZON_SECONDS (including strike-craft sortie projection)
-        float wingTimeBonus = totalFighterWings > 0 ? Math.min(520f, totalFighterWings * 95f) : 0f;
+        float wScaleTime = CombatPhysicsProfile.getWeaponRangeScale(null);
+        float mScaleTime = CombatPhysicsProfile.getMapScale(null);
+        float fScaleTime = CombatPhysicsProfile.getFighterRangeScale(null);
+        float timeEnvScale = Math.max(1.0f, Math.max(mScaleTime, wScaleTime * 0.80f));
+        float wingTimeBonus = totalFighterWings > 0
+                ? Math.min(520f * Math.max(1.0f, fScaleTime * 0.55f), totalFighterWings * 95f * Math.max(1.0f, fScaleTime * 0.45f))
+                : 0f;
         div.freeTimeRadius = clampVal(
                 div.weightedTimeSpeed * TIME_HORIZON_SECONDS + div.spreadRadius * 0.32f + wingTimeBonus,
                 850f,
-                3900f);
+                3900f * timeEnvScale);
 
         // Effective HP (Shield HP + Armor HP + Hull HP) & Combat Readiness for the 'Space' Domain:
         // Glass-cannon hulls (e.g. Hammerheads/Sunders) or divisions with depleted shields/armor/hull project less
@@ -3676,10 +3694,11 @@ public class BattlefieldFirepowerEvaluator {
             div.effectiveTimeRadius = div.freeTimeRadius * div.timeFreedomFactor;
         }
         float fpScale = clampVal((float) Math.sqrt(div.totalFpStrength / 38f), 0.55f, 1.35f) * unableDiscount;
+        float potEnvScale = Math.max(1.0f, Math.max(wScale, Math.max(mScaleTime, fScale * 0.70f)));
         div.spacePotentialRadius = clampVal(
                 div.spaceDominatedRadius + div.effectiveTimeRadius * 0.42f * fpScale,
-                div.spaceDominatedRadius + 180f,
-                4100f);
+                div.spaceDominatedRadius + 180f * Math.max(1.0f, wScale * 0.65f),
+                Math.max(div.spaceDominatedRadius + 320f, 4100f * potEnvScale));
         if (!div.directionalSpaceInitialized) {
             for (int s = 0; s < DivisionState.TIME_DIRECTIONS; s++) {
                 div.directionalSpaceInnerRadii[s] = div.spaceInnerRadius;
@@ -4258,10 +4277,14 @@ public class BattlefieldFirepowerEvaluator {
                     ? 0.22f
                     : Math.max(0.25f, 1.0f - 0.72f * div.retreatingFraction);
             float fpScale = clampVal((float) Math.sqrt(div.totalFpStrength / 38f), 0.55f, 1.35f) * unableDiscount;
+            float wScalePot = CombatPhysicsProfile.getWeaponRangeScale(engine);
+            float mScalePot = CombatPhysicsProfile.getMapScale(engine);
+            float fScalePot = CombatPhysicsProfile.getFighterRangeScale(engine);
+            float potScale = Math.max(1.0f, Math.max(wScalePot, Math.max(mScalePot, fScalePot * 0.70f)));
             div.spacePotentialRadius = clampVal(
                     div.spaceDominatedRadius + div.effectiveTimeRadius * 0.42f * fpScale,
-                    div.spaceDominatedRadius + 180f,
-                    4100f);
+                    div.spaceDominatedRadius + 180f * Math.max(1.0f, wScalePot * 0.65f),
+                    Math.max(div.spaceDominatedRadius + 320f, 4100f * potScale));
 
             // 4b. Directional Engagement Pinch across 24 polar sectors (15 deg each):
             //     A division engaged on a given bearing is strongly pinched in the direction of enemy contact,
@@ -4772,16 +4795,16 @@ public class BattlefieldFirepowerEvaluator {
             }
             wSum += w;
             if (s.getFluxTracker() != null) {
-                fluxSum += s.getFluxTracker().getFluxLevel();
+                fluxSum += s.getFluxTracker().getFluxLevel() * w;
             }
-            hullSum += s.getHullLevel();
+            hullSum += s.getHullLevel() * w;
             count++;
         }
         if (wSum > 0f && count > 0) {
             div.centroid.set(cx / wSum, cy / wSum);
             div.velocity.set(vx / wSum, vy / wSum);
-            div.avgFluxLevel = fluxSum / count;
-            div.avgHullLevel = hullSum / count;
+            div.avgFluxLevel = fluxSum / wSum;
+            div.avgHullLevel = hullSum / wSum;
             float coreDistSqSum = 0f;
             int spreadSamples = 0;
             for (int i = 0, n = alive.size(); i < n; i++) {
@@ -6000,7 +6023,8 @@ public class BattlefieldFirepowerEvaluator {
                     } else {
                         angleBonus = 0.08f; // Narrow lane-stacked bearing
                     }
-                    pincerSynergy += angleBonus * arrivalSync;
+                    float peerMassScale = Math.min(1.15f, Math.max(0.35f, peer.totalFpStrength / 26f));
+                    pincerSynergy += angleBonus * arrivalSync * peerMassScale;
                 }
             }
         }

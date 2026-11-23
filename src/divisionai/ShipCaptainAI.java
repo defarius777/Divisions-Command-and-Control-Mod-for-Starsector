@@ -76,6 +76,10 @@ public final class ShipCaptainAI implements ShipAIPlugin {
     // (for unwrapped ships or headless SimArena steps) never double-applies in the same frame.
     private static final WeakHashMap<ShipAPI, Float> LAST_CONN_FRAME_BY_SHIP = new WeakHashMap<>();
 
+    // Tracks the last MutableShipStats maxSpeed multiplier applied by the Engine Order Telegraph per ship.
+    public static final String TELEGRAPH_STAT_ID = "divisionai_engine_telegraph";
+    private static final WeakHashMap<ShipAPI, float[]> TELEGRAPH_APPLIED_MULT = new WeakHashMap<>();
+
     private final ShipAPI ship;
     private ShipAIPlugin delegate;
     private ShipAIPlugin installedOuterWrapper;
@@ -109,6 +113,7 @@ public final class ShipCaptainAI implements ShipAIPlugin {
         activeEnemyGroup = null;
         INSTALLED_CAPTAINS.clear();
         LAST_CONN_FRAME_BY_SHIP.clear();
+        TELEGRAPH_APPLIED_MULT.clear();
     }
 
     /**
@@ -199,6 +204,7 @@ public final class ShipCaptainAI implements ShipAIPlugin {
         }
         CombatEngineAPI engine = activeEngine;
         if (engine != null && OtcAI.isPlayerManuallyPiloting(engine, ship)) {
+            clearEngineTelegraphStats(ship);
             ship.setShipAI(null);
             return;
         }
@@ -208,9 +214,13 @@ public final class ShipCaptainAI implements ShipAIPlugin {
             DivisionState div = resolveShipDivision(ship);
             BattleGroupState enemyGroup = resolveOpposingBattleGroup(ship);
 
-            // 1. Pre-AI Captaincy Posture (ShipAIConfig tuning before BasicShipAI evaluates maneuvers)
+            // 1. Pre-AI Captaincy Posture, Combat Bearing & Engine Order Telegraph (before BasicShipAI runs)
             if (div != null) {
+                applyEngineTelegraphToShip(engine, ship, div);
                 applyPreAdvanceCaptainConfig(ship, delegate.getConfig(), div);
+                applyCombatBearingDiscipline(engine, ship, div, delegate.getAIFlags());
+            } else {
+                clearEngineTelegraphStats(ship);
             }
 
             // 2. Delegate to underlying ShipAIPlugin (BasicShipAI or third-party AI such as AI Tweaks).
@@ -322,6 +332,22 @@ public final class ShipCaptainAI implements ShipAIPlugin {
         ShipSkillProfile skillProf = ShipSystemCoordinator.getSkillProfile(ship);
         DivisionRammingMode ramMode = (div.rammingMode != null) ? div.rammingMode : DivisionRammingMode.OFF;
 
+        // 0. Naval Engine Order Telegraph (Better Combat default ON; Vanilla default OFF unless opted-in;
+        //    ships executing explicit player Warroom orders run uncapped FLANK)
+        boolean hasDirectShipOrder = ship.getId() != null
+                && div.directOrderShipIds != null
+                && div.directOrderShipIds.contains(ship.getId());
+        if (div.speedGovernorEnabled && !hasDirectShipOrder) {
+            float governedSpeedCap = applyEngineTelegraphToShip(engine, ship, div);
+            applyEngineTelegraphPostAdvanceTrim(ship, div, governedSpeedCap, skillProf, ramMode);
+        } else {
+            clearEngineTelegraphStats(ship);
+        }
+
+        // 0.5. Combat Bearing & Anti-Stern-Turn Discipline (populates FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS
+        //      inside live direct-fire envelopes so vanilla `ooOo` never spins ships >2,200u away from the enemy!)
+        applyCombatBearingDiscipline(engine, ship, div, flags);
+
         // 1. Objective Capture & Waypoint Newtonian Braking Discipline
         boolean handledByObjectiveHelm = tryApplyObjectiveCaptureConn(engine, ship, div, flags);
         if (!handledByObjectiveHelm) {
@@ -342,6 +368,293 @@ public final class ShipCaptainAI implements ShipAIPlugin {
         boolean doNotUseFlux = (flags != null && flags.hasFlag(AIFlags.DO_NOT_USE_FLUX))
                 || (div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT && ship.getFluxLevel() >= 0.50f);
         CombatPhysicsProfile.applyAutofireBoundsAndBeamAssist(engine, ship, doNotUseFlux);
+    }
+
+    // =========================================================================
+    // 0. NAVAL ENGINE ORDER TELEGRAPH (1/3, 1/2, FULL, FLANK) & 3-AXIS TRIM
+    // =========================================================================
+
+    public static void clearEngineTelegraphStats(ShipAPI ship) {
+        if (ship == null) return;
+        float[] slot = TELEGRAPH_APPLIED_MULT.get(ship);
+        if (slot != null) {
+            slot[0] = 1.0f;
+        }
+        com.fs.starfarer.api.combat.MutableShipStatsAPI stats = ship.getMutableStats();
+        if (stats != null) {
+            if (stats.getMaxSpeed() != null) stats.getMaxSpeed().unmodify(TELEGRAPH_STAT_ID);
+            if (stats.getZeroFluxSpeedBoost() != null) stats.getZeroFluxSpeedBoost().unmodify(TELEGRAPH_STAT_ID);
+        }
+    }
+
+    public static float resolveUngovernedMaxSpeed(ShipAPI ship) {
+        if (ship == null) return 50f;
+        float rawNoBoost = ship.getMaxSpeedWithoutBoost();
+        float cur = (rawNoBoost > 1f) ? rawNoBoost : Math.max(1f, ship.getMaxSpeed());
+        float[] slot = TELEGRAPH_APPLIED_MULT.get(ship);
+        float prevMult = (slot != null && slot[0] > 0.05f) ? slot[0] : 1.0f;
+        if (prevMult >= 0.9999f) {
+            com.fs.starfarer.api.combat.MutableShipStatsAPI stats = ship.getMutableStats();
+            if (stats != null && stats.getMaxSpeed() != null && stats.getMaxSpeed().getMultMods() != null) {
+                com.fs.starfarer.api.combat.MutableStat.StatMod mod =
+                        stats.getMaxSpeed().getMultMods().get(TELEGRAPH_STAT_ID);
+                if (mod != null && mod.getValue() > 0.05f && mod.getValue() < 0.9999f) {
+                    prevMult = mod.getValue();
+                }
+            }
+        }
+        return (prevMult < 0.9999f) ? (cur / prevMult) : cur;
+    }
+
+    public static PermanentDivisionManager.DivisionEngineTelegraph resolveEffectiveShipTelegraphBell(
+            ShipAPI ship,
+            DivisionState div) {
+        if (div == null) return PermanentDivisionManager.DivisionEngineTelegraph.FLANK;
+        PermanentDivisionManager.DivisionEngineTelegraph bell = div.activeEngineTelegraph;
+        if (bell == null || bell == PermanentDivisionManager.DivisionEngineTelegraph.AUTO) {
+            bell = (div.doctrinalEngineTelegraph != null
+                    && div.doctrinalEngineTelegraph != PermanentDivisionManager.DivisionEngineTelegraph.AUTO)
+                    ? div.doctrinalEngineTelegraph
+                    : PermanentDivisionManager.DivisionEngineTelegraph.FULL;
+        }
+        // Allow a detached straggler catching back up to its division to step up one bell (up to FULL)
+        if (ship != null && div.doctrinalEngineTelegraph == PermanentDivisionManager.DivisionEngineTelegraph.AUTO
+                && div.detachedStragglerIds != null && div.detachedStragglerIds.contains(ship.getId())) {
+            if (bell == PermanentDivisionManager.DivisionEngineTelegraph.ONE_THIRD) {
+                return PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF;
+            }
+            if (bell == PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF) {
+                return PermanentDivisionManager.DivisionEngineTelegraph.FULL;
+            }
+        }
+        return bell;
+    }
+
+    /**
+     * Applies {@code ship}'s governed Engine Telegraph ceiling to {@link com.fs.starfarer.api.combat.MutableShipStatsAPI}
+     * so {@code BasicShipAI}'s internal steering/flocking solvers plan trajectories at the governed speed, and returns
+     * the target speed ceiling in su/s.
+     */
+    public static float applyEngineTelegraphToShip(
+            CombatEngineAPI engine,
+            ShipAPI ship,
+            DivisionState div) {
+        if (ship == null) return 50f;
+        float ungoverned = resolveUngovernedMaxSpeed(ship);
+        if (div == null || !div.speedGovernorEnabled || ship.isFighter() || ship.isRetreating()
+                || (ship.getId() != null && div.directOrderShipIds != null && div.directOrderShipIds.contains(ship.getId()))
+                || (engine != null && OtcAI.isPlayerManuallyPiloting(engine, ship))) {
+            clearEngineTelegraphStats(ship);
+            return ungoverned;
+        }
+
+        PermanentDivisionManager.DivisionEngineTelegraph bell = resolveEffectiveShipTelegraphBell(ship, div);
+        if (bell == PermanentDivisionManager.DivisionEngineTelegraph.FLANK) {
+            clearEngineTelegraphStats(ship);
+            return ungoverned;
+        }
+
+        float cap = CombatPhysicsProfile.computeGovernedTelegraphSpeedCap(ship, ungoverned, bell);
+        float mult = cap / Math.max(1f, ungoverned);
+        if (mult < 0.12f) mult = 0.12f;
+        if (mult > 1.0f) mult = 1.0f;
+
+        float[] slot = TELEGRAPH_APPLIED_MULT.get(ship);
+        if (slot == null) {
+            slot = new float[]{mult};
+            TELEGRAPH_APPLIED_MULT.put(ship, slot);
+        } else {
+            slot[0] = mult;
+        }
+
+        com.fs.starfarer.api.combat.MutableShipStatsAPI stats = ship.getMutableStats();
+        if (stats != null) {
+            if (stats.getMaxSpeed() != null) {
+                stats.getMaxSpeed().modifyMult(TELEGRAPH_STAT_ID, mult);
+            }
+            if (stats.getZeroFluxSpeedBoost() != null) {
+                boolean suppressZfsb = bell == PermanentDivisionManager.DivisionEngineTelegraph.ONE_THIRD
+                        || bell == PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF
+                        || CombatPhysicsProfile.hasRunawayBrakingInertia(ship, ungoverned);
+                if (suppressZfsb) {
+                    stats.getZeroFluxSpeedBoost().modifyMult(TELEGRAPH_STAT_ID, 0f);
+                } else {
+                    stats.getZeroFluxSpeedBoost().unmodify(TELEGRAPH_STAT_ID);
+                }
+            }
+        }
+        return cap;
+    }
+
+    /**
+     * 60 Hz 3-axis active retro-trim: whenever a ship carries excess momentum above its ordered Engine Telegraph
+     * bell (e.g. downshifting from {@code FULL} to {@code 1/2} or {@code 1/3} on arriving at battleline standoff),
+     * blocks further thrust along the overspeed axis and pulses retro/counter-thrusters without forcing a 180-deg turn.
+     */
+    private static void applyEngineTelegraphPostAdvanceTrim(
+            ShipAPI ship,
+            DivisionState div,
+            float governedSpeedCap,
+            ShipSkillProfile skillProf,
+            DivisionRammingMode ramMode) {
+        if (ship == null || div == null) return;
+        PermanentDivisionManager.DivisionEngineTelegraph bell = resolveEffectiveShipTelegraphBell(ship, div);
+        if (bell == PermanentDivisionManager.DivisionEngineTelegraph.FLANK) {
+            return;
+        }
+        boolean activeRam = skillProf != null && skillProf.isDesignedToRam && ramMode != DivisionRammingMode.OFF;
+        if (activeRam && (div.currentIntent == DivisionIntentType.PRESS_HOME || div.hasActiveLinearSkillBurn)) {
+            return;
+        }
+
+        // Prevent forward burst mobility systems from violating 1/3 or 1/2 Battleline Telegraph orders
+        if ((bell == PermanentDivisionManager.DivisionEngineTelegraph.ONE_THIRD
+                || bell == PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF)
+                && skillProf != null
+                && skillProf.category != null
+                && skillProf.category.isLinearVector()
+                && (ship.getSystem() == null || !ship.getSystem().isActive())) {
+            ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
+        }
+
+        Vector2f vel = ship.getVelocity();
+        if (vel == null) return;
+        float spd = (float) Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+        if (spd <= governedSpeedCap * 1.05f || spd < 22f) {
+            return;
+        }
+
+        float fx = CombatPhysicsProfile.fastCosDeg(ship.getFacing());
+        float fy = CombatPhysicsProfile.fastSinDeg(ship.getFacing());
+        float vDotF = (vel.x * fx + vel.y * fy) / spd;
+        float vPerpPort = (vel.x * (-fy) + vel.y * fx) / spd;
+
+        if (vDotF >= 0.22f) {
+            ship.blockCommandForOneFrame(ShipCommand.ACCELERATE);
+            ship.giveCommand(ShipCommand.DECELERATE, null, 0);
+        } else if (vDotF <= -0.30f) {
+            ship.blockCommandForOneFrame(ShipCommand.ACCELERATE_BACKWARDS);
+            ship.blockCommandForOneFrame(ShipCommand.DECELERATE);
+            ship.giveCommand(ShipCommand.ACCELERATE, null, 0);
+        }
+
+        if (vPerpPort > 0.42f) {
+            ship.blockCommandForOneFrame(ShipCommand.STRAFE_LEFT);
+            ship.giveCommand(ShipCommand.STRAFE_RIGHT, null, 0);
+        } else if (vPerpPort < -0.42f) {
+            ship.blockCommandForOneFrame(ShipCommand.STRAFE_RIGHT);
+            ship.giveCommand(ShipCommand.STRAFE_LEFT, null, 0);
+        }
+    }
+
+    // =========================================================================
+    // 0.5. COMBAT BEARING & ANTI-STERN-TURN DISCIPLINE (Vanilla `ooOo` >2200u Fix)
+    // =========================================================================
+
+    /**
+     * Prevents vanilla {@code BasicShipAI}'s {@code CampLocationManeuver} ({@code ooOo}, which hardcodes a {@code 2,200u}
+     * threat lookup radius) and {@code EscortTargetManeuverV3} from spinning a warship 90-180 deg away from an active
+     * enemy inside scaled gun range ({@code 2,200u - 7,000u}) merely to dress onto {@code CAMP_LOCATION}.
+     *
+     * <p>When {@code CAMP_LOCATION} or {@code ESCORT_OTHER_SHIP} is active inside a live direct-fire envelope (and the
+     * ship is not executing an intentional full-turn sprint such as {@code RUN_THE_GAUNTLET}, death-blast stand-clear,
+     * or unshielded/light-frigate extraction), stamps {@link AIFlags#FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS}
+     * onto the ship's optimal bow or broadside combat bearing so {@code BasicShipAI} strafes/backs into station with
+     * guns and shields trained on the enemy.
+     */
+    private static final float[] CAPTAIN_THREAT_SCRATCH = new float[4];
+
+    public static void applyCombatBearingDiscipline(
+            CombatEngineAPI engine,
+            ShipAPI ship,
+            DivisionState div,
+            ShipwideAIFlags flags) {
+        if (ship == null || div == null || flags == null || ship.isFighter()) {
+            return;
+        }
+        if (engine != null && OtcAI.isPlayerManuallyPiloting(engine, ship)) {
+            flags.unsetFlag(AIFlags.FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS);
+            return;
+        }
+        boolean hasCamp = flags.hasFlag(AIFlags.CAMP_LOCATION);
+        boolean hasEscort = flags.hasFlag(AIFlags.ESCORT_OTHER_SHIP);
+        if (!hasCamp && !hasEscort) {
+            flags.unsetFlag(AIFlags.FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS);
+            return;
+        }
+
+        // Intentional full-turn sprints where nose-toward-destination is mandatory:
+        boolean hasSprintDest = flags.hasFlag(AIFlags.RUN_QUICKLY) && flags.hasFlag(AIFlags.MOVEMENT_DEST);
+        boolean isLightOrUnshieldedVentSprint = div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
+                && (ship.isFrigate()
+                || ShipCapabilityProfile.hasTruePhaseCloak(ship)
+                || ship.getShield() == null
+                || ship.getShield().getType() == com.fs.starfarer.api.combat.ShieldAPI.ShieldType.NONE);
+        boolean isDetachedOrWideRoute = div.hasRouteWaypoint
+                || (ship.getId() != null && div.detachedStragglerIds != null && div.detachedStragglerIds.contains(ship.getId()));
+        if (ship.isRetreating()
+                || isDetachedOrWideRoute
+                || div.currentIntent == DivisionIntentType.RUN_THE_GAUNTLET
+                || (div.currentIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE && !flags.hasFlag(AIFlags.MANEUVER_TARGET))
+                || hasSprintDest
+                || isLightOrUnshieldedVentSprint) {
+            flags.unsetFlag(AIFlags.FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS);
+            return;
+        }
+
+        ShipAPI focusHint = null;
+        Object manObj = flags.getCustom(AIFlags.MANEUVER_TARGET);
+        if (manObj instanceof ShipAPI) {
+            focusHint = (ShipAPI) manObj;
+        } else if (ship.getShipTarget() != null) {
+            focusHint = ship.getShipTarget();
+        } else if (div.targetEnemyDivision != null) {
+            focusHint = div.targetEnemyDivision.flagship;
+        }
+
+        if (!CombatPhysicsProfile.evaluateLiveDirectFireThreat(engine, ship, focusHint, CAPTAIN_THREAT_SCRATCH)) {
+            flags.unsetFlag(AIFlags.FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS);
+            return;
+        }
+        float threatDist = CAPTAIN_THREAT_SCRATCH[0];
+        float threatWorldDeg = CAPTAIN_THREAT_SCRATCH[1];
+        float curTargetRel = shortestAngleDiffDeg(ship.getFacing(), threatWorldDeg);
+        float optRel = CombatPhysicsProfile.computeShipOptimalTargetRelBearingDeg(ship, curTargetRel, ship.getFluxLevel());
+        boolean isBroadsideHull = Math.abs(optRel) >= 25f;
+        boolean isBackingWithdrawal = div.currentIntent == DivisionIntentType.HAUL_OUT_TO_VENT
+                || div.currentIntent == DivisionIntentType.TRADE_SPACE_FOR_TIME
+                || div.currentIntent == DivisionIntentType.FEIGNED_RETREAT
+                || flags.hasFlag(AIFlags.BACK_OFF);
+        // Inside <= 1,950u in 1.0x Vanilla, `ooOo` (`2,200u` threat scan) already tracks bow-on gun lead natively;
+        // apply explicit FACING_OVERRIDE in the >1,950u modded dead zone, on broadside hulls, or when backing out!
+        if (threatDist <= 1950f && !isBroadsideHull && !isBackingWithdrawal && ship.isFrigate()) {
+            flags.unsetFlag(AIFlags.FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS);
+            return;
+        }
+        float desiredFacing = (threatWorldDeg - optRel) % 360f;
+        if (desiredFacing < 0f) desiredFacing += 360f;
+
+        flags.setFlag(AIFlags.FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS,
+                Math.max(0.75f, DivisionCommanderAI.FLAG_TTL), Float.valueOf(desiredFacing));
+        if (hasCamp && flags.hasFlag(AIFlags.MOVEMENT_DEST) && !flags.hasFlag(AIFlags.RUN_QUICKLY)) {
+            Object campObj = flags.getCustom(AIFlags.CAMP_LOCATION);
+            if (campObj instanceof Vector2f && ship.getLocation() != null) {
+                Vector2f cPt = (Vector2f) campObj;
+                float slotAng = CombatPhysicsProfile.fastAtan2Deg(
+                        cPt.y - ship.getLocation().y, cPt.x - ship.getLocation().x);
+                float slotVsCombat = Math.abs(shortestAngleDiffDeg(desiredFacing, slotAng));
+                if (slotVsCombat > 95f) {
+                    flags.unsetFlag(AIFlags.MOVEMENT_DEST);
+                }
+            }
+        }
+    }
+
+    private static float shortestAngleDiffDeg(float fromDeg, float toDeg) {
+        float d = (toDeg - fromDeg) % 360f;
+        if (d > 180f) d -= 360f;
+        if (d < -180f) d += 360f;
+        return d;
     }
 
     // -------------------------------------------------------------------------
@@ -593,6 +906,20 @@ public final class ShipCaptainAI implements ShipAIPlugin {
             float dx = camp.x - loc.x;
             float dy = camp.y - loc.y;
             float dist = (float) Math.sqrt(dx * dx + dy * dy);
+
+            // Never brake to a dead stop at an intermediate rolling formation carrot (`slotPos`) while the division's
+            // actual `stationPoint` is still far uprange beyond Newtonian stopping distance!
+            if (div.currentIntent != DivisionIntentType.CLOSE_UP
+                    && div.currentIntent != DivisionIntentType.HOLD_IN_RESERVE
+                    && (div.stationPoint.x != 0f || div.stationPoint.y != 0f)) {
+                float gdx = div.stationPoint.x - loc.x;
+                float gdy = div.stationPoint.y - loc.y;
+                float divGoalDist = (float) Math.sqrt(gdx * gdx + gdy * gdy);
+                float fullStopHorizon = (spd * spd) / (2f * decel * 0.65f) + 420f;
+                if (divGoalDist > Math.max(1350f, fullStopHorizon) && (dx * gdx + dy * gdy) > 0f) {
+                    return;
+                }
+            }
 
             // Subtract moving reference-frame velocity (`v_anchor`) when station-keeping on a moving friendly anchor
             // (screening/reinforcing a friendly division, or wingman forming up on a moving flagship) so screeners

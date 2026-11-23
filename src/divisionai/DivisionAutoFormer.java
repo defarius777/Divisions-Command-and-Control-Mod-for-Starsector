@@ -733,6 +733,33 @@ public class DivisionAutoFormer {
         div.totalFpStrength = fpSum;
         div.avgMaxSpeed = speedSum / count;
         div.avgEngageRange = rangeSum / count;
+        if (!div.profiles.isEmpty()) {
+            List<Float> mainBatRanges = new ArrayList<>(div.profiles.size());
+            for (int i = 0, n = div.profiles.size(); i < n; i++) {
+                ShipCapabilityProfile p = div.profiles.get(i);
+                if (p == null) continue;
+                if (p.ship != null && div.detachedStragglerIds != null
+                        && div.detachedStragglerIds.contains(p.ship.getId())) {
+                    continue;
+                }
+                float r = (p.mainBatteryGunRange > 150f) ? p.mainBatteryGunRange : p.avgWeaponRange;
+                if (r > 150f) {
+                    mainBatRanges.add(r);
+                }
+            }
+            if (!mainBatRanges.isEmpty()) {
+                Collections.sort(mainBatRanges);
+                int sz = mainBatRanges.size();
+                div.medianMainBatteryRange = 0.5f * (mainBatRanges.get((sz - 1) / 2) + mainBatRanges.get(sz / 2));
+                div.minMainBatteryRange = mainBatRanges.get(Math.min(sz - 1, (int) ((sz - 1) * 0.20f)));
+                if (div.archetype != null
+                        && !div.archetype.isCarrierArchetype()
+                        && !div.archetype.isMissileArchetype()
+                        && div.medianMainBatteryRange > 250f) {
+                    div.avgEngageRange = div.medianMainBatteryRange;
+                }
+            }
+        }
         div.primaryMissileLoadoutRatio = (float) primaryMissileShips / (float) count;
 
         div.hasCarrierCapability = div.archetype.hasStrikeCraftCapability() || (carrierShips > 0);
@@ -748,8 +775,15 @@ public class DivisionAutoFormer {
                 && div.archetype != DivisionArchetype.STRIKE_CRUISER_DIVISION
                 && missileShips > 0 && missileShips * 2 >= count));
         div.isScreenCapable = (div.archetype == DivisionArchetype.DESTROYER_DIVISION)
+                || (div.archetype == DivisionArchetype.STRIKE_DESTROYER_DIVISION)
                 || (div.archetype == DivisionArchetype.FRIGATE_DIVISION)
-                || (pdShips > 0 && !div.archetype.isPhaseArchetype());
+                || (div.archetype == DivisionArchetype.STRIKE_FRIGATE_DIVISION)
+                || (!div.archetype.isHeavyLineArchetype()
+                && !div.archetype.isCarrierArchetype()
+                && !div.archetype.isPhaseArchetype()
+                && !div.archetype.isMissileArchetype()
+                && div.archetype != DivisionArchetype.SERVICE_GROUP
+                && pdShips > 0);
         div.isFastFlanker = !div.archetype.isCarrierArchetype()
                 && !div.archetype.isHeavyLineArchetype()
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
@@ -767,35 +801,79 @@ public class DivisionAutoFormer {
             PermanentDivisionManager.FleetDoctrineConfig docCfg = PermanentDivisionManager.getFleetDoctrine();
             div.stationSpacing = docCfg.getStationSpacing(docType);
             div.divisionInterval = docCfg.getDivisionInterval(docType);
-            int cfgStandoff = docCfg.getStandoffRange(docType);
-            div.standoffRange = PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
-                    div, docType, cfgStandoff, cfgStandoff != docType.defaultStandoffRangeUnits);
-            div.stationKeepingMult = docCfg.getStationKeepingMult(docType);
             div.openingPhaseDurationSeconds = docCfg.getOpeningDurationSeconds();
             div.openingMission = docCfg.getOpeningMission(docType);
             div.mainMission = docCfg.getMainMission(docType);
+            int cfgStandoff = docCfg.getStandoffRange(docType);
+            div.hasExplicitCustomStandoff = (cfgStandoff != docType.defaultStandoffRangeUnits)
+                    && (cfgStandoff != PermanentDivisionManager.getEffectiveDefaultStandoffRangeUnits(docType));
+            div.standoffRange = PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
+                    div, docType, cfgStandoff, div.hasExplicitCustomStandoff);
+            div.stationKeepingMult = docCfg.getStationKeepingMult(docType);
+            div.doctrinalMovementStickiness = docCfg.getMovementStickiness(docType);
+            div.activeMovementStickiness = div.doctrinalMovementStickiness;
+            div.speedGovernorEnabled = docCfg.isSpeedGovernorEnabled();
+            div.doctrinalEngineTelegraph = docCfg.getEngineTelegraph(docType);
+            if (!div.speedGovernorEnabled) {
+                div.activeEngineTelegraph = PermanentDivisionManager.DivisionEngineTelegraph.FLANK;
+            } else if (div.doctrinalEngineTelegraph != PermanentDivisionManager.DivisionEngineTelegraph.AUTO) {
+                div.activeEngineTelegraph = div.doctrinalEngineTelegraph;
+            }
             div.strikeCraftOpeningMission = docCfg.getStrikeCraftOpeningMission(docType);
             div.strikeCraftMainMission = docCfg.getStrikeCraftMainMission(docType);
             div.strikeCraftCapReserve = docCfg.getStrikeCraftCapReserve(docType);
             div.lineStation = docCfg.getLineStation(docType);
             div.doctrinalFormation = docCfg.getFormation(docType);
         } else {
-            div.stationSpacing = docType.defaultStationSpacingUnits;
-            div.divisionInterval = docType.defaultDivisionIntervalUnits;
-            div.standoffRange = PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
-                    div, docType, docType.defaultStandoffRangeUnits, false);
-            div.stationKeepingMult = docType.defaultStationKeepingMult;
-            div.openingPhaseDurationSeconds = 45f;
-            div.openingMission = docType.defaultOpeningMission;
-            div.mainMission = docType.defaultMainMission;
-            div.strikeCraftOpeningMission =
-                    PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftOpeningMissionFor(docType);
-            div.strikeCraftMainMission =
-                    PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftMainMissionFor(docType);
-            div.strikeCraftCapReserve =
-                    PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftCapReserveFor(docType);
-            div.lineStation = docType.defaultLineStation;
-            div.doctrinalFormation = docType.defaultFormation;
+            String aiFactionId = resolveAiDivisionFactionId(div);
+            PermanentDivisionManager.FleetDoctrineConfig aiDocCfg = (aiFactionId != null && !aiFactionId.isEmpty())
+                    ? FactionFleetDoctrines.getDoctrineForFactionId(aiFactionId, null)
+                    : null;
+            if (aiDocCfg != null) {
+                div.stationSpacing = aiDocCfg.getStationSpacing(docType);
+                div.divisionInterval = aiDocCfg.getDivisionInterval(docType);
+                int cfgStandoff = aiDocCfg.getStandoffRange(docType);
+                div.standoffRange = PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
+                        div, docType, cfgStandoff, false);
+                div.stationKeepingMult = aiDocCfg.getStationKeepingMult(docType);
+                div.doctrinalMovementStickiness = aiDocCfg.getMovementStickiness(docType);
+                div.activeMovementStickiness = div.doctrinalMovementStickiness;
+                div.speedGovernorEnabled = aiDocCfg.isSpeedGovernorEnabled();
+                div.doctrinalEngineTelegraph = aiDocCfg.getEngineTelegraph(docType);
+                if (!div.speedGovernorEnabled) {
+                    div.activeEngineTelegraph = PermanentDivisionManager.DivisionEngineTelegraph.FLANK;
+                }
+                div.openingPhaseDurationSeconds = aiDocCfg.getOpeningDurationSeconds();
+                div.openingMission = aiDocCfg.getOpeningMission(docType);
+                div.mainMission = aiDocCfg.getMainMission(docType);
+                div.strikeCraftOpeningMission = aiDocCfg.getStrikeCraftOpeningMission(docType);
+                div.strikeCraftMainMission = aiDocCfg.getStrikeCraftMainMission(docType);
+                div.strikeCraftCapReserve = aiDocCfg.getStrikeCraftCapReserve(docType);
+                div.lineStation = aiDocCfg.getLineStation(docType);
+                div.doctrinalFormation = aiDocCfg.getFormation(docType);
+            } else {
+                div.stationSpacing = PermanentDivisionManager.getEffectiveDefaultStationSpacingUnits(docType);
+                div.divisionInterval = PermanentDivisionManager.getEffectiveDefaultDivisionIntervalUnits(docType);
+                div.standoffRange = PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
+                        div, docType, PermanentDivisionManager.getEffectiveDefaultStandoffRangeUnits(docType), false);
+                div.stationKeepingMult = docType.defaultStationKeepingMult;
+                div.speedGovernorEnabled = CombatPhysicsProfile.isSpeedGoverningEnvironment();
+                div.doctrinalEngineTelegraph = PermanentDivisionManager.DivisionEngineTelegraph.AUTO;
+                if (!div.speedGovernorEnabled) {
+                    div.activeEngineTelegraph = PermanentDivisionManager.DivisionEngineTelegraph.FLANK;
+                }
+                div.openingPhaseDurationSeconds = 45f;
+                div.openingMission = docType.defaultOpeningMission;
+                div.mainMission = docType.defaultMainMission;
+                div.strikeCraftOpeningMission =
+                        PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftOpeningMissionFor(docType);
+                div.strikeCraftMainMission =
+                        PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftMainMissionFor(docType);
+                div.strikeCraftCapReserve =
+                        PermanentDivisionManager.FleetDoctrineConfig.defaultStrikeCraftCapReserveFor(docType);
+                div.lineStation = docType.defaultLineStation;
+                div.doctrinalFormation = docType.defaultFormation;
+            }
         }
         if (div.lastFormationChangeTime < -100f) {
             div.activeFormation = div.doctrinalFormation;
@@ -835,6 +913,22 @@ public class DivisionAutoFormer {
                 resolvePhysicsAwareStationSpacing(div),
                 div.stationKeepingMult,
                 div.commander.stationKeepingStrictness);
+    }
+
+    private static String resolveAiDivisionFactionId(DivisionState div) {
+        if (div == null || div.members == null) return null;
+        for (int i = 0, n = div.members.size(); i < n; i++) {
+            ShipAPI s = div.members.get(i);
+            if (s == null) continue;
+            com.fs.starfarer.api.fleet.FleetMemberAPI fm = s.getFleetMember();
+            if (fm != null) {
+                com.fs.starfarer.api.campaign.CampaignFleetAPI fl = FactionFleetDoctrines.resolveTrueCampaignSourceFleet(fm);
+                if (fl != null && fl.getFaction() != null && fl.getFaction().getId() != null) {
+                    return fl.getFaction().getId();
+                }
+            }
+        }
+        return null;
     }
 
     /**

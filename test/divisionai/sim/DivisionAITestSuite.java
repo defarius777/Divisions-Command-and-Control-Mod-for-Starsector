@@ -107,6 +107,11 @@ public class DivisionAITestSuite {
         testCarrierCapReserveFogOfWarReconAndSearchAndDestroy();
         testBattleLogForensicsCohesionAndStaggeredC2Optimization();
         testBetterCombatMultiplicativeDefaultsAndFullSpectrumRanges();
+        testBetterCombatAiFleetMultipliersAndEngineOrderTelegraph();
+        testBetterCombatBattleDivisionMarchAndTsfcOverlays();
+        testBetterCombatMutualSupportFocusFireAndCloseActionAnvil();
+        testBetterCombatThreatProfileAndCombatBearingDiscipline();
+        testFrigateSpamDeSkewAndGenericMathNormalization();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -3093,9 +3098,10 @@ public class DivisionAITestSuite {
         DivisionState capProtectedDiv = capCvDiv.getEffectiveStrikeCraftTargetFriendlyDivision();
         boolean capOverAlliedDivEngagesAnchor = !moraCap.pullBackFighters
                 && moraCap.forceCarrierTarget != null
-                && moraCap.forceCarrierTarget.getOwner() == 0
-                && moraCap.forceCarrierTarget != moraCap.proxy
-                && (capProtectedDiv == null || moraCap.forceCarrierTarget == capProtectedDiv.flagship);
+                && ((moraCap.forceCarrierTarget.getOwner() == 0
+                        && moraCap.forceCarrierTarget != moraCap.proxy
+                        && (capProtectedDiv == null || moraCap.forceCarrierTarget == capProtectedDiv.flagship))
+                || (capProtectedDiv == battleLine && moraCap.forceCarrierTarget == enemyBb.proxy));
 
         // PHASE 3: Self-CAP (escortAnchor == moraCap) outside 1250u intercept bubble holds Regroup, then engages when bogey enters <= 1100u!
         capCvDiv.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.COMBAT_SPACE_PATROL;
@@ -10033,8 +10039,8 @@ public class DivisionAITestSuite {
             int bcCruSt = bcCfg.getStandoffRange(divisionai.PermanentDivisionManager.DoctrineDivisionType.CRUISER);
             int bcCvSt = bcCfg.getStandoffRange(divisionai.PermanentDivisionManager.DoctrineDivisionType.FLEET_CARRIER);
             int bcMisCruSt = bcCfg.getStandoffRange(divisionai.PermanentDivisionManager.DoctrineDivisionType.MISSILE_CRUISER);
-            boolean defaultsScaledOk = bcCruSp >= 1250 && bcCruSp <= 1500
-                    && bcCruInt >= 2800 && bcCruInt <= 3300
+            boolean defaultsScaledOk = bcCruSp >= 825 && bcCruSp <= 1050
+                    && bcCruInt >= 1900 && bcCruInt <= 2350
                     && bcCruSt >= 2750 && bcCruSt <= 3100
                     && bcCvSt >= 5800 && bcCvSt <= 6800
                     && bcMisCruSt >= 4200 && bcMisCruSt <= 4800;
@@ -10097,7 +10103,7 @@ public class DivisionAITestSuite {
             for (int i = 1; i < xs.size(); i++) {
                 minAdjLat = Math.min(minAdjLat, xs.get(i) - xs.get(i - 1));
             }
-            boolean grandFormationScaledOk = minAdjLat >= 1950f;
+            boolean grandFormationScaledOk = minAdjLat >= 1650f;
 
             // Check 3,800u enemy is detected inside scaled LOCAL_EVAL_DIAMETER
             boolean localEvalScaledOk = pG.divisions.get(0).localEnemyStrength > 5f;
@@ -10173,6 +10179,958 @@ public class DivisionAITestSuite {
         } finally {
             divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
             divisionai.VoidstrikeCoordinator.resetForNewBattle();
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+        }
+    }
+
+    /**
+     * Scenario 38: Verifies AI-fleet Better Combat multiplier parity, Naval Engine Order Telegraph
+     * (Auto, 1/3, 1/2, Full, Flank) physics/braking-time calibration + 60 Hz active retro-trim, and
+     * Linear Warfare Heavy-Anvil target discipline.
+     */
+    private static void testBetterCombatAiFleetMultipliersAndEngineOrderTelegraph() {
+        System.out.println("\n[Scenario 38] AI Fleet BC Multiplier Parity, Naval Engine Order Telegraph & Heavy-Anvil Discipline");
+        try {
+            // 1. 1.0x Vanilla default: Speed Governor is OFF by default for both Player and AI fleets (zero speed cap!),
+            //    and can be opted ON explicitly via FleetDoctrineConfig.setSpeedGovernorOverride(Boolean.TRUE).
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            boolean vanillaEnvOffByDefault = !divisionai.CombatPhysicsProfile.isSpeedGoverningEnvironment();
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig vanDoc =
+                    new divisionai.PermanentDivisionManager.FleetDoctrineConfig();
+            boolean vanillaDocDefaultOff = !vanDoc.isSpeedGovernorEnabled();
+
+            CommanderProfile vanCmdr = new CommanderProfile(null, "steady");
+            DivisionState vanDiv = new DivisionState("van_div", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Vanilla Battle Div", vanCmdr);
+            SimShipState vanOns = new SimShipState("van_ons", "Onslaught", "onslaught", 0, HullSize.CAPITAL_SHIP,
+                    0f, 0f, 40f, 1000f, 0, 0);
+            vanOns.accel = 23.5f;
+            vanDiv.members.add(vanOns.proxy);
+            vanDiv.profiles.add(new divisionai.ShipCapabilityProfile(vanOns.proxy));
+            vanDiv.flagship = vanOns.proxy;
+            divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(vanDiv, null, vanDoc);
+            vanDiv.currentIntent = divisionai.DivisionModel.DivisionIntentType.FORM_LINE_AND_FIX;
+            divisionai.DivisionCommanderAI.evaluateAndUpdateDivisionEngineTelegraph(null, vanDiv, null, null, 10f);
+            float vanUncappedSpd = divisionai.ShipCaptainAI.applyEngineTelegraphToShip(null, vanOns.proxy, vanDiv);
+            boolean vanillaUntouchedByDefault = !vanDiv.speedGovernorEnabled
+                    && vanDiv.activeEngineTelegraph == divisionai.PermanentDivisionManager.DivisionEngineTelegraph.FLANK
+                    && Math.abs(vanUncappedSpd - 40f) < 0.05f
+                    && vanOns.maxSpeedMultMods.isEmpty();
+
+            // Opting ON explicitly in vanilla enables telegraph fractions & roundtrips through doctrine serialization
+            vanDoc.setSpeedGovernorOverride(Boolean.TRUE);
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig vanDocCopy = vanDoc.copy();
+            divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(vanDiv, null, vanDocCopy);
+            vanDiv.doctrinalEngineTelegraph = divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF;
+            divisionai.DivisionCommanderAI.evaluateAndUpdateDivisionEngineTelegraph(null, vanDiv, null, null, 10f);
+            float vanOptInSpd = divisionai.ShipCaptainAI.applyEngineTelegraphToShip(null, vanOns.proxy, vanDiv);
+            SimShipState vanWolf = new SimShipState("van_wolf", "Wolf", "wolf", 0, HullSize.FRIGATE,
+                    0f, 0f, 150f, 700f, 0, 0);
+            vanWolf.accel = 141.2f;
+            float vanWolfHalf = divisionai.CombatPhysicsProfile.computeGovernedTelegraphSpeedCap(
+                    vanWolf.proxy, 150f, divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF);
+            boolean vanillaFractionsOk = vanillaEnvOffByDefault && vanillaDocDefaultOff && vanillaUntouchedByDefault
+                    && vanDocCopy.isSpeedGovernorEnabled() && vanDiv.speedGovernorEnabled
+                    && Math.abs(vanOptInSpd - 20.8f) < 1.0f
+                    && Math.abs(vanWolfHalf - 78.0f) < 1.0f;
+
+            // 2. Better Combat environment: AI fleet dynamic & reinforced divisions inherit BC scaled spacing/interval/standoff
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(true, 3.64f, 3.00f, 5.00f, 3.00f, 3.00f);
+            CommanderProfile aiCmdr = new CommanderProfile(null, "steady");
+            DivisionState aiCruDiv = new DivisionState("ai_cru_1", 1, 1, DivisionArchetype.CRUISER_DIVISION,
+                    "Enemy Strike Cruiser Div 1", aiCmdr);
+            SimShipState aiEagle1 = new SimShipState("ai_e1", "HSS Eagle", "eagle", 1, HullSize.CRUISER,
+                    -400f, 4000f, 288f, 3200f, 0, 0);
+            SimShipState aiEagle2 = new SimShipState("ai_e2", "HSS Acmon", "eagle", 1, HullSize.CRUISER,
+                    400f, 4000f, 288f, 3200f, 0, 0);
+            aiCruDiv.members.add(aiEagle1.proxy);
+            aiCruDiv.profiles.add(new divisionai.ShipCapabilityProfile(aiEagle1.proxy));
+            aiCruDiv.flagship = aiEagle1.proxy;
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(aiCruDiv);
+            // Simulate mid-battle reinforcement joining the AI division
+            aiCruDiv.members.add(aiEagle2.proxy);
+            aiCruDiv.profiles.add(new divisionai.ShipCapabilityProfile(aiEagle2.proxy));
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(aiCruDiv);
+
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig hegDoc =
+                    divisionai.FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null);
+            int hegCruSp = hegDoc.getStationSpacing(divisionai.PermanentDivisionManager.DoctrineDivisionType.CRUISER);
+            boolean aiFleetMultipliersOk = aiCruDiv.stationSpacing >= 825f
+                    && aiCruDiv.divisionInterval >= 1900f
+                    && aiCruDiv.standoffRange >= 2600f
+                    && hegCruSp >= 800;
+
+            // 3. Runaway-inertia braking-time calibration: BC Onslaught (264 su/s, decel ~22, turn 13 deg/s) vs BC Wolf (330 su/s, decel 132)
+            SimShipState bcOns = new SimShipState("bc_ons", "HSS Onslaught", "onslaught", 0, HullSize.CAPITAL_SHIP,
+                    0f, -1500f, 264f, 3400f, 0, 0);
+            bcOns.accel = 25.9f; // decel = 25.9 * 0.85 = 22.0 su/s^2 -> ungoverned stop = 1584u (12.0s!)
+            bcOns.systemId = "burndrive";
+            bcOns.systemName = "Burn Drive";
+            SimShipState bcWolf = new SimShipState("bc_wolf", "HSS Wolf", "wolf", 0, HullSize.FRIGATE,
+                    -600f, -1500f, 330f, 2400f, 0, 0);
+            bcWolf.accel = 155.3f; // decel = 132 su/s^2 -> tStop = 2.50s (nimble!)
+
+            float bcOnsThird = divisionai.CombatPhysicsProfile.computeGovernedTelegraphSpeedCap(
+                    bcOns.proxy, 264f, divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_THIRD);
+            float bcOnsHalf = divisionai.CombatPhysicsProfile.computeGovernedTelegraphSpeedCap(
+                    bcOns.proxy, 264f, divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF);
+            float bcOnsFull = divisionai.CombatPhysicsProfile.computeGovernedTelegraphSpeedCap(
+                    bcOns.proxy, 264f, divisionai.PermanentDivisionManager.DivisionEngineTelegraph.FULL);
+            float bcOnsFlank = divisionai.CombatPhysicsProfile.computeGovernedTelegraphSpeedCap(
+                    bcOns.proxy, 264f, divisionai.PermanentDivisionManager.DivisionEngineTelegraph.FLANK);
+            float bcWolfHalf = divisionai.CombatPhysicsProfile.computeGovernedTelegraphSpeedCap(
+                    bcWolf.proxy, 330f, divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF);
+            float bcOnsThirdStopDist = (bcOnsThird * bcOnsThird) / (2f * 22f);
+            boolean brakingCalibrationOk = bcOnsThird >= 50f && bcOnsThird <= 75f && bcOnsThirdStopDist <= 130f
+                    && bcOnsHalf > bcOnsThird && bcOnsHalf <= 115f
+                    && bcOnsFull > bcOnsHalf && bcOnsFull <= 165f
+                    && Math.abs(bcOnsFlank - 264f) < 0.5f
+                    && bcWolfHalf >= 165f; // Agile frigate keeps full 52% fraction (~171.6 su/s)!
+
+            // 4. C2 AUTO telegraph selection + 60 Hz active retro-trim + Burn Drive veto + Doctrine/Spec serialization
+            CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+            BattleGroupState pG = new BattleGroupState(0, pCmdr);
+            BattleGroupState eG = new BattleGroupState(1, aiCmdr);
+            SimArena arena = new SimArena("Scen38_Telegraph", "Engine Order Telegraph & Heavy-Anvil Discipline", pG, eG);
+
+            DivisionState pBat = new DivisionState("p_bat", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+            pBat.speedGovernorEnabled = true;
+            pBat.standoffRange = 3450f;
+            pBat.stationSpacing = 1750f;
+            pBat.members.add(bcOns.proxy);
+            pBat.profiles.add(new divisionai.ShipCapabilityProfile(bcOns.proxy));
+            pBat.flagship = bcOns.proxy;
+            arena.ships.add(bcOns);
+            pG.divisions.add(pBat);
+            pG.shipIdToDivision.put(bcOns.id, pBat);
+
+            DivisionState eFrig = new DivisionState("e_frig", 1, 1, DivisionArchetype.FRIGATE_DIVISION, "Enemy Frigate Div 2", aiCmdr);
+            SimShipState eWolf = arena.addShip(eFrig, "ew_1", "HSS Lasher", "lasher", HullSize.FRIGATE,
+                    0f, 1100f, 330f, 2200f, 0, 0);
+            eG.divisions.add(eFrig);
+
+            DivisionState eBat = new DivisionState("e_bat", 1, 2, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. IX", aiCmdr);
+            SimShipState eOns1 = arena.addShip(eBat, "eo_1", "HSS Invictus", "onslaught", HullSize.CAPITAL_SHIP,
+                    200f, 2100f, 264f, 3400f, 0, 0);
+            SimShipState eOns2 = arena.addShip(eBat, "eo_2", "HSS Dominator", "onslaught", HullSize.CAPITAL_SHIP,
+                    900f, 2100f, 264f, 3400f, 0, 0);
+            eG.divisions.add(eBat);
+
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, pG);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eG);
+            // Force primaryThreatEnemyDivision to the close Frigate screen to verify Heavy-Anvil refuses to fix frigates!
+            pG.mainEffortDivision = pBat;
+            pG.primaryThreatEnemyDivision = eFrig;
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pG, eG, null, null, 25f);
+            boolean heavyAnvilSkippedFrigates = pBat.otcOrder.type == divisionai.DivisionModel.OtcOrderType.FORM_LINE
+                    && pBat.otcOrder.targetEnemy == eBat;
+
+            // Place pBat in FORM_LINE_AND_FIX on station with overspeeding 240 su/s forward velocity -> AUTO rings 1/3 + active retro-trim!
+            pBat.currentIntent = divisionai.DivisionModel.DivisionIntentType.FORM_LINE_AND_FIX;
+            pBat.targetEnemyDivision = eBat;
+            pBat.stationPoint.set(0f, -1400f);
+            divisionai.DivisionCommanderAI.evaluateAndUpdateDivisionEngineTelegraph(arena.engineProxy, pBat, pG, eG, 25f);
+            divisionai.PermanentDivisionManager.DivisionEngineTelegraph savedAutoLineBell = pBat.activeEngineTelegraph;
+            boolean autoLineBellOk = savedAutoLineBell == divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_THIRD;
+
+            bcOns.facing = 90f;
+            bcOns.velocity.set(0f, 240f); // Overspeeding northward!
+            bcOns.blockedCommands.clear();
+            bcOns.givenCommands.clear();
+            divisionai.ShipCaptainAI.applyCaptainConnPostAdvance(arena.engineProxy, bcOns.proxy, pBat, eG);
+            float savedTrimMaxSpd = bcOns.proxy.getMaxSpeed();
+            boolean retroTrimAndStatOk = savedTrimMaxSpd <= 78f
+                    && bcOns.zfsbMultMods.containsKey(divisionai.ShipCaptainAI.TELEGRAPH_STAT_ID)
+                    && bcOns.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.ACCELERATE)
+                    && bcOns.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.USE_SYSTEM)
+                    && bcOns.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.DECELERATE);
+
+            // Verify PRESS_HOME / RUN_THE_GAUNTLET uncaps back to FLANK (264 su/s) with zero drift
+            pBat.currentIntent = divisionai.DivisionModel.DivisionIntentType.PRESS_HOME;
+            divisionai.DivisionCommanderAI.evaluateAndUpdateDivisionEngineTelegraph(arena.engineProxy, pBat, pG, eG, 30f);
+            divisionai.ShipCaptainAI.applyEngineTelegraphToShip(arena.engineProxy, bcOns.proxy, pBat);
+            boolean flankUncapOk = pBat.activeEngineTelegraph == divisionai.PermanentDivisionManager.DivisionEngineTelegraph.FLANK
+                    && Math.abs(bcOns.proxy.getMaxSpeed() - 264f) < 0.5f;
+
+            // Verify FleetDoctrineConfig + PermanentDivisionSpec override + serialization roundtrip
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig doc = new divisionai.PermanentDivisionManager.FleetDoctrineConfig();
+            doc.setEngineTelegraph(divisionai.PermanentDivisionManager.DoctrineDivisionType.BATTLESHIP,
+                    divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF);
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig deser = doc.copy();
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec spec =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("t_bb", "Battle Div 1", DivisionArchetype.BATTLESHIP_DIVISION);
+            boolean inheritDocOk = divisionai.PermanentDivisionManager.resolveEffectiveEngineTelegraph(spec, deser)
+                    == divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_HALF;
+            spec.customEngineTelegraph = divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_THIRD;
+            boolean customSpecOk = divisionai.PermanentDivisionManager.resolveEffectiveEngineTelegraph(spec, deser)
+                    == divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_THIRD;
+
+            check(vanillaFractionsOk && aiFleetMultipliersOk && brakingCalibrationOk
+                            && heavyAnvilSkippedFrigates && autoLineBellOk && retroTrimAndStatOk
+                            && flankUncapOk && inheritDocOk && customSpecOk,
+                    "AI Fleet BC Multiplier Parity, Braking-Time Engine Telegraph (Auto/1/3/1/2/Full/Flank), 60 Hz Retro-Trim & Heavy-Anvil Guard",
+                    String.format(Locale.ROOT,
+                            "vanFrac=%s, aiSp/Int/St=%.0f/%.0f/%.0f(heg=%d), bcOns=[1/3:%.1f(stop %.0fu), 1/2:%.1f, Full:%.1f, Flank:%.1f, wolf1/2:%.1f], anvilFix=%s, autoBell=%s, trim=%s(maxSpd=%.1f), flankUncap=%s, docSpec=%s/%s",
+                            vanillaFractionsOk, aiCruDiv.stationSpacing, aiCruDiv.divisionInterval, aiCruDiv.standoffRange, hegCruSp,
+                            bcOnsThird, bcOnsThirdStopDist, bcOnsHalf, bcOnsFull, bcOnsFlank, bcWolfHalf,
+                            pBat.otcOrder.targetEnemy != null ? pBat.otcOrder.targetEnemy.displayName : "null",
+                            savedAutoLineBell, retroTrimAndStatOk, savedTrimMaxSpd,
+                            flankUncapOk, inheritDocOk, customSpecOk));
+        } finally {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.ShipCaptainAI.resetForNewBattle();
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+        }
+    }
+
+    /**
+     * Scenario 39: Verifies (A) Battle Division uprange FLANK approach transit (no premature 1/3 crawl or rolling-carrot
+     * Newtonian braking when enemy is 15,000u away, no false mixed-speed feedback loop from per-hull telegraph caps, and
+     * uncapped FLANK bypass on direct player Warroom orders) and (B) Better Combat TSFC Time (>3,900u), Space Zone 3
+     * (>spaceDominatedRadius), and Warroom cohesive Division Droplet merging across 1,750u BC spacing.
+     */
+    private static void testBetterCombatBattleDivisionMarchAndTsfcOverlays() {
+        System.out.println("\n[Scenario 39] Battle Division Uprange March Anti-Lag & Better Combat TSFC/Warroom Overlays");
+        try {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(true, 3.64f, 3.00f, 5.00f, 3.00f, 3.00f);
+            CommanderProfile pCmdr = new CommanderProfile(null, "reckless");
+            CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+            BattleGroupState pG = new BattleGroupState(0, pCmdr);
+            BattleGroupState eG = new BattleGroupState(1, eCmdr);
+            SimArena arena = new SimArena("Scen39_MarchAndTsfc", "BC Battle Division Uprange March & TSFC Overlays", pG, eG);
+            arena.mapWidth = 54000f;
+            arena.mapHeight = 54000f;
+
+            // Player Battle Div 1: Conquest (faster/nimbler BC capital) + Onslaught Mk.I (slower/heavier BC capital)
+            DivisionState pBat = new DivisionState("p_bat", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+            pBat.speedGovernorEnabled = true;
+            pBat.standoffRange = 3450f;
+            pBat.stationSpacing = 1750f;
+            SimShipState pConq = arena.addShip(pBat, "p_conq", "RDS Conquest", "conquest", HullSize.CAPITAL_SHIP,
+                    -800f, -12000f, 276f, 3800f, 0, 0);
+            pConq.accel = 42f;
+            SimShipState pOns = arena.addShip(pBat, "p_ons", "RDS Onslaught Mk.I", "onslaught", HullSize.CAPITAL_SHIP,
+                    800f, -12000f, 264f, 3400f, 0, 0);
+            pOns.accel = 25.9f;
+            pOns.systemId = "burndrive";
+            pOns.systemName = "Burn Drive";
+            pBat.flagship = pConq.proxy;
+            pG.divisions.add(pBat);
+
+            DivisionState pFrig = new DivisionState("p_frig", 0, 2, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 1", pCmdr);
+            pFrig.speedGovernorEnabled = true;
+            pFrig.standoffRange = 2100f;
+            pFrig.stationSpacing = 900f;
+            SimShipState pCent = arena.addShip(pFrig, "p_cent", "RDS Centurion", "centurion", HullSize.FRIGATE,
+                    -2500f, -11000f, 335f, 2200f, 0, 0);
+            pCent.accel = 150f;
+            pG.divisions.add(pFrig);
+
+            // Enemy Battle Div. IX 18,000u north (uprange approach!)
+            DivisionState eBat = new DivisionState("e_bat", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. IX", eCmdr);
+            eBat.speedGovernorEnabled = true;
+            eBat.standoffRange = 3450f;
+            eBat.stationSpacing = 1750f;
+            SimShipState eOns = arena.addShip(eBat, "e_ons", "HSS Invictus", "onslaught", HullSize.CAPITAL_SHIP,
+                    0f, 6000f, 264f, 3400f, 0, 0);
+            eG.divisions.add(eBat);
+
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, pG);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eG);
+
+            // A1 & A2: FORM_LINE_AND_FIX when enemy is 18,000u away -> AUTO must ring FLANK (not 1/3!), keep full speed,
+            //          and NOT trigger ShipCaptainAI rolling-carrot Newtonian braking on an intermediate 1,200u slotPos!
+            pBat.currentIntent = divisionai.DivisionModel.DivisionIntentType.FORM_LINE_AND_FIX;
+            pBat.targetEnemyDivision = eBat;
+            pBat.stationPoint.set(0f, 2550f); // Fixing station is 14,550u ahead!
+            divisionai.DivisionCommanderAI.evaluateAndUpdateDivisionEngineTelegraph(arena.engineProxy, pBat, pG, eG, 15f);
+            boolean uprangeFlankOk = pBat.activeEngineTelegraph == divisionai.PermanentDivisionManager.DivisionEngineTelegraph.FLANK;
+
+            pConq.facing = 90f;
+            pConq.velocity.set(0f, 260f);
+            // Simulate intermediate rolling formation carrot 1,150u ahead while pBat.stationPoint is 14,550u ahead
+            pConq.proxy.getAIFlags().setFlag(
+                    com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION, 1.0f, new Vector2f(-800f, -10850f));
+            pConq.givenCommands.clear();
+            pConq.blockedCommands.clear();
+            divisionai.ShipCaptainAI.applyCaptainConnPostAdvance(arena.engineProxy, pConq.proxy, pBat, eG);
+            boolean noRollingCarrotBrakeOk = !pConq.givenCommands.contains(com.fs.starfarer.api.combat.ShipCommand.DECELERATE)
+                    && !pConq.blockedCommands.contains(com.fs.starfarer.api.combat.ShipCommand.ACCELERATE)
+                    && Math.abs(pConq.proxy.getMaxSpeed() - 276f) < 0.5f;
+
+            // A3: Direct player Warroom order bypasses 1/3 governor cleanly
+            pBat.stationPoint.set(0f, -11800f);
+            eOns.location.set(0f, -9200f); // Close enemy (2,800u <= 1.48 * 3450u) -> division rings ONE_THIRD
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eG);
+            divisionai.DivisionCommanderAI.evaluateAndUpdateDivisionEngineTelegraph(arena.engineProxy, pBat, pG, eG, 40f);
+            boolean closeLineRingsThird = pBat.activeEngineTelegraph == divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_THIRD;
+            pBat.directOrderShipIds.add(pOns.id);
+            float directOrderSpd = divisionai.ShipCaptainAI.applyEngineTelegraphToShip(arena.engineProxy, pOns.proxy, pBat);
+            pBat.directOrderShipIds.clear();
+            float governedLineSpd = divisionai.ShipCaptainAI.applyEngineTelegraphToShip(arena.engineProxy, pOns.proxy, pBat);
+            boolean directOrderBypassOk = closeLineRingsThird
+                    && Math.abs(directOrderSpd - 264f) < 0.5f
+                    && governedLineSpd <= 78f;
+
+            // A4: Sustainable speed uses ungoverned maxSpeed (264 vs 276 -> NOT falsely flagged as >1.18x mixed speed!)
+            float sustUngoverned = divisionai.DivisionFormationNavigator.computeDivisionSustainableSpeed(pBat, pBat.getAliveMembers());
+            float maxUngoverned = divisionai.DivisionFormationNavigator.computeDivisionMaxMemberSpeed(pBat, pBat.getAliveMembers());
+            boolean noFalseMixedSpeedLoop = Math.abs(sustUngoverned - 264f) < 1f
+                    && (maxUngoverned / sustUngoverned) < 1.10f;
+
+            // B1 & B2: TSFC Time (>3,900u & differentiates Frigate > Battleship) and Space Zone 3 (>spaceDominatedRadius)
+            divisionai.ShipCaptainAI.clearEngineTelegraphStats(pOns.proxy);
+            divisionai.ShipCaptainAI.clearEngineTelegraphStats(pConq.proxy);
+            divisionai.BattlefieldFirepowerEvaluator.updateBattlefieldRoses(arena.engineProxy, 0.5f);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, pG);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eG);
+            divisionai.BattlefieldFirepowerEvaluator.updateCrossGroupTimeSpaceConvergence(arena.engineProxy, pG, eG);
+            boolean tsfcScaledOk = pBat.freeTimeRadius > 4200f
+                    && pFrig.freeTimeRadius > pBat.freeTimeRadius + 400f
+                    && pBat.spaceDominatedRadius > 4000f
+                    && pBat.spacePotentialRadius > pBat.spaceDominatedRadius + 200f;
+
+            // B3: Warroom DivisionTacticalMapOverlay merges 1,600u-spaced BC capitals into 1 cohesive droplet (not 2 bubbles!)
+            divisionai.DivisionTacticalMapOverlay overlay = new divisionai.DivisionTacticalMapOverlay(arena.engineProxy);
+            java.util.List<java.util.List<com.fs.starfarer.api.combat.ShipAPI>> clusters =
+                    overlay.clusterDivisionMembersSticky(pBat, pBat.getAliveMembers());
+            boolean cohesiveDropletOk = clusters.size() == 1 && clusters.get(0).size() == 2;
+
+            check(uprangeFlankOk && noRollingCarrotBrakeOk && directOrderBypassOk
+                            && noFalseMixedSpeedLoop && tsfcScaledOk && cohesiveDropletOk,
+                    "BC Battle Division Uprange FLANK Transit (No Rolling-Carrot Brake / Direct-Order Bypass) & TSFC/Droplet Scaling",
+                    String.format(Locale.ROOT,
+                            "upFlank=%s, noCarrotBrake=%s, directBypass=%s(dir=%.0f vs gov=%.1f), sust=%.0f/%.0f, timeR=[bat=%.0f, frig=%.0f], space=[dom=%.0f < pot=%.0f], clusters=%d",
+                            uprangeFlankOk, noRollingCarrotBrakeOk, directOrderBypassOk, directOrderSpd, governedLineSpd,
+                            sustUngoverned, maxUngoverned, pBat.freeTimeRadius, pFrig.freeTimeRadius,
+                            pBat.spaceDominatedRadius, pBat.spacePotentialRadius, clusters.size()));
+        } finally {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.ShipCaptainAI.resetForNewBattle();
+            divisionai.BattlefieldFirepowerEvaluator.resetForNewBattle();
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+        }
+    }
+
+    /**
+     * Scenario 40: Verifies (1) Naval Mutual-Support Better Combat spacing (~1,150u Battleships / ~900u Cruisers inside
+     * overlapping 1,820u BC Flak/PD bubbles) & cross-fire intervals (~2,050u..2,950u), (2) ShipCaptainAI unwrap &
+     * scaled 3,800u+ gun concentration-of-fire (`directShipAndFightersOntoTarget` + `unwrapToInnerShipAi`), and
+     * (3) Per-Ship P70 Main Battery Range (immune to Vulcan PD dilution & single Tactical Laser inflation) +
+     * Mission-Aware Standoff & Aggressive `CLOSE_ACTION` Main Effort line stationing.
+     */
+    private static void testBetterCombatMutualSupportFocusFireAndCloseActionAnvil() {
+        System.out.println("\n[Scenario 40] Naval Mutual-Support Spacing, BC Focus-Fire Unwrap & CLOSE_ACTION Main-Battery Gunnery");
+        try {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(true, 3.64f, 3.00f, 5.00f, 3.00f, 3.00f);
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig bcDoc =
+                    new divisionai.PermanentDivisionManager.FleetDoctrineConfig();
+            int bbSp = bcDoc.getStationSpacing(divisionai.PermanentDivisionManager.DoctrineDivisionType.BATTLESHIP);
+            int cruSp = bcDoc.getStationSpacing(divisionai.PermanentDivisionManager.DoctrineDivisionType.CRUISER);
+            int frigSp = bcDoc.getStationSpacing(divisionai.PermanentDivisionManager.DoctrineDivisionType.FRIGATE);
+            int bbInt = bcDoc.getDivisionInterval(divisionai.PermanentDivisionManager.DoctrineDivisionType.BATTLESHIP);
+            int cruInt = bcDoc.getDivisionInterval(divisionai.PermanentDivisionManager.DoctrineDivisionType.CRUISER);
+            // Adjacent capitals at ~1,150u sit well inside 1,820u Dual Flak / 1,274u PD Laser overlapping umbrellas!
+            boolean mutualSupportSpacingOk = bbSp >= 1050 && bbSp <= 1250
+                    && cruSp >= 825 && cruSp <= 975
+                    && frigSp >= 525 && frigSp <= 700
+                    && bbInt >= 2200 && bbInt <= 3100
+                    && cruInt >= 1900 && cruInt <= 2250;
+
+            // Per-ship P70 Main Battery Range:
+            // (a) Gauss Conquest: 2x Large Gauss (6550u) + 2x Med HAC (3640u) + 6x Small Vulcan PD (910u) -> 6550u (no PD dilution!)
+            SimShipState gaussConq = new SimShipState("g_conq", "RDS Moa", "conquest", 0, HullSize.CAPITAL_SHIP,
+                    -550f, -4000f, 276f, 3800f, 0, 0);
+            gaussConq.weapons.clear();
+            for (int i = 0; i < 2; i++) {
+                gaussConq.weapons.add(new SimArena.SimWeaponMount("gauss_" + i,
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.LARGE,
+                        com.fs.starfarer.api.combat.DamageType.KINETIC, 6550f, 600f, 0f,
+                        2200f, 200f, 0f, 25f, false, 0, false, false, false).proxy);
+                gaussConq.weapons.add(new SimArena.SimWeaponMount("hac_" + i,
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.MEDIUM,
+                        com.fs.starfarer.api.combat.DamageType.KINETIC, 3640f, 120f, 0f,
+                        1400f, 260f, 0f, 20f, false, 0, false, false, false).proxy);
+            }
+            for (int i = 0; i < 6; i++) {
+                gaussConq.weapons.add(new SimArena.SimWeaponMount("vulcan_" + i,
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.SMALL,
+                        com.fs.starfarer.api.combat.DamageType.KINETIC, 910f, 25f, 0f,
+                        1200f, 250f, 0f, 45f, false, 0, true, false, false).proxy);
+            }
+            divisionai.ShipCapabilityProfile conqProf = new divisionai.ShipCapabilityProfile(gaussConq.proxy);
+
+            // (b) Chaingun Brawler Cruiser with 1 small Tactical Laser (3640u) + 2x Medium Chainguns (1820u) -> 1820u (no laser trap!)
+            SimShipState brawlCru = new SimShipState("b_cru", "RDS Brawler", "dominator", 0, HullSize.CRUISER,
+                    0f, -4000f, 240f, 2200f, 0, 0);
+            brawlCru.weapons.clear();
+            for (int i = 0; i < 2; i++) {
+                brawlCru.weapons.add(new SimArena.SimWeaponMount("acg_" + i,
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                        com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.MEDIUM,
+                        com.fs.starfarer.api.combat.DamageType.HIGH_EXPLOSIVE, 1820f, 80f, 0f,
+                        900f, 400f, 0f, 15f, false, 0, false, false, false).proxy);
+            }
+            brawlCru.weapons.add(new SimArena.SimWeaponMount("taclaser_0",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.ENERGY,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.SMALL,
+                    com.fs.starfarer.api.combat.DamageType.ENERGY, 3640f, 0f, 95f,
+                    9999f, 95f, 95f, 30f, false, 0, false, false, true).proxy);
+            divisionai.ShipCapabilityProfile brawlProf = new divisionai.ShipCapabilityProfile(brawlCru.proxy);
+            boolean p70MainBatteryOk = Math.abs(conqProf.mainBatteryGunRange - 6550f) < 1f
+                    && Math.abs(brawlProf.mainBatteryGunRange - 1820f) < 1f;
+
+            // Mixed Battle Div 1: 2x Gauss Conquest (6200u) + 1x Onslaught Mk.I (3800u)
+            CommanderProfile pCmdr = new CommanderProfile(null, "reckless");
+            CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+            BattleGroupState pG = new BattleGroupState(0, pCmdr);
+            BattleGroupState eG = new BattleGroupState(1, eCmdr);
+            pG.authority = divisionai.PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION;
+            SimArena arena = new SimArena("Scen40_MutualAndGunnery", "BC Mutual Support & Close Action Gunnery", pG, eG);
+            arena.mapWidth = 54000f;
+            arena.mapHeight = 54000f;
+
+            DivisionState pBat = new DivisionState("p_bat", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+            SimShipState c1 = arena.addShip(pBat, "c1", "RDS Conquest", "conquest", HullSize.CAPITAL_SHIP,
+                    -575f, -3000f, 276f, 6200f, 0, 0);
+            SimShipState c2 = arena.addShip(pBat, "c2", "RDS Moa", "conquest", HullSize.CAPITAL_SHIP,
+                    0f, -3000f, 276f, 6200f, 0, 0);
+            SimShipState ons = arena.addShip(pBat, "ons", "RDS Onslaught Mk.I", "onslaught", HullSize.CAPITAL_SHIP,
+                    575f, -3000f, 264f, 3800f, 0, 0);
+            pBat.flagship = c2.proxy;
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(pBat);
+            pBat.standoffRange = 5450f;
+            pG.divisions.add(pBat);
+            pG.mainEffortDivision = pBat;
+
+            // STANDOFF_ENGAGEMENT uses median (6200 * 0.88 = ~5456u); CLOSE_ACTION closes to Onslaught Mk.I's 0.72 * 3800 = 2736u!
+            pBat.openingMission = divisionai.PermanentDivisionManager.DivisionMissionType.STANDOFF_ENGAGEMENT;
+            float standoffEff = divisionai.PermanentDivisionManager.resolveEffectiveCombatGunStandoff(pBat, 10f);
+            pBat.openingMission = divisionai.PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION;
+            pBat.mainMission = divisionai.PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION;
+            float closeActionEff = divisionai.PermanentDivisionManager.resolveEffectiveCombatGunStandoff(pBat, 10f);
+            boolean missionPercentileOk = standoffEff >= 5200f && closeActionEff <= 2800f && closeActionEff >= 2500f;
+
+            // Enemy frontline Cruiser Div at y=+1200 (4,200u ahead) vs Rear Enemy Battle Div. IX at y=+8500 (11,500u ahead!)
+            DivisionState eFrontCru = new DivisionState("e_cru", 1, 1, DivisionArchetype.STRIKE_CRUISER_DIVISION,
+                    "Enemy Strike Cruiser Div 1", eCmdr);
+            SimShipState eDom = arena.addShip(eFrontCru, "e_dom", "HSS Dominator", "dominator", HullSize.CRUISER,
+                    -400f, 1200f, 240f, 3400f, 0, 0);
+            SimShipState eFal = arena.addShip(eFrontCru, "e_fal", "HSS Falcon", "falcon", HullSize.CRUISER,
+                    400f, 1200f, 280f, 3400f, 0, 0);
+            eFrontCru.flagship = eDom.proxy;
+            eG.divisions.add(eFrontCru);
+
+            DivisionState eRearBat = new DivisionState("e_bat", 1, 2, DivisionArchetype.BATTLESHIP_DIVISION,
+                    "Battle Div. IX", eCmdr);
+            SimShipState eLeg = arena.addShip(eRearBat, "e_leg", "HSS Legion", "legion", HullSize.CAPITAL_SHIP,
+                    -500f, 8500f, 240f, 3800f, 0, 0);
+            SimShipState eOns = arena.addShip(eRearBat, "e_ons", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP,
+                    500f, 8500f, 264f, 3800f, 0, 0);
+            eRearBat.flagship = eLeg.proxy;
+            eG.divisions.add(eRearBat);
+
+            arena.elapsedTime = 20f;
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, pG);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eG);
+            pG.primaryThreatEnemyDivision = eRearBat;
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pG, eG, null, null, 20f);
+            // Under CLOSE_ACTION, Battle Div 1 smashes the frontline Cruiser division at y=1200 with station <= ~2,650u away
+            // instead of fixing the distant rear Battle Div. IX from behind friendly lines!
+            float fixDistFromFront = Math.abs(1200f - pBat.otcOrder.station.y);
+            boolean closeActionAnvilOk = pBat.otcOrder.targetEnemy == eFrontCru && fixDistFromFront <= 2750f;
+
+            // Focus-fire concentration at 4,200u (> old 2,200u gate) + ShipCaptainAI unwrap verification
+            c1.proxy.setShipTarget(eFal.proxy); // Previously distracted onto secondary target
+            com.fs.starfarer.api.combat.ShipAIPlugin baseAi = c1.proxy.getShipAI();
+            divisionai.ShipCaptainAI captainWrap = new divisionai.ShipCaptainAI(c1.proxy, baseAi);
+            c1.proxy.setShipAI(captainWrap);
+            Object unwrapped = null;
+            try {
+                unwrapped = divisionai.DivisionCommanderAI.unwrapToInnerShipAi(c1.proxy.getShipAI());
+            } catch (Throwable ignored) {
+            }
+            divisionai.DivisionCommanderAI.directShipAndFightersOntoTarget(c1.proxy, c1.proxy.getAIFlags(), eDom.proxy, pBat);
+            boolean focusFireAndUnwrapOk = (unwrapped != captainWrap && unwrapped == baseAi)
+                    && c1.proxy.getShipTarget() == eDom.proxy;
+
+            check(mutualSupportSpacingOk && p70MainBatteryOk && missionPercentileOk
+                            && closeActionAnvilOk && focusFireAndUnwrapOk,
+                    "Naval Mutual-Support Spacing (~1150u BB / ~900u CA), P70 Main-Battery Range, CLOSE_ACTION Anvil & Focus-Fire Unwrap",
+                    String.format(Locale.ROOT,
+                            "sp=[bb=%d, cru=%d, frig=%d], int=[bb=%d, cru=%d], p70=[conq=%.0f, brawl=%.0f], stand=[st=%.0f vs close=%.0f], anvil=[tgt=%s, dist=%.0fu], focusOk=%s",
+                            bbSp, cruSp, frigSp, bbInt, cruInt,
+                            conqProf.mainBatteryGunRange, brawlProf.mainBatteryGunRange,
+                            standoffEff, closeActionEff,
+                            pBat.otcOrder.targetEnemy != null ? pBat.otcOrder.targetEnemy.displayName : "null",
+                            fixDistFromFront, focusFireAndUnwrapOk));
+        } finally {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.ShipCaptainAI.resetForNewBattle();
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+        }
+    }
+
+    /**
+     * Scenario 41: Verifies the generic Three-Tier Combat Threat Profile & Anti-Stern-Turn Discipline:
+     *  (1) Ship Captain AI (`ShipCaptainAI.applyCombatBearingDiscipline` + `CombatPhysicsProfile`):
+     *      Stamps `AIFlags.FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS` when `CAMP_LOCATION` is active inside a live
+     *      Better Combat direct-fire envelope (>2,200u where vanilla `ooOo` loses its threat target and turns 180 deg
+     *      toward `slotPos`), keeping bow cruisers pointed bow-on (~90 deg) and symmetric broadsiders (`Conquest`)
+     *      oriented onto their broadside (~5 deg for +85 deg port battery against a 90 deg target) while backing into rank;
+     *  (2) Division Leader AI (`DivisionCommanderAI` + `DivisionFormationNavigator`):
+     *      Shielded cruisers executing `HAUL_OUT_TO_VENT` inside live enemy gun reach back out shields-forward
+     *      (no `MOVEMENT_DEST`/`RUN_QUICKLY` stern turn) while ships outside gun reach sprint normally, and engaged
+     *      formation headings wheel smoothly within hull turn-rate bounds instead of snapping 90 deg in one tick;
+     *  (3) OTC (`OtcBattlePlanner`):
+     *      Active Gun-Engagement Lock & angular slew hysteresis keep an engaged gun division locked onto its current
+     *      frontline target instead of whipping 85 deg across incoming fire onto a marginally closer flank contact.
+     */
+    private static void testBetterCombatThreatProfileAndCombatBearingDiscipline() {
+        System.out.println("\n[Scenario 41] Generic Threat-Profile Combat Bearing, Shielded Backout, Line Wheeling & OTC Slew Lock");
+        divisionai.CombatPhysicsProfile.resetForNewBattle();
+        divisionai.ShipCaptainAI.resetForNewBattle();
+        try {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(true, 3.64f, 5.5f, 4.0f, 3.0f, 3.0f);
+
+            CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+            CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+            BattleGroupState pG = new BattleGroupState(0, pCmdr);
+            BattleGroupState eG = new BattleGroupState(1, eCmdr);
+            pG.authority = divisionai.PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION;
+
+            SimArena arena = new SimArena("Scen41_ThreatProfileAndBearing", "BC Threat Profile & Bearing", pG, eG);
+            arena.mapWidth = 54000f;
+            arena.mapHeight = 54000f;
+
+            // Player Line Cruiser Div 1 (bow/turret Eagle) + Battle Div 1 (broadside Conquest)
+            DivisionState pCru = new DivisionState("p_cru", 0, 1, DivisionArchetype.CRUISER_DIVISION,
+                    "Line Cruiser Div 1", pCmdr);
+            SimShipState eagle = arena.addShip(pCru, "p_eagle", "RDS Eagle", "eagle", HullSize.CRUISER,
+                    0f, 0f, 230f, 3640f, 0, 0);
+            eagle.facing = 90f;
+            eagle.shieldTypeOverride = com.fs.starfarer.api.combat.ShieldAPI.ShieldType.FRONT;
+            eagle.shieldArc = 180f;
+            eagle.weapons.clear();
+            eagle.weapons.add(new SimArena.SimWeaponMount("hvd_bow_0",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.MEDIUM,
+                    com.fs.starfarer.api.combat.DamageType.KINETIC, 3640f, 120f, 0f,
+                    280f, 180f, 180f, 2.0f, false, 0, false, false, false).proxy);
+            eagle.weapons.add(new SimArena.SimWeaponMount("grav_bow_1",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.ENERGY,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.MEDIUM,
+                    com.fs.starfarer.api.combat.DamageType.ENERGY, 4000f, 100f, 0f,
+                    200f, 200f, 150f, 1.0f, false, 0, false, false, false).proxy);
+            pCru.flagship = eagle.proxy;
+            pCru.avgEngageRange = 3640f;
+            pCru.standoffRange = 3200f;
+            pG.divisions.add(pCru);
+
+            DivisionState pBat = new DivisionState("p_bat", 0, 2, DivisionArchetype.BATTLESHIP_DIVISION,
+                    "Battle Div 1", pCmdr);
+            SimShipState conq = arena.addShip(pBat, "p_conq", "RDS Conquest", "conquest", HullSize.CAPITAL_SHIP,
+                    900f, 0f, 250f, 6550f, 0, 0);
+            conq.facing = 10f; // Already presenting port (+85 deg) broadside toward North (90 deg)
+            conq.shieldTypeOverride = com.fs.starfarer.api.combat.ShieldAPI.ShieldType.OMNI;
+            conq.shieldArc = 120f;
+            conq.weapons.clear();
+            conq.weapons.add(new SimArena.SimWeaponMount("gauss_port",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.LARGE,
+                    com.fs.starfarer.api.combat.DamageType.KINETIC, 6550f, 100f, 85f,
+                    1200f, 240f, 1200f, 5.0f, false, 0, false, false, false).proxy);
+            conq.weapons.add(new SimArena.SimWeaponMount("gauss_stbd",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.LARGE,
+                    com.fs.starfarer.api.combat.DamageType.KINETIC, 6550f, 100f, -85f,
+                    1200f, 240f, 1200f, 5.0f, false, 0, false, false, false).proxy);
+            SimShipState onsWing = arena.addShip(pBat, "p_ons", "RDS Onslaught", "onslaught", HullSize.CAPITAL_SHIP,
+                    2050f, 0f, 220f, 4000f, 0, 0);
+            onsWing.facing = 90f;
+            pBat.flagship = conq.proxy;
+            pBat.avgEngageRange = 5500f;
+            pBat.standoffRange = 4600f;
+            pG.divisions.add(pBat);
+
+            // Enemy Cruiser Div A due North at y = +4,100u (>2,200u vanilla ooOo cutoff, inside BC gun reach!)
+            DivisionState eCruA = new DivisionState("e_cru_a", 1, 1, DivisionArchetype.CRUISER_DIVISION,
+                    "Enemy Cruiser Div A", eCmdr);
+            SimShipState eDomA = arena.addShip(eCruA, "e_dom_a", "HSS Dominator", "dominator", HullSize.CRUISER,
+                    0f, 4100f, 220f, 4200f, 0, 0);
+            eDomA.weapons.clear();
+            eDomA.weapons.add(new SimArena.SimWeaponMount("e_hvd_0",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.LARGE,
+                    com.fs.starfarer.api.combat.DamageType.KINETIC, 4500f, 120f, 0f,
+                    600f, 220f, 500f, 3.0f, false, 0, false, false, false).proxy);
+            eCruA.flagship = eDomA.proxy;
+            eCruA.avgEngageRange = 4500f;
+            eG.divisions.add(eCruA);
+
+            com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags campFlag = com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CAMP_LOCATION;
+            com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags manTgtFlag = com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MANEUVER_TARGET;
+            com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags faceOvrFlag = com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS;
+            com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags moveDestFlag = com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.MOVEMENT_DEST;
+            com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags runQuickFlag = com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.RUN_QUICKLY;
+            com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags backOffFlag = com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.BACK_OFF;
+
+            // 1. Test ShipCaptainAI `FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS` when CAMP_LOCATION is astern (-750u)
+            arena.elapsedTime = 12f;
+            pCru.currentIntent = DivisionIntentType.FORM_LINE_AND_FIX;
+            pCru.targetEnemyDivision = eCruA;
+            eagle.aiFlags.setFlag(campFlag, 1.0f, new Vector2f(0f, -750f));
+            eagle.aiFlags.setFlag(manTgtFlag, 1.0f, eDomA.proxy);
+            divisionai.ShipCaptainAI.applyCombatBearingDiscipline(arena.engineProxy, eagle.proxy, pCru, eagle.aiFlags);
+            Object eagleFaceObj = eagle.aiFlags.getCustom(faceOvrFlag);
+            float eagleOverrideDeg = (eagleFaceObj instanceof Float) ? ((Float) eagleFaceObj).floatValue() : Float.NaN;
+
+            pBat.currentIntent = DivisionIntentType.FORM_LINE_AND_FIX;
+            pBat.targetEnemyDivision = eCruA;
+            conq.aiFlags.setFlag(campFlag, 1.0f, new Vector2f(900f, -750f));
+            conq.aiFlags.setFlag(manTgtFlag, 1.0f, eDomA.proxy);
+            divisionai.ShipCaptainAI.applyCombatBearingDiscipline(arena.engineProxy, conq.proxy, pBat, conq.aiFlags);
+            Object conqFaceObj = conq.aiFlags.getCustom(faceOvrFlag);
+            float conqOverrideDeg = (conqFaceObj instanceof Float) ? ((Float) conqFaceObj).floatValue() : Float.NaN;
+
+            // Step SimArena 1.5s while Eagle reverses South toward (0, -750) -> Eagle must keep bow North (~90 deg), NOT 270 deg!
+            for (int step = 0; step < 15; step++) {
+                arena.elapsedTime += 0.1f;
+                eagle.aiFlags.setFlag(campFlag, 1.0f, new Vector2f(0f, -750f));
+                eagle.aiFlags.setFlag(manTgtFlag, 1.0f, eDomA.proxy);
+                divisionai.ShipCaptainAI.applyCombatBearingDiscipline(arena.engineProxy, eagle.proxy, pCru, eagle.aiFlags);
+                arena.stepPhysics(0.1f);
+            }
+            boolean bowBearingOk = !Float.isNaN(eagleOverrideDeg)
+                    && Math.abs(eagleOverrideDeg - 90f) <= 6f
+                    && eagle.location.y < -20f
+                    && Math.abs(eagle.facing - 90f) <= 12f;
+            // Conquest at (900, 0) vs Enemy at (0, 4100): threat bearing ~102.4 deg; port broadside (+80..+90 deg) -> ship facing ~12..25 deg!
+            boolean broadsideBearingOk = !Float.isNaN(conqOverrideDeg)
+                    && conqOverrideDeg >= 0f && conqOverrideDeg <= 35f;
+
+            // 2. Test Shielded Cruiser `HAUL_OUT_TO_VENT` under live gunfire (no stern turn) vs Out-of-Range Sprint
+            eagle.location.set(0f, 300f);
+            eagle.fluxLevel = 0.62f;
+            pCru.currentIntent = DivisionIntentType.HAUL_OUT_TO_VENT;
+            pCru.stationPoint.set(0f, -1800f);
+            eagle.aiFlags.unsetFlag(moveDestFlag);
+            eagle.aiFlags.unsetFlag(runQuickFlag);
+            DivisionCommanderAI.applyCoordinatedExtractionFlags(
+                    arena.engineProxy, eagle.proxy, 1, eagle.aiFlags, new Vector2f(0f, -1800f), eDomA.proxy, pCru);
+            divisionai.ShipCaptainAI.applyCombatBearingDiscipline(arena.engineProxy, eagle.proxy, pCru, eagle.aiFlags);
+            boolean shieldedUnderFireBackoutOk = !eagle.aiFlags.hasFlag(moveDestFlag)
+                    && !eagle.aiFlags.hasFlag(runQuickFlag)
+                    && eagle.aiFlags.hasFlag(backOffFlag)
+                    && eagle.aiFlags.getCustom(faceOvrFlag) instanceof Float;
+
+            // Move enemy far outside direct-fire gun reach (y = 14,000u) -> out-of-contact transit sprint allowed!
+            eDomA.location.set(0f, 14000f);
+            arena.elapsedTime = 16.0f;
+            DivisionCommanderAI.applyCoordinatedExtractionFlags(
+                    arena.engineProxy, eagle.proxy, 1, eagle.aiFlags, new Vector2f(0f, -1800f), eDomA.proxy, pCru);
+            divisionai.ShipCaptainAI.applyCombatBearingDiscipline(arena.engineProxy, eagle.proxy, pCru, eagle.aiFlags);
+            boolean outOfRangeSprintOk = eagle.aiFlags.hasFlag(moveDestFlag)
+                    && eagle.aiFlags.hasFlag(runQuickFlag)
+                    && eagle.aiFlags.getCustom(faceOvrFlag) == null;
+
+            // 3. Test Naval Formation-Line Wheeling Rate Limit when actively trading gunfire
+            eDomA.location.set(-4000f, 0f); // 90-deg shift due West while pBat was facing North (0, 1)
+            pBat.centroid.set(900f, 0f);
+            pBat.stationPoint.set(900f, 0f);
+            pBat.formationHeadingInitialized = true;
+            pBat.formationHeadingX = 0f;
+            pBat.formationHeadingY = 1f;
+            pBat.inRangeFirepowerScore = 180f;
+            pBat.incomingInRangeFirepower = 120f;
+            pBat.targetEnemyDivision = eCruA;
+            divisionai.DivisionFormationNavigator.computeShipFormationSlot(
+                    arena.engineProxy, conq.proxy, 0, pBat.getAliveMembers(), pBat, pG);
+            float wheeledDeg = divisionai.CombatPhysicsProfile.fastAtan2Deg(pBat.formationHeadingY, pBat.formationHeadingX);
+            float wheelStep = Math.abs(wheeledDeg - 90f);
+            boolean smoothWheelOk = wheelStep > 1.0f && wheelStep <= 11.5f;
+
+            // 4. Test OTC Active Gun-Engagement Lock & Angular Slew Hysteresis
+            eagle.location.set(0f, 0f);
+            eagle.fluxLevel = 0.25f;
+            eDomA.location.set(0f, 3200f); // Engaged directly ahead (90 deg) at 3,200u
+            DivisionState eDdFlank = new DivisionState("e_dd_b", 1, 2, DivisionArchetype.DESTROYER_DIVISION,
+                    "Enemy Destroyer Div B", eCmdr);
+            SimShipState eEnf = arena.addShip(eDdFlank, "e_enf", "HSS Enforcer", "enforcer", HullSize.DESTROYER,
+                    -2750f, 150f, 260f, 3100f, 0, 0); // 87 deg off-axis abeam, slightly closer (2,754u vs 3,200u)
+            eDdFlank.flagship = eEnf.proxy;
+            eDdFlank.avgEngageRange = 3100f;
+            eG.divisions.add(eDdFlank);
+
+            DivisionState eMainCap = new DivisionState("e_cap_main", 1, 3, DivisionArchetype.BATTLESHIP_DIVISION,
+                    "Enemy Battle Div Main", eCmdr);
+            SimShipState eOnsMain = arena.addShip(eMainCap, "e_ons_m", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP,
+                    1200f, 4400f, 220f, 4500f, 0, 0);
+            eMainCap.flagship = eOnsMain.proxy;
+            eMainCap.avgEngageRange = 4500f;
+            eG.divisions.add(eMainCap);
+
+            arena.elapsedTime = 22.0f;
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, pG);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eG);
+            pG.mainEffortDivision = pBat;
+            pG.primaryThreatEnemyDivision = eMainCap;
+            pCru.incomingInRangeFirepower = 85f;
+            pCru.localEnemyStrength = 24f;
+            pCru.otcOrder.set(divisionai.DivisionModel.OtcOrderType.ENGAGE_ASSIGNED, eCruA, null, 0f, 30f, "engaged");
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pG, eG, null, null, 22.0f);
+            boolean otcSlewLockOk = pCru.otcOrder.targetEnemy == eCruA;
+
+            check(bowBearingOk && broadsideBearingOk && shieldedUnderFireBackoutOk
+                            && outOfRangeSprintOk && smoothWheelOk && otcSlewLockOk,
+                    "Three-Tier Threat Profile: Bow/Broadside Combat Bearing (>2200u ooOo Fix), Shielded Backout, Smooth Line Wheel & OTC Slew Lock",
+                    String.format(Locale.ROOT,
+                            "bow=[ovr=%.1f, face=%.1f, y=%.0f], broad=[ovr=%.1f], backout=[ok=%s, sprint=%s], wheelStep=%.1fdeg, otcTgt=%s",
+                            eagleOverrideDeg, eagle.facing, eagle.location.y, conqOverrideDeg,
+                            shieldedUnderFireBackoutOk, outOfRangeSprintOk, wheelStep,
+                            pCru.otcOrder.targetEnemy != null ? pCru.otcOrder.targetEnemy.displayName : "null"));
+        } finally {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.ShipCaptainAI.resetForNewBattle();
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+        }
+    }
+
+    /**
+     * Scenario 42: Verifies Frigate-Spam Linear Warfare De-Skew & Generic Math Normalizations:
+     *  (1) `Battlecruiser` (`BATTLECRUISER_DIVISION`) sits in Tier 1 (Inner Battleline) of `GRAND_WEDGE_SPEARHEAD`
+     *      and has `isScreenCapable == false` (never volunteering as a forward PD picket screen);
+     *  (2) Adding 7 Frigate divisions (`nCombat = 11`) does NOT compress the heavy battleline's lateral interval,
+     *      wraps outer Frigate horns (`wingRank > 3`) within compact depth instead of `-4,800u`, and keeps
+     *      `Orchestrated Advance` active despite 2 forward `SCOUTING` Frigate skirmishes;
+     *  (3) Multi-division `Doubling` onto the same flank assigns echeloned `flankEchelonIndex` (`0, 1, 2`) and
+     *      separated `computeFlankStation` coordinates (`> 400u` apart before repulsion), while `assignReinforcement`
+     *      ignores healthy `20 FP` Frigate skirmishers;
+     *  (4) Generic Math Normalizations: FP-weighted `avgFluxLevel` on mixed Capital (`40 FP`, `10%` flux) + 2 escort
+     *      Frigates (`5 FP` each, `85%` flux) yields `0.25` (not unweighted `0.60`), and speed-governed Capitals
+     *      retain 100% of their ungoverned Lanchester `computeEffectiveShipCombatPower`.
+     */
+    private static void testFrigateSpamDeSkewAndGenericMathNormalization() {
+        System.out.println("\n[Scenario 42] Frigate-Spam Linear Warfare De-Skew, Battlecruiser Tier-1 & Generic Math Normalization");
+        divisionai.CombatPhysicsProfile.resetForNewBattle();
+        divisionai.ShipCaptainAI.resetForNewBattle();
+        try {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(true, 3.64f, 5.5f, 4.0f, 3.0f, 3.0f);
+
+            CommanderProfile pCmdr = new CommanderProfile(null, "steady");
+            CommanderProfile eCmdr = new CommanderProfile(null, "steady");
+            BattleGroupState pCore = new BattleGroupState(0, pCmdr);
+            BattleGroupState eG = new BattleGroupState(1, eCmdr);
+            pCore.fleetWideFormation = divisionai.PermanentDivisionManager.FleetWideFormation.GRAND_WEDGE_SPEARHEAD;
+            pCore.orchestratedAdvance = true;
+            pCore.authority = divisionai.PermanentDivisionManager.OtcAuthority.COMMAND_BY_DIRECTION;
+
+            SimArena arena = new SimArena("Scen42_FrigateSpamAndMath", "Frigate-Spam De-Skew & Math", pCore, eG);
+            arena.mapWidth = 54000f;
+            arena.mapHeight = 54000f;
+
+            // Core 4 heavy divisions: Battle Div 1 (Onslaught [24 FP] + 2 escort Frigates [5 FP each] for FP-weighted flux check),
+            // Battlecruiser Div 1 (Conquest with PD), Line Cruiser Div 1 & 2
+            DivisionState batDiv = new DivisionState("p_bat", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION,
+                    "Battle Div 1", pCmdr);
+            SimShipState ons = arena.addShip(batDiv, "p_ons", "RDS Onslaught", "onslaught", HullSize.CAPITAL_SHIP,
+                    0f, -6000f, 264f, 4500f, 0, 0);
+            ons.fluxLevel = 0.10f;
+            SimShipState esc1 = arena.addShip(batDiv, "p_esc1", "RDS Escort 1", "centurion", HullSize.FRIGATE,
+                    -600f, -6200f, 380f, 2200f, 0, 0);
+            esc1.fluxLevel = 0.85f;
+            SimShipState esc2 = arena.addShip(batDiv, "p_esc2", "RDS Escort 2", "centurion", HullSize.FRIGATE,
+                    600f, -6200f, 380f, 2200f, 0, 0);
+            esc2.fluxLevel = 0.85f;
+            batDiv.flagship = ons.proxy;
+            batDiv.stationSpacing = 1150f;
+            batDiv.divisionInterval = 2350f;
+            batDiv.standoffRange = 3600f;
+            pCore.divisions.add(batDiv);
+
+            DivisionState bcDiv = new DivisionState("p_bc", 0, 2, DivisionArchetype.BATTLECRUISER_DIVISION,
+                    "Battlecruiser Div 1", pCmdr);
+            SimShipState conq = arena.addShip(bcDiv, "p_conq", "RDS Conquest", "conquest", HullSize.CAPITAL_SHIP,
+                    -2000f, -6400f, 280f, 6500f, 0, 0);
+            // Give Conquest a PD mount to ensure `isScreenCapable` still stays FALSE for Battlecruisers!
+            conq.weapons.add(new SimArena.SimWeaponMount("flak_pd",
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponType.BALLISTIC,
+                    com.fs.starfarer.api.combat.WeaponAPI.WeaponSize.MEDIUM,
+                    com.fs.starfarer.api.combat.DamageType.FRAGMENTATION, 1600f, 360f, 0f,
+                    200f, 120f, 80f, 0.5f, true, 0, false, false, false).proxy);
+            bcDiv.flagship = conq.proxy;
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(bcDiv);
+            bcDiv.stationSpacing = 1150f;
+            bcDiv.divisionInterval = 2350f;
+            pCore.divisions.add(bcDiv);
+
+            DivisionState cru1 = new DivisionState("p_cru1", 0, 3, DivisionArchetype.CRUISER_DIVISION,
+                    "Line Cruiser Div 1", pCmdr);
+            SimShipState eag1 = arena.addShip(cru1, "p_eag1", "RDS Eagle 1", "eagle", HullSize.CRUISER,
+                    2000f, -6400f, 240f, 3800f, 0, 0);
+            cru1.flagship = eag1.proxy;
+            cru1.stationSpacing = 900f;
+            cru1.divisionInterval = 2050f;
+            pCore.divisions.add(cru1);
+
+            DivisionState cru2 = new DivisionState("p_cru2", 0, 4, DivisionArchetype.CRUISER_DIVISION,
+                    "Line Cruiser Div 2", pCmdr);
+            SimShipState eag2 = arena.addShip(cru2, "p_eag2", "RDS Eagle 2", "eagle", HullSize.CRUISER,
+                    -3800f, -6900f, 240f, 3800f, 0, 0);
+            cru2.flagship = eag2.proxy;
+            cru2.stationSpacing = 900f;
+            cru2.divisionInterval = 2050f;
+            pCore.divisions.add(cru2);
+
+            DivisionState eBat = new DivisionState("e_bat", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION,
+                    "Battle Div. X", eCmdr);
+            SimShipState eOns = arena.addShip(eBat, "e_ons", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP,
+                    0f, 6500f, 220f, 4500f, 0, 0);
+            eBat.flagship = eOns.proxy;
+            eG.divisions.add(eBat);
+
+            // Baseline 4-division heavy core Grand Wedge geometry
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, pCore);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eG);
+            pCore.mainEffortDivision = batDiv;
+            pCore.primaryThreatEnemyDivision = eBat;
+            divisionai.OtcAI.synchronizeGrandFormationConsent(arena.engineProxy, pCore, eG, 0f);
+            divisionai.OtcAI.updateFleetWideFormationGeometry(arena.engineProxy, pCore, eG);
+            float baseBcLatAbs = Math.abs(bcDiv.fleetFormationOffset.x);
+            int baseBcRank = bcDiv.fleetFormationRank;
+
+            // 1. Verify FP-weighted avgFluxLevel (24 FP @ 10% + 2x5 FP @ 85% = 34 FP -> 10.9 / 34 = 0.32, NOT unweighted 0.60!)
+            boolean weightedFluxOk = batDiv.avgFluxLevel < 0.36f && batDiv.avgFluxLevel > 0.20f;
+
+            // 2. Verify Battlecruiser `isScreenCapable == false`
+            boolean bcNotScreenOk = !bcDiv.isScreenCapable && bcDiv.archetype.isLineAnvilArchetype();
+
+            // 3. Verify Speed Governor does NOT depress Lanchester TSF combat power
+            divisionai.BattlefieldFirepowerEvaluator.updateBattlefieldRoses(arena.engineProxy, 1.0f);
+            float ungovernedPower = divisionai.BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(ons.proxy);
+            batDiv.speedGovernorEnabled = true;
+            batDiv.activeEngineTelegraph = divisionai.PermanentDivisionManager.DivisionEngineTelegraph.ONE_THIRD;
+            divisionai.ShipCaptainAI.applyEngineTelegraphToShip(arena.engineProxy, ons.proxy, batDiv);
+            ons.fluxLevel = 0.14f; // invalidate 0.03f flux cache
+            float governedPower = divisionai.BattlefieldFirepowerEvaluator.computeEffectiveShipCombatPower(ons.proxy);
+            divisionai.ShipCaptainAI.clearEngineTelegraphStats(ons.proxy);
+            ons.fluxLevel = 0.10f;
+            boolean tsfSpeedInvarianceOk = Math.abs(governedPower - ungovernedPower) <= ungovernedPower * 0.05f;
+
+            // 4. Now add 7 Frigate divisions (`Frigate Div 1..7`, 20 FP each = 4x5 FP Centurions) to simulate Frigate Spam!
+            pCore.grandFormationConsentLocked = false;
+            List<DivisionState> frigDivs = new ArrayList<>();
+            for (int f = 1; f <= 7; f++) {
+                DivisionState fDiv = new DivisionState("p_frig_" + f, 0, 4 + f, DivisionArchetype.FRIGATE_DIVISION,
+                        "Frigate Div " + f, pCmdr);
+                fDiv.openingMission = (f <= 3)
+                        ? divisionai.PermanentDivisionManager.DivisionMissionType.SCOUTING
+                        : divisionai.PermanentDivisionManager.DivisionMissionType.ENVELOPMENT;
+                fDiv.mainMission = divisionai.PermanentDivisionManager.DivisionMissionType.ENVELOPMENT;
+                fDiv.stationSpacing = 675f;
+                fDiv.divisionInterval = 1450f;
+                fDiv.standoffRange = 2200f;
+                float fx = ((f % 2 == 1) ? -1f : 1f) * (2500f + f * 400f);
+                for (int m = 0; m < 4; m++) {
+                    SimShipState fs = arena.addShip(fDiv, "p_f_" + f + "_" + m, "RDS Centurion", "centurion",
+                            HullSize.FRIGATE, fx + m * 250f, -7200f, 380f, 2200f, 0, 0);
+                    if (m == 0) fDiv.flagship = fs.proxy; // 4 * 5 FP = 20 FP (>= old 18 FP threshold!)
+                }
+                pCore.divisions.add(fDiv);
+                frigDivs.add(fDiv);
+            }
+
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, pCore);
+            divisionai.OtcAI.synchronizeGrandFormationConsent(arena.engineProxy, pCore, eG, 2.0f);
+            divisionai.OtcAI.updateFleetWideFormationGeometry(arena.engineProxy, pCore, eG);
+
+            float spamBcLatAbs = Math.abs(bcDiv.fleetFormationOffset.x);
+            int spamBcRank = bcDiv.fleetFormationRank;
+            float worstFrigOffsetY = 0f;
+            for (DivisionState fd : frigDivs) {
+                if (fd.fleetFormationOffset.y < worstFrigOffsetY) {
+                    worstFrigOffsetY = fd.fleetFormationOffset.y;
+                }
+            }
+            // Heavy line rank & lateral interval must NOT be compressed by 7 extra Frigate divisions, and outer
+            // Frigate horns must wrap inside ~ -1,650u * 2.65x (-4,375u) instead of stretching to -7,791u!
+            boolean grandWedgeDeSkewOk = baseBcRank == 1 && spamBcRank == 1
+                    && Math.abs(spamBcLatAbs - baseBcLatAbs) <= 120f
+                    && worstFrigOffsetY > -4450f;
+
+            // 5. 2 Scouting Frigate divisions skirmishing (`violentContactIntensity = 0.38f`) must NOT cancel
+            //    fleet-wide `Orchestrated Advance` while `Battle Div 1` & `Line Cruisers` are still 12,500u uprange!
+            arena.elapsedTime = 10.0f;
+            pCore.orchestratedAdvanceContactMade = false;
+            frigDivs.get(0).violentContactIntensity = 0.38f;
+            frigDivs.get(1).violentContactIntensity = 0.38f;
+            frigDivs.get(0).inRangeFirepowerScore = 210f;
+            frigDivs.get(1).inRangeFirepowerScore = 210f;
+            divisionai.DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(pCore);
+            boolean oaHeldDuringScoutSkirmish = divisionai.OtcAI.isOrchestratedAdvanceActive(arena.engineProxy, pCore, eG);
+
+            // Once Main Effort engages, Orchestrated Advance cancels immediately
+            batDiv.violentContactIntensity = 0.40f;
+            divisionai.DynamicBattleMusicController.updateBattleGroupEngagementTelemetry(pCore);
+            boolean oaDropsWhenMainEngages = !divisionai.OtcAI.isOrchestratedAdvanceActive(arena.engineProxy, pCore, eG);
+            batDiv.violentContactIntensity = 0f;
+
+            // 6. Test Echeloned `Doubling` Flank Stations & Non-Frigate Minor-Crisis Reinforcement Gate
+            arena.elapsedTime = 65.0f; // main mission window (ENVELOPMENT), main battlelines now engaged!
+            eOns.location.set(0f, -3200f);
+            divisionai.OtcAI.updateTelemetry(arena.engineProxy, eG);
+            eBat.engagementLevel = 0.55f;
+            frigDivs.get(0).localEnemyStrength = 38f;
+            frigDivs.get(0).localForceRatio = 0.52f; // 20 FP healthy frigate pack brushing enemy line
+            frigDivs.get(0).avgFluxLevel = 0.28f;
+            frigDivs.get(0).avgHullLevel = 0.95f;
+            frigDivs.get(0).hasShipNeedingHelp = false;
+            pCore.plays.add(divisionai.PermanentDivisionManager.OtcPlay.LINE_AND_FIRE_DISTRIBUTION);
+            pCore.plays.add(divisionai.PermanentDivisionManager.OtcPlay.DOUBLING);
+            pCore.plays.add(divisionai.PermanentDivisionManager.OtcPlay.RESERVE_AND_GENERAL_CHASE);
+            divisionai.OtcBattlePlanner.planBattle(arena.engineProxy, pCore, eG, null, frigDivs.get(0), 65.0f);
+
+            boolean noFalseCruiserReinforceDetach = pCore.reinforcingDivision == null
+                    && cru1.otcOrder.type != divisionai.DivisionModel.OtcOrderType.REINFORCE
+                    && cru2.otcOrder.type != divisionai.DivisionModel.OtcOrderType.REINFORCE;
+
+            List<Vector2f> stbdFlankPts = new ArrayList<>();
+            for (DivisionState fd : frigDivs) {
+                if (fd.otcOrder.type == divisionai.DivisionModel.OtcOrderType.FLANK
+                        && fd.otcOrder.targetEnemy == eBat
+                        && fd.otcOrder.flankSide < 0f) {
+                    Vector2f pt = new Vector2f();
+                    divisionai.DivisionFormationNavigator.computeFlankStation(arena.engineProxy, fd, eBat, pt, pCore);
+                    stbdFlankPts.add(pt);
+                }
+            }
+            float minPairwiseFlankSep = Float.MAX_VALUE;
+            for (int i = 0; i < stbdFlankPts.size(); i++) {
+                for (int j = i + 1; j < stbdFlankPts.size(); j++) {
+                    float dx = stbdFlankPts.get(i).x - stbdFlankPts.get(j).x;
+                    float dy = stbdFlankPts.get(i).y - stbdFlankPts.get(j).y;
+                    float d = (float) Math.sqrt(dx * dx + dy * dy);
+                    if (d < minPairwiseFlankSep) minPairwiseFlankSep = d;
+                }
+            }
+            boolean echelonedFlanksOk = stbdFlankPts.size() >= 2 && minPairwiseFlankSep >= 450f;
+
+            check(weightedFluxOk && bcNotScreenOk && tsfSpeedInvarianceOk
+                            && grandWedgeDeSkewOk && oaHeldDuringScoutSkirmish && oaDropsWhenMainEngages
+                            && noFalseCruiserReinforceDetach && echelonedFlanksOk,
+                    "Frigate-Spam De-Skew & Generic Math: Tier-1 Battlecruiser, Uncompressed Wedge, Scout-Safe OA, Echeloned Doubling & FP-Weighted Math",
+                    String.format(Locale.ROOT,
+                            "wFlux=%.2f, bcNoScr=%s, tsfGov=[%.1f/%.1f], bcLat=[%.0f->%.0f, frigMinY=%.0f], oa=[scout=%s, main=%s], noFalseReinf=%s, stbdFlanks=%d(minSep=%.0fu)",
+                            batDiv.avgFluxLevel, bcNotScreenOk, governedPower, ungovernedPower,
+                            baseBcLatAbs, spamBcLatAbs, worstFrigOffsetY,
+                            oaHeldDuringScoutSkirmish, oaDropsWhenMainEngages,
+                            noFalseCruiserReinforceDetach, stbdFlankPts.size(),
+                            minPairwiseFlankSep < Float.MAX_VALUE ? minPairwiseFlankSep : -1f));
+        } finally {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.ShipCaptainAI.resetForNewBattle();
             divisionai.CombatPhysicsProfile.resetForNewBattle();
         }
     }

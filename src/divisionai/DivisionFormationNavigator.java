@@ -432,13 +432,45 @@ public class DivisionFormationNavigator {
             div.formationHeadingY = desiredFwdY;
             div.formationHeadingInitialized = true;
         } else if (shipIdx == 0) {
-            float blend = (div.targetEnemyDivision == null || (uncapturedObjectiveMarch && marchDist > 450f)) ? 0.50f : 0.28f;
-            float bx = div.formationHeadingX * (1f - blend) + desiredFwdX * blend;
-            float by = div.formationHeadingY * (1f - blend) + desiredFwdY * blend;
-            float bLen = (float) Math.sqrt(bx * bx + by * by);
-            if (bLen > 0.001f) {
-                div.formationHeadingX = bx / bLen;
-                div.formationHeadingY = by / bLen;
+            boolean activelyTradingGunfire = div.targetEnemyDivision != null
+                    && !(uncapturedObjectiveMarch && marchDist > 450f)
+                    && (div.inRangeFirepowerScore > 0f || div.incomingInRangeFirepower > 10f);
+            float minTurnRate = Float.MAX_VALUE;
+            if (activelyTradingGunfire) {
+                for (int mIdx = 0, mN = div.members.size(); mIdx < mN; mIdx++) {
+                    ShipAPI m = div.members.get(mIdx);
+                    if (m != null && m.isAlive() && !m.isHulk()) {
+                        float tr = m.getMaxTurnRate();
+                        if (tr > 1f && tr < minTurnRate) {
+                            minTurnRate = tr;
+                        }
+                    }
+                }
+            }
+            if (activelyTradingGunfire && minTurnRate < 45f) {
+                // Wheel Capital/Cruiser/Destroyer battle lines at a physically realizable angular velocity
+                // instead of snapping the formation axis 90 deg in 1s and throwing wingmen's slots astern!
+                float curDeg = CombatPhysicsProfile.fastAtan2Deg(div.formationHeadingY, div.formationHeadingX);
+                float desDeg = CombatPhysicsProfile.fastAtan2Deg(desiredFwdY, desiredFwdX);
+                float diff = (desDeg - curDeg) % 360f;
+                if (diff > 180f) diff -= 360f;
+                if (diff < -180f) diff += 360f;
+                float maxStepDeg = Math.max(4.5f, Math.min(20.0f, minTurnRate * 0.45f));
+                float step = diff * 0.28f;
+                if (step > maxStepDeg) step = maxStepDeg;
+                if (step < -maxStepDeg) step = -maxStepDeg;
+                float nextDeg = curDeg + step;
+                div.formationHeadingX = CombatPhysicsProfile.fastCosDeg(nextDeg);
+                div.formationHeadingY = CombatPhysicsProfile.fastSinDeg(nextDeg);
+            } else {
+                float blend = (div.targetEnemyDivision == null || (uncapturedObjectiveMarch && marchDist > 450f)) ? 0.50f : 0.28f;
+                float bx = div.formationHeadingX * (1f - blend) + desiredFwdX * blend;
+                float by = div.formationHeadingY * (1f - blend) + desiredFwdY * blend;
+                float bLen = (float) Math.sqrt(bx * bx + by * by);
+                if (bLen > 0.001f) {
+                    div.formationHeadingX = bx / bLen;
+                    div.formationHeadingY = by / bLen;
+                }
             }
         }
     }
@@ -736,18 +768,19 @@ public class DivisionFormationNavigator {
         float alongError = errX * fwdX + errY * fwdY;
         float latError = Math.abs(errX * latX + errY * latY);
 
-        float alongThreshold = mixedSpeedOutOfCombat ? 15f : 55f;
+        float sScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalStationSpacingMult());
+        float alongThreshold = (mixedSpeedOutOfCombat ? 15f : 55f) * sScale;
         if (alongError > alongThreshold) {
             float aheadOfShipLead = mixedSpeedOutOfCombat
-                    ? Math.min(marchDist, Math.max(45f, 185f - alongError * 0.85f - latError * 0.15f))
-                    : Math.min(marchDist, Math.max(460f, 680f - alongError * 0.40f - latError * 0.15f));
+                    ? Math.min(marchDist, Math.max(45f * sScale, 185f * sScale - alongError * 0.85f - latError * 0.15f))
+                    : Math.min(marchDist, Math.max(460f * sScale, 680f * sScale - alongError * 0.40f - latError * 0.15f));
             float dressLead = alongError + aheadOfShipLead;
             if (dressLead < marchDist) {
                 slotX = trueRankX + fwdX * dressLead;
                 slotY = trueRankY + fwdY * dressLead;
             }
-        } else if (latError > 95f) {
-            float lateralDressLead = Math.max(480f, Math.min(950f, 1150f - latError * 0.85f));
+        } else if (latError > 95f * sScale) {
+            float lateralDressLead = Math.max(480f * sScale, Math.min(950f * sScale, 1150f * sScale - latError * 0.85f));
             if (marchDist > lateralDressLead) {
                 slotX = trueRankX + fwdX * lateralDressLead;
                 slotY = trueRankY + fwdY * lateralDressLead;
@@ -797,7 +830,7 @@ public class DivisionFormationNavigator {
             ShipAPI s = alive.get(i);
             if (s == null || !s.isAlive() || s.isHulk()) continue;
             if (div != null && div.detachedStragglerIds != null && div.detachedStragglerIds.contains(s.getId())) continue;
-            float spd = Math.max(20f, s.getMaxSpeed());
+            float spd = Math.max(20f, ShipCaptainAI.resolveUngovernedMaxSpeed(s));
             if (spd < minSpd) {
                 minSpd = spd;
             }
@@ -812,7 +845,7 @@ public class DivisionFormationNavigator {
             ShipAPI s = alive.get(i);
             if (s == null || !s.isAlive() || s.isHulk()) continue;
             if (div != null && div.detachedStragglerIds != null && div.detachedStragglerIds.contains(s.getId())) continue;
-            float spd = Math.max(20f, s.getMaxSpeed());
+            float spd = Math.max(20f, ShipCaptainAI.resolveUngovernedMaxSpeed(s));
             if (spd > maxSpd) {
                 maxSpd = spd;
             }
@@ -1255,7 +1288,8 @@ public class DivisionFormationNavigator {
         float dx = div.centroid.x - visEnemyPos.x;
         float dy = div.centroid.y - visEnemyPos.y;
         float len = (float) Math.sqrt(dx * dx + dy * dy);
-        float standoff = Math.max(400f, div.standoffRange);
+        float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
+        float standoff = Math.max(400f, PermanentDivisionManager.resolveEffectiveCombatGunStandoff(div, now));
         boolean enemyIsStation = BattlefieldFirepowerEvaluator.isStationBastionDivision(enemyDiv);
         float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         if (!div.archetype.isCarrierArchetype() && div.avgEngageRange > 250f) {
@@ -1539,9 +1573,28 @@ public class DivisionFormationNavigator {
                 float frontBlend = Math.max(0f, Math.min(1f, (-0.05f - forwardDot) / 0.30f));
                 float lateralMult = targetCorneredOrWeak ? 1.0f : (1.0f + 0.28f * frontBlend);
                 float depthMult = 0.32f - 0.17f * frontBlend;
+                int echIdx = (flankerDiv.otcOrder != null
+                        && flankerDiv.otcOrder.type == DivisionModel.OtcOrderType.FLANK
+                        && flankerDiv.otcOrder.targetEnemy == enemyDiv)
+                        ? Math.max(0, Math.min(4, flankerDiv.otcOrder.flankEchelonIndex))
+                        : 0;
+                float baseLatVec = flankRadius * lateralMult * assignedSide;
+                float baseDepthVec = flankRadius * depthMult;
+                if (echIdx > 0) {
+                    // Stagger 2nd+ flankers on the same wing along an echeloned crescent (+22 deg arc step + outer radial step)
+                    // so multiple flanking divisions envelop abreast instead of colliding on the identical stationPoint!
+                    float fanDeg = echIdx * 22.0f * assignedSide;
+                    float cosF = CombatPhysicsProfile.fastCosDeg(fanDeg);
+                    float sinF = CombatPhysicsProfile.fastSinDeg(fanDeg);
+                    float radScale = 1.0f + echIdx * 0.16f;
+                    float rotDepth = (baseDepthVec * cosF - baseLatVec * sinF) * radScale;
+                    float rotLat = (baseDepthVec * sinF + baseLatVec * cosF) * radScale;
+                    baseDepthVec = rotDepth;
+                    baseLatVec = rotLat;
+                }
                 outStation.set(
-                        visEnemyPos.x + perpX * flankRadius * lateralMult * assignedSide + fwdX * flankRadius * depthMult,
-                        visEnemyPos.y + perpY * flankRadius * lateralMult * assignedSide + fwdY * flankRadius * depthMult);
+                        visEnemyPos.x + perpX * baseLatVec + fwdX * baseDepthVec,
+                        visEnemyPos.y + perpY * baseLatVec + fwdY * baseDepthVec);
                 // If this flank station lands inside the enemy's active North/South-Center Reinforcement Gate, pull its
                 // depth back onto the friendly-side beam (or flip flank side if the opposite flank is clear of the gate)!
                 if (myGroup != null && BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, outStation) >= 0.25f) {

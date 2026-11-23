@@ -85,9 +85,10 @@ public final class CombatPhysicsProfile {
     private static float cachedLiveMapScale = 1.0f;
     private static float cachedLiveMaxFighterSpeedCeiling = 320f;
 
-    // Per-ship listener & weapon-reach caches (cleared automatically by WeakHashMap)
+    // Per-ship listener, weapon-reach & combat-bearing caches (cleared automatically by WeakHashMap)
     private static final WeakHashMap<ShipAPI, Boolean> SHIP_BEAM_DROPOFF_LISTENER_CACHE = new WeakHashMap<>();
     private static final WeakHashMap<ShipAPI, float[]> SHIP_MAX_GUN_REACH_CACHE = new WeakHashMap<>();
+    private static final WeakHashMap<ShipAPI, float[]> SHIP_COMBAT_BEARING_CACHE = new WeakHashMap<>();
 
     // Deterministic test override for headless unit tests
     private static Boolean testBeamDropoffOverride = null;
@@ -189,6 +190,7 @@ public final class CombatPhysicsProfile {
         cachedLiveMaxFighterSpeedCeiling = 320f;
         SHIP_BEAM_DROPOFF_LISTENER_CACHE.clear();
         SHIP_MAX_GUN_REACH_CACHE.clear();
+        SHIP_COMBAT_BEARING_CACHE.clear();
         clearObstacleSnapshot();
         clearMissileSnapshot();
     }
@@ -238,11 +240,14 @@ public final class CombatPhysicsProfile {
         testGlobalBoundsScale = Math.max(1.0f, boundsScale);
         testGlobalMapScale = Math.max(1.0f, mapScale);
         resetForNewBattle();
+        FactionFleetDoctrines.invalidateDoctrineCache();
     }
 
     // =========================================================================
     // 1. GLOBAL SPEC-ENVIRONMENT SCALING (Campaign UI, Auto-Assigner & Defaults)
     // =========================================================================
+
+    private static boolean cachedGlobalSpeedOverhaulActive = false;
 
     private static void ensureGlobalSpecsEvaluated() {
         SettingsAPI settings = null;
@@ -265,6 +270,7 @@ public final class CombatPhysicsProfile {
         cachedGlobalHybridCloseCeiling = 700f;
         cachedGlobalLongGunFloor = 900f;
         cachedGlobalBeamDropoffEnabled = false;
+        cachedGlobalSpeedOverhaulActive = false;
         cachedBeamDropoffOffset = 0.30f;
         cachedBeamDropoffExp = 1.20f;
         cachedBeamDropoffMult = 1.00f;
@@ -410,6 +416,14 @@ public final class CombatPhysicsProfile {
                         float mapMult = readBcomFloat(bcomJson, useLuna, "mapSizeFactor", "MAP_SIZE_FACTOR", 1.0f);
                         cachedGlobalMapScale = Math.max(cachedGlobalMapScale, clamp(mapMult, 1.0f, 6.0f));
                     }
+                    if (readBcomBool(bcomJson, useLuna, "shipSpeedFeature", "ENABLE_SHIP_SPEED", false)) {
+                        float sFactor = readBcomFloat(bcomJson, useLuna, "shipSpeedFactor", "SHIP_SPEED", 0.4f);
+                        float sMult = readBcomFloat(bcomJson, useLuna, "shipSpeedMult", "SHIP_SPEED_MULT", 1.0f);
+                        float sAdd = readBcomFloat(bcomJson, useLuna, "shipSpeedAdd", "SHIP_SPEED_ADD", 0.0f);
+                        if (sFactor > 0.05f || sMult > 1.15f || sAdd > 25f) {
+                            cachedGlobalSpeedOverhaulActive = true;
+                        }
+                    }
                 }
             }
         } catch (Throwable ignored) {
@@ -481,9 +495,22 @@ public final class CombatPhysicsProfile {
     }
 
     /**
+     * Returns true when Better Combat (with ship speed overhaul or scaled physics) is active so Naval Engine
+     * Speed Governing defaults ON; returns false in 1.0x Vanilla Starsector where ships brake naturally.
+     */
+    public static boolean isSpeedGoverningEnvironment() {
+        if (testGlobalScaleOverrideActive) {
+            return isGlobalScaledEnvironment();
+        }
+        ensureGlobalSpecsEvaluated();
+        return cachedGlobalSpeedOverhaulActive || isGlobalScaledEnvironment();
+    }
+
+    /**
      * Multiplicative factor applied to vanilla intra-division {@code stationSpacing} defaults ({@code 1.0f} in vanilla).
-     * Accounts for both inflated flocking/broadphase bounds (e.g. Better Combat {@code shipBoundsMultiplier = 3})
-     * and expanded weapon envelopes so ships hold clean, repulsion-free spacing out of the box.
+     * Scales by flocking/helm turning clearance ({@code shipBoundsMultiplier}) and overlapping Point-Defense umbrellas
+     * rather than full weapon range (~1.70x in Better Combat: ~1,150u Battleships, ~900u Cruisers, ~600u Frigates) so
+     * adjacent hulls share overlapping Flak/PD bubbles and concentrate direct-fire salvos on a common target.
      */
     public static float getGlobalStationSpacingMult() {
         float wScale = getGlobalWeaponRangeScale();
@@ -491,11 +518,15 @@ public final class CombatPhysicsProfile {
         if (wScale <= 1.18f && bScale <= 1.18f) {
             return 1.0f;
         }
-        return clamp(Math.max(bScale * 0.85f, 0.45f + 0.55f * wScale), 1.0f, 4.0f);
+        float helmClearanceScale = (bScale > 1.18f) ? (0.88f + 0.27f * bScale) : 1.0f;
+        float pdUmbrellaScale = (wScale > 1.18f) ? (1.05f + 0.18f * wScale) : 1.0f;
+        return clamp(Math.max(helmClearanceScale, pdUmbrellaScale), 1.0f, 2.50f);
     }
 
     /**
      * Multiplicative factor applied to vanilla inter-division {@code divisionInterval} defaults ({@code 1.0f} in vanilla).
+     * Keeps neighboring gun divisions within mutual cross-fire support distance (~1.96x in Better Combat: ~2,950u
+     * Battleships, ~2,050u Cruisers) without crowding maneuver lanes.
      */
     public static float getGlobalDivisionIntervalMult() {
         float wScale = getGlobalWeaponRangeScale();
@@ -503,7 +534,9 @@ public final class CombatPhysicsProfile {
         if (wScale <= 1.18f && bScale <= 1.18f) {
             return 1.0f;
         }
-        return clamp(Math.max(bScale * 0.95f, 0.30f + 0.70f * wScale), 1.0f, 4.5f);
+        float helmIntervalScale = (bScale > 1.18f) ? (1.00f + 0.32f * bScale) : 1.0f;
+        float crossFireIntervalScale = (wScale > 1.18f) ? (1.08f + 0.24f * wScale) : 1.0f;
+        return clamp(Math.max(helmIntervalScale, crossFireIntervalScale), 1.0f, 3.00f);
     }
 
     /**
@@ -1478,6 +1511,330 @@ public final class CombatPhysicsProfile {
             }
         }
         return true;
+    }
+
+    /** Returns true when {@code ship}'s ungoverned top speed vs. deceleration creates runaway stopping inertia (> 2.65s or > 480u). */
+    public static boolean hasRunawayBrakingInertia(ShipAPI ship, float ungovernedMaxSpeed) {
+        if (ship == null || ship.isFighter()) return false;
+        float v0 = Math.max(20f, ungovernedMaxSpeed);
+        float decel = Math.max(8f, ship.getDeceleration());
+        float tStop = v0 / decel;
+        float stopDist = (v0 * v0) / (2.0f * decel);
+        return tStop > 2.65f || stopDist > 480f;
+    }
+
+    /**
+     * Computes the governed maximum non-boost speed for {@code ship} at {@code bell}:
+     *  - In 1.0x vanilla physics ({@code tStop <= 2.65s} and {@code stopDist <= 480u}), applies true naval fractions
+     *    ({@code 0.34f}, {@code 0.52f}, {@code 0.78f}, {@code 1.00f}).
+     *  - On runaway-inertia combat overhauls (e.g. Better Combat where Capitals jump to ~264 su/s at 22 su/s^2 decel),
+     *    additionally caps speed by the bell's braking-time & turn-rate envelope so heavy ships never become runaway
+     *    freight trains while agile high-thrust frigates retain their natural speed.
+     *  - Zero {@code Math.sin}/{@code cos}/{@code atan2}/{@code pow} for Shenandoah-IU C2 JIT safety.
+     */
+    public static float computeGovernedTelegraphSpeedCap(
+            ShipAPI ship,
+            float ungovernedMaxSpeed,
+            PermanentDivisionManager.DivisionEngineTelegraph bell) {
+        float v0 = Math.max(20f, ungovernedMaxSpeed);
+        if (ship == null || ship.isFighter() || bell == null
+                || bell == PermanentDivisionManager.DivisionEngineTelegraph.FLANK
+                || bell == PermanentDivisionManager.DivisionEngineTelegraph.AUTO) {
+            return v0;
+        }
+        float vFrac = Math.max(18f, v0 * bell.vanillaSpeedFraction);
+        float decel = Math.max(8f, ship.getDeceleration());
+        float tStop0 = v0 / decel;
+        float stopDist0 = (v0 * v0) / (2.0f * decel);
+        if (tStop0 <= 2.65f && stopDist0 <= 480f) {
+            return vFrac;
+        }
+        float turnRate = Math.max(4f, ship.getMaxTurnRate());
+        float tTurn90 = 90f / turnRate;
+        float turnPenalty = clamp(1.0f - (tTurn90 - 4.0f) * 0.028f, 0.76f, 1.0f);
+        float vBraking = decel * bell.maxBrakingSeconds * turnPenalty;
+        float minFloor = Math.min(vFrac, Math.max(36f, decel * 2.35f));
+        return clamp(Math.min(vFrac, vBraking), minFloor, v0);
+    }
+
+    // =========================================================================
+    // 8. GENERIC COMBAT THREAT PROFILE & OPTIMAL COMBAT BEARING (C2-SAFE)
+    // =========================================================================
+
+    /**
+     * C2-JIT-safe minimax polynomial {@code atan2(dy, dx)} returning {@code [0, 360)} degrees with
+     * max error {@code < 0.08 deg} and zero {@code Math.atan2}/{@code sin}/{@code cos}/{@code pow} calls.
+     */
+    public static float fastAtan2Deg(float dy, float dx) {
+        float ax = Math.abs(dx);
+        float ay = Math.abs(dy);
+        if (ax < 1e-6f && ay < 1e-6f) {
+            return 0f;
+        }
+        float z = (ax >= ay) ? (ay / ax) : (ax / ay);
+        float atanDeg = z * (45.0f - (z - 1.0f) * (14.02f + 3.83f * z));
+        if (ay > ax) {
+            atanDeg = 90.0f - atanDeg;
+        }
+        if (dx < 0f) {
+            atanDeg = 180.0f - atanDeg;
+        }
+        if (dy < 0f) {
+            atanDeg = 360.0f - atanDeg;
+        }
+        if (atanDeg >= 360.0f) atanDeg -= 360.0f;
+        if (atanDeg < 0f) atanDeg += 360.0f;
+        return atanDeg;
+    }
+
+    /**
+     * Returns the time in seconds required for {@code ship} to slew from its current heading to
+     * {@code desiredWorldFacingDeg} at its live {@code maxTurnRate}.
+     */
+    public static float computeShipTurnCommitmentSeconds(ShipAPI ship, float desiredWorldFacingDeg) {
+        if (ship == null) return 0f;
+        float diff = Math.abs(shortestAngleDiff(ship.getFacing(), desiredWorldFacingDeg));
+        return diff / Math.max(6f, ship.getMaxTurnRate());
+    }
+
+    /**
+     * Computes {@code ship}'s cached direct-fire mount profile:
+     * {@code [0] = bowWeight, [1] = portPeakWeight, [2] = stbdPeakWeight, [3] = bestPortRelDeg (+40..+125), [4] = bestStbdRelDeg (-125..-40)}.
+     */
+    private static float[] getOrComputeShipCombatBearingProfile(ShipAPI ship) {
+        if (ship == null) {
+            return new float[]{1f, 0f, 0f, 0f, 0f};
+        }
+        float[] cached = SHIP_COMBAT_BEARING_CACHE.get(ship);
+        if (cached != null) {
+            return cached;
+        }
+        float[] binWeights = new float[36]; // 10-deg bins around hull [0, 10, ..., 350]
+        List<WeaponAPI> weapons = ship.getAllWeapons();
+        if (weapons != null) {
+            for (int wIdx = 0, wN = weapons.size(); wIdx < wN; wIdx++) {
+                WeaponAPI w = weapons.get(wIdx);
+                if (w == null || w.isDecorative() || w.isPermanentlyDisabled()) continue;
+                WeaponType type = w.getType();
+                if (type == WeaponType.MISSILE || type == WeaponType.DECORATIVE
+                        || type == WeaponType.LAUNCH_BAY || type == WeaponType.SYSTEM
+                        || type == WeaponType.STATION_MODULE) {
+                    continue;
+                }
+                if (w.hasAIHint(AIHints.PD_ONLY) || (w.hasAIHint(AIHints.PD) && !w.hasAIHint(AIHints.PD_ALSO))) {
+                    continue;
+                }
+                float range = w.getRange();
+                if (range <= 200f) continue;
+                WeaponAPI.WeaponSize sz = w.getSize();
+                float opWt = (sz == WeaponAPI.WeaponSize.LARGE) ? 4.0f
+                        : (sz == WeaponAPI.WeaponSize.MEDIUM ? 2.0f : 1.0f);
+                if (w.hasAIHint(AIHints.PD_ALSO)) {
+                    opWt *= 0.55f;
+                }
+                float weight = opWt * (0.65f + 0.35f * clamp(range / Math.max(700f, 700f * getGlobalWeaponRangeScale()), 0.4f, 1.8f));
+                float mountRel = w.getArcFacing();
+                float halfArc = Math.max(6f, w.getArc() * 0.5f);
+                for (int b = 0; b < 36; b++) {
+                    float relDeg = b * 10f;
+                    if (Math.abs(shortestAngleDiff(mountRel, relDeg)) <= halfArc + 3f) {
+                        binWeights[b] += weight;
+                    }
+                }
+            }
+        }
+        float bowWt = (binWeights[35] + binWeights[0] * 1.5f + binWeights[1]) / 3.5f;
+        float portPeak = 0f;
+        for (int b = 4; b <= 12; b++) {
+            if (binWeights[b] > portPeak) portPeak = binWeights[b];
+        }
+        float bestPortDeg = 80f;
+        if (portPeak > 0f) {
+            float sumDeg = 0f;
+            float sumWt = 0f;
+            for (int b = 4; b <= 12; b++) { // +40..+120 deg (port broadside plateau centroid)
+                if (binWeights[b] >= portPeak * 0.96f) {
+                    sumDeg += (b * 10f) * binWeights[b];
+                    sumWt += binWeights[b];
+                }
+            }
+            if (sumWt > 0f) bestPortDeg = sumDeg / sumWt;
+        }
+        float stbdPeak = 0f;
+        for (int b = 24; b <= 32; b++) {
+            if (binWeights[b] > stbdPeak) stbdPeak = binWeights[b];
+        }
+        float bestStbdDeg = -80f;
+        if (stbdPeak > 0f) {
+            float sumDeg = 0f;
+            float sumWt = 0f;
+            for (int b = 24; b <= 32; b++) { // -120..-40 deg (starboard broadside plateau centroid)
+                if (binWeights[b] >= stbdPeak * 0.96f) {
+                    sumDeg += ((b * 10f) - 360f) * binWeights[b];
+                    sumWt += binWeights[b];
+                }
+            }
+            if (sumWt > 0f) bestStbdDeg = sumDeg / sumWt;
+        }
+        float[] profile = new float[]{bowWt, portPeak, stbdPeak, bestPortDeg, bestStbdDeg};
+        SHIP_COMBAT_BEARING_CACHE.put(ship, profile);
+        return profile;
+    }
+
+    /**
+     * Returns the optimal relative target bearing (in degrees relative to {@code ship.getFacing()}) that puts
+     * {@code ship}'s primary gun battery & shield onto the enemy: {@code 0f} for bow/turret hulls ({@code Onslaught},
+     * {@code Eagle}), or {@code ~+75..+90f} / {@code ~-75..-90f} for broadside hulls ({@code Conquest}, {@code Odyssey}).
+     *
+     * <p>Therefore {@code desiredShipWorldFacing = normalize360(threatWorldAngleDeg - optimalRelBearingDeg)}.
+     */
+    public static float computeShipOptimalTargetRelBearingDeg(
+            ShipAPI ship,
+            float currentTargetRelBearingDeg,
+            float fluxLevel) {
+        if (ship == null) return 0f;
+        float[] prof = getOrComputeShipCombatBearingProfile(ship);
+        float bowWt = prof[0];
+        float portPeak = prof[1];
+        float stbdPeak = prof[2];
+        float bestBroadside = Math.max(portPeak, stbdPeak);
+        if (bestBroadside <= 0.1f || bestBroadside < bowWt * 1.32f) {
+            return 0f;
+        }
+        float chosenRel;
+        if (portPeak > stbdPeak * 1.45f) {
+            chosenRel = prof[3];
+        } else if (stbdPeak > portPeak * 1.45f) {
+            chosenRel = prof[4];
+        } else {
+            // Symmetric broadside capital (e.g. Conquest): hold whichever broadside requires less turn (with 12-deg hysteresis)
+            float errPort = Math.abs(shortestAngleDiff(currentTargetRelBearingDeg, prof[3]));
+            float errStbd = Math.abs(shortestAngleDiff(currentTargetRelBearingDeg, prof[4]));
+            chosenRel = (errPort <= errStbd + 12f && currentTargetRelBearingDeg >= -12f)
+                    ? prof[3]
+                    : (errStbd < errPort ? prof[4] : prof[3]);
+        }
+        com.fs.starfarer.api.combat.ShieldAPI shield = ship.getShield();
+        if (shield != null
+                && shield.getType() == com.fs.starfarer.api.combat.ShieldAPI.ShieldType.FRONT
+                && fluxLevel >= 0.28f) {
+            float maxFrontSafeRel = Math.max(15f, shield.getArc() * 0.38f);
+            chosenRel = clamp(chosenRel, -maxFrontSafeRel, maxFrontSafeRel);
+        }
+        return chosenRel;
+    }
+
+    /**
+     * Evaluates whether {@code ship} is currently inside a live direct-fire combat envelope (either within its own
+     * direct-fire gun reach of a visible enemy OR within an enemy warship's live direct-fire gun reach), populating
+     * {@code outThreat}:
+     * <ul>
+     *   <li>{@code outThreat[0]} = distance to primary threatening enemy</li>
+     *   <li>{@code outThreat[1]} = world bearing (degrees {@code [0, 360)}) from {@code ship} toward that enemy</li>
+     *   <li>{@code outThreat[2]} = maximum hostile direct-fire gun reach holding {@code ship} (or nearest threat's reach)</li>
+     *   <li>{@code outThreat[3]} = {@code ship}'s own maximum direct-fire gun reach</li>
+     * </ul>
+     *
+     * <p>Zero allocations and zero C2-unsafe trig; uses the flat per-frame {@code obsShips} snapshot when {@code engine != null}.
+     */
+    public static boolean evaluateLiveDirectFireThreat(
+            CombatEngineAPI engine,
+            ShipAPI ship,
+            ShipAPI focusEnemyHint,
+            float[] outThreat) {
+        if (ship == null || ship.getLocation() == null) {
+            return false;
+        }
+        float elapsed = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
+        float sx = ship.getLocation().x;
+        float sy = ship.getLocation().y;
+        int myOwner = ship.getOwner();
+        float ownGunReach = resolveCachedMaxNonMissileReach(ship, elapsed);
+        float myRad = resolvePhysicalShieldOrHullRadius(ship);
+
+        float bestThreatScore = -Float.MAX_VALUE;
+        float bestDist = Float.MAX_VALUE;
+        float bestDx = 0f;
+        float bestDy = 0f;
+        float maxHostileReachInEnvelope = 0f;
+        boolean anyLiveDirectThreat = false;
+
+        if (focusEnemyHint != null && focusEnemyHint.isAlive() && !focusEnemyHint.isHulk()
+                && focusEnemyHint.getOwner() != myOwner && focusEnemyHint.getLocation() != null) {
+            float fdx = focusEnemyHint.getLocation().x - sx;
+            float fdy = focusEnemyHint.getLocation().y - sy;
+            float fDist = (float) Math.sqrt(fdx * fdx + fdy * fdy);
+            float fEnemyGun = resolveCachedMaxNonMissileReach(focusEnemyHint, elapsed);
+            float env = Math.max(ownGunReach * 1.10f, fEnemyGun * 1.14f) + myRad;
+            if (fDist <= env) {
+                anyLiveDirectThreat = true;
+                maxHostileReachInEnvelope = Math.max(maxHostileReachInEnvelope, fEnemyGun);
+                bestDist = fDist;
+                bestDx = fdx;
+                bestDy = fdy;
+                bestThreatScore = 2500f - fDist * 0.35f + fEnemyGun * 0.25f;
+            }
+        }
+
+        if (engine != null) {
+            ensureFrameObstacleSnapshot(engine);
+            int n = obsCount;
+            for (int i = 0; i < n; i++) {
+                if (obsIsHulk[i]) continue;
+                int owner = obsOwners[i];
+                if (owner == myOwner || owner == 100) continue;
+                float edx = obsX[i] - sx;
+                float edy = obsY[i] - sy;
+                float distSq = edx * edx + edy * edy;
+                float enemyGun = obsMaxGunReach[i];
+                float env = Math.max(ownGunReach * 1.10f, enemyGun * 1.14f) + myRad;
+                if (distSq > env * env) continue;
+                float dist = (float) Math.sqrt(distSq);
+                anyLiveDirectThreat = true;
+                if (!obsOverloadedOrVenting[i] && dist <= enemyGun * 1.14f + myRad) {
+                    if (enemyGun > maxHostileReachInEnvelope) {
+                        maxHostileReachInEnvelope = enemyGun;
+                    }
+                }
+                boolean isFocus = (obsShips[i] == focusEnemyHint);
+                float score = (isFocus ? 2500f : 1200f) - dist * 0.35f + enemyGun * 0.25f;
+                if (score > bestThreatScore) {
+                    bestThreatScore = score;
+                    bestDist = dist;
+                    bestDx = edx;
+                    bestDy = edy;
+                }
+            }
+        }
+
+        if (outThreat != null && outThreat.length >= 4) {
+            outThreat[0] = bestDist;
+            outThreat[1] = anyLiveDirectThreat ? fastAtan2Deg(bestDy, bestDx) : ship.getFacing();
+            outThreat[2] = maxHostileReachInEnvelope;
+            outThreat[3] = ownGunReach;
+        }
+        return anyLiveDirectThreat;
+    }
+
+    private static final float[] THREAT_SCRATCH = new float[4];
+
+    /**
+     * Resolves the desired world combat facing (in degrees {@code [0, 360)}) that keeps {@code ship}'s primary
+     * guns and shield oriented toward the active direct-fire threat ({@code Float.NaN} if no live direct-fire threat).
+     */
+    public static float resolveLiveCombatFacingOverrideDeg(
+            CombatEngineAPI engine,
+            ShipAPI ship,
+            ShipAPI focusEnemyHint) {
+        if (!evaluateLiveDirectFireThreat(engine, ship, focusEnemyHint, THREAT_SCRATCH)) {
+            return Float.NaN;
+        }
+        float threatWorldDeg = THREAT_SCRATCH[1];
+        float curTargetRel = shortestAngleDiff(ship.getFacing(), threatWorldDeg);
+        float optRel = computeShipOptimalTargetRelBearingDeg(ship, curTargetRel, ship.getFluxLevel());
+        float desiredWorld = (threatWorldDeg - optRel) % 360f;
+        if (desiredWorld < 0f) desiredWorld += 360f;
+        return desiredWorld;
     }
 
     private static float shortestAngleDiff(float fromDeg, float toDeg) {

@@ -181,19 +181,56 @@ public class PermanentDivisionManager {
             }
             return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, Math.max(configuredStandoff, missileTarget)));
         }
-        if (div.avgEngageRange > 350f) {
-            // Preserve hull-role standoff fraction relative to live weapon reach (never exceeding 94% of own gun range!)
+        float gunRefRange = (div.medianMainBatteryRange > 350f) ? div.medianMainBatteryRange : div.avgEngageRange;
+        if (gunRefRange > 350f) {
+            // Preserve hull-role standoff fraction relative to live median main-battery reach (never exceeding 94% of own gun range!)
             float roleFrac = (div.archetype != null && div.archetype.isLightSkirmisherArchetype())
                     ? 0.84f
                     : 0.88f;
-            float liveTarget = Math.min(div.avgEngageRange * 0.94f, div.avgEngageRange * roleFrac * postureMult);
-            float floorTarget = Math.min(div.avgEngageRange * 0.94f, configuredStandoff);
+            float liveTarget = Math.min(gunRefRange * 0.94f, gunRefRange * roleFrac * postureMult);
+            float floorTarget = Math.min(gunRefRange * 0.94f, configuredStandoff);
             return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, Math.max(floorTarget, liveTarget)));
         }
         float fallbackScaled = (CombatPhysicsProfile.isGlobalScaledEnvironment() && configuredStandoff > vanillaDefault * 1.45f)
                 ? configuredStandoff
                 : (configuredStandoff * wScale);
         return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, fallbackScaled));
+    }
+
+    /**
+     * Resolves a gun division's mission-coupled combat standoff range at battle timestamp {@code now}:
+     * <ul>
+     *   <li>{@link DivisionMissionType#CLOSE_ACTION} under scaled physics anchors to the shortest-ranged member's
+     *       main battery ({@code 0.72x minMainBatteryRange}) so every capital/cruiser in a mixed gun division brings
+     *       decisive broadsides to bear instead of hanging back at the longest ship's range.</li>
+     *   <li>{@link DivisionMissionType#STANDOFF} anchors to the division median main battery ({@code 0.88x..0.92x}).</li>
+     *   <li>Explicit custom player standoffs ({@code div.hasExplicitCustomStandoff}) and 1.0x vanilla defaults are preserved.</li>
+     * </ul>
+     */
+    public static float resolveEffectiveCombatGunStandoff(DivisionState div, float now) {
+        if (div == null) return 800f;
+        float base = Math.max(MIN_STANDOFF_RANGE_UNITS, div.standoffRange);
+        if (div.hasExplicitCustomStandoff
+                || (div.archetype != null && (div.archetype.isCarrierArchetype() || div.archetype.isMissileArchetype()))) {
+            return base;
+        }
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(null);
+        if (wScale <= 1.25f && div.avgEngageRange <= 1650f) {
+            return base;
+        }
+        DivisionMissionType activeMission = DivisionCommanderAI.resolveActiveMission(div, now);
+        if (activeMission == DivisionMissionType.CLOSE_ACTION) {
+            float shortBat = (div.minMainBatteryRange > 350f) ? div.minMainBatteryRange : div.avgEngageRange;
+            if (shortBat > 350f) {
+                return Math.max(520f, Math.min(base, shortBat * 0.72f));
+            }
+        } else if (activeMission == DivisionMissionType.STANDOFF_ENGAGEMENT) {
+            float medBat = (div.medianMainBatteryRange > 350f) ? div.medianMainBatteryRange : div.avgEngageRange;
+            if (medBat > 350f) {
+                return Math.max(540f, Math.min(medBat * 0.92f, Math.max(base, medBat * 0.88f)));
+            }
+        }
+        return base;
     }
 
     /**
@@ -403,6 +440,50 @@ public class PermanentDivisionManager {
             if (id == null) return fallback;
             try {
                 return DivisionMovementStickiness.valueOf(id.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return fallback;
+            }
+        }
+    }
+
+    /**
+     * Naval Engine Order Telegraph governing maximum ship speed & braking envelope:
+     *  - AUTO: C2 automatically selects 1/3, 1/2, Full, or Flank by tactical intent and hull stopping inertia.
+     *  - ONE_THIRD: Tight battleline dress / station crawl; clamps runaway inertia so heavy capitals stop cleanly.
+     *  - ONE_HALF: Controlled combat maneuver, kiting, and standoff hold without overshooting the line.
+     *  - FULL: Brisk closing and flank transit while suppressing runaway zero-flux boost.
+     *  - FLANK: Uncapped maximum burn and zero-flux speed boost.
+     */
+    public enum DivisionEngineTelegraph {
+        AUTO("Auto", "Auto", "C2 rings 1/3, 1/2, Full, or Flank by intent and hull inertia.", 1.00f, 99f),
+        ONE_THIRD("1/3 Ahead", "1/3", "Tight station crawl and gunline dress; stops heavy hulls cleanly.", 0.34f, 2.90f),
+        ONE_HALF("1/2 Ahead", "1/2", "Controlled battleline maneuver and kiting without overshoot.", 0.52f, 4.55f),
+        FULL("Full Ahead", "Full", "Brisk closing and flank transit; suppresses runaway boost.", 0.78f, 6.50f),
+        FLANK("Flank", "Flank", "Uncapped max burn and zero-flux speed boost.", 1.00f, 99f);
+
+        public final String displayName;
+        public final String shortName;
+        public final String summary;
+        public final float vanillaSpeedFraction;
+        public final float maxBrakingSeconds;
+
+        DivisionEngineTelegraph(
+                String displayName,
+                String shortName,
+                String summary,
+                float vanillaSpeedFraction,
+                float maxBrakingSeconds) {
+            this.displayName = displayName;
+            this.shortName = shortName;
+            this.summary = summary;
+            this.vanillaSpeedFraction = vanillaSpeedFraction;
+            this.maxBrakingSeconds = maxBrakingSeconds;
+        }
+
+        public static DivisionEngineTelegraph fromId(String id, DivisionEngineTelegraph fallback) {
+            if (id == null) return fallback;
+            try {
+                return DivisionEngineTelegraph.valueOf(id.trim().toUpperCase(java.util.Locale.ROOT));
             } catch (IllegalArgumentException e) {
                 return fallback;
             }
@@ -2245,6 +2326,7 @@ public class PermanentDivisionManager {
         private final Map<DoctrineDivisionType, Integer> divisionIntervalByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, Integer> standoffRangeByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, Float> stationKeepingByType = new LinkedHashMap<>();
+        private final Map<DoctrineDivisionType, DivisionEngineTelegraph> engineTelegraphByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> openingMissionByType = new LinkedHashMap<>();
         private final Map<DoctrineDivisionType, DivisionMissionType> mainMissionByType = new LinkedHashMap<>();
         private Map<DoctrineDivisionType, StrikeCraftMissionType> strikeCraftOpeningMissionByType = new LinkedHashMap<>();
@@ -2325,6 +2407,7 @@ public class PermanentDivisionManager {
                 divisionIntervalByType.put(dt, getEffectiveDefaultDivisionIntervalUnits(dt));
                 standoffRangeByType.put(dt, getEffectiveDefaultStandoffRangeUnits(dt));
                 stationKeepingByType.put(dt, dt.defaultStationKeepingMult);
+                engineTelegraphByType.put(dt, DivisionEngineTelegraph.AUTO);
                 openingMissionByType.put(dt, dt.defaultOpeningMission);
                 mainMissionByType.put(dt, dt.defaultMainMission);
                 strikeCraftOpeningMissionByType.put(dt, defaultStrikeCraftOpeningMissionFor(dt));
@@ -2506,6 +2589,22 @@ public class PermanentDivisionManager {
             return null;
         }
 
+        private Boolean speedGovernorOverride = null;
+
+        public boolean isSpeedGovernorEnabled() {
+            return speedGovernorOverride != null
+                    ? speedGovernorOverride.booleanValue()
+                    : CombatPhysicsProfile.isSpeedGoverningEnvironment();
+        }
+
+        public Boolean getSpeedGovernorOverride() {
+            return speedGovernorOverride;
+        }
+
+        public void setSpeedGovernorOverride(Boolean override) {
+            this.speedGovernorOverride = override;
+        }
+
         public boolean isDeployInFleetFormation() {
             return deployInFleetFormation && getFleetWideFormation() != FleetWideFormation.NONE;
         }
@@ -2606,6 +2705,17 @@ public class PermanentDivisionManager {
         public void setMovementStickiness(DoctrineDivisionType dt, DivisionMovementStickiness stickiness) {
             if (dt == null || stickiness == null) return;
             setStationKeepingMult(dt, stickiness.stationKeepingMult);
+        }
+
+        public DivisionEngineTelegraph getEngineTelegraph(DoctrineDivisionType dt) {
+            if (dt == null) return DivisionEngineTelegraph.AUTO;
+            DivisionEngineTelegraph t = engineTelegraphByType.get(dt);
+            return t != null ? t : DivisionEngineTelegraph.AUTO;
+        }
+
+        public void setEngineTelegraph(DoctrineDivisionType dt, DivisionEngineTelegraph telegraph) {
+            if (dt == null || telegraph == null) return;
+            engineTelegraphByType.put(dt, telegraph);
         }
 
         public static StrikeCraftMissionType defaultStrikeCraftOpeningMissionFor(DoctrineDivisionType dt) {
@@ -3242,6 +3352,10 @@ public class PermanentDivisionManager {
             if (orchAdvObj instanceof Boolean) {
                 cfg.setOrchestratedAdvance((Boolean) orchAdvObj);
             }
+            Object spdGovObj = map.get("bg_speed_governor_override");
+            if (spdGovObj instanceof Boolean) {
+                cfg.setSpeedGovernorOverride((Boolean) spdGovObj);
+            }
             for (OtcPlay play : OtcPlay.values()) {
                 Object playObj = getWithLegacyKey(map, "bg_play_", play.name(), play.legacyName());
                 if (playObj instanceof Boolean) {
@@ -3318,6 +3432,10 @@ public class PermanentDivisionManager {
                             (String) scCapResObj, FleetDoctrineConfig.defaultStrikeCraftCapReserveFor(dt)));
                 }
                 Object vsBiasObj = map.get("vs_bias_" + dt.name());
+                Object engTelObj = map.get("eng_telegraph_" + dt.name());
+                if (engTelObj instanceof String) {
+                    cfg.setEngineTelegraph(dt, DivisionEngineTelegraph.fromId((String) engTelObj, DivisionEngineTelegraph.AUTO));
+                }
                 Object vsCvFocusObj = map.get("vs_cv_focus_" + dt.name());
                 if (vsBiasObj instanceof String) {
                     cfg.setVoidstrikeTargetingBias(dt, VoidstrikeTargetingBias.fromId(
@@ -3438,6 +3556,9 @@ public class PermanentDivisionManager {
         serialized.put("bg_eng_discipline", cfg.getEngagementDiscipline().name());
         serialized.put("bg_deploy_in_formation", cfg.isDeployInFleetFormation());
         serialized.put("bg_orchestrated_advance", cfg.isOrchestratedAdvance());
+        if (cfg.getSpeedGovernorOverride() != null) {
+            serialized.put("bg_speed_governor_override", cfg.getSpeedGovernorOverride());
+        }
         for (OtcPlay play : OtcPlay.values()) {
             serialized.put("bg_play_" + play.name(), cfg.isPlayEnabled(play));
         }
@@ -3484,6 +3605,7 @@ public class PermanentDivisionManager {
             serialized.put("ram_mode_" + dt.name(), cfg.getRammingMode(dt).name());
             serialized.put("ram_scope_" + dt.name(), cfg.getRammingTargetScope(dt).name());
             serialized.put("ram_slots_" + dt.name(), cfg.getMaxRammingSlots(dt));
+            serialized.put("eng_telegraph_" + dt.name(), cfg.getEngineTelegraph(dt).name());
         }
         return serialized;
     }
@@ -3609,6 +3731,21 @@ public class PermanentDivisionManager {
         if (dt == null || stickiness == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setMovementStickiness(dt, stickiness);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateSpeedGovernorOverride(Boolean override) {
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setSpeedGovernorOverride(override);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateDivisionTypeEngineTelegraph(
+            DoctrineDivisionType dt,
+            DivisionEngineTelegraph telegraph) {
+        if (dt == null || telegraph == null) return;
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setEngineTelegraph(dt, telegraph);
         saveFleetDoctrine(cfg);
     }
 
@@ -3946,6 +4083,7 @@ public class PermanentDivisionManager {
         public LineStation customLineStation = null;
         public DivisionFormation customFormation = null;
         public DivisionMovementStickiness customMovementStickiness = null;
+        public DivisionEngineTelegraph customEngineTelegraph = null;
         public VoidstrikeTargetingBias customVoidstrikeTargetingBias = null;
         public Boolean customVoidstrikeFocusCarriers = null;
         public VoidstrikeTargetObservance customVoidstrikeObservance = null;
@@ -4288,6 +4426,16 @@ public class PermanentDivisionManager {
                 : DivisionMovementStickiness.fromStationKeepingMult(dt.defaultStationKeepingMult);
     }
 
+    public static DivisionEngineTelegraph resolveEffectiveEngineTelegraph(
+            PermanentDivisionSpec spec,
+            FleetDoctrineConfig cfg) {
+        if (spec != null && spec.customEngineTelegraph != null) {
+            return spec.customEngineTelegraph;
+        }
+        DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec != null ? spec.archetype : null);
+        return cfg != null ? cfg.getEngineTelegraph(dt) : DivisionEngineTelegraph.AUTO;
+    }
+
     public static float resolveEffectiveStationKeepingMult(
             PermanentDivisionSpec spec,
             FleetDoctrineConfig cfg) {
@@ -4557,10 +4705,12 @@ public class PermanentDivisionManager {
     }
 
     private static final String PERSISTENT_PHYSICS_SCALE_STAMP_KEY = "divisionai_physics_scale_stamp_v1";
+    private static final String PERSISTENT_PHYSICS_SPACING_STAMP_KEY = "divisionai_physics_spacing_stamp_v2";
+    private static final String PERSISTENT_PHYSICS_INTERVAL_STAMP_KEY = "divisionai_physics_interval_stamp_v2";
 
     /**
      * Synchronizes persistent player {@link FleetDoctrineConfig} defaults and auto-calculated division standoffs
-     * whenever the active combat-physics scale changes (e.g. adding/updating/removing Better Combat on an existing save).
+     * whenever the active combat-physics scale or mutual-support spacing/interval curve changes.
      */
     public static void syncDoctrineAndDivisionDefaultsWithPhysicsScale() {
         SectorAPI sector = Global.getSector();
@@ -4575,46 +4725,73 @@ public class PermanentDivisionManager {
         if (prevObj instanceof Number) {
             prevGunScale = Math.max(1.0f, ((Number) prevObj).floatValue());
         }
+        float prevSpacingMult = 1.0f;
+        Object prevSpObj = pdata.get(PERSISTENT_PHYSICS_SPACING_STAMP_KEY);
+        if (prevSpObj instanceof Number) {
+            prevSpacingMult = Math.max(1.0f, ((Number) prevSpObj).floatValue());
+        } else if (prevObj != null && prevGunScale > 1.25f) {
+            // Migrate v1 Better Combat saves that stamped gunScale under the legacy 2.55x/2.85x spacing/interval formula
+            float estBounds = CombatPhysicsProfile.getGlobalShipBoundsScale();
+            prevSpacingMult = Math.max(estBounds * 0.85f, 0.45f + 0.55f * prevGunScale);
+        }
+        float prevIntervalMult = 1.0f;
+        Object prevIntObj = pdata.get(PERSISTENT_PHYSICS_INTERVAL_STAMP_KEY);
+        if (prevIntObj instanceof Number) {
+            prevIntervalMult = Math.max(1.0f, ((Number) prevIntObj).floatValue());
+        } else if (prevObj != null && prevGunScale > 1.25f) {
+            float estBounds = CombatPhysicsProfile.getGlobalShipBoundsScale();
+            prevIntervalMult = Math.max(estBounds * 0.95f, 0.30f + 0.70f * prevGunScale);
+        }
+
         boolean scaleChanged = (prevObj == null && CombatPhysicsProfile.isGlobalScaledEnvironment())
-                || (prevObj != null && Math.abs(currGunScale - prevGunScale) > 0.15f);
+                || (prevObj != null && Math.abs(currGunScale - prevGunScale) > 0.15f)
+                || (prevObj != null && Math.abs(currSpacingMult - prevSpacingMult) > 0.12f)
+                || (prevObj != null && Math.abs(currIntervalMult - prevIntervalMult) > 0.12f);
         pdata.put(PERSISTENT_PHYSICS_SCALE_STAMP_KEY, currGunScale);
+        pdata.put(PERSISTENT_PHYSICS_SPACING_STAMP_KEY, currSpacingMult);
+        pdata.put(PERSISTENT_PHYSICS_INTERVAL_STAMP_KEY, currIntervalMult);
         if (!scaleChanged) {
             return;
         }
 
         FleetDoctrineConfig cfg = getFleetDoctrine();
         if (cfg != null) {
-            float ratio = currGunScale / Math.max(1.0f, prevGunScale);
+            float gunRatio = currGunScale / Math.max(1.0f, prevGunScale);
+            float spRatio = currSpacingMult / Math.max(1.0f, prevSpacingMult);
+            float intRatio = currIntervalMult / Math.max(1.0f, prevIntervalMult);
             for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
                 int newDefSp = getEffectiveDefaultStationSpacingUnits(dt);
                 int newDefInt = getEffectiveDefaultDivisionIntervalUnits(dt);
                 int newDefSt = getEffectiveDefaultStandoffRangeUnits(dt);
+                int oldDefSp = Math.round((dt.defaultStationSpacingUnits * prevSpacingMult) / 25f) * 25;
+                int oldDefInt = Math.round((dt.defaultDivisionIntervalUnits * prevIntervalMult) / 50f) * 50;
+                int oldDefSt = Math.round((dt.defaultStandoffRangeUnits * prevGunScale) / 50f) * 50;
 
                 int curSp = cfg.getStationSpacing(dt);
                 if (curSp == dt.defaultStationSpacingUnits
                         || (currSpacingMult <= 1.02f && curSp > MAX_STATION_SPACING_UNITS)
-                        || Math.abs(curSp - Math.round((newDefSp / Math.max(1.0f, ratio)) / 25f) * 25) <= 50) {
+                        || Math.abs(curSp - oldDefSp) <= 50) {
                     cfg.setStationSpacing(dt, newDefSp);
                 } else {
-                    cfg.setStationSpacing(dt, Math.round((curSp * ratio) / 25f) * 25);
+                    cfg.setStationSpacing(dt, Math.round((curSp * spRatio) / 25f) * 25);
                 }
 
                 int curInt = cfg.getDivisionInterval(dt);
                 if (curInt == dt.defaultDivisionIntervalUnits
                         || (currIntervalMult <= 1.02f && curInt > MAX_DIVISION_INTERVAL_UNITS)
-                        || Math.abs(curInt - Math.round((newDefInt / Math.max(1.0f, ratio)) / 50f) * 50) <= 100) {
+                        || Math.abs(curInt - oldDefInt) <= 100) {
                     cfg.setDivisionInterval(dt, newDefInt);
                 } else {
-                    cfg.setDivisionInterval(dt, Math.round((curInt * ratio) / 50f) * 50);
+                    cfg.setDivisionInterval(dt, Math.round((curInt * intRatio) / 50f) * 50);
                 }
 
                 int curSt = cfg.getStandoffRange(dt);
                 if (curSt == dt.defaultStandoffRangeUnits
                         || (currGunScale <= 1.05f && curSt > MAX_STANDOFF_RANGE_UNITS)
-                        || Math.abs(curSt - Math.round((newDefSt / Math.max(1.0f, ratio)) / 50f) * 50) <= 100) {
+                        || Math.abs(curSt - oldDefSt) <= 100) {
                     cfg.setStandoffRange(dt, newDefSt);
-                } else {
-                    cfg.setStandoffRange(dt, Math.round((curSt * ratio) / 50f) * 50);
+                } else if (Math.abs(gunRatio - 1.0f) > 0.08f) {
+                    cfg.setStandoffRange(dt, Math.round((curSt * gunRatio) / 50f) * 50);
                 }
             }
             saveFleetDoctrine(cfg);
@@ -4627,12 +4804,18 @@ public class PermanentDivisionManager {
             for (PermanentDivisionSpec spec : specs) {
                 if (spec == null) continue;
                 DoctrineDivisionType dt = DoctrineDivisionType.forArchetype(spec.archetype);
-                if (spec.customStationSpacing != null && spec.customStationSpacing == dt.defaultStationSpacingUnits
+                int oldSpecDefSp = Math.round((dt.defaultStationSpacingUnits * prevSpacingMult) / 25f) * 25;
+                int oldSpecDefInt = Math.round((dt.defaultDivisionIntervalUnits * prevIntervalMult) / 50f) * 50;
+                if (spec.customStationSpacing != null
+                        && (spec.customStationSpacing == dt.defaultStationSpacingUnits
+                        || Math.abs(spec.customStationSpacing - oldSpecDefSp) <= 50)
                         && CombatPhysicsProfile.isGlobalScaledEnvironment()) {
                     spec.customStationSpacing = getEffectiveDefaultStationSpacingUnits(dt);
                     specsUpdated = true;
                 }
-                if (spec.customDivisionInterval != null && spec.customDivisionInterval == dt.defaultDivisionIntervalUnits
+                if (spec.customDivisionInterval != null
+                        && (spec.customDivisionInterval == dt.defaultDivisionIntervalUnits
+                        || Math.abs(spec.customDivisionInterval - oldSpecDefInt) <= 100)
                         && CombatPhysicsProfile.isGlobalScaledEnvironment()) {
                     spec.customDivisionInterval = getEffectiveDefaultDivisionIntervalUnits(dt);
                     specsUpdated = true;
@@ -4810,6 +4993,17 @@ public class PermanentDivisionManager {
             @Override
             public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
                 spec.customMovementStickiness = stickiness;
+            }
+        });
+    }
+
+    public static void updateIndividualDivisionEngineTelegraph(
+            String divisionId,
+            final DivisionEngineTelegraph telegraph) {
+        mutatePlayerDivisionSpec(divisionId, new DivisionSpecMutator() {
+            @Override
+            public void mutate(PermanentDivisionSpec spec, CampaignFleetAPI fleet) {
+                spec.customEngineTelegraph = telegraph;
             }
         });
     }
@@ -5964,6 +6158,7 @@ public class PermanentDivisionManager {
         copy.customDivisionInterval = spec.customDivisionInterval;
         copy.customStandoffRange = spec.customStandoffRange;
         copy.customMovementStickiness = spec.customMovementStickiness;
+        copy.customEngineTelegraph = spec.customEngineTelegraph;
         copy.customOpeningMission = spec.customOpeningMission;
         copy.customMainMission = spec.customMainMission;
         copy.customLineStation = spec.customLineStation;
@@ -6350,19 +6545,6 @@ public class PermanentDivisionManager {
         div.divisionInterval = (optionalSpec != null)
                 ? resolveEffectiveDivisionInterval(optionalSpec, cfg)
                 : cfg.getDivisionInterval(dt);
-        float rawConfiguredStandoff = (optionalSpec != null)
-                ? resolveEffectiveStandoffRange(optionalSpec, cfg)
-                : cfg.getStandoffRange(dt);
-        boolean hasCustomDivStandoff = (optionalSpec != null && optionalSpec.customStandoffRange != null);
-        div.standoffRange = adaptDoctrinalStandoffToLiveEnvelope(
-                div, dt, rawConfiguredStandoff, hasCustomDivStandoff);
-        div.doctrinalMovementStickiness = (optionalSpec != null)
-                ? resolveEffectiveMovementStickiness(optionalSpec, cfg)
-                : cfg.getMovementStickiness(dt);
-        div.activeMovementStickiness = div.doctrinalMovementStickiness;
-        div.stationKeepingMult = (optionalSpec != null)
-                ? resolveEffectiveStationKeepingMult(optionalSpec, cfg)
-                : cfg.getStationKeepingMult(dt);
         div.openingPhaseDurationSeconds = cfg.getOpeningDurationSeconds();
         div.openingMission = (optionalSpec != null)
                 ? resolveEffectiveOpeningMission(optionalSpec, cfg)
@@ -6370,6 +6552,31 @@ public class PermanentDivisionManager {
         div.mainMission = (optionalSpec != null)
                 ? resolveEffectiveMainMission(optionalSpec, cfg)
                 : cfg.getMainMission(dt);
+        float rawConfiguredStandoff = (optionalSpec != null)
+                ? resolveEffectiveStandoffRange(optionalSpec, cfg)
+                : cfg.getStandoffRange(dt);
+        boolean hasCustomDivStandoff = (optionalSpec != null && optionalSpec.customStandoffRange != null)
+                || (cfg.getStandoffRange(dt) != dt.defaultStandoffRangeUnits
+                        && cfg.getStandoffRange(dt) != getEffectiveDefaultStandoffRangeUnits(dt));
+        div.hasExplicitCustomStandoff = hasCustomDivStandoff;
+        div.standoffRange = adaptDoctrinalStandoffToLiveEnvelope(
+                div, dt, rawConfiguredStandoff, optionalSpec != null && optionalSpec.customStandoffRange != null);
+        div.doctrinalMovementStickiness = (optionalSpec != null)
+                ? resolveEffectiveMovementStickiness(optionalSpec, cfg)
+                : cfg.getMovementStickiness(dt);
+        div.activeMovementStickiness = div.doctrinalMovementStickiness;
+        div.speedGovernorEnabled = cfg.isSpeedGovernorEnabled();
+        div.doctrinalEngineTelegraph = (optionalSpec != null)
+                ? resolveEffectiveEngineTelegraph(optionalSpec, cfg)
+                : cfg.getEngineTelegraph(dt);
+        if (!div.speedGovernorEnabled) {
+            div.activeEngineTelegraph = DivisionEngineTelegraph.FLANK;
+        } else if (div.doctrinalEngineTelegraph != DivisionEngineTelegraph.AUTO) {
+            div.activeEngineTelegraph = div.doctrinalEngineTelegraph;
+        }
+        div.stationKeepingMult = (optionalSpec != null)
+                ? resolveEffectiveStationKeepingMult(optionalSpec, cfg)
+                : cfg.getStationKeepingMult(dt);
         div.strikeCraftOpeningMission = (optionalSpec != null)
                 ? resolveEffectiveStrikeCraftOpeningMission(optionalSpec, cfg)
                 : cfg.getStrikeCraftOpeningMission(dt);
@@ -7364,6 +7571,10 @@ public class PermanentDivisionManager {
         Object cPrefSpace = map.get("customPreferredSpace");
         Object cForm = map.get("customFormation");
         Object cSticky = map.get("customMovementStickiness");
+        Object cEngTel = map.get("customEngineTelegraph");
+        if (cEngTel instanceof String) {
+            spec.customEngineTelegraph = DivisionEngineTelegraph.fromId((String) cEngTel, null);
+        }
         Object cScCapRes = map.get("customStrikeCraftCapReserve");
         if (cScCapRes instanceof String) {
             spec.customStrikeCraftCapReserve = StrikeCraftCapReserve.fromId((String) cScCapRes, null);
@@ -7528,6 +7739,7 @@ public class PermanentDivisionManager {
         if (spec.customLineStation != null) map.put("customPreferredSpace", spec.customLineStation.name());
         if (spec.customFormation != null) map.put("customFormation", spec.customFormation.name());
         if (spec.customMovementStickiness != null) map.put("customMovementStickiness", spec.customMovementStickiness.name());
+        if (spec.customEngineTelegraph != null) map.put("customEngineTelegraph", spec.customEngineTelegraph.name());
         if (spec.customVoidstrikeTargetingBias != null) map.put("customVoidstrikeTargetingBias", spec.customVoidstrikeTargetingBias.name());
         if (spec.customVoidstrikeFocusCarriers != null) map.put("customVoidstrikeFocusCarriers", spec.customVoidstrikeFocusCarriers);
         if (spec.customVoidstrikeObservance != null) map.put("customVoidstrikeObservance", spec.customVoidstrikeObservance.name());

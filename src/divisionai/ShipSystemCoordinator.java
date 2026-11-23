@@ -1047,7 +1047,15 @@ public final class ShipSystemCoordinator {
                 }
 
                 if (outOfCombatMarch && alive.size() >= 2 && (prof.category.isLinearVector() || prof.estimatedSpeedBonus > 10f)) {
-                    if (!isOutOfCombatStragglerBehind(div, ship)) {
+                    boolean slowCapitalLongTransit = ship.isCapital()
+                            && !prof.dropsShield
+                            && div.centroid != null
+                            && (div.stationPoint.x != 0f || div.stationPoint.y != 0f)
+                            && DivisionCommanderAI.distance(div.centroid, div.stationPoint)
+                                    > Math.max(2600f, div.standoffRange * 1.65f)
+                            && ShipCaptainAI.resolveUngovernedMaxSpeed(ship)
+                                    <= DivisionFormationNavigator.computeDivisionSustainableSpeed(div, alive) * 1.12f;
+                    if (!slowCapitalLongTransit && !isOutOfCombatStragglerBehind(div, ship)) {
                         ship.blockCommandForOneFrame(ShipCommand.USE_SYSTEM);
                         continue;
                     }

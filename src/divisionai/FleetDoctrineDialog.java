@@ -30,6 +30,7 @@ import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
+import divisionai.PermanentDivisionManager.DivisionEngineTelegraph;
 import divisionai.PermanentDivisionManager.DivisionRammingMode;
 import divisionai.PermanentDivisionManager.DivisionRammingTargetScope;
 import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
@@ -705,6 +706,7 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                     LineStation currLineStation = doctrine.getLineStation(dt);
                     DivisionFormation currFormation = doctrine.getFormation(dt);
                     DivisionMovementStickiness currStickiness = doctrine.getMovementStickiness(dt);
+                    DivisionEngineTelegraph currTelegraph = doctrine.getEngineTelegraph(dt);
 
                     boolean dtCollapsed = collapsedDivisionTypes.contains(dt);
                     addDivisionTypeCardHeaderRow(
@@ -812,6 +814,19 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                         darkColor,
                         positive,
                         gray);
+
+                if (dt != DoctrineDivisionType.SERVICE_GROUP && doctrine.isSpeedGovernorEnabled()) {
+                    addEngineTelegraphRow(
+                            body,
+                            bodyWidth - 16f,
+                            "Telegraph: " + currTelegraph.shortName,
+                            currTelegraph,
+                            "SET_ENG_TELEGRAPH:" + dt.name() + ":",
+                            baseColor,
+                            darkColor,
+                            positive,
+                            gray);
+                }
 
                 if (!dt.isCarrierType() && dt != DoctrineDivisionType.SERVICE_GROUP) {
                     DivisionSetpieceAttack currSetpiece = doctrine.getSetpieceAttack(dt);
@@ -2568,6 +2583,28 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 body, rowWidth, "OP_ENG_DISCIPLINE_DD", "Engagement Discipline:",
                 discNames, discSums, discActs, discIdx,
                 baseColor, darkColor, activeValueColor, gray);
+
+        // 5. Naval Speed Governor (Off by default in Vanilla; On by default in Better Combat)
+        boolean bcEnv = CombatPhysicsProfile.isSpeedGoverningEnvironment();
+        boolean govOn = doctrine.isSpeedGovernorEnabled();
+        String[] govNames = bcEnv
+                ? new String[]{"On (BC Default)", "Off"}
+                : new String[]{"Off (Default)", "On (Vanilla Opt-In)"};
+        String[] govSums = bcEnv
+                ? new String[]{
+                        "Active for Better Combat: governs 1/3, 1/2, Full, Flank to tame runaway inertia.",
+                        "Disabled: ships run uncapped Better Combat speeds and zero-flux boost."}
+                : new String[]{
+                        "Not needed in vanilla; ships brake cleanly. Built for Better Combat inertia.",
+                        "Note: built for Better Combat inertia; unnecessary in vanilla (throttles ship speed)."};
+        String[] govActs = bcEnv
+                ? new String[]{"SET_SPEED_GOVERNOR:DEFAULT", "SET_SPEED_GOVERNOR:OFF"}
+                : new String[]{"SET_SPEED_GOVERNOR:DEFAULT", "SET_SPEED_GOVERNOR:ON"};
+        int govIdx = bcEnv ? (govOn ? 0 : 1) : (govOn ? 1 : 0);
+        addGenericOperationalDropdownRow(
+                body, rowWidth, "OP_SPEED_GOVERNOR_DD", "Speed Governor:",
+                govNames, govSums, govActs, govIdx,
+                baseColor, darkColor, (!bcEnv && govOn) ? highlight : activeValueColor, gray);
     }
 
     private void addGenericOperationalDropdownRow(
@@ -3467,6 +3504,16 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
             rebuildContent();
             return;
         }
+        if (cmd.startsWith("SET_SPEED_GOVERNOR:")) {
+            String arg = cmd.substring("SET_SPEED_GOVERNOR:".length()).trim();
+            Boolean override = "ON".equals(arg)
+                    ? Boolean.TRUE
+                    : ("OFF".equals(arg) ? Boolean.FALSE : null);
+            PermanentDivisionManager.updateSpeedGovernorOverride(override);
+            expandedDropdownKey = null;
+            rebuildContent();
+            return;
+        }
         if (cmd.startsWith("SET_DIV_SETPIECE:")) {
             String rest = cmd.substring("SET_DIV_SETPIECE:".length());
             int sep = rest.indexOf(':');
@@ -3709,6 +3756,17 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 DoctrineDivisionType dt = DoctrineDivisionType.valueOf(dtStr);
                 DivisionMovementStickiness ms = DivisionMovementStickiness.valueOf(msStr);
                 PermanentDivisionManager.updateDivisionTypeMovementStickiness(dt, ms);
+                rebuildContent();
+            }
+            return;
+        }
+        if (cmd.startsWith("SET_ENG_TELEGRAPH:")) {
+            String rest = cmd.substring("SET_ENG_TELEGRAPH:".length());
+            int sep = rest.indexOf(':');
+            if (sep > 0) {
+                DoctrineDivisionType dt = DoctrineDivisionType.valueOf(rest.substring(0, sep));
+                DivisionEngineTelegraph tel = DivisionEngineTelegraph.valueOf(rest.substring(sep + 1));
+                PermanentDivisionManager.updateDivisionTypeEngineTelegraph(dt, tel);
                 rebuildContent();
             }
             return;
@@ -4225,6 +4283,33 @@ public class FleetDoctrineDialog extends BaseCustomUIPanelPlugin {
                 labels, acts, sel, 74f, 22f, 80f, baseColor, darkColor, activeValueColor,
                 null, true, 0f, activeValueColor,
                 currentStickiness != null ? currentStickiness.summary : null, gray, 6f);
+    }
+
+    private void addEngineTelegraphRow(
+            TooltipMakerAPI body,
+            float rowWidth,
+            String labelText,
+            DivisionEngineTelegraph currentTelegraph,
+            String actionPrefix,
+            Color baseColor,
+            Color darkColor,
+            Color activeValueColor,
+            Color gray) {
+        DivisionEngineTelegraph[] opts = DivisionEngineTelegraph.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].shortName;
+            acts[i] = actionPrefix + opts[i].name();
+            if (opts[i] == currentTelegraph) sel = i;
+        }
+        DivisionUiWidgets.addOptionStripRow(
+                body, rowWidth, 28f, subPanelPlugin, buttonRegistrar,
+                labelText, labelText, activeValueColor, 6f, 5f, CONTROL_COL_X,
+                labels, acts, sel, 56f, 22f, 60f, baseColor, darkColor, activeValueColor,
+                null, true, 0f, activeValueColor,
+                currentTelegraph != null ? currentTelegraph.summary : null, gray, 6f);
     }
 
     private void addCarrierOptionsToggleRow(

@@ -95,6 +95,7 @@ public class DivisionModel {
 
         public boolean isLineAnvilArchetype() {
             return this == BATTLESHIP_DIVISION
+                    || this == BATTLECRUISER_DIVISION
                     || this == BATTLECARRIER_DIVISION
                     || this == CRUISER_DIVISION
                     || this == STRIKE_CRUISER_DIVISION;
@@ -290,6 +291,7 @@ public class DivisionModel {
         public final Vector2f station = new Vector2f();
         public boolean hasStation;
         public float flankSide; // +1 / -1 relative to the enemy's facing axis, 0 = unassigned
+        public int flankEchelonIndex = 0; // 0 = lead flanker on this side, 1+ = outer echeloned flankers
         public PermanentDivisionManager.DivisionFormation orderedFormation = null;
         public PermanentDivisionManager.DivisionSetpieceAttack orderedSetpieceAttack = null;
         public float expiresTime = -100f;
@@ -310,6 +312,7 @@ public class DivisionModel {
             targetFriendly = null;
             hasStation = false;
             flankSide = 0f;
+            flankEchelonIndex = 0;
             orderedFormation = null;
             orderedSetpieceAttack = null;
             reason = "";
@@ -324,6 +327,7 @@ public class DivisionModel {
             targetEnemy = enemy;
             targetFriendly = friendly;
             flankSide = side;
+            flankEchelonIndex = 0;
             orderedFormation = null;
             orderedSetpieceAttack = null;
             hasStation = false;
@@ -487,8 +491,11 @@ public class DivisionModel {
         public boolean isScreenCapable;
         public boolean isFastFlanker;
         public float totalFpStrength;
-        public float avgMaxSpeed;
-        public float avgEngageRange;
+        public float avgMaxSpeed = 100f;
+        public float avgEngageRange = 800f;
+        public float medianMainBatteryRange = 0f;
+        public float minMainBatteryRange = 0f;
+        public boolean hasExplicitCustomStandoff = false;
 
         // Customizable Fleet Doctrine & Division-specific settings (in-game units; Paragon length = 364u)
         public float stationSpacing = 450f;
@@ -499,6 +506,12 @@ public class DivisionModel {
                 PermanentDivisionManager.DivisionMovementStickiness.BALANCED;
         public PermanentDivisionManager.DivisionMovementStickiness activeMovementStickiness =
                 PermanentDivisionManager.DivisionMovementStickiness.BALANCED;
+        public boolean speedGovernorEnabled = false;
+        public PermanentDivisionManager.DivisionEngineTelegraph doctrinalEngineTelegraph =
+                PermanentDivisionManager.DivisionEngineTelegraph.AUTO;
+        public PermanentDivisionManager.DivisionEngineTelegraph activeEngineTelegraph =
+                PermanentDivisionManager.DivisionEngineTelegraph.FLANK;
+        public final Set<String> directOrderShipIds = new HashSet<>();
         public boolean inIndividualCombatMovementMode = false;
         public float openingPhaseDurationSeconds = 45f;
         public PermanentDivisionManager.DivisionMissionType openingMission =

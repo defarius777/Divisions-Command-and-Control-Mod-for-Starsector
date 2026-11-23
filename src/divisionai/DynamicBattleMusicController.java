@@ -762,9 +762,13 @@ public class DynamicBattleMusicController {
         // so 4 frigate divisions engaging together cross the 0.26 threshold even if heavy battleships are in rear reserve,
         // while 1-2 frigate divisions engaging alone stay strictly weighted by their small fraction of fleet mass.
         float multiDivCommitmentBonus = 0f;
+        float refCommitMass = Math.max(80f, totalFleetFp * 0.32f);
         if (engagedDivs >= 4) {
-            multiDivCommitmentBonus = Math.min(0.14f, 0.06f + (engagedFp / 80f) * 0.08f);
-        } else if (engagedDivs == 3 && engagedFp >= 45f) {
+            float rawBonus = Math.min(0.14f, 0.05f + (engagedFp / refCommitMass) * 0.09f);
+            multiDivCommitmentBonus = (battleGroup.engagedMassFraction < 0.16f)
+                    ? Math.min(0.05f, rawBonus)
+                    : rawBonus;
+        } else if (engagedDivs == 3 && engagedFp >= Math.max(45f, totalFleetFp * 0.18f)) {
             multiDivCommitmentBonus = 0.04f;
         }
 

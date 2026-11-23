@@ -62,6 +62,7 @@ public class ShipCapabilityProfile {
     public final float longRangeWeight;
     public final float closeBrawlWeight;
     public final float avgWeaponRange;
+    public final float mainBatteryGunRange;
     public final int bomberWings;
     public final int interceptorSupportWings;
 
@@ -237,6 +238,8 @@ public class ShipCapabilityProfile {
         float antiShipMissileRangeWeightedSum = 0f;
         float antiShipMissileWeight = 0f;
         float weaponOnlyOpSum = 0f;
+        float directGunWeightSum = 0f;
+        java.util.ArrayList<float[]> directGunRangeWeights = null;
         int largeMissileCount = 0;
         int mediumMissileCount = 0;
         String hullIdLower = (spec != null && spec.getHullId() != null)
@@ -291,20 +294,32 @@ public class ShipCapabilityProfile {
                 if (fireClass == BattlefieldFirepowerEvaluator.FireClassification.POINT_DEFENSE) {
                     pdSum += weight;
                     purePdSum += weight;
-                } else if (fireClass == BattlefieldFirepowerEvaluator.FireClassification.HYBRID) {
-                    // Hybrid weapons (Large/Medium Flak, Devastators, Dual Flak, HMG, Paladin PD, PD_ALSO)
-                    // count toward BOTH Point Defense AND anti-ship close/mid-range combat weight!
-                    pdSum += weight * 0.90f;
-                    if (range >= longGunFloor) {
-                        longSum += weight * 0.85f;
-                    } else if (range <= hybridCloseCeil) {
-                        closeSum += weight * 0.85f;
-                    }
                 } else {
-                    if (range >= longGunFloor) {
-                        longSum += weight;
-                    } else if (range <= shortGunCeil) {
-                        closeSum += weight;
+                    if (type != WeaponType.MISSILE && range > 150f) {
+                        if (directGunRangeWeights == null) {
+                            directGunRangeWeights = new java.util.ArrayList<>(8);
+                        }
+                        float gunWt = (fireClass == BattlefieldFirepowerEvaluator.FireClassification.HYBRID)
+                                ? weight * 0.65f
+                                : weight;
+                        directGunRangeWeights.add(new float[]{range, gunWt});
+                        directGunWeightSum += gunWt;
+                    }
+                    if (fireClass == BattlefieldFirepowerEvaluator.FireClassification.HYBRID) {
+                        // Hybrid weapons (Large/Medium Flak, Devastators, Dual Flak, HMG, Paladin PD, PD_ALSO)
+                        // count toward BOTH Point Defense AND anti-ship close/mid-range combat weight!
+                        pdSum += weight * 0.90f;
+                        if (range >= longGunFloor) {
+                            longSum += weight * 0.85f;
+                        } else if (range <= hybridCloseCeil) {
+                            closeSum += weight * 0.85f;
+                        }
+                    } else {
+                        if (range >= longGunFloor) {
+                            longSum += weight;
+                        } else if (range <= shortGunCeil) {
+                            closeSum += weight;
+                        }
                     }
                 }
                 if (isStrike || (type == WeaponType.MISSILE && fireClass != BattlefieldFirepowerEvaluator.FireClassification.POINT_DEFENSE)) {
@@ -338,6 +353,28 @@ public class ShipCapabilityProfile {
             this.avgWeaponRange = Math.max(980f, Math.min(mslStandCap, mslRange));
         } else {
             this.avgWeaponRange = rawAvgRange;
+        }
+
+        // Compute Primary Direct-Fire Main Battery Range (OP-weighted 70th percentile of non-PD, non-missile guns):
+        // immune to both Point-Defense range dilution (e.g. 8x Vulcans on a Gauss Conquest) and single-small-mount
+        // inflation (e.g. 1x Tactical Laser on an Assault Chaingun brawler).
+        if (directGunRangeWeights != null && !directGunRangeWeights.isEmpty() && directGunWeightSum > 0.1f
+                && !this.isDedicatedCarrier && !this.isPrimaryMissileBoat) {
+            java.util.Collections.sort(directGunRangeWeights, (a, b) -> Float.compare(a[0], b[0]));
+            float targetCumWt = directGunWeightSum * 0.70f;
+            float cumWt = 0f;
+            float chosenMainGun = directGunRangeWeights.get(directGunRangeWeights.size() - 1)[0];
+            for (int i = 0, n = directGunRangeWeights.size(); i < n; i++) {
+                float[] rw = directGunRangeWeights.get(i);
+                cumWt += rw[1];
+                if (cumWt >= targetCumWt - 0.001f) {
+                    chosenMainGun = rw[0];
+                    break;
+                }
+            }
+            this.mainBatteryGunRange = chosenMainGun;
+        } else {
+            this.mainBatteryGunRange = this.avgWeaponRange;
         }
 
         boolean isHeadlessMockMissileShip = (weapons != null && weapons.size() <= 2 && strikeSum >= 3.0f);

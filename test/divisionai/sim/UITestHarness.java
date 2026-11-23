@@ -3242,6 +3242,12 @@ public class UITestHarness {
                 violations.add("EngagementDiscipline." + ed.name() + " copy exceeds budget: " + ed.displayName + " / " + ed.summary);
             }
         }
+        for (PermanentDivisionManager.DivisionEngineTelegraph et : PermanentDivisionManager.DivisionEngineTelegraph.values()) {
+            auditedStrings += 3;
+            if (et.displayName.length() > 20 || et.shortName.length() > 8 || et.summary.length() > 95 || countWords(et.summary) > 16) {
+                violations.add("DivisionEngineTelegraph." + et.name() + " copy exceeds budget: " + et.displayName + " / " + et.summary);
+            }
+        }
 
         PermanentDivisionManager.FleetDoctrineConfig tplCfg = new PermanentDivisionManager.FleetDoctrineConfig();
         boolean defaultIsLinear = tplCfg.resolveMatchingOperationalTemplate() == PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;

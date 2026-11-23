@@ -573,6 +573,7 @@ public class TsfcWarroomRenderer {
             }
 
             // Render airborne Strike Craft squadron Time horizon rings when deployed away from the carrier centroid
+            float sqSpacingScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalStationSpacingMult());
             for (ShipAPI s : div.getAliveMembers()) {
                 List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
                 if (wings == null) continue;
@@ -580,7 +581,7 @@ public class TsfcWarroomRenderer {
                     ShipAPI wLead = BattlefieldFirepowerEvaluator.resolveAliveWingLeader(wing);
                     if (wLead == null) continue;
                     Vector2f sqLoc = BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(wing, wLead, SCRATCH_SQUADRON_CENTROID);
-                    if (BattlefieldFirepowerEvaluator.distance(sqLoc, cWorld) <= 320f) continue;
+                    if (BattlefieldFirepowerEvaluator.distance(sqLoc, cWorld) <= 320f * sqSpacingScale) continue;
                     if (isEnemy && playerFog != null && !BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(engine, wLead, playerFog)) continue;
                     float sqSpread = BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(wing, sqLoc);
                     float wx = offsetX + sqLoc.x * scale;
@@ -794,6 +795,7 @@ public class TsfcWarroomRenderer {
             // Render airborne Strike Craft squadron permeable Space Zones of Control when deployed away from the carrier centroid.
             // Per Task F: Because warships can physically move through strike craft, strike craft do NOT render a solid
             // Tier-1 Inner Hull-Exclusion ring; they render only a dashed permeable outer Space contour.
+            float sqSpacingScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalStationSpacingMult());
             for (ShipAPI s : div.getAliveMembers()) {
                 List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
                 if (wings == null) continue;
@@ -801,12 +803,12 @@ public class TsfcWarroomRenderer {
                     ShipAPI wLead = BattlefieldFirepowerEvaluator.resolveAliveWingLeader(wing);
                     if (wLead == null) continue;
                     Vector2f sqLoc = BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(wing, wLead, SCRATCH_SQUADRON_CENTROID);
-                    if (BattlefieldFirepowerEvaluator.distance(sqLoc, cWorld) <= 320f) continue;
+                    if (BattlefieldFirepowerEvaluator.distance(sqLoc, cWorld) <= 320f * sqSpacingScale) continue;
                     if (isEnemy && playerFog != null && !BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(engine, wLead, playerFog)) continue;
                     float sqSpread = BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(wing, sqLoc);
                     float wx = offsetX + sqLoc.x * scale;
                     float wy = offsetY + sqLoc.y * scale;
-                    float wDomPx = Math.max(12f, (480f + sqSpread * 0.65f) * scale);
+                    float wDomPx = Math.max(12f, (480f * sqSpacingScale + sqSpread * 0.65f) * scale);
                     if (!isCircleVisibleOnScreen(wx, wy, wDomPx + 8f, screenW, screenH)) continue;
                     drawIncreasinglyTransparentCircle(wx, wy, wDomPx, r, g, b, 0.09f * spaceFade, 24);
                     drawCircleOutline(wx, wy, wDomPx, r, g, b, 0.32f * spaceFade, 1.15f, 24, true);
@@ -940,6 +942,7 @@ public class TsfcWarroomRenderer {
             }
 
             // Render compact Strike Craft Convergence glyphs on airborne fighter squadrons
+            float sqSpacingScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalStationSpacingMult());
             for (ShipAPI s : div.getAliveMembers()) {
                 List<com.fs.starfarer.api.combat.FighterWingAPI> wings = s.getAllWings();
                 if (wings == null) continue;
@@ -947,12 +950,12 @@ public class TsfcWarroomRenderer {
                     ShipAPI wLead = BattlefieldFirepowerEvaluator.resolveAliveWingLeader(wing);
                     if (wLead == null) continue;
                     Vector2f sqLoc = BattlefieldFirepowerEvaluator.resolveSquadronLiveCentroid(wing, wLead, SCRATCH_SQUADRON_CENTROID);
-                    if (BattlefieldFirepowerEvaluator.distance(sqLoc, cWorld) <= 320f) continue;
+                    if (BattlefieldFirepowerEvaluator.distance(sqLoc, cWorld) <= 320f * sqSpacingScale) continue;
                     if (isEnemy && playerFog != null && !BattlefieldFirepowerEvaluator.isEnemyShipVisibleSticky(engine, wLead, playerFog)) continue;
                     float sqSpread = BattlefieldFirepowerEvaluator.computeSquadronSpreadRadius(wing, sqLoc);
                     float wx = offsetX + sqLoc.x * scale;
                     float wy = offsetY + sqLoc.y * scale;
-                    float wRadPx = Math.max(12f, (380f + sqSpread * 0.65f) * scale);
+                    float wRadPx = Math.max(12f, (380f * sqSpacingScale + sqSpread * 0.65f) * scale);
                     if (!isCircleVisibleOnScreen(wx, wy, wRadPx + 8f, screenW, screenH)) continue;
                     float wSq = wRadPx * 0.70710678f;
                     drawCircleOutline(wx, wy, wRadPx, r, g, b, 0.42f * convFade * activeBoost, 1.20f, 28, false);

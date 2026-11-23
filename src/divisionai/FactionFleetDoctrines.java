@@ -785,6 +785,12 @@ public final class FactionFleetDoctrines {
     public static final String FACTION_DOCTRINES_JSON_PATH = "data/config/division_faction_doctrines.json";
     private static boolean jsonDoctrinesLoaded = false;
 
+    /** Invalidates cached faction doctrines so physics-scale refreshes (e.g. Better Combat / LunaSettings) rebuild cleanly. */
+    public static synchronized void invalidateDoctrineCache() {
+        DOCTRINE_CACHE.clear();
+        jsonDoctrinesLoaded = false;
+    }
+
     private static synchronized void ensureJsonDoctrinesLoaded() {
         if (jsonDoctrinesLoaded) return;
         jsonDoctrinesLoaded = true;
@@ -2832,6 +2838,7 @@ public final class FactionFleetDoctrines {
         dst.customLineStation = src.customLineStation;
         dst.customFormation = src.customFormation;
         dst.customMovementStickiness = src.customMovementStickiness;
+        dst.customEngineTelegraph = src.customEngineTelegraph;
         dst.customVoidstrikeTargetingBias = src.customVoidstrikeTargetingBias;
         dst.customVoidstrikeFocusCarriers = src.customVoidstrikeFocusCarriers;
         dst.customVoidstrikeObservance = src.customVoidstrikeObservance;

@@ -19,6 +19,7 @@ import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
 import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
+import divisionai.PermanentDivisionManager.DivisionEngineTelegraph;
 import divisionai.PermanentDivisionManager.DivisionRammingMode;
 import divisionai.PermanentDivisionManager.DivisionRammingTargetScope;
 import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
@@ -268,6 +269,8 @@ final class DivisionConfigureSubscreen {
         DivisionFormation effFormation = PermanentDivisionManager.resolveEffectiveFormation(spec, doctrineCfg);
         DivisionMovementStickiness effStickiness =
                 PermanentDivisionManager.resolveEffectiveMovementStickiness(spec, doctrineCfg);
+        DivisionEngineTelegraph effTelegraph =
+                PermanentDivisionManager.resolveEffectiveEngineTelegraph(spec, doctrineCfg);
         DivisionMissionType effOpenMis = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
         DivisionMissionType effMainMis = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
 
@@ -373,6 +376,19 @@ final class DivisionConfigureSubscreen {
                 baseColor,
                 darkColor,
                 positive);
+
+        if (spec.archetype != DivisionArchetype.SERVICE_GROUP
+                && (doctrineCfg != null && doctrineCfg.isSpeedGovernorEnabled())) {
+            addDivisionEngineTelegraphRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effTelegraph,
+                    spec.customEngineTelegraph != null,
+                    baseColor,
+                    darkColor,
+                    positive);
+        }
 
         if (spec.archetype != null && !spec.archetype.isCarrierArchetype()
                 && spec.archetype != DivisionArchetype.SERVICE_GROUP) {
@@ -1125,6 +1141,32 @@ final class DivisionConfigureSubscreen {
                 "DIV_STICKINESS:INHERIT", isCustom, 72f, activeColor, null, null, 4f);
     }
 
+    private static void addDivisionEngineTelegraphRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            DivisionEngineTelegraph effTelegraph,
+            boolean isCustom,
+            Color baseColor,
+            Color darkColor,
+            Color activeColor) {
+        DivisionEngineTelegraph[] opts = DivisionEngineTelegraph.values();
+        String[] labels = new String[opts.length];
+        String[] acts = new String[opts.length];
+        int sel = 0;
+        for (int i = 0; i < opts.length; i++) {
+            labels[i] = opts[i].shortName;
+            acts[i] = "DIV_TELEGRAPH:" + opts[i].name();
+            if (opts[i] == effTelegraph) sel = i;
+        }
+        String labelText = "Telegraph: " + effTelegraph.shortName;
+        DivisionUiWidgets.addOptionStripRow(
+                col, rowWidth, 26f, dialog.subPanelPlugin, dialog.buttonRegistrar,
+                labelText, labelText, isCustom ? activeColor : baseColor, 4f, 4f, CONTROL_COL_X,
+                labels, acts, sel, 46f, 20f, 49f, baseColor, darkColor, activeColor,
+                "DIV_TELEGRAPH:INHERIT", isCustom, 56f, activeColor, null, null, 4f);
+    }
+
     private static void addDivisionSetpieceAttackRow(
             final DivisionEditorDialog dialog,
             TooltipMakerAPI col,
@@ -1875,6 +1917,15 @@ final class DivisionConfigureSubscreen {
             DivisionMovementStickiness ms =
                     "INHERIT".equals(arg) ? null : DivisionMovementStickiness.valueOf(arg);
             PermanentDivisionManager.updateIndividualDivisionMovementStickiness(activeDivisionId, ms);
+            dialog.rebuildContent();
+            return true;
+        }
+        if (cmd.startsWith("DIV_TELEGRAPH:") && activeDivisionId != null) {
+            dialog.savePendingNameFieldIfAny();
+            String arg = cmd.substring("DIV_TELEGRAPH:".length());
+            DivisionEngineTelegraph tel =
+                    "INHERIT".equals(arg) ? null : DivisionEngineTelegraph.valueOf(arg);
+            PermanentDivisionManager.updateIndividualDivisionEngineTelegraph(activeDivisionId, tel);
             dialog.rebuildContent();
             return true;
         }

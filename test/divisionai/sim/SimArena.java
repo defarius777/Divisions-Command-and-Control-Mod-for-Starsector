@@ -486,6 +486,86 @@ public class SimArena {
                     hybridFlak));
         }
 
+        public final java.util.Map<String, Float> maxSpeedMultMods = new java.util.HashMap<>();
+        public final java.util.Map<String, Float> zfsbMultMods = new java.util.HashMap<>();
+        private com.fs.starfarer.api.combat.MutableShipStatsAPI mutableStatsProxy = null;
+
+        public float getEffectiveMaxSpeedMult() {
+            float m = 1.0f;
+            for (Float v : maxSpeedMultMods.values()) {
+                if (v != null) m *= v.floatValue();
+            }
+            return m;
+        }
+
+        public float getEffectiveZfsbMult() {
+            float m = 1.0f;
+            for (Float v : zfsbMultMods.values()) {
+                if (v != null) m *= v.floatValue();
+            }
+            return m;
+        }
+
+        private com.fs.starfarer.api.combat.MutableShipStatsAPI getOrCreateMutableStatsProxy() {
+            if (mutableStatsProxy != null) return mutableStatsProxy;
+            final com.fs.starfarer.api.combat.MutableStat maxSpdStat = new com.fs.starfarer.api.combat.MutableStat(maxSpeed) {
+                @Override
+                public void modifyMult(String source, float value) {
+                    maxSpeedMultMods.put(source, Float.valueOf(value));
+                }
+
+                @Override
+                public void modifyMult(String source, float value, String desc) {
+                    maxSpeedMultMods.put(source, Float.valueOf(value));
+                }
+
+                @Override
+                public void unmodify(String source) {
+                    maxSpeedMultMods.remove(source);
+                }
+
+                @Override
+                public void unmodifyMult(String source) {
+                    maxSpeedMultMods.remove(source);
+                }
+
+                @Override
+                public float getModifiedValue() {
+                    return maxSpeed * getEffectiveMaxSpeedMult();
+                }
+            };
+            final com.fs.starfarer.api.combat.MutableStat zfsbStat = new com.fs.starfarer.api.combat.MutableStat(50f) {
+                @Override
+                public void modifyMult(String source, float value) {
+                    zfsbMultMods.put(source, Float.valueOf(value));
+                }
+
+                @Override
+                public void unmodify(String source) {
+                    zfsbMultMods.remove(source);
+                }
+
+                @Override
+                public float getModifiedValue() {
+                    return 50f * getEffectiveZfsbMult();
+                }
+            };
+            mutableStatsProxy = (com.fs.starfarer.api.combat.MutableShipStatsAPI) Proxy.newProxyInstance(
+                    com.fs.starfarer.api.combat.MutableShipStatsAPI.class.getClassLoader(),
+                    new Class<?>[]{com.fs.starfarer.api.combat.MutableShipStatsAPI.class},
+                    (mp, mm, ma) -> {
+                        String mn = mm.getName();
+                        if ("getMaxSpeed".equals(mn)) return maxSpdStat;
+                        if ("getZeroFluxSpeedBoost".equals(mn)) return zfsbStat;
+                        Class<?> mrt = mm.getReturnType();
+                        if (mrt == boolean.class) return false;
+                        if (mrt == int.class) return 0;
+                        if (mrt == float.class) return 0f;
+                        return null;
+                    });
+            return mutableStatsProxy;
+        }
+
         public void addWeaponMount(SimWeaponMount mount) {
             this.weaponMounts.add(mount);
             this.weapons.add(mount.proxy);
@@ -831,7 +911,8 @@ public class SimArena {
                                     });
                         }
                         if ("getHullSize".equals(n)) return hullSize;
-                        if ("getMaxSpeed".equals(n) || "getMaxSpeedWithoutBoost".equals(n)) return maxSpeed;
+                        if ("getMutableStats".equals(n)) return getOrCreateMutableStatsProxy();
+                        if ("getMaxSpeed".equals(n) || "getMaxSpeedWithoutBoost".equals(n)) return maxSpeed * getEffectiveMaxSpeedMult();
                         if ("getAcceleration".equals(n)) return accel;
                         if ("getDeceleration".equals(n)) return accel * 0.85f;
                         if ("getCollisionRadius".equals(n)) {
@@ -1257,7 +1338,8 @@ public class SimArena {
                 navGoal = ((ShipAPI) targetObj).getLocation();
             }
 
-            float effMaxSpeed = s.systemActive ? (s.maxSpeed + 260f) : s.maxSpeed;
+            float governedSpd = s.maxSpeed * s.getEffectiveMaxSpeedMult();
+            float effMaxSpeed = s.systemActive ? (governedSpd + 260f) : governedSpd;
             if (navGoal != null) {
                 float dx = navGoal.x - s.location.x;
                 float dy = navGoal.y - s.location.y;
@@ -1301,7 +1383,19 @@ public class SimArena {
             s.location.x += s.velocity.x * dt;
             s.location.y += s.velocity.y * dt;
 
-            if (dSpeed > 5f) {
+            if (hasCamp || escortObj instanceof ShipAPI) {
+                Object faceOverrideObj = flags.getCustom(AIFlags.FACING_OVERRIDE_FOR_MOVE_AND_ESCORT_MANEUVERS);
+                if (faceOverrideObj instanceof Float) {
+                    float desFace = ((Float) faceOverrideObj).floatValue();
+                    float diff = (desFace - s.facing) % 360f;
+                    if (diff > 180f) diff -= 360f;
+                    if (diff < -180f) diff += 360f;
+                    float maxTurn = Math.max(15f, s.proxy.getMaxTurnRate()) * dt;
+                    s.facing = (s.facing + Math.max(-maxTurn, Math.min(maxTurn, diff)) + 360f) % 360f;
+                } else if (dSpeed > 5f) {
+                    s.facing = (float) Math.toDegrees(Math.atan2(s.velocity.y, s.velocity.x));
+                }
+            } else if (dSpeed > 5f) {
                 s.facing = (float) Math.toDegrees(Math.atan2(s.velocity.y, s.velocity.x));
             }
 

@@ -2098,6 +2098,9 @@ public class VoidstrikeCoordinator {
             }
             if (scFriendlyDiv != null && scFriendlyDiv.members != null && scFriendlyDiv.members.contains(ally)) {
                 score += 550f;
+                if (ally == scFriendlyDiv.flagship) {
+                    score += 180f;
+                }
             }
             if (ally == div.shipNeedingHelp) score += 450f;
             score += ally.getFluxLevel() * 320f;
