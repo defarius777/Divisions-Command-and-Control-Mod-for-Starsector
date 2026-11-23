@@ -112,6 +112,7 @@ public class DivisionAITestSuite {
         testBetterCombatMutualSupportFocusFireAndCloseActionAnvil();
         testBetterCombatThreatProfileAndCombatBearingDiscipline();
         testFrigateSpamDeSkewAndGenericMathNormalization();
+        testC2ChainUntanglingAndUntetheredFirstStrike();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -11130,6 +11131,358 @@ public class DivisionAITestSuite {
                             minPairwiseFlankSep < Float.MAX_VALUE ? minPairwiseFlankSep : -1f));
         } finally {
             divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.ShipCaptainAI.resetForNewBattle();
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+        }
+    }
+
+    /**
+     * Scenario 43: Verifies C2 Decision-Chain Untangling & Untethered Opening Strike-Craft / First-Strike Doctrine:
+     *  1. Untethered Opening Recon across Opening -> Main transition (latches fowSearchReachedEntry without 850u
+     *     stateless oscillation, preserves VOIDSTRIKE_MAX_RANGE_STAT_ID & outbound flight past t=25s, sweeps deep).
+     *  2. True First-Strike Doctrine in Fog of War (Opening: ALPHA_STRIKE / DECKLOAD_STRIKE launches full fighter +
+     *     bomber package into FoW before surface contact and acquires hidden enemy capital).
+     *  3. Corrupted 10,200u MISSILE_FRIGATE standoff bounded to live missile envelope + physics-scaled isFastFlanker.
+     *  4. Shared OTC <-> DivisionCommander FLANK contract & corridor hysteresis (zero Doubling <-> keeping-the-line flip).
+     *  5. Anti-Meatshield assignFleetLinePassing & Reserve commitment latch (Frigates/Missile DDs never tank for Cruisers).
+     *  6. Main Effort anti-weathervaning (ignores 20 FP 4-Frigate screen when enemy Cruiser/Capital line is visible)
+     *     & collision-free division numbering across non-contiguous campaign division numbers ("Destroyer Div 4").
+     */
+    private static void testC2ChainUntanglingAndUntetheredFirstStrike() {
+        System.out.println("\n[Scenario 43] C2 Chain Untangling, Untethered Opening Recon & First-Strike FoW Doctrine");
+        divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(true, 3.64f, 3.00f, 5.00f, 3.00f, 3.00f);
+        divisionai.VoidstrikeCoordinator.resetForNewBattle();
+        try {
+            CommanderProfile pCmdr = new CommanderProfile(null, "Player OTC");
+            CommanderProfile eCmdr = new CommanderProfile(null, "Hegemony OTC");
+
+            java.util.function.BiFunction<Object[], Object[], SimShipState> attachWing = (ctx, cfg) -> {
+                final SimArena arena = (SimArena) ctx[0];
+                final DivisionState ownerDiv = (DivisionState) ctx[1];
+                final SimShipState carrierState = (SimShipState) ctx[2];
+                final String wingSuffix = (String) cfg[0];
+                final com.fs.starfarer.api.loading.WingRole role = (com.fs.starfarer.api.loading.WingRole) cfg[1];
+                final float specRange = (Float) cfg[2];
+                final float maxSpd = (Float) cfg[3];
+
+                final SimShipState craft = arena.addShip(
+                        ownerDiv, carrierState.id + "_" + wingSuffix, wingSuffix, wingSuffix,
+                        HullSize.FIGHTER, carrierState.location.x, carrierState.location.y + 45f,
+                        maxSpd, 600f, role == com.fs.starfarer.api.loading.WingRole.BOMBER ? 2 : 0, 0);
+                ownerDiv.members.remove(craft.proxy);
+                craft.facing = carrierState.owner == 0 ? 90f : 270f;
+
+                final java.util.Set<String> tags = new java.util.HashSet<>();
+                final com.fs.starfarer.api.loading.FighterWingSpecAPI specProxy =
+                        (com.fs.starfarer.api.loading.FighterWingSpecAPI) java.lang.reflect.Proxy.newProxyInstance(
+                                com.fs.starfarer.api.loading.FighterWingSpecAPI.class.getClassLoader(),
+                                new Class<?>[]{com.fs.starfarer.api.loading.FighterWingSpecAPI.class},
+                                (p, m, a) -> {
+                                    String n = m.getName();
+                                    if ("getId".equals(n)) return wingSuffix;
+                                    if ("getRole".equals(n)) return role;
+                                    if ("getRange".equals(n)) return specRange;
+                                    if ("getNumFighters".equals(n)) return 1;
+                                    if ("isBomber".equals(n)) return role == com.fs.starfarer.api.loading.WingRole.BOMBER;
+                                    if ("isInterceptor".equals(n)) return role == com.fs.starfarer.api.loading.WingRole.INTERCEPTOR;
+                                    if ("isAssault".equals(n)) return role == com.fs.starfarer.api.loading.WingRole.ASSAULT;
+                                    if ("isSupport".equals(n)) return role == com.fs.starfarer.api.loading.WingRole.SUPPORT;
+                                    if ("getTags".equals(n)) return tags;
+                                    if ("hasTag".equals(n)) return a != null && a.length > 0 && tags.contains(a[0]);
+                                    Class<?> rt = m.getReturnType();
+                                    if (rt == boolean.class) return false;
+                                    if (rt == int.class) return 0;
+                                    if (rt == float.class) return 0f;
+                                    return null;
+                                });
+                final List<com.fs.starfarer.api.combat.ShipAPI> members = java.util.Collections.singletonList(craft.proxy);
+                final com.fs.starfarer.api.combat.FighterWingAPI wingProxy =
+                        (com.fs.starfarer.api.combat.FighterWingAPI) java.lang.reflect.Proxy.newProxyInstance(
+                                com.fs.starfarer.api.combat.FighterWingAPI.class.getClassLoader(),
+                                new Class<?>[]{com.fs.starfarer.api.combat.FighterWingAPI.class},
+                                (p, m, a) -> {
+                                    String n = m.getName();
+                                    if ("getWingId".equals(n)) return wingSuffix;
+                                    if ("getRole".equals(n)) return role;
+                                    if ("getSpec".equals(n)) return specProxy;
+                                    if ("getRange".equals(n)) return specRange;
+                                    if ("getSourceShip".equals(n)) return carrierState.proxy;
+                                    if ("getWingMembers".equals(n)) return members;
+                                    if ("getLeader".equals(n)) return craft.proxy;
+                                    if ("isReturning".equals(n)) return false;
+                                    Class<?> rt = m.getReturnType();
+                                    if (rt == boolean.class) return false;
+                                    if (rt == int.class) return 0;
+                                    if (rt == float.class) return 0f;
+                                    return null;
+                                });
+                craft.wing = wingProxy;
+                carrierState.wings.add(wingProxy);
+                carrierState.pullBackFighters = true;
+                return craft;
+            };
+
+            // 1. Untethered Opening Recon across Opening -> Main (t=25s) on a 42,000u Better Combat map
+            BattleGroupState pRec = new BattleGroupState(0, pCmdr);
+            BattleGroupState eRec = new BattleGroupState(1, eCmdr);
+            DivisionState cvRec = new DivisionState("s43_rec_cv", 0, 1, DivisionArchetype.CARRIER_GROUP, "Carrier Div 1", pCmdr);
+            DivisionState enRec = new DivisionState("s43_rec_en", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Hidden Battle Div", eCmdr);
+            pRec.divisions.add(cvRec);
+            eRec.divisions.add(enRec);
+
+            SimArena arenaRec = new SimArena("Scenario 43A", "Untethered Opening Recon Across Phase Transition", pRec, eRec);
+            arenaRec.mapWidth = 42000f;
+            arenaRec.mapHeight = 42000f;
+            arenaRec.enableFogOfWar();
+            arenaRec.baseShipSightRadius = 4200f;
+
+            SimShipState heron = arenaRec.addShip(cvRec, "s43_heron", "HSS Heron", "heron", HullSize.CRUISER, 0f, -12500f, 290f, 3200f, 0, 2);
+            SimShipState deepEnemy = arenaRec.addShip(enRec, "s43_ons", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 3800f, 16800f, 260f, 3800f, 0, 0);
+            Object[] ctxRec = new Object[]{arenaRec, cvRec, heron};
+            SimShipState scoutFtr = attachWing.apply(ctxRec, new Object[]{"scout_gladius", com.fs.starfarer.api.loading.WingRole.FIGHTER, 10000f, 540f});
+            SimShipState holdBmb = attachWing.apply(ctxRec, new Object[]{"deck_dagger", com.fs.starfarer.api.loading.WingRole.BOMBER, 10000f, 420f});
+
+            cvRec.profiles.add(new divisionai.ShipCapabilityProfile(heron.proxy));
+            pRec.shipIdToDivision.put(heron.id, cvRec);
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(cvRec);
+            enRec.profiles.add(new divisionai.ShipCapabilityProfile(deepEnemy.proxy));
+            eRec.shipIdToDivision.put(deepEnemy.id, enRec);
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enRec);
+
+            cvRec.openingPhaseDurationSeconds = 25;
+            cvRec.openingMission = DivisionMissionType.ARMED_RECONNAISSANCE;
+            cvRec.mainMission = DivisionMissionType.CYCLIC_STRIKES;
+            cvRec.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.ARMED_RECONNAISSANCE;
+            cvRec.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.CYCLIC_STRIKES;
+            cvRec.strikeCraftCapReserve = divisionai.PermanentDivisionManager.StrikeCraftCapReserve.NONE;
+
+            boolean neverRegroupedPast25s = true;
+            boolean acquiredDeepEnemy = false;
+            float maxScoutY = -12500f;
+            float dt = 0.05f;
+            for (int f = 0; f < 1800; f++) {
+                float now = f * dt;
+                arenaRec.elapsedTime = now;
+                if (f % 10 == 0) {
+                    divisionai.OtcAI.updateTelemetry(arenaRec.engineProxy, pRec);
+                    divisionai.OtcAI.updateTelemetry(arenaRec.engineProxy, eRec);
+                    divisionai.OtcBattlePlanner.planBattle(arenaRec.engineProxy, pRec, eRec, null, null, now);
+                    divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(arenaRec.engineProxy, pRec, eRec, now);
+                }
+                divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arenaRec.engineProxy, pRec, null, eRec, now);
+                stepRehearsalFighterKinematics60Hz(scoutFtr, dt);
+                stepRehearsalFighterKinematics60Hz(holdBmb, dt);
+                if (scoutFtr.location.y > maxScoutY) maxScoutY = scoutFtr.location.y;
+                if (now >= 25.5f && now <= 32.0f && heron.pullBackFighters) {
+                    neverRegroupedPast25s = false;
+                }
+                if (scoutFtr.shipTarget == deepEnemy.proxy
+                        || scoutFtr.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CARRIER_FIGHTER_TARGET) == deepEnemy.proxy) {
+                    acquiredDeepEnemy = true;
+                    break;
+                }
+            }
+            boolean untetheredReconOk = neverRegroupedPast25s && maxScoutY > 13000f && acquiredDeepEnemy;
+
+            // 2. True First-Strike Doctrine in Fog of War (Opening: ALPHA_STRIKE launches both fighters + bombers)
+            divisionai.VoidstrikeCoordinator.resetForNewBattle();
+            BattleGroupState pFs = new BattleGroupState(0, pCmdr);
+            BattleGroupState eFs = new BattleGroupState(1, eCmdr);
+            DivisionState cvFs = new DivisionState("s43_fs_cv", 0, 1, DivisionArchetype.FLEET_CARRIER_DIVISION, "First Strike CV", pCmdr);
+            DivisionState enFs = new DivisionState("s43_fs_en", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Main Body", eCmdr);
+            pFs.divisions.add(cvFs);
+            eFs.divisions.add(enFs);
+
+            SimArena arenaFs = new SimArena("Scenario 43B", "First-Strike Alpha Strike Into Fog of War", pFs, eFs);
+            arenaFs.mapWidth = 28000f;
+            arenaFs.mapHeight = 28000f;
+            arenaFs.enableFogOfWar();
+            arenaFs.baseShipSightRadius = 3600f;
+
+            SimShipState astralFs = arenaFs.addShip(cvFs, "s43_astral", "TTS Astral", "astral", HullSize.CAPITAL_SHIP, 0f, -8500f, 270f, 3200f, 0, 2);
+            SimShipState enemyFs = arenaFs.addShip(enFs, "s43_conq", "PLS Conquest", "conquest", HullSize.CAPITAL_SHIP, 0f, 9800f, 270f, 3800f, 0, 0);
+            Object[] ctxFs = new Object[]{arenaFs, cvFs, astralFs};
+            SimShipState fsEscort = attachWing.apply(ctxFs, new Object[]{"fs_broadsword", com.fs.starfarer.api.loading.WingRole.FIGHTER, 10000f, 520f});
+            SimShipState fsBomber = attachWing.apply(ctxFs, new Object[]{"fs_trident", com.fs.starfarer.api.loading.WingRole.BOMBER, 10000f, 440f});
+
+            cvFs.profiles.add(new divisionai.ShipCapabilityProfile(astralFs.proxy));
+            pFs.shipIdToDivision.put(astralFs.id, cvFs);
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(cvFs);
+            enFs.profiles.add(new divisionai.ShipCapabilityProfile(enemyFs.proxy));
+            eFs.shipIdToDivision.put(enemyFs.id, enFs);
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(enFs);
+
+            cvFs.openingPhaseDurationSeconds = 45;
+            cvFs.openingMission = DivisionMissionType.ALPHA_STRIKE;
+            cvFs.mainMission = DivisionMissionType.ALPHA_STRIKE;
+            cvFs.strikeCraftOpeningMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.MATCH_DIVISION;
+            cvFs.strikeCraftMainMission = divisionai.PermanentDivisionManager.StrikeCraftMissionType.MATCH_DIVISION;
+            cvFs.voidstrikeCoordination = divisionai.PermanentDivisionManager.VoidstrikeCoordinationMode.UNCOORDINATED;
+
+            boolean firstStrikeBomberCommittedFow = false;
+            boolean firstStrikeAcquiredTarget = false;
+            for (int f = 0; f < 900; f++) {
+                float now = f * dt;
+                arenaFs.elapsedTime = now;
+                if (f % 10 == 0) {
+                    divisionai.OtcAI.updateTelemetry(arenaFs.engineProxy, pFs);
+                    divisionai.OtcAI.updateTelemetry(arenaFs.engineProxy, eFs);
+                    divisionai.OtcBattlePlanner.planBattle(arenaFs.engineProxy, pFs, eFs, null, null, now);
+                    divisionai.DivisionCommanderAI.evaluateAndExecuteDivisions(arenaFs.engineProxy, pFs, eFs, now);
+                }
+                divisionai.VoidstrikeCoordinator.advanceEveryFrameStrikeCraftGunnery(arenaFs.engineProxy, pFs, null, eFs, now);
+                stepRehearsalFighterKinematics60Hz(fsEscort, dt);
+                stepRehearsalFighterKinematics60Hz(fsBomber, dt);
+                if (fsBomber.location.y > 0f && !divisionai.OtcAI.isShipVisibleToSide(arenaFs.engineProxy, 0, enemyFs.proxy)) {
+                    firstStrikeBomberCommittedFow = true;
+                }
+                if (fsBomber.shipTarget == enemyFs.proxy
+                        || fsBomber.aiFlags.getCustom(com.fs.starfarer.api.combat.ShipwideAIFlags.AIFlags.CARRIER_FIGHTER_TARGET) == enemyFs.proxy) {
+                    firstStrikeAcquiredTarget = true;
+                    break;
+                }
+            }
+            boolean firstStrikeDoctrineOk = cvFs.currentIntent == divisionai.DivisionModel.DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                    && firstStrikeBomberCommittedFow && firstStrikeAcquiredTarget;
+
+            // 3. Corrupted 10,200u MISSILE_FRIGATE standoff bounded + physics-scaled isFastFlanker
+            DivisionState misFrig = new DivisionState("s43_mf", 0, 2, DivisionArchetype.MISSILE_FRIGATE_DIVISION, "Missile Frigate Div 1", pCmdr);
+            misFrig.avgEngageRange = 4200f;
+            float boundedMisStandoff = divisionai.PermanentDivisionManager.adaptDoctrinalStandoffToLiveEnvelope(
+                    misFrig, divisionai.PermanentDivisionManager.DoctrineDivisionType.MISSILE_FRIGATE, 10200f, false);
+            boolean missileStandoffBoundedOk = boundedMisStandoff >= 3600f && boundedMisStandoff <= 5200f;
+
+            float bcSpeedFloor = divisionai.CombatPhysicsProfile.scaleVanillaSpeedThreshold(arenaFs.engineProxy, 105f);
+            boolean bcSpeedFloorScaledOk = bcSpeedFloor >= 295f && bcSpeedFloor <= 315f;
+
+            // 4. OTC <-> DivisionCommander FLANK contract & corridor hysteresis + Anti-Meatshield Line Passing + Main Effort + Naming
+            BattleGroupState pC2 = new BattleGroupState(0, pCmdr);
+            BattleGroupState eC2 = new BattleGroupState(1, eCmdr);
+            pC2.authority = divisionai.PermanentDivisionManager.OtcAuthority.POSITIVE_CONTROL;
+            pC2.plays.add(divisionai.PermanentDivisionManager.OtcPlay.LINE_AND_FIRE_DISTRIBUTION);
+            pC2.plays.add(divisionai.PermanentDivisionManager.OtcPlay.DOUBLING);
+            pC2.plays.add(divisionai.PermanentDivisionManager.OtcPlay.RESERVE_AND_GENERAL_CHASE);
+
+            DivisionState pMainBb = new DivisionState("p_bb", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+            DivisionState pVentCru = new DivisionState("p_vcru", 0, 2, DivisionArchetype.CRUISER_DIVISION, "Heavy Cruiser Div 2", pCmdr);
+            DivisionState pResCru = new DivisionState("p_rcru", 0, 3, DivisionArchetype.CRUISER_DIVISION, "Cruiser Div 3", pCmdr);
+            DivisionState pFrig = new DivisionState("p_frig", 0, 4, DivisionArchetype.FRIGATE_DIVISION, "Frigate Div 1", pCmdr);
+            DivisionState pMisDd = new DivisionState("p_mdd", 0, 5, DivisionArchetype.MISSILE_DESTROYER_DIVISION, "Missile Destroyer Div 1", pCmdr);
+            DivisionState pFlankBc = new DivisionState("p_bc", 0, 6, DivisionArchetype.BATTLECRUISER_DIVISION, "Battlecruiser Div 1", pCmdr);
+            pFlankBc.openingMission = DivisionMissionType.ENVELOPMENT;
+            pFlankBc.mainMission = DivisionMissionType.ENVELOPMENT;
+            pC2.divisions.addAll(java.util.Arrays.asList(pMainBb, pVentCru, pResCru, pFrig, pMisDd, pFlankBc));
+            pC2.mainEffortDivision = pMainBb;
+            pC2.reserveDivision = pResCru;
+
+            DivisionState eFrigScreen = new DivisionState("e_fscr", 1, 1, DivisionArchetype.FRIGATE_DIVISION, "Enemy Frigate Screen", eCmdr);
+            DivisionState eDd2 = new DivisionState("e_dd2", 1, 2, DivisionArchetype.DESTROYER_DIVISION, "Destroyer Div 2", eCmdr);
+            DivisionState eDd4 = new DivisionState("e_dd4", 1, 4, DivisionArchetype.STRIKE_DESTROYER_DIVISION, "Destroyer Div 4", eCmdr);
+            DivisionState eCruLine = new DivisionState("e_cru", 1, 1, DivisionArchetype.CRUISER_DIVISION, "Enemy Cruiser Div 1", eCmdr);
+            eC2.divisions.addAll(java.util.Arrays.asList(eFrigScreen, eDd2, eDd4, eCruLine));
+
+            SimArena arenaC2 = new SimArena("Scenario 43C", "C2 Anti-Thrashing, Line-Pass Armor Gate, Main Effort & Naming", pC2, eC2);
+            arenaC2.mapWidth = 36000f;
+            arenaC2.mapHeight = 36000f;
+
+            arenaC2.addShip(pMainBb, "c2_ons", "HSS Onslaught", "onslaught", HullSize.CAPITAL_SHIP, 0f, -2000f, 270f, 3400f, 0, 0);
+            arenaC2.addShip(pVentCru, "c2_dom1", "HSS Dominator 1", "dominator", HullSize.CRUISER, -1200f, -1800f, 270f, 3100f, 0, 0);
+            arenaC2.addShip(pVentCru, "c2_dom2", "HSS Dominator 2", "dominator", HullSize.CRUISER, -1500f, -1800f, 270f, 3100f, 0, 0);
+            arenaC2.addShip(pResCru, "c2_eag1", "HSS Eagle 1", "eagle", HullSize.CRUISER, -1350f, -3200f, 285f, 3200f, 0, 0);
+            arenaC2.addShip(pResCru, "c2_eag2", "HSS Eagle 2", "eagle", HullSize.CRUISER, -1650f, -3200f, 285f, 3200f, 0, 0);
+            arenaC2.addShip(pFrig, "c2_lash", "HSS Lasher", "lasher", HullSize.FRIGATE, -1100f, -2100f, 330f, 2400f, 0, 0);
+            arenaC2.addShip(pMisDd, "c2_cond", "HSS Gizzard", "condor", HullSize.DESTROYER, -1250f, -2200f, 275f, 4000f, 2, 0);
+            arenaC2.addShip(pFlankBc, "c2_conq", "PLS Conquest", "conquest", HullSize.CAPITAL_SHIP, 1800f, -1800f, 285f, 3600f, 0, 0);
+
+            // 4-ship (20 FP) enemy frigate screen slightly closer than Enemy Cruiser Div 1
+            for (int k = 0; k < 4; k++) {
+                arenaC2.addShip(eFrigScreen, "ef_" + k, "Enemy Centurion " + k, "centurion", HullSize.FRIGATE, -300f + k * 200f, 1200f, 320f, 2400f, 0, 0);
+            }
+            arenaC2.addShip(eDd2, "edd2_1", "HSS Enforcer 2", "enforcer", HullSize.DESTROYER, 1200f, 2200f, 280f, 2900f, 0, 0);
+            arenaC2.addShip(eDd4, "edd4_1", "HSS Manticore 4", "manticore", HullSize.DESTROYER, 1800f, 15500f, 280f, 3000f, 0, 0);
+            arenaC2.addShip(eCruLine, "ecru_1", "HSS Dominator A", "dominator", HullSize.CRUISER, 0f, 1850f, 270f, 3200f, 0, 0);
+            arenaC2.addShip(eCruLine, "ecru_2", "HSS Dominator B", "dominator", HullSize.CRUISER, 400f, 1850f, 270f, 3200f, 0, 0);
+            arenaC2.addShip(eCruLine, "ecru_3", "HSS Eagle C", "eagle", HullSize.CRUISER, -400f, 1850f, 285f, 3200f, 0, 0);
+
+            for (DivisionState d : pC2.divisions) {
+                d.profiles.clear();
+                for (com.fs.starfarer.api.combat.ShipAPI s : d.members) {
+                    pC2.shipIdToDivision.put(s.getId(), d);
+                    d.profiles.add(new divisionai.ShipCapabilityProfile(s));
+                }
+                divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(d);
+            }
+            for (DivisionState d : eC2.divisions) {
+                d.profiles.clear();
+                for (com.fs.starfarer.api.combat.ShipAPI s : d.members) {
+                    eC2.shipIdToDivision.put(s.getId(), d);
+                    d.profiles.add(new divisionai.ShipCapabilityProfile(s));
+                }
+                divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(d);
+            }
+
+            // Leftover unassigned enemy destroyer pool when "Destroyer Div 2" & "Destroyer Div 4" already exist
+            DivisionState stagingPool = new DivisionState("s43_pool", 1, 99, DivisionArchetype.DESTROYER_DIVISION, "Pool", eCmdr);
+            SimShipState extraDd1 = arenaC2.addShip(stagingPool, "extra_dd1", "HSS Hammerhead X1", "hammerhead", HullSize.DESTROYER, 2400f, 2500f, 290f, 2900f, 0, 0);
+            SimShipState extraDd2 = arenaC2.addShip(stagingPool, "extra_dd2", "HSS Hammerhead X2", "hammerhead", HullSize.DESTROYER, 2700f, 2500f, 290f, 2900f, 0, 0);
+            List<divisionai.ShipCapabilityProfile> extraPool = java.util.Arrays.asList(
+                    new divisionai.ShipCapabilityProfile(extraDd1.proxy),
+                    new divisionai.ShipCapabilityProfile(extraDd2.proxy));
+            eC2.factionId = "hegemony";
+            List<DivisionState> formedExtra = divisionai.DivisionAutoFormer.formDivisionsFromPool(eC2, extraPool);
+            java.util.Set<String> seenEnemyNames = new java.util.HashSet<>();
+            boolean uniqueEnemyNamesOk = !formedExtra.isEmpty();
+            for (DivisionState ed : eC2.divisions) {
+                if (!seenEnemyNames.add(ed.displayName.toLowerCase(Locale.ROOT))) {
+                    uniqueEnemyNamesOk = false;
+                }
+            }
+
+            arenaC2.elapsedTime = 50.0f;
+            divisionai.OtcAI.updateTelemetry(arenaC2.engineProxy, pC2);
+            divisionai.OtcAI.updateTelemetry(arenaC2.engineProxy, eC2);
+            pC2.enemyReinforcementHazard = 0.85f;
+
+            // Main Effort anti-weathervaning: picks Enemy Cruiser Div 1 over 20 FP 4-Frigate screen
+            DivisionState pickedPrimary = divisionai.OtcAI.pickPrimaryEnemyTargetDivision(arenaC2.engineProxy, pC2, eC2);
+            boolean mainEffortIgnoresFrigScreenOk = (pickedPrimary == eCruLine);
+            pC2.primaryThreatEnemyDivision = pickedPrimary;
+
+            // Venting Heavy Cruiser Div 2: Frigate Div & Missile DD must NOT cover it; Reserve Cruiser Div covers & commits reserve!
+            pVentCru.currentIntent = divisionai.DivisionModel.DivisionIntentType.HAUL_OUT_TO_VENT;
+            pVentCru.avgFluxLevel = 0.72f;
+            pVentCru.incomingInRangeFirepower = 85f;
+            pVentCru.targetEnemyDivision = eCruLine;
+
+            // Flank contract check against eDd4 deep inside enemy northern spawn corridor (y=+15,500 on 36,000 map -> high corridor danger)
+            boolean flankVetoedCleanlyNearSpawn = !divisionai.DivisionCommanderAI.canAcceptOtcFlankOrder(
+                    arenaC2.engineProxy, pFlankBc, eDd4, pC2, pC2.authority, false, 50.0f);
+
+            divisionai.OtcBattlePlanner.planBattle(arenaC2.engineProxy, pC2, eC2, null, null, 50.0f);
+            boolean antiMeatshieldLinePassOk = !pFrig.isCoveringFriend
+                    && !pMisDd.isCoveringFriend
+                    && pResCru.isCoveringFriend
+                    && pC2.reserveCommitted;
+            boolean noAutoVetoedFlankIssuedOk = !(pFlankBc.otcOrder.type == divisionai.DivisionModel.OtcOrderType.FLANK
+                    && pFlankBc.otcOrder.targetEnemy == eDd4);
+
+            check(untetheredReconOk && firstStrikeDoctrineOk && missileStandoffBoundedOk && bcSpeedFloorScaledOk
+                            && flankVetoedCleanlyNearSpawn && noAutoVetoedFlankIssuedOk
+                            && antiMeatshieldLinePassOk && mainEffortIgnoresFrigScreenOk && uniqueEnemyNamesOk,
+                    "C2 Chain Untangling & Untethered First Strike: Recon Continuity, FoW Alpha Strike, 10200u Standoff Cap, Flank Parity, Armor Line-Pass & Unique Names",
+                    String.format(Locale.ROOT,
+                            "recon=[ok=%s, maxY=%.0f, keep25s=%s], firstStrike=[ok=%s, bmbFow=%s, acq=%s], misSt=%.0f, spdFloor=%.0f, flankGate=[%s/%s], linePass=%s, primary=%s, uniqNames=%s(%s)",
+                            untetheredReconOk, maxScoutY, neverRegroupedPast25s,
+                            firstStrikeDoctrineOk, firstStrikeBomberCommittedFow, firstStrikeAcquiredTarget,
+                            boundedMisStandoff, bcSpeedFloor,
+                            flankVetoedCleanlyNearSpawn, noAutoVetoedFlankIssuedOk,
+                            antiMeatshieldLinePassOk,
+                            pickedPrimary != null ? pickedPrimary.displayName : "null",
+                            uniqueEnemyNamesOk,
+                            !formedExtra.isEmpty() ? formedExtra.get(0).displayName : "none"));
+        } finally {
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.VoidstrikeCoordinator.resetForNewBattle();
             divisionai.ShipCaptainAI.resetForNewBattle();
             divisionai.CombatPhysicsProfile.resetForNewBattle();
         }

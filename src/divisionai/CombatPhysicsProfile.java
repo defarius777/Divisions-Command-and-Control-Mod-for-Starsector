@@ -248,6 +248,10 @@ public final class CombatPhysicsProfile {
     // =========================================================================
 
     private static boolean cachedGlobalSpeedOverhaulActive = false;
+    private static float cachedShipTargetSpeed = 600f;
+    private static float cachedShipSpeedFactor = 0.0f;
+    private static float cachedShipSpeedMult = 1.0f;
+    private static float cachedShipSpeedAdd = 0.0f;
 
     private static void ensureGlobalSpecsEvaluated() {
         SettingsAPI settings = null;
@@ -271,6 +275,10 @@ public final class CombatPhysicsProfile {
         cachedGlobalLongGunFloor = 900f;
         cachedGlobalBeamDropoffEnabled = false;
         cachedGlobalSpeedOverhaulActive = false;
+        cachedShipTargetSpeed = 600f;
+        cachedShipSpeedFactor = 0.0f;
+        cachedShipSpeedMult = 1.0f;
+        cachedShipSpeedAdd = 0.0f;
         cachedBeamDropoffOffset = 0.30f;
         cachedBeamDropoffExp = 1.20f;
         cachedBeamDropoffMult = 1.00f;
@@ -417,11 +425,16 @@ public final class CombatPhysicsProfile {
                         cachedGlobalMapScale = Math.max(cachedGlobalMapScale, clamp(mapMult, 1.0f, 6.0f));
                     }
                     if (readBcomBool(bcomJson, useLuna, "shipSpeedFeature", "ENABLE_SHIP_SPEED", false)) {
+                        float sTarget = readBcomFloat(bcomJson, useLuna, "shipTargetSpeed", "SHIP_TARGET_SPEED", 600f);
                         float sFactor = readBcomFloat(bcomJson, useLuna, "shipSpeedFactor", "SHIP_SPEED", 0.4f);
                         float sMult = readBcomFloat(bcomJson, useLuna, "shipSpeedMult", "SHIP_SPEED_MULT", 1.0f);
                         float sAdd = readBcomFloat(bcomJson, useLuna, "shipSpeedAdd", "SHIP_SPEED_ADD", 0.0f);
                         if (sFactor > 0.05f || sMult > 1.15f || sAdd > 25f) {
                             cachedGlobalSpeedOverhaulActive = true;
+                            cachedShipTargetSpeed = clamp(sTarget, 100f, 2000f);
+                            cachedShipSpeedFactor = clamp(sFactor, 0.0f, 1.0f);
+                            cachedShipSpeedMult = clamp(sMult, 0.2f, 5.0f);
+                            cachedShipSpeedAdd = clamp(sAdd, -200f, 1000f);
                         }
                     }
                 }
@@ -504,6 +517,37 @@ public final class CombatPhysicsProfile {
         }
         ensureGlobalSpecsEvaluated();
         return cachedGlobalSpeedOverhaulActive || isGlobalScaledEnvironment();
+    }
+
+    /**
+     * Maps a 1.0x Vanilla ship speed threshold (e.g. {@code 105f} for fast flankers, {@code 130f} for light screens)
+     * into the active combat physics environment. Preserves exact {@code vanillaSpeed} in 1.0x Vanilla Starsector and
+     * in {@code SimArena} scenarios whose hulls use unscaled vanilla speeds, while mapping through Better Combat's
+     * {@code shipSpeedFeature} compression curve when speed-overhauled hulls are active.
+     */
+    public static float scaleVanillaSpeedThreshold(CombatEngineAPI engine, float vanillaSpeed) {
+        ensureGlobalSpecsEvaluated();
+        if (cachedGlobalSpeedOverhaulActive) {
+            float blended = vanillaSpeed * (1.0f - cachedShipSpeedFactor) + cachedShipTargetSpeed * cachedShipSpeedFactor;
+            return Math.max(vanillaSpeed, blended * cachedShipSpeedMult + cachedShipSpeedAdd);
+        }
+        if (engine != null && engine.getShips() != null) {
+            int nonFighterCount = 0;
+            int overhauledSpeedCount = 0;
+            List<ShipAPI> ships = engine.getShips();
+            for (int i = 0, n = ships.size(); i < n && nonFighterCount < 24; i++) {
+                ShipAPI s = ships.get(i);
+                if (s == null || s.isFighter() || s.isHulk() || s.isStation() || s.isStationModule()) continue;
+                nonFighterCount++;
+                if (ShipCaptainAI.resolveUngovernedMaxSpeed(s) >= 215f) {
+                    overhauledSpeedCount++;
+                }
+            }
+            if (nonFighterCount >= 2 && overhauledSpeedCount * 2 >= nonFighterCount) {
+                return vanillaSpeed * 0.60f + 600f * 0.40f;
+            }
+        }
+        return vanillaSpeed;
     }
 
     /**

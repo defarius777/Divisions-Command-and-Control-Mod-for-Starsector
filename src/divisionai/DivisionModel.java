@@ -295,6 +295,7 @@ public class DivisionModel {
         public PermanentDivisionManager.DivisionFormation orderedFormation = null;
         public PermanentDivisionManager.DivisionSetpieceAttack orderedSetpieceAttack = null;
         public float expiresTime = -100f;
+        public float issuedTime = -100f;
         public String reason = "";
         /** Incremented whenever the type or target changes, so division commanders re-evaluate immediately. */
         public int version;
@@ -315,13 +316,20 @@ public class DivisionModel {
             flankEchelonIndex = 0;
             orderedFormation = null;
             orderedSetpieceAttack = null;
+            issuedTime = -100f;
             reason = "";
         }
 
         /** Sets the tasking and bumps {@link #version} only if it actually changed. */
         public void set(OtcOrderType newType, DivisionState enemy, DivisionState friendly, float side, float expires, String why) {
-            if (newType != type || enemy != targetEnemy || friendly != targetFriendly || Math.signum(side) != Math.signum(flankSide)) {
+            boolean roleOrTargetChanged = newType != type
+                    || enemy != targetEnemy
+                    || friendly != targetFriendly;
+            if (roleOrTargetChanged || Math.signum(side) != Math.signum(flankSide)) {
                 version++;
+            }
+            if (roleOrTargetChanged || issuedTime < -50f) {
+                issuedTime = Math.max(0f, expires - OtcBattlePlanner.TASK_TTL);
             }
             type = newType;
             targetEnemy = enemy;
@@ -802,6 +810,8 @@ public class DivisionModel {
         public int voidstrikeTerminalAlignedCraftCount = 0;
         public int voidstrikeFireGatedCraftCount = 0;
         public float lastVoidstrikeSpanWidth = 0f;
+        public boolean fowSearchReachedEntry = false;
+        public float fowSearchEntryTimestamp = -100f;
 
         // Item E (Trade Space for Time / Tactical Retreat) & Item F (Feigned Retreat & Trap Suspicion)
         public final Vector2f spaceOffsetVector = new Vector2f(0f, 0f);

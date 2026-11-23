@@ -947,10 +947,11 @@ public class OtcAI {
                 : (!enemyBaitTrapSuspected
                         && !crisis
                         && current == BattlePhase.GENERAL_CHASE
-                        && ((allVisibleEnemiesNonCombatant && myGroup.enemyReinforcementHazard < 0.30f)
-                        || (myGroup.forceRatio >= ((carrierStrikeArm ? 1.32f : 1.20f) + reserveCautionAdd * 0.70f)
-                        && myGroup.enemyUndeployedReserveFp <= myGroup.totalFriendlyStrength * 0.65f
-                        && visibleEnemyFp >= 14f && minContactDist < 3600f * contactScale)));
+                        && ((allVisibleEnemiesNonCombatant && myGroup.enemyReinforcementHazard < 0.35f)
+                        || ((now - myGroup.phaseEnteredTime) < 16.0f && myGroup.forceRatio >= 1.12f && minContactDist < 4200f * contactScale)
+                        || (myGroup.forceRatio >= ((carrierStrikeArm ? 1.24f : 1.14f) + reserveCautionAdd * 0.60f)
+                        && myGroup.enemyUndeployedReserveFp <= myGroup.totalFriendlyStrength * 0.72f
+                        && visibleEnemyFp >= 10f && minContactDist < 4200f * contactScale)));
         boolean strikeRunning = myGroup.strikePlan != null && myGroup.isPlayEnabled(OtcPlay.TIME_ON_TARGET_STRIKES);
 
         boolean fullAssault = isFullAssaultActive(engine, myGroup);
@@ -1022,7 +1023,8 @@ public class OtcAI {
                     && nextPhase != BattlePhase.FIGHTING_RETIREMENT
                     && (myGroup.otc.aggressionBias <= 1.35f);
         } else {
-            holdReserve = !frontlineInCloseFight
+            holdReserve = !myGroup.reserveCommitted
+                    && !frontlineInCloseFight
                     && (now < 45f)
                     && (activeDivCount >= 4)
                     && (nextPhase == BattlePhase.APPROACH)
@@ -3206,7 +3208,7 @@ public class OtcAI {
         return 0.78f;
     }
 
-    private static DivisionState pickPrimaryEnemyTargetDivision(
+    public static DivisionState pickPrimaryEnemyTargetDivision(
             CombatEngineAPI engine,
             BattleGroupState myGroup,
             BattleGroupState enemyGroup) {
@@ -3394,20 +3396,23 @@ public class OtcAI {
                     && (eDiv == myGroup.primaryThreatEnemyDivision
                     || (eDiv.id != null && eDiv.id.equals(myGroup.primaryThreatEnemyDivision.id)));
             boolean inGeneralChasePhase = myGroup.currentPhase == BattlePhase.GENERAL_CHASE;
+            boolean eIsHeavyLine = eDiv.archetype != null && eDiv.archetype.isHeavyLineArchetype();
+            float steadyPrimaryStickiness = isUnassignedContact ? 195f : (eIsHeavyLine ? 480f : 380f);
             float incumbentBonus = (isCurrentPrimary
                     && overkillPrimaryPenalty == 0f
                     && (unablePenalty == 0f || (inGeneralChasePhase && !anyAbleVisibleEnemy))
                     && feignPenalty == 0f)
-                    ? (inGeneralChasePhase ? (isUnassignedContact ? 340f : 520f) : (isUnassignedContact ? 195f : 280f))
+                    ? (inGeneralChasePhase ? (isUnassignedContact ? 340f : 520f) : steadyPrimaryStickiness)
                     : 0f;
 
+            float lightSpeedThreshold = CombatPhysicsProfile.scaleVanillaSpeedThreshold(engine, 130f);
+            boolean isLightSkirmisherArch = eDiv.archetype != null && eDiv.archetype.isLightSkirmisherArchetype();
             boolean isLightUnfluxedScreen = anyAbleVisibleSubstantialEnemy
                     && !isPursuitInterception
-                    && rawVisFp < 20f
+                    && rawVisFp <= (isLightSkirmisherArch ? 32f : 20f)
                     && eDiv.avgFluxLevel < 0.68f
-                    && ((eDiv.archetype != null && eDiv.archetype.isLightSkirmisherArchetype())
-                    || eDiv.avgMaxSpeed >= 130f);
-            float lightScreenPrimaryPenalty = isLightUnfluxedScreen ? -420f : 0f;
+                    && (isLightSkirmisherArch || eDiv.avgMaxSpeed >= lightSpeedThreshold);
+            float lightScreenPrimaryPenalty = isLightUnfluxedScreen ? -540f : 0f;
 
             float decisiveArmBonus = 0f;
             if (myGroup.decisiveArm == PermanentDivisionManager.DecisiveArm.TORPEDO_STRIKES) {

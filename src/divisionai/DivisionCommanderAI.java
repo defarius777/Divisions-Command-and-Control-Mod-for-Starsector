@@ -2045,7 +2045,8 @@ public class DivisionCommanderAI {
             case DECKLOAD_STRIKE: {
                 String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
                 if (carrierTargetDiv == null) {
-                    return commitIntent(engine, div, DivisionIntentType.FLY_FIGHTER_SWEEP, targetLabel, baseReason, now);
+                    targetLabel = div.side == 0 ? "enemy center-north" : "enemy approach axis";
+                    return commitIntent(engine, div, DivisionIntentType.LAUNCH_DECKLOAD_STRIKE, targetLabel, baseReason, now);
                 }
                 effectiveEnemies = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
                 if (shouldHoldCarrierDeckloadForMainBody(
@@ -2058,7 +2059,8 @@ public class DivisionCommanderAI {
             case ALPHA_STRIKE: {
                 String targetLabel = assignCarrierStandoffOrReserveStation(engine, div, myGroup, carrierTargetDiv);
                 if (carrierTargetDiv == null) {
-                    return commitIntent(engine, div, DivisionIntentType.FLY_FIGHTER_SWEEP, targetLabel, baseReason, now);
+                    targetLabel = div.side == 0 ? "enemy center-north" : "enemy approach axis";
+                    return commitIntent(engine, div, DivisionIntentType.LAUNCH_ALPHA_STRIKE, targetLabel, baseReason, now);
                 }
                 effectiveEnemies = OtcAI.getEffectiveEnemyDivisions(engine, enemyGroup);
                 if (shouldHoldCarrierDeckloadForMainBody(
@@ -2756,9 +2758,7 @@ public class DivisionCommanderAI {
             }
             case FLANK: {
                 if (auth != OtcAuthority.POSITIVE_CONTROL) return false;
-                if (!targetValid || div.avgFluxLevel >= 0.58f || (now - div.lastBreakOffTimestamp) < 12f) return false;
-                Vector2f flankEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, target);
-                if (BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, flankEnemyPos) >= 0.45f) {
+                if (!canAcceptOtcFlankOrder(engine, div, target, myGroup, auth, prevIntent == DivisionIntentType.WORK_FLANK, now)) {
                     return false;
                 }
                 boolean fragileFrigateFlank = div.archetype != null && div.archetype.isFrigateArchetype();
@@ -3825,6 +3825,32 @@ public class DivisionCommanderAI {
             }
         }
         div.stationPoint.set(div.setpiecePassTarget);
+    }
+
+    /**
+     * Shared OTC <-> Division Commander contract for {@link OtcOrderType#FLANK} with entry/exit hysteresis so
+     * {@link OtcBattlePlanner#assignDoublingSides} never issues a flank order that the subordinate immediately vetoes
+     * into {@code keeping the line}.
+     */
+    public static boolean canAcceptOtcFlankOrder(
+            CombatEngineAPI engine,
+            DivisionState div,
+            DivisionState target,
+            BattleGroupState myGroup,
+            OtcAuthority auth,
+            boolean alreadyFlanking,
+            float now) {
+        if (div == null || target == null || auth == OtcAuthority.FIRE_DISTRIBUTION_ONLY) return false;
+        if (!target.isCombatEffective() || !OtcAI.isDivisionVisibleToSide(engine, div.side, target)) return false;
+        if ((now - div.lastBreakOffTimestamp) < 12f) return false;
+        float fluxCeiling = alreadyFlanking ? 0.63f : 0.53f;
+        if (div.avgFluxLevel >= fluxCeiling) return false;
+        Vector2f flankEnemyPos = OtcAI.getVisibleCentroidForSide(engine, div.side, target);
+        float corridorCeiling = alreadyFlanking ? 0.53f : 0.38f;
+        if (BattlefieldFirepowerEvaluator.computeEnemySpawnCorridorDanger(myGroup, flankEnemyPos) >= corridorCeiling) {
+            return false;
+        }
+        return true;
     }
 
     static void computePatrolStation(DivisionState carrierDiv, DivisionState protectedDiv, Vector2f outStation) {

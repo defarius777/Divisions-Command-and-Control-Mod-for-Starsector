@@ -594,19 +594,26 @@ public class OtcBattlePlanner {
         if (strikers.isEmpty() || (strikers.size() < 2 && !mainEffortCanFix)) {
             return null;
         }
-        // Prevent 1-division Frigate-only "Setpiece" spam: a fleet-level Setpiece with only 1 striker division
-        // requires real decisive punch (a Carrier/Battlecarrier air wing, Cruiser/Capital/Destroyer strike group,
-        // >= 20 FP mass, or an explicit TOT_ALPHA_STRIKE mission). A single light Frigate pack executes its own
-        // division-level missile/flank runs without hijacking Fleet Command into repeated marshaling holds.
+        // Prevent 1-division surface gun "Setpiece" spam when the sole striker is already engaged in gun range:
+        // a fleet-level Setpiece with 1 striker requires either an air/missile/ToT alpha package or >= 5s staging
+        // travel so OTC never logs a fake 8s marshal followed +2ms later by immediate execution.
         if (strikers.size() == 1) {
             DivisionState sole = strikers.get(0);
             boolean lightFrigatePack = sole.archetype == DivisionArchetype.FRIGATE_DIVISION
                     || sole.archetype == DivisionArchetype.STRIKE_FRIGATE_DIVISION
                     || sole.archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION;
+            boolean isCarrierOrTorpAlpha = DivisionCommanderAI.isCarrierStandoffPosture(sole, now)
+                    || DivisionCommanderAI.resolveActiveMission(sole, now) == DivisionMissionType.TOT_ALPHA_STRIKE
+                    || (sole.archetype != null && sole.archetype.isMissileArchetype());
             if (lightFrigatePack
                     && sole.totalFpStrength < 20f
                     && !DivisionCommanderAI.hasDivisionStrikeCraftCapability(sole)
                     && DivisionCommanderAI.resolveActiveMission(sole, now) != DivisionMissionType.TOT_ALPHA_STRIKE) {
+                return null;
+            }
+            if (!isCarrierOrTorpAlpha
+                    && (sole.inRangeFirepowerScore > 0f
+                    || DivisionUiWidgets.distance(sole.centroid, targetPos) <= Math.max(1050f * rScale, sole.avgEngageRange * 1.06f))) {
                 return null;
             }
         }
@@ -759,32 +766,42 @@ public class OtcBattlePlanner {
                 maxEta = eta;
             }
         }
-        boolean anyParticipantInCombatRange = false;
+        boolean allParticipantsInCombatRange = !plan.participants.isEmpty();
+        boolean emergencyUnderFire = false;
         for (DivisionState p : plan.participants) {
-            if (!p.archetype.isCarrierArchetype()
+            boolean pInRange = !p.archetype.isCarrierArchetype()
                     && (p.inRangeFirepowerScore > 0f
                     || p.incomingInRangeFirepower > 25f
-                    || DivisionUiWidgets.distance(p.centroid, targetPos) <= Math.max(1050f, p.avgEngageRange * 1.08f))) {
-                anyParticipantInCombatRange = true;
-                break;
+                    || DivisionUiWidgets.distance(p.centroid, targetPos) <= Math.max(1050f * rScale, p.avgEngageRange * 1.08f));
+            if (!pInRange) {
+                allParticipantsInCombatRange = false;
+            }
+            if (!p.archetype.isCarrierArchetype() && p.incomingInRangeFirepower > 45f && p.avgFluxLevel >= 0.42f) {
+                emergencyUnderFire = true;
             }
         }
         float safeMaxEta = (Float.isNaN(maxEta) || Float.isInfinite(maxEta)) ? 4.0f : maxEta;
         plan.strikeTime = now + Math.max(2.0f, Math.min(8.0f, safeMaxEta * 0.65f));
-        if (safeMaxEta <= 3.5f || anyParticipantInCombatRange) {
+        if (safeMaxEta <= 3.5f || allParticipantsInCombatRange || emergencyUnderFire) {
             plan.committed = true;
             plan.commitTime = now;
             plan.focusShip = pickStrikeFocusShip(engine, myGroup.side, plan.target);
+            logOrder(engine, myGroup, "strike_commit", String.format(
+                    "Execute [%s]: %d division(s) strike \"%s\" together%s.",
+                    chosenSetpiece.displayName,
+                    plan.participants.size(),
+                    target.displayName,
+                    plan.focusShip != null ? " (focus " + plan.focusShip.getName() + ")" : ""), now);
+        } else {
+            logOrder(engine, myGroup, "strike_plan", String.format(
+                    "Setpiece [%s]: %d division%s to marshal against \"%s\", strike in %.0fs%s.",
+                    chosenSetpiece.displayName,
+                    strikers.size(),
+                    strikers.size() == 1 ? "" : "s",
+                    target.displayName,
+                    plan.strikeTime - now,
+                    mainEffortCanFix ? " (\"" + myGroup.mainEffortDivision.displayName + "\" fixes as anvil)" : ""), now);
         }
-
-        logOrder(engine, myGroup, "strike_plan", String.format(
-                "Setpiece [%s]: %d division%s to marshal against \"%s\", strike in %.0fs%s.",
-                chosenSetpiece.displayName,
-                strikers.size(),
-                strikers.size() == 1 ? "" : "s",
-                target.displayName,
-                plan.strikeTime - now,
-                mainEffortCanFix ? " (\"" + myGroup.mainEffortDivision.displayName + "\" fixes as anvil)" : ""), now);
         return plan;
     }
 
@@ -832,23 +849,30 @@ public class OtcBattlePlanner {
 
     private static boolean allMarshalled(CombatEngineAPI engine, BattleGroupState myGroup, StrikePlan plan) {
         Vector2f targetPos = OtcAI.getVisibleCentroidForSide(engine, myGroup.side, plan.target);
+        float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
+        float iScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalDivisionIntervalMult());
+        boolean allReady = true;
         for (DivisionState p : plan.participants) {
-            // Item C: If any non-carrier strike division is already exchanging fire or within gun range,
-            // do not keep the strike group waiting in MARSHAL with 0% gun uptime — commit immediately!
+            // Emergency early commit: if a surface striker is already under heavy enemy fire while waiting, unleash!
             if (!p.archetype.isCarrierArchetype()
-                    && (p.inRangeFirepowerScore > 0f
-                    || p.incomingInRangeFirepower > 25f
-                    || DivisionUiWidgets.distance(p.centroid, targetPos) <= Math.max(1050f, p.avgEngageRange * 1.08f))) {
+                    && p.incomingInRangeFirepower > 45f
+                    && p.avgFluxLevel >= 0.42f) {
                 return true;
+            }
+            boolean inGunEnvelope = !p.archetype.isCarrierArchetype()
+                    && (p.inRangeFirepowerScore > 0f
+                    || DivisionUiWidgets.distance(p.centroid, targetPos) <= Math.max(1050f * rScale, p.avgEngageRange * 1.06f));
+            if (inGunEnvelope) {
+                continue;
             }
             Vector2f offset = plan.marshalOffsets.get(p.id);
             if (offset == null) continue;
             float marshalDist = offset.length();
-            if (DivisionUiWidgets.distance(p.centroid, targetPos) > marshalDist + 350f) {
-                return false;
+            if (DivisionUiWidgets.distance(p.centroid, targetPos) > marshalDist + 350f * iScale) {
+                allReady = false;
             }
         }
-        return true;
+        return allReady;
     }
 
     private static ShipAPI pickStrikeFocusShip(CombatEngineAPI engine, int side, DivisionState target) {
@@ -1886,6 +1910,11 @@ public class OtcBattlePlanner {
                 }
             }
             if (target == null || !target.isCombatEffective()) continue;
+            boolean alreadyFlanking = d.currentIntent == DivisionIntentType.WORK_FLANK
+                    || (d.otcOrder.type == OtcOrderType.FLANK && d.otcOrder.targetEnemy == target);
+            if (!DivisionCommanderAI.canAcceptOtcFlankOrder(engine, d, target, myGroup, myGroup.authority, alreadyFlanking, now)) {
+                continue;
+            }
             // Never peel flanking divisions off onto an unorganized "Independent Contact" cluster while our primary
             // threat is an active organized enemy combat division!
             if (target.id != null && target.id.startsWith("unassigned_")
@@ -2521,32 +2550,44 @@ public class OtcBattlePlanner {
             Vector2f threatPos = (venting.targetEnemyDivision != null && venting.targetEnemyDivision.centroid != null)
                     ? venting.targetEnemyDivision.centroid
                     : null;
+            float rScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
+            float iScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalDivisionIntervalMult());
             Vector2f idealScreenPt = venting.centroid;
             if (threatPos != null && venting.centroid != null) {
                 float tx = threatPos.x - venting.centroid.x;
                 float ty = threatPos.y - venting.centroid.y;
                 float tlen = (float) Math.sqrt(tx * tx + ty * ty);
                 if (tlen > 1f) {
-                    float step = Math.min(420f, tlen * 0.42f);
+                    float step = Math.min(420f * iScale, tlen * 0.42f);
                     idealScreenPt = new Vector2f(
                             venting.centroid.x + (tx / tlen) * step,
                             venting.centroid.y + (ty / tlen) * step);
                 }
             }
 
+            boolean ventingIsWarshipLine = venting.archetype != null && !venting.archetype.isLightSkirmisherArchetype();
+            boolean ventingIsHeavyLine = venting.archetype != null && venting.archetype.isHeavyLineArchetype();
             DivisionState bestCover = null;
             float bestScore = -Float.MAX_VALUE;
             for (DivisionState cand : active) {
-                if (cand == venting || tasked.contains(cand)) continue;
+                if (cand == venting || cand == myGroup.mainEffortDivision || tasked.contains(cand)) continue;
                 if (cand.archetype.isCarrierArchetype() || cand.archetype == DivisionArchetype.SERVICE_GROUP) continue;
+                // Anti-Meatshield Gate: never order fragile frigates/phase packs or standoff missile boats to step in
+                // front of a venting Destroyer/Cruiser/Capital division to tank heavy gunfire!
+                if (ventingIsWarshipLine && (cand.archetype.isLightSkirmisherArchetype() || cand.archetype.isMissileArchetype())) {
+                    continue;
+                }
+                if (ventingIsHeavyLine && !cand.archetype.isHeavyLineArchetype() && cand.totalFpStrength < venting.totalFpStrength * 0.65f) {
+                    continue;
+                }
                 if (cand.currentIntent.isWithdrawalOrBreakout()) continue;
                 if (cand.avgFluxLevel >= 0.52f) continue;
                 float dist = DivisionUiWidgets.distance(cand.centroid, venting.centroid);
-                if (dist > 1450f) continue;
+                if (dist > 1450f * rScale) continue;
                 float screenDist = (idealScreenPt != null)
                         ? DivisionUiWidgets.distance(cand.centroid, idealScreenPt)
                         : dist;
-                float score = -screenDist * 0.55f + cand.totalFpStrength * 5f - cand.avgFluxLevel * 300f;
+                float score = -(screenDist / rScale) * 0.55f + cand.totalFpStrength * 5f - cand.avgFluxLevel * 300f;
                 if (venting.coveringFriendDivision == cand) score += 440f;
                 if (score > bestScore) {
                     bestScore = score;
@@ -2567,6 +2608,11 @@ public class OtcBattlePlanner {
                         && bestCover != myGroup.mainEffortDivision
                         && bestCover.inRangeFirepowerScore <= 0f
                         && !tasked.contains(bestCover)) {
+                    if (bestCover == myGroup.reserveDivision) {
+                        myGroup.reserveCommitted = true;
+                        bestCover.isDesignatedReserve = false;
+                        myGroup.reserveDivision = null;
+                    }
                     bestCover.otcOrder.set(OtcOrderType.REINFORCE, null, venting, 0f, expires,
                             "OTC: line-pass, cover withdrawal of \"" + venting.displayName + "\"");
                     tasked.add(bestCover);

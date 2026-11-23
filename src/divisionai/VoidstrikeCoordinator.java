@@ -1388,13 +1388,43 @@ public class VoidstrikeCoordinator {
             focusEnemyShip = null;
         }
 
-        boolean isFowSearchIntent = scIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
-                || scIntent == DivisionIntentType.LAUNCH_SEARCH_AND_DESTROY;
+        Set<String> reservedCapKeys = computeReservedCapWingKeys(div);
+        boolean outboundFowWingAlreadyAirborne = div != null && div.fowSearchReachedEntry;
+        if (!outboundFowWingAlreadyAirborne && !carrier.isPullBackFighters()) {
+            for (int wIdx = 0; wIdx < wings.size(); wIdx++) {
+                FighterWingAPI w = wings.get(wIdx);
+                if (w == null || isSupportEscortOnlyWing(carrier, w)) continue;
+                if (isCapMission || reservedCapKeys.contains(buildCarrierWingKey(carrier, wIdx))) continue;
+                if (w.getWingMembers() == null) continue;
+                for (ShipAPI wf : w.getWingMembers()) {
+                    if (wf != null && wf.isAlive() && !wf.isHulk() && wf.getLocation() != null && !w.isReturning(wf)
+                            && DivisionUiWidgets.distance(wf.getLocation(), carrier.getLocation()) >= 460f) {
+                        outboundFowWingAlreadyAirborne = true;
+                        break;
+                    }
+                }
+                if (outboundFowWingAlreadyAirborne) break;
+            }
+        }
+        boolean isFullPackageFowStrike = scIntent == DivisionIntentType.LAUNCH_SEARCH_AND_DESTROY
+                || scIntent == DivisionIntentType.LAUNCH_ALPHA_STRIKE
+                || scIntent == DivisionIntentType.LAUNCH_DECKLOAD_STRIKE;
+        boolean isScoutSweepFowIntent = scIntent == DivisionIntentType.FLY_ARMED_RECONNAISSANCE
+                || scIntent == DivisionIntentType.FLY_FIGHTER_SWEEP;
+        boolean hasOutboundContinuityInFow = (armedCommittedDownrange || outboundFowWingAlreadyAirborne)
+                && scIntent != DivisionIntentType.HOLD_IN_RESERVE
+                && scIntent != DivisionIntentType.FLY_COMBAT_SPACE_PATROL
+                && scIntent != DivisionIntentType.BREAK_OFF_AND_RETIRE
+                && scIntent != DivisionIntentType.RUN_THE_GAUNTLET;
+        boolean isFowSearchIntent = isFullPackageFowStrike || isScoutSweepFowIntent || hasOutboundContinuityInFow;
         if (focusEnemyShip == null && isFowSearchIntent) {
             focusEnemyShip = findLocalEnemyAcquiredByAirGroup(carrier, div, activeEngineForVis);
         }
+        if (focusEnemyShip != null && div != null) {
+            div.fowSearchReachedEntry = false;
+            div.fowSearchEntryTimestamp = -100f;
+        }
 
-        Set<String> reservedCapKeys = computeReservedCapWingKeys(div);
         int carrierNonSupportWings = 0;
         int carrierCapReservedWings = 0;
         int carrierFowOutboundWings = 0;
@@ -1406,9 +1436,22 @@ public class VoidstrikeCoordinator {
                 carrierCapReservedWings++;
             } else if (isFowSearchIntent) {
                 boolean wBomber = (w.getSpec() != null && w.getSpec().isBomber()) || w.getRole() == WingRole.BOMBER;
-                // Search & Destroy commits the maximum strike package (including bombers); Armed Recon sends non-bomber scouts
-                // so pure-bomber carriers keep their Zero-Flux Speed Boost in Regroup until scouts spot a target.
-                if (scIntent == DivisionIntentType.LAUNCH_SEARCH_AND_DESTROY || !wBomber) {
+                boolean wingAlreadyDownrange = false;
+                if (w.getWingMembers() != null) {
+                    for (ShipAPI wf : w.getWingMembers()) {
+                        if (wf != null && wf.isAlive() && !wf.isHulk() && !w.isReturning(wf)
+                                && DivisionUiWidgets.distance(wf.getLocation(), carrier.getLocation()) >= 460f) {
+                            wingAlreadyDownrange = true;
+                            break;
+                        }
+                    }
+                }
+                // First-Strike doctrines (Search & Destroy, Alpha Strike, Deckload Strike) commit the full strike
+                // package (fighters + bombers) into Fog of War; Armed Recon / Fighter Sweep send non-bomber scouts
+                // (while any wing already committed downrange before an Opening -> Main transition continues its sweep!).
+                if (isFullPackageFowStrike
+                        || ((isScoutSweepFowIntent || hasOutboundContinuityInFow) && !wBomber)
+                        || wingAlreadyDownrange) {
                     carrierFowOutboundWings++;
                 }
             }
@@ -1448,7 +1491,7 @@ public class VoidstrikeCoordinator {
                 : null;
 
         boolean holdFightersInFormation = emergencyPullback
-                || (!armedCommittedDownrange && (div.voidstrikeEgressActive
+                || (!armedCommittedDownrange && !outboundFowWingAlreadyAirborne && (div.voidstrikeEgressActive
                 || scIntent == DivisionIntentType.HOLD_IN_RESERVE
                 || scIntent == DivisionIntentType.BREAK_OFF_AND_RETIRE
                 || scIntent == DivisionIntentType.RUN_THE_GAUNTLET
@@ -1647,8 +1690,7 @@ public class VoidstrikeCoordinator {
                         localBastionHulls, localHeavyBastionHulls, totalMergedPackageWings, fwdX, fwdY)
                 : 0f;
 
-        Vector2f outboundBomberCentroid = (fowSearchActiveOnCarrier
-                && scIntent == DivisionIntentType.LAUNCH_SEARCH_AND_DESTROY)
+        Vector2f outboundBomberCentroid = (fowSearchActiveOnCarrier && isFullPackageFowStrike)
                 ? computeOutboundBomberPackageCentroid(div, reservedCapKeys)
                 : null;
 
@@ -1670,10 +1712,23 @@ public class VoidstrikeCoordinator {
                     || (wing.getRole() == WingRole.BOMBER);
             boolean wingReservedForCap = isCapMission
                     || (!isBomberWing && reservedCapKeys.contains(buildCarrierWingKey(carrier, wIdx)));
+            boolean wingAlreadyDownrange = false;
+            if (fowSearchActiveOnCarrier && !wingReservedForCap) {
+                for (int mIdx = 0; mIdx < wingMembers.size(); mIdx++) {
+                    ShipAPI mf = wingMembers.get(mIdx);
+                    if (mf != null && mf.isAlive() && !mf.isHulk() && !wing.isReturning(mf)
+                            && DivisionUiWidgets.distance(mf.getLocation(), carrier.getLocation()) >= 460f) {
+                        wingAlreadyDownrange = true;
+                        break;
+                    }
+                }
+            }
             boolean wingFowSearchActive = fowSearchActiveOnCarrier
                     && !wingReservedForCap
                     && fowSearchWaypoint != null
-                    && (scIntent == DivisionIntentType.LAUNCH_SEARCH_AND_DESTROY || !isBomberWing);
+                    && (isFullPackageFowStrike
+                    || ((isScoutSweepFowIntent || hasOutboundContinuityInFow) && !isBomberWing)
+                    || wingAlreadyDownrange);
             boolean dressAsStrikeFormation = (inVoidstrike || wingFowSearchActive) && !wingReservedForCap;
 
             SquadronFormation sqdnForm = isBomberWing
@@ -1774,7 +1829,7 @@ public class VoidstrikeCoordinator {
                     applyFogOfWarSearchStrikeFlight(
                             carrier, wing, wingLeader, fighter, fFlags, cIdx,
                             fowSearchWaypoint, outboundBomberCentroid, squadronSlotOffset,
-                            isBomberWing, isWingLeader, scIntent == DivisionIntentType.LAUNCH_SEARCH_AND_DESTROY,
+                            isBomberWing, isWingLeader, isFullPackageFowStrike,
                             fwdX, fwdY, rightX, rightY);
                 } else if (coordinatedStagingActive
                         && (div.voidstrikeStage == 0 || div.voidstrikeStage == 1)
@@ -2162,7 +2217,7 @@ public class VoidstrikeCoordinator {
                 float d = DivisionUiWidgets.distance(friendlyAir.get(i).getLocation(), es.getLocation());
                 if (d < minAirDist) minAirDist = d;
             }
-            if (!spotted && minAirDist > fighterSpotRadius) continue;
+            if (!spotted && (engine != null || minAirDist > 1750f)) continue;
 
             float score = 0f;
             if (es.getHullSize() != null) {
@@ -2199,8 +2254,10 @@ public class VoidstrikeCoordinator {
         float centerNorthX = 0f;
         float centerNorthY = northSign * (mapH * 0.34f);
 
-        boolean reachedCenterNorth = false;
-        if (div != null) {
+        boolean reachedCenterNorth = (div != null && div.fowSearchReachedEntry);
+        if (!reachedCenterNorth && div != null) {
+            float latchRad = Math.max(850f, mapH * 0.045f);
+            float latchRadSq = latchRad * latchRad;
             for (ShipAPI m : div.getAliveMembers()) {
                 if (m == null || m.getAllWings() == null) continue;
                 for (FighterWingAPI w : m.getAllWings()) {
@@ -2209,8 +2266,13 @@ public class VoidstrikeCoordinator {
                     if (leader != null && leader.isAlive() && leader.getLocation() != null && !w.isReturning(leader)) {
                         float dx = leader.getLocation().x - centerNorthX;
                         float dy = leader.getLocation().y - centerNorthY;
-                        if (dx * dx + dy * dy <= 850f * 850f) {
+                        boolean pastEntryLat = (northSign > 0f)
+                                ? (leader.getLocation().y >= centerNorthY - 300f && Math.abs(dx) <= mapW * 0.30f)
+                                : (leader.getLocation().y <= centerNorthY + 300f && Math.abs(dx) <= mapW * 0.30f);
+                        if (dx * dx + dy * dy <= latchRadSq || pastEntryLat) {
                             reachedCenterNorth = true;
+                            div.fowSearchReachedEntry = true;
+                            div.fowSearchEntryTimestamp = now;
                             break;
                         }
                     }
@@ -2219,9 +2281,13 @@ public class VoidstrikeCoordinator {
             }
         }
         if (reachedCenterNorth) {
-            float deg = ((now * 14f) % 360f + 360f) % 360f;
-            float sweepX = CombatPhysicsProfile.fastSinDeg(deg) * (mapW * 0.24f);
-            float sweepY = northSign * (mapH * 0.37f);
+            float sweepElapsed = (div != null && div.fowSearchEntryTimestamp > -50f)
+                    ? Math.max(0f, now - div.fowSearchEntryTimestamp)
+                    : now;
+            float deg = ((sweepElapsed * 16f) % 360f + 360f) % 360f;
+            float depthProgress = Math.min(1.0f, sweepElapsed / 22.0f);
+            float sweepX = CombatPhysicsProfile.fastSinDeg(deg) * (mapW * 0.28f);
+            float sweepY = northSign * (mapH * (0.35f + 0.10f * depthProgress));
             return new Vector2f(sweepX, sweepY);
         }
         return new Vector2f(centerNorthX, centerNorthY);
@@ -2315,7 +2381,7 @@ public class VoidstrikeCoordinator {
                 baseDestX + squadronSlotOffset.x + rightX * wingmanLat + fwdX * wingmanTrail,
                 baseDestY + squadronSlotOffset.y + rightY * wingmanLat + fwdY * wingmanTrail);
         fFlags.setFlag(AIFlags.MOVEMENT_DEST, DivisionCommanderAI.FLAG_TTL, destPt);
-        if (isWingLeader || DivisionUiWidgets.distance(fighter.getLocation(), wingLeader.getLocation()) > 220f) {
+        if (isWingLeader) {
             steerFighterTowardPoint60Hz(fighter, destPt, true);
         }
     }
@@ -3285,7 +3351,24 @@ public class VoidstrikeCoordinator {
                 }
             }
         }
-        float requiredBonus = Math.max(2500f, maxDist + 3200f);
+        if (carrier.getAllWings() != null) {
+            for (FighterWingAPI w : carrier.getAllWings()) {
+                if (w == null || w.getWingMembers() == null) continue;
+                for (ShipAPI wf : w.getWingMembers()) {
+                    if (wf != null && wf.isAlive() && wf.getLocation() != null) {
+                        float df = DivisionUiWidgets.distance(carrier.getLocation(), wf.getLocation());
+                        if (df > maxDist) maxDist = df;
+                    }
+                }
+            }
+        }
+        CombatEngineAPI activeEng = (lastVoidstrikeUpdateEngine != null)
+                ? lastVoidstrikeUpdateEngine
+                : Global.getCombatEngine();
+        float mapSpanFloor = (activeEng != null && activeEng.getMapHeight() > 1000f)
+                ? (activeEng.getMapHeight() * 0.95f)
+                : 2500f;
+        float requiredBonus = Math.max(Math.max(2500f, mapSpanFloor), maxDist + 4000f);
         carrier.getMutableStats().getFighterWingRange().modifyFlat(VOIDSTRIKE_MAX_RANGE_STAT_ID, requiredBonus);
     }
 
@@ -4325,14 +4408,10 @@ public class VoidstrikeCoordinator {
         // and are integrated via Ship.engineController using the hull's actual turnAcceleration & acceleration.
         if (leadDiff > 1.8f) {
             fighter.giveCommand(ShipCommand.TURN_LEFT, null, 0);
-            if (!underHeavyFire) {
-                fighter.blockCommandForOneFrame(ShipCommand.TURN_RIGHT);
-            }
+            fighter.blockCommandForOneFrame(ShipCommand.TURN_RIGHT);
         } else if (leadDiff < -1.8f) {
             fighter.giveCommand(ShipCommand.TURN_RIGHT, null, 0);
-            if (!underHeavyFire) {
-                fighter.blockCommandForOneFrame(ShipCommand.TURN_LEFT);
-            }
+            fighter.blockCommandForOneFrame(ShipCommand.TURN_LEFT);
         } else if (!underHeavyFire) {
             fighter.blockCommandForOneFrame(ShipCommand.TURN_LEFT);
             fighter.blockCommandForOneFrame(ShipCommand.TURN_RIGHT);
@@ -5440,6 +5519,10 @@ public class VoidstrikeCoordinator {
         int n = candidates.size();
         boolean[] visited = new boolean[n];
         List<List<WingStrikeCandidate>> mergedClusters = new ArrayList<>();
+        float clusterScale = Math.max(1.0f, CombatPhysicsProfile.getWeaponRangeScale(lastVoidstrikeUpdateEngine) * 0.75f);
+        float maxCenterMergeDist = 1150f * clusterScale;
+        float maxSeedMergeDist = 1350f * clusterScale;
+        float maxTargetMergeDist = 1800f * clusterScale;
         for (int i = 0; i < n; i++) {
             if (visited[i]) continue;
             List<WingStrikeCandidate> cluster = new ArrayList<>();
@@ -5458,6 +5541,9 @@ public class VoidstrikeCoordinator {
                         float distCenters = DivisionUiWidgets.distance(member.center, candJ.center);
                         boolean sameDiv = member.divisionId.equals(candJ.divisionId);
                         boolean sameTarget = member.targetKey.equals(candJ.targetKey);
+                        boolean adjacentTargetsSameWave = member.targetPos != null && candJ.targetPos != null
+                                && DivisionUiWidgets.distance(member.targetPos, candJ.targetPos) <= maxTargetMergeDist
+                                && distCenters <= maxSeedMergeDist * 1.35f;
                         boolean sharedActiveVoidstrike = false;
                         for (VoidstrikeRecord activeRec : activeVoidstrikes) {
                             if (activeRec != null && activeRec.side == side
@@ -5467,7 +5553,8 @@ public class VoidstrikeCoordinator {
                                 break;
                             }
                         }
-                        if (sameDiv || sameTarget || sharedActiveVoidstrike || (distCenters <= 1150f && distSeed <= 1350f)) {
+                        if (sameDiv || sameTarget || adjacentTargetsSameWave || sharedActiveVoidstrike
+                                || (distCenters <= maxCenterMergeDist && distSeed <= maxSeedMergeDist)) {
                             shouldMerge = true;
                             break;
                         }

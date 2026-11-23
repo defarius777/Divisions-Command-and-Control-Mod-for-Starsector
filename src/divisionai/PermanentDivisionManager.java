@@ -179,7 +179,14 @@ public class PermanentDivisionManager {
             if (div.avgEngageRange > 350f) {
                 missileTarget = Math.max(missileTarget, div.avgEngageRange * 0.92f * postureMult);
             }
-            return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, Math.max(configuredStandoff, missileTarget)));
+            // Never let a corrupted/double-scaled standoff park a Missile division thousands of units outside its own
+            // live missile envelope (e.g. 10,200u on 3,600-5,400u Missile Frigates).
+            float liveMissileCeiling = (div.avgEngageRange > 350f)
+                    ? Math.max(effDefault * 1.25f, div.avgEngageRange * 0.96f)
+                    : Math.max(effDefault * 1.35f, vanillaDefault * Math.max(wScale, mScale) * 1.35f);
+            float boundedConfig = Math.min(configuredStandoff, liveMissileCeiling);
+            float boundedTarget = Math.min(missileTarget, liveMissileCeiling);
+            return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, Math.max(boundedConfig, boundedTarget)));
         }
         float gunRefRange = (div.medianMainBatteryRange > 350f) ? div.medianMainBatteryRange : div.avgEngageRange;
         if (gunRefRange > 350f) {
@@ -4750,6 +4757,24 @@ public class PermanentDivisionManager {
         pdata.put(PERSISTENT_PHYSICS_SCALE_STAMP_KEY, currGunScale);
         pdata.put(PERSISTENT_PHYSICS_SPACING_STAMP_KEY, currSpacingMult);
         pdata.put(PERSISTENT_PHYSICS_INTERVAL_STAMP_KEY, currIntervalMult);
+
+        // Auto-heal any previously double-scaled standoff values (e.g. 2,800u * 3.64 = 10,200u on MISSILE_FRIGATE
+        // from saves predating PERSISTENT_PHYSICS_SCALE_STAMP_KEY) even when physics scale stamps have not changed.
+        FleetDoctrineConfig checkCfg = getFleetDoctrine();
+        if (!scaleChanged && checkCfg != null && CombatPhysicsProfile.isGlobalScaledEnvironment()) {
+            boolean healedAny = false;
+            for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
+                int effDef = getEffectiveDefaultStandoffRangeUnits(dt);
+                int curSt = checkCfg.getStandoffRange(dt);
+                if (curSt > Math.round(effDef * 1.80f)) {
+                    checkCfg.setStandoffRange(dt, effDef);
+                    healedAny = true;
+                }
+            }
+            if (healedAny) {
+                saveFleetDoctrine(checkCfg);
+            }
+        }
         if (!scaleChanged) {
             return;
         }
@@ -4772,7 +4797,7 @@ public class PermanentDivisionManager {
                         || (currSpacingMult <= 1.02f && curSp > MAX_STATION_SPACING_UNITS)
                         || Math.abs(curSp - oldDefSp) <= 50) {
                     cfg.setStationSpacing(dt, newDefSp);
-                } else {
+                } else if (!(prevObj == null && curSp > dt.defaultStationSpacingUnits * 1.35f)) {
                     cfg.setStationSpacing(dt, Math.round((curSp * spRatio) / 25f) * 25);
                 }
 
@@ -4781,16 +4806,18 @@ public class PermanentDivisionManager {
                         || (currIntervalMult <= 1.02f && curInt > MAX_DIVISION_INTERVAL_UNITS)
                         || Math.abs(curInt - oldDefInt) <= 100) {
                     cfg.setDivisionInterval(dt, newDefInt);
-                } else {
+                } else if (!(prevObj == null && curInt > dt.defaultDivisionIntervalUnits * 1.35f)) {
                     cfg.setDivisionInterval(dt, Math.round((curInt * intRatio) / 50f) * 50);
                 }
 
                 int curSt = cfg.getStandoffRange(dt);
+                boolean alreadyScaledBeforeStamp = (prevObj == null && curSt > dt.defaultStandoffRangeUnits * 1.45f);
                 if (curSt == dt.defaultStandoffRangeUnits
                         || (currGunScale <= 1.05f && curSt > MAX_STANDOFF_RANGE_UNITS)
+                        || curSt > Math.round(newDefSt * 1.80f)
                         || Math.abs(curSt - oldDefSt) <= 100) {
                     cfg.setStandoffRange(dt, newDefSt);
-                } else if (Math.abs(gunRatio - 1.0f) > 0.08f) {
+                } else if (!alreadyScaledBeforeStamp && Math.abs(gunRatio - 1.0f) > 0.08f) {
                     cfg.setStandoffRange(dt, Math.round((curSt * gunRatio) / 50f) * 50);
                 }
             }

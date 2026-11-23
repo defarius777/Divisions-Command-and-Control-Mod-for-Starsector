@@ -659,9 +659,6 @@ public class DivisionAutoFormer {
                     captain,
                     seed);
 
-            if (nomCat != DivisionNomenclature.NomenclatureCategory.HUMAN_NAVAL) {
-                break;
-            }
             boolean duplicate = false;
             for (DivisionState existing : battleGroup.divisions) {
                 if (existing != null && displayName.equalsIgnoreCase(existing.displayName)) {
@@ -669,7 +666,7 @@ public class DivisionAutoFormer {
                     break;
                 }
             }
-            if (!duplicate || nameSeq > number + 32) {
+            if (!duplicate || nameSeq > number + 64) {
                 break;
             }
             nameSeq++;
@@ -784,11 +781,16 @@ public class DivisionAutoFormer {
                 && !div.archetype.isMissileArchetype()
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
                 && pdShips > 0);
+        CombatEngineAPI activeEngForSpd = null;
+        try {
+            activeEngForSpd = com.fs.starfarer.api.Global.getCombatEngine();
+        } catch (Throwable ignored) {
+        }
+        float fastFlankerSpeedFloor = CombatPhysicsProfile.scaleVanillaSpeedThreshold(activeEngForSpd, 105f);
         div.isFastFlanker = !div.archetype.isCarrierArchetype()
                 && !div.archetype.isHeavyLineArchetype()
                 && div.archetype != DivisionArchetype.SERVICE_GROUP
-                && (div.avgMaxSpeed >= 105f
-                || div.archetype == DivisionArchetype.BATTLECRUISER_DIVISION
+                && (div.avgMaxSpeed >= fastFlankerSpeedFloor
                 || div.archetype.isStrikeArchetype()
                 || div.archetype.isLightSkirmisherArchetype()
                 || div.archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION);

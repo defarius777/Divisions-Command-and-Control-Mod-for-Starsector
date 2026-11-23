@@ -2800,10 +2800,12 @@ public final class FactionFleetDoctrines {
             if (spec == null || members.isEmpty()) continue;
 
             int zone = zoneByGroupKey.containsKey(groupKey) ? zoneByGroupKey.get(groupKey) : 0;
+            CampaignFleetAPI sourceFleet = specIdToFleet.get(spec.id);
+            String suffix = !groupKey.equals(spec.id) ? ((zone < 0) ? " (Left Flank)" : " (Right Flank)") : "";
+            String desiredName = resolveUniqueNpcCombatSpecName(battleGroup, spec, members, sourceFleet, fallbackNumber, suffix);
             PermanentDivisionSpec effectiveSpec = spec;
-            if (!groupKey.equals(spec.id)) {
-                String suffix = (zone < 0) ? " (Left Flank)" : " (Right Flank)";
-                effectiveSpec = new PermanentDivisionSpec(groupKey, spec.name + suffix, spec.archetype);
+            if (!groupKey.equals(spec.id) || !desiredName.equals(spec.name)) {
+                effectiveSpec = new PermanentDivisionSpec(groupKey, desiredName, spec.archetype);
                 effectiveSpec.flagshipMemberId = spec.flagshipMemberId;
                 effectiveSpec.memberIds.addAll(spec.memberIds);
                 effectiveSpec.doctrine = spec.doctrine;
@@ -2817,13 +2819,59 @@ public final class FactionFleetDoctrines {
             if (zone != 0) {
                 combatDiv.consentedWingSide = zone;
             }
-            CampaignFleetAPI sourceFleet = specIdToFleet.get(spec.id);
             applyFactionDoctrineToCombatDivision(combatDiv, effectiveSpec, getDoctrineForFleet(sourceFleet));
             battleGroup.divisions.add(combatDiv);
             newlyCreatedOut.add(combatDiv);
         }
 
         return leftover;
+    }
+
+    private static String resolveUniqueNpcCombatSpecName(
+            BattleGroupState battleGroup,
+            PermanentDivisionSpec spec,
+            List<ShipCapabilityProfile> members,
+            CampaignFleetAPI sourceFleet,
+            int fallbackSeq,
+            String suffix) {
+        String initial = (spec.name != null ? spec.name : "Division") + suffix;
+        if (battleGroup == null) return initial;
+        boolean collides = false;
+        for (DivisionState existing : battleGroup.divisions) {
+            if (existing != null && initial.equalsIgnoreCase(existing.displayName)) {
+                collides = true;
+                break;
+            }
+        }
+        if (!collides) return initial;
+
+        String factionId = (sourceFleet != null && sourceFleet.getFaction() != null)
+                ? sourceFleet.getFaction().getId()
+                : battleGroup.factionId;
+        NomenclatureCategory nomCat = (sourceFleet != null)
+                ? DivisionNomenclature.resolveCategoryForCampaignFleet(sourceFleet)
+                : (battleGroup.nomenclatureCategory != null ? battleGroup.nomenclatureCategory : NomenclatureCategory.HUMAN_NAVAL);
+        PersonAPI cmdr = (members != null && !members.isEmpty() && members.get(0).ship != null)
+                ? members.get(0).ship.getCaptain()
+                : null;
+        int seq = Math.max(1, fallbackSeq);
+        while (seq < fallbackSeq + 128) {
+            long seed = (spec.id != null ? spec.id.hashCode() * 6364136223846793005L : 0L) + seq * 1442695040888963407L;
+            String candidate = DivisionNomenclature.formatFactionDivisionName(
+                    factionId, nomCat, spec.archetype, seq, cmdr, seed) + suffix;
+            boolean taken = false;
+            for (DivisionState existing : battleGroup.divisions) {
+                if (existing != null && candidate.equalsIgnoreCase(existing.displayName)) {
+                    taken = true;
+                    break;
+                }
+            }
+            if (!taken) {
+                return candidate;
+            }
+            seq++;
+        }
+        return initial;
     }
 
     private static void copyCustomSpecFields(PermanentDivisionSpec dst, PermanentDivisionSpec src) {

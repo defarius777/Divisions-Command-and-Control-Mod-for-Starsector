@@ -559,7 +559,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         } else if (divisionTimer >= DIVISION_EVAL_INTERVAL) {
             divisionTimer = 0f;
             tsfcTimer = 0f;
-            boolean allowStagger = BattlefieldFirepowerEvaluator.isRealCombatEngine(engine) && now >= 1.5f;
+            boolean allowStagger = BattlefieldFirepowerEvaluator.isRealCombatEngine(engine);
             runPeriodicC2EvaluationTick(now, allowStagger);
             ranC2SubStageThisFrame = true;
         }
@@ -732,7 +732,7 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
             otcTimer = 0f;
         }
 
-        if (allowMultiFrameStagger && !anyNewDivs) {
+        if (allowMultiFrameStagger) {
             this.c2StaggerCycleNow = now;
             this.c2StaggerRunOtc = runOtc;
             this.c2StageSyncNs = markSyncNs - tickStartNs;
