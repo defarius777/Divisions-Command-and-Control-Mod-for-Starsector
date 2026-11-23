@@ -621,6 +621,11 @@ public class DivisionAICombatPlugin extends BaseEveryFrameCombatPlugin {
         CommanderProfile enemyCmdr = DivisionAutoFormer.resolveOtc(engine, 1);
 
         playerGroup = new BattleGroupState(0, playerCmdr);
+        String preSelectedOtcId = DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(null);
+        if (preSelectedOtcId != null && !preSelectedOtcId.isEmpty()) {
+            playerGroup.preferredOtcShipId = preSelectedOtcId;
+            playerGroup.otcManuallyAssigned = DivisionOtcCommandManager.isExplicitPlayerOtcChoiceMade(null);
+        }
         alliedAiGroup = new BattleGroupState(0, alliedAiCmdr);
         alliedAiGroup.isAlliedAi = true;
         enemyGroup = new BattleGroupState(1, enemyCmdr);

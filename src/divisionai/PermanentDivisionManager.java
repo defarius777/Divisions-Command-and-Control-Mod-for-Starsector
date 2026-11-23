@@ -168,10 +168,13 @@ public class PermanentDivisionManager {
                 Math.max(getEffectiveMaxStandoffRangeUnits(), liveRangeScaleCap),
                 Math.round(MAX_STANDOFF_RANGE_UNITS * Math.max(wScale, carrierArch ? fScale * 0.85f : 1f))));
         if (carrierArch) {
-            float effCarrierRef = Math.max(
-                    Math.max(div.avgEngageRange, CombatPhysicsProfile.isGlobalScaledEnvironment() ? effDefault : 0f),
-                    vanillaDefault * Math.max(wScale * 1.10f, fScale * 0.80f));
-            return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(maxCap, effCarrierRef * postureMult));
+            float liveFighterCap = Math.max(
+                    effDefault * 1.15f,
+                    Math.max(div.avgEngageRange * 0.92f, vanillaDefault * Math.max(wScale * 1.10f, fScale * 0.82f)));
+            float effCarrierRef = Math.min(liveFighterCap, Math.max(
+                    Math.max(div.avgEngageRange * 0.85f, CombatPhysicsProfile.isGlobalScaledEnvironment() ? effDefault : 0f),
+                    vanillaDefault * Math.max(wScale * 1.05f, fScale * 0.78f)));
+            return Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(Math.min(maxCap, liveFighterCap), effCarrierRef * Math.min(1.15f, postureMult)));
         }
         if (missileArch) {
             float mScale = CombatPhysicsProfile.getMissileRangeScale(null);
@@ -222,10 +225,16 @@ public class PermanentDivisionManager {
             return base;
         }
         float wScale = CombatPhysicsProfile.getWeaponRangeScale(null);
+        DivisionMissionType activeMission = DivisionCommanderAI.resolveActiveMission(div, now);
         if (wScale <= 1.25f && div.avgEngageRange <= 1650f) {
+            if (activeMission == DivisionMissionType.CLOSE_ACTION) {
+                float shortBat = (div.minMainBatteryRange > 350f) ? div.minMainBatteryRange : div.avgEngageRange;
+                if (shortBat > 350f && base > shortBat * 0.88f) {
+                    return Math.max(650f, Math.min(base, shortBat * 0.85f));
+                }
+            }
             return base;
         }
-        DivisionMissionType activeMission = DivisionCommanderAI.resolveActiveMission(div, now);
         if (activeMission == DivisionMissionType.CLOSE_ACTION) {
             float shortBat = (div.minMainBatteryRange > 350f) ? div.minMainBatteryRange : div.avgEngageRange;
             if (shortBat > 350f) {
@@ -4082,6 +4091,8 @@ public class PermanentDivisionManager {
         public Integer customStationSpacing = null;
         public Integer customDivisionInterval = null;
         public Integer customStandoffRange = null;
+        /** Spec 01 C2-INV-07: True ONLY when the player manually adjusted Line Standoff via +/- (false for auto-set longest-gun defaults). */
+        public boolean customStandoffManual = false;
         public DivisionMissionType customOpeningMission = null;
         public DivisionMissionType customMainMission = null;
         public StrikeCraftMissionType customStrikeCraftOpeningMission = null;
@@ -4667,6 +4678,7 @@ public class PermanentDivisionManager {
         int longest = computeDivisionLongestGunRange(spec, fleet);
         if (longest > 0) {
             spec.customStandoffRange = longest;
+            spec.customStandoffManual = false;
         }
     }
 
@@ -4677,6 +4689,7 @@ public class PermanentDivisionManager {
         int longest = computeDivisionLongestGunRangeFromMembers(spec, resolvedMembers, false);
         if (longest > 0) {
             spec.customStandoffRange = longest;
+            spec.customStandoffManual = false;
         }
     }
 
@@ -4758,15 +4771,15 @@ public class PermanentDivisionManager {
         pdata.put(PERSISTENT_PHYSICS_SPACING_STAMP_KEY, currSpacingMult);
         pdata.put(PERSISTENT_PHYSICS_INTERVAL_STAMP_KEY, currIntervalMult);
 
-        // Auto-heal any previously double-scaled standoff values (e.g. 2,800u * 3.64 = 10,200u on MISSILE_FRIGATE
-        // from saves predating PERSISTENT_PHYSICS_SCALE_STAMP_KEY) even when physics scale stamps have not changed.
+        // Auto-heal any previously double-scaled standoff values (e.g. 2,800u * 3.64 = 10,200u on MISSILE_FRIGATE / LIGHT_CARRIER
+        // or 10,000u on BATTLESHIP from saves predating PERSISTENT_PHYSICS_SCALE_STAMP_KEY) even when physics scale stamps have not changed.
         FleetDoctrineConfig checkCfg = getFleetDoctrine();
         if (!scaleChanged && checkCfg != null && CombatPhysicsProfile.isGlobalScaledEnvironment()) {
             boolean healedAny = false;
             for (DoctrineDivisionType dt : DoctrineDivisionType.values()) {
                 int effDef = getEffectiveDefaultStandoffRangeUnits(dt);
                 int curSt = checkCfg.getStandoffRange(dt);
-                if (curSt > Math.round(effDef * 1.80f)) {
+                if (curSt > Math.round(effDef * 1.45f)) {
                     checkCfg.setStandoffRange(dt, effDef);
                     healedAny = true;
                 }
@@ -4978,6 +4991,7 @@ public class PermanentDivisionManager {
                     spec.customStandoffRange = (lineStandoff != null)
                             ? Math.max(MIN_STANDOFF_RANGE_UNITS, Math.min(getEffectiveMaxStandoffRangeUnits(), lineStandoff))
                             : null;
+                    spec.customStandoffManual = (lineStandoff != null);
                 }
                 if (updateOpeningMission) {
                     spec.customOpeningMission = openingMission;
@@ -6184,6 +6198,7 @@ public class PermanentDivisionManager {
         copy.customStationSpacing = spec.customStationSpacing;
         copy.customDivisionInterval = spec.customDivisionInterval;
         copy.customStandoffRange = spec.customStandoffRange;
+        copy.customStandoffManual = spec.customStandoffManual;
         copy.customMovementStickiness = spec.customMovementStickiness;
         copy.customEngineTelegraph = spec.customEngineTelegraph;
         copy.customOpeningMission = spec.customOpeningMission;
@@ -6582,12 +6597,15 @@ public class PermanentDivisionManager {
         float rawConfiguredStandoff = (optionalSpec != null)
                 ? resolveEffectiveStandoffRange(optionalSpec, cfg)
                 : cfg.getStandoffRange(dt);
-        boolean hasCustomDivStandoff = (optionalSpec != null && optionalSpec.customStandoffRange != null)
-                || (cfg.getStandoffRange(dt) != dt.defaultStandoffRangeUnits
-                        && cfg.getStandoffRange(dt) != getEffectiveDefaultStandoffRangeUnits(dt));
-        div.hasExplicitCustomStandoff = hasCustomDivStandoff;
+        // Spec 01 C2-INV-07: Only an explicit manual player Line Standoff override (`customStandoffManual == true`)
+        // bypasses mission-coupled CLOSE_ACTION / live-envelope standoff scaling; auto-calculated longest-gun values
+        // (e.g. 5,275u from a single HIL on an escort in a CLOSE_ACTION Battle Division) must never hold the division in the rear!
+        boolean hasExplicitManualDivStandoff = optionalSpec != null
+                && optionalSpec.customStandoffRange != null
+                && optionalSpec.customStandoffManual;
+        div.hasExplicitCustomStandoff = hasExplicitManualDivStandoff;
         div.standoffRange = adaptDoctrinalStandoffToLiveEnvelope(
-                div, dt, rawConfiguredStandoff, optionalSpec != null && optionalSpec.customStandoffRange != null);
+                div, dt, rawConfiguredStandoff, hasExplicitManualDivStandoff);
         div.doctrinalMovementStickiness = (optionalSpec != null)
                 ? resolveEffectiveMovementStickiness(optionalSpec, cfg)
                 : cfg.getMovementStickiness(dt);
@@ -7585,6 +7603,7 @@ public class PermanentDivisionManager {
         Object cIntra = map.get("customIntraSpacing");
         Object cInter = map.get("customInterSpacing");
         Object cStandoff = map.get("customLineStandoff");
+        Object cStandoffManual = map.get("customLineStandoffManual");
         Object cOpenMis = map.get("customOpeningMission");
         Object cMainMis = map.get("customMainMission");
         Object cScOpenMis = map.get("customStrikeCraftOpeningMission");
@@ -7629,6 +7648,7 @@ public class PermanentDivisionManager {
         if (cIntra instanceof Number) spec.customStationSpacing = ((Number) cIntra).intValue();
         if (cInter instanceof Number) spec.customDivisionInterval = ((Number) cInter).intValue();
         if (cStandoff instanceof Number) spec.customStandoffRange = ((Number) cStandoff).intValue();
+        spec.customStandoffManual = Boolean.TRUE.equals(cStandoffManual);
         if (cOpenMis instanceof String) spec.customOpeningMission = DivisionMissionType.fromId((String) cOpenMis, null);
         if (cMainMis instanceof String) spec.customMainMission = DivisionMissionType.fromId((String) cMainMis, null);
         if (cPrefSpace instanceof String) spec.customLineStation = LineStation.fromId((String) cPrefSpace, null);
@@ -7751,7 +7771,12 @@ public class PermanentDivisionManager {
         }
         if (spec.customStationSpacing != null) map.put("customIntraSpacing", spec.customStationSpacing);
         if (spec.customDivisionInterval != null) map.put("customInterSpacing", spec.customDivisionInterval);
-        if (spec.customStandoffRange != null) map.put("customLineStandoff", spec.customStandoffRange);
+        if (spec.customStandoffRange != null) {
+            map.put("customLineStandoff", spec.customStandoffRange);
+            if (spec.customStandoffManual) {
+                map.put("customLineStandoffManual", Boolean.TRUE);
+            }
+        }
         if (spec.customOpeningMission != null) map.put("customOpeningMission", spec.customOpeningMission.name());
         if (spec.customMainMission != null) map.put("customMainMission", spec.customMainMission.name());
         if (spec.customStrikeCraftOpeningMission != null) {

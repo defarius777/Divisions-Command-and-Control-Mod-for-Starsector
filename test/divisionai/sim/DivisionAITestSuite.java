@@ -114,6 +114,7 @@ public class DivisionAITestSuite {
         testFrigateSpamDeSkewAndGenericMathNormalization();
         testC2ChainUntanglingAndUntetheredFirstStrike();
         testSddPropertyFuzzMusicAnd60HzPerfSpecs();
+        testLinearWarfareBattleLineOtcPrecedenceAndMainBodyCarriers();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -11769,6 +11770,441 @@ public class DivisionAITestSuite {
             divisionai.CombatPhysicsProfile.resetForNewBattle();
             divisionai.TsfcWarroomRenderer.resetForNewBattle();
         }
+    }
+
+    /**
+     * Scenario 45: Linear Warfare Battle-Line Standoff Parity (C2-INV-07), Explicit Conquest OTC Precedence Over
+     * Flagship Alpha Core (C2-INV-06), and Dynamic Main-Body-Anchored Carrier VAN / CENTER / REAR Stationing
+     * Within Strike Reach (SC-INV-04 & PHYS-INV-02).
+     */
+    private static void testLinearWarfareBattleLineOtcPrecedenceAndMainBodyCarriers() {
+        System.out.println("--- Scenario 45: Linear Warfare Battle-Line Parity, Explicit OTC Precedence & Main-Body Carrier Stations ---");
+        try {
+            // =========================================================================================
+            // PART A (C2-INV-07): Linear Warfare Battle Division with auto-set longest-gun standoff (5,275u HIL)
+            //                     + heavy carrier presence (>=22% FP) advances to CLOSE_ACTION range alongside
+            //                     Hegemony Battle Div. IX instead of holding in the rear; manual +/- still honored.
+            // =========================================================================================
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(true, 3.64f, 4.10f, 3.80f, 4.50f, 3.25f);
+            CommanderProfile pCmdr = new CommanderProfile(createOtcTestPersonMock("Temitope Richmond", "steady", false), "Temitope Richmond");
+            CommanderProfile eCmdr = new CommanderProfile(createOtcTestPersonMock("Hegemony Commodore", "steady", false), "Hegemony Commodore");
+            BattleGroupState pLin = new BattleGroupState(0, pCmdr);
+            BattleGroupState eLin = new BattleGroupState(1, eCmdr);
+            pLin.authority = divisionai.PermanentDivisionManager.OtcAuthority.POSITIVE_CONTROL;
+            pLin.operationalAnchor = divisionai.PermanentDivisionManager.OperationalAnchor.BATTLE_LINE;
+            pLin.decisiveArm = divisionai.PermanentDivisionManager.DecisiveArm.SURFACE_GUNFIRE;
+            pLin.engagementDiscipline = divisionai.PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN;
+            eLin.authority = divisionai.PermanentDivisionManager.OtcAuthority.POSITIVE_CONTROL;
+            eLin.operationalAnchor = divisionai.PermanentDivisionManager.OperationalAnchor.BATTLE_LINE;
+            eLin.decisiveArm = divisionai.PermanentDivisionManager.DecisiveArm.SURFACE_GUNFIRE;
+
+            DivisionState pBattleDiv = new DivisionState("s45_pbat", 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div 1", pCmdr);
+            DivisionState pCarrierDiv = new DivisionState("s45_pcv", 0, 2, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Div 1", pCmdr);
+            DivisionState eBattleDiv = new DivisionState("s45_ebat", 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Battle Div. IX", eCmdr);
+
+            SimArena linArena = new SimArena(
+                    "Scenario 45: Linear Warfare Battle-Line & Main-Body Carrier Stations",
+                    "C2-INV-06, C2-INV-07, SC-INV-04 & PHYS-INV-02",
+                    pLin,
+                    eLin);
+            linArena.mapWidth = 36000f;
+            linArena.mapHeight = 36000f;
+            SimShipState pOns = linArena.addShip(pBattleDiv, "s45_pons", "RDS Annihilator Perseus", "onslaught",
+                    HullSize.CAPITAL_SHIP, -350f, -2500f, 240f, 3276f, 0, 0);
+            SimShipState pMoa = linArena.addShip(pBattleDiv, "s45_pmoa", "RDS Moa", "conquest",
+                    HullSize.CAPITAL_SHIP, 350f, -2500f, 260f, 5275f, 0, 0);
+            pBattleDiv.flagship = pMoa.proxy;
+            SimShipState pAst = linArena.addShip(pCarrierDiv, "s45_past", "RDS Astral", "astral",
+                    HullSize.CAPITAL_SHIP, 0f, -6500f, 200f, 1800f, 0, 6);
+            pCarrierDiv.flagship = pAst.proxy;
+
+            SimShipState eOns1 = linArena.addShip(eBattleDiv, "s45_eons1", "HSS Invincible", "onslaught",
+                    HullSize.CAPITAL_SHIP, -350f, 2500f, 240f, 3276f, 0, 0);
+            SimShipState eOns2 = linArena.addShip(eBattleDiv, "s45_eons2", "HSS Steadfast", "onslaught",
+                    HullSize.CAPITAL_SHIP, 350f, 2500f, 240f, 3276f, 0, 0);
+            eBattleDiv.flagship = eOns1.proxy;
+
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig docCfg =
+                    new divisionai.PermanentDivisionManager.FleetDoctrineConfig();
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec autoStandoffSpec =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec(
+                            "s45_spec_auto", "Battle Div 1", DivisionArchetype.BATTLESHIP_DIVISION);
+            autoStandoffSpec.customOpeningMission = divisionai.PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION;
+            autoStandoffSpec.customMainMission = divisionai.PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION;
+            autoStandoffSpec.customStandoffRange = 5275;
+            autoStandoffSpec.customStandoffManual = false; // Auto-calculated from Moa's longest gun, NOT manually clicked!
+
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(pBattleDiv);
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(pCarrierDiv);
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(eBattleDiv);
+            divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(pBattleDiv, autoStandoffSpec, docCfg);
+            docCfg.setOpeningMission(divisionai.PermanentDivisionManager.DoctrineDivisionType.BATTLESHIP,
+                    divisionai.PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION);
+            docCfg.setMainMission(divisionai.PermanentDivisionManager.DoctrineDivisionType.BATTLESHIP,
+                    divisionai.PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION);
+            divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(eBattleDiv, null, docCfg);
+
+            pLin.divisions.add(pBattleDiv);
+            pLin.divisions.add(pCarrierDiv);
+            pLin.mainEffortDivision = pBattleDiv;
+            eLin.divisions.add(eBattleDiv);
+            eLin.mainEffortDivision = eBattleDiv;
+
+            linArena.elapsedTime = 15.0f;
+            divisionai.OtcAI.updateTelemetry(linArena.engineProxy, pLin);
+            divisionai.OtcAI.updateTelemetry(linArena.engineProxy, eLin);
+            pLin.primaryThreatEnemyDivision = eBattleDiv;
+            eLin.primaryThreatEnemyDivision = pBattleDiv;
+            divisionai.OtcBattlePlanner.planBattle(linArena.engineProxy, pLin, eLin, null, null, 15.0f);
+            divisionai.OtcBattlePlanner.planBattle(linArena.engineProxy, eLin, pLin, null, null, 15.0f);
+
+            float pEffCloseStandoff = divisionai.PermanentDivisionManager.resolveEffectiveCombatGunStandoff(pBattleDiv, 15.0f);
+            float pHoldDistFromEnemy = Math.abs(2500f - pBattleDiv.otcOrder.station.y);
+            float eHoldDistFromPlayer = Math.abs(-2500f - eBattleDiv.otcOrder.station.y);
+            boolean autoStandoffNotExplicit = !pBattleDiv.hasExplicitCustomStandoff;
+            boolean linearBattleLineParityOk = autoStandoffNotExplicit
+                    && pEffCloseStandoff <= 2500f
+                    && pHoldDistFromEnemy <= 2750f
+                    && Math.abs(pHoldDistFromEnemy - eHoldDistFromPlayer) <= 250f
+                    && pBattleDiv.otcOrder.station.y > -500f; // Advances forward toward enemy at +2500, NEVER tethered back to carrier at -6500!
+
+            // Manual +/- override (`customStandoffManual = true`) MUST still be honored!
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec manualSpec =
+                    divisionai.PermanentDivisionManager.copyPermanentDivisionSpec(autoStandoffSpec, "s45_spec_man", "Manual Battle Div");
+            manualSpec.customStandoffRange = 4900;
+            manualSpec.customStandoffManual = true;
+            DivisionState manualDiv = new DivisionState("s45_man", 0, 3, DivisionArchetype.BATTLESHIP_DIVISION, "Manual Battle Div", pCmdr);
+            manualDiv.members.addAll(pBattleDiv.members);
+            divisionai.DivisionAutoFormer.recomputeDivisionCapabilities(manualDiv);
+            divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(manualDiv, manualSpec, docCfg);
+            boolean manualOverrideHonoredOk = manualDiv.hasExplicitCustomStandoff
+                    && Math.abs(divisionai.PermanentDivisionManager.resolveEffectiveCombatGunStandoff(manualDiv, 15.0f) - 4900f) <= 50f;
+
+            // =========================================================================================
+            // PART B (C2-INV-06): Explicit Pre-Battle Conquest OTC Selection (`Temitope Richmond`)
+            //                     Prevails Over Flagship Onslaught Alpha Core Across Wave Spawn
+            // =========================================================================================
+            divisionai.DivisionOtcCommandManager.resetForNewBattle();
+            // Simulate opening deployment panel seeing default flagship Alpha Core BEFORE player picks Conquest
+            divisionai.DivisionOtcCommandManager.markInitialPlayerOtcAlphaCore(true);
+
+            final com.fs.starfarer.api.characters.PersonAPI alphaPerson = createOtcTestPersonMock("Alpha Core", "reckless", true);
+            final com.fs.starfarer.api.characters.PersonAPI conquestPerson = createOtcTestPersonMock("Temitope Richmond", "steady", false);
+
+            final com.fs.starfarer.api.fleet.FleetMemberAPI onslaughtAlphaMember = createOtcTestFleetMemberMock(
+                    "fm_onslaught_alpha", "RDS Annihilator Perseus", alphaPerson, true);
+            final com.fs.starfarer.api.fleet.FleetMemberAPI conquestHumanMember = createOtcTestFleetMemberMock(
+                    "fm_conquest_otc", "RDS Sovereign Conquest", conquestPerson, false);
+
+            // Player explicitly selects Conquest commander in pre-battle OTC modal (`playerGroup == null` pre-deploy!)
+            divisionai.DivisionOtcCommandManager.OtcCandidate conquestCand =
+                    new divisionai.DivisionOtcCommandManager.OtcCandidate(
+                            conquestHumanMember, null, "Division Leader", true, false, false,
+                            "div_bat_1", "Battle Div 1", null, true, false);
+            boolean appliedPreBattle = divisionai.DivisionOtcCommandManager.applyPlayerOtcCandidate(
+                    null, null, conquestCand, true, 0f);
+            // Auto pre-deploy attempt MUST NOT overwrite explicit player choice
+            divisionai.DivisionOtcCommandManager.setAutoPreDeployPlayerOtcMemberId(null, "fm_onslaught_alpha");
+            boolean autoDidNotOverwrite = "fm_conquest_otc".equals(
+                    divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(null));
+
+            // Frame 0 of combat: Onslaught Alpha Core has spawned on field, Conquest is queued in getDeployedCopy()
+            BattleGroupState otcGroup = new BattleGroupState(0, new CommanderProfile(alphaPerson, "Alpha Core"));
+            otcGroup.preferredOtcShipId = divisionai.DivisionOtcCommandManager.getPreferredPlayerOtcMemberId(null);
+            otcGroup.otcManuallyAssigned = divisionai.DivisionOtcCommandManager.isExplicitPlayerOtcChoiceMade(null);
+
+            final List<com.fs.starfarer.api.combat.ShipAPI> liveShips = new java.util.ArrayList<>();
+            final List<com.fs.starfarer.api.fleet.FleetMemberAPI> deployedMembers = java.util.Arrays.asList(
+                    onslaughtAlphaMember, conquestHumanMember);
+            com.fs.starfarer.api.combat.ShipAPI liveOnslaughtAlpha = createOtcTestShipMock(
+                    "ship_onslaught_alpha", "RDS Annihilator Perseus", onslaughtAlphaMember, alphaPerson);
+            liveShips.add(liveOnslaughtAlpha);
+
+            com.fs.starfarer.api.combat.CombatEngineAPI otcEngine = createOtcTestEngineMock(liveShips, deployedMembers);
+            com.fs.starfarer.api.combat.ShipAPI flagWhileQueued =
+                    divisionai.DivisionOtcCommandManager.resolveActiveFleetFlagship(otcEngine, otcGroup);
+            divisionai.DivisionOtcCommandManager.updateConvergenceCommandStates(otcEngine, otcGroup);
+            boolean heldForConquestDuringSpawn = (flagWhileQueued == null)
+                    && !otcGroup.useConvergence
+                    && otcGroup.otc != null
+                    && "Temitope Richmond".equals(otcGroup.otc.commanderName);
+
+            // Frame 1: Conquest spawns onto `liveShips` -> immediately becomes activeFleetFlagship!
+            com.fs.starfarer.api.combat.ShipAPI liveConquest = createOtcTestShipMock(
+                    "ship_conquest_otc", "RDS Sovereign Conquest", conquestHumanMember, conquestPerson);
+            liveShips.add(liveConquest);
+            divisionai.DivisionOtcCommandManager.updateConvergenceCommandStates(otcEngine, otcGroup);
+            boolean conquestAssumedOtcOnSpawn = (otcGroup.activeFleetFlagship == liveConquest)
+                    && !otcGroup.useConvergence
+                    && !divisionai.DivisionOtcCommandManager.isAlphaCoreOtcLockedInBattle(otcGroup)
+                    && otcGroup.otc != null
+                    && "Temitope Richmond".equals(otcGroup.otc.commanderName);
+
+            boolean otcPrecedenceOk = appliedPreBattle
+                    && autoDidNotOverwrite
+                    && heldForConquestDuringSpawn
+                    && conquestAssumedOtcOnSpawn;
+
+            // =========================================================================================
+            // PART C (SC-INV-04 & PHYS-INV-02): Carrier VAN / CENTER / REAR Scale & Move Dynamically
+            //                                   With Main Body and Stay Within Strike Reach (1.0x & 3.64x)
+            // =========================================================================================
+            boolean carrierScaleAndMoveOk = true;
+            String carrierDiag = "";
+            float[][] scales = new float[][]{
+                    {0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f},
+                    {1f, 3.64f, 4.10f, 3.80f, 4.50f, 3.25f}
+            };
+            for (int si = 0; si < scales.length; si++) {
+                boolean en = scales[si][0] > 0.5f;
+                float wS = scales[si][1];
+                float fS = scales[si][3];
+                float iS = scales[si][5];
+                divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(
+                        en, wS, scales[si][2], fS, scales[si][4], iS);
+
+                BattleGroupState myG = new BattleGroupState(0, pCmdr);
+                BattleGroupState enG = new BattleGroupState(1, eCmdr);
+                DivisionState mbBat = new DivisionState("mb_bat_" + si, 0, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Main Battle", pCmdr);
+                DivisionState mbCru = new DivisionState("mb_cru_" + si, 0, 2, DivisionArchetype.CRUISER_DIVISION, "Main Cruisers", pCmdr);
+                DivisionState cvVan = new DivisionState("cv_van_" + si, 0, 3, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Van", pCmdr);
+                DivisionState cvCen = new DivisionState("cv_cen_" + si, 0, 4, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Center", pCmdr);
+                DivisionState cvRear = new DivisionState("cv_rear_" + si, 0, 5, DivisionArchetype.FLEET_CARRIER_DIVISION, "Carrier Rear", pCmdr);
+                cvVan.lineStation = divisionai.PermanentDivisionManager.LineStation.VAN;
+                cvCen.lineStation = divisionai.PermanentDivisionManager.LineStation.CENTER;
+                cvRear.lineStation = divisionai.PermanentDivisionManager.LineStation.REAR;
+                cvVan.divisionInterval = 900f * iS;
+                cvCen.divisionInterval = 900f * iS;
+                cvRear.divisionInterval = 900f * iS;
+                // Simulate bloated legacy standoff on REAR carrier (e.g. 10,200u non-manual) to verify auto-capping!
+                cvRear.standoffRange = 10200f;
+                cvRear.hasExplicitCustomStandoff = false;
+
+                DivisionState enemLine = new DivisionState("en_line_" + si, 1, 1, DivisionArchetype.BATTLESHIP_DIVISION, "Enemy Line", eCmdr);
+
+                SimArena cArena = new SimArena("Carrier Echelon Check " + si, "SC-INV-04", myG, enG);
+                cArena.mapWidth = 42000f;
+                cArena.mapHeight = 42000f;
+                SimShipState sBat = cArena.addShip(mbBat, "s_mb1_" + si, "BB", "onslaught", HullSize.CAPITAL_SHIP,
+                        -300f * iS, -4000f, 200f, 1200f * wS, 0, 0);
+                SimShipState sCru = cArena.addShip(mbCru, "s_mb2_" + si, "CA", "eagle", HullSize.CRUISER,
+                        300f * iS, -3400f, 240f, 1100f * wS, 0, 0);
+                SimShipState sVan = cArena.addShip(cvVan, "s_van_" + si, "CV Van", "heron", HullSize.CRUISER,
+                        0f, -5000f, 220f, 4000f * fS, 0, 3);
+                SimShipState sCen = cArena.addShip(cvCen, "s_cen_" + si, "CV Cen", "mora", HullSize.CRUISER,
+                        0f, -5500f, 180f, 4000f * fS, 0, 3);
+                SimShipState sRear = cArena.addShip(cvRear, "s_rear_" + si, "CV Rear", "astral", HullSize.CAPITAL_SHIP,
+                        0f, -6500f, 160f, 4000f * fS, 0, 6);
+                cvVan.avgEngageRange = 4000f * fS;
+                cvCen.avgEngageRange = 4000f * fS;
+                cvRear.avgEngageRange = 4000f * fS;
+
+                SimShipState sEnem = cArena.addShip(enemLine, "s_en_" + si, "Enemy BB", "onslaught", HullSize.CAPITAL_SHIP,
+                        0f, 3500f * wS, 200f, 1150f * wS, 0, 0);
+                enemLine.avgEngageRange = 1150f * wS;
+
+                myG.divisions.add(mbBat);
+                myG.divisions.add(mbCru);
+                myG.divisions.add(cvVan);
+                myG.divisions.add(cvCen);
+                myG.divisions.add(cvRear);
+                myG.mainEffortDivision = mbBat;
+                enG.divisions.add(enemLine);
+
+                // 1) Approach / Out-of-contact movement: Main Body advances +4,000u -> all 3 carrier stations advance ~+4,000u!
+                divisionai.OtcAI.updateTelemetry(cArena.engineProxy, myG);
+                Vector2f van0 = new Vector2f(), cen0 = new Vector2f(), rear0 = new Vector2f();
+                divisionai.OtcAI.computeMainBodyCarrierStation(cArena.engineProxy, cvVan, myG, null, van0);
+                divisionai.OtcAI.computeMainBodyCarrierStation(cArena.engineProxy, cvCen, myG, null, cen0);
+                divisionai.OtcAI.computeMainBodyCarrierStation(cArena.engineProxy, cvRear, myG, null, rear0);
+
+                sBat.location.y += 4000f;
+                sCru.location.y += 4000f;
+                divisionai.OtcAI.updateTelemetry(cArena.engineProxy, myG);
+                Vector2f van1 = new Vector2f(), cen1 = new Vector2f(), rear1 = new Vector2f();
+                divisionai.OtcAI.computeMainBodyCarrierStation(cArena.engineProxy, cvVan, myG, null, van1);
+                divisionai.OtcAI.computeMainBodyCarrierStation(cArena.engineProxy, cvCen, myG, null, cen1);
+                divisionai.OtcAI.computeMainBodyCarrierStation(cArena.engineProxy, cvRear, myG, null, rear1);
+
+                boolean orderApproachOk = (van0.y > cen0.y + 150f * iS) && (cen0.y > rear0.y + 150f * iS);
+                boolean movedWithMainBodyOk = (van1.y - van0.y >= 3600f)
+                        && (cen1.y - cen0.y >= 3600f)
+                        && (rear1.y - rear0.y >= 3600f);
+
+                // 2) In-contact with visible Enemy Line: REAR carrier is pulled forward into fighter strike reach
+                //    (never marooned at 10,200u+ out of striking range!), while VAN stays outside direct gun safety floor!
+                sEnem.location.set(0f, sBat.location.y + 2400f * wS);
+                divisionai.OtcAI.updateTelemetry(cArena.engineProxy, enG);
+                myG.primaryThreatEnemyDivision = enemLine;
+                Vector2f vanC = new Vector2f(), cenC = new Vector2f(), rearC = new Vector2f();
+                divisionai.OtcAI.computeMainBodyCarrierStation(cArena.engineProxy, cvVan, myG, enemLine, vanC);
+                divisionai.OtcAI.computeMainBodyCarrierStation(cArena.engineProxy, cvCen, myG, enemLine, cenC);
+                divisionai.OtcAI.computeMainBodyCarrierStation(cArena.engineProxy, cvRear, myG, enemLine, rearC);
+
+                float strikeEnv = divisionai.OtcAI.resolveCarrierEffectiveStrikeEnvelope(cArena.engineProxy, cvRear);
+                float rearDistToEnemy = Math.abs(sEnem.location.y - rearC.y);
+                float vanDistToEnemy = Math.abs(sEnem.location.y - vanC.y);
+                float minSafeFloor = Math.max(1750f * wS, enemLine.avgEngageRange + 550f * wS);
+                boolean inStrikeReachOk = rearDistToEnemy <= strikeEnv + 25f;
+                boolean vanSafeFloorOk = vanDistToEnemy >= minSafeFloor - 25f;
+                boolean orderContactOk = (vanC.y >= cenC.y - 5f) && (cenC.y >= rearC.y - 5f);
+
+                if (!(orderApproachOk && movedWithMainBodyOk && inStrikeReachOk && vanSafeFloorOk && orderContactOk)) {
+                    carrierScaleAndMoveOk = false;
+                }
+                carrierDiag += String.format(Locale.ROOT,
+                        "[%.2fx:ord=%s/%s,move=%.0f,rearDist=%.0f<=%.0f,vanSafe=%.0f>=%.0f]",
+                        wS, orderApproachOk, orderContactOk, (rear1.y - rear0.y),
+                        rearDistToEnemy, strikeEnv, vanDistToEnemy, minSafeFloor);
+            }
+
+            boolean allOk = linearBattleLineParityOk && manualOverrideHonoredOk && otcPrecedenceOk && carrierScaleAndMoveOk;
+            check(allOk,
+                    "Linear Warfare Battle-Line Parity (C2-INV-07), Explicit Conquest OTC Precedence (C2-INV-06) & Main-Body Carrier Stations (SC-INV-04)",
+                    String.format(Locale.ROOT,
+                            "lin=[parity=%s, effSt=%.0f, pHold=%.0f vs eHold=%.0f, manOk=%s], otc=[ok=%s, queuedHold=%s, spawnConquest=%s], cv=%s",
+                            linearBattleLineParityOk, pEffCloseStandoff, pHoldDistFromEnemy, eHoldDistFromPlayer,
+                            manualOverrideHonoredOk, otcPrecedenceOk, heldForConquestDuringSpawn, conquestAssumedOtcOnSpawn,
+                            carrierDiag));
+        } finally {
+            divisionai.DivisionOtcCommandManager.resetForNewBattle();
+            divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
+            divisionai.CombatPhysicsProfile.resetForNewBattle();
+        }
+    }
+
+    private static com.fs.starfarer.api.characters.PersonAPI createOtcTestPersonMock(
+            final String fullName,
+            final String personalityId,
+            final boolean isAlphaCore) {
+        final com.fs.starfarer.api.characters.PersonalityAPI pApi =
+                (com.fs.starfarer.api.characters.PersonalityAPI) java.lang.reflect.Proxy.newProxyInstance(
+                        DivisionAITestSuite.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.characters.PersonalityAPI.class},
+                        (proxy, method, args) -> {
+                            String m = method.getName();
+                            if ("getId".equals(m)) return personalityId;
+                            if ("getDisplayName".equals(m)) return personalityId;
+                            return null;
+                        });
+        return (com.fs.starfarer.api.characters.PersonAPI) java.lang.reflect.Proxy.newProxyInstance(
+                DivisionAITestSuite.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.characters.PersonAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("equals".equals(m)) return proxy == args[0];
+                    if ("hashCode".equals(m)) return System.identityHashCode(proxy);
+                    if ("getNameString".equals(m)) return fullName;
+                    if ("getPersonalityAPI".equals(m)) return pApi;
+                    if ("isAICore".equals(m)) return isAlphaCore;
+                    if ("getAICoreId".equals(m)) return isAlphaCore ? "alpha_core" : null;
+                    if ("isDefault".equals(m) || "isPlayer".equals(m)) return Boolean.FALSE;
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.fleet.FleetMemberAPI createOtcTestFleetMemberMock(
+            final String id,
+            final String shipName,
+            final com.fs.starfarer.api.characters.PersonAPI captain,
+            final boolean isFlagship) {
+        return (com.fs.starfarer.api.fleet.FleetMemberAPI) java.lang.reflect.Proxy.newProxyInstance(
+                DivisionAITestSuite.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getId".equals(m)) return id;
+                    if ("getShipName".equals(m)) return shipName;
+                    if ("getCaptain".equals(m)) return captain;
+                    if ("isFlagship".equals(m)) return isFlagship;
+                    if ("isAlly".equals(m) || "isFighterWing".equals(m) || "isMothballed".equals(m)) return Boolean.FALSE;
+                    if ("getDeploymentPointsCost".equals(m) || "getUnmodifiedDeploymentPointsCost".equals(m)) return 40f;
+                    if ("getFleetPointCost".equals(m)) return 24;
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.combat.ShipAPI createOtcTestShipMock(
+            final String shipId,
+            final String shipName,
+            final com.fs.starfarer.api.fleet.FleetMemberAPI member,
+            final com.fs.starfarer.api.characters.PersonAPI captain) {
+        final Vector2f loc = new Vector2f(0f, -2000f);
+        return (com.fs.starfarer.api.combat.ShipAPI) java.lang.reflect.Proxy.newProxyInstance(
+                DivisionAITestSuite.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.ShipAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("equals".equals(m)) return proxy == args[0];
+                    if ("hashCode".equals(m)) return System.identityHashCode(proxy);
+                    if ("getId".equals(m)) return shipId;
+                    if ("getName".equals(m)) return shipName;
+                    if ("getFleetMember".equals(m)) return member;
+                    if ("getFleetMemberId".equals(m)) return member.getId();
+                    if ("getCaptain".equals(m) || "getOriginalCaptain".equals(m)) return captain;
+                    if ("getOwner".equals(m) || "getOriginalOwner".equals(m)) return 0;
+                    if ("isAlive".equals(m)) return Boolean.TRUE;
+                    if ("isHulk".equals(m) || "isExpired".equals(m) || "isAlly".equals(m)
+                            || "isFighter".equals(m) || "isShuttlePod".equals(m) || "isStationModule".equals(m)
+                            || "isRetreating".equals(m) || "isDirectRetreat".equals(m)) {
+                        return Boolean.FALSE;
+                    }
+                    if ("getHullSize".equals(m)) return HullSize.CAPITAL_SHIP;
+                    if ("getLocation".equals(m)) return loc;
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.combat.CombatEngineAPI createOtcTestEngineMock(
+            final List<com.fs.starfarer.api.combat.ShipAPI> liveShips,
+            final List<com.fs.starfarer.api.fleet.FleetMemberAPI> deployedMembers) {
+        final com.fs.starfarer.api.combat.CombatFleetManagerAPI fm0 =
+                (com.fs.starfarer.api.combat.CombatFleetManagerAPI) java.lang.reflect.Proxy.newProxyInstance(
+                        DivisionAITestSuite.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.CombatFleetManagerAPI.class},
+                        (proxy, method, args) -> {
+                            String m = method.getName();
+                            if ("getDeployedCopy".equals(m)) return new java.util.ArrayList<>(deployedMembers);
+                            if ("getReservesCopy".equals(m) || "getDisabledCopy".equals(m) || "getRetreatedCopy".equals(m)) {
+                                return java.util.Collections.emptyList();
+                            }
+                            Class<?> rt = method.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == float.class) return 0f;
+                            if (rt == int.class) return 0;
+                            return null;
+                        });
+        final java.util.Map<String, Object> customData = new java.util.HashMap<>();
+        return (com.fs.starfarer.api.combat.CombatEngineAPI) java.lang.reflect.Proxy.newProxyInstance(
+                DivisionAITestSuite.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.CombatEngineAPI.class},
+                (proxy, method, args) -> {
+                    String m = method.getName();
+                    if ("getShips".equals(m)) return liveShips;
+                    if ("getFleetManager".equals(m)) {
+                        int side = (args != null && args.length > 0 && args[0] instanceof Integer) ? (Integer) args[0] : 0;
+                        return (side == 0) ? fm0 : null;
+                    }
+                    if ("getCustomData".equals(m)) return customData;
+                    if ("getTotalElapsedTime".equals(m)) return 1.0f;
+                    Class<?> rt = method.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
     }
 
     private static com.fs.starfarer.api.combat.WeaponAPI createAutofirePerfWeaponMock(final SimShipState owner, final float range) {

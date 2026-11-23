@@ -22,3 +22,10 @@
 
 ## 3. Multi-Carrier Wave Cohesion (`SC-INV-03`)
 - Squadrons from allied/sibling carrier divisions committed against the same target division (or within `3200u * rScale`) MUST merge into the active `Voidstrike` wave rather than spawning orphan 2–3 squadron sub-waves.
+
+## 4. Dynamic Main-Body-Anchored Carrier `VAN` / `CENTER` / `REAR` Stationing (`SC-INV-04`)
+- Pure carrier divisions (`CARRIER_STANDOFF` / `isCarrierArchetype()` excluding brawling `BATTLECARRIER`s on `CLOSE_ACTION`) MUST anchor their hull stations (`VAN`, `CENTER`, `REAR`) dynamically to the **Main Body Frame** (`OtcAI.computeMainBodyCarrierStation` — built from active non-carrier, non-service, non-reserve surface combat divisions so carriers never drag their own anchor rearward):
+  - **`VAN`**: Forward echelon riding abreast / just behind the leading shoulder of the Main Body (`+0.25x mainBodyHalfDepth`), bounded outside enemy surface-gun safety floor (`minSafeStandoff`).
+  - **`CENTER`**: Core pocket tucked inside / immediately behind the Main Body centroid (`-0.35x divisionInterval`) under friendly line PD cover.
+  - **`REAR`**: Screened close-rear echelon (`rearEdge - 0.85x divisionInterval`) that translates and maneuvers cohesively with the advancing Main Body (never marooned at static map-rear `reserveStation`).
+- Unless `div.hasExplicitCustomStandoff` (`customStandoffManual == true`) is set, carrier hull distance to its enemy target division MUST be clamped within the carrier division's **effective striking envelope** (`<= max(minSafeStandoff, 0.88x liveFighterStrikeRange)`), ensuring carriers never hold back out of striking range of the enemy.

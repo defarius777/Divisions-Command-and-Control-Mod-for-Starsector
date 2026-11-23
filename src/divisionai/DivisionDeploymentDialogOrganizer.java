@@ -2203,14 +2203,37 @@ public class DivisionDeploymentDialogOrganizer {
             List<FleetMemberAPI> deployedMembers,
             List<FleetMemberAPI> reserveMembers) {
         List<FleetMemberAPI> all = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
         if (deployedMembers != null) {
             for (FleetMemberAPI m : deployedMembers) {
-                if (m != null && !m.isAlly()) all.add(m);
+                if (m != null && !m.isAlly()) {
+                    all.add(m);
+                    if (m.getId() != null) seenIds.add(m.getId());
+                }
             }
         }
         if (reserveMembers != null) {
             for (FleetMemberAPI m : reserveMembers) {
-                if (m != null && !m.isAlly()) all.add(m);
+                if (m != null && !m.isAlly() && (m.getId() == null || seenIds.add(m.getId()))) {
+                    all.add(m);
+                }
+            }
+        }
+        // Spec 01 C2-INV-06: On the frame "Deploy" is clicked, Starsector mutates reservesGrid.getMembers() in place
+        // while FleetCommandPanel's captured deployedMembers snapshot may still be empty. Always merge live deployedGrid
+        // members so an explicitly chosen OTC ship (e.g. Conquest) is never dropped from `all` on deploy transition!
+        if (cachedDeployedGridForActiveFdd != null && gridGetMembersHandle != null) {
+            try {
+                List<FleetMemberAPI> liveDep =
+                        (List<FleetMemberAPI>) gridGetMembersHandle.invoke(cachedDeployedGridForActiveFdd);
+                if (liveDep != null) {
+                    for (FleetMemberAPI m : liveDep) {
+                        if (m != null && !m.isAlly() && (m.getId() == null || seenIds.add(m.getId()))) {
+                            all.add(m);
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
             }
         }
 

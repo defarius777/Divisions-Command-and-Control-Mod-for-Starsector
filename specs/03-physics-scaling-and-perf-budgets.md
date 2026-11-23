@@ -9,6 +9,7 @@
 | Inter-division `divisionInterval` | `getGlobalDivisionIntervalMult()` | `1.00x` (`1050u` CA) | `~1.95x` (`~2050u` CA) |
 | Gun division `standoffRange` | `getWeaponRangeScale(engine)` + P70 main-battery envelope | `1.00x` (`800u` CA) | `~3.64x` (`~2900u` CA) |
 | Missile division `standoffRange` | `getGlobalMissileRangeScale()` + `liveMissileCeiling` (`<= max(1.25x def, 0.96x avgEngage)`) | `1.00x` | Bounded (`~4000–5000u`, auto-heals `>1.80x` double-scaled saves) |
+| Carrier `VAN` / `CENTER` / `REAR` echelon & strike cap (`PHYS-INV-02`) | Main-Body Frame (`divisionInterval`) + `getFighterRangeScale(engine)` (`<= 0.88x liveStrikeRange`) | `+0.25x depth` / `-0.35x int` / `-0.85x int`, `<= ~3600u` | Scales with `divisionInterval` (`~1.95x`) & live wing range (`~5500–7600u`, heals `10200u` bloat) |
 | Hull speed class thresholds (`105`, `130` su/s) | `scaleVanillaSpeedThreshold(engine, v)` | `105` / `130` su/s | `~303` / `~318` su/s |
 | Speed Governor (`DivisionEngineTelegraph`) | `isSpeedGoverningEnvironment()` | **OFF** by default (opt-in) | **ON** by default (`AUTO` -> `1/3`, `1/2`, `FULL`, `FLANK`) |
 

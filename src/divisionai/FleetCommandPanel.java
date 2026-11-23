@@ -204,10 +204,15 @@ public final class FleetCommandPanel {
                         playerGroup.otc = new DivisionModel.CommanderProfile(autoCap, autoName);
                     }
                     if (alpha) {
-                        playerGroup.useConvergence = true;
-                        DivisionOtcCommandManager.markInitialPlayerOtcAlphaCore(true);
-                    } else if (preBattle) {
-                        playerGroup.useConvergence = false;
+                        if (!preBattle || !DivisionOtcCommandManager.isExplicitPlayerOtcChoiceMade(playerGroup)
+                                || DivisionOtcCommandManager.isAlphaCoreControlledMember(fm)) {
+                            playerGroup.useConvergence = true;
+                            DivisionOtcCommandManager.markInitialPlayerOtcAlphaCore(true);
+                        }
+                    } else if (preBattle || DivisionOtcCommandManager.isExplicitPlayerOtcChoiceMade(playerGroup)) {
+                        if (playerGroup.forceConvergenceOverride == null) {
+                            playerGroup.useConvergence = false;
+                        }
                         DivisionOtcCommandManager.markInitialPlayerOtcAlphaCore(false);
                         DivisionOtcCommandManager.setPlayerConvergenceFlagshipOverride(null);
                         DivisionOtcCommandManager.clearPlayerAlphaCoreOtcLockInBattle(playerGroup);

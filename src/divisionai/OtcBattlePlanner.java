@@ -688,7 +688,9 @@ public class OtcBattlePlanner {
             if (d.archetype.isCarrierArchetype()) {
                 spAtk = DivisionSetpieceAttack.NONE;
                 spForm = d.doctrinalFormation != null ? d.doctrinalFormation : DivisionFormation.PROTECTIVE_CIRCLE;
-                offset = new Vector2f(dx / len * marshalDist, dy / len * marshalDist);
+                Vector2f cStation = new Vector2f();
+                OtcAI.computeMainBodyCarrierStation(engine, d, myGroup, target, cStation);
+                offset = new Vector2f(cStation.x - targetPos.x, cStation.y - targetPos.y);
             } else {
                 switch (chosenSetpiece) {
                     case HAMMER_AND_ANVIL: {
@@ -1250,8 +1252,11 @@ public class OtcBattlePlanner {
         DivisionState main = myGroup.mainEffortDivision;
         DivisionState carrierAnchor = OtcAI.findPrimaryCarrierAnchorDivision(myGroup);
         boolean openFlotillaAnchor = myGroup.operationalAnchor == PermanentDivisionManager.OperationalAnchor.OPEN_FLOTILLA;
-        boolean carrierScreenAnchor = (myGroup.operationalAnchor == PermanentDivisionManager.OperationalAnchor.CARRIER_SCREEN
-                || myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
+        // Spec 01 C2-INV-07: Under Linear Warfare (`BATTLE_LINE`), the Battle Division IS the operational anchor;
+        // never tether heavy line divisions backward to a rear carrier division!
+        boolean carrierScreenAnchor = myGroup.operationalAnchor != PermanentDivisionManager.OperationalAnchor.BATTLE_LINE
+                && (myGroup.operationalAnchor == PermanentDivisionManager.OperationalAnchor.CARRIER_SCREEN
+                        || myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
                 && carrierAnchor != null;
         boolean isPursuitInterception = (myGroup.missionContext == DivisionModel.MissionContextType.INTERCEPTION);
         boolean isRearguardEscape = (myGroup.missionContext == DivisionModel.MissionContextType.REARGUARD_ACTION);
@@ -1554,10 +1559,14 @@ public class OtcBattlePlanner {
         }
         float effStandoff = PermanentDivisionManager.resolveEffectiveCombatGunStandoff(main, now);
         float hold = Math.max(500f, effStandoff * (isPursuitInterception ? 0.68f : 0.9f));
-        if (closeActionMain && (rScale > 1.25f || main.minMainBatteryRange > 1650f) && !main.hasExplicitCustomStandoff) {
+        if (closeActionMain && !main.hasExplicitCustomStandoff) {
             float shortBat = (main.minMainBatteryRange > 350f) ? main.minMainBatteryRange : main.avgEngageRange;
             if (shortBat > 350f) {
-                hold = Math.min(hold, Math.max(520f, shortBat * 0.68f));
+                if (rScale > 1.25f || main.minMainBatteryRange > 1650f) {
+                    hold = Math.min(hold, Math.max(520f, shortBat * 0.68f));
+                } else if (effStandoff > shortBat * 0.88f) {
+                    hold = Math.min(hold, Math.max(580f, shortBat * 0.78f));
+                }
             }
         }
         if (BattlefieldFirepowerEvaluator.isStationBastionDivision(primary)
@@ -1596,11 +1605,11 @@ public class OtcBattlePlanner {
                 && myGroup.currentPhase != BattlePhase.GENERAL_CHASE
                 && carrierAnchor.centroid != null
                 && carrierAnchor.totalFpStrength >= Math.max(18f, myGroup.totalFriendlyStrength * 0.22f)
-                && DivisionUiWidgets.distance(main.centroid, primaryPos) > 1950f
+                && DivisionUiWidgets.distance(main.centroid, primaryPos) > 1950f * rScale
                 && main.localEnemyStrength < 12f) {
-            float maxScreenLead = (myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
+            float maxScreenLead = ((myGroup.engagementDiscipline == PermanentDivisionManager.EngagementDiscipline.CLOSE_SCREEN)
                     ? 1150f
-                    : 1450f;
+                    : 1450f) * rScale;
             float cdx = stX - carrierAnchor.centroid.x;
             float cdy = stY - carrierAnchor.centroid.y;
             float cDist = (float) Math.sqrt(cdx * cdx + cdy * cdy);

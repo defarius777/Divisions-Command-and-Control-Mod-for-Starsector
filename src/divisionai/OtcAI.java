@@ -614,6 +614,291 @@ public class OtcAI {
         }
     }
 
+    /**
+     * Spec 01 C2-INV-07 & Spec 02 SC-INV-04: Computes the FP-weighted centroid of the fleet's active combat surface
+     * Main Body (excluding pure carrier divisions, SERVICE_GROUPs, and uncommitted reserve divisions so rear units
+     * never drag the main body's reference frame backward in a feedback loop). Falls back to {@code fleetCentroid}
+     * only when the fleet contains zero active surface combat divisions.
+     */
+    public static Vector2f computeMainBodyCentroid(BattleGroupState group, Vector2f out) {
+        Vector2f dst = (out != null) ? out : new Vector2f();
+        if (group == null) {
+            dst.set(0f, 0f);
+            return dst;
+        }
+        float sumX = 0f;
+        float sumY = 0f;
+        float weightSum = 0f;
+        for (int i = 0, n = group.divisions.size(); i < n; i++) {
+            DivisionState d = group.divisions.get(i);
+            if (d == null || !d.isCombatEffective() || d.centroid == null) continue;
+            if (d.archetype != null && (d.archetype.isCarrierArchetype() || d.archetype == DivisionArchetype.SERVICE_GROUP)) {
+                continue;
+            }
+            if (d == group.reserveDivision && !group.reserveCommitted) continue;
+            float w = Math.max(1f, d.totalFpStrength);
+            // Weight heavy line divisions (Battleships / Battlecruisers / Cruisers) slightly higher so far-flung light
+            // scouts do not pull the Main Body center sideways away from the battle line.
+            if (d.archetype != null && d.archetype.isHeavyLineArchetype()) {
+                w *= 1.5f;
+            }
+            sumX += d.centroid.x * w;
+            sumY += d.centroid.y * w;
+            weightSum += w;
+        }
+        if (weightSum > 0.5f) {
+            dst.set(sumX / weightSum, sumY / weightSum);
+        } else {
+            dst.set(group.fleetCentroid);
+        }
+        return dst;
+    }
+
+    /**
+     * Spec 02 SC-INV-04 & Spec 03 PHYS-INV-02: Measures a carrier division's true operational fighter/bomber strike
+     * envelope (reading base {@code FighterWingSpecAPI.getRange()} + hullmod deck bonuses while ignoring temporary
+     * {@code VOIDSTRIKE_MAX_RANGE_STAT_ID} full-map overrides) so carriers never hold back beyond effective sortie reach.
+     */
+    public static float resolveCarrierEffectiveStrikeEnvelope(CombatEngineAPI engine, DivisionState div) {
+        float fScale = CombatPhysicsProfile.getFighterRangeScale(engine);
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
+        float fallbackEnv = Math.max(3400f * wScale, 3800f * fScale);
+        if (div == null) return fallbackEnv;
+        float wingSum = 0f;
+        int wingCount = 0;
+        List<ShipAPI> alive = div.getAliveMembers();
+        for (int i = 0, n = alive.size(); i < n; i++) {
+            ShipAPI ship = alive.get(i);
+            if (ship == null || ship.getAllWings() == null) continue;
+            if (VoidstrikeCoordinator.isCarrierFighterRangeZeroedByHullmod(ship)) continue;
+            for (com.fs.starfarer.api.combat.FighterWingAPI w : ship.getAllWings()) {
+                if (w == null) continue;
+                if (VoidstrikeCoordinator.isWingTetheredZeroRange(ship, w)
+                        || VoidstrikeCoordinator.isSupportEscortOnlyWing(ship, w)) {
+                    continue;
+                }
+                float doctrinalRange = 0f;
+                float liveWingRange = w.getRange();
+                if (liveWingRange > 0f) {
+                    float vsBoost = 0f;
+                    if (ship.getMutableStats() != null && ship.getMutableStats().getFighterWingRange() != null) {
+                        com.fs.starfarer.api.combat.MutableStat.StatMod vsMod =
+                                ship.getMutableStats().getFighterWingRange().getFlatBonus(VoidstrikeCoordinator.VOIDSTRIKE_MAX_RANGE_STAT_ID);
+                        if (vsMod != null && vsMod.getValue() > 0f) {
+                            vsBoost = vsMod.getValue();
+                        }
+                    }
+                    doctrinalRange = liveWingRange - vsBoost;
+                }
+                if (doctrinalRange <= 200f && w.getSpec() != null && w.getSpec().getRange() > 0f) {
+                    doctrinalRange = w.getSpec().getRange() * fScale;
+                    if (ship.getVariant() != null && ship.getVariant().hasHullMod("recovery_shuttles")) {
+                        doctrinalRange *= 0.85f;
+                    }
+                }
+                if (doctrinalRange > 200f) {
+                    wingSum += doctrinalRange;
+                    wingCount++;
+                }
+            }
+        }
+        float rawWingRange;
+        if (wingCount > 0) {
+            rawWingRange = wingSum / wingCount;
+        } else if (div.avgEngageRange > 600f && div.avgEngageRange < 12500f) {
+            rawWingRange = div.avgEngageRange;
+        } else {
+            rawWingRange = fallbackEnv;
+        }
+        // Operational strike reach: 0.88x of wing operational range (with scaled minimum floor so short-legged wings
+        // still keep safe carrier standoff).
+        float minEnvelope = Math.max(2200f * wScale, 2500f * fScale);
+        float maxEnvelope = Math.max(minEnvelope + 500f * wScale, rawWingRange * 0.88f);
+        return Math.max(minEnvelope, maxEnvelope);
+    }
+
+    /**
+     * Spec 02 SC-INV-04: Computes a carrier division's dynamic `VAN` / `CENTER` / `REAR` station anchored to the
+     * advancing/maneuvering Main Body of the fleet and clamped within effective striking range of {@code enemyTarget}
+     * (when present) and outside enemy surface-gun safety floor {@code minSafeStandoff}.
+     */
+    public static void computeMainBodyCarrierStation(
+            CombatEngineAPI engine,
+            DivisionState div,
+            BattleGroupState myGroup,
+            DivisionState enemyTarget,
+            Vector2f out) {
+        if (div == null || out == null) return;
+        float mapW = (engine != null && engine.getMapWidth() > 0f) ? engine.getMapWidth() : 16000f;
+        float mapH = (engine != null && engine.getMapHeight() > 0f) ? engine.getMapHeight() : 16000f;
+        float maxX = mapW * 0.42f;
+        float maxY = mapH * 0.42f;
+
+        Vector2f mainBody = new Vector2f();
+        boolean hasSurfaceMainBody = false;
+        if (myGroup != null) {
+            for (int i = 0, n = myGroup.divisions.size(); i < n; i++) {
+                DivisionState d = myGroup.divisions.get(i);
+                if (d != null && d.isCombatEffective() && d.archetype != null
+                        && !d.archetype.isCarrierArchetype()
+                        && d.archetype != DivisionArchetype.SERVICE_GROUP
+                        && !(d == myGroup.reserveDivision && !myGroup.reserveCommitted)) {
+                    hasSurfaceMainBody = true;
+                    break;
+                }
+            }
+            computeMainBodyCentroid(myGroup, mainBody);
+        } else {
+            mainBody.set(div.centroid);
+        }
+
+        Vector2f enemyPos = (enemyTarget != null && isDivisionVisibleToSide(engine, div.side, enemyTarget))
+                ? getVisibleCentroidForSide(engine, div.side, enemyTarget)
+                : null;
+
+        float axisX = 0f;
+        float axisY = (div.side == 0) ? 1f : -1f;
+        if (enemyPos != null) {
+            float dx = enemyPos.x - mainBody.x;
+            float dy = enemyPos.y - mainBody.y;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            if (len > 25f) {
+                axisX = dx / len;
+                axisY = dy / len;
+            }
+        } else if (myGroup != null && myGroup.primaryThreatEnemyDivision != null
+                && isDivisionVisibleToSide(engine, div.side, myGroup.primaryThreatEnemyDivision)) {
+            Vector2f pPos = getVisibleCentroidForSide(engine, div.side, myGroup.primaryThreatEnemyDivision);
+            float dx = pPos.x - mainBody.x;
+            float dy = pPos.y - mainBody.y;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            if (len > 25f) {
+                axisX = dx / len;
+                axisY = dy / len;
+            }
+        }
+        float perpX = -axisY;
+        float perpY = axisX;
+
+        float iScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalDivisionIntervalMult());
+        float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
+        float effInterval = Math.max(750f * iScale, div.divisionInterval);
+
+        // Measure live Main Body depth along the advance axis so VAN / CENTER / REAR scale organically with the fleet!
+        float frontProj = 0f;
+        float rearProj = 0f;
+        if (hasSurfaceMainBody && myGroup != null) {
+            for (int i = 0, n = myGroup.divisions.size(); i < n; i++) {
+                DivisionState d = myGroup.divisions.get(i);
+                if (d == null || !d.isCombatEffective() || d.centroid == null) continue;
+                if (d.archetype != null && (d.archetype.isCarrierArchetype() || d.archetype == DivisionArchetype.SERVICE_GROUP)) {
+                    continue;
+                }
+                if (d == myGroup.reserveDivision && !myGroup.reserveCommitted) continue;
+                float proj = (d.centroid.x - mainBody.x) * axisX + (d.centroid.y - mainBody.y) * axisY;
+                // Ignore extreme far-flank outliers (> 2.5x interval from main body) when sizing core depth
+                if (Math.abs(proj) <= effInterval * 2.5f) {
+                    if (proj > frontProj) frontProj = proj;
+                    if (proj < rearProj) rearProj = proj;
+                }
+            }
+        }
+        float mainBodyHalfDepth = Math.max(effInterval * 0.45f, 0.5f * (frontProj - rearProj));
+
+        PermanentDivisionManager.LineStation station = (div.lineStation != null)
+                ? div.lineStation
+                : PermanentDivisionManager.LineStation.REAR;
+        float alongOffset;
+        switch (station) {
+            case VAN:
+                // Forward echelon riding abreast / just behind the leading shoulder of the Main Body
+                alongOffset = Math.min(frontProj, 0.30f * mainBodyHalfDepth) + 0.15f * effInterval;
+                break;
+            case CENTER:
+                // Protected fleet-core pocket tucked inside / immediately behind the Main Body centroid
+                alongOffset = -0.35f * effInterval;
+                break;
+            case REAR:
+            default:
+                // Screened close-rear echelon behind the Main Body (scales & moves with Main Body, never map-edge exile!)
+                alongOffset = Math.max(rearProj, -0.55f * mainBodyHalfDepth) - 0.85f * effInterval;
+                break;
+        }
+
+        // Lateral spreading among friendly carrier divisions sharing the same LineStation band
+        float latOffset = 0f;
+        if (myGroup != null) {
+            int sameBandIdx = 0;
+            int sameBandCount = 0;
+            for (int i = 0, n = myGroup.divisions.size(); i < n; i++) {
+                DivisionState sib = myGroup.divisions.get(i);
+                if (sib == null || !sib.isCombatEffective() || sib.archetype == null || !sib.archetype.isCarrierArchetype()) {
+                    continue;
+                }
+                PermanentDivisionManager.LineStation sibSt = (sib.lineStation != null)
+                        ? sib.lineStation
+                        : PermanentDivisionManager.LineStation.REAR;
+                if (sibSt == station) {
+                    if (sib == div) sameBandIdx = sameBandCount;
+                    sameBandCount++;
+                }
+            }
+            if (sameBandCount > 1) {
+                float centered = sameBandIdx - (sameBandCount - 1) * 0.5f;
+                latOffset = centered * Math.max(700f * iScale, effInterval * 0.80f);
+            }
+        }
+
+        // In Fog of War (no visible enemy target yet): if there is no surface main body, advance gently rather than reversing!
+        if (enemyPos == null && !hasSurfaceMainBody) {
+            alongOffset = 650f * iScale;
+        }
+
+        float stX = mainBody.x + axisX * alongOffset + perpX * latOffset;
+        float stY = mainBody.y + axisY * alongOffset + perpY * latOffset;
+
+        // When a visible enemy target exists, enforce BOTH:
+        //  (a) Surface-gun safety floor (`minSafeStandoff` so VAN/CENTER pure carriers don't drive into enemy broadsides), and
+        //  (b) Strike-envelope ceiling (`maxStrikeDist` so REAR/CENTER/VAN carriers never sit out of striking range!).
+        if (enemyPos != null) {
+            float enemyGunRange = Math.max(1050f * wScale, enemyTarget.avgEngageRange);
+            float minSafeStandoff = Math.max(1750f * wScale, enemyGunRange + 550f * wScale);
+            float liveStrikeEnv = resolveCarrierEffectiveStrikeEnvelope(engine, div);
+            float maxStrikeDist = div.hasExplicitCustomStandoff
+                    ? Math.max(minSafeStandoff, div.standoffRange)
+                    : Math.max(minSafeStandoff + 250f * wScale, liveStrikeEnv);
+
+            // Echelon-tiered ceiling within the strike envelope so VAN stays closer than CENTER and CENTER closer than REAR
+            if (!div.hasExplicitCustomStandoff) {
+                if (station == PermanentDivisionManager.LineStation.VAN) {
+                    maxStrikeDist = Math.max(minSafeStandoff, Math.min(maxStrikeDist, minSafeStandoff + (maxStrikeDist - minSafeStandoff) * 0.45f));
+                } else if (station == PermanentDivisionManager.LineStation.CENTER) {
+                    maxStrikeDist = Math.max(minSafeStandoff, Math.min(maxStrikeDist, minSafeStandoff + (maxStrikeDist - minSafeStandoff) * 0.75f));
+                }
+            }
+
+            float dxFromEnemy = stX - enemyPos.x;
+            float dyFromEnemy = stY - enemyPos.y;
+            float distFromEnemy = (float) Math.sqrt(dxFromEnemy * dxFromEnemy + dyFromEnemy * dyFromEnemy);
+            if (distFromEnemy < 1f) {
+                dxFromEnemy = -axisX;
+                dyFromEnemy = -axisY;
+                distFromEnemy = 1f;
+            }
+            if (distFromEnemy < minSafeStandoff) {
+                stX = enemyPos.x + (dxFromEnemy / distFromEnemy) * minSafeStandoff;
+                stY = enemyPos.y + (dyFromEnemy / distFromEnemy) * minSafeStandoff;
+            } else if (distFromEnemy > maxStrikeDist) {
+                stX = enemyPos.x + (dxFromEnemy / distFromEnemy) * maxStrikeDist;
+                stY = enemyPos.y + (dyFromEnemy / distFromEnemy) * maxStrikeDist;
+            }
+        }
+
+        out.set(
+                Math.max(-maxX, Math.min(maxX, stX)),
+                Math.max(-maxY, Math.min(maxY, stY)));
+    }
+
         private static void evaluateLocalForceRatioViaGrid(
             CombatEngineAPI engine,
             DivisionState div,
@@ -1701,11 +1986,23 @@ public class OtcAI {
             DivisionState d = supportDivs.get(i);
             float interval = Math.max(850f * iScale, d.divisionInterval);
             float centered = i - (nSupport - 1) * 0.5f;
-            float fwd = ((resolved == PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION)
-                    ? -120f
-                    : -880f) * iScale;
+            PermanentDivisionManager.LineStation st = (d.lineStation != null)
+                    ? d.lineStation
+                    : PermanentDivisionManager.LineStation.REAR;
+            float baseFwd;
+            if (resolved == PermanentDivisionManager.FleetWideFormation.FLEET_PROTECTIVE_BASTION) {
+                baseFwd = -120f;
+            } else if (st == PermanentDivisionManager.LineStation.VAN && d.archetype != DivisionArchetype.SERVICE_GROUP) {
+                baseFwd = 220f;
+            } else if (st == PermanentDivisionManager.LineStation.CENTER && d.archetype != DivisionArchetype.SERVICE_GROUP) {
+                baseFwd = -360f;
+            } else {
+                baseFwd = -880f;
+            }
+            float fwd = baseFwd * iScale;
             float lat = centered * interval * 0.75f;
-            d.fleetFormationRank = 2;
+            d.fleetFormationRank = (st == PermanentDivisionManager.LineStation.VAN) ? 0
+                    : (st == PermanentDivisionManager.LineStation.CENTER ? 1 : 2);
             d.fleetFormationWingSide = (centered < -0.05f) ? -1 : ((centered > 0.05f) ? 1 : 0);
             d.fleetFormationSlotIndex = 100 + i;
             d.consentedWingSide = 0;

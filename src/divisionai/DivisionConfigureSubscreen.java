@@ -336,7 +336,7 @@ final class DivisionConfigureSubscreen {
                 colWidth - 16f,
                 effStandoff,
                 longestGunRange,
-                spec.customStandoffRange != null,
+                spec.customStandoffRange != null && spec.customStandoffManual,
                 baseColor,
                 darkColor,
                 highlight,

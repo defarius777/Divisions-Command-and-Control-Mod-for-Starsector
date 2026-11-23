@@ -1585,12 +1585,11 @@ public class DivisionCommanderAI {
             BattleGroupState myGroup,
             DivisionState carrierTargetDiv) {
         div.targetEnemyDivision = carrierTargetDiv;
+        OtcAI.computeMainBodyCarrierStation(engine, div, myGroup, carrierTargetDiv, div.stationPoint);
         if (carrierTargetDiv != null) {
-            DivisionFormationNavigator.computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
             return carrierTargetDiv.displayName;
         }
-        div.stationPoint.set(myGroup.reserveStation);
-        return "the contact zone";
+        return "the main body";
     }
 
     static DivisionState selectStickyStrikeCraftTargetDivision(
@@ -2004,15 +2003,15 @@ public class DivisionCommanderAI {
                 div.targetEnemyDivision = carrierTargetDiv;
                 String targetLabel;
                 if (carrierTargetDiv != null) {
-                    DivisionFormationNavigator.computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
+                    OtcAI.computeMainBodyCarrierStation(engine, div, myGroup, carrierTargetDiv, div.stationPoint);
                     targetLabel = carrierTargetDiv.displayName;
                 } else if (uncapturedObj != null) {
                     div.targetObjective = uncapturedObj;
-                    div.stationPoint.set(div.centroid.x * 0.7f, div.centroid.y + (div.side == 0 ? 700f : -700f));
+                    OtcAI.computeMainBodyCarrierStation(engine, div, myGroup, null, div.stationPoint);
                     targetLabel = uncapturedObj.getDisplayName();
                 } else {
-                    div.stationPoint.set(myGroup.reserveStation);
-                    targetLabel = "the contact zone";
+                    OtcAI.computeMainBodyCarrierStation(engine, div, myGroup, null, div.stationPoint);
+                    targetLabel = "the main body";
                 }
                 return commitIntent(engine, div, DivisionIntentType.FLY_ARMED_RECONNAISSANCE, targetLabel, baseReason, now);
             }
@@ -2040,10 +2039,10 @@ public class DivisionCommanderAI {
                     computePatrolStation(div, protectedFriendly, div.stationPoint);
                     targetLabel = protectedFriendly.displayName;
                 } else if (carrierTargetDiv != null) {
-                    DivisionFormationNavigator.computeStandoffStation(engine, div, carrierTargetDiv, div.stationPoint);
+                    OtcAI.computeMainBodyCarrierStation(engine, div, myGroup, carrierTargetDiv, div.stationPoint);
                     targetLabel = carrierTargetDiv.displayName;
                 } else {
-                    div.stationPoint.set(myGroup.reserveStation);
+                    OtcAI.computeMainBodyCarrierStation(engine, div, myGroup, null, div.stationPoint);
                     targetLabel = "the battle line";
                 }
                 return commitIntent(engine, div, DivisionIntentType.FLY_COMBAT_SPACE_PATROL, targetLabel, baseReason, now);
@@ -3319,8 +3318,8 @@ public class DivisionCommanderAI {
             case FLY_COMBAT_SPACE_PATROL:
                 if (friend != null && friend != div && friend.isCombatEffective()) {
                     computePatrolStation(div, friend, div.stationPoint);
-                } else if (enemyTrackable) {
-                    DivisionFormationNavigator.computeStandoffStation(engine, div, enemy, div.stationPoint);
+                } else {
+                    OtcAI.computeMainBodyCarrierStation(engine, div, myGroup, enemyTrackable ? enemy : null, div.stationPoint);
                 }
                 break;
             case FLY_ARMED_RECONNAISSANCE:
@@ -3329,9 +3328,7 @@ public class DivisionCommanderAI {
             case FLY_CYCLIC_STRIKES:
             case LAUNCH_DECKLOAD_STRIKE:
             case LAUNCH_ALPHA_STRIKE:
-                if (enemyTrackable) {
-                    DivisionFormationNavigator.computeStandoffStation(engine, div, enemy, div.stationPoint);
-                }
+                OtcAI.computeMainBodyCarrierStation(engine, div, myGroup, enemyTrackable ? enemy : null, div.stationPoint);
                 break;
             default:
                 break;
@@ -3878,9 +3875,16 @@ public class DivisionCommanderAI {
 
     static void computePatrolStation(DivisionState carrierDiv, DivisionState protectedDiv, Vector2f outStation) {
         float backSign = (carrierDiv.side == 0) ? -1f : 1f;
+        float iScale = Math.max(1.0f, CombatPhysicsProfile.getGlobalDivisionIntervalMult());
+        float trailDist = Math.max(550f * iScale, Math.min(1150f * iScale, carrierDiv.standoffRange * 0.32f));
+        if (carrierDiv.lineStation == PermanentDivisionManager.LineStation.VAN) {
+            trailDist *= 0.35f;
+        } else if (carrierDiv.lineStation == PermanentDivisionManager.LineStation.CENTER) {
+            trailDist *= 0.65f;
+        }
         outStation.set(
                 protectedDiv.centroid.x,
-                protectedDiv.centroid.y + backSign * Math.max(600f, carrierDiv.standoffRange * 0.45f));
+                protectedDiv.centroid.y + backSign * trailDist);
     }
 
     /**

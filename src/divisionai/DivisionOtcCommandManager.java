@@ -196,6 +196,10 @@ public class DivisionOtcCommandManager {
 
 
     public static void setAutoPreDeployPlayerOtcMemberId(BattleGroupState playerGroup, String id) {
+        // Spec 01 C2-INV-06: Never let auto-selection overwrite an explicit player OTC choice!
+        if (isExplicitPlayerOtcChoiceMade(playerGroup)) {
+            return;
+        }
         preferredPlayerOtcMemberId = id;
         if (playerGroup != null) {
             playerGroup.preferredOtcShipId = id;
@@ -421,7 +425,7 @@ public class DivisionOtcCommandManager {
             }
         }
 
-        // 1. Explicit manual choice in the OTC Selection Window is sticky above all else
+        // 1. Explicit manual choice in the OTC Selection Window is sticky above all else (Spec 01 C2-INV-06)
         if (isExplicitPlayerOtcChoiceMade(playerGroup)) {
             String prefId = getPreferredPlayerOtcMemberId(playerGroup);
             if (prefId != null && !prefId.isEmpty()) {
@@ -430,6 +434,27 @@ public class DivisionOtcCommandManager {
                         return m;
                     }
                 }
+                if (selectedForDeploy != null) {
+                    for (FleetMemberAPI m : selectedForDeploy) {
+                        if (m != null && prefId.equals(m.getId())) {
+                            return m;
+                        }
+                    }
+                }
+                try {
+                    if (Global.getSector() != null && Global.getSector().getPlayerFleet() != null
+                            && Global.getSector().getPlayerFleet().getFleetData() != null
+                            && Global.getSector().getPlayerFleet().getFleetData().getMembersListCopy() != null) {
+                        for (FleetMemberAPI m : Global.getSector().getPlayerFleet().getFleetData().getMembersListCopy()) {
+                            if (m != null && !m.isAlly() && prefId.equals(m.getId())) {
+                                return m;
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+                // Never fall through to largest-ship / Alpha-Core auto-scoring when an explicit OTC choice is active!
+                return allMembers.get(0);
             }
         }
 
@@ -2074,13 +2099,39 @@ public class DivisionOtcCommandManager {
                     }
                 }
             }
-            // If the explicitly designated or sticky OTC is sitting in reserves (undeployed), do not substitute another ship
+            // If the explicitly designated or sticky OTC is sitting in reserves (undeployed) OR queued in
+            // getDeployedCopy() awaiting its wave spawn frame (Spec 01 C2-INV-06), do not substitute another ship!
             if (hasAutoOrExplicitPlayerOtcSelection(group)) {
                 try {
-                    if (engine.getFleetManager(0) != null && engine.getFleetManager(0).getReservesCopy() != null) {
-                        for (FleetMemberAPI rm : engine.getFleetManager(0).getReservesCopy()) {
-                            if (rm != null && prefId.equals(rm.getId())) {
-                                return null;
+                    if (engine.getFleetManager(0) != null) {
+                        if (engine.getFleetManager(0).getReservesCopy() != null) {
+                            for (FleetMemberAPI rm : engine.getFleetManager(0).getReservesCopy()) {
+                                if (rm != null && prefId.equals(rm.getId())) {
+                                    return null;
+                                }
+                            }
+                        }
+                        if (isExplicitPlayerOtcChoiceMade(group)
+                                && !group.formationSpawnHijackedShipIds.contains("__otc_lost_" + prefId)
+                                && !group.formationSpawnHijackedShipIds.contains("__retreating_" + prefId)
+                                && engine.getFleetManager(0).getDeployedCopy() != null) {
+                            Set<String> disabledIds = new HashSet<>();
+                            if (engine.getFleetManager(0).getDisabledCopy() != null) {
+                                for (FleetMemberAPI dm : engine.getFleetManager(0).getDisabledCopy()) {
+                                    if (dm != null && dm.getId() != null) disabledIds.add(dm.getId());
+                                }
+                            }
+                            if (engine.getFleetManager(0).getRetreatedCopy() != null) {
+                                for (FleetMemberAPI rtm : engine.getFleetManager(0).getRetreatedCopy()) {
+                                    if (rtm != null && rtm.getId() != null) disabledIds.add(rtm.getId());
+                                }
+                            }
+                            if (!disabledIds.contains(prefId)) {
+                                for (FleetMemberAPI qm : engine.getFleetManager(0).getDeployedCopy()) {
+                                    if (qm != null && prefId.equals(qm.getId())) {
+                                        return null;
+                                    }
+                                }
                             }
                         }
                     }
@@ -2140,7 +2191,8 @@ public class DivisionOtcCommandManager {
                         }
                     }
                 }
-                if (initialPlayerOtcWasAlphaCore || (group.otc != null && isAlphaCoreOfficer(group.otc.person))) {
+                if (!isExplicitPlayerOtcChoiceMade(group)
+                        && (initialPlayerOtcWasAlphaCore || (group.otc != null && isAlphaCoreOfficer(group.otc.person)))) {
                     ShipAPI bestAlpha = findBestDeployedAlphaCoreSuccessor(engine, group, null);
                     if (bestAlpha != null) {
                         return bestAlpha;
@@ -2295,32 +2347,72 @@ public class DivisionOtcCommandManager {
                 ? resolveActiveFleetFlagship(engine, group)
                 : group.activeFleetFlagship;
         group.activeFleetFlagship = fleetFlag;
+        boolean explicitChoice = (group.side == 0 && !group.isAlliedAi) && isExplicitPlayerOtcChoiceMade(group);
         boolean playerInitialAlpha = (group.side == 0 && !group.isAlliedAi)
+                && (!explicitChoice || isAlphaCoreControlledShip(fleetFlag))
                 && (initialPlayerOtcWasAlphaCore || (group.otc != null && isAlphaCoreOfficer(group.otc.person)));
         group.useConvergence = nonHuman || playerInitialAlpha || isAlphaCoreControlledShip(fleetFlag);
 
-        if (group.side == 0 && !group.isAlliedAi && fleetFlag != null) {
-            if (isAlphaCoreControlledShip(fleetFlag)) {
-                if (fleetFlag.getCaptain() != null
-                        && (group.otc == null || group.otc.person != fleetFlag.getCaptain())) {
-                    group.otc = new CommanderProfile(fleetFlag.getCaptain(), formatAiShipName(fleetFlag));
+        if (group.side == 0 && !group.isAlliedAi) {
+            if (fleetFlag != null) {
+                if (isAlphaCoreControlledShip(fleetFlag)) {
+                    if (fleetFlag.getCaptain() != null
+                            && (group.otc == null || group.otc.person != fleetFlag.getCaptain())) {
+                        group.otc = new CommanderProfile(fleetFlag.getCaptain(), formatAiShipName(fleetFlag));
+                    }
+                    if (!DivisionDeploymentDialogOrganizer.isPreBattleDeployment(engine, null)) {
+                        lockPlayerAlphaCoreOtcInBattle(group);
+                    }
+                } else {
+                    PersonAPI resolvedCap = resolveCandidatePerson(
+                            fleetFlag.getFleetMember(), fleetFlag);
+                    if (resolvedCap != null && (group.otc == null || group.otc.person != resolvedCap)) {
+                        String cName = (resolvedCap.getNameString() != null && !resolvedCap.getNameString().trim().isEmpty())
+                                ? resolvedCap.getNameString().trim()
+                                : "Fleet Commander";
+                        group.otc = new CommanderProfile(resolvedCap, cName);
+                    }
                 }
-                if (!DivisionDeploymentDialogOrganizer.isPreBattleDeployment(engine, null)) {
-                    lockPlayerAlphaCoreOtcInBattle(group);
+                if (fleetFlag.getFleetMember() != null && fleetFlag.getFleetMember().getId() != null
+                        && (group.preferredOtcShipId == null || group.preferredOtcShipId.isEmpty())) {
+                    setAutoPreDeployPlayerOtcMemberId(group, fleetFlag.getFleetMember().getId());
                 }
-            } else {
-                PersonAPI resolvedCap = resolveCandidatePerson(
-                        fleetFlag.getFleetMember(), fleetFlag);
-                if (resolvedCap != null && (group.otc == null || group.otc.person != resolvedCap)) {
-                    String cName = (resolvedCap.getNameString() != null && !resolvedCap.getNameString().trim().isEmpty())
-                            ? resolvedCap.getNameString().trim()
-                            : "Fleet Commander";
-                    group.otc = new CommanderProfile(resolvedCap, cName);
+            } else if (explicitChoice && engine != null && engine.getFleetManager(0) != null) {
+                // Spec 01 C2-INV-06: While the explicitly selected OTC ship is queued in getDeployedCopy() or reserves,
+                // keep group.otc bound to that FleetMemberAPI's captain so frame-0 OTC logs and doctrine reflect the pick!
+                String prefId = getPreferredPlayerOtcMemberId(group);
+                if (prefId != null && !prefId.isEmpty()) {
+                    FleetMemberAPI pendingMember = null;
+                    if (engine.getFleetManager(0).getDeployedCopy() != null) {
+                        for (FleetMemberAPI qm : engine.getFleetManager(0).getDeployedCopy()) {
+                            if (qm != null && prefId.equals(qm.getId())) {
+                                pendingMember = qm;
+                                break;
+                            }
+                        }
+                    }
+                    if (pendingMember == null && engine.getFleetManager(0).getReservesCopy() != null) {
+                        for (FleetMemberAPI rm : engine.getFleetManager(0).getReservesCopy()) {
+                            if (rm != null && prefId.equals(rm.getId())) {
+                                pendingMember = rm;
+                                break;
+                            }
+                        }
+                    }
+                    if (pendingMember != null) {
+                        boolean pendingAlpha = DivisionDeploymentDialogOrganizer.isFlagshipAlphaCoreEquipped(null, pendingMember, null);
+                        PersonAPI pendingCap = resolveCandidatePerson(pendingMember, null);
+                        if (pendingCap != null && (group.otc == null || group.otc.person != pendingCap)) {
+                            String cName = pendingAlpha
+                                    ? ("Alpha Core (" + (pendingMember.getShipName() != null ? pendingMember.getShipName() : "Flagship") + ")")
+                                    : ((pendingCap.getNameString() != null && !pendingCap.getNameString().trim().isEmpty())
+                                            ? pendingCap.getNameString().trim()
+                                            : "Fleet Commander");
+                            group.otc = new CommanderProfile(pendingCap, cName);
+                        }
+                        group.useConvergence = nonHuman || pendingAlpha;
+                    }
                 }
-            }
-            if (fleetFlag.getFleetMember() != null && fleetFlag.getFleetMember().getId() != null
-                    && (group.preferredOtcShipId == null || group.preferredOtcShipId.isEmpty())) {
-                setAutoPreDeployPlayerOtcMemberId(group, fleetFlag.getFleetMember().getId());
             }
         }
 

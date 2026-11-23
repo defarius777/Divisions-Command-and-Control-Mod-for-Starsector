@@ -2879,6 +2879,7 @@ public final class FactionFleetDoctrines {
         dst.customStationSpacing = src.customStationSpacing;
         dst.customDivisionInterval = src.customDivisionInterval;
         dst.customStandoffRange = src.customStandoffRange;
+        dst.customStandoffManual = src.customStandoffManual;
         dst.customOpeningMission = src.customOpeningMission;
         dst.customMainMission = src.customMainMission;
         dst.customStrikeCraftOpeningMission = src.customStrikeCraftOpeningMission;

@@ -1290,6 +1290,9 @@ public class DivisionFormationNavigator {
         float len = (float) Math.sqrt(dx * dx + dy * dy);
         float now = (engine != null) ? engine.getTotalElapsedTime(false) : 0f;
         float standoff = Math.max(400f, PermanentDivisionManager.resolveEffectiveCombatGunStandoff(div, now));
+        if (div != null && div.archetype != null && div.archetype.isCarrierArchetype() && !div.hasExplicitCustomStandoff) {
+            standoff = Math.min(standoff, OtcAI.resolveCarrierEffectiveStrikeEnvelope(engine, div));
+        }
         boolean enemyIsStation = BattlefieldFirepowerEvaluator.isStationBastionDivision(enemyDiv);
         float wScale = CombatPhysicsProfile.getWeaponRangeScale(engine);
         if (!div.archetype.isCarrierArchetype() && div.avgEngageRange > 250f) {

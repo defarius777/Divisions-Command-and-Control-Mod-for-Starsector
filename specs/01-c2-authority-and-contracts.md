@@ -25,3 +25,13 @@ When a non-skirmisher warship division (`DESTROYER`, `CRUISER`, `CAPITAL`) enter
 
 ## 5. Unique Combat Division Display Names (`C2-INV-05`)
 - Every combat division within a `BattleGroupState` (across permanent player specs, multi-fleet NPC specs in `FactionFleetDoctrines`, and leftover pools in `DivisionAutoFormer`) MUST have a unique case-insensitive `displayName`.
+
+## 6. Explicit Player OTC Selection Precedence (`C2-INV-06`)
+- Once the player explicitly selects an OTC commander/ship in the pre-battle Deployment Dialog (`setPreferredPlayerOtcMemberId` -> `explicitPlayerOtcChoiceMade == true`, `otcManuallyAssigned == true`):
+  1. `setAutoPreDeployPlayerOtcMemberId` MUST NEVER overwrite `preferredPlayerOtcMemberId` or `playerGroup.preferredOtcShipId` while `isExplicitPlayerOtcChoiceMade(playerGroup)` is true.
+  2. `resolvePlayerFlagshipMember` and `resolvePreBattlePlayerOtcMember` MUST resolve the explicit OTC ID across the full union of live deployed ships, deployment-dialog grids, reserves, and campaign fleet members (surviving Starsector's in-place removal of deployed ships from `reservesGrid` on clicking Deploy), and MUST NEVER fall through to largest-ship / Alpha-Core auto-scoring.
+  3. While an explicitly selected OTC ship is queued in `getDeployedCopy()` or sitting in `getReservesCopy()` (and has not been destroyed/disabled in battle), `resolveActiveFleetFlagship` MUST NOT substitute a subordinate Alpha Core vessel or trigger `lockPlayerAlphaCoreOtcInBattle`.
+
+## 7. Symmetrical Main-Body Battle Line Fixing (`C2-INV-07`)
+- Auto-populated `PermanentDivisionSpec.customStandoffRange` values (from `recalculateDivisionStandoffRangeFromGuns` / `AUTO`) MUST carry `customStandoffManual == false` so `div.hasExplicitCustomStandoff` is true ONLY when the player manually adjusted the division's Line Standoff (`DIV_STANDOFF_RANGE:<val>`). Player and NPC `CLOSE_ACTION` Battle Divisions therefore resolve symmetrical brawl standoffs (`0.72x minMainBatteryRange`) rather than hanging in the rear at a single member's longest-range beam (`5,275u+`).
+- `OtcBattlePlanner.computeMainEffortFixingStation` MUST measure its approach axis from the **Main Body Centroid** (`OtcAI.computeMainBodyCentroid`, excluding rear carriers and `SERVICE_GROUP`s) rather than raw `fleetCentroid`, and under `OperationalAnchor.BATTLE_LINE` / `GRAND_WEDGE_SPEARHEAD` MUST NOT station a `CLOSE_ACTION` Battle Division behind committed friendly surface line divisions.
