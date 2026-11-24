@@ -1223,6 +1223,18 @@ public final class DivisionUiWidgets {
                         "Selects this division's tactical archetype, which determines the doctrinal defaults it inherits from Fleet Doctrine and whether Carrier-specific missions are available."
                 };
             }
+            if (key.startsWith("CARD_ROLE:") || "DIV_QUICK_ROLE_DD".equals(key)) {
+                return new String[]{
+                        "Quick Role Preset",
+                        "Pick how this division fights in one click (Battle Line, Aggressive, Standoff, Artillery, Scout, Harasser, Hunter-Killer, or Screen). Sets Line Station, Missions, Cohesion, and Standoff automatically; fine-tune individual rows in Configure Division anytime."
+                };
+            }
+            if (key.startsWith("CARD_DECK:") || "DIV_QUICK_DECK_DD".equals(key)) {
+                return new String[]{
+                        "Flight Deck Role",
+                        "Choose whether ships with fighter bays act as a non-carrier surface warship, a frontline Battlecarrier, a rear Fleet Carrier, or an Escort CAP carrier."
+                };
+            }
             if (key.contains("OPEN_MIS")) {
                 return new String[]{
                         "Opening Mission",
@@ -1668,6 +1680,26 @@ public final class DivisionUiWidgets {
                 };
             }
         }
+        if (actionId.startsWith("SET_QUICK_ROLE:")) {
+            PermanentDivisionManager.DivisionQuickRole role =
+                    PermanentDivisionManager.DivisionQuickRole.fromId(extractTrailingToken(actionId), null);
+            if (role != null) {
+                return new String[]{
+                        "Quick Role: " + role.displayName,
+                        role.summary
+                };
+            }
+        }
+        if (actionId.startsWith("SET_QUICK_DECK:")) {
+            PermanentDivisionManager.DivisionQuickDeck deck =
+                    PermanentDivisionManager.DivisionQuickDeck.fromId(extractTrailingToken(actionId), null);
+            if (deck != null) {
+                return new String[]{
+                        "Flight Deck Role: " + deck.displayName,
+                        deck.summary
+                };
+            }
+        }
         if (actionId.startsWith("OTC_SELECT:")) {
             return new String[]{
                     "Designate Officer in Tactical Command (OTC)",
@@ -1680,6 +1712,18 @@ public final class DivisionUiWidgets {
     public static String[] resolveRowLabelTooltipSpec(String labelText) {
         if (labelText == null || labelText.isEmpty()) return null;
         String lower = labelText.trim().toLowerCase(Locale.ROOT);
+        if (lower.startsWith("quick role")) {
+            return new String[]{
+                    "Quick Role",
+                    "Sets how this division fights in one step (Battle Line, Aggressive, Standoff, Artillery, Scout, Harasser, Hunter-Killer, or Screen). Adjusts Line Station, Missions, Cohesion, and Standoff together."
+            };
+        }
+        if (lower.startsWith("flight deck")) {
+            return new String[]{
+                    "Flight Deck Role",
+                    "Sets whether ships with fighter bays act as a non-carrier surface warship, a frontline Battlecarrier, a rear Fleet Carrier, or an Escort CAP carrier."
+            };
+        }
         if (lower.startsWith("battle line structure") || lower.startsWith("line structure")) {
             return new String[]{
                     "Battle Line Structure",

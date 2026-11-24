@@ -3248,6 +3248,18 @@ public class UITestHarness {
                 violations.add("DivisionEngineTelegraph." + et.name() + " copy exceeds budget: " + et.displayName + " / " + et.summary);
             }
         }
+        for (PermanentDivisionManager.DivisionQuickRole qr : PermanentDivisionManager.DivisionQuickRole.values()) {
+            auditedStrings += 3;
+            if (qr.displayName.length() > 20 || qr.shortName.length() > 16 || qr.summary.length() > 85 || countWords(qr.summary) > 15) {
+                violations.add("DivisionQuickRole." + qr.name() + " copy exceeds budget: " + qr.displayName + " / " + qr.summary);
+            }
+        }
+        for (PermanentDivisionManager.DivisionQuickDeck qd : PermanentDivisionManager.DivisionQuickDeck.values()) {
+            auditedStrings += 3;
+            if (qd.displayName.length() > 20 || qd.shortName.length() > 16 || qd.summary.length() > 85 || countWords(qd.summary) > 15) {
+                violations.add("DivisionQuickDeck." + qd.name() + " copy exceeds budget: " + qd.displayName + " / " + qd.summary);
+            }
+        }
 
         PermanentDivisionManager.FleetDoctrineConfig tplCfg = new PermanentDivisionManager.FleetDoctrineConfig();
         boolean defaultIsLinear = tplCfg.resolveMatchingOperationalTemplate() == PermanentDivisionManager.OperationalTemplate.LINEAR_WARFARE;

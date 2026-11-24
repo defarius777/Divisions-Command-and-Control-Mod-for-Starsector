@@ -2266,11 +2266,17 @@ public class StarsectorUISimulator {
         DivisionEditorDialog dialog = new DivisionEditorDialog(hostCoreUI);
         dialog.show();
 
+        boolean inSingleDivView = false;
         for (String cmd : new String[]{
                 null,
+                "TOGGLE_DD:CARD_ROLE:div_1",
+                "SET_QUICK_ROLE:div_1:AGGRESSIVE",
+                "SET_QUICK_ROLE:div_1:HUNTER_KILLER",
+                "SET_QUICK_ROLE:div_1:DOCTRINE_DEFAULT",
                 "SET_OTC_AUTH:POSITIVE_CONTROL",
                 "SET_OTC_AUTH:COMMAND_BY_DIRECTION",
                 "OPEN_DIV:div_1",
+                "TOGGLE_DD:DIV_QUICK_ROLE_DD",
                 "TOGGLE_DD:DIV_ARCH_DD",
                 "TOGGLE_DD:DIV_OPEN_MIS_DD",
                 "TOGGLE_DIV_RAMMING_OPTIONS",
@@ -2294,8 +2300,25 @@ public class StarsectorUISimulator {
                 "DIV_VS_AOA:INHERIT",
                 "BACK_TO_LIST"}) {
             if (cmd != null) {
+                if ("OPEN_DIV:div_1".equals(cmd)) {
+                    inSingleDivView = true;
+                } else if ("BACK_TO_LIST".equals(cmd)) {
+                    inSingleDivView = false;
+                }
                 dialog.buttonPressed(cmd);
                 dialog.advance(0.1f);
+            }
+            if ("SET_QUICK_ROLE:div_1:AGGRESSIVE".equals(cmd)) {
+                PermanentDivisionManager.PermanentDivisionSpec d1 = PermanentDivisionManager.getDivisionById("div_1");
+                if (d1 == null || PermanentDivisionManager.resolveMatchingQuickRole(d1) != PermanentDivisionManager.DivisionQuickRole.AGGRESSIVE) {
+                    return false;
+                }
+            }
+            if ("SET_QUICK_ROLE:div_1:DOCTRINE_DEFAULT".equals(cmd)) {
+                PermanentDivisionManager.PermanentDivisionSpec d1 = PermanentDivisionManager.getDivisionById("div_1");
+                if (d1 == null || PermanentDivisionManager.resolveMatchingQuickRole(d1) != PermanentDivisionManager.DivisionQuickRole.DOCTRINE_DEFAULT) {
+                    return false;
+                }
             }
             if ("SET_OTC_AUTH:POSITIVE_CONTROL".equals(cmd)
                     && PermanentDivisionManager.getFleetDoctrine().getOtcAuthority() != PermanentDivisionManager.OtcAuthority.POSITIVE_CONTROL) {
@@ -2317,7 +2340,6 @@ public class StarsectorUISimulator {
             float edDialogLeft = Math.max(20f, (1920f - DivisionEditorDialog.DIALOG_WIDTH) * 0.5f);
             float edDialogRight = edDialogLeft + DivisionEditorDialog.DIALOG_WIDTH;
             float edLeftColRight = edDialogLeft + 12f + (DivisionEditorDialog.DIALOG_WIDTH - 36f) * 0.5f;
-            boolean inSingleDivView = cmd != null && !"BACK_TO_LIST".equals(cmd) && !cmd.startsWith("SET_OTC_AUTH:");
             for (LabelAPI lbl : labels) {
                 if (!isPurePrintableAscii(lbl.getText())) {
                     return false;
