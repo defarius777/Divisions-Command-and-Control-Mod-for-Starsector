@@ -2331,7 +2331,7 @@ public class StarsectorUISimulator {
                 }
                 // Ensure labels in Configure Division's left settings column never bleed across into the right ship pool
                 if (inSingleDivView && lp != null && lp.getWidth() > 0f
-                        && lp.getY() < (1080f - Math.max(20f, (1080f - DivisionEditorDialog.DIALOG_HEIGHT) * 0.5f) - 108f)
+                        && lp.getY() < (1080f - Math.max(20f, (1080f - DivisionEditorDialog.DIALOG_HEIGHT) * 0.5f) - 76f)
                         && lp.getX() < edLeftColRight - 10f
                         && (lp.getX() + lp.getWidth() > edLeftColRight + 4f)) {
                     System.out.println("FAIL Configure Division left-column label bleeds into right column on " + cmd
@@ -2352,7 +2352,7 @@ public class StarsectorUISimulator {
                     return false;
                 }
                 if (inSingleDivView && bp != null && bp.getWidth() > 0f
-                        && bp.getY() < (1080f - Math.max(20f, (1080f - DivisionEditorDialog.DIALOG_HEIGHT) * 0.5f) - 108f)
+                        && bp.getY() < (1080f - Math.max(20f, (1080f - DivisionEditorDialog.DIALOG_HEIGHT) * 0.5f) - 76f)
                         && bp.getX() < edLeftColRight - 10f
                         && (bp.getX() + bp.getWidth() > edLeftColRight + 4f)) {
                     System.out.println("FAIL Configure Division left-column button bleeds into right column on " + cmd
@@ -3007,7 +3007,7 @@ public class StarsectorUISimulator {
                         }
                     }
                 }
-                // Check Row B posture buttons in Configure view don't overlap each other
+                // Verify redundant Row B posture buttons are absent in Configure view
                 if ("SET_DOC:AGGRESSIVE".equals(cmd)) {
                     List<PositionAPI> postureBtns = new ArrayList<>();
                     for (ButtonAPI btn : buttons) {
@@ -3016,20 +3016,9 @@ public class StarsectorUISimulator {
                             postureBtns.add(btn.getPosition());
                         }
                     }
-                    if (postureBtns.size() != PermanentDivisionManager.DoctrineOption.values().length) {
-                        System.out.println("FAIL 720p posture button count: " + postureBtns.size());
+                    if (!postureBtns.isEmpty()) {
+                        System.out.println("FAIL 720p unexpected posture buttons present: " + postureBtns.size());
                         return false;
-                    }
-                    for (int i = 0; i < postureBtns.size(); i++) {
-                        for (int j = i + 1; j < postureBtns.size(); j++) {
-                            PositionAPI a = postureBtns.get(i);
-                            PositionAPI b = postureBtns.get(j);
-                            boolean overlapX = a.getX() < (b.getX() + b.getWidth() - 1f) && (a.getX() + a.getWidth() - 1f) > b.getX();
-                            if (overlapX) {
-                                System.out.println("FAIL 720p Configure posture buttons overlap horizontally!");
-                                return false;
-                            }
-                        }
                     }
                 }
             }

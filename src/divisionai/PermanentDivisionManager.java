@@ -6763,6 +6763,18 @@ public class PermanentDivisionManager {
                 || div.mainMission == DivisionMissionType.RESERVE) {
             div.isDesignatedReserve = true;
         }
+        if (div.openingMission == DivisionMissionType.SCREEN
+                || div.mainMission == DivisionMissionType.SCREEN) {
+            div.isScreenCapable = true;
+        }
+        if (div.openingMission == DivisionMissionType.ENVELOPMENT
+                || div.mainMission == DivisionMissionType.ENVELOPMENT) {
+            div.isFastFlanker = true;
+        }
+        if (div.mainMission == DivisionMissionType.STANDOFF_ENGAGEMENT
+                || div.mainMission == DivisionMissionType.CARRIER_STANDOFF) {
+            div.commander.rotationFluxThreshold = Math.min(div.commander.rotationFluxThreshold, 0.65f);
+        }
 
         int count = Math.max(1, div.profiles.size());
         div.stationKeepingRadius = DivisionAutoFormer.computeStationKeepingRadius(

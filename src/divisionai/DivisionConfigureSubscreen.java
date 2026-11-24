@@ -70,9 +70,9 @@ final class DivisionConfigureSubscreen {
 
         float dialogW = dialog.activeDialogWidth;
         float dialogH = dialog.activeDialogHeight;
-        buildDivisionHeaderSection(dialog, container, spec, dialogW, baseColor, darkColor, highlight, positive);
+        buildDivisionHeaderSection(dialog, container, spec, dialogW, baseColor, darkColor, highlight);
 
-        float bodyTop = 108f;
+        float bodyTop = 76f;
         float bodyHeight = dialogH - bodyTop - 12f;
         float colWidth = (dialogW - 36f) * 0.5f;
 
@@ -92,8 +92,7 @@ final class DivisionConfigureSubscreen {
             float dialogW,
             Color baseColor,
             Color darkColor,
-            Color highlight,
-            Color positive) {
+            Color highlight) {
         // Top-right [X] button
         TooltipMakerAPI topCloseUi = container.createUIElement(36f, 24f, false);
         ButtonAPI bTopX = dialog.registerButton(
@@ -112,8 +111,8 @@ final class DivisionConfigureSubscreen {
         topCloseUi.setHeightSoFar(24f);
         container.addUIElement(topCloseUi).inTL(dialogW - 46f, 8f);
 
-        // 1. Top Control & Doctrine Header (height 96f; Division Type moved to dropdown per UI Item G)
-        float headerH = 96f;
+        // 1. Top Control Header (height 64f: Nav Row + Callsign Row)
+        float headerH = 64f;
         TooltipMakerAPI top = container.createUIElement(dialogW - 24f, headerH, false);
 
         // Row A: Back button ("<- Fleet Organization"), Title, Disband button, Close button
@@ -172,7 +171,7 @@ final class DivisionConfigureSubscreen {
         navRow.addUIElement(navUi).inTL(0f, 0f);
         top.addCustom(navRow, 2f);
 
-        // Row B: Editable Callsign TextField + Rename Button + Doctrine Posture Buttons on the same row
+        // Row B: Editable Callsign TextField + Rename Button
         CustomPanelAPI nameRow = Global.getSettings().createCustom(dialogW - 24f, 28f, dialog.subPanelPlugin);
         TooltipMakerAPI nameUi = nameRow.createUIElement(dialogW - 24f, 28f, false);
         LabelAPI callLbl = nameUi.addPara("Callsign:", 0f, baseColor);
@@ -197,47 +196,9 @@ final class DivisionConfigureSubscreen {
                 "APPLY_NAME");
         bSaveName.getPosition().inTL(304f, 3f);
 
-        LabelAPI postLbl = nameUi.addPara("Posture:", 0f, baseColor);
-        DivisionUiWidgets.wrapLabelInPlace(postLbl, 58f, 416f, 5f);
-        DivisionUiWidgets.attachRowLabelTooltip(nameUi, (com.fs.starfarer.api.ui.UIComponentAPI) postLbl, "Posture:");
-        DoctrineOption[] doctrines = DoctrineOption.values();
-        float dx = 478f;
-        float availPostureW = (dialogW - 24f) - dx;
-        float docBtnStep = (availPostureW >= doctrines.length * 136f)
-                ? 136f
-                : Math.max(104f, (float) Math.floor(availPostureW / Math.max(1, doctrines.length)));
-        float docBtnW = docBtnStep - 4f;
-        for (DoctrineOption doc : doctrines) {
-            boolean selected = (spec.doctrine == doc);
-            Color fg = selected ? positive : baseColor;
-            Color bg = selected ? baseColor.darker() : darkColor;
-            String docAct = "SET_DOC:" + doc.name();
-            ButtonAPI bDoc = dialog.registerButton(
-                    nameUi.addButton(
-                            doc.displayName,
-                            docAct,
-                            fg,
-                            bg,
-                            Alignment.MID,
-                            CutStyle.TL_BR,
-                            docBtnW,
-                            22f,
-                            0f),
-                    docAct);
-            if (selected) bDoc.highlight();
-            bDoc.getPosition().inTL(dx, 3f);
-            dx += docBtnStep;
-        }
         nameUi.setHeightSoFar(28f);
         nameRow.addUIElement(nameUi).inTL(0f, 0f);
         top.addCustom(nameRow, 4f);
-
-        top.addPara(
-                "%s - %s",
-                3f,
-                positive,
-                spec.doctrine.displayName,
-                spec.doctrine.summary);
 
         top.setHeightSoFar(headerH);
         container.addUIElement(top).inTL(12f, 8f);
