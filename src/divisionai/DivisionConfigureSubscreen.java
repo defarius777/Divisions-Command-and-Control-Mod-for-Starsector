@@ -17,8 +17,6 @@ import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.PermanentDivisionManager.DoctrineOption;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
-import divisionai.PermanentDivisionManager.DivisionQuickDeck;
-import divisionai.PermanentDivisionManager.DivisionQuickRole;
 import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
 import divisionai.PermanentDivisionManager.DivisionEngineTelegraph;
@@ -276,49 +274,12 @@ final class DivisionConfigureSubscreen {
         DivisionMissionType effOpenMis = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
         DivisionMissionType effMainMis = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
 
-        DivisionQuickRole matchedQuickRole = PermanentDivisionManager.resolveMatchingQuickRole(spec);
-        DivisionQuickDeck matchedQuickDeck = PermanentDivisionManager.resolveMatchingQuickDeck(spec);
-        boolean hasFlightDeck = PermanentDivisionManager.hasDivisionFlightDeck(spec, divMembers);
-
-        leftCol.addSectionHeading(
-                "Quick Setup",
-                highlight,
-                darkColor,
-                Alignment.LMID,
-                2f);
-
-        addDivisionQuickRoleDropdownRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                spec,
-                matchedQuickRole,
-                baseColor,
-                darkColor,
-                highlight,
-                positive,
-                gray);
-
-        if (hasFlightDeck) {
-            addDivisionQuickDeckDropdownRow(
-                    dialog,
-                    leftCol,
-                    colWidth - 16f,
-                    spec,
-                    matchedQuickDeck,
-                    baseColor,
-                    darkColor,
-                    highlight,
-                    positive,
-                    gray);
-        }
-
         leftCol.addSectionHeading(
                 "Formation & Missions",
                 highlight,
                 darkColor,
                 Alignment.LMID,
-                6f);
+                2f);
 
         // 0. Division Type Drop-Down Menu (UI Item G)
         addDivisionArchetypeDropdownRow(
@@ -1707,168 +1668,6 @@ final class DivisionConfigureSubscreen {
             DivisionArchetype.SERVICE_GROUP,
             DivisionArchetype.FORCE_DIVISION
     };
-
-    private static void addDivisionQuickRoleDropdownRow(
-            final DivisionEditorDialog dialog,
-            TooltipMakerAPI col,
-            float rowWidth,
-            PermanentDivisionSpec spec,
-            DivisionQuickRole matchedRole,
-            Color baseColor,
-            Color darkColor,
-            Color highlight,
-            Color positive,
-            Color gray) {
-        String dropdownKey = "DIV_QUICK_ROLE_DD";
-        boolean expanded = dropdownKey.equals(dialog.expandedDropdownKey);
-        String pillLabel = PermanentDivisionManager.formatQuickRolePillLabel(spec);
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 42f, dialog.subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 42f, false);
-        LabelAPI roleLbl = rowUi.addPara("Quick Role:", 0f, baseColor);
-        DivisionUiWidgets.wrapLabelInPlace(roleLbl, CONTROL_COL_X - 12f, 4f, 4f);
-        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) roleLbl, "Quick Role:");
-
-        String toggleAct = "TOGGLE_DD:" + dropdownKey;
-        Color activeBtnColor = (matchedRole == DivisionQuickRole.DOCTRINE_DEFAULT)
-                ? baseColor
-                : (matchedRole != null ? positive : highlight);
-        ButtonAPI bToggle = dialog.registerButton(
-                rowUi.addButton(
-                        (expanded ? "[^] " : "[v] ") + pillLabel,
-                        toggleAct,
-                        activeBtnColor,
-                        darkColor,
-                        Alignment.LMID,
-                        CutStyle.TL_BR,
-                        286f,
-                        21f,
-                        0f),
-                toggleAct);
-        if (expanded) {
-            bToggle.highlight();
-        }
-        bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
-
-        String sumText = (matchedRole != null)
-                ? matchedRole.summary
-                : "Custom settings active below; pick a preset to replace them.";
-        LabelAPI sumLbl = rowUi.addPara(sumText, 0f, gray);
-        float sumBot = DivisionUiWidgets.wrapLabelInPlace(sumLbl, rowWidth - 12f, 6f, 25f);
-
-        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(42f, sumBot + 3f));
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        col.addCustom(rowPanel, 2f);
-
-        if (expanded) {
-            for (DivisionQuickRole rOpt : DivisionQuickRole.values()) {
-                boolean selected = (rOpt == matchedRole);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 24f, dialog.subPanelPlugin);
-                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
-                String selAct = "SET_QUICK_ROLE:" + spec.id + ":" + rOpt.name();
-                ButtonAPI bOpt = dialog.registerButton(
-                        optUi.addButton(
-                                (selected ? "* " : "   ") + rOpt.displayName,
-                                selAct,
-                                selected ? positive : baseColor,
-                                darkColor,
-                                Alignment.LMID,
-                                CutStyle.ALL,
-                                274f,
-                                20f,
-                                0f),
-                        selAct);
-                if (selected) {
-                    bOpt.highlight();
-                }
-                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 2f);
-                optUi.setHeightSoFar(24f);
-                optPanel.addUIElement(optUi).inTL(0f, 0f);
-                col.addCustom(optPanel, 1f);
-            }
-        }
-    }
-
-    private static void addDivisionQuickDeckDropdownRow(
-            final DivisionEditorDialog dialog,
-            TooltipMakerAPI col,
-            float rowWidth,
-            PermanentDivisionSpec spec,
-            DivisionQuickDeck matchedDeck,
-            Color baseColor,
-            Color darkColor,
-            Color highlight,
-            Color positive,
-            Color gray) {
-        String dropdownKey = "DIV_QUICK_DECK_DD";
-        boolean expanded = dropdownKey.equals(dialog.expandedDropdownKey);
-        String pillLabel = PermanentDivisionManager.formatQuickDeckPillLabel(spec);
-
-        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 42f, dialog.subPanelPlugin);
-        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 42f, false);
-        LabelAPI deckLbl = rowUi.addPara("Flight Deck:", 0f, baseColor);
-        DivisionUiWidgets.wrapLabelInPlace(deckLbl, CONTROL_COL_X - 12f, 4f, 4f);
-        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) deckLbl, "Flight Deck:");
-
-        String toggleAct = "TOGGLE_DD:" + dropdownKey;
-        Color activeBtnColor = (matchedDeck == DivisionQuickDeck.DOCTRINE_DEFAULT)
-                ? baseColor
-                : (matchedDeck != null ? positive : highlight);
-        ButtonAPI bToggle = dialog.registerButton(
-                rowUi.addButton(
-                        (expanded ? "[^] " : "[v] ") + pillLabel,
-                        toggleAct,
-                        activeBtnColor,
-                        darkColor,
-                        Alignment.LMID,
-                        CutStyle.TL_BR,
-                        286f,
-                        21f,
-                        0f),
-                toggleAct);
-        if (expanded) {
-            bToggle.highlight();
-        }
-        bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
-
-        String sumText = (matchedDeck != null)
-                ? matchedDeck.summary
-                : "Custom Strike Craft settings active below; pick a preset to replace them.";
-        LabelAPI sumLbl = rowUi.addPara(sumText, 0f, gray);
-        float sumBot = DivisionUiWidgets.wrapLabelInPlace(sumLbl, rowWidth - 12f, 6f, 25f);
-
-        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(42f, sumBot + 3f));
-        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
-        col.addCustom(rowPanel, 2f);
-
-        if (expanded) {
-            for (DivisionQuickDeck dOpt : DivisionQuickDeck.values()) {
-                boolean selected = (dOpt == matchedDeck);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 24f, dialog.subPanelPlugin);
-                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
-                String selAct = "SET_QUICK_DECK:" + spec.id + ":" + dOpt.name();
-                ButtonAPI bOpt = dialog.registerButton(
-                        optUi.addButton(
-                                (selected ? "* " : "   ") + dOpt.displayName,
-                                selAct,
-                                selected ? positive : baseColor,
-                                darkColor,
-                                Alignment.LMID,
-                                CutStyle.ALL,
-                                274f,
-                                20f,
-                                0f),
-                        selAct);
-                if (selected) {
-                    bOpt.highlight();
-                }
-                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 2f);
-                optUi.setHeightSoFar(24f);
-                optPanel.addUIElement(optUi).inTL(0f, 0f);
-                col.addCustom(optPanel, 1f);
-            }
-        }
-    }
 
     private static void addDivisionArchetypeDropdownRow(
             final DivisionEditorDialog dialog,

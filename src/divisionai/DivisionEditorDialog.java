@@ -24,8 +24,6 @@ import com.fs.starfarer.api.util.Misc;
 import divisionai.DivisionModel.DivisionArchetype;
 import divisionai.PermanentDivisionManager.DivisionFormation;
 import divisionai.PermanentDivisionManager.DivisionMissionType;
-import divisionai.PermanentDivisionManager.DivisionQuickDeck;
-import divisionai.PermanentDivisionManager.DivisionQuickRole;
 import divisionai.PermanentDivisionManager.StrikeCraftMissionType;
 import divisionai.PermanentDivisionManager.DivisionMovementStickiness;
 import divisionai.PermanentDivisionManager.DivisionSetpieceAttack;
@@ -830,25 +828,10 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         Color positive = Misc.getPositiveHighlightColor();
         Color gray = Misc.getGrayColor();
 
-        boolean hasFlightDeck = PermanentDivisionManager.hasDivisionFlightDeck(spec, members);
-        String roleDdKey = "CARD_ROLE:" + spec.id;
-        String deckDdKey = "CARD_DECK:" + spec.id;
-        boolean roleExpanded = roleDdKey.equals(expandedDropdownKey);
-        boolean deckExpanded = hasFlightDeck && deckDdKey.equals(expandedDropdownKey);
-        DivisionQuickRole[] roleOpts = DivisionQuickRole.values();
-        DivisionQuickDeck[] deckOpts = DivisionQuickDeck.values();
-        float expandedMenuH = 0f;
-        if (roleExpanded) {
-            expandedMenuH = roleOpts.length * 23f + 6f;
-        } else if (deckExpanded) {
-            expandedMenuH = deckOpts.length * 23f + 6f;
-        }
-
         int cols = 7;
         int iconRows = members.isEmpty() ? 1 : ((members.size() + cols - 1) / cols);
         float gridHeight = members.isEmpty() ? 52f : (iconRows * 84f + 6f);
-        float headerBaseH = 82f;
-        float cardHeight = headerBaseH + expandedMenuH + gridHeight;
+        float cardHeight = 68f + gridHeight;
 
         final String divId = spec.id;
         CustomPanelAPI cardPanel = Global.getSettings().createCustom(cardWidth, cardHeight, new BaseCustomUIPanelPlugin() {
@@ -919,8 +902,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         });
 
         // Header bar inside card
-        float topUiH = 76f + expandedMenuH;
-        TooltipMakerAPI topUi = cardPanel.createUIElement(cardWidth - 8f, topUiH, false);
+        TooltipMakerAPI topUi = cardPanel.createUIElement(cardWidth - 8f, 60f, false);
 
         String selectAct = "SELECT_DIV:" + spec.id;
         String selectLabel = spec.name + "  |  " + spec.archetype.shortPrefix
@@ -1043,107 +1025,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 "Division Formation: " + effForm.displayName,
                 effForm.summary);
 
-        DivisionQuickRole matchedRole = PermanentDivisionManager.resolveMatchingQuickRole(spec);
-        DivisionQuickDeck matchedDeck = PermanentDivisionManager.resolveMatchingQuickDeck(spec);
-        String rolePill = PermanentDivisionManager.formatQuickRolePillLabel(spec);
-        String roleToggleAct = "TOGGLE_DD:" + roleDdKey;
-        Color roleColor = (matchedRole == DivisionQuickRole.DOCTRINE_DEFAULT)
-                ? baseColor
-                : (matchedRole != null ? positive : highlight);
-        ButtonAPI bRole = registerButton(
-                topUi.addButton(
-                        (roleExpanded ? "[^] Role: " : "[v] Role: ") + rolePill,
-                        roleToggleAct,
-                        roleColor,
-                        darkColor,
-                        Alignment.LMID,
-                        CutStyle.TL_BR,
-                        224f,
-                        20f,
-                        0f),
-                roleToggleAct);
-        if (roleExpanded) bRole.highlight();
-        bRole.getPosition().inTL(4f, 52f);
-
-        if (hasFlightDeck) {
-            String deckPill = PermanentDivisionManager.formatQuickDeckPillLabel(spec);
-            String deckToggleAct = "TOGGLE_DD:" + deckDdKey;
-            Color deckColor = (matchedDeck == DivisionQuickDeck.DOCTRINE_DEFAULT)
-                    ? baseColor
-                    : (matchedDeck != null ? positive : highlight);
-            ButtonAPI bDeck = registerButton(
-                    topUi.addButton(
-                            (deckExpanded ? "[^] Deck: " : "[v] Deck: ") + deckPill,
-                            deckToggleAct,
-                            deckColor,
-                            darkColor,
-                            Alignment.LMID,
-                            CutStyle.TL_BR,
-                            240f,
-                            20f,
-                            0f),
-                    deckToggleAct);
-            if (deckExpanded) bDeck.highlight();
-            bDeck.getPosition().inTL(234f, 52f);
-        } else {
-            String roleSummaryText = (matchedRole != null)
-                    ? matchedRole.summary
-                    : "Custom settings configured in Configure Division.";
-            LabelAPI roleHint = topUi.addPara(roleSummaryText, 0f, gray);
-            DivisionUiWidgets.wrapLabelInPlace(roleHint, Math.max(120f, (cardWidth - 8f) - 244f), 236f, 55f);
-        }
-
-        if (roleExpanded) {
-            for (int i = 0; i < roleOpts.length; i++) {
-                DivisionQuickRole rOpt = roleOpts[i];
-                boolean selected = (rOpt == matchedRole);
-                float oy = 76f + i * 23f;
-                String selAct = "SET_QUICK_ROLE:" + spec.id + ":" + rOpt.name();
-                ButtonAPI bOpt = registerButton(
-                        topUi.addButton(
-                                (selected ? "* " : "   ") + rOpt.displayName,
-                                selAct,
-                                selected ? positive : baseColor,
-                                darkColor,
-                                Alignment.LMID,
-                                CutStyle.ALL,
-                                204f,
-                                20f,
-                                0f),
-                        selAct);
-                if (selected) bOpt.highlight();
-                bOpt.getPosition().inTL(12f, oy);
-
-                LabelAPI optSum = topUi.addPara(rOpt.summary, 0f, selected ? positive : gray);
-                DivisionUiWidgets.wrapLabelInPlace(optSum, Math.max(140f, (cardWidth - 8f) - 228f), 222f, oy + 3f);
-            }
-        } else if (deckExpanded) {
-            for (int i = 0; i < deckOpts.length; i++) {
-                DivisionQuickDeck dOpt = deckOpts[i];
-                boolean selected = (dOpt == matchedDeck);
-                float oy = 76f + i * 23f;
-                String selAct = "SET_QUICK_DECK:" + spec.id + ":" + dOpt.name();
-                ButtonAPI bOpt = registerButton(
-                        topUi.addButton(
-                                (selected ? "* " : "   ") + dOpt.displayName,
-                                selAct,
-                                selected ? positive : baseColor,
-                                darkColor,
-                                Alignment.LMID,
-                                CutStyle.ALL,
-                                204f,
-                                20f,
-                                0f),
-                        selAct);
-                if (selected) bOpt.highlight();
-                bOpt.getPosition().inTL(12f, oy);
-
-                LabelAPI optSum = topUi.addPara(dOpt.summary, 0f, selected ? positive : gray);
-                DivisionUiWidgets.wrapLabelInPlace(optSum, Math.max(140f, (cardWidth - 8f) - 228f), 222f, oy + 3f);
-            }
-        }
-
-        topUi.setHeightSoFar(topUiH);
+        topUi.setHeightSoFar(56f);
         cardPanel.addUIElement(topUi).inTL(2f, 2f);
 
         // Ship Icon Grid inside card
@@ -1154,7 +1036,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                     gray,
                     10f);
             emptyUi.setHeightSoFar(44f);
-            cardPanel.addUIElement(emptyUi).inTL(8f, headerBaseH - 2f + expandedMenuH);
+            cardPanel.addUIElement(emptyUi).inTL(8f, 60f);
         } else {
             float tileW = 98f;
             float tileH = 78f;
@@ -1167,7 +1049,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 int r = i / cols;
                 int c = i % cols;
                 float tx = 8f + c * (tileW + gapX);
-                float ty = headerBaseH + expandedMenuH + r * (tileH + gapY);
+                float ty = 62f + r * (tileH + gapY);
                 boolean isFlag = m.getId().equals(flagId);
                 CustomPanelAPI tile = createInteractiveShipTile(m, spec.id, isFlag, tileW, tileH, clipContainer);
                 cardPanel.addComponent(tile).inTL(tx, ty);
@@ -1766,37 +1648,6 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         if (cmd.startsWith("OPEN_DIV:")) {
             activeDivisionId = cmd.substring("OPEN_DIV:".length());
             selectedOverviewDivisionId = activeDivisionId;
-            expandedDropdownKey = null;
-            rebuildContent();
-            return;
-        }
-        if (cmd.startsWith("SET_QUICK_ROLE:")) {
-            savePendingNameFieldIfAny();
-            String rest = cmd.substring("SET_QUICK_ROLE:".length());
-            int sep = rest.lastIndexOf(':');
-            if (sep > 0) {
-                String targetDivId = rest.substring(0, sep);
-                DivisionQuickRole role = DivisionQuickRole.fromId(rest.substring(sep + 1), null);
-                if (role != null) {
-                    PermanentDivisionManager.applyDivisionQuickRole(targetDivId, role);
-                }
-            }
-            expandedDropdownKey = null;
-            rebuildContent();
-            return;
-        }
-        if (cmd.startsWith("SET_QUICK_DECK:")) {
-            savePendingNameFieldIfAny();
-            String rest = cmd.substring("SET_QUICK_DECK:".length());
-            int sep = rest.lastIndexOf(':');
-            if (sep > 0) {
-                String targetDivId = rest.substring(0, sep);
-                DivisionQuickDeck deck = DivisionQuickDeck.fromId(rest.substring(sep + 1), null);
-                if (deck != null) {
-                    PermanentDivisionManager.applyDivisionQuickDeck(targetDivId, deck);
-                }
-            }
-            expandedDropdownKey = null;
             rebuildContent();
             return;
         }

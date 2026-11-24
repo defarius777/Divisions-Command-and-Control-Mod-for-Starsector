@@ -12076,49 +12076,13 @@ public class DivisionAITestSuite {
             divisionai.PermanentDivisionManager.applyDoctrineModifiersToCombatDivision(vanFrig, staleBcFrigSpec, vanDocCfg);
             boolean vanillaDownMigrationClampOk = vanFrig.standoffRange <= 955f;
             allOk = allOk && vanillaDownMigrationClampOk;
-
-            // 5. Quick Role & Flight Deck Presets (9 surface roles + 5 flight deck postures + Custom badge fallback)
-            divisionai.PermanentDivisionManager.PermanentDivisionSpec qrSpec =
-                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("s45_qr", "Cruiser Div 1", DivisionArchetype.CRUISER_DIVISION);
-            boolean quickRolesRoundTripOk = true;
-            for (divisionai.PermanentDivisionManager.DivisionQuickRole r : divisionai.PermanentDivisionManager.DivisionQuickRole.values()) {
-                divisionai.PermanentDivisionManager.applyQuickRoleToSpec(qrSpec, null, r);
-                if (divisionai.PermanentDivisionManager.resolveMatchingQuickRole(qrSpec) != r) {
-                    quickRolesRoundTripOk = false;
-                }
-            }
-            // Manual tweak in Configure Division flips pill cleanly to "Custom"
-            divisionai.PermanentDivisionManager.applyQuickRoleToSpec(qrSpec, null, divisionai.PermanentDivisionManager.DivisionQuickRole.STANDOFF);
-            qrSpec.customMainMission = divisionai.PermanentDivisionManager.DivisionMissionType.RESERVE;
-            boolean quickRoleCustomFallbackOk = divisionai.PermanentDivisionManager.resolveMatchingQuickRole(qrSpec) == null
-                    && "Custom".equals(divisionai.PermanentDivisionManager.formatQuickRolePillLabel(qrSpec));
-
-            boolean quickDecksRoundTripOk = true;
-            divisionai.PermanentDivisionManager.PermanentDivisionSpec qdSpec =
-                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("s45_qd", "Carrier Div 1", DivisionArchetype.FLEET_CARRIER_DIVISION);
-            for (divisionai.PermanentDivisionManager.DivisionQuickDeck d : divisionai.PermanentDivisionManager.DivisionQuickDeck.values()) {
-                divisionai.PermanentDivisionManager.applyQuickDeckToSpec(qdSpec, null, d);
-                if (divisionai.PermanentDivisionManager.resolveMatchingQuickDeck(qdSpec) != d) {
-                    quickDecksRoundTripOk = false;
-                }
-            }
-            // Verify Fleet Carrier -> Aggressive converts archetype to Battlecarrier so hull fights up front while wings strike
-            divisionai.PermanentDivisionManager.applyQuickDeckToSpec(qdSpec, null, divisionai.PermanentDivisionManager.DivisionQuickDeck.FLEET_CARRIER);
-            boolean carrierHoldPillOk = "Carrier Hold".equals(divisionai.PermanentDivisionManager.formatQuickRolePillLabel(qdSpec));
-            divisionai.PermanentDivisionManager.applyQuickRoleToSpec(qdSpec, null, divisionai.PermanentDivisionManager.DivisionQuickRole.AGGRESSIVE);
-            boolean carrierToBrawlerOk = qdSpec.archetype == DivisionArchetype.BATTLECARRIER_DIVISION
-                    && divisionai.PermanentDivisionManager.resolveMatchingQuickRole(qdSpec) == divisionai.PermanentDivisionManager.DivisionQuickRole.AGGRESSIVE
-                    && divisionai.PermanentDivisionManager.resolveMatchingQuickDeck(qdSpec) == divisionai.PermanentDivisionManager.DivisionQuickDeck.BATTLECARRIER;
-            boolean quickPresetsOk = quickRolesRoundTripOk && quickRoleCustomFallbackOk && quickDecksRoundTripOk && carrierHoldPillOk && carrierToBrawlerOk;
-            allOk = allOk && quickPresetsOk;
-
             check(allOk,
                     "Linear Warfare Battle-Line Parity (C2-INV-07), Explicit Conquest OTC Precedence (C2-INV-06) & Main-Body Carrier Stations (SC-INV-04)",
                     String.format(Locale.ROOT,
-                            "lin=[parity=%s, effSt=%.0f, pHold=%.0f vs eHold=%.0f, manOk=%s], otc=[ok=%s, queuedHold=%s, spawnConquest=%s], cv=%s, quickPresets=%s",
+                            "lin=[parity=%s, effSt=%.0f, pHold=%.0f vs eHold=%.0f, manOk=%s], otc=[ok=%s, queuedHold=%s, spawnConquest=%s], cv=%s",
                             linearBattleLineParityOk, pEffCloseStandoff, pHoldDistFromEnemy, eHoldDistFromPlayer,
                             manualOverrideHonoredOk, otcPrecedenceOk, heldForConquestDuringSpawn, conquestAssumedOtcOnSpawn,
-                            carrierDiag, quickPresetsOk));
+                            carrierDiag));
         } finally {
             divisionai.DivisionOtcCommandManager.resetForNewBattle();
             divisionai.CombatPhysicsProfile.setTestGlobalMultipliersOverride(false, 1f, 1f, 1f, 1f, 1f);
